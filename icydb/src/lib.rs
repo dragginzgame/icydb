@@ -11,29 +11,12 @@
 //!
 //! Everything else (`icydb-build`) is internal.
 
-pub mod base {
-    pub use icydb_base::*;
-}
-
-pub mod build {
-    pub use icydb_build::*;
-}
-
-pub mod core {
-    pub use icydb_core::*;
-}
-
-pub mod error {
-    pub use icydb_error::*;
-}
-
-pub mod schema {
-    pub use icydb_schema::*;
-}
-
-pub mod macros {
-    pub use icydb_macros::*;
-}
+pub use icydb_base as base;
+pub use icydb_build as build;
+pub use icydb_core as core;
+pub use icydb_error as error;
+pub use icydb_macros as macros;
+pub use icydb_schema as schema;
 
 //
 // Macros

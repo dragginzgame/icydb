@@ -1,10 +1,10 @@
 # Versioning Guide
 
-This document explains how versioning works in the Mimic project and how to manage releases.
+This document explains how versioning works in the IcyDB project and how to manage releases.
 
 ## Overview
 
-Mimic uses [Semantic Versioning](https://semver.org/) (SemVer) for all releases. The version format is `MAJOR.MINOR.PATCH` (e.g., `1.2.3`).
+IcyDB uses [Semantic Versioning](https://semver.org/) (SemVer) for all releases. The version format is `MAJOR.MINOR.PATCH` (e.g., `1.2.3`).
 
 - **MAJOR**: Breaking changes that require migration
 - **MINOR**: New features in a backward-compatible manner
@@ -16,7 +16,7 @@ The current version is managed in the workspace `Cargo.toml` file and is shared 
 
 ## Version Management Commands
 
-Mimic’s release workflow is driven entirely from the Makefile and Cargo’s
+IcyDB’s release workflow is driven entirely from the Makefile and Cargo’s
 `set-version` subcommand.
 
 ### Show the current version

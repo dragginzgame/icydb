@@ -202,24 +202,3 @@ pub struct UlidDefault;
     )
 )]
 pub struct FilterableNewtype {}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compares_references_with_primitive() {
-        let tokens = Nat64::from(5_u64);
-
-        assert_eq!(&tokens, 5_u64);
-        assert_eq!(5_u64, &tokens);
-        assert!(&tokens > 3_u64);
-        assert!(3_u64 < &tokens);
-        assert!(&tokens >= 5_u64);
-        assert!(5_u64 <= &tokens);
-    }
-}

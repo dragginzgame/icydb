@@ -1,9 +1,9 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `crates/mimic`: Core framework (entities, queries, macros, types).
-- `crates/{mimic_build,mimic_common,mimic_schema}`: Codegen and shared utilities.
-- `crates/mimic_tests/{canister,design,src}`: Integration and design tests.
+- `icydb/`: Public meta-crate re-exporting the workspace API.
+- `crates/icydb-{core,macros,schema,base,error,build,paths}`: Runtime, derive macros, schema AST/builders, shared design helpers, error modeling, build/codegen helpers, and crate path resolution.
+- `crates/test` and `crates/test_design`: Integration and design tests.
 - `assets/`: Images and docs assets. `scripts/`: release/version helpers. `Makefile`: common tasks.
 - Workspace manifest: `Cargo.toml` (edition 2024, rust-version 1.91.1).
 
@@ -31,7 +31,7 @@
 - Naming: `snake_case` for modules/functions/files, `CamelCase` types/traits, `SCREAMING_SNAKE_CASE` consts.
 - Linting: Code must pass `make clippy`; prefer `?` over `unwrap()`, handle errors explicitly.
 - Keep public APIs documented; co-locate small unit tests in the same file under `mod tests`.
-- Don't worry about backwards compatibility.  Prefer breaking changes for the time being.
+- Don't worry about backwards compatibility. Prefer breaking changes for the time being.
 
 ### Additional Style Guidance
 - Docs: rustdoc triple-slash `/// ` with a space; include brief examples when practical.
@@ -41,7 +41,7 @@
 - Imports: group per-crate, nest items (e.g., `use crate::{a, b};`); pull common std items into scope at top.
 - Counters: use saturating arithmetic for totals; avoid wrapping arithmetic.
 - Performance: only optimize on proven hot paths; consider pre-allocation when it clearly pays off.
-- Codegen (mimic_build): generate minimal glue and delegate to `mimic::interface::*`.
+- Codegen (icydb_build): generate minimal glue and delegate to `icydb::interface::*`.
 
 ## CI Overview
 - Toolchain: Rust `1.91.1` with `rustfmt` and `clippy`.
@@ -52,8 +52,8 @@
 - Canisters: release job builds `test_canister` to WASM, extracts `.did` via `candid-extractor`, and uploads artifacts.
 
 ## Testing Guidelines
-- Framework: Rust test harness. Place unit tests near code; integration tests live in `crates/mimic_tests`.
-- Run all: `make test`. Single crate/test: `cargo test -p mimic <filter>`.
+- Framework: Rust test harness. Place unit tests near code; integration tests live in `crates/test` and `crates/test_design`.
+- Run all: `make test`. Single crate/test: `cargo test -p icydb <filter>` for the meta-crate; target other crates explicitly as needed.
 - Aim for meaningful coverage on entity macros, query paths, and index behavior. Add fixtures where helpful.
 - Cross-device TMP issues: if you hit `Invalid cross-device link (os error 18)` during cargo builds/tests, set a local temp dir, e.g. `mkdir -p target/tmp` and run with `CARGO_TARGET_TMPDIR=./target/tmp cargo test ...`
 
