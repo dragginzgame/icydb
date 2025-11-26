@@ -1,9 +1,9 @@
 [workspace]
 members = [
+    "crates/icydb",
     "crates/icydb-base",
     "crates/icydb-build",
     "crates/icydb-core",
-    # Internal crates
     "crates/icydb-error",
     "crates/icydb-macros",
     "crates/icydb-paths",
@@ -11,8 +11,6 @@ members = [
     # Test-only crates
     "crates/test",
     "crates/test_design",
-    # Public meta-crate
-    "icydb",
 ]
 resolver = "2"
 
@@ -35,7 +33,7 @@ ctor = "0.6"
 darling = "0.21"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
 ic-cdk = "0.19.0"
-icydb = { path = "icydb", version = "0.0.1" }
+icydb = { path = "crates/icydb", version = "0.0.1" }
 icydb-base = { path = "crates/icydb-base", version = "0.0.1" }
 icydb-build = { path = "crates/icydb-build", version = "0.0.1" }
 icydb-core = { path = "crates/icydb-core", version = "0.0.1" }
@@ -92,7 +90,7 @@ wildcard_imports = "allow"
 # ---------------------
 # Only needed if you override crates.io during dev.
 [patch.crates-io]
-icydb = { path = "icydb" }
+icydb = { path = "crates/icydb" }
 icydb-core = { path = "crates/icydb-core" }
 icydb-macros = { path = "crates/icydb-macros" }
 icydb-schema = { path = "crates/icydb-schema" }

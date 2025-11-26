@@ -4,7 +4,7 @@ use crate::prelude::*;
 /// Iso3166_1A2
 ///
 /// ISO 3166-1 alpha-2 country codes
-/// https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2
+/// <https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>
 ///
 
 #[validator]
@@ -43,7 +43,7 @@ impl Validator<str> for Iso3166_1A2 {
 /// Iso639_1
 ///
 /// language code
-/// https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes
+/// <https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes>
 ///
 
 #[validator]

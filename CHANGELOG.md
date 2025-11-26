@@ -21,7 +21,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - New name, same mission: IcyDB takes over from Mimic with the public meta-crate exposed at `icydb`.
 - Docs and guides refreshed to point at `icydb` tags, endpoints, and examples so newcomers can copy-paste.
 - Path resolver now prefers `icydb::` for downstream users while keeping internal crates on direct deps to avoid cycles.
-- Internal crates are marked non-publishable; only the `icydb` facade is intended for crates.io.
 - Observability/query endpoints and codegen names align on the `icydb_*` prefix for a consistent surface.
 
 --------------------------------------end icydb-----------------------------------------------

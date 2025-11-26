@@ -18,7 +18,7 @@ pub fn generate() -> Result<Ulid, UlidError> {
 ///
 /// Generator
 ///
-/// hacked from https://github.com/dylanhart/ulid-rs/blob/master/src/generator.rs
+/// hacked from <https://github.com/dylanhart/ulid-rs/blob/master/src/generator.rs>
 /// as the ulid crate doesn't support a no-std generator
 ///
 

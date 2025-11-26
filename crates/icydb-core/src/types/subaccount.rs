@@ -125,7 +125,7 @@ impl Filterable for Subaccount {
 }
 
 /// code taken from
-/// https://docs.rs/ic-ledger-types/latest/src/ic_ledger_types/lib.rs.html#140-148
+/// <https://docs.rs/ic-ledger-types/latest/src/ic_ledger_types/lib.rs.html#140-148>
 #[allow(clippy::cast_possible_truncation)]
 impl From<Principal> for Subaccount {
     fn from(principal: Principal) -> Self {

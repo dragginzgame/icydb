@@ -46,7 +46,7 @@ pub type BoolEqualityFilter = EqualityFilter<bool>;
 pub type DecimalEqualityFilter = EqualityFilter<Decimal>;
 
 ///
-/// EqualityFilter<T>
+/// EqualityFilter
 ///
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]

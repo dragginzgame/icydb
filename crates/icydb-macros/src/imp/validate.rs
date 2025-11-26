@@ -98,7 +98,6 @@ impl ValidateAutoFn for Enum {
         // quote
         let ep = paths().error;
         quote! {
-            #[doc = "Auto-generated validation for unspecified variants."]
             fn validate_self(&self) -> ::std::result::Result<(), #ep::ErrorTree> {
                 #inner
             }
