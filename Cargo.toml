@@ -35,14 +35,14 @@ ctor = "0.6"
 darling = "0.21"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
 ic-cdk = "0.19.0"
-icydb = { path = "icydb" }
-icydb-base = { path = "crates/icydb-base" }
-icydb-build = { path = "crates/icydb-build" }
-icydb-core = { path = "crates/icydb-core" }
-icydb-error = { path = "crates/icydb-error" }
-icydb-macros = { path = "crates/icydb-macros" }
-icydb-paths = { path = "crates/icydb-paths" }
-icydb-schema = { path = "crates/icydb-schema" }
+icydb = { path = "icydb", version = "0.0.1" }
+icydb-base = { path = "crates/icydb-base", version = "0.0.1" }
+icydb-build = { path = "crates/icydb-build", version = "0.0.1" }
+icydb-core = { path = "crates/icydb-core", version = "0.0.1" }
+icydb-error = { path = "crates/icydb-error", version = "0.0.1" }
+icydb-macros = { path = "crates/icydb-macros", version = "0.0.1" }
+icydb-paths = { path = "crates/icydb-paths", version = "0.0.1" }
+icydb-schema = { path = "crates/icydb-schema", version = "0.0.1" }
 num-traits = { version = "0.2", default-features = false }
 proc-macro2 = "1.0"
 quote = "1.0"
