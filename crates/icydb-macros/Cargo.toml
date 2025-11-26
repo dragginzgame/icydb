@@ -12,14 +12,14 @@ authors = { workspace = true }
 proc-macro = true
 
 [dependencies]
+canic-utils = { workspace = true }
 darling = { workspace = true }
 derive_more = { workspace = true }
-icydb-schema = { workspace = true }
 icydb-error = { workspace = true }
 icydb-paths = { workspace = true }
+icydb-schema = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
-canic-utils = { workspace = true }
 remain = { workspace = true }
 serde = { workspace = true }
 syn = { workspace = true }
