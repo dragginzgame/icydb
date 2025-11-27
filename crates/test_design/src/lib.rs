@@ -13,7 +13,9 @@ pub(crate) mod prelude {
         schema::{TestDataStore, TestIndexStore},
     };
     pub use icydb::base;
+    pub use icydb::core::validate;
     pub use icydb::design::prelude::*;
+    pub use std::str::FromStr as _;
 }
 
 #[macro_export]

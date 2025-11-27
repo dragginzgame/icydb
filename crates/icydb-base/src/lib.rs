@@ -12,4 +12,5 @@ pub mod prelude {
         traits::{Sanitizer, Validator},
         visitor::{sanitize, validate},
     };
+    pub use std::str::FromStr as _;
 }

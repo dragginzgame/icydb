@@ -5,7 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.0.1] - IcyDB Reboot - 2024-11-26
+## [0.0.5] - 2025-11-27
+- added finance types to icydb-base, Usd for now
+- RoundDecimalPlaces sanitizer, defaults to Midpoint strategy
+- quick trim with cargo machete
+
+## [0.0.1] - IcyDB Reboot - 2025-11-26
 
 ```
    _________

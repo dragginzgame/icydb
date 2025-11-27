@@ -733,17 +733,12 @@ dependencies = [
 name = "icydb"
 version = "0.0.4"
 dependencies = [
- "canic",
- "ctor",
- "derive_more",
  "icydb-base",
  "icydb-build",
  "icydb-core",
  "icydb-error",
  "icydb-macros",
  "icydb-schema",
- "num-traits",
- "remain",
 ]
 
 [[package]]
@@ -752,23 +747,14 @@ version = "0.0.4"
 dependencies = [
  "bencher",
  "candid",
- "canic",
  "canic-utils",
- "chrono",
- "ctor",
- "derive_more",
  "icydb-build",
  "icydb-core",
  "icydb-error",
  "icydb-macros",
  "icydb-schema",
- "num-traits",
- "remain",
- "rust_decimal",
  "serde",
- "serde_bytes",
  "serde_json",
- "thiserror 2.0.17",
 ]
 
 [[package]]

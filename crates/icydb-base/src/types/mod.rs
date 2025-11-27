@@ -1,5 +1,6 @@
 pub mod bytes;
 pub mod color;
+pub mod finance;
 pub mod geo;
 pub mod hash;
 pub mod ic;
