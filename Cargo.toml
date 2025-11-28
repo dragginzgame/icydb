@@ -26,8 +26,8 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic = "0.3.11"
-canic-utils = "0.3.11"
+canic = "0.3.12"
+canic-utils = "0.3.12"
 chrono = { version = "0.4", default-features = false }
 ctor = "0.6"
 darling = "0.21"

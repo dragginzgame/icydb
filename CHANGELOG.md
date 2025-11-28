@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - added finance types to icydb-base, Usd for now
 - RoundDecimalPlaces sanitizer, defaults to Midpoint strategy
 - quick trim with cargo machete
+- fixed the mismatch with indirect (Box<T>) and the associated view type
 
 ## [0.0.1] - IcyDB Reboot - 2025-11-26
 

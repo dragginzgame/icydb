@@ -54,7 +54,8 @@ pub struct RoundDecimalPlaces {
 }
 
 impl RoundDecimalPlaces {
-    pub fn new(scale: u32) -> Self {
+    #[must_use]
+    pub const fn new(scale: u32) -> Self {
         Self { scale }
     }
 }

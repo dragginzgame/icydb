@@ -30,15 +30,18 @@ impl View for String {
     }
 }
 
+// Make Box<T> *not* appear in the view type
 impl<T: View> View for Box<T> {
-    type ViewType = Box<T::ViewType>;
+    type ViewType = T::ViewType;
 
     fn to_view(&self) -> Self::ViewType {
-        Box::new((**self).to_view())
+        // Delegate to inner value
+        T::to_view(self.as_ref())
     }
 
     fn from_view(view: Self::ViewType) -> Self {
-        Self::new(T::from_view(*view))
+        // Re-box after reconstructing inner
+        Self::new(T::from_view(view))
     }
 }
 

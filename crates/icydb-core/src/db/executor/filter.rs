@@ -157,24 +157,19 @@ impl<E: EntityKind> QueryValidate<E> for FilterExpr {
                     }
 
                     // Case-insensitive collection membership
-                    Cmp::AnyInCi | Cmp::AllInCi | Cmp::InCi => match v {
-                        Value::List(items) => {
-                            if !items.iter().all(Value::is_text) {
-                                return Err(QueryError::InvalidFilterValue(format!(
-                                    "field '{field}' {cmp:?} expects list of text",
-                                    cmp = c.cmp
-                                )));
-                            }
+                    // Case-insensitive membership; allow any scalar/list so identifiers
+                    // (e.g., ULID, Principal) can reuse the CI variants without failing
+                    // validation. Text values will still be compared case-insensitively;
+                    // other types fall back to normal equality.
+                    Cmp::AnyInCi | Cmp::AllInCi | Cmp::InCi => {
+                        // No extra validation beyond ensuring RHS is provided.
+                        if matches!(v, Value::None) {
+                            return Err(QueryError::InvalidFilterValue(format!(
+                                "field '{field}' {cmp:?} requires a RHS value",
+                                cmp = c.cmp
+                            )));
                         }
-                        other => {
-                            if !other.is_text() {
-                                return Err(QueryError::InvalidFilterValue(format!(
-                                    "field '{field}' {cmp:?} expects text RHS",
-                                    cmp = c.cmp
-                                )));
-                            }
-                        }
-                    },
+                    }
 
                     // -------------------------
                     // MAP FILTERS

@@ -2,6 +2,87 @@ use crate::value::Value;
 use canic::utils::hash::Xxh3;
 
 ///
+/// ValueTag
+///
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ValueTag {
+    Account = 1,
+    Blob = 2,
+    Bool = 3,
+    Date = 4,
+    Decimal = 5,
+    Duration = 6,
+    Enum = 7,
+    E8s = 8,
+    E18s = 9,
+    Float32 = 10,
+    Float64 = 11,
+    Int = 12,
+    Int128 = 13,
+    IntBig = 14,
+    List = 15,
+    None = 16,
+    Principal = 17,
+    Subaccount = 18,
+    Text = 19,
+    Timestamp = 20,
+    Uint = 21,
+    Uint128 = 22,
+    UintBig = 23,
+    Ulid = 24,
+    Unit = 25,
+    Unsupported = 26,
+}
+
+impl ValueTag {
+    #[must_use]
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+impl Value {
+    ///
+    /// HASHING
+    ///
+
+    #[must_use]
+    pub const fn tag(&self) -> u8 {
+        match self {
+            Self::Account(_) => ValueTag::Account,
+            Self::Blob(_) => ValueTag::Blob,
+            Self::Bool(_) => ValueTag::Bool,
+            Self::Date(_) => ValueTag::Date,
+            Self::Decimal(_) => ValueTag::Decimal,
+            Self::Duration(_) => ValueTag::Duration,
+            Self::Enum(_) => ValueTag::Enum,
+            Self::E8s(_) => ValueTag::E8s,
+            Self::E18s(_) => ValueTag::E18s,
+            Self::Float32(_) => ValueTag::Float32,
+            Self::Float64(_) => ValueTag::Float64,
+            Self::Int(_) => ValueTag::Int,
+            Self::Int128(_) => ValueTag::Int128,
+            Self::IntBig(_) => ValueTag::IntBig,
+            Self::List(_) => ValueTag::List,
+            Self::None => ValueTag::None,
+            Self::Principal(_) => ValueTag::Principal,
+            Self::Subaccount(_) => ValueTag::Subaccount,
+            Self::Text(_) => ValueTag::Text,
+            Self::Timestamp(_) => ValueTag::Timestamp,
+            Self::Uint(_) => ValueTag::Uint,
+            Self::Uint128(_) => ValueTag::Uint128,
+            Self::UintBig(_) => ValueTag::UintBig,
+            Self::Ulid(_) => ValueTag::Ulid,
+            Self::Unit => ValueTag::Unit,
+            Self::Unsupported => ValueTag::Unsupported,
+        }
+        .to_u8()
+    }
+}
+
+///
 /// Canonical Byte Representation
 ///
 
