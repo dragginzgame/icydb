@@ -731,7 +731,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "icydb-base",
  "icydb-build",
@@ -743,7 +743,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-base"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "bencher",
  "candid",
@@ -759,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "bencher",
  "candid",
@@ -792,7 +792,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-error"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "candid",
  "serde",
@@ -800,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-macros"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "canic-utils",
  "darling 0.21.3",
@@ -817,7 +817,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-paths"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -826,7 +826,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "candid",
  "canic",
@@ -1281,7 +1281,7 @@ dependencies = [
 
 [[package]]
 name = "test"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "candid",
  "canic",
@@ -1293,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "test_design"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "candid",
  "icydb",
