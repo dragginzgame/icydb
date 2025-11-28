@@ -113,8 +113,13 @@ fn coerce_identifier_text(left: &Value, right: &Value, cmp: Cmp) -> Option<bool>
 /// Enum checking
 ///
 fn coerce_enum(left: &Value, right: &Value, cmp: Cmp) -> Option<bool> {
+    let paths_compatible = |l: &Option<String>, r: &Option<String>| match (l, r) {
+        (Some(lp), Some(rp)) => lp == rp, // strict: both specified and must match
+        _ => true,                        // loose: either side missing path → match on variant only
+    };
+
     match (left, right) {
-        (Value::Enum(l), Value::Enum(r)) if l.path == r.path => match cmp {
+        (Value::Enum(l), Value::Enum(r)) if paths_compatible(&l.path, &r.path) => match cmp {
             Cmp::Eq => Some(l.variant == r.variant),
             Cmp::Ne => Some(l.variant != r.variant),
             _ => None,

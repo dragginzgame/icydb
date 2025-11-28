@@ -95,23 +95,37 @@ fn text_starts_with() {
 
 #[test]
 fn enum_eq() {
-    let a = Value::Enum(ValueEnum::new("MyEnum", "A"));
-    let b = Value::Enum(ValueEnum::new("MyEnum", "A"));
+    let a = Value::Enum(ValueEnum::new("A", Some("MyEnum")));
+    let b = Value::Enum(ValueEnum::new("A", Some("MyEnum")));
     assert_eq!(coerce_basic(&a, &b, Cmp::Eq), Some(true));
 }
 
 #[test]
 fn enum_ne() {
-    let a = Value::Enum(ValueEnum::new("MyEnum", "A"));
-    let b = Value::Enum(ValueEnum::new("MyEnum", "B"));
+    let a = Value::Enum(ValueEnum::new("A", Some("MyEnum")));
+    let b = Value::Enum(ValueEnum::new("B", Some("MyEnum")));
     assert_eq!(coerce_basic(&a, &b, Cmp::Ne), Some(true));
 }
 
 #[test]
 fn enum_different_paths() {
-    let a = Value::Enum(ValueEnum::new("E1", "A"));
-    let b = Value::Enum(ValueEnum::new("E2", "A"));
+    let a = Value::Enum(ValueEnum::new("A", Some("E1")));
+    let b = Value::Enum(ValueEnum::new("A", Some("E2")));
     assert_eq!(coerce_basic(&a, &b, Cmp::Eq), None);
+}
+
+#[test]
+fn enum_loose_match_without_path_on_rhs() {
+    let a = Value::Enum(ValueEnum::new("A", Some("MyEnum")));
+    let b = Value::Enum(ValueEnum::new("A", None));
+    assert_eq!(coerce_basic(&a, &b, Cmp::Eq), Some(true));
+}
+
+#[test]
+fn enum_loose_mismatch_without_path_on_rhs() {
+    let a = Value::Enum(ValueEnum::new("A", Some("MyEnum")));
+    let b = Value::Enum(ValueEnum::new("B", None));
+    assert_eq!(coerce_basic(&a, &b, Cmp::Eq), Some(false));
 }
 
 //

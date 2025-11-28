@@ -28,8 +28,8 @@ impl Imp<Enum> for FieldValueTrait {
             quote! {
                 Self::#v_match => {
                     ValueEnum::new(
-                        Self::PATH,
-                        #v_name
+                        #v_name,
+                        Some(Self::PATH)
                     )
                 }
             }

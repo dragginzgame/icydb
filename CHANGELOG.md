@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - quick trim with cargo machete
 - fixed the mismatch with indirect (Box<T>) and the associated view type
 - moved VERSION to main crate
+- changed ValueEnum so that the path is optional, to allow strict and loose Enum matching
 
 ## [0.0.1] - IcyDB Reboot - 2025-11-26
 

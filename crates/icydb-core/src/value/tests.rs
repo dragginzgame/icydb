@@ -5,7 +5,7 @@ use crate::{
     Key,
     traits::{FieldValue, NumFromPrimitive},
     types::{Decimal, E8s, E18s, Float32 as F32, Float64 as F64, Ulid},
-    value::{TextMode, Value},
+    value::{TextMode, Value, ValueEnum},
 };
 use std::{cmp::Ordering, str::FromStr};
 
@@ -47,6 +47,17 @@ fn different_variants_produce_different_hashes() {
     assert_ne!(
         a, b,
         "Int(5) and Uint(5) must hash differently (different tag)"
+    );
+}
+
+#[test]
+fn enum_hash_tracks_path_presence() {
+    let strict = Value::Enum(ValueEnum::new("A", Some("MyEnum")));
+    let loose = Value::Enum(ValueEnum::new("A", None));
+    assert_ne!(
+        strict.hash_value(),
+        loose.hash_value(),
+        "Enum hashes must differ when path is present vs absent"
     );
 }
 

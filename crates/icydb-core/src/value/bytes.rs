@@ -4,6 +4,15 @@ use canic::utils::hash::Xxh3;
 ///
 /// ValueTag
 ///
+/// Can we remove ValueTag?
+/// Yes, technically.
+///
+/// Should we?
+/// Almost certainly no, unless you control all serialization + don’t need hashing + don’t care about stability.
+///
+/// Why keep it?
+/// Binary stability, hashing, sorting, versioning, IC-safe ABI, robustness.
+///
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -170,8 +179,14 @@ impl Value {
                 feed_u64(h, t.get());
             }
             Self::Enum(v) => {
-                feed_u32(h, v.path.len() as u32);
-                feed_bytes(h, v.path.as_bytes());
+                match &v.path {
+                    Some(path) => {
+                        feed_u8(h, 0x01); // path present
+                        feed_u32(h, path.len() as u32);
+                        feed_bytes(h, path.as_bytes());
+                    }
+                    None => feed_u8(h, 0x00), // path absent → loose match
+                }
 
                 feed_u32(h, v.variant.len() as u32);
                 feed_bytes(h, v.variant.as_bytes());

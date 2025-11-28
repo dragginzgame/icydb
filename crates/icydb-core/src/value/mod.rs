@@ -590,21 +590,26 @@ impl PartialOrd for Value {
 
 ///
 /// ValueEnum
-/// handles the Enum case
+/// handles the Enum case; `path` is optional to allow strict (typed) or loose matching.
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct ValueEnum {
-    pub path: String,
     pub variant: String,
+    pub path: Option<String>,
 }
 
 impl ValueEnum {
     #[must_use]
-    pub fn new(path: &str, variant: &str) -> Self {
+    pub fn new(variant: &str, path: Option<&str>) -> Self {
         Self {
-            path: path.to_string(),
             variant: variant.to_string(),
+            path: path.map(ToString::to_string),
         }
+    }
+
+    #[must_use]
+    pub fn loose(variant: &str) -> Self {
+        Self::new(variant, None)
     }
 }
