@@ -25,12 +25,6 @@ pub use value::Value;
 pub use visitor::{sanitize, validate};
 
 ///
-/// CRATE
-///
-
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-///
 /// CONSTANTS
 ///
 

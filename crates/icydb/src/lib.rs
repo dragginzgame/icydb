@@ -16,6 +16,12 @@ pub use icydb_error as error;
 pub use icydb_macros as macros;
 pub use icydb_schema as schema;
 
+///
+/// CRATE
+///
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 //
 // Macros
 //
