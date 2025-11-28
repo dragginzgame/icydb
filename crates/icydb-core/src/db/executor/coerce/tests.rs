@@ -108,6 +108,14 @@ fn enum_ne() {
 }
 
 #[test]
+fn enum_eq_is_case_insensitive_for_variant() {
+    let a = Value::Enum(ValueEnum::new("Common", Some("MyEnum")));
+    let b = Value::Enum(ValueEnum::new("common", Some("MyEnum")));
+    assert_eq!(coerce_basic(&a, &b, Cmp::Eq), Some(true));
+    assert_eq!(coerce_basic(&a, &b, Cmp::EqCi), Some(true));
+}
+
+#[test]
 fn enum_different_paths() {
     let a = Value::Enum(ValueEnum::new("A", Some("E1")));
     let b = Value::Enum(ValueEnum::new("A", Some("E2")));

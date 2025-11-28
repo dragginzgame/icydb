@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - fixed the mismatch with indirect (Box<T>) and the associated view type
 - moved VERSION to main crate
 - changed ValueEnum so that the path is optional, to allow strict and loose Enum matching
+- made Enum matching case-insensitive, so "common" would match Rarity::Common
 
 ## [0.0.1] - IcyDB Reboot - 2025-11-26
 

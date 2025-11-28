@@ -117,11 +117,18 @@ fn coerce_enum(left: &Value, right: &Value, cmp: Cmp) -> Option<bool> {
         (Some(lp), Some(rp)) => lp == rp, // strict: both specified and must match
         _ => true,                        // loose: either side missing path → match on variant only
     };
+    let variant_eq_ci = |a: &str, b: &str| {
+        if a.is_ascii() && b.is_ascii() {
+            a.eq_ignore_ascii_case(b)
+        } else {
+            a.to_lowercase() == b.to_lowercase()
+        }
+    };
 
     match (left, right) {
         (Value::Enum(l), Value::Enum(r)) if paths_compatible(&l.path, &r.path) => match cmp {
-            Cmp::Eq => Some(l.variant == r.variant),
-            Cmp::Ne => Some(l.variant != r.variant),
+            Cmp::Eq | Cmp::EqCi => Some(variant_eq_ci(&l.variant, &r.variant)),
+            Cmp::Ne | Cmp::NeCi => Some(!variant_eq_ci(&l.variant, &r.variant)),
             _ => None,
         },
         _ => None,
