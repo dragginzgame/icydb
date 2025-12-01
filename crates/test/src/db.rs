@@ -1,4 +1,4 @@
-use mimic::{core::traits::Path, prelude::*};
+use icydb::{core::traits::Path, prelude::*};
 use test_design::schema::TestDataStore;
 
 ///
@@ -388,8 +388,7 @@ impl DbSuite {
     }
 
     fn unit_primary_key() {
-        use mimic::core::Key;
-        use mimic::types::Unit;
+        use icydb::core::{Key, types::Unit};
         use test_design::test::entity::UnitKey;
 
         let inserted = db!().insert(UnitKey::default()).unwrap();

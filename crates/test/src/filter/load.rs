@@ -1,8 +1,10 @@
-use mimic::{
-    core::Value,
-    db::primitives::*,
+use icydb::{
+    core::{
+        Value,
+        db::primitives::*,
+        types::{Account, Principal, Ulid},
+    },
     prelude::*,
-    types::{Principal, Ulid},
 };
 use test_design::e2e::filter::{Filterable, FilterableEnum, FilterableEnumFake, FilterableOpt};
 
@@ -81,9 +83,14 @@ impl LoadFilterSuite {
                 "invalid_eq_ci_rhs_non_text",
                 Self::invalid_eq_ci_rhs_non_text,
             ),
+            // previously invalid: AnyInCi rejected non-text RHS; now allowed
             (
-                "invalid_any_in_ci_list_non_text",
-                Self::invalid_any_in_ci_list_non_text,
+                "any_in_ci_list_of_ulids_matches",
+                Self::any_in_ci_list_of_ulids_matches,
+            ),
+            (
+                "any_in_ci_list_non_text_still_validates",
+                Self::any_in_ci_list_non_text_still_validates,
             ),
             (
                 "invalid_presence_rhs_non_unit",
@@ -482,7 +489,8 @@ impl LoadFilterSuite {
 
     fn filter_eq_account_string_rhs() {
         // use dummy account based on principal/subaccount
-        let account = mimic::types::Account::dummy(1);
+        let account = Account::dummy(1);
+
         // add a filterable fixture with pid principal == account.owner
         // The fixtures already include Principal::dummy(1) on Alpha row, so reuse that
         let results = db!()
@@ -722,30 +730,53 @@ impl LoadFilterSuite {
         );
     }
 
-    fn invalid_any_in_ci_list_non_text() {
-        use mimic::{
+    fn any_in_ci_list_of_ulids_matches() {
+        use icydb::{
+            core::{types::Ulid, value::Value},
+            db::primitives::{Cmp, FilterClause, FilterExpr},
+        };
+
+        // tags is list of Text; filter with AnyInCi where RHS is list of ULID strings.
+        // Should validate and match case-insensitively (ULIDs are folded as text).
+        let needles = vec![Value::Ulid(Ulid::generate()), Value::Ulid(Ulid::generate())];
+
+        let bad = FilterExpr::Clause(FilterClause::new(
+            "tags",
+            Cmp::AnyInCi,
+            Value::from(needles),
+        ));
+
+        let q = db::query::load().filter(|_| bad);
+
+        // Expect no validation error and possibly empty result set; we're asserting validation only.
+        db!()
+            .load::<Filterable>()
+            .execute(q)
+            .expect("AnyInCi with ULID list should validate");
+    }
+
+    fn any_in_ci_list_non_text_still_validates() {
+        use icydb::{
             core::value::Value,
             db::primitives::{Cmp, FilterClause, FilterExpr},
         };
 
-        // tags is list of Text; AnyInCi expects list of Text on RHS
-        let bad = FilterExpr::Clause(FilterClause::new(
+        // Ensure non-text RHS (ints) does not trigger validation error after relaxation.
+        let clause = FilterExpr::Clause(FilterClause::new(
             "tags",
             Cmp::AnyInCi,
             Value::from(vec![Value::Int(1), Value::Int(2)]),
         ));
 
-        let q = db::query::load().filter(|_| bad);
-        let res = db!().load::<Filterable>().execute(q);
-
-        assert!(
-            res.is_err(),
-            "Expected validation error for AnyInCi(tags, [ints])"
-        );
+        let q = db::query::load().filter(|_| clause);
+        db!()
+            .load::<Filterable>()
+            .execute(q)
+            .expect("AnyInCi with non-text RHS should validate (may return zero rows)");
     }
 
     fn invalid_presence_rhs_non_unit() {
-        use mimic::{
+        use icydb::{
             core::value::Value,
             db::primitives::{Cmp, FilterClause, FilterExpr},
         };

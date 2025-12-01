@@ -7,7 +7,7 @@ use crate::prelude::*;
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(validator(path = "validator::text::case::Lower"))
+    ty(validator(path = "base::validator::text::case::Lower"))
 )]
 pub struct LowerCaseText {}
 
@@ -18,7 +18,7 @@ pub struct LowerCaseText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(validator(path = "validator::text::case::LowerUscore"))
+    ty(validator(path = "base::validator::text::case::LowerUscore"))
 )]
 pub struct LowerUnderscoreText {}
 
@@ -29,7 +29,7 @@ pub struct LowerUnderscoreText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(validator(path = "validator::text::case::Upper"))
+    ty(validator(path = "base::validator::text::case::Upper"))
 )]
 pub struct UpperCaseText {}
 
@@ -40,7 +40,7 @@ pub struct UpperCaseText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(validator(path = "validator::text::case::UpperSnake"))
+    ty(validator(path = "base::validator::text::case::UpperSnake"))
 )]
 pub struct UpperSnakeText {}
 
@@ -51,7 +51,7 @@ pub struct UpperSnakeText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(validator(path = "validator::text::case::Snake"))
+    ty(validator(path = "base::validator::text::case::Snake"))
 )]
 pub struct SnakeCaseText {}
 
@@ -62,7 +62,7 @@ pub struct SnakeCaseText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(validator(path = "validator::text::case::Kebab"))
+    ty(validator(path = "base::validator::text::case::Kebab"))
 )]
 pub struct KebabCaseText {}
 
@@ -73,7 +73,7 @@ pub struct KebabCaseText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(validator(path = "validator::text::case::Title"))
+    ty(validator(path = "base::validator::text::case::Title"))
 )]
 pub struct TitleCaseText {}
 
@@ -84,7 +84,7 @@ pub struct TitleCaseText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(validator(path = "validator::text::case::UpperCamel"))
+    ty(validator(path = "base::validator::text::case::UpperCamel"))
 )]
 pub struct UpperCamelText {}
 
@@ -100,7 +100,7 @@ pub struct SnakeCaseTextListValidated {}
 ///
 
 #[map(
-    key(prim = "Text", validator(path = "validator::text::case::Upper")),
+    key(prim = "Text", validator(path = "base::validator::text::case::Upper")),
     value(item(is = "TitleCaseText"))
 )]
 pub struct UpperKeyTitleValueMapValidated {}

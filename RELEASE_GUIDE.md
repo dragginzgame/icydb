@@ -1,6 +1,6 @@
-# Mimic Release Guide
+# IcyDB Release Guide
 
-This guide covers the complete workflow for developing, versioning, and releasing Mimic, including how users can integrate it as a git dependency.
+This guide covers the complete workflow for developing, versioning, and releasing IcyDB, including how users can integrate it as a git dependency.
 
 ## 🚀 Quick Start for Users
 
@@ -8,14 +8,14 @@ This guide covers the complete workflow for developing, versioning, and releasin
 
 ```toml
 [dependencies]
-mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
 ```
 
 ### Check Available Versions
 
 ```bash
 # From your project directory
-git ls-remote --tags https://github.com/dragginzgame/mimic.git | grep "v0.21"
+git ls-remote --tags https://github.com/dragginzgame/icydb.git | grep "v0.0"
 
 # Or use our helper script (if you have the repo cloned)
 ./scripts/app/check-git-versions.sh
@@ -213,10 +213,10 @@ make patch
 
 ```bash
 # Check if tag exists
-git ls-remote --tags https://github.com/dragginzgame/mimic.git | grep v1.0.0
+git ls-remote --tags https://github.com/dragginzgame/icydb.git | grep v0.0
 
 # Verify repository access
-git ls-remote https://github.com/dragginzgame/mimic.git
+git ls-remote https://github.com/dragginzgame/icydb.git
 ```
 
 ## 📚 Integration Examples
@@ -225,31 +225,31 @@ git ls-remote https://github.com/dragginzgame/mimic.git
 
 ```toml
 [dependencies]
-mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
 ```
 
 ### With Features
 
 ```toml
 [dependencies]
-mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0", features = ["serde"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1", features = ["serde"] }
 ```
 
 ### Development Version
 
 ```toml
 [dependencies]
-mimic = { git = "https://github.com/dragginzgame/mimic.git", branch = "main", features = [] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", branch = "main", features = [] }
 ```
 
 ### Workspace Integration
 
 ```toml
 [workspace.dependencies]
-mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
 
 [dependencies]
-mimic = { workspace = true }
+icydb = { workspace = true }
 ```
 
 ## 🎯 Best Practices
@@ -280,4 +280,4 @@ mimic = { workspace = true }
 
 - **Issues**: Open an issue in this repo
 - **Discussions**: Use internal channels (e.g., Slack/Teams)
-- Source: `crates/mimic` (no crates.io/docs.rs)
+- Source: `icydb/` (no crates.io/docs.rs)

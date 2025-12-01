@@ -69,7 +69,7 @@ pub struct MergeTuple {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mimic::core::{
+    use icydb::core::{
         traits::UpdateView,
         view::{ListPatch, MapPatch, SetPatch, Update},
     };

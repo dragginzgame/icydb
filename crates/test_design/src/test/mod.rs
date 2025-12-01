@@ -76,7 +76,7 @@ pub struct EnumUnspecified {}
 #[newtype(
     primitive = "Int8",
     item(prim = "Int8"),
-    ty(validator(path = "validator::num::Range", args(-1, 3)))
+    ty(validator(path = "base::validator::num::Range", args(-1, 3)))
 )]
 pub struct Negative {}
 
@@ -87,6 +87,6 @@ pub struct Negative {}
 #[newtype(
     primitive = "Decimal",
     item(prim = "Decimal"),
-    ty(validator(path = "validator::num::Lte", args(5.0)))
+    ty(validator(path = "base::validator::num::Lte", args(5.0)))
 )]
 pub struct NewtypeValidated {}

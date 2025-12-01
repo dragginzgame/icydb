@@ -1,0 +1,23 @@
+[package]
+name = "icydb"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+license = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+
+[features]
+default = []
+
+[dependencies]
+icydb-base = { workspace = true }
+icydb-build = { workspace = true }
+icydb-core = { workspace = true }
+icydb-error = { workspace = true }
+icydb-macros = { workspace = true }
+icydb-schema = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,9 +1,39 @@
-# Mimic Changelog
+# IcyDB Changelog
 
 All notable, and occasionally less notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
+
+## [0.0.6] - 2025-11-27
+- added finance types to icydb-base, Usd for now
+- RoundDecimalPlaces sanitizer, defaults to Midpoint strategy
+- quick trim with cargo machete
+- fixed the mismatch with indirect (Box<T>) and the associated view type
+- moved VERSION to main crate
+- changed ValueEnum so that the path is optional, to allow strict and loose Enum matching
+- made Enum matching case-insensitive, so "common" would match Rarity::Common
+
+## [0.0.1] - IcyDB Reboot - 2025-11-26
+
+```
+   _________
+  /        /|
+ /  DATA  / |
+/________/  |
+|  COOL  |  /
+|  ❄❄❄ | /
+|________|/
+ keep data cool
+```
+
+- New name, same mission: IcyDB takes over from Mimic with the public meta-crate exposed at `icydb`.
+- Docs and guides refreshed to point at `icydb` tags, endpoints, and examples so newcomers can copy-paste.
+- Path resolver now prefers `icydb::` for downstream users while keeping internal crates on direct deps to avoid cycles.
+- Observability/query endpoints and codegen names align on the `icydb_*` prefix for a consistent surface.
+
+--------------------------------------end icydb-----------------------------------------------
+-------------------------------------start mimic----------------------------------------------
 
 ## [0.29] - Public Release Prep - 2025-11-19
 - Rewrote the README with public-facing positioning, expanded quickstart steps, and detailed onboarding/contribution info for new users.

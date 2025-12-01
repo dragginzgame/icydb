@@ -6,7 +6,10 @@ use crate::prelude::*;
 
 #[newtype(
     primitive = "Blob",
-    item(prim = "Blob", validator(path = "validator::len::Max", args(500)))
+    item(
+        prim = "Blob",
+        validator(path = "base::validator::len::Max", args(500))
+    )
 )]
 pub struct Blob {}
 
@@ -17,7 +20,7 @@ pub struct Blob {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use mimic::core::validate;
+    use icydb::core::validate;
 
     #[test]
     fn blob_length_validation() {

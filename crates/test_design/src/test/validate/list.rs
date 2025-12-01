@@ -6,7 +6,7 @@ use crate::prelude::*;
 
 #[list(
     item(rel = "crate::test::validate::Entity"),
-    ty(validator(path = "validator::len::Max", args(2)))
+    ty(validator(path = "base::validator::len::Max", args(2)))
 )]
 pub struct FriendsList {}
 
@@ -17,7 +17,7 @@ pub struct FriendsList {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use mimic::core::validate;
+    use icydb::core::validate;
 
     #[test]
     fn friends_list_allows_up_to_max_length() {

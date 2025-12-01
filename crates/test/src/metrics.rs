@@ -1,10 +1,11 @@
-use mimic::{core::traits::EntityKind, obs::metrics, prelude::*};
+use icydb::core::{obs::metrics, prelude::*, traits::EntityKind};
 
 ///
 /// MetricsSuite
 /// Verifies global and per-entity counters, index ops, unique violations,
-/// and reset behavior surfaced by the `mimic_metrics` endpoint.
+/// and reset behavior surfaced by the metrics endpoint.
 ///
+
 pub struct MetricsSuite;
 
 impl MetricsSuite {
@@ -46,7 +47,7 @@ impl MetricsSuite {
         db!().delete::<SimpleEntity>().one(first_key).unwrap();
 
         // Snapshot
-        let stats = crate::mimic_metrics().unwrap();
+        let stats = crate::icydb_metrics().unwrap();
         let m = stats.counters.as_ref().expect("metrics snapshot present");
 
         // Global counters
@@ -103,7 +104,7 @@ impl MetricsSuite {
         db!().insert(e3_ok).unwrap();
 
         // Snapshot
-        let stats = crate::mimic_metrics().unwrap();
+        let stats = crate::icydb_metrics().unwrap();
         let m = stats.counters.as_ref().unwrap();
 
         // Save calls include the failed attempt
@@ -136,13 +137,13 @@ impl MetricsSuite {
 
         // Bump something
         db!().insert(SimpleEntity::default()).unwrap();
-        let before = crate::mimic_metrics().unwrap();
+        let before = crate::icydb_metrics().unwrap();
         assert!(before.counters.as_ref().unwrap().ops.save_calls > 0);
 
         // Endpoint reset
-        crate::mimic_metrics_reset().unwrap();
+        crate::icydb_metrics_reset().unwrap();
 
-        let after = crate::mimic_metrics().unwrap();
+        let after = crate::icydb_metrics().unwrap();
         let m = after.counters.as_ref().unwrap();
         assert_eq!(m.ops.save_calls, 0);
         assert_eq!(m.ops.load_calls, 0);

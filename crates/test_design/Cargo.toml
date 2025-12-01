@@ -5,10 +5,13 @@ rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
 license = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
 
 [dependencies]
 candid = { workspace = true }
-mimic = { workspace = true }
+icydb = { workspace = true }
 serde = { workspace = true }
 
 [lints]

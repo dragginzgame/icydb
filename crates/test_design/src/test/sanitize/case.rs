@@ -7,7 +7,7 @@ use crate::prelude::*;
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(sanitizer(path = "sanitizer::text::case::Lower"))
+    ty(sanitizer(path = "base::sanitizer::text::case::Lower"))
 )]
 pub struct LowerCaseText {}
 
@@ -18,7 +18,7 @@ pub struct LowerCaseText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(sanitizer(path = "sanitizer::text::case::Upper"))
+    ty(sanitizer(path = "base::sanitizer::text::case::Upper"))
 )]
 pub struct UpperCaseText {}
 
@@ -29,7 +29,7 @@ pub struct UpperCaseText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(sanitizer(path = "sanitizer::text::case::UpperSnake"))
+    ty(sanitizer(path = "base::sanitizer::text::case::UpperSnake"))
 )]
 pub struct UpperSnakeText {}
 
@@ -40,7 +40,7 @@ pub struct UpperSnakeText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(sanitizer(path = "sanitizer::text::case::Snake"))
+    ty(sanitizer(path = "base::sanitizer::text::case::Snake"))
 )]
 pub struct SnakeCaseText {}
 
@@ -51,7 +51,7 @@ pub struct SnakeCaseText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(sanitizer(path = "sanitizer::text::case::Kebab"))
+    ty(sanitizer(path = "base::sanitizer::text::case::Kebab"))
 )]
 pub struct KebabCaseText {}
 
@@ -62,7 +62,7 @@ pub struct KebabCaseText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(sanitizer(path = "sanitizer::text::case::Title"))
+    ty(sanitizer(path = "base::sanitizer::text::case::Title"))
 )]
 pub struct TitleCaseText {}
 
@@ -73,7 +73,7 @@ pub struct TitleCaseText {}
 #[newtype(
     primitive = "Text",
     item(prim = "Text"),
-    ty(sanitizer(path = "sanitizer::text::case::UpperCamel"))
+    ty(sanitizer(path = "base::sanitizer::text::case::UpperCamel"))
 )]
 pub struct UpperCamelText {}
 
@@ -98,7 +98,7 @@ pub struct TitleCaseValueMap {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mimic::core::sanitize;
+    use icydb::core::sanitize;
     use std::collections::HashMap;
 
     #[test]

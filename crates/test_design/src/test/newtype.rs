@@ -117,7 +117,7 @@ pub struct BoolDefault {}
 #[newtype(
     primitive = "Date",
     item(prim = "Date"),
-    default = "mimic::types::Date::EPOCH"
+    default = "icydb::core::types::Date::EPOCH"
 )]
 pub struct DateDefault {}
 
@@ -160,7 +160,7 @@ pub struct Nat128Default;
 #[newtype(
     primitive = "Principal",
     item(prim = "Principal"),
-    default = "mimic::types::Principal::anonymous"
+    default = "icydb::core::types::Principal::anonymous"
 )]
 pub struct PrincipalDefault;
 
@@ -173,14 +173,14 @@ pub struct TextDefault;
 #[newtype(
     primitive = "Timestamp",
     item(prim = "Timestamp"),
-    default = "mimic::types::Timestamp::EPOCH"
+    default = "icydb::core::types::Timestamp::EPOCH"
 )]
 pub struct TimestampDefault;
 
 #[newtype(
     primitive = "Ulid",
     item(prim = "Ulid"),
-    default = "mimic::types::Ulid::generate"
+    default = "icydb::core::types::Ulid::generate"
 )]
 pub struct UlidDefault;
 
@@ -202,24 +202,3 @@ pub struct UlidDefault;
     )
 )]
 pub struct FilterableNewtype {}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn compares_references_with_primitive() {
-        let tokens = Nat64::from(5_u64);
-
-        assert_eq!(&tokens, 5_u64);
-        assert_eq!(5_u64, &tokens);
-        assert!(&tokens > 3_u64);
-        assert!(3_u64 < &tokens);
-        assert!(&tokens >= 5_u64);
-        assert!(5_u64 <= &tokens);
-    }
-}

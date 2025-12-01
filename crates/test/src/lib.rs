@@ -7,7 +7,7 @@ mod ops;
 mod view_into;
 
 use canic::{cdk::export_candid, prelude::*};
-use mimic::{Error, prelude::*};
+use icydb::{Error, design::prelude::*};
 use test_design::{
     e2e::filter::{Filterable, FilterableView},
     schema::{TestDataStore, TestIndexStore},
@@ -17,7 +17,7 @@ use test_design::{
 // INIT
 //
 
-mimic_start!();
+icydb::start!();
 
 pub static WASMS: &[(CanisterType, &[u8])] = &[];
 

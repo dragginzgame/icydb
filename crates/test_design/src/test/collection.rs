@@ -14,7 +14,7 @@ pub struct SetInner {}
 /// ListValidated
 ///
 
-#[list(item(prim = "Nat8", validator(path = "validator::num::Lt", args(10))))]
+#[list(item(prim = "Nat8", validator(path = "base::validator::num::Lt", args(10))))]
 pub struct ListValidated {}
 
 ///
@@ -22,8 +22,8 @@ pub struct ListValidated {}
 ///
 
 #[map(
-    key(prim = "Nat8", validator(path = "validator::num::Lt", args(10))),
-    value(item(prim = "Nat8", validator(path = "validator::num::Lt", args(10))))
+    key(prim = "Nat8", validator(path = "base::validator::num::Lt", args(10))),
+    value(item(prim = "Nat8", validator(path = "base::validator::num::Lt", args(10))))
 )]
 pub struct MapValidated {}
 
@@ -31,7 +31,7 @@ pub struct MapValidated {}
 /// SetValidated
 ///
 
-#[set(item(prim = "Nat8", validator(path = "validator::num::Lt", args(10))))]
+#[set(item(prim = "Nat8", validator(path = "base::validator::num::Lt", args(10))))]
 pub struct SetValidated {}
 
 ///
@@ -41,7 +41,7 @@ pub struct SetValidated {}
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use mimic::core::validate;
+    use icydb::core::validate;
 
     //
     // Helpers

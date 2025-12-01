@@ -6,7 +6,7 @@ use crate::prelude::*;
 
 #[list(
     item(rel = "crate::test::validate::Entity"),
-    ty(validator(path = "validator::len::Max", args(2)))
+    ty(validator(path = "base::validator::len::Max", args(2)))
 )]
 pub struct List {}
 
@@ -16,7 +16,7 @@ pub struct List {}
 
 #[set(
     item(prim = "Ulid"),
-    ty(validator(path = "validator::len::Max", args(2)))
+    ty(validator(path = "base::validator::len::Max", args(2)))
 )]
 pub struct Set {}
 
@@ -27,7 +27,7 @@ pub struct Set {}
 #[map(
     key(prim = "Ulid"),
     value(item(prim = "Text")),
-    ty(validator(path = "validator::len::Max", args(2)))
+    ty(validator(path = "base::validator::len::Max", args(2)))
 )]
 pub struct Map {}
 
@@ -38,7 +38,7 @@ pub struct Map {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use mimic::core::validate;
+    use icydb::core::validate;
 
     fn ulid() -> Ulid {
         Ulid::generate()

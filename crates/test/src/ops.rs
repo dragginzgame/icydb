@@ -1,4 +1,4 @@
-use mimic::{
+use icydb::{
     core::{deserialize, serialize},
     prelude::*,
 };

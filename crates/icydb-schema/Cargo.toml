@@ -1,0 +1,26 @@
+[package]
+name = "icydb-schema"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+license = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+
+[dependencies]
+candid = { workspace = true }
+canic = { workspace = true }
+canic-utils = { workspace = true }
+darling = { workspace = true }
+derive_more = { workspace = true }
+icydb-error = { workspace = true }
+icydb-paths = { workspace = true }
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+remain = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

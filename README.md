@@ -1,25 +1,19 @@
 
 ![MSRV](https://img.shields.io/badge/rustc-1.91+-blue.svg)
-[![CI](https://github.com/dragginzgame/mimic/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/mimic/actions/workflows/ci.yml)
+[![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
+[![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
+[![Crate](https://img.shields.io/crates/v/icydb.svg)](https://crates.io/crates/icydb)
+[![Docs](https://img.shields.io/docsrs/icydb)](https://docs.rs/icydb)
 
-# Mimic — Data Model Framework for the Internet Computer
+# IcyDB — Data Model Framework for the Internet Computer
 
-![Funny / appealing cover image for Mimic](assets/image.png)<img src="assets/swampfree.png" alt="100% Certified Swamp-Free" width="200"/>
+<img src="assets/logo.png" alt="IcyDB logo" width="220"/> <img src="assets/swampfree.png" alt="100% Certified Swamp-Free" width="120"/>
 
 > Battle-tested, schema-first data models for Internet Computer canisters. Built for [Dragginz](https://dragginz.io/), now open to everyone.
 
-```
-Make It [ Matter     ] on the Internet Computer
-          Magical
-          Modular
-          Multiplayer
-          Monetisable
-          Mainstream
-```
-
 ## 👋 Overview
 
-**Mimic** is a Rust framework for building strongly-typed, queryable data models on the [Internet Computer](https://internetcomputer.org).
+**IcyDB** is a Rust framework for building strongly-typed, queryable data models on the [Internet Computer](https://internetcomputer.org).
 
 ---
 
@@ -28,10 +22,9 @@ Make It [ Matter     ] on the Internet Computer
 - **Entity macros** – define entities declaratively with schema attributes.
 - **Query builder** – type-safe filters, sorting, offsets, limits.
 - **Stable storage** – powered by `ic-stable-structures` B-Trees with predictable costs.
-- **Automatic endpoints** – `mimic_build` generates `mimic_query_load`, `mimic_query_save`, `mimic_query_delete` handlers.
-- **Observability endpoints** – `mimic_snapshot`, `mimic_logs`, `mimic_metrics`, `mimic_metrics_reset` ship automatically.
-- **Text casing toolkit** – sanitizers/validators for snake/kebab/title/camel cases that work across lists, maps, sets.
-- **Integration with IC canisters** – ergonomic `mimic_start!` and `mimic_build!` macros.
+- **Automatic endpoints** – `icydb_build` generates `icydb_query_load`, `icydb_query_save`, `icydb_query_delete` handlers.
+- **Observability endpoints** – `icydb_snapshot`, `icydb_logs`, `icydb_metrics`, `icydb_metrics_reset` ship automatically.
+- **Integration with IC canisters** – ergonomic `icydb_start!` and `icydb_build!` macros.
 - **Testability** – fixtures, query validation, index testing utilities.
 
 ---
@@ -39,10 +32,10 @@ Make It [ Matter     ] on the Internet Computer
 ## ⚡ Quickstart
 
 1. **Install Rust 1.91.1+** (workspace uses edition 2024).
-2. **Add Mimic** to your `Cargo.toml` using the latest tag:
+2. **Add IcyDB** to your `Cargo.toml` using the latest tag:
    ```toml
    [dependencies]
-   mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.29.0" }
+   icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
    ```
 3. **Declare an entity** with the `#[entity]` macro and a primary key.
 4. **Query your data** via `db!().load::<Entity>()...`.
@@ -75,8 +68,8 @@ pub struct Rarity {}
 
 ```rust
 #[query]
-pub fn rarities() -> Result<Vec<RarityView>, mimic::Error> {
-    let query = mimic::db::query::load()
+pub fn rarities() -> Result<Vec<RarityView>, icydb::Error> {
+    let query = icydb::db::query::load()
         .filter(|f| {
             // (level >= 2 AND level <= 4) OR (name CONTAINS "ncon")
             (f.gte("level", 2) & f.lte("level", 4)) | f.contains("name", "ncon")
@@ -93,29 +86,31 @@ pub fn rarities() -> Result<Vec<RarityView>, mimic::Error> {
 
 ## 🏗️ Project Layout
 
-- `crates/mimic` — core framework (entities, queries, schema, stores, types).
-- `crates/mimic_build` — canister codegen (`build.rs` → `actor.rs`).
-- `crates/mimic_common` — shared utilities.
-- `crates/mimic_schema` — schema definitions and types.
-- `crates/mimic_declare` — proc-macros for schema/traits.
-- `crates/mimic_tests` — integration + design tests.
-- `assets/` — artwork and documentation assets. `scripts/` — release/version helpers.
+- `icydb/` — meta crate re-exporting everything for downstream users.
+- `crates/icydb-core` — runtime (entities, traits, filters, query engine, stores).
+- `crates/icydb-macros` — proc-macros that generate schema, traits, and views.
+- `crates/icydb-schema` — schema AST, builder, and validation.
+- `crates/icydb-base` — built-in design types/sanitizers/validators.
+- `crates/icydb-error` — shared error types (e.g., `ErrorTree`).
+- `crates/icydb-build` — build-time codegen for actors/queries/metrics.
+- `crates/test` and `crates/test_design` — integration and design tests.
+- `assets/`, `scripts/`, `Makefile` — docs, helper scripts, and workspace tasks.
 
 ---
 
 ## 📟 Observability & Tooling
 
-- `mimic_snapshot()` → live `StorageReport` with data/index/state breakdowns.
-- `mimic_logs()` → in-memory log buffer (oldest → newest).
-- `mimic_metrics()` → `EventReport` for counters since `since_ms`.
-- `mimic_metrics_reset()` → clears metrics state.
+- `icydb_snapshot()` → live `StorageReport` with data/index/state breakdowns.
+- `icydb_logs()` → in-memory log buffer (oldest → newest).
+- `icydb_metrics()` → `EventReport` for counters since `since_ms`.
+- `icydb_metrics_reset()` → clears metrics state.
 
 Examples:
 ```bash
-dfx canister call <canister> mimic_snapshot
-dfx canister call <canister> mimic_logs
-dfx canister call <canister> mimic_metrics
-dfx canister call <canister> mimic_metrics_reset
+dfx canister call <canister> icydb_snapshot
+dfx canister call <canister> icydb_logs
+dfx canister call <canister> icydb_metrics
+dfx canister call <canister> icydb_metrics_reset
 ```
 
 ---
@@ -140,7 +135,7 @@ Pre-commit hooks run `cargo fmt -- --check`, `cargo sort --check`, and `cargo so
 - Keep functions focused; extract helpers when logic grows.
 - Import ergonomically: group paths per crate (e.g., `use crate::{db, design};`).
 - Use saturating arithmetic for counters and totals.
-- Co-locate small unit tests; integration/design tests live in `crates/mimic_tests`.
+- Co-locate small unit tests; integration/design tests live in `crates/test` and `crates/test_design`.
 - No backward-compatibility promise yet—document breaking changes in the changelog.
 
 ---
@@ -161,10 +156,9 @@ Need help? Start with [INTEGRATION.md](INTEGRATION.md), [VERSIONING.md](VERSIONI
 ## 📊 Current Focus
 
 - Expanding documentation and runnable examples.
-- Improving error modeling (`MimicError` + nested domain errors).
 - Deepening test coverage across entity indexes and query paths.
 - Tracking store statistics & memory usage in production deployments.
-- Reducing WASM size produced by `mimic_build`.
+- Reducing WASM size produced by `icydb_build`.
 
 ---
 

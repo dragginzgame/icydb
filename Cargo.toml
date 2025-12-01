@@ -1,11 +1,14 @@
-
 [workspace]
 members = [
-    "crates/mimic",
-    "crates/mimic_build",
-    "crates/mimic_common",
-    "crates/mimic_declare",
-    "crates/mimic_schema",
+    "crates/icydb",
+    "crates/icydb-base",
+    "crates/icydb-build",
+    "crates/icydb-core",
+    "crates/icydb-error",
+    "crates/icydb-macros",
+    "crates/icydb-paths",
+    "crates/icydb-schema",
+    # Test-only crates
     "crates/test",
     "crates/test_design",
 ]
@@ -14,27 +17,30 @@ resolver = "2"
 [workspace.package]
 rust-version = "1.91.1"
 edition = "2024"
-version = "0.29.10"
+version = "0.0.6"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
-description = "A type-safe, embedded ORM and schema system for the Internet Computer"
+description = "IcyDB — A type-safe, embedded ORM and schema system for the Internet Computer"
 categories = ["database", "web-programming", "wasm"]
 license = "Apache-2.0 OR MIT"
-repository = "https://github.com/dragginzgame/mimic"
+repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic = "0.3.11"
+canic = "0.3.12"
+canic-utils = "0.3.12"
 chrono = { version = "0.4", default-features = false }
-convert_case = "0.10"
 ctor = "0.6"
 darling = "0.21"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
 ic-cdk = "0.19.0"
-mimic = { path = "crates/mimic" }
-mimic_build = { path = "crates/mimic_build" }
-mimic_common = { path = "crates/mimic_common" }
-mimic_declare = { path = "crates/mimic_declare" }
-mimic_schema = { path = "crates/mimic_schema" }
+icydb = { path = "crates/icydb", version = "0.0.6" }
+icydb-base = { path = "crates/icydb-base", version = "0.0.6" }
+icydb-build = { path = "crates/icydb-build", version = "0.0.6" }
+icydb-core = { path = "crates/icydb-core", version = "0.0.6" }
+icydb-error = { path = "crates/icydb-error", version = "0.0.6" }
+icydb-macros = { path = "crates/icydb-macros", version = "0.0.6" }
+icydb-paths = { path = "crates/icydb-paths", version = "0.0.6" }
+icydb-schema = { path = "crates/icydb-schema", version = "0.0.6" }
 num-traits = { version = "0.2", default-features = false }
 proc-macro2 = "1.0"
 quote = "1.0"
@@ -46,17 +52,20 @@ rust_decimal = { version = "1.37", default-features = false, features = [
 serde = { version = "1.0", default-features = false }
 serde_bytes = "0.11"
 syn = "2.0"
+
+# Test harnesses
 test = { path = "crates/test" }
 test_design = { path = "crates/test_design" }
 thiserror = "2.0"
 
-# clippy
+# ---------------------
+#  CLIPPY CONFIGURATION
+# ---------------------
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 
-# always warn
 unnecessary_cast = "warn"
 missing_const_for_fn = "warn"
 must_use_candidate = "warn"
@@ -65,7 +74,6 @@ semicolon_if_nothing_returned = "warn"
 uninlined_format_args = "warn"
 use_self = "warn"
 
-# always allow
 doc_markdown = "allow"
 empty_line_after_doc_comments = "allow"
 missing_errors_doc = "allow"
@@ -76,23 +84,28 @@ needless_pass_by_value = "allow"
 option_if_let_else = "allow"
 significant_drop_tightening = "allow"
 wildcard_imports = "allow"
-# --------------------------------------------------------------------
-#   IMPORTANT: patch section MUST be at the top level (not nested)
-# --------------------------------------------------------------------
+
+# ---------------------
+#  PATCH SECTION
+# ---------------------
+# Only needed if you override crates.io during dev.
 [patch.crates-io]
-mimic = { path = "crates/mimic" }
-mimic_build = { path = "crates/mimic_build" }
-mimic_common = { path = "crates/mimic_common" }
-mimic_declare = { path = "crates/mimic_declare" }
-mimic_schema = { path = "crates/mimic_schema" }
+icydb = { path = "crates/icydb" }
+icydb-core = { path = "crates/icydb-core" }
+icydb-macros = { path = "crates/icydb-macros" }
+icydb-schema = { path = "crates/icydb-schema" }
+icydb-build = { path = "crates/icydb-build" }
+icydb-base = { path = "crates/icydb-base" }
+icydb-error = { path = "crates/icydb-error" }
+icydb-paths = { path = "crates/icydb-paths" }
 
-# profiles
-# we don't need release as it's a library
-
+# ---------------------
+#  DEV PROFILE
+# ---------------------
 [profile.dev]
-opt-level = 1          # Small speed-up, less aggressive than release
-lto = false            # No link-time optimization in dev
-codegen-units = 16     # More parallelism for faster compile
-strip = "debuginfo"    # Remove debug sections from Wasm
-debug = false          # Don't embed debug info in code
-overflow-checks = true # Keep runtime overflow checks for safety
+opt-level = 1
+lto = false
+codegen-units = 16
+strip = "debuginfo"
+debug = false
+overflow-checks = true

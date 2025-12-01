@@ -32,7 +32,7 @@ use crate::prelude::*;
         field(ident = "float_64", value(item(prim = "Float64"))),
         field(ident = "bool_test", value(item(prim = "Bool"))),
         field(ident = "timestamp", value(item(prim = "Timestamp"))),
-        field(ident = "utf8_test", value(item(is = "types::bytes::Utf8"))),
+        field(ident = "utf8_test", value(item(is = "base::types::bytes::Utf8"))),
         field(ident = "tuple_test", value(item(is = "Tuple"))),
         field(ident = "name_many", value(many, item(prim = "Text"))),
         field(ident = "name_opt", value(opt, item(prim = "Text"))),

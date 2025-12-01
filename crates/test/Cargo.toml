@@ -5,6 +5,9 @@ rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
 license = { workspace = true }
+description = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
 
 [lib]
 crate-type = ["cdylib"]
@@ -13,13 +16,13 @@ crate-type = ["cdylib"]
 candid = { workspace = true }
 canic = { workspace = true }
 ic-cdk = { workspace = true }
-mimic = { workspace = true }
+icydb = { workspace = true }
 test_design = { workspace = true }
 
 [build-dependencies]
 canic = { workspace = true }
-mimic = { workspace = true }
-mimic_build = { workspace = true }
+icydb = { workspace = true }
+icydb-build = { workspace = true }
 test_design = { workspace = true }
 
 [lints]

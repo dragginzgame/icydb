@@ -12,17 +12,17 @@ pub(crate) mod prelude {
         assert_invalid, assert_valid,
         schema::{TestDataStore, TestIndexStore},
     };
-    pub use mimic::design::{
-        base::{sanitizer, types, validator},
-        prelude::*,
-    };
+    pub use icydb::base;
+    pub use icydb::core::validate;
+    pub use icydb::design::prelude::*;
+    pub use std::str::FromStr as _;
 }
 
 #[macro_export]
 macro_rules! assert_valid {
     ($value:expr) => {
         assert!(
-            mimic::core::validate(&$value).is_ok(),
+            icydb::core::validate(&$value).is_ok(),
             "expected valid: {:?}",
             &$value
         );
@@ -33,7 +33,7 @@ macro_rules! assert_valid {
 macro_rules! assert_invalid {
     ($value:expr) => {
         assert!(
-            mimic::core::validate(&$value).is_err(),
+            icydb::core::validate(&$value).is_err(),
             "expected invalid: {:?}",
             &$value
         );

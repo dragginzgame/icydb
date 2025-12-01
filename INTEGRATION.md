@@ -1,20 +1,20 @@
-# Mimic Integration Guide
+# IcyDB Integration Guide
 
 Use a pinned git tag for reproducible builds and immutable versions.
 
 ## Quick Start
 
-Add Mimic to your `Cargo.toml`:
+Add IcyDB to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
 ```
 
 ### Toolchain
 
-- Rust (edition 2024). Install with:
-  - `rustup toolchain install xxxxx`
+- Rust 1.91.1 (edition 2024). Install with:
+  - `rustup toolchain install 1.91.1`
   - Ensure CI and local dev use the same toolchain.
 
 ## Integration Methods
@@ -38,7 +38,7 @@ Use the Quick Start snippet above (pinned tag) for production.
 
 ```toml
 [dependencies]
-mimic = { git = "https://github.com/dragginzgame/mimic.git", branch = "main", features = [] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", branch = "main", features = [] }
 ```
 
 **Pros:**
@@ -54,7 +54,7 @@ mimic = { git = "https://github.com/dragginzgame/mimic.git", branch = "main", fe
 
 ```toml
 [dependencies]
-mimic = { git = "https://github.com/dragginzgame/mimic.git", rev = "abc123...", features = [] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", rev = "abc123...", features = [] }
 ```
 
 **Pros:**
@@ -69,7 +69,7 @@ mimic = { git = "https://github.com/dragginzgame/mimic.git", rev = "abc123...", 
 
 ```toml
 [dependencies]
-mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0", features = [
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1", features = [
   "serde",   # serde derive/support in types
 ] }
 ```
@@ -77,7 +77,7 @@ mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0", fe
 ## Basic usage
 
 ```rust
-use mimic::prelude::*;
+use icydb::prelude::*;
 
 #[entity(
     sk(field = "id"),
@@ -90,12 +90,12 @@ use mimic::prelude::*;
 pub struct User {}
 
 // Build a query and execute it via db()
-let query = mimic::db::query::load()
+let query = icydb::db::query::load()
     .filter(|f| f.contains("name", "ann"))
     .sort(|s| s.asc("name"))
     .limit(50);
 
-let views: Vec<<User as mimic::core::traits::TypeView>::View> =
+let views: Vec<<User as icydb::core::traits::TypeView>::View> =
     db().load::<User>().execute(&query)?.views();
 ```
 
@@ -110,12 +110,12 @@ let views: Vec<<User as mimic::core::traits::TypeView>::View> =
 #### 1. Compilation Errors
 
 ```bash
-error: failed to select a version for `mimic`
+error: failed to select a version for `icydb`
 ```
 
 **Solution:** Ensure the tag exists and is spelled correctly:
 ```bash
-git ls-remote --tags https://github.com/dragginzgame/mimic.git
+git ls-remote --tags https://github.com/dragginzgame/icydb.git
 ```
 
 #### 2. Feature Not Found
@@ -144,9 +144,9 @@ error: failed to resolve dependencies
 
 ### 🔒 Tag immutability
 
-Mimic enforces **tag immutability** - once a version is tagged and pushed, the code at that version will never change. This ensures:
+IcyDB enforces **tag immutability** - once a version is tagged and pushed, the code at that version will never change. This ensures:
 
-- **Reproducible builds** - `v0.21.0` always contains the same code
+- **Reproducible builds** - `v0.0.1` always contains the same code
 - **Supply chain security** - prevents malicious code injection
 - **Dependency stability** - your builds won't break unexpectedly
 
@@ -154,10 +154,10 @@ Mimic enforces **tag immutability** - once a version is tagged and pushed, the c
 
 ```bash
 # Check if a specific version exists and is immutable
-git ls-remote --tags https://github.com/dragginzgame/mimic.git | grep v0.21
+git ls-remote --tags https://github.com/dragginzgame/icydb.git | grep v0.0
 
 # Verify the commit hash hasn't changed
-git ls-remote https://github.com/dragginzgame/mimic.git v0.21.0
+git ls-remote https://github.com/dragginzgame/icydb.git v0.0.1
 ```
 
 ## Best Practices
@@ -168,10 +168,10 @@ Always use tag-based dependencies for production:
 
 ```toml
 # ✅ Good - pinned version
-mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
 
 # ❌ Bad - floating version
-mimic = { git = "https://github.com/dragginzgame/mimic.git", branch = "main", features = [] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", branch = "main", features = [] }
 ```
 
 ### 2. Feature Selection
@@ -180,10 +180,10 @@ Only enable features you need:
 
 ```toml
 # ✅ Good - minimal features
-mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0", features = ["serde"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1", features = ["serde"] }
 
 # ❌ Bad - unnecessary features
-mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0", features = ["serde"] }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1", features = ["serde"] }
 ```
 
 ### 3. Regular Updates
@@ -192,10 +192,10 @@ Keep your dependency updated:
 
 ```bash
 # Check for new versions
-git ls-remote --tags https://github.com/dragginzgame/mimic.git | grep "v0.21"
+git ls-remote --tags https://github.com/dragginzgame/icydb.git | grep "v0.0"
 
 # Update to latest patch version
-# Change tag from v0.20.4 to v0.21.0
+# Change tag from v0.0.0 to v0.0.1
 ```
 
 ### 4. Testing
@@ -211,11 +211,11 @@ cargo build --target wasm32-unknown-unknown
 
 ### Workspace Dependencies
 
-For workspace projects, add Mimic to the workspace dependencies:
+For workspace projects, add IcyDB to the workspace dependencies:
 
 ```toml
 [workspace.dependencies]
-mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
 
 [workspace.members]
 member1 = "crates/member1"
@@ -223,7 +223,7 @@ member2 = "crates/member2"
 
 # In each member's Cargo.toml
 [dependencies]
-mimic = { workspace = true }
+icydb = { workspace = true }
 ```
 
 ### Development Dependencies
@@ -232,7 +232,7 @@ For testing and development:
 
 ```toml
 [dev-dependencies]
-mimic = { git = "https://github.com/dragginzgame/mimic.git", tag = "v0.21.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
 ```
 
 ## Version History
@@ -245,6 +245,6 @@ See this repo’s Releases page for notes and tags.
 
 ## Support
 
-- Source: `crates/mimic` (no crates.io/docs.rs)
+- Source: `icydb/` (no crates.io/docs.rs)
 - **Issues**: Open an issue in this repo
 - **Discussions**: Use internal channels (e.g., Slack/Teams)

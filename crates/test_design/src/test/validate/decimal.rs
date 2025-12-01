@@ -12,11 +12,11 @@ use crate::prelude::*;
         field(ident = "multiple_ten", value(item(is = "MultipleTenType"))),
         field(
             ident = "lte_ten",
-            value(item(prim = "Nat8", validator(path = "validator::num::Lte", args(10)))),
+            value(item(prim = "Nat8", validator(path = "base::validator::num::Lte", args(10)))),
         ),
         field(
             ident = "gt_fifty",
-            value(item(prim = "Nat8", validator(path = "validator::num::Gt", args(50)))),
+            value(item(prim = "Nat8", validator(path = "base::validator::num::Gt", args(50)))),
         )
     )
 )]
@@ -29,7 +29,7 @@ pub struct ValidateTest {}
 #[newtype(
     primitive = "Int32",
     item(prim = "Int32"),
-    ty(validator(path = "validator::num::MultipleOf", args(10)))
+    ty(validator(path = "base::validator::num::MultipleOf", args(10)))
 )]
 pub struct MultipleTenType {}
 
@@ -40,6 +40,6 @@ pub struct MultipleTenType {}
 #[newtype(
     primitive = "Decimal",
     item(prim = "Decimal"),
-    ty(validator(path = "validator::decimal::MaxDecimalPlaces", args(3)))
+    ty(validator(path = "base::validator::decimal::MaxDecimalPlaces", args(3)))
 )]
 pub struct DecimalMaxDp {}

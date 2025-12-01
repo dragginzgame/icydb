@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use mimic::{
+use icydb::{
+    core::types::{Principal, Ulid},
     prelude::*,
-    types::{Principal, Ulid},
 };
 use test_design::e2e::filter::{Filterable, FilterableEnum, FilterableOpt};
 
