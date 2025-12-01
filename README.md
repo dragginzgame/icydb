@@ -7,7 +7,7 @@
 
 # IcyDB — Data Model Framework for the Internet Computer
 
-<img src="assets/logo.png" alt="IcyDB logo" width="220"/> <img src="assets/swampfree.png" alt="100% Certified Swamp-Free" width="120"/>
+<img src="assets/icydblogo.svg" alt="IcyDB logo" width="220"/> <img src="assets/swampfree.png" alt="100% Certified Swamp-Free" width="120"/>
 
 > Battle-tested, schema-first data models for Internet Computer canisters. Built for [Dragginz](https://dragginz.io/), now open to everyone.
 
