@@ -26,11 +26,11 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic = "0.3.12"
-canic-utils = "0.3.12"
+canic = "0.4.4"
+canic-utils = "0.4.4"
 chrono = { version = "0.4", default-features = false }
 ctor = "0.6"
-darling = "0.21"
+darling = "0.22"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
 ic-cdk = "0.19.0"
 icydb = { path = "crates/icydb", version = "0.0.6" }
