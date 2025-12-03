@@ -45,6 +45,7 @@ impl Duration {
     pub const MAX: Self = Self(u64::MAX);
 
     #[must_use]
+    /// Duration since the Unix epoch in seconds (as milliseconds).
     pub fn now() -> Self {
         Self(now_secs())
     }

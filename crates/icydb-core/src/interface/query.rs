@@ -23,17 +23,17 @@ impl From<QueryError> for Error {
     }
 }
 
-// query_load
+/// Call the generated `icydb_query_load` method on the remote canister.
 pub async fn query_load(pid: Principal, query: LoadQuery) -> Result<Vec<Key>, Error> {
     query_call(pid, "icydb_query_load", query).await
 }
 
-// query_save
+/// Call the generated `icydb_query_save` method on the remote canister.
 pub async fn query_save(pid: Principal, query: SaveQuery) -> Result<Key, Error> {
     query_call(pid, "icydb_query_save", query).await
 }
 
-// query_delete
+/// Call the generated `icydb_query_delete` method on the remote canister.
 pub async fn query_delete(pid: Principal, query: DeleteQuery) -> Result<Vec<Key>, Error> {
     query_call(pid, "icydb_query_delete", query).await
 }

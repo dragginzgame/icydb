@@ -42,6 +42,7 @@ pub struct Account {
 impl Account {
     pub const STORABLE_MAX_SIZE: u32 = 62;
 
+    /// Build an account from owner and optional subaccount.
     pub fn new<P: Into<Principal>, S: Into<Subaccount>>(owner: P, subaccount: Option<S>) -> Self {
         Self {
             owner: owner.into(),
@@ -49,6 +50,7 @@ impl Account {
         }
     }
 
+    /// Convert to the ICRC account representation.
     pub fn to_icrc_type(&self) -> IcrcAccount {
         IcrcAccount {
             owner: self.owner.into(),
@@ -57,6 +59,7 @@ impl Account {
     }
 
     #[must_use]
+    /// Test helper that builds a deterministic account from a byte seed.
     pub fn dummy(v: u8) -> Self {
         let p = Principal::from_slice(&[v]);
         let s = [v; 32];

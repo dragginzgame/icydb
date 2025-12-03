@@ -3,6 +3,11 @@
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks
 
+# Use a workspace-local target/tmp to avoid cross-device tmp errors (os error 18).
+TARGET_TMP := $(PWD)/target/tmp
+CARGO_ENV := CARGO_TARGET_DIR=$(TARGET_TMP) TMPDIR=$(TARGET_TMP)
+$(shell mkdir -p $(TARGET_TMP))
+
 # Check for clean git state
 ensure-clean:
 	@if ! git diff-index --quiet HEAD --; then \
@@ -57,15 +62,15 @@ install-all: install-dev install-canister-deps install-hooks
 
 # Install Rust development tooling
 install-dev:
-	cargo install cargo-watch --locked || true
-	cargo install cargo-edit --locked || true
-	cargo install cargo-get cargo-sort cargo-sort-derives --locked || true
+	$(CARGO_ENV) cargo install cargo-watch --locked || true
+	$(CARGO_ENV) cargo install cargo-edit --locked || true
+	$(CARGO_ENV) cargo install cargo-get cargo-sort cargo-sort-derives --locked || true
 
 # Install wasm target + candid tools
 install-canister-deps:
 	rustup toolchain install 1.91.1 || true
 	rustup target add wasm32-unknown-unknown
-	cargo install candid-extractor ic-wasm --locked || true
+	$(CARGO_ENV) cargo install candid-extractor ic-wasm --locked || true
 
 # Optional explicit install target (idempotent)
 install-hooks ensure-hooks:
@@ -83,7 +88,7 @@ install-hooks ensure-hooks:
 #
 
 version:
-	@cargo get workspace.package.version
+	@$(CARGO_ENV) cargo get workspace.package.version
 
 tags:
 	@git tag --sort=-version:refname | head -10
@@ -108,7 +113,7 @@ release: ensure-clean
 test: test-canisters test-unit
 
 test-unit:
-	cargo test --workspace
+	$(CARGO_ENV) cargo test --workspace
 
 test-canisters:
 	@if command -v dfx >/dev/null 2>&1; then \
@@ -125,26 +130,26 @@ test-canisters:
 #
 
 build: ensure-clean ensure-hooks
-	cargo build --release --workspace
+	$(CARGO_ENV) cargo build --release --workspace
 
 check: ensure-hooks fmt-check
-	cargo check --workspace
+	$(CARGO_ENV) cargo check --workspace
 
 clippy: ensure-hooks
-	cargo clippy --workspace -- -D warnings
+	$(CARGO_ENV) cargo clippy --workspace -- -D warnings
 
 fmt: ensure-hooks
-	cargo sort --workspace
-	cargo sort-derives
-	cargo fmt --all
+	$(CARGO_ENV) cargo sort --workspace
+	$(CARGO_ENV) cargo sort-derives
+	$(CARGO_ENV) cargo fmt --all
 
 fmt-check: ensure-hooks
-	cargo sort --workspace --check
-	cargo sort-derives --check
-	cargo fmt --all -- --check
+	$(CARGO_ENV) cargo sort --workspace --check
+	$(CARGO_ENV) cargo sort-derives --check
+	$(CARGO_ENV) cargo fmt --all -- --check
 
 clean:
-	cargo clean
+	$(CARGO_ENV) cargo clean
 
 
 # Security and versioning checks
@@ -160,7 +165,7 @@ check-versioning: security-check
 
 # Run tests in watch mode
 test-watch:
-	cargo watch -x test
+	$(CARGO_ENV) cargo watch -x test
 
 # Build and test everything
 all: ensure-clean ensure-hooks clean fmt-check clippy check test build

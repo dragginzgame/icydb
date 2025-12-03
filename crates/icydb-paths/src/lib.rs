@@ -39,6 +39,7 @@ pub struct CratePaths {
 
 impl CratePaths {
     #[must_use]
+    /// Resolve crate paths for generated code, honoring environment overrides.
     pub fn new() -> Self {
         let pkg = std::env::var("CARGO_PKG_NAME").unwrap_or_default();
         let use_meta_paths = !INTERNAL_CRATES.contains(&pkg.as_str());

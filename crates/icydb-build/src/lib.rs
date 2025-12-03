@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 // generate
 #[must_use]
+/// Generate canister actor code for the given schema path.
 pub fn generate(canister_path: &str) -> String {
     // load schema and get the specified canister
     let schema = get_schema().expect("schema must be valid before codegen");
@@ -38,12 +39,14 @@ pub struct ActorBuilder {
 impl ActorBuilder {
     // new
     #[must_use]
+    /// Create an actor builder for a specific canister.
     pub const fn new(schema: Arc<Schema>, canister: Canister) -> Self {
         Self { schema, canister }
     }
 
     // generate
     #[must_use]
+    /// Generate the full actor module (db/metrics/query glue).
     pub fn generate(self) -> TokenStream {
         let mut tokens = quote!();
 
@@ -59,6 +62,7 @@ impl ActorBuilder {
 
     // get_stores
     #[must_use]
+    /// All stores belonging to the current canister, keyed by path.
     pub fn get_stores(&self) -> Vec<(String, Store)> {
         let canister_path = self.canister.def.path();
 
@@ -71,6 +75,7 @@ impl ActorBuilder {
     // get_entities
     // helper function to get all the entities for the current canister
     #[must_use]
+    /// All entities attached to the current canister, keyed by path.
     pub fn get_entities(&self) -> Vec<(String, Entity)> {
         let canister_path = self.canister.def.path();
         let mut entities = Vec::new();

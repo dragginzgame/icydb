@@ -33,6 +33,7 @@ impl Key {
     pub const STORABLE_MAX_SIZE: u32 = 128;
 
     #[must_use]
+    /// Sentinel key representing the maximum storable account value.
     pub fn max_storable() -> Self {
         Self::Account(Account::max_storable())
     }

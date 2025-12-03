@@ -46,11 +46,13 @@ impl Decimal {
     pub const ZERO: Self = Self(WrappedDecimal::ZERO);
 
     #[must_use]
+    /// Construct a decimal from mantissa and scale.
     pub fn new(num: i64, scale: u32) -> Self {
         Self(WrappedDecimal::new(num, scale))
     }
 
     // NumCast::from gives a disambiguation
+    /// Fallible conversion from common numeric types.
     pub fn from_num<N: NumCast>(n: N) -> Option<Self> {
         <Self as NumCast>::from(n)
     }
@@ -60,26 +62,31 @@ impl Decimal {
     ///
 
     #[must_use]
+    /// Round to a given number of decimal places.
     pub fn round_dp(&self, dp: u32) -> Self {
         Self(self.0.round_dp(dp))
     }
 
+    /// Checked remainder; returns `None` on division by zero.
     pub fn checked_rem(self, rhs: Self) -> Option<Self> {
         self.0.checked_rem(*rhs).map(Self)
     }
 
     // via the MathematicalOps trait
     #[must_use]
+    /// Integer exponentiation.
     pub fn powu(&self, exp: u64) -> Self {
         Self(self.0.powu(exp))
     }
 
     #[must_use]
+    /// Build from a raw mantissa and scale.
     pub fn from_i128_with_scale(num: i128, scale: u32) -> Self {
         WrappedDecimal::from_i128_with_scale(num, scale).into()
     }
 
     #[must_use]
+    /// Normalize trailing zeros.
     pub fn normalize(&self) -> Self {
         Self(self.0.normalize())
     }

@@ -1,11 +1,9 @@
 use crate::{
-    db::primitives::filter::Cmp,
+    db::{executor::coerce::text::coerce_text, primitives::filter::Cmp},
     types::{Account, Principal, Ulid},
     value::{Value, ValueFamily, ValueFamilyExt},
 };
 use std::{cmp::Ordering, convert::TryFrom, str::FromStr};
-
-use super::text::coerce_text;
 
 ///
 /// FamilyPair

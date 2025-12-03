@@ -59,6 +59,7 @@ impl Subaccount {
     }
 
     #[must_use]
+    /// Encode a ULID into the lower 16 bytes of a subaccount.
     pub fn from_ulid(ulid: Ulid) -> Self {
         let mut bytes = [0u8; 32];
         bytes[16..].copy_from_slice(&ulid.to_bytes()); // right-align ULID
@@ -67,6 +68,7 @@ impl Subaccount {
     }
 
     #[must_use]
+    /// Recover a ULID from the lower 16 bytes of the subaccount.
     pub fn to_ulid(&self) -> Ulid {
         let bytes = self.to_array();
         let ulid_bytes: [u8; 16] = bytes[16..].try_into().expect("slice has exactly 16 bytes");

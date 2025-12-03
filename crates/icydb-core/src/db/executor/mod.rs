@@ -5,12 +5,11 @@ mod filter;
 mod load;
 mod save;
 
-pub use coerce::*;
-pub use context::*;
-pub use delete::*;
-pub use filter::*;
-pub use load::*;
-pub use save::*;
+pub(crate) use context::*;
+pub use delete::DeleteExecutor;
+use filter::*;
+pub use load::LoadExecutor;
+pub use save::SaveExecutor;
 
 use crate::{
     Error,
@@ -43,7 +42,7 @@ pub enum ExecutorError {
 
 impl ExecutorError {
     #[must_use]
-    pub fn index_violation(path: &str, index_fields: &[&str]) -> Self {
+    pub(crate) fn index_violation(path: &str, index_fields: &[&str]) -> Self {
         Self::IndexViolation(path.to_string(), index_fields.join(", "))
     }
 }
@@ -56,11 +55,11 @@ impl From<ExecutorError> for Error {
 
 /// Plan a query for an entity given an optional filter.
 #[must_use]
-pub fn plan_for<E: EntityKind>(filter: Option<&FilterExpr>) -> QueryPlan {
+pub(crate) fn plan_for<E: EntityKind>(filter: Option<&FilterExpr>) -> QueryPlan {
     QueryPlanner::new(filter).plan::<E>()
 }
 
 /// Convenience: set span rows from a usize length.
-pub const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: usize) {
+pub(crate) const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: usize) {
     span.set_rows(len as u64);
 }

@@ -15,7 +15,7 @@ use syn::{Attribute, ItemStruct, LitStr, Visibility, parse_macro_input};
 ///
 /// Prelude
 ///
-/// Internal prelude for proc-macro and schema code generation.
+/// INTERNAL prelude for proc-macro and schema code generation.
 /// Pulls in crate helpers, core traits, schema types, and proc-macro essentials.
 /// Not exposed outside this crate.
 ///

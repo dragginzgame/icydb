@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.0.8] - 2025-12-03
 - upgrading to new canic 0.4
-- darling got yanked so cleaning that up
+- darling got yanked so cleaning that up (fixed shortly after)
+- added rustdoc coverage for public APIs (value helpers, db queries/responses, core types) and tightened proc-macro helper visibilities
+- makefile now pins TARGET_TMP/TMPDIR to `$(PWD)/target/tmp` to avoid cross-device temp errors during cargo builds/tests
 
 ## [0.0.6] - 2025-11-27
 - added finance types to icydb-base, Usd for now

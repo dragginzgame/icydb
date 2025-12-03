@@ -113,6 +113,7 @@ impl E8s {
     }
 
     #[must_use]
+    /// Convert the fixed-point value into a normalized `Decimal`.
     pub fn to_decimal(self) -> Decimal {
         Decimal::from_i128_with_scale(self.0.into(), Self::DECIMALS).normalize()
     }

@@ -4,6 +4,7 @@ use quote::quote;
 
 // generate
 #[must_use]
+/// Render the metrics/snapshot endpoints for a canister actor.
 pub fn generate(builder: &ActorBuilder) -> TokenStream {
     // Build (ENTITY_ID, PATH) mapping for all entities
     let mut pairs: Vec<TokenStream> = Vec::new();

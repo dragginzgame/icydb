@@ -3,18 +3,16 @@ use canic::serialize::{deserialize as canic_deserialize, serialize as canic_seri
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error as ThisError;
 
-///
-/// SerializeError
-///
-
+/// Serialization errors surfaced through the `icydb` convenience helpers.
 #[derive(Debug, ThisError)]
 pub enum SerializeError {
     #[error(transparent)]
     SerializeError(#[from] canic::Error),
 }
 
-// serialize
-// passes through to the canic default serializer for efficiency
+/// Serialize a value using the default `canic` serializer.
+///
+/// This helper keeps the error type aligned with the rest of `icydb`.
 pub fn serialize<T>(ty: &T) -> Result<Vec<u8>, Error>
 where
     T: Serialize,
@@ -24,7 +22,7 @@ where
         .map_err(Error::from)
 }
 
-// deserialize
+/// Deserialize a value produced by [`serialize`].
 pub fn deserialize<T>(bytes: &[u8]) -> Result<T, Error>
 where
     T: DeserializeOwned,

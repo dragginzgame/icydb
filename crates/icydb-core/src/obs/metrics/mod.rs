@@ -93,12 +93,12 @@ thread_local! {
 }
 
 /// Borrow metrics immutably.
-pub fn with_state<R>(f: impl FnOnce(&EventState) -> R) -> R {
+pub(crate) fn with_state<R>(f: impl FnOnce(&EventState) -> R) -> R {
     EVENT_STATE.with(|m| f(&m.borrow()))
 }
 
 /// Borrow metrics mutably.
-pub fn with_state_mut<R>(f: impl FnOnce(&mut EventState) -> R) -> R {
+pub(crate) fn with_state_mut<R>(f: impl FnOnce(&mut EventState) -> R) -> R {
     EVENT_STATE.with(|m| f(&mut m.borrow_mut()))
 }
 
@@ -135,7 +135,7 @@ pub enum ExecKind {
 /// Begin an executor timing span and increment call counters.
 /// Returns the start instruction counter value.
 #[must_use]
-pub fn exec_start(kind: ExecKind) -> u64 {
+pub(crate) fn exec_start(kind: ExecKind) -> u64 {
     with_state_mut(|m| match kind {
         ExecKind::Load => m.ops.load_calls = m.ops.load_calls.saturating_add(1),
         ExecKind::Save => m.ops.save_calls = m.ops.save_calls.saturating_add(1),
@@ -147,7 +147,7 @@ pub fn exec_start(kind: ExecKind) -> u64 {
 }
 
 /// Finish an executor timing span and aggregate instruction deltas and row counters.
-pub fn exec_finish(kind: ExecKind, start_inst: u64, rows_touched: u64) {
+pub(crate) fn exec_finish(kind: ExecKind, start_inst: u64, rows_touched: u64) {
     let now = performance_counter(1);
     let delta = now.saturating_sub(start_inst);
 
@@ -180,7 +180,7 @@ pub fn exec_finish(kind: ExecKind, start_inst: u64, rows_touched: u64) {
 
 /// Per-entity variants using EntityKind::PATH
 #[must_use]
-pub fn exec_start_for<E>(kind: ExecKind) -> u64
+pub(crate) fn exec_start_for<E>(kind: ExecKind) -> u64
 where
     E: EntityKind,
 {
@@ -196,7 +196,7 @@ where
     start
 }
 
-pub fn exec_finish_for<E>(kind: ExecKind, start_inst: u64, rows_touched: u64)
+pub(crate) fn exec_finish_for<E>(kind: ExecKind, start_inst: u64, rows_touched: u64)
 where
     E: EntityKind,
 {
@@ -218,7 +218,7 @@ where
 /// RAII guard to simplify metrics instrumentation
 ///
 
-pub struct Span<E: EntityKind> {
+pub(crate) struct Span<E: EntityKind> {
     kind: ExecKind,
     start: u64,
     rows: u64,
@@ -228,7 +228,7 @@ pub struct Span<E: EntityKind> {
 
 impl<E: EntityKind> Span<E> {
     #[must_use]
-    pub fn new(kind: ExecKind) -> Self {
+    pub(crate) fn new(kind: ExecKind) -> Self {
         Self {
             kind,
             start: exec_start_for::<E>(kind),
@@ -238,15 +238,17 @@ impl<E: EntityKind> Span<E> {
         }
     }
 
-    pub const fn set_rows(&mut self, rows: u64) {
+    pub(crate) const fn set_rows(&mut self, rows: u64) {
         self.rows = rows;
     }
 
-    pub const fn add_rows(&mut self, rows: u64) {
+    #[expect(dead_code)]
+    pub(crate) const fn add_rows(&mut self, rows: u64) {
         self.rows = self.rows.saturating_add(rows);
     }
 
-    pub fn finish(mut self) {
+    #[expect(dead_code)]
+    pub(crate) fn finish(mut self) {
         if !self.finished {
             exec_finish_for::<E>(self.kind, self.start, self.rows);
             self.finished = true;
@@ -295,7 +297,7 @@ pub struct EntitySummary {
 }
 
 /// Increment unique-violation counters globally and for a specific entity type.
-pub fn record_unique_violation_for<E>(m: &mut EventState)
+pub(crate) fn record_unique_violation_for<E>(m: &mut EventState)
 where
     E: crate::traits::EntityKind,
 {

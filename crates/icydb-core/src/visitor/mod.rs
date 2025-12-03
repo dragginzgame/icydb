@@ -21,6 +21,7 @@ pub enum VisitorError {
 ///
 
 // sanitize
+/// Run the sanitizer visitor over a mutable visitable tree.
 pub fn sanitize(node: &mut dyn Visitable) {
     let mut visitor = SanitizeVisitor::new();
     perform_visit_mut(&mut visitor, node, PathSegment::Empty);
@@ -84,6 +85,7 @@ pub trait Visitor {
 
 // perform_visit
 #[inline]
+/// Walk an immutable visitable node with a visitor, pushing the provided path segment.
 pub fn perform_visit<S: Into<PathSegment>>(
     visitor: &mut dyn Visitor,
     node: &dyn Visitable,
@@ -103,6 +105,7 @@ pub fn perform_visit<S: Into<PathSegment>>(
 }
 
 #[inline]
+/// Walk a mutable visitable node with a visitor, pushing the provided path segment.
 pub fn perform_visit_mut<S: Into<PathSegment>>(
     visitor: &mut dyn VisitorMut,
     node: &mut dyn Visitable,

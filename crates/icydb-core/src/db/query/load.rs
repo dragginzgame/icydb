@@ -21,6 +21,7 @@ pub struct LoadQuery {
 
 impl LoadQuery {
     #[must_use]
+    /// Construct an empty load query.
     pub fn new() -> Self {
         Self::default()
     }
@@ -35,22 +36,26 @@ impl LoadQuery {
     ///
 
     #[must_use]
+    /// Filter by a single primary key value.
     pub fn one<E: EntityKind>(self, value: impl FieldValue) -> Self {
         self.filter(|f| f.eq(E::PRIMARY_KEY, value))
     }
 
     #[must_use]
+    /// Filter by primary key presence (unit key).
     pub fn only<E: EntityKind>(self) -> Self {
         self.filter(|f| f.eq(E::PRIMARY_KEY, ()))
     }
 
     #[must_use]
+    /// Filter by a set of primary key values.
     pub fn many<E: EntityKind>(self, values: impl IntoIterator<Item = impl FieldValue>) -> Self {
         self.filter(move |f| f.in_iter(E::PRIMARY_KEY, values))
     }
 
     // all just overrides, same as calling new
     #[must_use]
+    /// Read all rows (alias for `LoadQuery::default()`).
     pub fn all() -> Self {
         Self::default()
     }

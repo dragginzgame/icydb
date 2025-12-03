@@ -5,7 +5,7 @@ pub mod snapshot;
 
 // Convenient re-exports
 pub use metrics::{
-    EntityCounters, EntitySummary, EventOps, EventPerf, EventReport, EventSelect, EventState, Span,
+    EntityCounters, EntitySummary, EventOps, EventPerf, EventReport, EventSelect, EventState,
     report as event_report, reset_all as event_reset_all,
 };
 pub use snapshot::{

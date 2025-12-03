@@ -89,6 +89,7 @@ impl Value {
     /// CONSTRUCTION
     ///
 
+    /// Build a `Value::List` from a slice of items convertible into `Value`.
     pub fn from_list<T: Into<Self> + Clone>(items: &[T]) -> Self {
         Self::List(items.iter().cloned().map(Into::into).collect())
     }
@@ -236,6 +237,7 @@ impl Value {
     }
 
     #[must_use]
+    /// Stable 128-bit hash used for index keys; returns `None` for non-indexable values.
     pub fn to_index_fingerprint(&self) -> Option<[u8; 16]> {
         match self {
             Self::None | Self::Unsupported => None,
@@ -363,21 +365,25 @@ impl Value {
     }
 
     #[must_use]
+    /// Case-sensitive/insensitive equality check for text-like values.
     pub fn text_eq(&self, other: &Self, mode: TextMode) -> Option<bool> {
         self.text_op(other, mode, |a, b| a == b)
     }
 
     #[must_use]
+    /// Check whether `other` is a substring of `self` under the given text mode.
     pub fn text_contains(&self, needle: &Self, mode: TextMode) -> Option<bool> {
         self.text_op(needle, mode, |a, b| a.contains(b))
     }
 
     #[must_use]
+    /// Check whether `self` starts with `other` under the given text mode.
     pub fn text_starts_with(&self, needle: &Self, mode: TextMode) -> Option<bool> {
         self.text_op(needle, mode, |a, b| a.starts_with(b))
     }
 
     #[must_use]
+    /// Check whether `self` ends with `other` under the given text mode.
     pub fn text_ends_with(&self, needle: &Self, mode: TextMode) -> Option<bool> {
         self.text_op(needle, mode, |a, b| a.ends_with(b))
     }
@@ -401,6 +407,7 @@ impl Value {
     }
 
     #[must_use]
+    /// Logical negation of [`is_empty`](Self::is_empty).
     pub fn is_not_empty(&self) -> Option<bool> {
         self.is_empty().map(|b| !b)
     }
@@ -410,26 +417,31 @@ impl Value {
     ///
 
     #[must_use]
+    /// Returns true if `self` contains `needle` (or equals it for scalars).
     pub fn contains(&self, needle: &Self) -> Option<bool> {
         self.contains_by(needle, |a, b| a == b)
     }
 
     #[must_use]
+    /// Returns true if any item in `needles` matches a member of `self`.
     pub fn contains_any(&self, needles: &Self) -> Option<bool> {
         self.contains_any_by(needles, |a, b| a == b)
     }
 
     #[must_use]
+    /// Returns true if every item in `needles` matches a member of `self`.
     pub fn contains_all(&self, needles: &Self) -> Option<bool> {
         self.contains_all_by(needles, |a, b| a == b)
     }
 
     #[must_use]
+    /// Returns true if `self` exists inside the provided list.
     pub fn in_list(&self, haystack: &Self) -> Option<bool> {
         self.in_list_by(haystack, |a, b| a == b)
     }
 
     #[must_use]
+    /// Case-insensitive `contains` supporting text and identifier variants.
     pub fn contains_ci(&self, needle: &Self) -> Option<bool> {
         match self {
             Self::List(_) => self.contains_by(needle, Self::eq_ci),
@@ -438,16 +450,19 @@ impl Value {
     }
 
     #[must_use]
+    /// Case-insensitive variant of [`contains_any`](Self::contains_any).
     pub fn contains_any_ci(&self, needles: &Self) -> Option<bool> {
         self.contains_any_by(needles, Self::eq_ci)
     }
 
     #[must_use]
+    /// Case-insensitive variant of [`contains_all`](Self::contains_all).
     pub fn contains_all_ci(&self, needles: &Self) -> Option<bool> {
         self.contains_all_by(needles, Self::eq_ci)
     }
 
     #[must_use]
+    /// Case-insensitive variant of [`in_list`](Self::in_list).
     pub fn in_list_ci(&self, haystack: &Self) -> Option<bool> {
         self.in_list_by(haystack, Self::eq_ci)
     }
@@ -601,6 +616,7 @@ pub struct ValueEnum {
 
 impl ValueEnum {
     #[must_use]
+    /// Build a strict enum value matching the provided variant and path.
     pub fn new(variant: &str, path: Option<&str>) -> Self {
         Self {
             variant: variant.to_string(),
@@ -609,6 +625,7 @@ impl ValueEnum {
     }
 
     #[must_use]
+    /// Build an enum value that ignores the path for loose matching.
     pub fn loose(variant: &str) -> Self {
         Self::new(variant, None)
     }

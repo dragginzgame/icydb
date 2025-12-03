@@ -47,6 +47,7 @@ impl Timestamp {
     pub const MAX: Self = Self(u64::MAX);
 
     #[must_use]
+    /// Current wall-clock timestamp in seconds.
     pub fn now() -> Self {
         Self(now_secs())
     }

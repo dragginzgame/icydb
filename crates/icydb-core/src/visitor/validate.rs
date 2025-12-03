@@ -23,6 +23,7 @@ impl From<ValidateError> for Error {
 }
 
 // validate
+/// Validate a visitable tree, collecting errors into an `ErrorTree`.
 pub fn validate(node: &dyn Visitable) -> Result<(), ValidateError> {
     let mut visitor = ValidateVisitor::new();
     perform_visit(&mut visitor, node, PathSegment::Empty);
@@ -47,6 +48,7 @@ pub struct ValidateVisitor {
 
 impl ValidateVisitor {
     #[must_use]
+    /// Create a validator with empty state.
     pub fn new() -> Self {
         Self::default()
     }

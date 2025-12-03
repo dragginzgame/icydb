@@ -237,6 +237,7 @@ where
     }
 
     /// Deserialize raw data rows into typed entity rows, mapping `DataKey` → `(Key, E)`.
+    #[allow(clippy::unused_self)]
     pub fn deserialize_rows(&self, rows: Vec<DataRow>) -> Result<Vec<(Key, E)>, Error> {
         rows.into_iter()
             .map(|(k, v)| deserialize::<E>(&v).map(|entry| (k.key(), entry)))

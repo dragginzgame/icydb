@@ -5,6 +5,7 @@ use syn::{Path, parse_str};
 
 // generate
 #[must_use]
+/// Render load/save/delete entrypoints for the current canister.
 pub fn generate(builder: &ActorBuilder) -> TokenStream {
     let mut tokens = quote!();
 
@@ -65,6 +66,7 @@ fn generate_query(name: &str, builder: &ActorBuilder, kind: QueryKind) -> TokenS
     let fn_name = quote::format_ident!("{name}");
     let fn_sig = match kind {
         QueryKind::Load => quote! {
+            #[doc = "Generated load entrypoint."]
             #[::icydb::core::export::canic::cdk::query]
             pub fn #fn_name(
                 path: String,
@@ -73,6 +75,7 @@ fn generate_query(name: &str, builder: &ActorBuilder, kind: QueryKind) -> TokenS
         },
 
         QueryKind::Save => quote! {
+            #[doc = "Generated save entrypoint."]
             #[::icydb::core::export::canic::cdk::update]
             pub fn #fn_name(
                 path: String,
@@ -81,6 +84,7 @@ fn generate_query(name: &str, builder: &ActorBuilder, kind: QueryKind) -> TokenS
         },
 
         QueryKind::Delete => quote! {
+           #[doc = "Generated delete entrypoint."]
            #[::icydb::core::export::canic::cdk::update]
             pub fn #fn_name(
                 path: String,

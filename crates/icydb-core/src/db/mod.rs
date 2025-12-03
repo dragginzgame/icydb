@@ -82,10 +82,12 @@ impl<C: CanisterKind> Db<C> {
         Context::new(self)
     }
 
+    /// Run a closure with read access to the data store registry.
     pub fn with_data<R>(&self, f: impl FnOnce(&DataStoreRegistry) -> R) -> R {
         self.data.with(|reg| f(reg))
     }
 
+    /// Run a closure with read access to the index store registry.
     pub fn with_index<R>(&self, f: impl FnOnce(&IndexStoreRegistry) -> R) -> R {
         self.index.with(|reg| f(reg))
     }
@@ -104,8 +106,7 @@ impl<C: CanisterKind> Clone for Db<C> {
 
 ///
 /// DbSession
-/// database plus a debug boolean, as we don't want to store the bool
-/// inside the database handle
+/// Database handle plus a debug flag that controls executor verbosity.
 ///
 
 pub struct DbSession<C: CanisterKind> {
@@ -115,11 +116,13 @@ pub struct DbSession<C: CanisterKind> {
 
 impl<C: CanisterKind> DbSession<C> {
     #[must_use]
+    /// Create a new session scoped to the provided database.
     pub const fn new(db: Db<C>) -> Self {
         Self { db, debug: false }
     }
 
     #[must_use]
+    /// Enable debug logging for subsequent queries in this session.
     pub const fn debug(mut self) -> Self {
         self.debug = true;
         self
@@ -162,6 +165,7 @@ impl<C: CanisterKind> DbSession<C> {
     // High-level save shortcuts
     //
 
+    /// Insert a new entity, returning the stored value.
     pub fn insert<E>(&self, entity: E) -> Result<E, Error>
     where
         E: EntityKind<Canister = C>,
@@ -169,6 +173,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.save::<E>().insert(entity)
     }
 
+    /// Replace an existing entity or insert it if it does not yet exist.
     pub fn replace<E>(&self, entity: E) -> Result<E, Error>
     where
         E: EntityKind<Canister = C>,
@@ -176,6 +181,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.save::<E>().replace(entity)
     }
 
+    /// Partially update an existing entity.
     pub fn update<E>(&self, entity: E) -> Result<E, Error>
     where
         E: EntityKind<Canister = C>,
@@ -183,6 +189,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.save::<E>().update(entity)
     }
 
+    /// Insert a new view value for an entity.
     pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
     where
         E: EntityKind<Canister = C>,
@@ -190,6 +197,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.save::<E>().insert_view::<E::ViewType>(view)
     }
 
+    /// Replace an existing view or insert it if it does not yet exist.
     pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
     where
         E: EntityKind<Canister = C>,
@@ -197,6 +205,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.save::<E>().replace_view::<E::ViewType>(view)
     }
 
+    /// Partially update an existing view.
     pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
     where
         E: EntityKind<Canister = C>,

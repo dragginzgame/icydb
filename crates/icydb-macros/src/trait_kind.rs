@@ -105,7 +105,7 @@ static TYPE_TRAITS: LazyLock<Vec<TraitKind>> = LazyLock::new(|| {
 
 // path_to_string
 #[must_use]
-pub fn path_to_string(path: &syn::Path) -> String {
+fn path_to_string(path: &syn::Path) -> String {
     path.to_token_stream()
         .to_string()
         .replace(' ', "")
@@ -116,7 +116,7 @@ pub fn path_to_string(path: &syn::Path) -> String {
 impl TraitKind {
     #[must_use]
     #[remain::check]
-    pub fn derive_path(self) -> Option<TokenStream> {
+    pub(crate) fn derive_path(self) -> Option<TokenStream> {
         let cp = paths().core;
 
         #[remain::sorted]
@@ -149,7 +149,7 @@ impl TraitKind {
         }
     }
 
-    pub fn derive_attribute(self) -> Option<TokenStream> {
+    pub(crate) fn derive_attribute(self) -> Option<TokenStream> {
         let core = &icydb_paths::paths().core;
         match self {
             Self::Sorted => Some(quote!(#[::#core::export::remain::sorted])),
@@ -193,19 +193,19 @@ impl ToTokens for TraitKind {
 pub struct TraitSet(pub HashSet<TraitKind>);
 
 impl TraitSet {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub fn add(&mut self, tr: TraitKind) {
+    pub(crate) fn add(&mut self, tr: TraitKind) {
         self.insert(tr);
     }
 
-    pub fn extend<I: IntoIterator<Item = TraitKind>>(&mut self, traits: I) {
+    pub(crate) fn extend<I: IntoIterator<Item = TraitKind>>(&mut self, traits: I) {
         self.0.extend(traits);
     }
 
-    pub fn into_vec(self) -> Vec<TraitKind> {
+    pub(crate) fn into_vec(self) -> Vec<TraitKind> {
         self.0.into_iter().collect()
     }
 }
@@ -251,7 +251,7 @@ pub struct TraitBuilder {
 }
 
 impl TraitBuilder {
-    pub fn with_type_traits(&self) -> Self {
+    pub(crate) fn with_type_traits(&self) -> Self {
         let mut clone = self.clone();
         clone.add.extend(TYPE_TRAITS.to_vec());
 
@@ -260,7 +260,7 @@ impl TraitBuilder {
 
     // build
     // generates the TraitList based on the defaults plus traits that have been added or removed
-    pub fn build(&self) -> TraitSet {
+    pub(crate) fn build(&self) -> TraitSet {
         let mut set = TraitSet::new();
 
         // always set defaults

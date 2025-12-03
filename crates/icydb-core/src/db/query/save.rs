@@ -32,6 +32,7 @@ pub struct SaveQuery {
 
 impl SaveQuery {
     #[must_use]
+    /// Create a new save query for the given mode.
     pub fn new(mode: SaveMode) -> Self {
         Self {
             mode,
@@ -40,6 +41,7 @@ impl SaveQuery {
     }
 
     // from
+    /// Serialize an entity into the query payload.
     pub fn from<E: EntityKind>(mut self, input: impl Into<E>) -> Result<Self, Error> {
         let entity = input.into();
         self.bytes = serialize(&entity)?;
@@ -49,12 +51,14 @@ impl SaveQuery {
 
     // from_bytes
     #[must_use]
+    /// Use an already-serialized entity payload.
     pub fn from_bytes(mut self, bytes: &[u8]) -> Self {
         self.bytes = bytes.to_vec();
         self
     }
 
     // from_entity
+    /// Serialize the provided entity into the query payload.
     pub fn from_entity<E: EntityKind>(mut self, entity: E) -> Result<Self, Error> {
         self.bytes = serialize(&entity)?;
 

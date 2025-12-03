@@ -61,6 +61,7 @@ impl Principal {
     }
 
     #[must_use]
+    /// Caller principal pulled from the ambient canister context.
     pub fn msg_caller() -> Self {
         Self(msg_caller())
     }

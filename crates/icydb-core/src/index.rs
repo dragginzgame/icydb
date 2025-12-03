@@ -23,6 +23,7 @@ impl IndexSpec {
     }
 
     #[must_use]
+    /// Whether this index's field prefix matches the start of another index.
     pub fn is_prefix_of(&self, other: &Self) -> bool {
         self.fields.len() < other.fields.len() && other.fields.starts_with(self.fields)
     }

@@ -42,6 +42,7 @@ impl Date {
 
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
+    /// Clamp and construct a date from year/month/day, defaulting to epoch on invalid input.
     pub fn new(y: i32, m: u32, d: u32) -> Self {
         // clamp month
         let m = m.clamp(1, 12);
@@ -62,6 +63,7 @@ impl Date {
     }
 
     #[must_use]
+    /// Checked constructor that returns `None` for invalid calendar dates.
     pub fn new_checked(y: i32, m: u32, d: u32) -> Option<Self> {
         NaiveDate::from_ymd_opt(y, m, d).map(Self::from_naive_date)
     }
@@ -89,6 +91,7 @@ impl Date {
         self.to_naive_date().day()
     }
 
+    /// Parse an ISO `YYYY-MM-DD` string into a `Date`.
     pub fn parse(s: &str) -> Option<Self> {
         NaiveDate::parse_from_str(s, "%Y-%m-%d")
             .ok()

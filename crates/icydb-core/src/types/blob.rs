@@ -36,11 +36,13 @@ pub struct Blob(ByteBuf);
 
 impl Blob {
     #[must_use]
+    /// Length of the blob in bytes.
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
     #[must_use]
+    /// Whether the blob is empty.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

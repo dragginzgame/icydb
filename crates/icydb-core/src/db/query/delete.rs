@@ -21,21 +21,25 @@ pub struct DeleteQuery {
 
 impl DeleteQuery {
     #[must_use]
+    /// Construct an empty delete query.
     pub fn new() -> Self {
         Self::default()
     }
 
     #[must_use]
+    /// Delete a single row by primary key value.
     pub fn one<E: EntityKind>(self, value: impl FieldValue) -> Self {
         self.filter(|f| f.eq(E::PRIMARY_KEY, value))
     }
 
     #[must_use]
+    /// Delete a single row where the primary key is unit.
     pub fn only<E: EntityKind>(self) -> Self {
         self.filter(|f| f.eq(E::PRIMARY_KEY, ()))
     }
 
     #[must_use]
+    /// Delete multiple rows by primary key values.
     pub fn many<E: EntityKind>(self, values: impl IntoIterator<Item = impl FieldValue>) -> Self {
         self.filter(move |f| f.in_iter(E::PRIMARY_KEY, values))
     }

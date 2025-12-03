@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        executor::coerce::family::coerce_basic,
+        executor::coerce::coerce_basic,
         primitives::{Cmp, FilterClause, FilterExpr},
         query::{QueryError, QueryValidate},
     },
@@ -18,12 +18,12 @@ pub struct FilterEvaluator<'a> {
 
 impl<'a> FilterEvaluator<'a> {
     #[must_use]
-    pub const fn new(values: &'a dyn FieldValues) -> Self {
+    pub(crate) const fn new(values: &'a dyn FieldValues) -> Self {
         Self { values }
     }
 
     #[must_use]
-    pub fn eval(&self, expr: &FilterExpr) -> bool {
+    pub(crate) fn eval(&self, expr: &FilterExpr) -> bool {
         match expr {
             FilterExpr::True => true,
             FilterExpr::False => false,

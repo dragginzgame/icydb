@@ -2,24 +2,24 @@ use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt};
 
-///
-/// ErrorTree
-///
+/// Hierarchical error aggregator used by validation to keep nested context.
 #[derive(CandidType, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErrorTree {
-    /// errors at the current level
+    /// Errors at the current level.
     pub messages: Vec<String>,
 
-    /// child errors indexed by field/key
+    /// Child errors indexed by field/key.
     pub children: HashMap<String, ErrorTree>,
 }
 
 impl ErrorTree {
     #[must_use]
+    /// Create an empty error tree with no messages or children.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Merge a sequence of `Result` values, collecting every `ErrorTree` into one.
     pub fn collect<I>(iter: I) -> Result<(), Self>
     where
         I: IntoIterator<Item = Result<(), Self>>,
@@ -34,26 +34,24 @@ impl ErrorTree {
         errs.result()
     }
 
-    // add
-    // add an error message to the current level
+    /// Add an error message to the current level.
     pub fn add<M: ToString>(&mut self, message: M) {
         self.messages.push(message.to_string());
     }
 
-    // add_result
+    /// Push an error message only when the supplied result is `Err`.
     pub fn add_result<M: ToString>(&mut self, error: Result<(), M>) {
         if let Err(e) = error {
             self.messages.push(e.to_string());
         }
     }
 
-    // addf: format and add an error message
+    /// Format and append an error message.
     pub fn addf(&mut self, args: fmt::Arguments) {
         self.messages.push(format!("{args}"));
     }
 
-    // add_for
-    // add an error message under a specific key
+    /// Add an error message under a specific child key, creating nodes as needed.
     pub fn add_for<K: ToString, M: ToString>(&mut self, key: K, message: M) {
         self.children
             .entry(key.to_string())
@@ -61,8 +59,7 @@ impl ErrorTree {
             .add(message);
     }
 
-    /// Merge another ErrorTree structure into this one.
-    /// Child errors are merged recursively.
+    /// Merge another `ErrorTree` into this one, combining children recursively.
     pub fn merge(&mut self, other: Self) {
         self.messages.extend(other.messages);
         for (key, child_errors) in other.children {
@@ -76,7 +73,7 @@ impl ErrorTree {
         self.messages.is_empty() && self.children.is_empty()
     }
 
-    // flatten the error hierarchy without consuming self
+    /// Flatten the error hierarchy without consuming `self`.
     #[must_use]
     pub fn flatten_ref(&self) -> Vec<(String, String)> {
         let mut result = Vec::new();
@@ -84,7 +81,6 @@ impl ErrorTree {
         result
     }
 
-    // flatten_helper_ref
     fn flatten_helper_ref(&self, prefix: String, result: &mut Vec<(String, String)>) {
         // Add messages at the current level.
         for msg in &self.messages {
@@ -101,8 +97,7 @@ impl ErrorTree {
         }
     }
 
-    /// Consume self and return Ok(()) if there are no errors,
-    /// or Err(self) otherwise.
+    /// Consume `self` and return `Ok(())` if there are no errors, or `Err(self)` otherwise.
     pub fn result(self) -> Result<(), Self> {
         if self.is_empty() { Ok(()) } else { Err(self) }
     }

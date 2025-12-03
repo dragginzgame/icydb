@@ -255,6 +255,7 @@ impl Value {
     }
 
     #[must_use]
+    /// Stable hash used for index/storage fingerprints.
     pub fn hash_value(&self) -> [u8; 16] {
         const VERSION: u8 = 1;
 

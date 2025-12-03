@@ -82,6 +82,7 @@ impl E18s {
         clippy::cast_precision_loss,
         clippy::cast_sign_loss
     )]
+    /// Convert from `f64`, rounding to 18 decimal places (lossy).
     pub fn from_f64(value: f64) -> Option<Self> {
         if !value.is_finite() {
             return None;
@@ -100,6 +101,7 @@ impl E18s {
 
     #[must_use]
     #[allow(clippy::cast_possible_wrap)]
+    /// Convert the fixed-point value into a normalized `Decimal`.
     pub fn to_decimal(self) -> Decimal {
         Decimal::from_i128_with_scale(self.0 as i128, Self::DECIMALS).normalize()
     }
