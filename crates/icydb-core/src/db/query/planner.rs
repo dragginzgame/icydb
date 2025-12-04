@@ -15,6 +15,7 @@ pub enum QueryPlan {
     FullScan,
     Index(IndexPlan),
     Keys(Vec<Key>),
+    /// Inclusive range over primary keys.
     Range(Key, Key),
 }
 

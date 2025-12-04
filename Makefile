@@ -3,10 +3,11 @@
         test-watch all ensure-clean security-check check-versioning \
         ensure-hooks install-hooks
 
-# Use a workspace-local target/tmp to avoid cross-device tmp errors (os error 18).
-TARGET_TMP := $(PWD)/target/tmp
-CARGO_ENV := CARGO_TARGET_DIR=$(TARGET_TMP) TMPDIR=$(TARGET_TMP)
-$(shell mkdir -p $(TARGET_TMP))
+# Use workspace-local target/local tmp dirs to avoid cross-device tmp errors (os error 18).
+export CARGO_TARGET_DIR := $(CURDIR)/target/local
+export CARGO_TMP_DIR := $(CARGO_TARGET_DIR)/tmp
+CARGO_ENV := CARGO_TARGET_DIR=$(CARGO_TARGET_DIR) TMPDIR=$(CARGO_TMP_DIR) CARGO_TARGET_TMPDIR=$(CARGO_TMP_DIR)
+$(shell mkdir -p $(CARGO_TMP_DIR))
 
 # Check for clean git state
 ensure-clean:

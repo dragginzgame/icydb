@@ -31,6 +31,7 @@ pub enum ListPatch<U> {
 /// SetPatch
 ///
 
+/// Set operations applied in-order; `Overwrite` replaces the entire set.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub enum SetPatch<U> {
     Insert(U),
@@ -43,6 +44,8 @@ pub enum SetPatch<U> {
 /// MapPatch
 ///
 
+/// Map mutations applied sequentially; later operations win. `Overwrite` replaces
+/// the entire map with the provided entries.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub enum MapPatch<K, V> {
     Upsert { key: K, value: V },

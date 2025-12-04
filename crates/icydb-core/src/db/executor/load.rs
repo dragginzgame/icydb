@@ -235,7 +235,7 @@ impl<E: EntityKind> LoadExecutor<E> {
 }
 
 /// Apply offset/limit pagination to an in-memory vector, in-place.
-pub fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
+fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
     let total = rows.len();
     let start = usize::min(offset as usize, total);
     let end = limit.map_or(total, |l| usize::min(start + l as usize, total));

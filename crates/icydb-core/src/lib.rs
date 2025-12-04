@@ -1,8 +1,5 @@
-//
-// icydb-core
-//
-// [for external use only, keep out of reach of children]
-//
+//! Core runtime for IcyDB: entity traits, values, executors, visitors, and
+//! the ergonomics exported via the `prelude`.
 pub mod db;
 pub mod design;
 pub mod hash;
@@ -28,6 +25,10 @@ pub use visitor::{sanitize, validate};
 /// CONSTANTS
 ///
 
+/// Maximum number of indexed fields allowed on an entity.
+///
+/// This limit keeps hashed index keys within bounded, storable sizes and
+/// simplifies sizing tests in the stores.
 pub const MAX_INDEX_FIELDS: usize = 4;
 
 ///

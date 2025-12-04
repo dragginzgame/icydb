@@ -20,6 +20,7 @@ pub use icydb_schema as schema;
 /// CRATE
 ///
 
+/// Workspace version re-export for downstream tooling/tests.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //
@@ -32,6 +33,7 @@ pub use core::{Error, build, db, start};
 // Actor Prelude
 //
 
+/// Bring the runtime-facing types, traits, and helpers into scope for actor code.
 pub mod prelude {
     pub use icydb_core::prelude::*;
 }
@@ -41,6 +43,7 @@ pub mod prelude {
 // For schema/design code (macros, traits, base helpers).
 //
 
+/// Schema/design-facing helpers (separate from the actor/runtime prelude).
 pub mod design {
     pub mod prelude {
         pub use icydb_core::design::prelude::*;
