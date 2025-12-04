@@ -3,100 +3,104 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Path, parse_str};
 
-// generate
+/// Generate all query dispatch glue for the current canister.
+///
+/// This emits the `dispatch_entity`, `dispatch_load`, `dispatch_save`,
+/// and `dispatch_delete` entrypoints that route untyped interface calls
+/// (path + query payloads) into strongly-typed database operations.
 #[must_use]
-/// Render load/save/delete entrypoints for the current canister.
 pub fn generate(builder: &ActorBuilder) -> TokenStream {
-    let mut tokens = quote!();
-
-    tokens.extend(generate_query("icydb_query_load", builder, QueryKind::Load));
-    tokens.extend(generate_query("icydb_query_save", builder, QueryKind::Save));
-    tokens.extend(generate_query(
-        "icydb_query_delete",
-        builder,
-        QueryKind::Delete,
-    ));
-
-    tokens
+    generate_dispatch(builder)
 }
 
-enum QueryKind {
-    Load,
-    Save,
-    Delete,
-}
-
-// generate_query
-fn generate_query(name: &str, builder: &ActorBuilder, kind: QueryKind) -> TokenStream {
+// generate_dispatch
+//
+// Build the actual match arms and dispatch functions.
+// Each entity results in one match arm that constructs an `EntityDispatch`
+// value containing closures for load/save/delete on that entity.
+fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
     let entities = builder.get_entities();
 
-    let match_arms = if entities.is_empty() {
-        quote! {
-            Err(::icydb::core::interface::query::QueryError::EntityNotFound(path))?
-        }
-    } else {
-        let arms = entities.iter().map(|(entity_path, _)| {
-            let ty: Path =
-                parse_str(entity_path).unwrap_or_else(|_| panic!("Invalid path: {entity_path}"));
-
-            match kind {
-                QueryKind::Load => quote! {
-                    #entity_path => db!().load::<#ty>().execute(query)?.keys(),
-                },
-                QueryKind::Delete => quote! {
-                    #entity_path => db!().delete::<#ty>().execute(query)?.keys(),
-                },
-                QueryKind::Save => quote! {
-                    #entity_path => db!().save::<#ty>().execute(query)?.key(),
-                },
-            }
-        });
+    // Generate match arms of the form:
+    //
+    //   "my.entity.Path" => Ok(EntityDispatch { ... }),
+    //
+    // Each arm embeds typed closures that call db!().load::<Ty>(), etc.
+    let arms = entities.iter().map(|(entity_path, _)| {
+        // Parse the fully-qualified Rust type (e.g. "my_canister::types::User")
+        let ty: Path =
+            parse_str(entity_path).unwrap_or_else(|_| panic!("Invalid path: {entity_path}"));
 
         quote! {
-            let res = match path.as_str() {
-                #(#arms)*
-                _ => Err(::icydb::core::interface::query::QueryError::EntityNotFound(path))?,
-            };
+            #entity_path => Ok(::icydb::core::interface::query::EntityDispatch {
+                // Static identity for this entity type
+                entity_id: #ty::ENTITY_ID,
+                path: #ty::PATH,
 
-            Ok(res)
+                // Load closure: executes the LoadQuery on this entity type.
+                load_keys: |query: ::icydb::core::db::query::LoadQuery| -> Result<Vec<::icydb::core::Key>, ::icydb::core::Error> {
+                    db!().load::<#ty>().execute(query).map(|res| res.keys())
+                },
+
+                // Save closure: executes a SaveQuery and returns the resulting key.
+                save_key: |query: ::icydb::core::db::query::SaveQuery| -> Result<::icydb::core::Key, ::icydb::core::Error> {
+                    db!().save::<#ty>().execute(query).map(|res| res.key())
+                },
+
+                // Delete closure: executes DeleteQuery and returns all removed keys.
+                delete_keys: |query: ::icydb::core::db::query::DeleteQuery| -> Result<Vec<::icydb::core::Key>, ::icydb::core::Error> {
+                    db!().delete::<#ty>().execute(query).map(|res| res.keys())
+                },
+            }),
         }
-    };
-
-    // generate the fn
-    let fn_name = quote::format_ident!("{name}");
-    let fn_sig = match kind {
-        QueryKind::Load => quote! {
-            #[doc = "Generated load entrypoint."]
-            #[::icydb::core::export::canic::cdk::query]
-            pub fn #fn_name(
-                path: String,
-                query: ::icydb::core::db::query::LoadQuery,
-            ) -> Result<Vec<::icydb::core::Key>, ::icydb::core::Error>
-        },
-
-        QueryKind::Save => quote! {
-            #[doc = "Generated save entrypoint."]
-            #[::icydb::core::export::canic::cdk::update]
-            pub fn #fn_name(
-                path: String,
-                query: ::icydb::core::db::query::SaveQuery,
-            ) -> Result<::icydb::core::Key, ::icydb::core::Error>
-        },
-
-        QueryKind::Delete => quote! {
-           #[doc = "Generated delete entrypoint."]
-           #[::icydb::core::export::canic::cdk::update]
-            pub fn #fn_name(
-                path: String,
-                query: ::icydb::core::db::query::DeleteQuery,
-            ) -> Result<Vec<::icydb::core::Key>, ::icydb::core::Error>
-        },
-    };
+    });
 
     quote! {
-        #[allow(unused_variables)]
-        #fn_sig {
-            #match_arms
+        /// Resolve a path string into an `EntityDispatch` containing typed
+        /// closures for the underlying entity. The caller is expected to have
+        /// already passed authentication/authorization checks.
+        pub(crate) fn dispatch_entity(
+            path: &str,
+        ) -> Result<::icydb::core::interface::query::EntityDispatch, ::icydb::core::interface::query::QueryError> {
+            match path {
+                #(#arms)*
+
+                // Unknown entity path
+                _ => Err(::icydb::core::interface::query::QueryError::EntityNotFound(path.to_string())),
+            }
+        }
+
+        /// High-level load dispatcher:
+        /// resolves the entity and invokes its typed `load_keys` closure.
+        #[allow(dead_code)]
+        pub(crate) fn dispatch_load(
+            path: &str,
+            query: ::icydb::core::db::query::LoadQuery,
+        ) -> Result<Vec<::icydb::core::Key>, ::icydb::core::Error> {
+            let dispatch = dispatch_entity(path)?;
+            (dispatch.load_keys)(query)
+        }
+
+        /// High-level save dispatcher:
+        /// resolves the entity and invokes its typed `save_key` closure.
+        #[allow(dead_code)]
+        pub(crate) fn dispatch_save(
+            path: &str,
+            query: ::icydb::core::db::query::SaveQuery,
+        ) -> Result<::icydb::core::Key, ::icydb::core::Error> {
+            let dispatch = dispatch_entity(path)?;
+            (dispatch.save_key)(query)
+        }
+
+        /// High-level delete dispatcher:
+        /// resolves the entity and invokes its typed `delete_keys` closure.
+        #[allow(dead_code)]
+        pub(crate) fn dispatch_delete(
+            path: &str,
+            query: ::icydb::core::db::query::DeleteQuery,
+        ) -> Result<Vec<::icydb::core::Key>, ::icydb::core::Error> {
+            let dispatch = dispatch_entity(path)?;
+            (dispatch.delete_keys)(query)
         }
     }
 }

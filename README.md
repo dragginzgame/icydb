@@ -22,7 +22,7 @@
 - **Entity macros** – define entities declaratively with schema attributes.
 - **Query builder** – type-safe filters, sorting, offsets, limits.
 - **Stable storage** – powered by `ic-stable-structures` B-Trees with predictable costs.
-- **Automatic endpoints** – `icydb_build` generates `icydb_query_load`, `icydb_query_save`, `icydb_query_delete` handlers.
+- **Path dispatch** – `icydb_build` generates internal dispatch helpers so you can map paths to entity types without exposing global endpoints.
 - **Observability endpoints** – `icydb_snapshot`, `icydb_logs`, `icydb_metrics`, `icydb_metrics_reset` ship automatically.
 - **Integration with IC canisters** – ergonomic `icydb_start!` and `icydb_build!` macros.
 - **Testability** – fixtures, query validation, index testing utilities.

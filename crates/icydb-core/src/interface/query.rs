@@ -3,8 +3,6 @@ use crate::{
     db::query::{DeleteQuery, LoadQuery, SaveQuery},
     interface::InterfaceError,
 };
-use candid::Principal;
-use canic::{Error as CanicError, cdk::call::Call};
 use thiserror::Error as ThisError;
 
 ///
@@ -23,34 +21,25 @@ impl From<QueryError> for Error {
     }
 }
 
-/// Call the generated `icydb_query_load` method on the remote canister.
-pub async fn query_load(pid: Principal, query: LoadQuery) -> Result<Vec<Key>, Error> {
-    query_call(pid, "icydb_query_load", query).await
-}
+/// Function pointer that executes a load query for a specific entity type.
+pub type LoadHandler = fn(LoadQuery) -> Result<Vec<Key>, Error>;
 
-/// Call the generated `icydb_query_save` method on the remote canister.
-pub async fn query_save(pid: Principal, query: SaveQuery) -> Result<Key, Error> {
-    query_call(pid, "icydb_query_save", query).await
-}
+/// Function pointer that executes a save query for a specific entity type.
+pub type SaveHandler = fn(SaveQuery) -> Result<Key, Error>;
 
-/// Call the generated `icydb_query_delete` method on the remote canister.
-pub async fn query_delete(pid: Principal, query: DeleteQuery) -> Result<Vec<Key>, Error> {
-    query_call(pid, "icydb_query_delete", query).await
-}
+/// Function pointer that executes a delete query for a specific entity type.
+pub type DeleteHandler = fn(DeleteQuery) -> Result<Vec<Key>, Error>;
 
-// query_call
-// private helper method
-async fn query_call<T: candid::CandidType + for<'de> candid::Deserialize<'de>>(
-    pid: Principal,
-    method: &str,
-    arg: impl candid::CandidType,
-) -> Result<T, Error> {
-    let result = Call::unbounded_wait(pid, method)
-        .with_arg(arg)
-        .await
-        .map_err(CanicError::from)?;
-
-    let response = result.candid::<T>().map_err(CanicError::from)?;
-
-    Ok(response)
+/// Metadata and typed handlers for a single entity path.
+///
+/// Generated actor code exposes a `dispatch_entity(path)` function that returns this,
+/// letting you authorize per-entity before invoking the handlers. No canister
+/// endpoints are generated automatically.
+#[derive(Clone, Copy)]
+pub struct EntityDispatch {
+    pub entity_id: u64,
+    pub path: &'static str,
+    pub load_keys: LoadHandler,
+    pub save_key: SaveHandler,
+    pub delete_keys: DeleteHandler,
 }
