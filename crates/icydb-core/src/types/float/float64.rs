@@ -26,6 +26,7 @@ pub struct Float64(f64);
 
 impl Float64 {
     #[must_use]
+    /// Fallible constructor that rejects non-finite values and normalizes -0.0.
     pub fn try_new(v: f64) -> Option<Self> {
         if !v.is_finite() {
             return None;

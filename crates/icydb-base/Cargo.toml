@@ -14,7 +14,6 @@ doctest = false
 [dependencies]
 candid = { workspace = true }
 canic-utils = { workspace = true }
-icydb-build = { workspace = true }
 icydb-core = { workspace = true }
 icydb-error = { workspace = true }
 icydb-macros = { workspace = true }

@@ -42,6 +42,7 @@ pub enum ExecutorError {
 
 impl ExecutorError {
     #[must_use]
+    /// Build an index-violation error with a formatted path/field list.
     pub(crate) fn index_violation(path: &str, index_fields: &[&str]) -> Self {
         Self::IndexViolation(path.to_string(), index_fields.join(", "))
     }

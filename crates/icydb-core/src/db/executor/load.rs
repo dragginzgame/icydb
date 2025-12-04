@@ -45,10 +45,12 @@ impl<E: EntityKind> LoadExecutor<E> {
     /// SHORTCUT METHODS
     ///
 
+    /// Fetch a primary key for a single matching row.
     pub fn one_key(self, value: impl FieldValue) -> Result<Key, Error> {
         self.one(value)?.try_key()
     }
 
+    /// Fetch a single entity by field value.
     pub fn one_entity(self, value: impl FieldValue) -> Result<E, Error> {
         self.one(value)?.try_entity()
     }
@@ -57,16 +59,19 @@ impl<E: EntityKind> LoadExecutor<E> {
     /// BUILDER METHODS
     ///
 
+    /// Build and execute a query for a single matching row.
     pub fn one(&self, value: impl FieldValue) -> Result<Response<E>, Error> {
         let query = LoadQuery::new().one::<E>(value);
         self.execute(query)
     }
 
+    /// Build and execute a query for the unit primary key.
     pub fn only(&self) -> Result<Response<E>, Error> {
         let query = LoadQuery::new().one::<E>(());
         self.execute(query)
     }
 
+    /// Build and execute a query matching multiple primary keys.
     pub fn many(
         &self,
         values: impl IntoIterator<Item = impl FieldValue>,
@@ -75,11 +80,13 @@ impl<E: EntityKind> LoadExecutor<E> {
         self.execute(query)
     }
 
+    /// Execute an unfiltered query for all rows.
     pub fn all(&self) -> Result<Response<E>, Error> {
         let query = LoadQuery::new();
         self.execute(query)
     }
 
+    /// Apply a filter builder and execute.
     pub fn filter<F, I>(self, f: F) -> Result<Response<E>, Error>
     where
         F: FnOnce(FilterDsl) -> I,
@@ -89,6 +96,7 @@ impl<E: EntityKind> LoadExecutor<E> {
         self.execute(query)
     }
 
+    /// Count all rows (executes the query plan).
     pub fn count_all(self) -> Result<u32, Error> {
         let query = LoadQuery::all();
         self.count(query)
@@ -99,6 +107,7 @@ impl<E: EntityKind> LoadExecutor<E> {
     ///
 
     // explain
+    /// Validate and return the query plan without executing.
     pub fn explain(self, query: LoadQuery) -> Result<QueryPlan, Error> {
         QueryValidate::<E>::validate(&query)?;
 

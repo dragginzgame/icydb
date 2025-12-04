@@ -9,6 +9,7 @@ use std::sync::{LazyLock, Mutex};
 
 static GENERATOR: LazyLock<Mutex<Generator>> = LazyLock::new(|| Mutex::new(Generator::default()));
 
+/// Generate a ULID using the global monotonic generator.
 pub fn generate() -> Result<Ulid, UlidError> {
     let mut generator = GENERATOR.lock().expect("ULID generator mutex poisoned");
 
@@ -29,6 +30,7 @@ pub struct Generator {
 
 impl Generator {
     // generate
+    /// Monotonic ULID generation; increments within the same millisecond.
     pub fn generate(&mut self) -> Result<Ulid, UlidError> {
         let last_ts = self.previous.timestamp_ms();
         let ts = utils::time::now_millis();

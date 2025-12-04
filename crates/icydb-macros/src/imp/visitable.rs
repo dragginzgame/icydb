@@ -201,7 +201,7 @@ impl Imp<Tuple> for VisitableTrait {
 ///
 
 // field_list
-pub fn field_list(fields: &FieldList) -> TokenStream {
+fn field_list(fields: &FieldList) -> TokenStream {
     let mut inner = quote!();
     let mut inner_mut = quote!();
 
@@ -222,7 +222,7 @@ pub fn field_list(fields: &FieldList) -> TokenStream {
 }
 
 // enum_variant
-pub fn enum_variant(variant: &EnumVariant) -> (TokenStream, TokenStream) {
+fn enum_variant(variant: &EnumVariant) -> (TokenStream, TokenStream) {
     let ident = &variant.ident;
 
     if variant.value.is_some() {

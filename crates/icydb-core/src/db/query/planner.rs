@@ -71,6 +71,7 @@ pub struct QueryPlanner {
 
 impl QueryPlanner {
     #[must_use]
+    /// Create a planner from an optional filter expression.
     pub fn new(filter: Option<&FilterExpr>) -> Self {
         Self {
             filter: filter.cloned(),
@@ -78,6 +79,7 @@ impl QueryPlanner {
     }
 
     #[must_use]
+    /// Generate a query plan for the given entity type.
     pub fn plan<E: EntityKind>(&self) -> QueryPlan {
         // If filter is a primary key match
         // this would handle One and Many queries

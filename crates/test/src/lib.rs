@@ -25,7 +25,8 @@ pub static WASMS: &[(CanisterType, &[u8])] = &[];
 /// ENDPOINTS
 ///
 
-pub fn clear_test_data_store() {
+/// Clear all test stores between suite runs.
+pub(crate) fn clear_test_data_store() {
     // clear before each test
     crate::DATA_REGISTRY.with(|reg| {
         let _ = reg.with_store_mut(TestDataStore::PATH, |s| s.clear());
@@ -37,6 +38,7 @@ pub fn clear_test_data_store() {
 
 // test
 #[update]
+/// Entrypoint that runs the full end-to-end test suite in canister mode.
 pub fn test() {
     let tests: Vec<(&str, fn())> = vec![
         ("db", db::DbSuite::test),
@@ -70,6 +72,7 @@ pub fn test() {
 
 // filterable
 #[query]
+/// Return all `Filterable` entities mapped into the `FilterableView`.
 pub fn filterable() -> Result<Vec<FilterableView>, Error> {
     let res = db!(debug).load::<Filterable>().all()?.entities().to_view();
 

@@ -196,6 +196,7 @@ where
     start
 }
 
+/// Finish a per-entity span and accumulate rows touched.
 pub(crate) fn exec_finish_for<E>(kind: ExecKind, start_inst: u64, rows_touched: u64)
 where
     E: EntityKind,
@@ -228,6 +229,7 @@ pub(crate) struct Span<E: EntityKind> {
 
 impl<E: EntityKind> Span<E> {
     #[must_use]
+    /// Start a metrics span for a specific entity and executor kind.
     pub(crate) fn new(kind: ExecKind) -> Self {
         Self {
             kind,
@@ -243,11 +245,13 @@ impl<E: EntityKind> Span<E> {
     }
 
     #[expect(dead_code)]
+    /// Increment the recorded row count.
     pub(crate) const fn add_rows(&mut self, rows: u64) {
         self.rows = self.rows.saturating_add(rows);
     }
 
     #[expect(dead_code)]
+    /// Finish the span early (also happens on Drop).
     pub(crate) fn finish(mut self) {
         if !self.finished {
             exec_finish_for::<E>(self.kind, self.start, self.rows);

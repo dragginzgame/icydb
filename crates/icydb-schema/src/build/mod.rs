@@ -28,7 +28,7 @@ static SCHEMA: LazyLock<RwLock<Schema>> = LazyLock::new(|| RwLock::new(Schema::n
 
 static SCHEMA_VALIDATED: OnceLock<bool> = OnceLock::new();
 
-// schema_write
+/// Acquire a write guard to the global schema during build-time codegen.
 pub fn schema_write() -> RwLockWriteGuard<'static, Schema> {
     SCHEMA
         .write()
@@ -43,8 +43,7 @@ pub(crate) fn schema_read() -> RwLockReadGuard<'static, Schema> {
         .expect("schema RwLock poisoned while acquiring read lock")
 }
 
-// get_schema
-// validate will only be done once
+/// Read the global schema, validating it exactly once per process.
 pub fn get_schema() -> Result<RwLockReadGuard<'static, Schema>, Error> {
     let schema = schema_read();
     validate(&schema).map_err(BuildError::Validation)?;

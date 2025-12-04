@@ -46,14 +46,17 @@ impl<E: EntityKind> DeleteExecutor<E> {
     /// SHORTCUT METHODS
     ///
 
+    /// Delete a row by primary key and return its key.
     pub fn one_key(self, value: impl FieldValue) -> Result<Key, Error> {
         self.one(value)?.try_key()
     }
 
+    /// Delete a row by primary key and return its entity.
     pub fn one_entity(self, value: impl FieldValue) -> Result<E, Error> {
         self.one(value)?.try_entity()
     }
 
+    /// Delete a row by primary key and return its view.
     pub fn one_view(self, value: impl FieldValue) -> Result<View<E>, Error> {
         self.one(value)?.try_view()
     }
@@ -62,16 +65,19 @@ impl<E: EntityKind> DeleteExecutor<E> {
     /// HELPER METHODS
     ///
 
+    /// Delete a single matching row.
     pub fn one(self, value: impl FieldValue) -> Result<Response<E>, Error> {
         let query = DeleteQuery::new().one::<E>(value);
         self.execute(query)
     }
 
+    /// Delete the unit-key row.
     pub fn only(self) -> Result<Response<E>, Error> {
         let query = DeleteQuery::new().one::<E>(());
         self.execute(query)
     }
 
+    /// Delete multiple rows by primary keys.
     pub fn many(
         self,
         values: impl IntoIterator<Item = impl FieldValue>,
@@ -80,11 +86,13 @@ impl<E: EntityKind> DeleteExecutor<E> {
         self.execute(query)
     }
 
+    /// Delete all rows.
     pub fn all(self) -> Result<Response<E>, Error> {
         let query = DeleteQuery::new();
         self.execute(query)
     }
 
+    /// Apply a filter builder and delete matches.
     pub fn filter<F, I>(self, f: F) -> Result<Response<E>, Error>
     where
         F: FnOnce(FilterDsl) -> I,
@@ -99,6 +107,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
     ///
 
     // explain
+    /// Validate and return the query plan without executing.
     pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, Error> {
         QueryValidate::<E>::validate(&query)?;
 
@@ -106,6 +115,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
     }
 
     // execute
+    /// Execute a delete query and return the removed rows.
     pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, Error> {
         let mut span = metrics::Span::<E>::new(metrics::ExecKind::Delete);
         QueryValidate::<E>::validate(&query)?;

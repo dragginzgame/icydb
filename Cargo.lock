@@ -134,9 +134,9 @@ dependencies = [
 
 [[package]]
 name = "canic"
-version = "0.4.6"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b9d5f0e9406aac6bda2a76a3aadd8a0b58dc1ad9783f2587da0f2b1a89c6bc5"
+checksum = "2206796d335d9d5091726b5592b81ec17d369ff085fe944f063553f1baa1aa05"
 dependencies = [
  "base32 0.5.1",
  "candid",
@@ -165,9 +165,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.4.6"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45d2ff74a02970dd05d6979f649ce045485e0dc5c63b670795f67805990e9280"
+checksum = "1dcd56188bbd6ca7184ce1aeb94daa9e4f383b7e4f73589aadb16f4f7f1d92d0"
 dependencies = [
  "convert_case",
  "derive_more",
@@ -739,7 +739,6 @@ dependencies = [
  "bencher",
  "candid",
  "canic-utils",
- "icydb-build",
  "icydb-core",
  "icydb-error",
  "icydb-macros",
@@ -765,11 +764,9 @@ dependencies = [
  "bencher",
  "candid",
  "canic",
- "canic-utils",
  "chrono",
  "ctor",
  "derive_more",
- "icydb-build",
  "icydb-error",
  "icydb-macros",
  "num-traits",
@@ -796,7 +793,6 @@ dependencies = [
  "canic-utils",
  "darling 0.23.0",
  "derive_more",
- "icydb-error",
  "icydb-paths",
  "icydb-schema",
  "proc-macro2",

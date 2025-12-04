@@ -44,6 +44,7 @@ pub struct Nat(WrappedNat);
 
 impl Nat {
     #[must_use]
+    /// Serialize the arbitrary-precision natural to LEB128 bytes.
     pub fn to_leb128(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.encode(&mut out).expect("Nat LEB128 encode");

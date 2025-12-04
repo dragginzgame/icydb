@@ -79,6 +79,7 @@ impl Ulid {
     }
 
     #[must_use]
+    /// Monotonic increment; returns `None` on overflow.
     pub fn increment(&self) -> Option<Self> {
         self.0.increment().map(Self::from)
     }

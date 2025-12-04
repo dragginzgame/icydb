@@ -34,16 +34,19 @@ pub struct StoreRegistry<T: 'static>(HashMap<&'static str, &'static LocalKey<Ref
 impl<T: 'static> StoreRegistry<T> {
     // new
     #[must_use]
+    /// Create an empty store registry.
     pub fn new() -> Self {
         Self(HashMap::new())
     }
 
     // iter
+    /// Iterate registered store names and thread-local keys.
     pub fn iter(&self) -> impl Iterator<Item = (&'static str, &'static LocalKey<RefCell<T>>)> {
         self.0.iter().map(|(k, v)| (*k, *v))
     }
 
     // for_each
+    /// Borrow each registered store immutably.
     pub fn for_each<R>(&self, mut f: impl FnMut(&'static str, &T) -> R) {
         for (path, accessor) in &self.0 {
             accessor.with(|cell| {
@@ -54,11 +57,13 @@ impl<T: 'static> StoreRegistry<T> {
     }
 
     // register
+    /// Register a thread-local store accessor under a path.
     pub fn register(&mut self, name: &'static str, accessor: &'static LocalKey<RefCell<T>>) {
         self.0.insert(name, accessor);
     }
 
     // try_get_store
+    /// Look up a store accessor by path.
     pub fn try_get_store(&self, path: &str) -> Result<&'static LocalKey<RefCell<T>>, Error> {
         self.0
             .get(path)
@@ -67,6 +72,7 @@ impl<T: 'static> StoreRegistry<T> {
     }
 
     // with_store
+    /// Borrow a store immutably by path.
     pub fn with_store<R>(&self, path: &str, f: impl FnOnce(&T) -> R) -> Result<R, Error> {
         let store = self.try_get_store(path)?;
 
@@ -74,6 +80,7 @@ impl<T: 'static> StoreRegistry<T> {
     }
 
     // with_store_mut
+    /// Borrow a store mutably by path.
     pub fn with_store_mut<R>(&self, path: &str, f: impl FnOnce(&mut T) -> R) -> Result<R, Error> {
         let store = self.try_get_store(path)?;
 

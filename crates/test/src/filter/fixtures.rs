@@ -6,7 +6,7 @@ use icydb::{
 };
 use test_design::e2e::filter::{Filterable, FilterableEnum, FilterableOpt};
 
-pub fn insert_filterable_data() -> HashMap<String, Ulid> {
+fn insert_filterable_data() -> HashMap<String, Ulid> {
     use FilterableEnum::{A, B, C};
 
     #[rustfmt::skip]
@@ -47,7 +47,7 @@ pub fn insert_filterable_data() -> HashMap<String, Ulid> {
     ids
 }
 
-pub fn insert_filterable_opt_data(relations: &HashMap<String, Ulid>) {
+fn insert_filterable_opt_data(relations: &HashMap<String, Ulid>) {
     let fixtures = [
         (
             Some("Alice"),
@@ -88,6 +88,7 @@ pub fn insert_filterable_opt_data(relations: &HashMap<String, Ulid>) {
     }
 }
 
+/// Populate both `Filterable` and `FilterableOpt` fixtures for filter tests.
 pub fn seed_filter_data() {
     let relations = insert_filterable_data();
     insert_filterable_opt_data(&relations);

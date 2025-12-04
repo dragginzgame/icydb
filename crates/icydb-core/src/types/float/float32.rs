@@ -26,6 +26,7 @@ pub struct Float32(f32);
 
 impl Float32 {
     #[must_use]
+    /// Fallible constructor that rejects non-finite values and normalizes -0.0.
     pub fn try_new(v: f32) -> Option<Self> {
         if !v.is_finite() {
             return None;

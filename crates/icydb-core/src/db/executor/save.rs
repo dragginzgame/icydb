@@ -46,12 +46,14 @@ impl<E: EntityKind> SaveExecutor<E> {
     /// EXECUTION METHODS
     ///
 
+    /// Insert a brand-new entity (errors if the key already exists).
     pub fn insert(&self, entity: E) -> Result<E, Error> {
         let entity = self.save_entity(SaveMode::Insert, entity)?;
 
         Ok(entity)
     }
 
+    /// Insert a new view, returning the stored view.
     pub fn insert_view<V>(&self, view: E::ViewType) -> Result<E::ViewType, Error> {
         let entity = E::from_view(view);
         let saved_view = self.insert(entity)?.to_view();
@@ -59,12 +61,14 @@ impl<E: EntityKind> SaveExecutor<E> {
         Ok(saved_view)
     }
 
+    /// Update an existing entity (errors if it does not exist).
     pub fn update(&self, entity: E) -> Result<E, Error> {
         let entity = self.save_entity(SaveMode::Update, entity)?;
 
         Ok(entity)
     }
 
+    /// Update an existing view (errors if it does not exist).
     pub fn update_view<V>(&self, view: E::ViewType) -> Result<E::ViewType, Error> {
         let entity = E::from_view(view);
         let saved_view = self.update(entity)?.to_view();
@@ -72,12 +76,14 @@ impl<E: EntityKind> SaveExecutor<E> {
         Ok(saved_view)
     }
 
+    /// Replace an entity, inserting if missing.
     pub fn replace(&self, entity: E) -> Result<E, Error> {
         let entity = self.save_entity(SaveMode::Replace, entity)?;
 
         Ok(entity)
     }
 
+    /// Replace a view, inserting if missing.
     pub fn replace_view<V>(&self, view: E::ViewType) -> Result<E::ViewType, Error> {
         let entity = E::from_view(view);
         let saved_view = self.replace(entity)?.to_view();
@@ -87,6 +93,7 @@ impl<E: EntityKind> SaveExecutor<E> {
 
     // execute
     // serializes the save query to pass to save_entity
+    /// Execute a serialized save query.
     pub fn execute(&self, query: SaveQuery) -> Result<E, Error> {
         let e: E = deserialize(&query.bytes)?;
         let entity = self.save_entity(query.mode, e)?;

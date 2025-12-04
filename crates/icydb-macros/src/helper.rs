@@ -3,11 +3,9 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::Ident;
 
-///
-/// QUOTING
-///
+// Quoting helpers
 
-// quote_one
+/// Quote a single value after transforming it into tokens.
 pub fn quote_one<T, F>(t: &T, transform: F) -> TokenStream
 where
     F: FnOnce(&T) -> TokenStream,
@@ -16,7 +14,7 @@ where
     quote!(#transformed)
 }
 
-// quote_option
+/// Quote an `Option`, applying the transform to the inner value when present.
 pub fn quote_option<T, F>(opt: Option<&T>, transform: F) -> TokenStream
 where
     F: FnOnce(&T) -> TokenStream,
@@ -29,7 +27,7 @@ where
     }
 }
 
-// quote_slice
+/// Quote a slice by transforming each element and returning a token array.
 pub fn quote_slice<T, F>(vec: &[T], transform: F) -> TokenStream
 where
     F: Fn(&T) -> TokenStream,
@@ -45,37 +43,30 @@ where
     }
 }
 
-///
-/// TRANSFORM HELPERS
-///
+// Transform helpers
 
-/// as_tokens
-/// passes through without any change, ie. comments
+/// Pass through a tokenizable value unchanged (useful for comments).
 pub fn as_tokens<T: ToTokens>(t: &T) -> TokenStream {
     quote!(#t)
 }
 
-/// to_str_lit
+/// Convert a tokenizable value into a string literal token.
 pub fn to_str_lit<T: ToTokens>(t: &T) -> TokenStream {
     let s = quote!(#t).to_string();
 
     quote!(#s)
 }
 
-/// to_path
+/// Resolve a `Path` implementor to its associated `PATH` constant.
 pub fn to_path<T: ToTokens>(t: &T) -> TokenStream {
     let cp = paths().core;
 
     quote! { <#t as #cp::traits::Path>::PATH }
 }
 
-///
-/// DARLING HELPERS
-///
-
-// split_idents
 #[allow(clippy::needless_pass_by_value)]
 #[must_use]
+/// Split a comma-separated list into idents for Darling parsing.
 pub fn split_idents(s: String) -> Vec<Ident> {
     s.split(',')
         .map(str::trim)

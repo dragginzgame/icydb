@@ -31,10 +31,12 @@ where
         }
     }
 
+    /// Access the entity's data store in read-only mode.
     pub fn with_store<R>(&self, f: impl FnOnce(&DataStore) -> R) -> Result<R, Error> {
         self.db.with_data(|reg| reg.with_store(E::Store::PATH, f))
     }
 
+    /// Access the entity's data store mutably.
     pub fn with_store_mut<R>(&self, f: impl FnOnce(&mut DataStore) -> R) -> Result<R, Error> {
         self.db
             .with_data(|reg| reg.with_store_mut(E::Store::PATH, f))
@@ -44,6 +46,7 @@ where
     /// Analyze Plan
     ///
 
+    /// Compute candidate data keys for the given query plan.
     pub fn candidates_from_plan(&self, plan: QueryPlan) -> Result<Vec<DataKey>, Error> {
         let candidates = match plan {
             QueryPlan::Keys(keys) => Self::to_data_keys(keys),
@@ -80,6 +83,7 @@ where
         Ok(candidates)
     }
 
+    /// Load data rows for the given query plan.
     pub fn rows_from_plan(&self, plan: QueryPlan) -> Result<Vec<DataRow>, Error> {
         match plan {
             QueryPlan::Keys(keys) => {

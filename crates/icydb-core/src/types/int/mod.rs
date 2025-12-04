@@ -45,6 +45,7 @@ pub struct Int(WrappedInt);
 
 impl Int {
     #[must_use]
+    /// Serialize the arbitrary-precision integer to LEB128 bytes.
     pub fn to_leb128(&self) -> Vec<u8> {
         let mut out = Vec::new();
         self.encode(&mut out).expect("Int LEB128 encode");

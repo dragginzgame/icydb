@@ -5,6 +5,11 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+
+## [0.0.9] - 2025-12-04
+- upgrade to canic 0.4.8
+- scan of public endpoints, either add documentation to them or change to pub(crate)
+
 ## [0.0.8] - 2025-12-03
 - upgrading to new canic 0.4
 - darling got yanked so cleaning that up (fixed shortly after)

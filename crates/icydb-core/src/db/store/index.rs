@@ -30,6 +30,7 @@ pub struct IndexStoreRegistry(StoreRegistry<IndexStore>);
 impl IndexStoreRegistry {
     #[must_use]
     #[allow(clippy::new_without_default)]
+    /// Create an empty index store registry.
     pub fn new() -> Self {
         Self(StoreRegistry::new())
     }
@@ -44,6 +45,7 @@ pub struct IndexStore(BTreeMap<IndexKey, IndexEntry, VirtualMemory<DefaultMemory
 
 impl IndexStore {
     #[must_use]
+    /// Initialize an index store with the provided backing memory.
     pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
         Self(BTreeMap::init(memory))
     }
@@ -51,6 +53,7 @@ impl IndexStore {
     /// Inserts the given entity into the index defined by `I`.
     /// - If `I::UNIQUE`, insertion will fail if a conflicting entry already exists.
     /// - If the entity is missing required fields for this index, insertion is skipped.
+    /// - Insert an entity's index entry, enforcing uniqueness where required.
     pub fn insert_index_entry<E: EntityKind>(
         &mut self,
         entity: &E,
@@ -94,6 +97,7 @@ impl IndexStore {
     }
 
     // remove_index_entry
+    /// Remove an entity's entry for the given index if present.
     pub fn remove_index_entry<E: EntityKind>(&mut self, entity: &E, index: &IndexSpec) {
         // Skip if index key can't be built (e.g. optional fields missing)
         let Some(index_key) = IndexKey::new(entity, index) else {
@@ -118,6 +122,7 @@ impl IndexStore {
     }
 
     #[must_use]
+    /// Resolve data keys for a given index prefix.
     pub fn resolve_data_values<E: EntityKind>(
         &self,
         index: &IndexSpec,
@@ -132,6 +137,7 @@ impl IndexStore {
         out
     }
 
+    /// Sum of bytes used by all index entries.
     pub fn memory_bytes(&self) -> u64 {
         self.iter()
             .map(|entry| u64::from(IndexKey::STORABLE_MAX_SIZE) + entry.value().len() as u64)
@@ -197,6 +203,7 @@ pub struct IndexId(u64);
 
 impl IndexId {
     #[must_use]
+    /// Deterministic index identifier derived from entity path and field list.
     pub fn new<E: EntityKind>(index: &IndexSpec) -> Self {
         Self::from_path_and_fields(E::PATH, index.fields)
     }
@@ -216,6 +223,7 @@ impl IndexId {
     }
 
     #[must_use]
+    /// Worst-case index identifier used for sizing tests.
     pub fn max_storable() -> Self {
         Self::from_path_and_fields(
             "path::to::long::entity::name::Entity",
@@ -244,6 +252,7 @@ impl IndexKey {
     pub const STORABLE_MAX_SIZE: u32 = 180;
 
     #[must_use]
+    /// Build an index key from an entity and spec, returning None if a component is missing/non-indexable.
     pub fn new<E: EntityKind>(entity: &E, index: &IndexSpec) -> Option<Self> {
         let mut hashed_values = Vec::<[u8; 16]>::with_capacity(index.fields.len());
 
@@ -263,6 +272,7 @@ impl IndexKey {
 
     // max_storable
     #[must_use]
+    /// Largest representable index key (for sizing).
     pub fn max_storable() -> Self {
         Self {
             index_id: IndexId::max_storable(),
@@ -273,6 +283,7 @@ impl IndexKey {
     /// Compute the bounded start..end keys for a given hashed prefix under an index id.
     /// End is exclusive and created by appending a single 0xFF..0xFF block to the prefix.
     #[must_use]
+    /// The returned range can be used with `BTreeMap::range`.
     pub fn bounds_for_prefix(index_id: IndexId, mut prefix: Vec<[u8; 16]>) -> (Self, Self) {
         let start = Self {
             index_id,
@@ -312,6 +323,7 @@ pub struct IndexEntry {
 
 impl IndexEntry {
     #[must_use]
+    /// Create an index entry with the initial key.
     pub fn new(fields: &[&str], key: Key) -> Self {
         let mut key_set = HashSet::with_capacity(1);
         key_set.insert(key);
@@ -322,6 +334,7 @@ impl IndexEntry {
         }
     }
 
+    /// Insert a key into the entry's key set.
     pub fn insert_key(&mut self, key: Key) {
         let _ = self.keys.insert(key);
     }

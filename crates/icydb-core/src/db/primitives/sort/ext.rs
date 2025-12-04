@@ -42,17 +42,20 @@ pub struct SortExprBuilder {
 
 impl SortExprBuilder {
     #[must_use]
+    /// Start building a sort expression.
     pub fn new() -> Self {
         Self::default()
     }
 
     #[must_use]
+    /// Add an ascending sort key.
     pub fn asc(mut self, field: impl Into<String>) -> Self {
         self.keys.push((field.into(), Order::Asc));
         self
     }
 
     #[must_use]
+    /// Add a descending sort key.
     pub fn desc(mut self, field: impl Into<String>) -> Self {
         self.keys.push((field.into(), Order::Desc));
         self

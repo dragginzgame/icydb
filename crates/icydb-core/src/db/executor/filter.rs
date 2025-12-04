@@ -23,6 +23,7 @@ impl<'a> FilterEvaluator<'a> {
     }
 
     #[must_use]
+    /// Evaluate a filter expression against the provided field values.
     pub(crate) fn eval(&self, expr: &FilterExpr) -> bool {
         match expr {
             FilterExpr::True => true,

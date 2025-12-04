@@ -18,6 +18,7 @@ pub struct DataStoreRegistry(StoreRegistry<DataStore>);
 impl DataStoreRegistry {
     #[must_use]
     #[allow(clippy::new_without_default)]
+    /// Create an empty data store registry.
     pub fn new() -> Self {
         Self(StoreRegistry::new())
     }
@@ -32,10 +33,12 @@ pub struct DataStore(BTreeMap<DataKey, Vec<u8>, VirtualMemory<DefaultMemoryImpl>
 
 impl DataStore {
     #[must_use]
+    /// Initialize a data store with the provided backing memory.
     pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
         Self(BTreeMap::init(memory))
     }
 
+    /// Sum of bytes used by all stored rows.
     pub fn memory_bytes(&self) -> u64 {
         self.iter()
             .map(|entry| u64::from(DataKey::STORABLE_MAX_SIZE) + entry.value().len() as u64)
@@ -65,6 +68,7 @@ impl DataKey {
     pub const STORABLE_MAX_SIZE: u32 = 160;
 
     #[must_use]
+    /// Build a data key for the given entity type and primary key.
     pub fn new<E: EntityKind>(key: impl Into<Key>) -> Self {
         Self {
             entity_id: E::ENTITY_ID,
@@ -108,6 +112,7 @@ impl DataKey {
     }
 
     #[must_use]
+    /// Max sentinel key for sizing.
     pub fn max_storable() -> Self {
         Self {
             entity_id: u64::MAX,
