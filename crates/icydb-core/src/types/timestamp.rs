@@ -8,6 +8,7 @@ use crate::{
 };
 use candid::CandidType;
 use canic::utils::time::now_secs;
+use chrono::DateTime;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
 
@@ -45,6 +46,48 @@ impl Timestamp {
     pub const EPOCH: Self = Self(u64::MIN);
     pub const MIN: Self = Self(u64::MIN);
     pub const MAX: Self = Self(u64::MAX);
+
+    /// Construct from seconds.
+    #[must_use]
+    pub const fn from_seconds(secs: u64) -> Self {
+        Self(secs)
+    }
+
+    /// Construct from milliseconds (truncate to seconds).
+    #[must_use]
+    pub const fn from_millis(ms: u64) -> Self {
+        Self(ms / 1_000)
+    }
+
+    /// Construct from microseconds (truncate to seconds).
+    #[must_use]
+    pub const fn from_micros(us: u64) -> Self {
+        Self(us / 1_000_000)
+    }
+
+    /// Construct from nanoseconds (truncate to seconds).
+    #[must_use]
+    pub const fn from_nanos(ns: u64) -> Self {
+        Self(ns / 1_000_000_000)
+    }
+
+    #[allow(clippy::cast_sign_loss)]
+    pub fn parse_rfc3339(s: &str) -> Result<Self, String> {
+        let dt =
+            DateTime::parse_from_rfc3339(s).map_err(|e| format!("timestamp parse error: {e}"))?;
+
+        Ok(Self(dt.timestamp() as u64))
+    }
+
+    pub fn parse_flexible(s: &str) -> Result<Self, String> {
+        // Try integer seconds
+        if let Ok(n) = s.parse::<u64>() {
+            return Ok(Self(n));
+        }
+
+        // Try RFC3339
+        Self::parse_rfc3339(s)
+    }
 
     #[must_use]
     /// Current wall-clock timestamp in seconds.
@@ -141,3 +184,93 @@ impl View for Timestamp {
 }
 
 impl Visitable for Timestamp {}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_seconds() {
+        let t = Timestamp::from_seconds(42);
+        assert_eq!(t.get(), 42);
+    }
+
+    #[test]
+    fn test_parse_rfc3339_manual() {
+        // Real RFC-3339 timestamp, exactly how JustTCG returns them.
+        let input = "2024-03-09T19:45:30Z";
+
+        let parsed = Timestamp::parse_rfc3339(input).unwrap();
+
+        // Verified UNIX time for that timestamp.
+        let expected = 1_710_013_530u64;
+
+        assert_eq!(parsed.get(), expected);
+    }
+
+    #[test]
+    fn test_from_millis() {
+        let t = Timestamp::from_millis(1234);
+        assert_eq!(t.get(), 1); // truncates
+    }
+
+    #[test]
+    fn test_from_micros() {
+        let t = Timestamp::from_micros(5_000_000);
+        assert_eq!(t.get(), 5);
+    }
+
+    #[test]
+    fn test_from_nanos() {
+        let t = Timestamp::from_nanos(3_000_000_000);
+        assert_eq!(t.get(), 3);
+    }
+
+    #[test]
+    fn test_parse_flexible_integer() {
+        let t = Timestamp::parse_flexible("12345").unwrap();
+        assert_eq!(t.get(), 12345);
+    }
+
+    #[test]
+    fn test_parse_rfc3339_invalid() {
+        let result = Timestamp::parse_rfc3339("not-a-timestamp");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_now_is_nonzero() {
+        let t = Timestamp::now();
+        assert!(t.get() > 0);
+    }
+
+    #[test]
+    fn test_add_and_sub() {
+        let a = Timestamp::from_seconds(10);
+        let b = Timestamp::from_seconds(3);
+
+        assert_eq!((a + b).get(), 13);
+        assert_eq!((a - b).get(), 7);
+    }
+
+    #[test]
+    fn test_num_cast_roundtrip() {
+        let t = Timestamp::from_seconds(999);
+        let i = t.to_u64().unwrap();
+        assert_eq!(i, 999);
+
+        let t2 = Timestamp::from_seconds(i);
+        assert_eq!(t2, t);
+    }
+
+    #[test]
+    fn test_field_value() {
+        let t = Timestamp::from_seconds(77);
+        let v = t.to_value();
+        assert_eq!(v, Value::Timestamp(t));
+    }
+}
