@@ -134,9 +134,9 @@ dependencies = [
 
 [[package]]
 name = "canic"
-version = "0.4.8"
+version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2206796d335d9d5091726b5592b81ec17d369ff085fe944f063553f1baa1aa05"
+checksum = "debbc05f74085f3b680bff11b91f656730e999d93064d5afc5671c80c910c398"
 dependencies = [
  "base32 0.5.1",
  "candid",
@@ -165,9 +165,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.4.8"
+version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1dcd56188bbd6ca7184ce1aeb94daa9e4f383b7e4f73589aadb16f4f7f1d92d0"
+checksum = "cbcdd8ba2d91450a4e34ff7a1773c166f4a6296ab730e650882cfe667e39887e"
 dependencies = [
  "convert_case",
  "derive_more",
@@ -722,7 +722,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "icydb-base",
  "icydb-build",
@@ -734,7 +734,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-base"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "bencher",
  "candid",
@@ -749,7 +749,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -759,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "bencher",
  "candid",
@@ -780,7 +780,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-error"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "candid",
  "serde",
@@ -788,7 +788,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-macros"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "canic-utils",
  "darling 0.23.0",
@@ -804,7 +804,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-paths"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -813,7 +813,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "candid",
  "canic",
@@ -1283,7 +1283,7 @@ dependencies = [
 
 [[package]]
 name = "test"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "candid",
  "canic",
@@ -1295,7 +1295,7 @@ dependencies = [
 
 [[package]]
 name = "test_design"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "candid",
  "icydb",
