@@ -19,3 +19,22 @@ fn is_reserved(word: &str) -> Result<(), String> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_empty_and_reserved_words() {
+        assert!(validate_ident("").is_err(), "empty identifiers should fail");
+        assert!(
+            validate_ident("record").is_err(),
+            "reserved keywords should be rejected"
+        );
+    }
+
+    #[test]
+    fn accepts_non_reserved_identifier() {
+        assert!(validate_ident("custom_ident").is_ok());
+    }
+}

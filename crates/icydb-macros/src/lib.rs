@@ -47,6 +47,11 @@ mod prelude {
 
 macro_rules! macro_node {
     ($fn_name:ident, $node_type:ty, $gen_type:path) => {
+        #[doc = concat!(
+            "Schema macro for `",
+            stringify!($fn_name),
+            "` nodes; validates the annotated public struct and expands to generated code."
+        )]
         #[proc_macro_attribute]
         pub fn $fn_name(
             args: proc_macro::TokenStream,

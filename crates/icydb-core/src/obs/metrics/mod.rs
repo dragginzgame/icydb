@@ -394,3 +394,82 @@ pub fn report() -> EventReport {
         entity_counters,
     }
 }
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reset_all_clears_state() {
+        with_state_mut(|m| {
+            m.ops.load_calls = 3;
+            m.ops.index_inserts = 2;
+            m.perf.save_inst_max = 9;
+            m.entities.insert(
+                "alpha".to_string(),
+                EntityCounters {
+                    load_calls: 1,
+                    ..Default::default()
+                },
+            );
+        });
+
+        reset_all();
+
+        with_state(|m| {
+            assert_eq!(m.ops.load_calls, 0);
+            assert_eq!(m.ops.index_inserts, 0);
+            assert_eq!(m.perf.save_inst_max, 0);
+            assert!(m.entities.is_empty());
+        });
+    }
+
+    #[test]
+    fn report_sorts_entities_by_average_rows() {
+        reset_all();
+        with_state_mut(|m| {
+            m.entities.insert(
+                "alpha".to_string(),
+                EntityCounters {
+                    load_calls: 2,
+                    rows_loaded: 6,
+                    ..Default::default()
+                },
+            );
+            m.entities.insert(
+                "beta".to_string(),
+                EntityCounters {
+                    load_calls: 1,
+                    rows_loaded: 5,
+                    ..Default::default()
+                },
+            );
+            m.entities.insert(
+                "gamma".to_string(),
+                EntityCounters {
+                    load_calls: 2,
+                    rows_loaded: 6,
+                    ..Default::default()
+                },
+            );
+        });
+
+        let report = report();
+        let paths: Vec<_> = report
+            .entity_counters
+            .iter()
+            .map(|e| e.path.as_str())
+            .collect();
+
+        // Order by avg rows per load desc, then rows_loaded desc, then path asc.
+        assert_eq!(paths, ["beta", "alpha", "gamma"]);
+        assert_eq!(report.entity_counters[0].avg_rows_per_load, 5.0);
+        assert_eq!(report.entity_counters[1].avg_rows_per_load, 3.0);
+        assert_eq!(report.entity_counters[2].avg_rows_per_load, 3.0);
+    }
+}

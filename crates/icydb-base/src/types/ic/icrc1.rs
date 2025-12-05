@@ -6,12 +6,12 @@ use crate::prelude::*;
 
 #[record(fields(
     field(ident = "recipient", value(item(prim = "Principal"))),
-    field(ident = "tokens", value(item(is = "Tokens")))
+    field(ident = "token_amount", value(item(is = "TokenAmount")))
 ))]
 pub struct Payment {}
 
 ///
-/// Icrc1 Tokens
+/// Icrc1 TokenAmount
 /// technically ICRC-1 includes ICP, but in that case the ledger_canister is implied
 ///
 
@@ -19,4 +19,4 @@ pub struct Payment {}
     field(ident = "ledger_canister", value(item(prim = "Principal"))),
     field(ident = "tokens", value(item(prim = "Nat64")))
 ))]
-pub struct Tokens {}
+pub struct TokenAmount {}

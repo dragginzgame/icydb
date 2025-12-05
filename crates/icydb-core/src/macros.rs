@@ -1,5 +1,6 @@
 // start
 // macro to be included at the start of each canister lib.rs file
+/// Include the generated actor module emitted by `build!` (placed in `OUT_DIR/actor.rs`).
 #[macro_export]
 macro_rules! start {
     () => {
@@ -10,6 +11,7 @@ macro_rules! start {
 
 // build
 // for the various build.rs files
+/// Build-script helper that runs IcyDB codegen for the specified canister actor path.
 #[macro_export]
 macro_rules! build {
     ($actor:expr) => {
@@ -46,6 +48,7 @@ macro_rules! build {
 }
 
 // db
+/// Access the current canister's database session; use `db!()` or `db!(debug)` for verbose tracing.
 #[macro_export]
 #[allow(clippy::crate_in_macro_def)]
 macro_rules! db {

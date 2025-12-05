@@ -75,3 +75,75 @@ impl CratePaths {
 pub fn paths() -> CratePaths {
     CratePaths::new()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::quote;
+    use std::{
+        env,
+        sync::{LazyLock, Mutex},
+    };
+
+    // Prevent concurrent env var mutations across tests in this module.
+    static ENV_GUARD: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct TempEnv {
+        key: &'static str,
+        prev: Option<String>,
+    }
+
+    impl TempEnv {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let prev = env::var(key).ok();
+            unsafe {
+                match value {
+                    Some(v) => env::set_var(key, v),
+                    None => env::remove_var(key),
+                }
+            }
+            Self { key, prev }
+        }
+    }
+
+    impl Drop for TempEnv {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.prev {
+                    Some(value) => env::set_var(self.key, value),
+                    None => env::remove_var(self.key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn uses_internal_crate_names_inside_workspace() {
+        let _guard = ENV_GUARD.lock().unwrap();
+        let _pkg = TempEnv::set("CARGO_PKG_NAME", Some("icydb-paths"));
+        let _core = TempEnv::set("ICYDB_CORE_CRATE", None);
+        let _schema = TempEnv::set("ICYDB_SCHEMA_CRATE", None);
+        let _error = TempEnv::set("ICYDB_ERROR_CRATE", None);
+
+        let paths = CratePaths::new();
+
+        assert_eq!(paths.core.to_string(), quote!(icydb_core).to_string());
+        assert_eq!(paths.schema.to_string(), quote!(icydb_schema).to_string());
+        assert_eq!(paths.error.to_string(), quote!(icydb_error).to_string());
+    }
+
+    #[test]
+    fn honors_env_overrides_for_external_consumers() {
+        let _guard = ENV_GUARD.lock().unwrap();
+        let _pkg = TempEnv::set("CARGO_PKG_NAME", Some("external-app"));
+        let _core = TempEnv::set("ICYDB_CORE_CRATE", Some("custom::core"));
+        let _schema = TempEnv::set("ICYDB_SCHEMA_CRATE", Some("custom::schema"));
+        let _error = TempEnv::set("ICYDB_ERROR_CRATE", Some("custom::error"));
+
+        let paths = CratePaths::new();
+
+        assert_eq!(paths.core.to_string(), quote!(custom::core).to_string());
+        assert_eq!(paths.schema.to_string(), quote!(custom::schema).to_string());
+        assert_eq!(paths.error.to_string(), quote!(custom::error).to_string());
+    }
+}

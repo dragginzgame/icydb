@@ -10,20 +10,24 @@ use crate::prelude::*;
 #[newtype(primitive = "Blob", item(prim = "Blob"))]
 pub struct Memo {}
 
-///
-/// Payment
-///
+pub mod icp {
+    use super::*;
 
-#[record(fields(
-    field(ident = "recipient", value(item(prim = "Principal"))),
-    field(ident = "tokens", value(item(is = "Tokens")))
-))]
-pub struct Payment {}
+    ///
+    /// Icp Payment
+    ///
 
-///
-/// Tokens
-/// always denominated in e8s
-///
+    #[record(fields(
+        field(ident = "recipient", value(item(prim = "Principal"))),
+        field(ident = "amount", value(item(is = "Amount")))
+    ))]
+    pub struct Payment {}
 
-#[newtype(primitive = "Nat64", item(prim = "Nat64"))]
-pub struct Tokens {}
+    ///
+    /// Icp Amount
+    /// always denominated in e8s
+    ///
+
+    #[newtype(primitive = "Nat64", item(prim = "Nat64"))]
+    pub struct Amount {}
+}

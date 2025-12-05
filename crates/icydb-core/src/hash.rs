@@ -29,3 +29,22 @@ pub const fn fnv1a_64(bytes: &[u8]) -> u64 {
 
     hash
 }
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::fnv1a_64;
+
+    // Compile-time hash should match the runtime calculation for stability across platforms.
+    const HELLO_HASH: u64 = fnv1a_64(b"hello");
+
+    #[test]
+    fn produces_expected_reference_values() {
+        assert_eq!(HELLO_HASH, 0xa_430_d84_680_aab_d0b);
+        assert_eq!(fnv1a_64(b"icydb"), 0x8_e95_e77_713_0e5_1b6);
+        assert_eq!(fnv1a_64(b""), 0xc_bf2_9ce_484_222_325);
+    }
+}
