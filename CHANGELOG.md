@@ -5,6 +5,9 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.0.14] - 2025-12-06
+- removed dependency on canic, as the canic-core and canic-memory are now separate crates.  Will do further fixing/renaming soon.
+
 ## [0.0.13] - 2025-12-05
 - Added unit tests for schema identifier validation, crate path resolution, metrics reporting, and FNV hashing; documented public macros for codegen/startup helpers.
 - Renamed Icp/Icrc Payment and Amount because the Tokens struct name is confusing
