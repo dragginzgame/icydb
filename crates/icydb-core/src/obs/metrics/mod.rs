@@ -1,9 +1,8 @@
 use crate::traits::EntityKind;
 use candid::CandidType;
-use canic::{cdk::api::performance_counter, utils::time};
+use canic_core::{cdk::api::performance_counter, utils::time::now_millis};
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
-use std::{cell::RefCell, collections::BTreeMap, marker::PhantomData};
+use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap, marker::PhantomData};
 
 ///
 /// Metrics
@@ -24,7 +23,7 @@ impl Default for EventState {
             ops: EventOps::default(),
             perf: EventPerf::default(),
             entities: BTreeMap::new(),
-            since_ms: time::now_millis(),
+            since_ms: now_millis(),
         }
     }
 }

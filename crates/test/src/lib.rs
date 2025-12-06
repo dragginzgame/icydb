@@ -6,7 +6,10 @@ mod metrics;
 mod ops;
 mod view_into;
 
-use canic::{cdk::export_candid, prelude::*};
+use canic_core::{
+    cdk::{export_candid, query, update},
+    perf_start,
+};
 use icydb::{Error, design::prelude::*};
 use test_design::{
     e2e::filter::{Filterable, FilterableView},
@@ -18,8 +21,6 @@ use test_design::{
 //
 
 icydb::start!();
-
-pub static WASMS: &[(CanisterType, &[u8])] = &[];
 
 ///
 /// ENDPOINTS
@@ -36,9 +37,9 @@ pub(crate) fn clear_test_data_store() {
     });
 }
 
-// test
-#[update]
+/// test
 /// Entrypoint that runs the full end-to-end test suite in canister mode.
+#[update]
 pub fn test() {
     let tests: Vec<(&str, fn())> = vec![
         ("db", db::DbSuite::test),
@@ -63,15 +64,15 @@ pub fn test() {
 
     perf_start!();
 
-    log!(Ok, "test: all tests passed successfully");
+    println!("test: all tests passed successfully");
 }
 
 //
 // ENDPOINTS
 //
 
-// filterable
 #[query]
+/// filterable
 /// Return all `Filterable` entities mapped into the `FilterableView`.
 pub fn filterable() -> Result<Vec<FilterableView>, Error> {
     let res = db!(debug).load::<Filterable>().all()?.entities().to_view();

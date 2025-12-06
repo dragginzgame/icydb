@@ -1,4 +1,5 @@
 use crate::{Error, prelude::*};
+use canic_core::utils::time::now_secs;
 use std::{any::Any, collections::BTreeMap};
 
 ///
@@ -115,7 +116,7 @@ impl Schema {
         Self {
             nodes: BTreeMap::new(),
             hash: "",
-            timestamp: canic::utils::time::now_secs(),
+            timestamp: now_secs(),
         }
     }
 

@@ -1,5 +1,5 @@
 use crate::types::{Ulid, UlidError};
-use canic::utils;
+use canic_core::utils::{rand::next_u128, time::now_millis};
 use std::sync::{LazyLock, Mutex};
 
 ///
@@ -33,7 +33,7 @@ impl Generator {
     /// Monotonic ULID generation; increments within the same millisecond.
     pub fn generate(&mut self) -> Result<Ulid, UlidError> {
         let last_ts = self.previous.timestamp_ms();
-        let ts = utils::time::now_millis();
+        let ts = now_millis();
 
         // maybe time went backward, or it is the same ms.
         // increment instead of generating a new random so that it is monotonic
@@ -49,7 +49,7 @@ impl Generator {
         }
 
         // generate
-        let rand = utils::rand::next_u128();
+        let rand = next_u128();
         let ulid = Ulid::from_parts(ts, rand);
 
         self.previous = ulid;
@@ -57,6 +57,10 @@ impl Generator {
         Ok(ulid)
     }
 }
+
+///
+/// TESTS
+///
 
 mod test {
     #[allow(unused_imports)] // weird

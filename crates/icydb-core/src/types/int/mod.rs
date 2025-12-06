@@ -11,7 +11,7 @@ use crate::{
     },
 };
 use candid::{CandidType, Int as WrappedInt};
-use canic::impl_storable_unbounded;
+use canic_core::impl_storable_unbounded;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
 use std::iter::Sum;

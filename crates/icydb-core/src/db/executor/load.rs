@@ -10,7 +10,6 @@ use crate::{
     obs::metrics,
     traits::{EntityKind, FieldValue},
 };
-use canic::log;
 use std::{cmp::Ordering, marker::PhantomData};
 
 ///
@@ -37,7 +36,7 @@ impl<E: EntityKind> LoadExecutor<E> {
     #[inline]
     fn debug_log(&self, s: impl Into<String>) {
         if self.debug {
-            log!(Debug, "{}", s.into());
+            println!("{}", s.into());
         }
     }
 

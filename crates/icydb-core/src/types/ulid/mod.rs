@@ -11,7 +11,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic::{cdk::structures::storable::Bound, types::Ulid as WrappedUlid};
+use canic_core::{cdk::structures::storable::Bound, types::Ulid as WrappedUlid};
 use derive_more::{Deref, DerefMut, Display, FromStr};
 use icydb_error::ErrorTree;
 use serde::{Deserialize, Serialize};

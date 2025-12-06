@@ -4,7 +4,7 @@ use crate::{
     value::Value,
 };
 use candid::{CandidType, Principal as WrappedPrincipal};
-use canic::impl_storable_bounded;
+use canic_core::impl_storable_bounded;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;

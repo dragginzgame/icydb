@@ -13,7 +13,8 @@ doctest = false
 
 [dependencies]
 candid = { workspace = true }
-canic = { workspace = true }
+canic-core = { workspace = true }
+canic-memory = { workspace = true }
 chrono = { workspace = true }
 ctor = { workspace = true }
 derive_more = { workspace = true }

@@ -21,6 +21,21 @@ pub use serialize::{deserialize, serialize};
 pub use value::Value;
 pub use visitor::{sanitize, validate};
 
+/// re-exports
+///
+/// macros can use these, stops the user having to specify all the dependencies
+/// in the Cargo.toml file manually
+///
+/// these have to be in icydb_core because of the base library not being able to import icydb
+pub mod __reexports {
+    pub use canic_core;
+    pub use canic_memory;
+    pub use ctor;
+    pub use derive_more;
+    pub use num_traits;
+    pub use remain;
+}
+
 ///
 /// CONSTANTS
 ///
@@ -61,18 +76,6 @@ pub mod prelude {
     pub use serde::{Deserialize, Serialize};
 }
 
-///
-/// Third party re-exports
-///
-
-pub mod export {
-    pub use canic;
-    pub use ctor;
-    pub use derive_more;
-    pub use num_traits;
-    pub use remain;
-}
-
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
@@ -86,10 +89,6 @@ use thiserror::Error as ThisError;
 
 #[derive(CandidType, Debug, Deserialize, Serialize, ThisError)]
 pub enum Error {
-    // third party
-    #[error("{0}")]
-    CanicError(String),
-
     #[error("{0}")]
     DbError(String),
 
@@ -113,7 +112,6 @@ macro_rules! from_to_string {
     };
 }
 
-from_to_string!(canic::Error, CanicError);
 from_to_string!(db::DbError, DbError);
 from_to_string!(interface::InterfaceError, InterfaceError);
 from_to_string!(serialize::SerializeError, SerializeError);

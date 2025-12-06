@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use canic_utils::case::{Case, Casing};
+use canic_core::utils::case::{Case, Casing};
 
 ///
 /// FieldList

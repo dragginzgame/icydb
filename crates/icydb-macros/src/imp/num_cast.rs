@@ -94,11 +94,11 @@ impl Imp<Newtype> for NumToPrimitiveTrait {
         let cp = paths().core;
         let q = quote! {
             fn to_i64(&self) -> Option<i64> {
-                #cp::export::num_traits::NumCast::from(self.0)
+                #cp::__reexports::num_traits::NumCast::from(self.0)
             }
 
             fn to_u64(&self) -> Option<u64> {
-                #cp::export::num_traits::NumCast::from(self.0)
+                #cp::__reexports::num_traits::NumCast::from(self.0)
             }
         };
 

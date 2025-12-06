@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use canic_utils::case::{Case, Casing};
+use canic_core::utils::case::{Case, Casing};
 
 ///
 /// HasDef
@@ -235,7 +235,7 @@ pub trait HasSchema: HasSchemaPart + HasDef {
             const #const_var: #sp::node::#kind = #schema_expr;
 
             #[cfg(not(target_arch = "wasm32"))]
-            #[#cp::export::ctor::ctor(anonymous, crate_path = #cp::export::ctor)]
+            #[#cp::__reexports::ctor::ctor(anonymous, crate_path = #cp::__reexports::ctor)]
             fn __ctor() {
                 #sp::build::schema_write().insert_node(
                     #sp::node::SchemaNode::#kind(#const_var)

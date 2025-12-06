@@ -1,13 +1,18 @@
 use crate::Error;
-use canic::serialize::{deserialize as canic_deserialize, serialize as canic_serialize};
+use canic_core::utils::serialize::{
+    deserialize as canic_deserialize, serialize as canic_serialize,
+};
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error as ThisError;
 
-/// Serialization errors surfaced through the `icydb` convenience helpers.
+///
+/// SerializeError
+///
+
 #[derive(Debug, ThisError)]
 pub enum SerializeError {
     #[error(transparent)]
-    SerializeError(#[from] canic::Error),
+    SerializeError(#[from] canic_core::utils::serialize::SerializeError),
 }
 
 /// Serialize a value using the default `canic` serializer.

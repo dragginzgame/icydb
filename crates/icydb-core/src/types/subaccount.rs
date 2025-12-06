@@ -8,7 +8,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic::{
+use canic_core::{
     impl_storable_bounded, types::Subaccount as WrappedSubaccount, utils::rand::next_u128,
 };
 use derive_more::{Deref, DerefMut};

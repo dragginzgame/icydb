@@ -7,7 +7,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic::utils::time::now_secs;
+use canic_core::utils::time::now_secs;
 use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
 

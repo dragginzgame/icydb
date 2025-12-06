@@ -8,7 +8,7 @@ use crate::{
     traits::EntityKind,
 };
 use candid::CandidType;
-use canic::{
+use canic_core::{
     cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory},
     impl_storable_bounded, impl_storable_unbounded,
     utils::hash::hash_u64,
