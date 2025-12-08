@@ -75,4 +75,15 @@ pub mod test {
         let list = FieldValue::to_value(&vec);
         assert_eq!(list, icydb::core::value::Value::List(vec![value]));
     }
+
+    #[test]
+    fn option_field_value_handles_some_and_none() {
+        use icydb::core::{traits::FieldValue, value::Value};
+
+        let some_val: Option<Value> = Some(Value::Uint(7));
+        let none_val: Option<Value> = None;
+
+        assert_eq!(FieldValue::to_value(&some_val), Value::Uint(7));
+        assert_eq!(FieldValue::to_value(&none_val), Value::None);
+    }
 }
