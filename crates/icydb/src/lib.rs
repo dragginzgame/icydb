@@ -15,7 +15,6 @@ pub use icydb_core as core;
 pub use icydb_error as error;
 pub use icydb_macros as macros;
 pub use icydb_schema as schema;
-pub use icydb_types as types;
 
 ///
 /// CRATE

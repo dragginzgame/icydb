@@ -797,7 +797,6 @@ dependencies = [
  "icydb-error",
  "icydb-macros",
  "icydb-schema",
- "icydb-types",
  "num-traits",
  "remain",
 ]
@@ -897,13 +896,6 @@ dependencies = [
  "remain",
  "serde",
  "thiserror 2.0.17",
-]
-
-[[package]]
-name = "icydb-types"
-version = "0.0.15"
-dependencies = [
- "icydb-core",
 ]
 
 [[package]]
