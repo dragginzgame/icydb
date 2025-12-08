@@ -810,7 +810,6 @@ dependencies = [
  "canic-core",
  "icydb-core",
  "icydb-error",
- "icydb-macros",
  "icydb-schema",
  "serde",
  "serde_json",
