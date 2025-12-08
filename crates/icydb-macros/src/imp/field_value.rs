@@ -12,31 +12,37 @@ pub struct FieldValueTrait {}
 
 impl Imp<Enum> for FieldValueTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
+        let cp = paths().core;
+
         // generate match arms
         let arms = node.variants.iter().map(|v| {
             let v_match = {
                 let v_ident = &v.ident;
 
                 if v.value.is_some() {
-                    quote!(#v_ident(_))
+                    quote!(#v_ident(v))
                 } else {
                     quote!(#v_ident)
                 }
             };
             let v_name = &v.ident.to_string(); // schema variant name (String)
+            let payload = if v.value.is_some() {
+                quote!(.with_payload(#cp::traits::FieldValue::to_value(v)))
+            } else {
+                quote!()
+            };
 
             quote! {
                 Self::#v_match => {
                     ValueEnum::new(
                         #v_name,
                         Some(Self::PATH)
-                    )
+                    ) #payload
                 }
             }
         });
 
         // quote
-        let cp = paths().core;
         let q = quote! {
             fn to_value(&self) -> #cp::value::Value {
                 use #cp::value::{ValueEnum, Value};

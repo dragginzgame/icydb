@@ -1,10 +1,10 @@
 //! ## Crate layout
+//! - `base`: builtin design-time helpers, sanitizers, and validators.
+//! - `build`: internal codegen helpers used by macros and tests.
 //! - `core`: runtime data model, filters, queries, values, and observability.
+//! - `error`: shared error types for generated and runtime code.
 //! - `macros`: derive macros for entities, schemas, and views.
 //! - `schema`: schema AST, builder, and validation utilities.
-//! - `base`: builtin design-time helpers, sanitizers, and validators.
-//! - `error`: shared error types for generated and runtime code.
-//! - `build`: internal codegen helpers used by macros and tests.
 //!
 //! The `prelude` module mirrors the runtime surface used inside actor code;
 //! `design::prelude` exposes schema and macro-facing helpers.
@@ -27,7 +27,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 // Macros
 //
 
-pub use core::{Error, build, db, start};
+pub use core::{Error, db, start};
+pub use icydb_build::build;
 
 //
 // Actor Prelude

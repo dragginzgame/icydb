@@ -122,13 +122,23 @@ fn coerce_enum(left: &Value, right: &Value, cmp: Cmp) -> Option<bool> {
             a.to_lowercase() == b.to_lowercase()
         }
     };
+    let payloads_match = |l: &Option<Box<Value>>, r: &Option<Box<Value>>| match (l, r) {
+        (Some(lp), Some(rp)) => lp == rp,
+        (None, None) => true,
+        _ => false,
+    };
 
     match (left, right) {
-        (Value::Enum(l), Value::Enum(r)) if paths_compatible(&l.path, &r.path) => match cmp {
-            Cmp::Eq | Cmp::EqCi => Some(variant_eq_ci(&l.variant, &r.variant)),
-            Cmp::Ne | Cmp::NeCi => Some(!variant_eq_ci(&l.variant, &r.variant)),
-            _ => None,
-        },
+        (Value::Enum(l), Value::Enum(r)) if paths_compatible(&l.path, &r.path) => {
+            let variants_equal = variant_eq_ci(&l.variant, &r.variant);
+            let payload_equal = payloads_match(&l.payload, &r.payload);
+
+            match cmp {
+                Cmp::Eq | Cmp::EqCi => Some(variants_equal && payload_equal),
+                Cmp::Ne | Cmp::NeCi => Some(!(variants_equal && payload_equal)),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }

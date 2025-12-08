@@ -136,6 +136,13 @@ fn enum_loose_mismatch_without_path_on_rhs() {
     assert_eq!(coerce_basic(&a, &b, Cmp::Eq), Some(false));
 }
 
+#[test]
+fn enum_payload_must_match_for_equality() {
+    let a = Value::Enum(ValueEnum::new("A", Some("MyEnum")).with_payload(Value::Uint(10)));
+    let b = Value::Enum(ValueEnum::new("A", Some("MyEnum")).with_payload(Value::Uint(20)));
+    assert_eq!(coerce_basic(&a, &b, Cmp::Eq), Some(false));
+}
+
 //
 // ───────────────────────────────────────────────────────────────
 // Identifier <-> Text (ULID, Principal, Subaccount)

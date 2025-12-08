@@ -190,6 +190,14 @@ impl Value {
 
                 feed_u32(h, v.variant.len() as u32);
                 feed_bytes(h, v.variant.as_bytes());
+
+                match &v.payload {
+                    Some(payload) => {
+                        feed_u8(h, 0x01); // payload present
+                        payload.write_to_hasher(h); // include nested value
+                    }
+                    None => feed_u8(h, 0x00),
+                }
             }
             Self::E8s(v) => {
                 feed_u64(h, v.get());

@@ -608,10 +608,11 @@ impl PartialOrd for Value {
 /// handles the Enum case; `path` is optional to allow strict (typed) or loose matching.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, PartialOrd, Serialize)]
 pub struct ValueEnum {
     pub variant: String,
     pub path: Option<String>,
+    pub payload: Option<Box<Value>>,
 }
 
 impl ValueEnum {
@@ -621,6 +622,7 @@ impl ValueEnum {
         Self {
             variant: variant.to_string(),
             path: path.map(ToString::to_string),
+            payload: None,
         }
     }
 
@@ -628,5 +630,12 @@ impl ValueEnum {
     /// Build an enum value that ignores the path for loose matching.
     pub fn loose(variant: &str) -> Self {
         Self::new(variant, None)
+    }
+
+    #[must_use]
+    /// Attach an enum payload (used for data-carrying variants).
+    pub fn with_payload(mut self, payload: Value) -> Self {
+        self.payload = Some(Box::new(payload));
+        self
     }
 }

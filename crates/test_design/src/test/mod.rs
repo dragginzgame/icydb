@@ -1,5 +1,6 @@
 pub mod collection;
 pub mod entity;
+pub mod enum_payload;
 pub mod merge;
 pub mod newtype;
 pub mod relation;

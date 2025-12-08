@@ -1,6 +1,7 @@
-pub mod db;
-pub mod metrics;
-pub mod query;
+mod db;
+mod macros;
+mod metrics;
+mod query;
 
 use icydb_schema::{
     build::get_schema,
@@ -31,9 +32,9 @@ pub fn generate(canister_path: &str) -> String {
 /// ActorBuilder
 ///
 
-pub struct ActorBuilder {
-    pub schema: Arc<Schema>,
-    pub canister: Canister,
+pub(crate) struct ActorBuilder {
+    pub(crate) schema: Arc<Schema>,
+    pub(crate) canister: Canister,
 }
 
 impl ActorBuilder {

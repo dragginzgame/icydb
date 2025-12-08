@@ -157,9 +157,15 @@ impl<T: FieldValue + Clone> FieldValue for &T {
     }
 }
 
-impl FieldValue for Vec<Value> {
+impl<T: FieldValue> FieldValue for Box<T> {
     fn to_value(&self) -> Value {
-        Value::List(self.clone())
+        (**self).to_value()
+    }
+}
+
+impl<T: FieldValue> FieldValue for Vec<T> {
+    fn to_value(&self) -> Value {
+        Value::List(self.iter().map(FieldValue::to_value).collect())
     }
 }
 

@@ -62,6 +62,27 @@ fn enum_hash_tracks_path_presence() {
 }
 
 #[test]
+fn enum_hash_includes_payload() {
+    let base = ValueEnum::new("A", Some("MyEnum"));
+    let with_one = Value::Enum(base.clone().with_payload(Value::Uint(1)));
+    let with_two = Value::Enum(base.with_payload(Value::Uint(2)));
+
+    assert_ne!(
+        with_one.hash_value(),
+        with_two.hash_value(),
+        "Enum payload must influence hash/fingerprint"
+    );
+}
+
+#[test]
+fn vec_box_value_field_value() {
+    let inner = Value::Uint(5);
+    let vec: Vec<Box<Value>> = vec![Box::new(inner.clone())];
+    let value = FieldValue::to_value(&vec);
+    assert_eq!(value, Value::List(vec![inner]));
+}
+
+#[test]
 fn float32_and_float64_hash_differ() {
     let a = v_f32(1.0).hash_value();
     let b = v_f64(1.0).hash_value();
