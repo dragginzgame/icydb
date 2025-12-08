@@ -134,9 +134,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.5.3"
+version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47ecb7b70778afc2594f9376ee96bd25a5c8656e232881e8d7fd0c71794194fa"
+checksum = "464ebb0a29ad43c7d8b904dbcae0e1d71ae4b06858af11a0a50bb863b3f40d23"
 dependencies = [
  "candid",
  "derive_more",
@@ -150,49 +150,102 @@ dependencies = [
 
 [[package]]
 name = "canic-core"
-version = "0.5.3"
+version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bd6a5fca1db5f3621b679845d7bfd0085d6dbc5c352e63e22742d3ed0e6def7"
+checksum = "8b8d92df0b313ce5c68504a11f054eff14caff6d07fe05bae6f40eeac4fee585"
 dependencies = [
- "base32 0.5.1",
  "candid",
  "canic-cdk",
- "convert_case",
- "crc32fast",
- "defer",
+ "canic-macros",
+ "canic-memory",
+ "canic-types",
+ "canic-utils",
+ "ctor",
  "derive_more",
- "hex",
+ "ic-canister-sig-creation",
  "ic-cdk",
+ "ic-signature-verification",
+ "ic-stable-structures 0.7.2",
+ "icrc-ledger-types",
  "minicbor-serde",
- "num-traits",
+ "remain",
  "serde",
  "serde_bytes",
  "sha2",
  "thiserror 2.0.17",
- "tinyrand",
- "ulid",
- "xxhash-rust",
+ "toml",
+]
+
+[[package]]
+name = "canic-macros"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46aa7683004bfa4d6458419675be13aa6610ae8d2fe7e797c00016c0f4f06440"
+dependencies = [
+ "canic-cdk",
+ "canic-utils",
+ "serde",
 ]
 
 [[package]]
 name = "canic-memory"
-version = "0.5.3"
+version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "285079864d4b8724308299e7b16e1c9e4c81f7ae70b602660ca88aaab06f1c82"
+checksum = "f57475dbf964c64a0a43ddab3a45a34adbdf1add9dbc4a5400b9a5140b2d62a4"
 dependencies = [
  "candid",
  "canic-cdk",
- "canic-core",
+ "canic-macros",
+ "canic-types",
+ "canic-utils",
  "ctor",
  "serde",
  "thiserror 2.0.17",
 ]
 
 [[package]]
-name = "cc"
-version = "1.2.48"
+name = "canic-types"
+version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c481bdbf0ed3b892f6f806287d72acd515b352a4ec27a208489b8c1bc839633a"
+checksum = "57e2cabc8984279fb3ee57e4106920d632e0f64b850a55b48ca7ab06a491cca4"
+dependencies = [
+ "base32 0.5.1",
+ "candid",
+ "canic-cdk",
+ "canic-macros",
+ "canic-utils",
+ "crc32fast",
+ "derive_more",
+ "hex",
+ "num-traits",
+ "serde",
+ "serde_bytes",
+ "ulid",
+]
+
+[[package]]
+name = "canic-utils"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "236889701e0f3b806d30bcc84e9b18eef84d7c9507aff32ab557f2f08e3daf90"
+dependencies = [
+ "canic-cdk",
+ "convert_case",
+ "defer",
+ "derive_more",
+ "minicbor-serde",
+ "serde",
+ "sha2",
+ "thiserror 2.0.17",
+ "tinyrand",
+ "xxhash-rust",
+]
+
+[[package]]
+name = "cc"
+version = "1.2.49"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90583009037521a116abf44494efecd645ba48b6622457080f080b85544e2215"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -411,6 +464,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
+name = "equivalent"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+
+[[package]]
 name = "ff"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -458,6 +517,12 @@ name = "half"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b43ede17f21864e81be2fa654110bf1e793774238d86ef8555c37e6519c0403"
+
+[[package]]
+name = "hashbrown"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
 
 [[package]]
 name = "heck"
@@ -840,6 +905,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
+name = "indexmap"
+version = "2.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ad4bb2b565bca0645f4d68c5c9af97fba094e9791da685bf83cb5f3ce74acf2"
+dependencies = [
+ "equivalent",
+ "hashbrown",
+]
+
+[[package]]
 name = "itertools"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1166,6 +1241,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e24345aa0fe688594e73770a5f6d1b216508b4f93484c0026d521acd30134392"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1184,9 +1268,9 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "slotmap"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "811fec94324ff439b2d5e4a1cf88cc5b6c09d92358715d600b2fe91c0489b5cb"
+checksum = "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038"
 dependencies = [
  "version_check",
 ]
@@ -1363,6 +1447,45 @@ name = "tinyrand"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87ffaad2263779579369d45f65cad0647c860893d27e4543cdcc1e428d07da2c"
+
+[[package]]
+name = "toml"
+version = "0.9.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0dc8b1fb61449e27716ec0e1bdf0f6b8f3e8f6b05391e8497b8b6d7804ea6d8"
+dependencies = [
+ "indexmap",
+ "serde_core",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_parser",
+ "toml_writer",
+ "winnow",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2cdb639ebbc97961c51720f858597f7f24c4fc295327923af55b74c3c724533"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
+name = "toml_parser"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0cbe268d35bdb4bb5a56a2de88d0ad0eb70af5384a99d648cd4b3d04039800e"
+dependencies = [
+ "winnow",
+]
+
+[[package]]
+name = "toml_writer"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df8b2b54733674ad286d16267dcfc7a71ed5c776e4ac7aa3c3e2561f7c637bf2"
 
 [[package]]
 name = "typed-arena"
@@ -1542,6 +1665,12 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
+
+[[package]]
+name = "winnow"
+version = "0.7.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a5364e9d77fcdeeaa6062ced926ee3381faa2ee02d3eb83a5c27a8825540829"
 
 [[package]]
 name = "xxhash-rust"
