@@ -26,7 +26,7 @@ macro_rules! build {
         // ACTOR CODE
         //
 
-        let output = ::icydb_build::generate($actor);
+        let output = ::icydb::build::generate($actor);
 
         // write the file
         let actor_file = PathBuf::from(out_dir.clone()).join("actor.rs");
