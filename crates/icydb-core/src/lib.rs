@@ -68,6 +68,7 @@ pub mod prelude {
             CreateView as _, EntityKind as _, FilterView as _, Inner as _, Path as _,
             UpdateView as _, View as _,
         },
+        types::*,
         value::Value,
         view::{Create, Filter, Update, View},
     };
