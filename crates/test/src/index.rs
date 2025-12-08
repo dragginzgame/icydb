@@ -2,7 +2,7 @@ use icydb::{
     core::{
         db::query::{self, LoadQuery, QueryPlan, QueryPlanner},
         traits::EntityKind,
-        types::Principal,
+        types::{Principal, Ulid},
     },
     prelude::*,
 };

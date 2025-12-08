@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use icydb::{
-    core::types::{Principal, Ulid},
+    core::types::{Decimal, Principal, Ulid},
     prelude::*,
 };
 use test_design::e2e::filter::{Filterable, FilterableEnum, FilterableOpt};

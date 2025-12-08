@@ -2,7 +2,7 @@ use icydb::{
     core::{
         Value,
         db::primitives::*,
-        types::{Account, Principal, Ulid},
+        types::{Account, Decimal, Principal, Ulid},
     },
     prelude::*,
 };

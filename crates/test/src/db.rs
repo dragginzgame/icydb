@@ -1,4 +1,7 @@
-use icydb::{core::traits::Path, prelude::*};
+use icydb::{
+    core::{traits::Path, types::Ulid},
+    prelude::*,
+};
 use test_design::schema::TestDataStore;
 
 ///

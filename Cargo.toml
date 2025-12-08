@@ -8,6 +8,7 @@ members = [
     "crates/icydb-macros",
     "crates/icydb-paths",
     "crates/icydb-schema",
+    "crates/icydb-types",
     # Test-only crates
     "crates/test",
     "crates/test_design",
@@ -41,6 +42,7 @@ icydb-error = { path = "crates/icydb-error", version = "0.0.15" }
 icydb-macros = { path = "crates/icydb-macros", version = "0.0.15" }
 icydb-paths = { path = "crates/icydb-paths", version = "0.0.15" }
 icydb-schema = { path = "crates/icydb-schema", version = "0.0.15" }
+icydb-types = { path = "crates/icydb-types", version = "0.0.15" }
 num-traits = { version = "0.2", default-features = false }
 proc-macro2 = "1.0"
 quote = "1.0"
@@ -98,6 +100,7 @@ icydb-build = { path = "crates/icydb-build" }
 icydb-base = { path = "crates/icydb-base" }
 icydb-error = { path = "crates/icydb-error" }
 icydb-paths = { path = "crates/icydb-paths" }
+icydb-types = { path = "crates/icydb-types" }
 
 # ---------------------
 #  DEV PROFILE
