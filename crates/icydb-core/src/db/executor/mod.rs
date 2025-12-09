@@ -3,6 +3,7 @@ mod context;
 mod delete;
 mod filter;
 mod load;
+mod plan;
 mod save;
 
 pub(crate) use context::*;
@@ -13,14 +14,7 @@ pub use save::SaveExecutor;
 
 use crate::{
     Error,
-    db::{
-        DbError,
-        primitives::FilterExpr,
-        query::{QueryPlan, QueryPlanner},
-        store::DataKey,
-    },
-    obs::metrics::Span,
-    traits::EntityKind,
+    db::{DbError, store::DataKey},
 };
 use thiserror::Error as ThisError;
 
@@ -52,15 +46,4 @@ impl From<ExecutorError> for Error {
     fn from(err: ExecutorError) -> Self {
         DbError::from(err).into()
     }
-}
-
-/// Plan a query for an entity given an optional filter.
-#[must_use]
-pub(crate) fn plan_for<E: EntityKind>(filter: Option<&FilterExpr>) -> QueryPlan {
-    QueryPlanner::new(filter).plan::<E>()
-}
-
-/// Convenience: set span rows from a usize length.
-pub(crate) const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: usize) {
-    span.set_rows(len as u64);
 }

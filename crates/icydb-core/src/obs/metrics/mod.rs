@@ -1,6 +1,6 @@
 use crate::traits::EntityKind;
 use candid::CandidType;
-use canic_core::{cdk::api::performance_counter, utils::time::now_millis};
+use canic_core::utils::{perf::perf_counter, time::now_millis};
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap, marker::PhantomData};
 
@@ -142,12 +142,12 @@ pub(crate) fn exec_start(kind: ExecKind) -> u64 {
     });
 
     // Instruction counter (counter_type = 1) is per-message and monotonic.
-    performance_counter(1)
+    perf_counter()
 }
 
 /// Finish an executor timing span and aggregate instruction deltas and row counters.
 pub(crate) fn exec_finish(kind: ExecKind, start_inst: u64, rows_touched: u64) {
-    let now = performance_counter(1);
+    let now = perf_counter();
     let delta = now.saturating_sub(start_inst);
 
     with_state_mut(|m| match kind {

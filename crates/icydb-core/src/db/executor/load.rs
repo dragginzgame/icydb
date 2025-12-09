@@ -2,7 +2,10 @@ use crate::{
     Error, Key,
     db::{
         Db,
-        executor::{FilterEvaluator, plan_for},
+        executor::{
+            FilterEvaluator,
+            plan::{plan_for, set_rows_from_len},
+        },
         primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr, Order, SortExpr},
         query::{LoadQuery, QueryPlan, QueryValidate},
         response::Response,
@@ -127,24 +130,36 @@ impl<E: EntityKind> LoadExecutor<E> {
 
         // Fast path: pre-pagination
         let pre_paginated = query.filter.is_none() && query.sort.is_none() && query.limit.is_some();
-        let data_rows = if pre_paginated {
+        let mut rows: Vec<(Key, E)> = if pre_paginated {
             let lim = query.limit.as_ref().unwrap();
-            ctx.rows_from_plan_with_pagination(plan, lim.offset, lim.limit)?
+            let data_rows = ctx.rows_from_plan_with_pagination(plan, lim.offset, lim.limit)?;
+
+            self.debug_log(format!(
+                "📦 Scanned {} data rows before deserialization",
+                data_rows.len()
+            ));
+
+            let rows = ctx.deserialize_rows(data_rows)?;
+            self.debug_log(format!(
+                "🧩 Deserialized {} entities before filtering",
+                rows.len()
+            ));
+            rows
         } else {
-            ctx.rows_from_plan(plan)?
+            let data_rows = ctx.rows_from_plan(plan)?;
+            self.debug_log(format!(
+                "📦 Scanned {} data rows before deserialization",
+                data_rows.len()
+            ));
+
+            let rows = ctx.deserialize_rows(data_rows)?;
+            self.debug_log(format!(
+                "🧩 Deserialized {} entities before filtering",
+                rows.len()
+            ));
+
+            rows
         };
-
-        self.debug_log(format!(
-            "📦 Loaded {} data rows before deserialization",
-            data_rows.len()
-        ));
-
-        // Deserialize
-        let mut rows: Vec<(Key, E)> = ctx.deserialize_rows(data_rows)?;
-        self.debug_log(format!(
-            "🧩 Deserialized {} entities before filtering",
-            rows.len()
-        ));
 
         // Filtering
         if let Some(f) = &query.filter {
@@ -178,7 +193,7 @@ impl<E: EntityKind> LoadExecutor<E> {
             ));
         }
 
-        crate::db::executor::set_rows_from_len(&mut span, rows.len());
+        set_rows_from_len(&mut span, rows.len());
         self.debug_log(format!("✅ Query complete -> {} final rows", rows.len()));
 
         Ok(Response(rows))

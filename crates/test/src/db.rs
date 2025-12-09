@@ -1,5 +1,6 @@
 use icydb::{
-    core::{traits::Path, types::Ulid},
+    Error,
+    core::{db::store::DataKey, traits::Path, types::Ulid},
     prelude::*,
 };
 use test_design::schema::TestDataStore;
@@ -29,6 +30,11 @@ impl DbSuite {
             ("unit_primary_key", Self::unit_primary_key),
             ("perf_options", Self::perf_options),
             ("perf_many_relations", Self::perf_many_relations),
+            ("load_malformed_row_errors", Self::load_malformed_row_errors),
+            (
+                "delete_skips_malformed_rows",
+                Self::delete_skips_malformed_rows,
+            ),
         ];
 
         for (name, test_fn) in tests {
@@ -354,6 +360,55 @@ impl DbSuite {
                 }
             }
         }
+    }
+
+    fn load_malformed_row_errors() {
+        use test_design::e2e::db::SimpleEntity;
+
+        let good = db!().insert(SimpleEntity::default()).unwrap().key();
+        let bad = Ulid::generate();
+
+        Self::insert_malformed_simple_entity(bad);
+
+        let err = db!().load::<SimpleEntity>().all().unwrap_err();
+        assert!(
+            matches!(err, Error::SerializeError(_)),
+            "expected deserialization error when encountering malformed bytes"
+        );
+
+        // Targeted load for a valid key still works because it does not touch the malformed row.
+        let single = db!().load::<SimpleEntity>().one(good).unwrap();
+        assert_eq!(single.count(), 1);
+    }
+
+    fn delete_skips_malformed_rows() {
+        use test_design::e2e::db::SimpleEntity;
+
+        let valid = db!().insert(SimpleEntity::default()).unwrap().key();
+        let bad = Ulid::generate();
+
+        Self::insert_malformed_simple_entity(bad);
+
+        let deleted = db!().delete::<SimpleEntity>().all().unwrap();
+
+        assert_eq!(deleted.count(), 2);
+        assert_eq!(deleted.key().unwrap(), valid);
+
+        // Remaining malformed bytes still break load scans, but did not block deletion.
+        let err = db!().load::<SimpleEntity>().all().unwrap_err();
+        assert!(matches!(err, Error::SerializeError(_)));
+    }
+
+    fn insert_malformed_simple_entity(id: Ulid) {
+        use test_design::e2e::db::SimpleEntity;
+
+        crate::DATA_REGISTRY
+            .with(|reg| {
+                reg.with_store_mut(TestDataStore::PATH, |store| {
+                    store.insert(DataKey::new::<SimpleEntity>(id), vec![0, 1, 2]);
+                })
+            })
+            .unwrap();
     }
 
     fn load_one() {

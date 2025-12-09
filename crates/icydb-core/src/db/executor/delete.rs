@@ -2,17 +2,72 @@ use crate::{
     Error, Key,
     db::{
         Db,
-        executor::FilterEvaluator,
-        primitives::{FilterDsl, FilterExt, IntoFilterExpr},
+        executor::{
+            FilterEvaluator,
+            plan::{plan_for, scan_plan, set_rows_from_len},
+        },
+        primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr},
         query::{DeleteQuery, QueryPlan, QueryValidate},
         response::Response,
+        store::DataKey,
     },
-    deserialize,
     obs::metrics,
     traits::{EntityKind, FieldValue},
     view::View,
 };
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ops::ControlFlow};
+
+///
+/// DeleteAccumulator
+///
+/// collects matched rows for deletion while applying filter + offset/limit during iteration
+/// stops scanning once the window is satisfied.
+///
+
+struct DeleteAccumulator<'f, E> {
+    filter: Option<&'f FilterExpr>,
+    offset: usize,
+    skipped: usize,
+    limit: Option<usize>,
+    matches: Vec<(DataKey, E)>,
+}
+
+impl<'f, E: EntityKind> DeleteAccumulator<'f, E> {
+    fn new(filter: Option<&'f FilterExpr>, offset: usize, limit: Option<usize>) -> Self {
+        Self {
+            filter,
+            offset,
+            skipped: 0,
+            limit,
+            matches: Vec::with_capacity(limit.unwrap_or(0)),
+        }
+    }
+
+    fn limit_reached(&self) -> bool {
+        self.limit.is_some_and(|lim| self.matches.len() >= lim)
+    }
+
+    /// Returns true when the limit has been reached and iteration should stop.
+    fn should_stop(&mut self, dk: DataKey, entity: E) -> bool {
+        if let Some(f) = self.filter
+            && !FilterEvaluator::new(&entity).eval(f)
+        {
+            return false;
+        }
+
+        if self.skipped < self.offset {
+            self.skipped += 1;
+            return false;
+        }
+
+        if self.limit_reached() {
+            return true;
+        }
+
+        self.matches.push((dk, entity));
+        false
+    }
+}
 
 ///
 /// DeleteExecutor
@@ -111,18 +166,16 @@ impl<E: EntityKind> DeleteExecutor<E> {
     pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, Error> {
         QueryValidate::<E>::validate(&query)?;
 
-        Ok(crate::db::executor::plan_for::<E>(query.filter.as_ref()))
+        Ok(plan_for::<E>(query.filter.as_ref()))
     }
 
     // execute
     /// Execute a delete query and return the removed rows.
     pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, Error> {
-        let mut span = metrics::Span::<E>::new(metrics::ExecKind::Delete);
         QueryValidate::<E>::validate(&query)?;
+        let mut span = metrics::Span::<E>::new(metrics::ExecKind::Delete);
 
-        let ctx = self.db.context::<E>();
-        let plan = crate::db::executor::plan_for::<E>(query.filter.as_ref());
-        let keys = ctx.candidates_from_plan(plan)?; // no deserialization here
+        let plan = plan_for::<E>(query.filter.as_ref());
 
         // query prep
         let limit = query
@@ -130,51 +183,34 @@ impl<E: EntityKind> DeleteExecutor<E> {
             .as_ref()
             .and_then(|l| l.limit)
             .map(|l| l as usize);
+        let offset = query.limit.as_ref().map_or(0_usize, |l| l.offset as usize);
         let filter_simplified = query.filter.as_ref().map(|f| f.clone().simplify());
 
-        let mut res: Vec<(Key, E)> = Vec::with_capacity(limit.unwrap_or(0));
-        ctx.with_store_mut(|s| {
-            for dk in keys {
-                // early limit
-                if let Some(max) = limit
-                    && res.len() >= max
-                {
-                    break;
-                }
+        let mut acc = DeleteAccumulator::new(filter_simplified.as_ref(), offset, limit);
 
-                // read value
-                let Some(bytes) = s.get(&dk) else {
-                    continue;
-                };
+        scan_plan::<E, _>(&self.db, plan, |dk, entity| {
+            if acc.should_stop(dk, entity) {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        })?;
 
-                // deserialize once
-                let Ok(entity) = deserialize::<E>(&bytes) else {
-                    continue;
-                };
-
-                // filter check
-                if let Some(ref f) = filter_simplified
-                    && !FilterEvaluator::new(&entity).eval(f)
-                {
-                    continue;
-                }
-
-                // delete row and remove indexes
+        // Apply deletions + index teardown
+        let mut res: Vec<(Key, E)> = Vec::with_capacity(acc.matches.len());
+        self.db.context::<E>().with_store_mut(|s| {
+            for (dk, entity) in acc.matches {
                 s.remove(&dk);
                 if !E::INDEXES.is_empty() {
                     self.remove_indexes(&entity)?;
                 }
-
-                // store result (key + deleted entity)
                 res.push((dk.key(), entity));
             }
 
             Ok::<_, Error>(())
         })??;
 
-        //   canic::cdk::println!("query.delete: deleted keys {deleted_rows:?}");
-
-        crate::db::executor::set_rows_from_len(&mut span, res.len());
+        set_rows_from_len(&mut span, res.len());
 
         Ok(Response(res))
     }
