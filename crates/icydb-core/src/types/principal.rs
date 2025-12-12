@@ -8,7 +8,6 @@ use crate::{
     value::Value,
 };
 use canic_cdk::{
-    api::msg_caller,
     candid::{CandidType, Principal as WrappedPrincipal},
     structures::storable::Bound,
 };
@@ -60,10 +59,11 @@ impl Principal {
         Self(WrappedPrincipal::anonymous())
     }
 
-    #[must_use]
-    /// Caller principal pulled from the ambient canister context.
-    pub fn msg_caller() -> Self {
-        Self(msg_caller())
+    pub fn from_text(text: &str) -> Result<Self, PrincipalError> {
+        let inner = WrappedPrincipal::from_text(text)
+            .map_err(|e| PrincipalError::Wrapped(e.to_string()))?;
+
+        Ok(Self(inner))
     }
 
     #[must_use]
