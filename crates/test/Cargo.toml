@@ -20,8 +20,8 @@ icydb = { workspace = true }
 test_design = { workspace = true }
 
 [build-dependencies]
-canic-utils = { workspace = true }
 canic-cdk = { workspace = true }
+canic-utils = { workspace = true }
 icydb = { workspace = true }
 icydb-build = { workspace = true }
 test_design = { workspace = true }

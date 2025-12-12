@@ -14,9 +14,9 @@ doctest = false
 [dependencies]
 candid = { workspace = true }
 canic-cdk = { workspace = true }
-canic-utils = { workspace = true }
-canic-types = { workspace = true }
 canic-memory = { workspace = true }
+canic-types = { workspace = true }
+canic-utils = { workspace = true }
 chrono = { workspace = true }
 ctor = { workspace = true }
 derive_more = { workspace = true }
@@ -27,8 +27,8 @@ remain = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
-ulid = { workspace = true }
 thiserror = { workspace = true }
+ulid = { workspace = true }
 
 [dev-dependencies]
 bencher = "0.1"
