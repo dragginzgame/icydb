@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.0.21] - 2025-12-12
+## [0.1.0] - 2025-12-12 - Somewhat Stable
 - Update rust to 1.92.0
 - Lots of changes because of the new canic crates (the location of utils and macros changed)
 - clippy and cargo machete passes
