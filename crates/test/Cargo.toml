@@ -14,13 +14,14 @@ crate-type = ["cdylib"]
 
 [dependencies]
 candid = { workspace = true }
-canic-core = { workspace = true }
+canic-cdk = { workspace = true }
 ic-cdk = { workspace = true }
 icydb = { workspace = true }
 test_design = { workspace = true }
 
 [build-dependencies]
-canic-core = { workspace = true }
+canic-utils = { workspace = true }
+canic-cdk = { workspace = true }
 icydb = { workspace = true }
 icydb-build = { workspace = true }
 test_design = { workspace = true }

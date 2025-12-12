@@ -1,5 +1,5 @@
 use crate::{Error, prelude::*};
-use canic_core::utils::time::now_secs;
+use canic_cdk::utils::time::now_secs;
 use std::{any::Any, collections::BTreeMap};
 
 ///

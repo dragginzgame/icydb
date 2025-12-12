@@ -5,7 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.0.20]
+## [0.0.21] - 2025-12-12
+- Update rust to 1.92.0
+- Lots of changes because of the new canic crates (the location of utils and macros changed)
+- clippy and cargo machete passes
+
+## [0.0.20] - 2025-12-09
 - Fix `DeleteExecutor` to honor `offset`/`limit` after filtering and stop scanning once the window is satisfied, preventing over-deletes and unnecessary allocations on ranged or indexed deletes.
 - Extract shared query-plan scanning/deserialization helper used by load/delete executors to keep plan handling consistent while preserving existing filtering/pagination behaviour.
 

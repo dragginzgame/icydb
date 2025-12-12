@@ -134,109 +134,62 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.5.10"
+version = "0.5.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed80b2a37876c97f9550782afed5bc4421c19157b701b67b8924754b2f588a7a"
+checksum = "49baed33de9eb8ef90f1a20123605aca60ba60a89db44fc3b81ac641d0fe94df"
 dependencies = [
+ "base32 0.5.1",
  "candid",
+ "crc32fast",
  "derive_more",
+ "hex",
  "ic-canister-sig-creation",
  "ic-cdk",
  "ic-cdk-timers",
  "ic-signature-verification",
  "ic-stable-structures 0.7.2",
  "icrc-ledger-types",
-]
-
-[[package]]
-name = "canic-core"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14631395138eeef0e5d12c6e6c0a30673896fe82abfa74ed3f09aa07b15f7f0a"
-dependencies = [
- "candid",
- "canic-cdk",
- "canic-macros",
- "canic-memory",
- "canic-types",
- "canic-utils",
- "ctor",
- "derive_more",
- "ic-canister-sig-creation",
- "ic-cdk",
- "ic-signature-verification",
- "ic-stable-structures 0.7.2",
- "icrc-ledger-types",
- "minicbor-serde",
- "remain",
  "serde",
- "serde_bytes",
  "sha2",
- "thiserror 2.0.17",
- "toml",
-]
-
-[[package]]
-name = "canic-macros"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b147ff6277a164d0fab0dd0646d453ff06af78febaa3db95c9b5bef240795950"
-dependencies = [
- "canic-cdk",
- "canic-utils",
- "serde",
 ]
 
 [[package]]
 name = "canic-memory"
-version = "0.5.10"
+version = "0.5.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9c201a0999051ddf054b80a533802b94b2b702d535d4b3f27b6cc250ecc0842"
+checksum = "b0087e0112e653a767f765d4efb7f11dbc734ada73660dbbc740ab140127cbc8"
 dependencies = [
  "candid",
  "canic-cdk",
- "canic-macros",
  "canic-types",
- "canic-utils",
  "ctor",
+ "minicbor-serde",
  "serde",
  "thiserror 2.0.17",
 ]
 
 [[package]]
 name = "canic-types"
-version = "0.5.10"
+version = "0.5.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8133e567fc5702dc27f95d3670a2cdd0c223b676f04ff9ac7cc7b650e156c3e8"
+checksum = "4039cec0f95699895f17175df06e2b7f62ec4e38543b7c09f2662a32e2f0c826"
 dependencies = [
- "base32 0.5.1",
  "candid",
  "canic-cdk",
- "canic-macros",
- "canic-utils",
- "crc32fast",
  "derive_more",
- "hex",
  "num-traits",
  "serde",
- "serde_bytes",
- "ulid",
 ]
 
 [[package]]
 name = "canic-utils"
-version = "0.5.10"
+version = "0.5.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8e5eefc2ecb7988ff4a4cd094ecbf920d300f7ecb8c43cc992e906f7b254e64"
+checksum = "494172788b20ebbf2a989835bae3ed95e340429eb88aefed293697fe7cfc3404"
 dependencies = [
  "canic-cdk",
  "convert_case",
- "defer",
  "derive_more",
- "minicbor-serde",
- "serde",
- "sha2",
- "thiserror 2.0.17",
  "tinyrand",
  "xxhash-rust",
 ]
@@ -395,12 +348,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a2330da5de22e8a3cb63252ce2abb30116bf5265e89c0e01bc17015ce30a476"
 
 [[package]]
-name = "defer"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "930c7171c8df9fb1782bdf9b918ed9ed2d33d1d22300abb754f9085bc48bf8e8"
-
-[[package]]
 name = "deranged"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -464,12 +411,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
-name = "equivalent"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
-
-[[package]]
 name = "ff"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -517,12 +458,6 @@ name = "half"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b43ede17f21864e81be2fa654110bf1e793774238d86ef8555c37e6519c0403"
-
-[[package]]
-name = "hashbrown"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
 
 [[package]]
 name = "heck"
@@ -788,17 +723,12 @@ dependencies = [
 name = "icydb"
 version = "0.0.20"
 dependencies = [
- "canic-core",
- "ctor",
- "derive_more",
  "icydb-base",
  "icydb-build",
  "icydb-core",
  "icydb-error",
  "icydb-macros",
  "icydb-schema",
- "num-traits",
- "remain",
 ]
 
 [[package]]
@@ -807,7 +737,7 @@ version = "0.0.20"
 dependencies = [
  "bencher",
  "candid",
- "canic-core",
+ "canic-utils",
  "icydb-core",
  "icydb-error",
  "icydb-schema",
@@ -831,8 +761,10 @@ version = "0.0.20"
 dependencies = [
  "bencher",
  "candid",
- "canic-core",
+ "canic-cdk",
  "canic-memory",
+ "canic-types",
+ "canic-utils",
  "chrono",
  "ctor",
  "derive_more",
@@ -845,6 +777,7 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "thiserror 2.0.17",
+ "ulid",
 ]
 
 [[package]]
@@ -859,7 +792,8 @@ dependencies = [
 name = "icydb-macros"
 version = "0.0.20"
 dependencies = [
- "canic-core",
+ "canic-cdk",
+ "canic-utils",
  "darling 0.23.0",
  "derive_more",
  "icydb-paths",
@@ -885,7 +819,8 @@ name = "icydb-schema"
 version = "0.0.20"
 dependencies = [
  "candid",
- "canic-core",
+ "canic-cdk",
+ "canic-utils",
  "darling 0.23.0",
  "derive_more",
  "icydb-error",
@@ -902,16 +837,6 @@ name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
-
-[[package]]
-name = "indexmap"
-version = "2.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ad4bb2b565bca0645f4d68c5c9af97fba094e9791da685bf83cb5f3ce74acf2"
-dependencies = [
- "equivalent",
- "hashbrown",
-]
 
 [[package]]
 name = "itertools"
@@ -1240,15 +1165,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_spanned"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e24345aa0fe688594e73770a5f6d1b216508b4f93484c0026d521acd30134392"
-dependencies = [
- "serde_core",
-]
-
-[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1354,7 +1270,8 @@ name = "test"
 version = "0.0.20"
 dependencies = [
  "candid",
- "canic-core",
+ "canic-cdk",
+ "canic-utils",
  "ic-cdk",
  "icydb",
  "icydb-build",
@@ -1446,45 +1363,6 @@ name = "tinyrand"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87ffaad2263779579369d45f65cad0647c860893d27e4543cdcc1e428d07da2c"
-
-[[package]]
-name = "toml"
-version = "0.9.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0dc8b1fb61449e27716ec0e1bdf0f6b8f3e8f6b05391e8497b8b6d7804ea6d8"
-dependencies = [
- "indexmap",
- "serde_core",
- "serde_spanned",
- "toml_datetime",
- "toml_parser",
- "toml_writer",
- "winnow",
-]
-
-[[package]]
-name = "toml_datetime"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2cdb639ebbc97961c51720f858597f7f24c4fc295327923af55b74c3c724533"
-dependencies = [
- "serde_core",
-]
-
-[[package]]
-name = "toml_parser"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0cbe268d35bdb4bb5a56a2de88d0ad0eb70af5384a99d648cd4b3d04039800e"
-dependencies = [
- "winnow",
-]
-
-[[package]]
-name = "toml_writer"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df8b2b54733674ad286d16267dcfc7a71ed5c776e4ac7aa3c3e2561f7c637bf2"
 
 [[package]]
 name = "typed-arena"
@@ -1664,12 +1542,6 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
-
-[[package]]
-name = "winnow"
-version = "0.7.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a5364e9d77fcdeeaa6062ced926ee3381faa2ee02d3eb83a5c27a8825540829"
 
 [[package]]
 name = "xxhash-rust"

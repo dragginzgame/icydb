@@ -70,7 +70,7 @@ pub enum Value {
     Int(i64),
     Int128(Int128),
     IntBig(Int),
-    List(Vec<Value>),
+    List(Vec<Self>),
     None,
     Principal(Principal),
     Subaccount(Subaccount),

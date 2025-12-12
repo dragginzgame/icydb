@@ -8,9 +8,8 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic_core::{
-    impl_storable_bounded, types::Subaccount as WrappedSubaccount, utils::rand::next_u128,
-};
+use canic_memory::impl_storable_bounded;
+use canic_utils::rand::next_u128;
 use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
@@ -18,6 +17,8 @@ use std::fmt::{self, Display};
 ///
 /// Subaccount
 ///
+
+type SubaccountBytes = [u8; 32];
 
 #[derive(
     CandidType,
@@ -35,7 +36,7 @@ use std::fmt::{self, Display};
     Serialize,
     Deserialize,
 )]
-pub struct Subaccount(WrappedSubaccount);
+pub struct Subaccount(SubaccountBytes);
 
 impl Subaccount {
     pub const STORABLE_MAX_SIZE: u32 = 72;
@@ -145,14 +146,14 @@ impl From<Principal> for Subaccount {
     }
 }
 
-impl From<Subaccount> for WrappedSubaccount {
+impl From<Subaccount> for SubaccountBytes {
     fn from(sub: Subaccount) -> Self {
         sub.0
     }
 }
 
-impl From<WrappedSubaccount> for Subaccount {
-    fn from(wrap: WrappedSubaccount) -> Self {
+impl From<SubaccountBytes> for Subaccount {
+    fn from(wrap: SubaccountBytes) -> Self {
         Self(wrap)
     }
 }
@@ -167,14 +168,14 @@ impl Inner<Self> for Subaccount {
     }
 }
 
-impl PartialEq<Subaccount> for WrappedSubaccount {
+impl PartialEq<Subaccount> for SubaccountBytes {
     fn eq(&self, other: &Subaccount) -> bool {
         self == &other.0
     }
 }
 
-impl PartialEq<WrappedSubaccount> for Subaccount {
-    fn eq(&self, other: &WrappedSubaccount) -> bool {
+impl PartialEq<SubaccountBytes> for Subaccount {
+    fn eq(&self, other: &SubaccountBytes) -> bool {
         &self.0 == other
     }
 }
@@ -198,7 +199,7 @@ impl ValidateAuto for Subaccount {}
 impl ValidateCustom for Subaccount {}
 
 impl View for Subaccount {
-    type ViewType = WrappedSubaccount;
+    type ViewType = SubaccountBytes;
 
     fn to_view(&self) -> Self::ViewType {
         self.0

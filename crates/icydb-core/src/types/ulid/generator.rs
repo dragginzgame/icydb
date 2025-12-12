@@ -1,5 +1,6 @@
 use crate::types::{Ulid, UlidError};
-use canic_core::utils::{rand::next_u128, time::now_millis};
+use canic_cdk::utils::time::now_millis;
+use canic_utils::rand::next_u128;
 use std::sync::{LazyLock, Mutex};
 
 ///

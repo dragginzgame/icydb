@@ -6,10 +6,7 @@ mod metrics;
 mod ops;
 mod view_into;
 
-use canic_core::{
-    cdk::{export_candid, query, update},
-    perf_start,
-};
+use canic_cdk::{export_candid, query, update};
 use icydb::{Error, design::prelude::*};
 use test_design::{
     e2e::filter::{Filterable, FilterableView},
@@ -61,8 +58,6 @@ pub fn test() {
         println!("Running test: {name}");
         test_fn();
     }
-
-    perf_start!();
 
     println!("test: all tests passed successfully");
 }

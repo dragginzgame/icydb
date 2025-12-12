@@ -25,9 +25,9 @@ pub enum FilterExpr {
     True,
     False,
     Clause(FilterClause),
-    And(Vec<FilterExpr>),
-    Or(Vec<FilterExpr>),
-    Not(Box<FilterExpr>),
+    And(Vec<Self>),
+    Or(Vec<Self>),
+    Not(Box<Self>),
 }
 
 impl FilterExpr {

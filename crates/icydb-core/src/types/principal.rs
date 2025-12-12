@@ -7,7 +7,7 @@ use crate::{
     },
     value::Value,
 };
-use canic_core::cdk::{
+use canic_cdk::{
     api::msg_caller,
     candid::{CandidType, Principal as WrappedPrincipal},
     structures::storable::Bound,

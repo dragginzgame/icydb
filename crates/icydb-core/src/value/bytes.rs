@@ -1,5 +1,5 @@
 use crate::value::Value;
-use canic_core::utils::hash::Xxh3;
+use canic_utils::hash::Xxh3;
 
 ///
 /// ValueTag

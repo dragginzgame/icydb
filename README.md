@@ -31,7 +31,7 @@
 
 ## ⚡ Quickstart
 
-1. **Install Rust 1.91.1+** (workspace uses edition 2024).
+1. **Install Rust 1.92.0+** (workspace uses edition 2024).
 2. **Add IcyDB** to your `Cargo.toml` using the latest tag:
    ```toml
    [dependencies]
@@ -145,7 +145,7 @@ Pre-commit hooks run `cargo fmt -- --check`, `cargo sort --check`, and `cargo so
 We welcome issues, discussions, and pull requests now that the repository is public. To contribute:
 
 1. Fork and clone the repo.
-2. Install the toolchain (`rustup toolchain install 1.91.1`).
+2. Install the toolchain (`rustup toolchain install 1.92.0`).
 3. Run `make fmt-check && make clippy && make check && make test` before opening a PR.
 4. Document user-visible changes in [CHANGELOG.md](CHANGELOG.md) under the latest heading.
 

@@ -10,7 +10,8 @@ authors = { workspace = true }
 
 [dependencies]
 candid = { workspace = true }
-canic-core = { workspace = true }
+canic-cdk = { workspace = true }
+canic-utils = { workspace = true }
 darling = { workspace = true }
 derive_more = { workspace = true }
 icydb-error = { workspace = true }

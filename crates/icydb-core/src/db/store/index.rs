@@ -8,11 +8,9 @@ use crate::{
     traits::EntityKind,
 };
 use candid::CandidType;
-use canic_core::{
-    cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory},
-    impl_storable_bounded, impl_storable_unbounded,
-    utils::hash::hash_u64,
-};
+use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
+use canic_memory::{impl_storable_bounded, impl_storable_unbounded};
+use canic_utils::hash::hash_u64;
 use derive_more::{Deref, DerefMut, Display};
 use serde::{Deserialize, Serialize};
 use std::{

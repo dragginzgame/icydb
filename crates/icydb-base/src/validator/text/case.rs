@@ -1,5 +1,5 @@
 use crate::{core::traits::Validator, prelude::*};
-use canic_core::utils::case::{Case, Casing};
+use canic_utils::case::{Case, Casing};
 
 ///
 /// Kebab

@@ -28,8 +28,9 @@ pub use visitor::{sanitize, validate};
 ///
 /// these have to be in icydb_core because of the base library not being able to import icydb
 pub mod __reexports {
-    pub use canic_core;
+    pub use canic_cdk;
     pub use canic_memory;
+    pub use canic_utils;
     pub use ctor;
     pub use derive_more;
     pub use num_traits;

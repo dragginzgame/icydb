@@ -8,7 +8,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic_core::{cdk::structures::storable::Bound, types::Account as IcrcAccount};
+use canic_cdk::{structures::storable::Bound, types::Account as IcrcAccount};
 use serde::{Deserialize, Serialize};
 use std::{
     borrow::Cow,

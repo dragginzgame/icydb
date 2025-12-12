@@ -11,11 +11,12 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic_core::{cdk::structures::storable::Bound, types::Ulid as WrappedUlid};
+use canic_cdk::structures::storable::Bound;
 use derive_more::{Deref, DerefMut, Display, FromStr};
 use icydb_error::ErrorTree;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
 use std::borrow::Cow;
+use ulid::Ulid as WrappedUlid;
 
 ///
 /// Error
@@ -35,21 +36,7 @@ pub enum UlidError {
 ///
 
 #[derive(
-    CandidType,
-    Clone,
-    Copy,
-    Debug,
-    Deref,
-    DerefMut,
-    Display,
-    Eq,
-    FromStr,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    Serialize,
-    Deserialize,
+    Clone, Copy, Debug, Deref, DerefMut, Display, Eq, FromStr, Hash, Ord, PartialEq, PartialOrd,
 )]
 #[repr(transparent)]
 pub struct Ulid(WrappedUlid);
@@ -116,6 +103,19 @@ impl Ulid {
     }
 }
 
+impl CandidType for Ulid {
+    fn _ty() -> candid::types::Type {
+        candid::types::TypeInner::Text.into()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where
+        S: candid::types::Serializer,
+    {
+        serializer.serialize_text(&self.0.to_string())
+    }
+}
+
 impl Default for Ulid {
     fn default() -> Self {
         Self(WrappedUlid::nil())
@@ -164,6 +164,33 @@ impl PartialEq<Ulid> for WrappedUlid {
 impl SanitizeAuto for Ulid {}
 
 impl SanitizeCustom for Ulid {}
+
+// The ulid crate's serde impls are gated behind its `serde` feature.
+// With default-features disabled (to avoid pulling in `rand`), we implement
+// Serialize/Deserialize here explicitly.
+impl Serialize for Ulid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut buffer = [0; ::ulid::ULID_LEN];
+        let text = self.array_to_str(&mut buffer);
+        text.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Ulid {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let deserialized_str = String::deserialize(deserializer)?;
+        match WrappedUlid::from_string(&deserialized_str) {
+            Ok(u) => Ok(Self(u)),
+            Err(_) => Err(serde::de::Error::custom("invalid ulid string")),
+        }
+    }
+}
 
 impl Storable for Ulid {
     const BOUND: Bound = Bound::Bounded {

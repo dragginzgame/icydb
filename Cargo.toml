@@ -15,7 +15,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.91.1"
+rust-version = "1.92.0"
 edition = "2024"
 version = "0.0.20"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
@@ -26,8 +26,10 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic-core = "0.5.10"
-canic-memory = "0.5.10"
+canic-cdk = "0.5.21"
+canic-memory = "0.5.21"
+canic-types = "0.5.21"
+canic-utils = "0.5.21"
 chrono = { version = "0.4", default-features = false }
 ctor = "0.6"
 darling = "0.23"
@@ -57,6 +59,8 @@ syn = "2.0"
 test = { path = "crates/test" }
 test_design = { path = "crates/test_design" }
 thiserror = "2.0"
+# removed std because it imports rand; serde feature doesn't compile with std
+ulid = { version = "1.2", default-features = false }
 
 # ---------------------
 #  CLIPPY CONFIGURATION

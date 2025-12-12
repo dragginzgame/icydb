@@ -2,14 +2,18 @@ use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt};
 
+///
+/// ErrorTree
 /// Hierarchical error aggregator used by validation to keep nested context.
+///
+
 #[derive(CandidType, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ErrorTree {
     /// Errors at the current level.
     pub messages: Vec<String>,
 
     /// Child errors indexed by field/key.
-    pub children: HashMap<String, ErrorTree>,
+    pub children: HashMap<String, Self>,
 }
 
 impl ErrorTree {
