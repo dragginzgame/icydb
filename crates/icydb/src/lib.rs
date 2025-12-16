@@ -16,9 +16,9 @@ pub use icydb_error as error;
 pub use icydb_macros as macros;
 pub use icydb_schema as schema;
 
-///
-/// CRATE
-///
+//
+// Consts
+//
 
 /// Workspace version re-export for downstream tooling/tests.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

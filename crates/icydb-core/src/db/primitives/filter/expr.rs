@@ -31,6 +31,14 @@ pub enum FilterExpr {
 }
 
 impl FilterExpr {
+    pub fn eq(field: &str, value: impl FieldValue) -> Self {
+        Self::Clause(FilterClause::new(field, Cmp::Eq, value))
+    }
+
+    pub fn ne(field: &str, value: impl FieldValue) -> Self {
+        Self::Clause(FilterClause::new(field, Cmp::Ne, value))
+    }
+
     /// Combine two expressions into an `And` expression.
     ///
     /// This flattens nested `And`s to avoid deep nesting (e.g., `(a AND b) AND c` becomes `AND[a,b,c]`).

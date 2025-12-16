@@ -58,8 +58,8 @@ pub mod prelude {
         db::{
             executor::SaveExecutor,
             primitives::{
-                self, FilterDsl, FilterExpr, FilterExt as _, LimitExpr, LimitExt as _, SortExpr,
-                SortExt as _,
+                self, Cmp, FilterClause, FilterDsl, FilterExpr, FilterExt as _, LimitExpr,
+                LimitExt as _, SortExpr, SortExt as _,
             },
             query,
             response::Response,
