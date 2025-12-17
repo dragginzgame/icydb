@@ -763,7 +763,6 @@ dependencies = [
  "candid",
  "canic-cdk",
  "canic-memory",
- "canic-types",
  "canic-utils",
  "chrono",
  "ctor",
@@ -792,7 +791,6 @@ dependencies = [
 name = "icydb-macros"
 version = "0.1.4"
 dependencies = [
- "canic-cdk",
  "canic-utils",
  "darling 0.23.0",
  "derive_more",

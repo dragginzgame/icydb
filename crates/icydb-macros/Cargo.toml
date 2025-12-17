@@ -12,7 +12,6 @@ authors = { workspace = true }
 proc-macro = true
 
 [dependencies]
-canic-cdk = { workspace = true }
 canic-utils = { workspace = true }
 darling = { workspace = true }
 derive_more = { workspace = true }

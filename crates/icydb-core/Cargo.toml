@@ -15,7 +15,6 @@ doctest = false
 candid = { workspace = true }
 canic-cdk = { workspace = true }
 canic-memory = { workspace = true }
-canic-types = { workspace = true }
 canic-utils = { workspace = true }
 chrono = { workspace = true }
 ctor = { workspace = true }

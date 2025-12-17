@@ -1,6 +1,2 @@
 [build]
 target-dir = "target/local"
-
-[env]
-# Avoid cross-device link errors in temp dirs during builds/tests.
-CARGO_TARGET_TMPDIR = { value = "target/local/tmp", relative = true }

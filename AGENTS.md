@@ -55,7 +55,6 @@
 - Framework: Rust test harness. Place unit tests near code; integration tests live in `crates/test` and `crates/test_design`.
 - Run all: `make test`. Single crate/test: `cargo test -p icydb <filter>` for the meta-crate; target other crates explicitly as needed.
 - Aim for meaningful coverage on entity macros, query paths, and index behavior. Add fixtures where helpful.
-- Cross-device TMP issues: if you hit `Invalid cross-device link (os error 18)` during cargo builds/tests, set a local temp dir, e.g. `mkdir -p target/tmp` and run with `CARGO_TARGET_TMPDIR=./target/tmp cargo test ...`
 
 ## Commit & Pull Request Guidelines
 - Commits: Imperative mood, concise scope (e.g., "Fix index serialization"; "Bump version to 0.15.1").
