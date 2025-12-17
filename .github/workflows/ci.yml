@@ -39,7 +39,9 @@ jobs:
       - run: cargo build -p test --target wasm32-unknown-unknown --release
       - run: |
           mkdir -p artifacts
-          wasm=${CARGO_TARGET_DIR}/wasm32-unknown-unknown/release/test.wasm
+          target_dir="$(cargo metadata --format-version=1 --no-deps \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+          wasm="${target_dir}/wasm32-unknown-unknown/release/test.wasm"
           cargo install candid-extractor --locked
           candid-extractor "$wasm" > artifacts/test.did
       - uses: actions/upload-artifact@v4
