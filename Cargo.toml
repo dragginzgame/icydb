@@ -54,7 +54,6 @@ rust_decimal = { version = "1.37", default-features = false, features = [
 serde = { version = "1.0", default-features = false }
 serde_bytes = "0.11"
 syn = "2.0"
-
 # Test harnesses
 test = { path = "crates/test" }
 test_design = { path = "crates/test_design" }

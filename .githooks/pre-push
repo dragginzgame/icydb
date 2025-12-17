@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Running pre-push checks (clippy all-targets)..."
+
+# Match CI: lint everything (tests/benches/examples) with warnings denied.
+cargo clippy --workspace --all-targets -- -D warnings
+
+echo "Pre-push checks passed."
+

@@ -542,18 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn base_case_constructors_cover_all_cmps() {
-        fn assert_clause(expr: FilterExpr, field: &str, cmp: Cmp, value: Value) {
-            match expr {
-                FilterExpr::Clause(c) => {
-                    assert_eq!(c.field, field);
-                    assert_eq!(c.cmp, cmp);
-                    assert_eq!(c.value, value);
-                }
-                _ => panic!("expected Clause"),
-            }
-        }
-
+    fn constructors_equality() {
         assert_clause(FilterExpr::eq("a", 1), "a", Cmp::Eq, Value::Int(1));
         assert_clause(FilterExpr::ne("a", 1), "a", Cmp::Ne, Value::Int(1));
         assert_clause(
@@ -568,11 +557,18 @@ mod tests {
             Cmp::NeCi,
             Value::Text("Hello".to_string()),
         );
+    }
+
+    #[test]
+    fn constructors_ordering() {
         assert_clause(FilterExpr::lt("a", 1), "a", Cmp::Lt, Value::Int(1));
         assert_clause(FilterExpr::lte("a", 1), "a", Cmp::Lte, Value::Int(1));
         assert_clause(FilterExpr::gt("a", 1), "a", Cmp::Gt, Value::Int(1));
         assert_clause(FilterExpr::gte("a", 1), "a", Cmp::Gte, Value::Int(1));
+    }
 
+    #[test]
+    fn constructors_text() {
         assert_clause(
             FilterExpr::contains("a", "Hello"),
             "a",
@@ -609,7 +605,10 @@ mod tests {
             Cmp::EndsWithCi,
             Value::Text("Hello".to_string()),
         );
+    }
 
+    #[test]
+    fn constructors_presence_and_empty() {
         assert_clause(FilterExpr::is_empty("a"), "a", Cmp::IsEmpty, Value::Unit);
         assert_clause(
             FilterExpr::is_not_empty("a"),
@@ -619,9 +618,15 @@ mod tests {
         );
         assert_clause(FilterExpr::is_some("a"), "a", Cmp::IsSome, Value::Unit);
         assert_clause(FilterExpr::is_none("a"), "a", Cmp::IsNone, Value::Unit);
+    }
 
-        let list = Value::List(vec![Value::Int(1), Value::Int(2)]);
-        assert_clause(FilterExpr::in_iter("a", [1, 2]), "a", Cmp::In, list.clone());
+    #[test]
+    fn constructors_membership() {
+        fn list_12() -> Value {
+            Value::List(vec![Value::Int(1), Value::Int(2)])
+        }
+
+        assert_clause(FilterExpr::in_iter("a", [1, 2]), "a", Cmp::In, list_12());
         assert_clause(
             FilterExpr::in_ci_iter("a", ["A", "B"]),
             "a",
@@ -635,20 +640,10 @@ mod tests {
             FilterExpr::not_in_iter("a", [1, 2]),
             "a",
             Cmp::NotIn,
-            list.clone(),
+            list_12(),
         );
-        assert_clause(
-            FilterExpr::any_in("a", [1, 2]),
-            "a",
-            Cmp::AnyIn,
-            list.clone(),
-        );
-        assert_clause(
-            FilterExpr::all_in("a", [1, 2]),
-            "a",
-            Cmp::AllIn,
-            list.clone(),
-        );
+        assert_clause(FilterExpr::any_in("a", [1, 2]), "a", Cmp::AnyIn, list_12());
+        assert_clause(FilterExpr::all_in("a", [1, 2]), "a", Cmp::AllIn, list_12());
         assert_clause(
             FilterExpr::any_in_ci("a", ["A", "B"]),
             "a",
@@ -667,7 +662,10 @@ mod tests {
                 Value::Text("B".to_string()),
             ]),
         );
+    }
 
+    #[test]
+    fn constructors_map() {
         assert_clause(
             FilterExpr::map_contains_key("m", "k"),
             "m",
@@ -704,6 +702,17 @@ mod tests {
             Cmp::MapNotContainsEntry,
             Value::List(vec![Value::Text("k".to_string()), Value::Int(1)]),
         );
+    }
+
+    fn assert_clause(expr: FilterExpr, field: &str, cmp: Cmp, value: Value) {
+        match expr {
+            FilterExpr::Clause(c) => {
+                assert_eq!(c.field, field);
+                assert_eq!(c.cmp, cmp);
+                assert_eq!(c.value, value);
+            }
+            _ => panic!("expected Clause"),
+        }
     }
 
     #[test]

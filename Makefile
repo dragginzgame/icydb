@@ -111,7 +111,7 @@ release: ensure-clean
 test: test-canisters test-unit
 
 test-unit:
-	$(CARGO_ENV) cargo test --workspace
+	$(CARGO_ENV) cargo test --workspace --all-targets --verbose
 
 test-canisters:
 	@if command -v dfx >/dev/null 2>&1; then \
@@ -134,7 +134,7 @@ check: ensure-hooks fmt-check
 	$(CARGO_ENV) cargo check --workspace
 
 clippy: ensure-hooks
-	$(CARGO_ENV) cargo clippy --workspace -- -D warnings
+	$(CARGO_ENV) cargo clippy --workspace --all-targets -- -D warnings
 
 fmt: ensure-hooks
 	$(CARGO_ENV) cargo sort --workspace
