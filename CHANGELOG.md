@@ -6,12 +6,13 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
-## [0.1.4] - 2025-12-17
+## [0.1.5] - 2025-12-17
 - added FilterExpr::method for all the clauses to improve idionomicy.  Before FilterExpr::eq(field, value) was falling
 back to PartialEq
 - fixed CI so it won't bug out on a new rust toolchain on CI but not locally
 - Clippy, WHY?!?!  We were so close.  Fixing local to show clippy errors that CI errors on, so we don't get the github
 email of shame.
+- Fixed a bug where UpdateView<T> wasn't clearing the value when Some(None) was passed
 
 ## [0.1.1] - 2025-12-12
 - removed msg_caller from Principal as it blurs system call boundaries

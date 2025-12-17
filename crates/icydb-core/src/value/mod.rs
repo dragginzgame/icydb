@@ -399,7 +399,7 @@ impl Value {
             Self::Text(s) => Some(s.is_empty()),
             Self::Blob(b) => Some(b.is_empty()),
 
-            // For Option<T> fields represented as Value::None:
+            //  fields represented as Value::None:
             Self::None => Some(true),
 
             _ => None,

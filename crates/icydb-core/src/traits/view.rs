@@ -153,13 +153,19 @@ where
     type UpdateViewType = Option<T::UpdateViewType>;
 
     fn merge(&mut self, update: Self::UpdateViewType) {
-        if let Some(inner_update) = update {
-            if let Some(inner_value) = self {
-                inner_value.merge(inner_update);
-            } else {
-                let mut new_value = T::default();
-                new_value.merge(inner_update);
-                *self = Some(new_value);
+        match update {
+            None => {
+                // Field was provided (outer Some), inner None means explicit delete
+                *self = None;
+            }
+            Some(inner_update) => {
+                if let Some(inner_value) = self.as_mut() {
+                    inner_value.merge(inner_update);
+                } else {
+                    let mut new_value = T::default();
+                    new_value.merge(inner_update);
+                    *self = Some(new_value);
+                }
             }
         }
     }

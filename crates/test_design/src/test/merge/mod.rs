@@ -176,6 +176,39 @@ mod tests {
 
     #[test]
     #[allow(clippy::field_reassign_with_default)]
+    fn entity_merge_clears_optional_fields() {
+        let mut entity = MergeEntity {
+            name: "original".into(),
+            score: 7,
+            nickname: Some("nick".into()),
+            scores: vec![1, 2, 3],
+            tags: MergeTags::from(vec!["red".to_string(), "blue".to_string()]),
+            settings: MergeSettings::from(vec![("volume".to_string(), 10u32)]),
+            profile: profile("quiet", 1, &[10, 11]),
+            wrapper: MergeWrapper(profile("nested", 3, &[42])),
+            tuple_field: MergeTuple("alpha".into(), 1),
+            opt_profile: Some(profile("opt", 9, &[1])),
+            ..Default::default()
+        };
+
+        // Leaving an option unset in the update should not change it.
+        let update: Update<MergeEntity> = MergeEntityUpdate::default();
+        entity.merge(update);
+        assert_eq!(entity.nickname.as_deref(), Some("nick"));
+        assert!(entity.opt_profile.is_some());
+
+        // Setting `Some(None)` should clear the optional field.
+        let mut update: Update<MergeEntity> = Default::default();
+        update.nickname = Some(None);
+        update.opt_profile = Some(None);
+        entity.merge(update);
+
+        assert!(entity.nickname.is_none());
+        assert!(entity.opt_profile.is_none());
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn record_merge_preserves_unset_fields() {
         let mut profile = profile("start", 1, &[1, 2, 3]);
         let mut update: Update<MergeProfile> = Default::default();
