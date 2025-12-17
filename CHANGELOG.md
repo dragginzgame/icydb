@@ -5,6 +5,11 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+
+## [0.1.2] - 2025-12-17
+- added FilterExpr::method for all the clauses to improve idionomicy.  Before FilterExpr::eq(field, value) was falling
+back to PartialEq
+
 ## [0.1.1] - 2025-12-12
 - removed msg_caller from Principal as it blurs system call boundaries
 - pass through from_text to WrappedPrincipal

@@ -31,12 +31,219 @@ pub enum FilterExpr {
 }
 
 impl FilterExpr {
-    pub fn eq(field: &str, value: impl FieldValue) -> Self {
-        Self::Clause(FilterClause::new(field, Cmp::Eq, value))
+    // --- Clause ---
+
+    /// Create a single clause: `field cmp value`.
+    pub fn clause(field: impl Into<String>, cmp: Cmp, value: impl FieldValue) -> Self {
+        Self::Clause(FilterClause::new(field, cmp, value))
     }
 
-    pub fn ne(field: &str, value: impl FieldValue) -> Self {
-        Self::Clause(FilterClause::new(field, Cmp::Ne, value))
+    // --- Equality ---
+
+    pub fn eq(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::Eq, value)
+    }
+
+    pub fn eq_ci(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::EqCi, value)
+    }
+
+    pub fn ne(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::Ne, value)
+    }
+
+    pub fn ne_ci(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::NeCi, value)
+    }
+
+    // --- Ordering ---
+
+    pub fn lt(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::Lt, value)
+    }
+
+    pub fn lte(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::Lte, value)
+    }
+
+    pub fn gt(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::Gt, value)
+    }
+
+    pub fn gte(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::Gte, value)
+    }
+
+    // --- Text / Collection ---
+
+    pub fn contains(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::Contains, value)
+    }
+
+    pub fn contains_ci(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::ContainsCi, value)
+    }
+
+    pub fn starts_with(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::StartsWith, value)
+    }
+
+    pub fn starts_with_ci(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::StartsWithCi, value)
+    }
+
+    pub fn ends_with(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::EndsWith, value)
+    }
+
+    pub fn ends_with_ci(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::EndsWithCi, value)
+    }
+
+    // --- Presence / Empty ---
+
+    pub fn is_empty(field: impl Into<String>) -> Self {
+        Self::clause(field, Cmp::IsEmpty, ())
+    }
+
+    pub fn is_not_empty(field: impl Into<String>) -> Self {
+        Self::clause(field, Cmp::IsNotEmpty, ())
+    }
+
+    pub fn is_some(field: impl Into<String>) -> Self {
+        Self::clause(field, Cmp::IsSome, ())
+    }
+
+    pub fn is_none(field: impl Into<String>) -> Self {
+        Self::clause(field, Cmp::IsNone, ())
+    }
+
+    // --- Membership ---
+
+    pub fn in_iter<I>(field: impl Into<String>, vals: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: FieldValue,
+    {
+        Self::clause(
+            field,
+            Cmp::In,
+            vals.into_iter().map(|v| v.to_value()).collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn in_ci_iter<I>(field: impl Into<String>, vals: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: FieldValue,
+    {
+        Self::clause(
+            field,
+            Cmp::InCi,
+            vals.into_iter().map(|v| v.to_value()).collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn not_in_iter<I>(field: impl Into<String>, vals: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: FieldValue,
+    {
+        Self::clause(
+            field,
+            Cmp::NotIn,
+            vals.into_iter().map(|v| v.to_value()).collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn any_in<I>(field: impl Into<String>, vals: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: FieldValue,
+    {
+        Self::clause(
+            field,
+            Cmp::AnyIn,
+            vals.into_iter().map(|v| v.to_value()).collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn all_in<I>(field: impl Into<String>, vals: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: FieldValue,
+    {
+        Self::clause(
+            field,
+            Cmp::AllIn,
+            vals.into_iter().map(|v| v.to_value()).collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn any_in_ci<I>(field: impl Into<String>, vals: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: FieldValue,
+    {
+        Self::clause(
+            field,
+            Cmp::AnyInCi,
+            vals.into_iter().map(|v| v.to_value()).collect::<Vec<_>>(),
+        )
+    }
+
+    pub fn all_in_ci<I>(field: impl Into<String>, vals: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: FieldValue,
+    {
+        Self::clause(
+            field,
+            Cmp::AllInCi,
+            vals.into_iter().map(|v| v.to_value()).collect::<Vec<_>>(),
+        )
+    }
+
+    // --- Map ---
+
+    pub fn map_contains_key(field: impl Into<String>, key: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::MapContainsKey, key)
+    }
+
+    pub fn map_not_contains_key(field: impl Into<String>, key: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::MapNotContainsKey, key)
+    }
+
+    pub fn map_contains_value(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::MapContainsValue, value)
+    }
+
+    pub fn map_not_contains_value(field: impl Into<String>, value: impl FieldValue) -> Self {
+        Self::clause(field, Cmp::MapNotContainsValue, value)
+    }
+
+    pub fn map_contains_entry(
+        field: impl Into<String>,
+        key: impl FieldValue,
+        value: impl FieldValue,
+    ) -> Self {
+        Self::clause(
+            field,
+            Cmp::MapContainsEntry,
+            vec![key.to_value(), value.to_value()],
+        )
+    }
+
+    pub fn map_not_contains_entry(
+        field: impl Into<String>,
+        key: impl FieldValue,
+        value: impl FieldValue,
+    ) -> Self {
+        Self::clause(
+            field,
+            Cmp::MapNotContainsEntry,
+            vec![key.to_value(), value.to_value()],
+        )
     }
 
     /// Combine two expressions into an `And` expression.
@@ -313,9 +520,9 @@ pub struct FilterClause {
 
 impl FilterClause {
     #[must_use]
-    pub fn new(field: &str, cmp: Cmp, value: impl FieldValue) -> Self {
+    pub fn new(field: impl Into<String>, cmp: Cmp, value: impl FieldValue) -> Self {
         Self {
-            field: field.to_string(),
+            field: field.into(),
             cmp,
             value: value.to_value(),
         }
@@ -332,6 +539,171 @@ mod tests {
 
     fn clause(field: &str) -> FilterExpr {
         FilterExpr::Clause(FilterClause::new(field, Cmp::Eq, "foo"))
+    }
+
+    #[test]
+    fn base_case_constructors_cover_all_cmps() {
+        fn assert_clause(expr: FilterExpr, field: &str, cmp: Cmp, value: Value) {
+            match expr {
+                FilterExpr::Clause(c) => {
+                    assert_eq!(c.field, field);
+                    assert_eq!(c.cmp, cmp);
+                    assert_eq!(c.value, value);
+                }
+                _ => panic!("expected Clause"),
+            }
+        }
+
+        assert_clause(FilterExpr::eq("a", 1), "a", Cmp::Eq, Value::Int(1));
+        assert_clause(FilterExpr::ne("a", 1), "a", Cmp::Ne, Value::Int(1));
+        assert_clause(
+            FilterExpr::eq_ci("a", "Hello"),
+            "a",
+            Cmp::EqCi,
+            Value::Text("Hello".to_string()),
+        );
+        assert_clause(
+            FilterExpr::ne_ci("a", "Hello"),
+            "a",
+            Cmp::NeCi,
+            Value::Text("Hello".to_string()),
+        );
+        assert_clause(FilterExpr::lt("a", 1), "a", Cmp::Lt, Value::Int(1));
+        assert_clause(FilterExpr::lte("a", 1), "a", Cmp::Lte, Value::Int(1));
+        assert_clause(FilterExpr::gt("a", 1), "a", Cmp::Gt, Value::Int(1));
+        assert_clause(FilterExpr::gte("a", 1), "a", Cmp::Gte, Value::Int(1));
+
+        assert_clause(
+            FilterExpr::contains("a", "Hello"),
+            "a",
+            Cmp::Contains,
+            Value::Text("Hello".to_string()),
+        );
+        assert_clause(
+            FilterExpr::contains_ci("a", "Hello"),
+            "a",
+            Cmp::ContainsCi,
+            Value::Text("Hello".to_string()),
+        );
+        assert_clause(
+            FilterExpr::starts_with("a", "Hello"),
+            "a",
+            Cmp::StartsWith,
+            Value::Text("Hello".to_string()),
+        );
+        assert_clause(
+            FilterExpr::starts_with_ci("a", "Hello"),
+            "a",
+            Cmp::StartsWithCi,
+            Value::Text("Hello".to_string()),
+        );
+        assert_clause(
+            FilterExpr::ends_with("a", "Hello"),
+            "a",
+            Cmp::EndsWith,
+            Value::Text("Hello".to_string()),
+        );
+        assert_clause(
+            FilterExpr::ends_with_ci("a", "Hello"),
+            "a",
+            Cmp::EndsWithCi,
+            Value::Text("Hello".to_string()),
+        );
+
+        assert_clause(FilterExpr::is_empty("a"), "a", Cmp::IsEmpty, Value::Unit);
+        assert_clause(
+            FilterExpr::is_not_empty("a"),
+            "a",
+            Cmp::IsNotEmpty,
+            Value::Unit,
+        );
+        assert_clause(FilterExpr::is_some("a"), "a", Cmp::IsSome, Value::Unit);
+        assert_clause(FilterExpr::is_none("a"), "a", Cmp::IsNone, Value::Unit);
+
+        let list = Value::List(vec![Value::Int(1), Value::Int(2)]);
+        assert_clause(FilterExpr::in_iter("a", [1, 2]), "a", Cmp::In, list.clone());
+        assert_clause(
+            FilterExpr::in_ci_iter("a", ["A", "B"]),
+            "a",
+            Cmp::InCi,
+            Value::List(vec![
+                Value::Text("A".to_string()),
+                Value::Text("B".to_string()),
+            ]),
+        );
+        assert_clause(
+            FilterExpr::not_in_iter("a", [1, 2]),
+            "a",
+            Cmp::NotIn,
+            list.clone(),
+        );
+        assert_clause(
+            FilterExpr::any_in("a", [1, 2]),
+            "a",
+            Cmp::AnyIn,
+            list.clone(),
+        );
+        assert_clause(
+            FilterExpr::all_in("a", [1, 2]),
+            "a",
+            Cmp::AllIn,
+            list.clone(),
+        );
+        assert_clause(
+            FilterExpr::any_in_ci("a", ["A", "B"]),
+            "a",
+            Cmp::AnyInCi,
+            Value::List(vec![
+                Value::Text("A".to_string()),
+                Value::Text("B".to_string()),
+            ]),
+        );
+        assert_clause(
+            FilterExpr::all_in_ci("a", ["A", "B"]),
+            "a",
+            Cmp::AllInCi,
+            Value::List(vec![
+                Value::Text("A".to_string()),
+                Value::Text("B".to_string()),
+            ]),
+        );
+
+        assert_clause(
+            FilterExpr::map_contains_key("m", "k"),
+            "m",
+            Cmp::MapContainsKey,
+            Value::Text("k".to_string()),
+        );
+        assert_clause(
+            FilterExpr::map_not_contains_key("m", "k"),
+            "m",
+            Cmp::MapNotContainsKey,
+            Value::Text("k".to_string()),
+        );
+        assert_clause(
+            FilterExpr::map_contains_value("m", 1),
+            "m",
+            Cmp::MapContainsValue,
+            Value::Int(1),
+        );
+        assert_clause(
+            FilterExpr::map_not_contains_value("m", 1),
+            "m",
+            Cmp::MapNotContainsValue,
+            Value::Int(1),
+        );
+        assert_clause(
+            FilterExpr::map_contains_entry("m", "k", 1),
+            "m",
+            Cmp::MapContainsEntry,
+            Value::List(vec![Value::Text("k".to_string()), Value::Int(1)]),
+        );
+        assert_clause(
+            FilterExpr::map_not_contains_entry("m", "k", 1),
+            "m",
+            Cmp::MapNotContainsEntry,
+            Value::List(vec![Value::Text("k".to_string()), Value::Int(1)]),
+        );
     }
 
     #[test]

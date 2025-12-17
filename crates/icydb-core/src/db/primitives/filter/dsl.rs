@@ -112,6 +112,16 @@ impl FilterDsl {
         Self::cmp_iter(field, Cmp::In, vals)
     }
 
+    /// field IN_CI (v1, v2, v3)
+    #[inline]
+    pub fn in_ci_iter<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
+    where
+        I: IntoIterator,
+        I::Item: FieldValue,
+    {
+        Self::cmp_iter(field, Cmp::InCi, vals)
+    }
+
     /// ergonomic alias
     #[inline]
     pub fn in_list<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
@@ -120,6 +130,15 @@ impl FilterDsl {
         I::Item: FieldValue,
     {
         self.in_iter(field, vals)
+    }
+
+    #[inline]
+    pub fn in_ci_list<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
+    where
+        I: IntoIterator,
+        I::Item: FieldValue,
+    {
+        self.in_ci_iter(field, vals)
     }
 
     /// NOT IN (v1, v2, v3)
