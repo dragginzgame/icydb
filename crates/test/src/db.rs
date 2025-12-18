@@ -108,7 +108,7 @@ impl DbSuite {
         db!().insert(e).unwrap();
 
         // count keys
-        let num_keys = db!().load::<SimpleEntity>().count_all_rows().unwrap();
+        let num_keys = db!().load::<SimpleEntity>().count_all().unwrap();
         assert_eq!(num_keys, 1);
 
         // insert another
@@ -116,7 +116,7 @@ impl DbSuite {
         db!().insert(e).unwrap();
 
         // count keys
-        assert_eq!(db!().load::<SimpleEntity>().count_all_rows().unwrap(), 2);
+        assert_eq!(db!().load::<SimpleEntity>().count_all().unwrap(), 2);
     }
 
     fn insert_lots() {
@@ -130,7 +130,7 @@ impl DbSuite {
         }
 
         // Retrieve the count from the store
-        let count = db!().load::<SimpleEntity>().count_all_rows().unwrap();
+        let count = db!().load::<SimpleEntity>().count_all().unwrap();
 
         // Assert that the count matches the expected number
         assert_eq!(count, ROWS, "Expected {ROWS} keys in the store");
@@ -152,7 +152,7 @@ impl DbSuite {
         }
 
         // Retrieve the count from the store
-        let count = db!().load::<BlobEntity>().count_all_rows().unwrap();
+        let count = db!().load::<BlobEntity>().count_all().unwrap();
 
         // Assert that the count matches the expected number
         assert_eq!(count, ROWS, "Expected {ROWS} keys in the store");
@@ -195,7 +195,7 @@ impl DbSuite {
         }
 
         // Step 2: Ensure the count is correct
-        let count_before = db!().load::<SimpleEntity>().count_all_rows().unwrap();
+        let count_before = db!().load::<SimpleEntity>().count_all().unwrap();
         assert_eq!(count_before, ROWS, "Expected {ROWS} inserted rows");
 
         // Step 3: Delete all inserted rows
@@ -209,7 +209,7 @@ impl DbSuite {
         );
 
         // Step 4: Ensure all have been deleted
-        let count_after = db!().load::<SimpleEntity>().count_all_rows().unwrap();
+        let count_after = db!().load::<SimpleEntity>().count_all().unwrap();
         assert_eq!(count_after, 0, "Expected 0 rows after deletion");
     }
 
@@ -221,7 +221,7 @@ impl DbSuite {
         let id1 = db!().insert(e1).unwrap().key();
 
         // COUNT
-        let rows = db!().load::<Index>().count_all_rows().unwrap();
+        let rows = db!().load::<Index>().count_all().unwrap();
         assert_eq!(rows, 1);
 
         // Step 2: Insert entity e2 with x=1 (non-unique), y=20 (unique)
@@ -229,7 +229,7 @@ impl DbSuite {
         db!().insert(e2).unwrap();
 
         // COUNT
-        let rows = db!().load::<Index>().count_all_rows().unwrap();
+        let rows = db!().load::<Index>().count_all().unwrap();
         assert_eq!(rows, 2);
 
         // Step 3: Attempt to insert another with duplicate y=10 (should fail)
@@ -238,14 +238,14 @@ impl DbSuite {
         assert!(result.is_err(), "expected unique index violation on y=10");
 
         // COUNT
-        let rows = db!().load::<Index>().count_all_rows().unwrap();
+        let rows = db!().load::<Index>().count_all().unwrap();
         assert_eq!(rows, 2);
 
         // Step 4: Delete e1 (y=10)
         db!().delete::<Index>().one(id1).unwrap();
 
         // COUNT
-        let rows = db!().load::<Index>().count_all_rows().unwrap();
+        let rows = db!().load::<Index>().count_all().unwrap();
         assert_eq!(rows, 1);
 
         // Step 5: Try inserting e3 again (y=10 should now be free)
@@ -256,11 +256,11 @@ impl DbSuite {
         );
 
         // COUNT
-        let rows = db!().load::<Index>().count_all_rows().unwrap();
+        let rows = db!().load::<Index>().count_all().unwrap();
         assert_eq!(rows, 2);
 
         // Step 6: Confirm only 2 entities remain
-        let rows = db!().load::<Index>().count_all_rows().unwrap();
+        let rows = db!().load::<Index>().count_all().unwrap();
 
         assert_eq!(rows, 2);
     }
@@ -326,7 +326,7 @@ impl DbSuite {
         db!().insert(e5).unwrap();
 
         // Confirm only 3 entities now exist
-        let rows = db!().load::<IndexUniqueOpt>().count_all_rows().unwrap();
+        let rows = db!().load::<IndexUniqueOpt>().count_all().unwrap();
         assert_eq!(rows, 3);
     }
 
@@ -468,7 +468,7 @@ impl DbSuite {
             "loaded payload should match the saved record"
         );
 
-        let count = db!().load::<UnitKey>().count_all_rows().unwrap();
+        let count = db!().load::<UnitKey>().count_all().unwrap();
         assert_eq!(count, 1, "unit entity should be counted exactly once");
     }
 

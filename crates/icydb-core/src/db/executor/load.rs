@@ -28,6 +28,10 @@ pub struct LoadExecutor<E: EntityKind> {
 }
 
 impl<E: EntityKind> LoadExecutor<E> {
+    // ======================================================================
+    // Construction & diagnostics
+    // ======================================================================
+
     #[must_use]
     pub const fn new(db: Db<E::Canister>, debug: bool) -> Self {
         Self {
@@ -44,90 +48,98 @@ impl<E: EntityKind> LoadExecutor<E> {
         }
     }
 
-    ///
-    /// BUILDER METHODS
-    ///
+    // ======================================================================
+    // Query builders (execute and return Response)
+    // ======================================================================
 
-    /// Build and execute a query for a single matching row.
+    /// Execute a query for a single primary key.
     pub fn one(&self, value: impl FieldValue) -> Result<Response<E>, Error> {
-        let query = LoadQuery::new().one::<E>(value);
-        self.execute(query)
+        self.execute(LoadQuery::new().one::<E>(value))
     }
 
-    /// Build and execute a query for the unit primary key.
+    /// Execute a query for the unit primary key.
     pub fn only(&self) -> Result<Response<E>, Error> {
-        let query = LoadQuery::new().one::<E>(());
-        self.execute(query)
+        self.execute(LoadQuery::new().one::<E>(()))
     }
 
-    /// Build and execute a query matching multiple primary keys.
+    /// Execute a query matching multiple primary keys.
     pub fn many(
         &self,
         values: impl IntoIterator<Item = impl FieldValue>,
     ) -> Result<Response<E>, Error> {
-        let query = LoadQuery::new().many::<E>(values);
-        self.execute(query)
+        self.execute(LoadQuery::new().many::<E>(values))
     }
 
     /// Execute an unfiltered query for all rows.
     pub fn all(&self) -> Result<Response<E>, Error> {
-        let query = LoadQuery::new();
-        self.execute(query)
+        self.execute(LoadQuery::new())
     }
 
-    /// Apply a filter builder and execute.
-    pub fn filter<F, I>(self, f: F) -> Result<Response<E>, Error>
+    /// Execute a query built from a filter.
+    pub fn filter<F, I>(&self, f: F) -> Result<Response<E>, Error>
     where
         F: FnOnce(FilterDsl) -> I,
         I: IntoFilterExpr,
     {
-        let query = LoadQuery::new().filter(f);
-        self.execute(query)
+        self.execute(LoadQuery::new().filter(f))
     }
 
-    /// Count all rows (executes the query plan).
-    pub fn count_all_rows(self) -> Result<u32, Error> {
-        let query = LoadQuery::all();
-        self.count(query)
+    // ======================================================================
+    // Cardinality guards (delegated to Response)
+    // ======================================================================
+
+    /// Execute a query and require exactly one row.
+    pub fn require_one(&self, query: LoadQuery) -> Result<(), Error> {
+        self.execute(query)?.require_one()
     }
 
-    ///
-    /// EXISTENCE METHODS
-    ///
+    /// Require exactly one row by primary key.
+    pub fn require_one_pk(&self, value: impl FieldValue) -> Result<(), Error> {
+        self.require_one(LoadQuery::new().one::<E>(value))
+    }
+
+    /// Require exactly one row from a filter.
+    pub fn require_one_filter<F, I>(&self, f: F) -> Result<(), Error>
+    where
+        F: FnOnce(FilterDsl) -> I,
+        I: IntoFilterExpr,
+    {
+        self.require_one(LoadQuery::new().filter(f))
+    }
+
+    // ======================================================================
+    // Existence checks (≥1 semantics, intentionally weaker)
+    // ======================================================================
 
     /// Check whether at least one row matches the query.
-    pub fn exists(self, query: LoadQuery) -> Result<bool, Error> {
+    pub fn exists(&self, query: LoadQuery) -> Result<bool, Error> {
         let query = query.limit_1();
-
         Ok(!self.execute_raw(&query)?.is_empty())
     }
 
     /// Check existence by primary key.
-    pub fn exists_one(self, value: impl FieldValue) -> Result<bool, Error> {
-        let query = LoadQuery::new().one::<E>(value);
-        self.exists(query)
+    pub fn exists_one(&self, value: impl FieldValue) -> Result<bool, Error> {
+        self.exists(LoadQuery::new().one::<E>(value))
     }
 
     /// Check existence with a filter.
-    pub fn exists_filter<F, I>(self, f: F) -> Result<bool, Error>
+    pub fn exists_filter<F, I>(&self, f: F) -> Result<bool, Error>
     where
         F: FnOnce(FilterDsl) -> I,
         I: IntoFilterExpr,
     {
-        let query = LoadQuery::new().filter(f);
-        self.exists(query)
+        self.exists(LoadQuery::new().filter(f))
     }
 
     /// Check whether the table contains any rows.
-    pub fn exists_any(self) -> Result<bool, Error> {
+    pub fn exists_any(&self) -> Result<bool, Error> {
         self.exists(LoadQuery::new())
     }
 
-    ///
-    /// EXECUTION METHODS
-    ///
+    // ======================================================================
+    // Execution & planning
+    // ======================================================================
 
-    /// explain
     /// Validate and return the query plan without executing.
     pub fn explain(self, query: LoadQuery) -> Result<QueryPlan, Error> {
         QueryValidate::<E>::validate(&query)?;
@@ -230,13 +242,13 @@ impl<E: EntityKind> LoadExecutor<E> {
         Ok(Response(rows))
     }
 
-    /// currently just doing the same as execute()
-    /// keeping it separate in case we can optimise count queries in the future
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn count(self, query: LoadQuery) -> Result<u32, Error> {
-        let count = self.execute(query)?.count();
+    /// Count rows matching a query.
+    pub fn count(&self, query: LoadQuery) -> Result<u32, Error> {
+        Ok(self.execute(query)?.count())
+    }
 
-        Ok(count)
+    pub fn count_all(&self) -> Result<u32, Error> {
+        self.count(LoadQuery::new())
     }
 
     // apply_filter

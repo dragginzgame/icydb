@@ -29,96 +29,87 @@ impl From<ResponseError> for Error {
 pub struct Response<E: EntityKind>(pub Vec<(Key, E)>);
 
 impl<E: EntityKind> Response<E> {
-    //
-    // Cardinality
-    //
+    // ======================================================================
+    // Cardinality (introspection only)
+    // ======================================================================
 
-    #[must_use]
     /// Number of rows in the response, truncated to `u32`.
+    #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     pub const fn count(&self) -> u32 {
         self.0.len() as u32
     }
 
-    #[must_use]
     /// True when no rows were returned.
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    //
-    // Exact cardinality helpers
-    //
+    // ======================================================================
+    // Cardinality guards (non-consuming)
+    // ======================================================================
 
     /// Require exactly one row.
-    pub fn one(self) -> Result<(Key, E), Error> {
-        let count = self.count();
-
-        match count {
+    pub fn require_one(&self) -> Result<(), Error> {
+        match self.count() {
+            1 => Ok(()),
             0 => Err(ResponseError::NotFound { entity: E::PATH }.into()),
-            1 => Ok(self.0.into_iter().next().unwrap()),
-            _ => Err(ResponseError::NotUnique {
+            n => Err(ResponseError::NotUnique {
                 entity: E::PATH,
-                count,
+                count: n,
             }
             .into()),
         }
     }
 
-    /// Require exactly one entity.
-    pub fn one_entity(self) -> Result<E, Error> {
-        self.one().map(|(_, e)| e)
+    // ======================================================================
+    // Row extractors (consume self)
+    // ======================================================================
+
+    /// Require exactly one row and return it.
+    pub fn one(self) -> Result<(Key, E), Error> {
+        self.require_one()?;
+        Ok(self.0.into_iter().next().unwrap())
     }
 
-    /// Require at most one row.
+    /// Require at most one row and return it.
     pub fn one_opt(self) -> Result<Option<(Key, E)>, Error> {
-        let count = self.count();
-
-        match count {
+        match self.count() {
             0 => Ok(None),
             1 => Ok(Some(self.0.into_iter().next().unwrap())),
-            _ => Err(ResponseError::NotUnique {
+            n => Err(ResponseError::NotUnique {
                 entity: E::PATH,
-                count,
+                count: n,
             }
             .into()),
         }
     }
 
-    /// Require at most one entity.
-    pub fn one_opt_entity(self) -> Result<Option<E>, Error> {
-        Ok(self.one_opt()?.map(|(_, e)| e))
-    }
+    // ======================================================================
+    // Key extractors
+    // ======================================================================
 
-    //
-    // Keys
-    //
-
-    #[must_use]
     /// First key in the response, if present.
-    pub fn key(&self) -> Option<Key> {
-        self.0.first().map(|(key, _)| *key)
-    }
-
     #[must_use]
-    /// Collect all keys in order.
-    pub fn keys(&self) -> Vec<Key> {
-        self.0.iter().map(|(key, _)| *key).collect()
+    pub fn key(&self) -> Option<Key> {
+        self.0.first().map(|(k, _)| *k)
     }
 
-    /// Iterate keys without cloning entities.
-    pub fn keys_iter(self) -> impl Iterator<Item = Key> {
-        self.0.into_iter().map(|(key, _)| key)
+    /// Collect all keys in order.
+    #[must_use]
+    pub fn keys(&self) -> Vec<Key> {
+        self.0.iter().map(|(k, _)| *k).collect()
     }
 
     /// Require exactly one row and return its key.
     pub fn one_key(self) -> Result<Key, Error> {
-        self.one().map(|(key, _)| key)
+        self.one().map(|(k, _)| k)
     }
 
     /// Require at most one row and return its key.
     pub fn one_opt_key(self) -> Result<Option<Key>, Error> {
-        Ok(self.one_opt()?.map(|(key, _)| key))
+        Ok(self.one_opt()?.map(|(k, _)| k))
     }
 
     #[must_use]
@@ -126,62 +117,64 @@ impl<E: EntityKind> Response<E> {
         self.0.iter().any(|(k, _)| k == key)
     }
 
-    //
-    // Primary keys
-    //
+    // ======================================================================
+    // Entity extractors
+    // ======================================================================
 
-    #[must_use]
-    /// First primary key in the response, if present.
-    pub fn pk(&self) -> Option<E::PrimaryKey> {
-        self.0.first().map(|(_, e)| e.primary_key())
-    }
-
-    #[must_use]
-    /// Collect all primary keys in order.
-    pub fn pks(&self) -> Vec<E::PrimaryKey> {
-        self.0.iter().map(|(_, e)| e.primary_key()).collect()
-    }
-
-    /// Iterate primary keys without cloning entities.
-    pub fn pks_iter(self) -> impl Iterator<Item = E::PrimaryKey> {
-        self.0.into_iter().map(|(_, e)| e.primary_key())
-    }
-
-    pub fn one_pk(self) -> Result<E::PrimaryKey, Error> {
-        self.one_entity().map(|e| e.primary_key())
-    }
-
-    pub fn one_opt_pk(self) -> Result<Option<E::PrimaryKey>, Error> {
-        Ok(self.one_opt_entity()?.map(|e| e.primary_key()))
-    }
-
-    //
-    // Entities
-    //
-
-    #[must_use]
     /// Consume the response and return the first entity, if any.
+    #[must_use]
     pub fn entity(self) -> Option<E> {
         self.0.into_iter().next().map(|(_, e)| e)
     }
 
-    #[must_use]
     /// Consume the response and collect all entities.
+    #[must_use]
     pub fn entities(self) -> Vec<E> {
         self.0.into_iter().map(|(_, e)| e).collect()
     }
 
-    /// Iterate entities without materializing a `Vec`.
-    pub fn entities_iter(self) -> impl Iterator<Item = E> {
-        self.0.into_iter().map(|(_, e)| e)
+    /// Require exactly one entity.
+    pub fn one_entity(self) -> Result<E, Error> {
+        self.one().map(|(_, e)| e)
     }
 
-    //
-    // Views
-    //
+    /// Require at most one entity.
+    pub fn one_opt_entity(self) -> Result<Option<E>, Error> {
+        Ok(self.one_opt()?.map(|(_, e)| e))
+    }
 
+    // ======================================================================
+    // Primary key extractors
+    // ======================================================================
+
+    /// First primary key in the response, if present.
     #[must_use]
+    pub fn pk(&self) -> Option<E::PrimaryKey> {
+        self.0.first().map(|(_, e)| e.primary_key())
+    }
+
+    /// Collect all primary keys in order.
+    #[must_use]
+    pub fn pks(&self) -> Vec<E::PrimaryKey> {
+        self.0.iter().map(|(_, e)| e.primary_key()).collect()
+    }
+
+    /// Require exactly one primary key.
+    pub fn one_pk(self) -> Result<E::PrimaryKey, Error> {
+        self.one_entity().map(|e| e.primary_key())
+    }
+
+    /// Require at most one primary key.
+    pub fn one_opt_pk(self) -> Result<Option<E::PrimaryKey>, Error> {
+        Ok(self.one_opt_entity()?.map(|e| e.primary_key()))
+    }
+
+    // ======================================================================
+    // View extractors
+    // ======================================================================
+
     /// Convert the first entity to its view type, if present.
+    #[must_use]
     pub fn view(self) -> Option<E::ViewType> {
         self.entity().map(|e| e.to_view())
     }
@@ -196,15 +189,10 @@ impl<E: EntityKind> Response<E> {
         Ok(self.one_opt_entity()?.map(|e| e.to_view()))
     }
 
+    /// Convert all entities to their view types.
     #[must_use]
-    /// Convert all entities to their view types and collect them.
     pub fn views(self) -> Vec<E::ViewType> {
         self.entities().into_iter().map(|e| e.to_view()).collect()
-    }
-
-    /// Iterate over view types without cloning entities.
-    pub fn views_iter(self) -> impl Iterator<Item = E::ViewType> {
-        self.entities().into_iter().map(|e| e.to_view())
     }
 }
 
