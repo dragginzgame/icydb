@@ -1,3 +1,7 @@
+mod ext;
+
+pub use ext::*;
+
 use crate::{Error, Key, ThisError, db::DbError, traits::EntityKind};
 
 ///
@@ -193,6 +197,36 @@ impl<E: EntityKind> Response<E> {
     #[must_use]
     pub fn views(self) -> Vec<E::ViewType> {
         self.entities().into_iter().map(|e| e.to_view()).collect()
+    }
+
+    // ======================================================================
+    // Arbitrary row access (no cardinality guarantees)
+    // ======================================================================
+
+    /// Return the first row in the response, if any.
+    ///
+    /// This does NOT enforce cardinality. Use only when row order is
+    /// well-defined and uniqueness is irrelevant.
+    #[must_use]
+    pub fn first(self) -> Option<(Key, E)> {
+        self.0.into_iter().next()
+    }
+
+    /// Return the first entity in the response, if any.
+    ///
+    /// This does NOT enforce cardinality. Use only when row order is
+    /// well-defined and uniqueness is irrelevant.
+    #[must_use]
+    pub fn first_entity(self) -> Option<E> {
+        self.first().map(|(_, e)| e)
+    }
+
+    /// Return the first primary key in the response, if any.
+    ///
+    /// This does NOT enforce cardinality.
+    #[must_use]
+    pub fn first_pk(self) -> Option<E::PrimaryKey> {
+        self.first_entity().map(|e| e.primary_key())
     }
 }
 

@@ -129,7 +129,7 @@ impl IndexSuite {
         let query = query::load().filter(|f| f.eq("pid", Principal::from_slice(&[99; 29])));
         assert_uses_index::<Indexable>(&query);
 
-        let results = db!().load::<Indexable>().execute(query).unwrap().entities();
+        let results = db!().load::<Indexable>().execute(query).entities().unwrap();
         assert!(
             results.is_empty(),
             "Expected no results from unmatched index lookup"

@@ -96,12 +96,7 @@ impl MergeSuite {
         let saved = db!().update(entity).unwrap();
         let key = saved.key();
 
-        let loaded = db!()
-            .load::<MergeEntity>()
-            .one(key)
-            .unwrap()
-            .one_entity()
-            .unwrap();
+        let loaded = db!().load::<MergeEntity>().one(key).one_entity().unwrap();
 
         assert_eq!(loaded.nickname.as_deref(), Some("nick"));
         assert_eq!(loaded.scores, vec![99, 20, 30]);

@@ -5,6 +5,10 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.1.8] - 2025-12-18
+- introduced a ResponseExt helper to chain errors and make the call sites more ergonomic
+- added .first(), .first_entity() to response
+
 ## [0.1.7] - 2025-12-18
 - Improved how database queries return results so that “one item” vs “many items” is handled consistently and safely.
 - Removed a number of convenience shortcuts that could silently return the wrong record when multiple matches existed.

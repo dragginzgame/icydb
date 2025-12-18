@@ -62,7 +62,7 @@ pub mod prelude {
                 LimitExt as _, SortExpr, SortExt as _,
             },
             query,
-            response::Response,
+            response::{Response, ResponseExt},
         },
         key::Key,
         traits::{

@@ -7,6 +7,7 @@ mod ops;
 mod view_into;
 
 use canic_cdk::{export_candid, query, update};
+use icydb::core::db::response::ResponseExt as _;
 use icydb::{Error, design::prelude::*};
 use test_design::{
     e2e::filter::{Filterable, FilterableView},
@@ -66,11 +67,11 @@ pub fn test() {
 // ENDPOINTS
 //
 
-#[query]
 /// filterable
 /// Return all `Filterable` entities mapped into the `FilterableView`.
+#[query]
 pub fn filterable() -> Result<Vec<FilterableView>, Error> {
-    let res = db!(debug).load::<Filterable>().all()?.entities().to_view();
+    let res = db!(debug).load::<Filterable>().all().entities()?.to_view();
 
     Ok(res)
 }
