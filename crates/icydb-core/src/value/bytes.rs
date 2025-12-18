@@ -95,36 +95,27 @@ impl Value {
 /// Canonical Byte Representation
 ///
 
-#[inline]
 fn feed_i32(h: &mut Xxh3, x: i32) {
     h.update(&x.to_be_bytes());
 }
-#[inline]
 fn feed_i64(h: &mut Xxh3, x: i64) {
     h.update(&x.to_be_bytes());
 }
-#[inline]
 fn feed_i128(h: &mut Xxh3, x: i128) {
     h.update(&x.to_be_bytes());
 }
-#[inline]
 fn feed_u8(h: &mut Xxh3, x: u8) {
     h.update(&[x]);
 }
-#[inline]
 fn feed_u32(h: &mut Xxh3, x: u32) {
     h.update(&x.to_be_bytes());
 }
-#[inline]
 fn feed_u64(h: &mut Xxh3, x: u64) {
     h.update(&x.to_be_bytes());
 }
-#[inline]
 fn feed_u128(h: &mut Xxh3, x: u128) {
     h.update(&x.to_be_bytes());
 }
-
-#[inline]
 fn feed_bytes(h: &mut Xxh3, b: &[u8]) {
     h.update(b);
 }

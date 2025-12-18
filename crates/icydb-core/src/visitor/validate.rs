@@ -53,7 +53,6 @@ impl ValidateVisitor {
         Self::default()
     }
 
-    #[inline]
     fn current_route(&self) -> String {
         let mut out = String::new();
         let mut first = true;
@@ -81,7 +80,6 @@ impl ValidateVisitor {
 }
 
 impl Visitor for ValidateVisitor {
-    #[inline]
     fn visit(&mut self, node: &dyn Visitable, event: Event) {
         match event {
             Event::Enter => {
@@ -115,14 +113,12 @@ impl Visitor for ValidateVisitor {
         }
     }
 
-    #[inline]
     fn push(&mut self, seg: PathSegment) {
         if !matches!(seg, PathSegment::Empty) {
             self.path.push(seg);
         }
     }
 
-    #[inline]
     fn pop(&mut self) {
         self.path.pop();
     }

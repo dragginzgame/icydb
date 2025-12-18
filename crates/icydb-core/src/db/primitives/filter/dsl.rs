@@ -103,7 +103,6 @@ impl FilterDsl {
     //
 
     /// field IN (v1, v2, v3)
-    #[inline]
     pub fn in_iter<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -113,7 +112,6 @@ impl FilterDsl {
     }
 
     /// field IN_CI (v1, v2, v3)
-    #[inline]
     pub fn in_ci_iter<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -123,7 +121,6 @@ impl FilterDsl {
     }
 
     /// ergonomic alias
-    #[inline]
     pub fn in_list<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -132,7 +129,6 @@ impl FilterDsl {
         self.in_iter(field, vals)
     }
 
-    #[inline]
     pub fn in_ci_list<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -142,7 +138,6 @@ impl FilterDsl {
     }
 
     /// NOT IN (v1, v2, v3)
-    #[inline]
     pub fn not_in_iter<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -151,7 +146,6 @@ impl FilterDsl {
         Self::cmp_iter(field, Cmp::NotIn, vals)
     }
 
-    #[inline]
     pub fn not_in_list<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -161,7 +155,6 @@ impl FilterDsl {
     }
 
     /// ANY elements of values are included
-    #[inline]
     pub fn any_in<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -170,7 +163,6 @@ impl FilterDsl {
         Self::cmp_iter(field, Cmp::AnyIn, vals)
     }
 
-    #[inline]
     pub fn has_any<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -180,7 +172,6 @@ impl FilterDsl {
     }
 
     /// ALL values are included
-    #[inline]
     pub fn all_in<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -189,7 +180,6 @@ impl FilterDsl {
         Self::cmp_iter(field, Cmp::AllIn, vals)
     }
 
-    #[inline]
     pub fn has_all<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -199,7 +189,6 @@ impl FilterDsl {
     }
 
     // CI versions (keep!)
-    #[inline]
     pub fn any_in_ci<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -208,7 +197,6 @@ impl FilterDsl {
         Self::cmp_iter(field, Cmp::AnyInCi, vals)
     }
 
-    #[inline]
     pub fn all_in_ci<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -223,12 +211,10 @@ impl FilterDsl {
     // ───────────────────────────────────────────────
     //
 
-    #[inline]
     pub fn when(self, cond: bool, f: impl FnOnce() -> FilterExpr) -> Option<FilterExpr> {
         cond.then(f)
     }
 
-    #[inline]
     pub fn when_some<T>(
         self,
         opt: Option<T>,

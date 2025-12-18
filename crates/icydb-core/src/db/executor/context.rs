@@ -213,7 +213,6 @@ where
         keys.into_iter().map(Self::to_data_key).collect()
     }
 
-    #[inline]
     fn slice_bounds(total: usize, offset: u32, limit: Option<u32>) -> (usize, usize) {
         let start = (offset as usize).min(total);
         let end = match limit {

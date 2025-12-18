@@ -4,54 +4,55 @@ use crate::{Error, db::response::Response, traits::EntityKind};
 /// ResponseExt
 /// Ergonomic helpers for interpreting `Result<Response<E>, Error>`.
 ///
-/// This composes query execution with explicit cardinality handling
-/// without collapsing the semantic boundary.
-///
-
 pub trait ResponseExt<E: EntityKind> {
-    /// Require exactly one row and return the entity.
-    fn one_entity(self) -> Result<E, Error>;
+    // --- entities ---
 
-    /// Require at most one row and return the entity.
+    fn entities(self) -> Result<Vec<E>, Error>;
+    fn one_entity(self) -> Result<E, Error>;
     fn one_opt_entity(self) -> Result<Option<E>, Error>;
 
-    /// Consume the response and return all entities.
-    fn entities(self) -> Result<Vec<E>, Error>;
+    // --- primary keys ---
 
-    /// Require exactly one row and return its primary key.
     fn one_pk(self) -> Result<E::PrimaryKey, Error>;
-
-    /// Require at most one row and return its primary key.
     fn one_opt_pk(self) -> Result<Option<E::PrimaryKey>, Error>;
+
+    // --- views ---
+
+    fn views(self) -> Result<Vec<E::ViewType>, Error>;
+    fn one_view(self) -> Result<E::ViewType, Error>;
+    fn one_opt_view(self) -> Result<Option<E::ViewType>, Error>;
 }
 
-impl<E, Err> ResponseExt<E> for Result<Response<E>, Err>
-where
-    E: EntityKind,
-    Err: Into<Error>,
-{
-    #[inline]
-    fn one_entity(self) -> Result<E, Error> {
-        self.map_err(Into::into)?.one_entity()
-    }
-
-    #[inline]
-    fn one_opt_entity(self) -> Result<Option<E>, Error> {
-        self.map_err(Into::into)?.one_opt_entity()
-    }
-
-    #[inline]
+impl<E: EntityKind> ResponseExt<E> for Result<Response<E>, Error> {
     fn entities(self) -> Result<Vec<E>, Error> {
-        Ok(self.map_err(Into::into)?.entities())
+        Ok(self?.entities())
     }
 
-    #[inline]
+    fn one_entity(self) -> Result<E, Error> {
+        self?.one_entity()
+    }
+
+    fn one_opt_entity(self) -> Result<Option<E>, Error> {
+        self?.one_opt_entity()
+    }
+
     fn one_pk(self) -> Result<E::PrimaryKey, Error> {
-        self.map_err(Into::into)?.one_pk()
+        self?.one_pk()
     }
 
-    #[inline]
     fn one_opt_pk(self) -> Result<Option<E::PrimaryKey>, Error> {
-        self.map_err(Into::into)?.one_opt_pk()
+        self?.one_opt_pk()
+    }
+
+    fn views(self) -> Result<Vec<E::ViewType>, Error> {
+        Ok(self?.views())
+    }
+
+    fn one_view(self) -> Result<E::ViewType, Error> {
+        self?.one_view()
+    }
+
+    fn one_opt_view(self) -> Result<Option<E::ViewType>, Error> {
+        self?.one_opt_view()
     }
 }

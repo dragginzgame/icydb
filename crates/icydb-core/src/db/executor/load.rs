@@ -41,7 +41,6 @@ impl<E: EntityKind> LoadExecutor<E> {
         }
     }
 
-    #[inline]
     fn debug_log(&self, s: impl Into<String>) {
         if self.debug {
             println!("{}", s.into());

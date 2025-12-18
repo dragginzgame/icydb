@@ -83,8 +83,7 @@ pub trait Visitor {
     fn pop(&mut self) {}
 }
 
-// perform_visit
-#[inline]
+/// perform_visit
 /// Walk an immutable visitable node with a visitor, pushing the provided path segment.
 pub fn perform_visit<S: Into<PathSegment>>(
     visitor: &mut dyn Visitor,
@@ -104,7 +103,6 @@ pub fn perform_visit<S: Into<PathSegment>>(
     }
 }
 
-#[inline]
 /// Walk a mutable visitable node with a visitor, pushing the provided path segment.
 pub fn perform_visit_mut<S: Into<PathSegment>>(
     visitor: &mut dyn VisitorMut,

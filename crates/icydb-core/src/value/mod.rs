@@ -259,7 +259,6 @@ impl Value {
     /// TEXT COMPARISON
     ///
 
-    #[inline]
     fn fold_ci(s: &str) -> std::borrow::Cow<'_, str> {
         if s.is_ascii() {
             return std::borrow::Cow::Owned(s.to_ascii_lowercase());
@@ -269,7 +268,6 @@ impl Value {
         std::borrow::Cow::Owned(s.to_lowercase())
     }
 
-    #[inline]
     fn text_with_mode(s: &'_ str, mode: TextMode) -> std::borrow::Cow<'_, str> {
         match mode {
             TextMode::Cs => std::borrow::Cow::Borrowed(s),
@@ -277,7 +275,6 @@ impl Value {
         }
     }
 
-    #[inline]
     fn text_op(
         &self,
         other: &Self,
@@ -290,7 +287,6 @@ impl Value {
         Some(f(&a, &b))
     }
 
-    #[inline]
     fn ci_key(&self) -> Option<String> {
         match self {
             Self::Text(s) => Some(Self::fold_ci(s).into_owned()),
@@ -309,7 +305,6 @@ impl Value {
         a == b
     }
 
-    #[inline]
     fn normalize_list_ref(v: &Self) -> Vec<&Self> {
         match v {
             Self::List(vs) => vs.iter().collect(),
@@ -317,7 +312,6 @@ impl Value {
         }
     }
 
-    #[inline]
     fn contains_by<F>(&self, needle: &Self, eq: F) -> Option<bool>
     where
         F: Fn(&Self, &Self) -> bool,
@@ -326,7 +320,6 @@ impl Value {
             .map(|items| items.iter().any(|v| eq(v, needle)))
     }
 
-    #[inline]
     #[allow(clippy::unnecessary_wraps)]
     fn contains_any_by<F>(&self, needles: &Self, eq: F) -> Option<bool>
     where
@@ -339,7 +332,6 @@ impl Value {
         }
     }
 
-    #[inline]
     #[allow(clippy::unnecessary_wraps)]
     fn contains_all_by<F>(&self, needles: &Self, eq: F) -> Option<bool>
     where
@@ -352,7 +344,6 @@ impl Value {
         }
     }
 
-    #[inline]
     fn in_list_by<F>(&self, haystack: &Self, eq: F) -> Option<bool>
     where
         F: Fn(&Self, &Self) -> bool,
