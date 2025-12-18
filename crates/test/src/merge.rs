@@ -100,7 +100,7 @@ impl MergeSuite {
             .load::<MergeEntity>()
             .one(key)
             .unwrap()
-            .try_entity()
+            .one_entity()
             .unwrap();
 
         assert_eq!(loaded.nickname.as_deref(), Some("nick"));

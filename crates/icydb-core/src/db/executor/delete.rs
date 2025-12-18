@@ -13,7 +13,6 @@ use crate::{
     },
     obs::metrics,
     traits::{EntityKind, FieldValue},
-    view::View,
 };
 use std::{marker::PhantomData, ops::ControlFlow};
 
@@ -95,25 +94,6 @@ impl<E: EntityKind> DeleteExecutor<E> {
     pub const fn debug(mut self) -> Self {
         self.debug = true;
         self
-    }
-
-    ///
-    /// SHORTCUT METHODS
-    ///
-
-    /// Delete a row by primary key and return its key.
-    pub fn one_key(self, value: impl FieldValue) -> Result<Key, Error> {
-        self.one(value)?.try_key()
-    }
-
-    /// Delete a row by primary key and return its entity.
-    pub fn one_entity(self, value: impl FieldValue) -> Result<E, Error> {
-        self.one(value)?.try_entity()
-    }
-
-    /// Delete a row by primary key and return its view.
-    pub fn one_view(self, value: impl FieldValue) -> Result<View<E>, Error> {
-        self.one(value)?.try_view()
     }
 
     ///

@@ -9,6 +9,7 @@ use crate::{
         primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr, Order, SortExpr},
         query::{LoadQuery, QueryPlan, QueryValidate},
         response::Response,
+        store::DataRow,
     },
     obs::metrics,
     traits::{EntityKind, FieldValue},
@@ -41,20 +42,6 @@ impl<E: EntityKind> LoadExecutor<E> {
         if self.debug {
             println!("{}", s.into());
         }
-    }
-
-    ///
-    /// SHORTCUT METHODS
-    ///
-
-    /// Fetch a primary key for a single matching row.
-    pub fn one_key(self, value: impl FieldValue) -> Result<Key, Error> {
-        self.one(value)?.try_key()
-    }
-
-    /// Fetch a single entity by field value.
-    pub fn one_entity(self, value: impl FieldValue) -> Result<E, Error> {
-        self.one(value)?.try_entity()
     }
 
     ///
@@ -99,21 +86,66 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Count all rows (executes the query plan).
-    pub fn count_all(self) -> Result<u32, Error> {
+    pub fn count_all_rows(self) -> Result<u32, Error> {
         let query = LoadQuery::all();
         self.count(query)
+    }
+
+    ///
+    /// EXISTENCE METHODS
+    ///
+
+    /// Check whether at least one row matches the query.
+    pub fn exists(self, query: LoadQuery) -> Result<bool, Error> {
+        let query = query.limit_1();
+
+        Ok(!self.execute_raw(&query)?.is_empty())
+    }
+
+    /// Check existence by primary key.
+    pub fn exists_one(self, value: impl FieldValue) -> Result<bool, Error> {
+        let query = LoadQuery::new().one::<E>(value);
+        self.exists(query)
+    }
+
+    /// Check existence with a filter.
+    pub fn exists_filter<F, I>(self, f: F) -> Result<bool, Error>
+    where
+        F: FnOnce(FilterDsl) -> I,
+        I: IntoFilterExpr,
+    {
+        let query = LoadQuery::new().filter(f);
+        self.exists(query)
+    }
+
+    /// Check whether the table contains any rows.
+    pub fn exists_any(self) -> Result<bool, Error> {
+        self.exists(LoadQuery::new())
     }
 
     ///
     /// EXECUTION METHODS
     ///
 
-    // explain
+    /// explain
     /// Validate and return the query plan without executing.
     pub fn explain(self, query: LoadQuery) -> Result<QueryPlan, Error> {
         QueryValidate::<E>::validate(&query)?;
 
         Ok(plan_for::<E>(query.filter.as_ref()))
+    }
+
+    fn execute_raw(&self, query: &LoadQuery) -> Result<Vec<DataRow>, Error> {
+        QueryValidate::<E>::validate(query)?;
+
+        let ctx = self.db.context::<E>();
+        let plan = plan_for::<E>(query.filter.as_ref());
+
+        if let Some(lim) = &query.limit {
+            Ok(ctx.rows_from_plan_with_pagination(plan, lim.offset, lim.limit)?)
+        } else {
+            Ok(ctx.rows_from_plan(plan)?)
+        }
     }
 
     /// Execute a full query and return a collection of entities.
@@ -131,8 +163,7 @@ impl<E: EntityKind> LoadExecutor<E> {
         // Fast path: pre-pagination
         let pre_paginated = query.filter.is_none() && query.sort.is_none() && query.limit.is_some();
         let mut rows: Vec<(Key, E)> = if pre_paginated {
-            let lim = query.limit.as_ref().unwrap();
-            let data_rows = ctx.rows_from_plan_with_pagination(plan, lim.offset, lim.limit)?;
+            let data_rows = self.execute_raw(&query)?;
 
             self.debug_log(format!(
                 "📦 Scanned {} data rows before deserialization",

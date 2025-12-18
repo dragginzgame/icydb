@@ -20,8 +20,8 @@ pub struct LoadQuery {
 }
 
 impl LoadQuery {
-    #[must_use]
     /// Construct an empty load query.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -32,32 +32,35 @@ impl LoadQuery {
     }
 
     ///
-    /// SHAPES
+    /// CONSTRUCTORS
     ///
 
-    #[must_use]
     /// Filter by a single primary key value.
+    #[must_use]
     pub fn one<E: EntityKind>(self, value: impl FieldValue) -> Self {
         self.filter(|f| f.eq(E::PRIMARY_KEY, value))
     }
 
-    #[must_use]
-    /// Filter by primary key presence (unit key).
-    pub fn only<E: EntityKind>(self) -> Self {
-        self.filter(|f| f.eq(E::PRIMARY_KEY, ()))
-    }
-
-    #[must_use]
     /// Filter by a set of primary key values.
+    #[must_use]
     pub fn many<E: EntityKind>(self, values: impl IntoIterator<Item = impl FieldValue>) -> Self {
         self.filter(move |f| f.in_iter(E::PRIMARY_KEY, values))
     }
 
-    // all just overrides, same as calling new
-    #[must_use]
     /// Read all rows (alias for `LoadQuery::default()`).
+    #[must_use]
     pub fn all() -> Self {
         Self::default()
+    }
+
+    ///
+    /// Convenience
+    ///
+
+    /// Set offset=0, limit=1 (useful for existence checks / fast-paths).
+    #[must_use]
+    pub fn limit_1(self) -> Self {
+        self.offset(0).limit(1)
     }
 }
 
