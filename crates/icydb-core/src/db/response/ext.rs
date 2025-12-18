@@ -13,6 +13,7 @@ pub trait ResponseExt<E: EntityKind> {
 
     // --- primary keys ---
 
+    fn pks(self) -> Result<Vec<E::PrimaryKey>, Error>;
     fn one_pk(self) -> Result<E::PrimaryKey, Error>;
     fn one_opt_pk(self) -> Result<Option<E::PrimaryKey>, Error>;
 
@@ -21,6 +22,10 @@ pub trait ResponseExt<E: EntityKind> {
     fn views(self) -> Result<Vec<E::ViewType>, Error>;
     fn one_view(self) -> Result<E::ViewType, Error>;
     fn one_opt_view(self) -> Result<Option<E::ViewType>, Error>;
+
+    // --- introspection ---
+
+    fn count(self) -> Result<u32, Error>;
 }
 
 impl<E: EntityKind> ResponseExt<E> for Result<Response<E>, Error> {
@@ -34,6 +39,10 @@ impl<E: EntityKind> ResponseExt<E> for Result<Response<E>, Error> {
 
     fn one_opt_entity(self) -> Result<Option<E>, Error> {
         self?.one_opt_entity()
+    }
+
+    fn pks(self) -> Result<Vec<E::PrimaryKey>, Error> {
+        Ok(self?.pks())
     }
 
     fn one_pk(self) -> Result<E::PrimaryKey, Error> {
@@ -54,5 +63,9 @@ impl<E: EntityKind> ResponseExt<E> for Result<Response<E>, Error> {
 
     fn one_opt_view(self) -> Result<Option<E::ViewType>, Error> {
         self?.one_opt_view()
+    }
+
+    fn count(self) -> Result<u32, Error> {
+        Ok(self?.count())
     }
 }
