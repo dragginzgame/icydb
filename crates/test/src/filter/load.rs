@@ -22,6 +22,11 @@ impl LoadFilterSuite {
         let tests: Vec<(&str, fn())> = vec![
             ("filter_eq_string", Self::filter_eq_string),
             ("filter_eq_bool", Self::filter_eq_bool),
+            ("group_count_by_category", Self::group_count_by_category),
+            (
+                "group_count_by_filtered_active",
+                Self::group_count_by_filtered_active,
+            ),
             ("filter_gt_score", Self::filter_gt_score),
             ("filter_le_level", Self::filter_le_level),
             ("filter_ne_category", Self::filter_ne_category),
@@ -172,6 +177,30 @@ impl LoadFilterSuite {
 
         assert!(results.iter().all(|e| e.active));
         assert_eq!(results.len(), 6);
+    }
+
+    fn group_count_by_category() {
+        let counts = db!()
+            .load::<Filterable>()
+            .group_count_by(db::query::load(), |e| e.category.clone())
+            .unwrap();
+
+        assert_eq!(counts.len(), 3);
+        assert_eq!(counts.get("A").copied(), Some(3));
+        assert_eq!(counts.get("B").copied(), Some(4));
+        assert_eq!(counts.get("C").copied(), Some(3));
+    }
+
+    fn group_count_by_filtered_active() {
+        let query = db::query::load().filter(|f| f.eq("category", "B"));
+        let counts = db!()
+            .load::<Filterable>()
+            .group_count_by(query, |e| e.active)
+            .unwrap();
+
+        assert_eq!(counts.len(), 2);
+        assert_eq!(counts.get(&true).copied(), Some(2));
+        assert_eq!(counts.get(&false).copied(), Some(2));
     }
 
     fn filter_gt_score() {

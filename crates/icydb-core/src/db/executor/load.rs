@@ -14,7 +14,7 @@ use crate::{
     obs::metrics,
     traits::{EntityKind, FieldValue},
 };
-use std::{cmp::Ordering, marker::PhantomData};
+use std::{cmp::Ordering, collections::HashMap, hash::Hash, marker::PhantomData};
 
 ///
 /// LoadExecutor
@@ -275,6 +275,37 @@ impl<E: EntityKind> LoadExecutor<E> {
     pub fn count_all(&self) -> Result<u32, Error> {
         self.count(LoadQuery::new())
     }
+
+    // ======================================================================
+    // Aggregations
+    // ======================================================================
+
+    /// Group rows matching a query and count them by a derived key.
+    ///
+    /// This is intentionally implemented on the executor (not Response)
+    /// so it can later avoid full deserialization.
+    pub fn group_count_by<K, F>(
+        &self,
+        query: LoadQuery,
+        key_fn: F,
+    ) -> Result<HashMap<K, u32>, Error>
+    where
+        K: Eq + Hash,
+        F: Fn(&E) -> K,
+    {
+        let entities = self.execute(query)?.entities();
+
+        let mut counts = HashMap::new();
+        for e in entities {
+            *counts.entry(key_fn(&e)).or_insert(0) += 1;
+        }
+
+        Ok(counts)
+    }
+
+    // ======================================================================
+    // Private Helpers
+    // ======================================================================
 
     // apply_filter
     fn apply_filter(rows: &mut Vec<(Key, E)>, filter: &FilterExpr) {

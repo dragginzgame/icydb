@@ -5,6 +5,10 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.1.14] - 2025-12-19
+- started on the aggregation layer with group_count_by in LoadExecutor.  Not added to the Response because we need the
+Executor to decide whether it's needs to deserialize rows or not (slow vs fast path)
+
 ## [0.1.13] - 2025-12-19
 - added more existence checks to the ResponseExt helper
 
