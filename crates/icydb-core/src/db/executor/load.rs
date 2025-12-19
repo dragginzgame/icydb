@@ -8,7 +8,7 @@ use crate::{
         },
         primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr, Order, SortExpr},
         query::{LoadQuery, QueryPlan, QueryValidate},
-        response::Response,
+        response::{Response, ResponseError},
         store::DataRow,
     },
     obs::metrics,
@@ -133,6 +133,32 @@ impl<E: EntityKind> LoadExecutor<E> {
     /// Check whether the table contains any rows.
     pub fn exists_any(&self) -> Result<bool, Error> {
         self.exists(LoadQuery::new())
+    }
+
+    // ======================================================================
+    // Existence checks with not-found errors (fast path, no deserialization)
+    // ======================================================================
+
+    /// Require at least one row by primary key.
+    pub fn ensure_exists_one(&self, value: impl FieldValue) -> Result<(), Error> {
+        if self.exists_one(value)? {
+            Ok(())
+        } else {
+            Err(ResponseError::NotFound { entity: E::PATH }.into())
+        }
+    }
+
+    /// Require at least one row from a filter.
+    pub fn ensure_exists_filter<F, I>(&self, f: F) -> Result<(), Error>
+    where
+        F: FnOnce(FilterDsl) -> I,
+        I: IntoFilterExpr,
+    {
+        if self.exists_filter(f)? {
+            Ok(())
+        } else {
+            Err(ResponseError::NotFound { entity: E::PATH }.into())
+        }
     }
 
     // ======================================================================
