@@ -2,13 +2,17 @@ use crate::{
     db::primitives::filter::{FilterDsl, FilterExpr, IntoFilterExpr},
     traits::{EntityKind, FieldValue},
 };
-
+///
+/// FilterSlot
+///
+/// Extension trait for builder-style composition
 /// Anything with a filter slot (e.g. a query builder)
+///
+
 pub trait FilterSlot {
     fn filter_slot(&mut self) -> &mut Option<FilterExpr>;
 }
 
-/// Extension trait for builder-style composition
 impl<T: FilterSlot> FilterExt for T {}
 
 pub trait FilterExt: FilterSlot + Sized {
@@ -42,6 +46,27 @@ pub trait FilterExt: FilterSlot + Sized {
     {
         if let Some(i) = f(FilterDsl) {
             self.filter(|_| i)
+        } else {
+            self
+        }
+    }
+
+    #[must_use]
+    fn filter_expr(mut self, expr: FilterExpr) -> Self {
+        let slot = self.filter_slot();
+        let combined = match slot.take() {
+            Some(existing) => existing.and(expr),
+            None => expr,
+        };
+
+        *slot = Some(combined);
+        self
+    }
+
+    #[must_use]
+    fn filter_expr_opt(self, expr: Option<FilterExpr>) -> Self {
+        if let Some(expr) = expr {
+            self.filter_expr(expr)
         } else {
             self
         }

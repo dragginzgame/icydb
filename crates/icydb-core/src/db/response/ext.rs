@@ -1,4 +1,4 @@
-use crate::{Error, db::response::Response, traits::EntityKind};
+use crate::{Error, Key, db::response::Response, traits::EntityKind};
 
 ///
 /// ResponseExt
@@ -17,6 +17,12 @@ pub trait ResponseExt<E: EntityKind> {
     fn one_pk(self) -> Result<E::PrimaryKey, Error>;
     fn one_opt_pk(self) -> Result<Option<E::PrimaryKey>, Error>;
 
+    // --- keys ---
+
+    fn keys(self) -> Result<Vec<Key>, Error>;
+    fn one_key(self) -> Result<Key, Error>;
+    fn one_opt_key(self) -> Result<Option<Key>, Error>;
+
     // --- views ---
 
     fn views(self) -> Result<Vec<E::ViewType>, Error>;
@@ -29,6 +35,7 @@ pub trait ResponseExt<E: EntityKind> {
 }
 
 impl<E: EntityKind> ResponseExt<E> for Result<Response<E>, Error> {
+    // --- entities ---
     fn entities(self) -> Result<Vec<E>, Error> {
         Ok(self?.entities())
     }
@@ -40,6 +47,8 @@ impl<E: EntityKind> ResponseExt<E> for Result<Response<E>, Error> {
     fn one_opt_entity(self) -> Result<Option<E>, Error> {
         self?.one_opt_entity()
     }
+
+    // --- primary keys ---
 
     fn pks(self) -> Result<Vec<E::PrimaryKey>, Error> {
         Ok(self?.pks())
@@ -53,6 +62,22 @@ impl<E: EntityKind> ResponseExt<E> for Result<Response<E>, Error> {
         self?.one_opt_pk()
     }
 
+    // keys
+
+    fn keys(self) -> Result<Vec<Key>, Error> {
+        Ok(self?.keys())
+    }
+
+    fn one_key(self) -> Result<Key, Error> {
+        self?.one_key()
+    }
+
+    fn one_opt_key(self) -> Result<Option<Key>, Error> {
+        self?.one_opt_key()
+    }
+
+    // --- views ---
+
     fn views(self) -> Result<Vec<E::ViewType>, Error> {
         Ok(self?.views())
     }
@@ -64,6 +89,8 @@ impl<E: EntityKind> ResponseExt<E> for Result<Response<E>, Error> {
     fn one_opt_view(self) -> Result<Option<E::ViewType>, Error> {
         self?.one_opt_view()
     }
+
+    // --- introspection ---
 
     fn count(self) -> Result<u32, Error> {
         Ok(self?.count())
