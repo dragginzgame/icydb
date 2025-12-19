@@ -1,20 +1,20 @@
 use crate::types::{Ulid, UlidError};
 use canic_cdk::utils::time::now_millis;
 use canic_utils::rand::next_u128;
-use std::sync::{LazyLock, Mutex};
+use std::cell::RefCell;
 
-///
-/// GENERATOR is lazily initiated with a Mutex
-/// it has to keep state to make sure key order is maintained
-///
+//
+// GENERATOR
+// has to keep state to make sure key order is maintained
+//
 
-static GENERATOR: LazyLock<Mutex<Generator>> = LazyLock::new(|| Mutex::new(Generator::default()));
+thread_local! {
+    static GENERATOR: RefCell<Generator> = RefCell::new(Generator::default());
+}
 
 /// Generate a ULID using the global monotonic generator.
 pub fn generate() -> Result<Ulid, UlidError> {
-    let mut generator = GENERATOR.lock().expect("ULID generator mutex poisoned");
-
-    generator.generate()
+    GENERATOR.with(|g| g.borrow_mut().generate())
 }
 
 ///
@@ -50,7 +50,7 @@ impl Generator {
         }
 
         // generate
-        let rand = next_u128();
+        let rand = next_u128().unwrap_or(0);
         let ulid = Ulid::from_parts(ts, rand);
 
         self.previous = ulid;
@@ -63,6 +63,7 @@ impl Generator {
 /// TESTS
 ///
 
+#[cfg(test)]
 mod test {
     #[allow(unused_imports)] // weird
     use super::*;

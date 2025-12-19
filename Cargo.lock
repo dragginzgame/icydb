@@ -208,9 +208,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.6.7"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "058474d4bd013aba783143609fe86f885126b9532ed484994d4766c2e808e6fa"
+checksum = "8f60fc899803c513ba084b8426c9a1deb3194f6b6eec88a53e1525153fa00b7a"
 dependencies = [
  "base32 0.5.1",
  "candid",
@@ -229,9 +229,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.6.7"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4c127c89af350de5dcfa712daec77a2e6f9f0f743a181d1eca44ea3fc9b3f27"
+checksum = "00acba8e4c97e06d6750dc5e6aea2b1134b20af0f127fe00995279230fa51f31"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -244,9 +244,9 @@ dependencies = [
 
 [[package]]
 name = "canic-types"
-version = "0.6.7"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e0b08fce5a40e93c769af618317d06ecd2707a2eb7370065bae97c4aacf2fb5"
+checksum = "d5b99bbb76302529fc5634b81c6f9fdbcdad9f5535f546d84966b4150fb5ed6e"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -258,14 +258,15 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.6.7"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4a5067222e64c8b89ac44e40a639feb9a7228e13b14e694a46163a4647400ab"
+checksum = "e0e866b188cee2d98a441a1229136641d0b76163928df553a710a7ab01485f2c"
 dependencies = [
- "canic-cdk",
+ "candid",
  "convert_case",
  "derive_more",
- "tinyrand",
+ "hex",
+ "rand_chacha",
  "xxhash-rust",
 ]
 
@@ -1613,12 +1614,6 @@ dependencies = [
  "num-conv",
  "time-core",
 ]
-
-[[package]]
-name = "tinyrand"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87ffaad2263779579369d45f65cad0647c860893d27e4543cdcc1e428d07da2c"
 
 [[package]]
 name = "tinyvec"

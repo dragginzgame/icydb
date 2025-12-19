@@ -59,10 +59,10 @@ impl Ulid {
 
     /// generate
     /// Generate a ULID with the current timestamp and a random value.
-    /// Panics on generator overflow. Use `try_generate` to handle errors.
+    /// Falls back to zeroed randomness if the RNG is unavailable and to nil on overflow.
     #[must_use]
     pub fn generate() -> Self {
-        Self::try_generate().unwrap()
+        Self::try_generate().unwrap_or_else(|_| Self::nil())
     }
 
     #[must_use]
@@ -72,7 +72,7 @@ impl Ulid {
     }
 
     /// try_generate
-    /// Fallible ULID generation preserving error type (e.g., monotonic overflow).
+    /// Fallible ULID generation preserving error type (e.g., overflow).
     pub fn try_generate() -> Result<Self, UlidError> {
         generator::generate()
     }

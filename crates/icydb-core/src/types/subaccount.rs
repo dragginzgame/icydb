@@ -83,10 +83,11 @@ impl Subaccount {
     }
 
     /// Generate a random subaccount using two 128-bit draws.
+    /// Falls back to zeroed randomness if the RNG is unavailable.
     #[must_use]
     pub fn random() -> Self {
-        let hi = next_u128().to_le_bytes();
-        let lo = next_u128().to_le_bytes();
+        let hi = next_u128().unwrap_or(0).to_le_bytes();
+        let lo = next_u128().unwrap_or(0).to_le_bytes();
 
         let mut bytes = [0u8; 32];
         bytes[..16].copy_from_slice(&hi);
@@ -220,6 +221,13 @@ impl Visitable for Subaccount {}
 mod tests {
     use super::*;
     use crate::traits::Storable;
+    use canic_utils::rand::seed_from;
+
+    const RNG_SEED: [u8; 32] = [7; 32];
+
+    fn seed_rng() {
+        seed_from(RNG_SEED);
+    }
 
     #[test]
     fn subaccount_max_size_is_bounded() {
@@ -235,6 +243,7 @@ mod tests {
 
     #[test]
     fn generate_produces_valid_subaccount() {
+        seed_rng();
         let sub = Subaccount::random();
 
         // Must always be exactly 32 bytes
@@ -247,6 +256,7 @@ mod tests {
 
     #[test]
     fn generate_produces_different_values() {
+        seed_rng();
         let sub1 = Subaccount::random();
         let sub2 = Subaccount::random();
 
@@ -258,6 +268,7 @@ mod tests {
     fn generate_multiple_are_unique() {
         use std::collections::HashSet;
 
+        seed_rng();
         let mut set = HashSet::new();
         for _ in 0..100 {
             let sub = Subaccount::random();
@@ -267,6 +278,7 @@ mod tests {
 
     #[test]
     fn display_hex_format_is_64_chars() {
+        seed_rng();
         let sub = Subaccount::random();
         let hex = sub.to_string();
 
@@ -288,6 +300,7 @@ mod tests {
 
     #[test]
     fn different_ulids_produce_different_subaccounts() {
+        seed_rng();
         let ulid1 = Ulid::generate();
         let ulid2 = Ulid::generate();
         assert_ne!(
