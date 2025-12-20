@@ -5,6 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [Unreleased]
+- Fix `LoadExecutor::exists`/`exists_filter` to honor filters when index plans are used.
+
+## [0.1.18] - 2025-12-20
+- added Row<E>, Page<T> and into_page to Response
+
 ## [0.1.17] - 2025-12-20
 - LoadQuery/DeleteQuery gained explicit many_by_field helpers and keep PK-based many as a convenience wrapper.
 

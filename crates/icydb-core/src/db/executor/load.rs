@@ -4,7 +4,7 @@ use crate::{
         Db,
         executor::{
             FilterEvaluator,
-            plan::{plan_for, set_rows_from_len},
+            plan::{plan_for, scan_plan, set_rows_from_len},
         },
         primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr, Order, SortExpr},
         query::{LoadQuery, QueryPlan, QueryValidate},
@@ -14,7 +14,7 @@ use crate::{
     obs::metrics,
     traits::{EntityKind, FieldValue},
 };
-use std::{cmp::Ordering, collections::HashMap, hash::Hash, marker::PhantomData};
+use std::{cmp::Ordering, collections::HashMap, hash::Hash, marker::PhantomData, ops::ControlFlow};
 
 ///
 /// LoadExecutor
@@ -115,7 +115,26 @@ impl<E: EntityKind> LoadExecutor<E> {
     /// Check whether at least one row matches the query.
     pub fn exists(&self, query: LoadQuery) -> Result<bool, Error> {
         let query = query.limit_1();
-        Ok(!self.execute_raw(&query)?.is_empty())
+        QueryValidate::<E>::validate(&query)?;
+
+        let plan = plan_for::<E>(query.filter.as_ref());
+        let filter = query.filter.map(|f| f.simplify());
+        let mut found = false;
+
+        scan_plan::<E, _>(&self.db, plan, |_, entity| {
+            let matches = filter
+                .as_ref()
+                .map_or(true, |f| FilterEvaluator::new(&entity).eval(f));
+
+            if matches {
+                found = true;
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        })?;
+
+        Ok(found)
     }
 
     /// Check existence by primary key.

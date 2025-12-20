@@ -55,6 +55,10 @@ impl IndexFilterSuite {
                 "filter_name_opt_null_and_name_has_a",
                 Self::filter_name_opt_null_and_name_has_a,
             ),
+            (
+                "exists_filter_compound_respects_filter",
+                Self::exists_filter_compound_respects_filter,
+            ),
         ];
 
         // insert data
@@ -366,5 +370,22 @@ impl IndexFilterSuite {
                 .iter()
                 .all(|e| e.name_opt.is_none() && e.name.contains('a'))
         );
+    }
+
+    // exists_filter should not return true unless all predicates match
+    fn exists_filter_compound_respects_filter() {
+        let exists = db!()
+            .load::<FilterableIndex>()
+            .exists_filter(|f| f.eq("name", "Alpha") & f.contains("name_many", "alpha"))
+            .unwrap();
+
+        assert!(exists, "expected Alpha to have tag 'alpha'");
+
+        let missing = db!()
+            .load::<FilterableIndex>()
+            .exists_filter(|f| f.eq("name", "Alpha") & f.contains("name_many", "nope"))
+            .unwrap();
+
+        assert!(!missing, "expected no match for name_many='nope'");
     }
 }
