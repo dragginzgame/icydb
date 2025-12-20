@@ -173,6 +173,14 @@ impl<C: CanisterKind> DbSession<C> {
         self.save::<E>().insert(entity)
     }
 
+    /// Insert multiple entities, returning stored values.
+    pub fn insert_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        self.save::<E>().insert_many(entities)
+    }
+
     /// Replace an existing entity or insert it if it does not yet exist.
     pub fn replace<E>(&self, entity: E) -> Result<E, Error>
     where
@@ -181,12 +189,28 @@ impl<C: CanisterKind> DbSession<C> {
         self.save::<E>().replace(entity)
     }
 
+    /// Replace multiple entities, inserting if missing.
+    pub fn replace_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        self.save::<E>().replace_many(entities)
+    }
+
     /// Partially update an existing entity.
     pub fn update<E>(&self, entity: E) -> Result<E, Error>
     where
         E: EntityKind<Canister = C>,
     {
         self.save::<E>().update(entity)
+    }
+
+    /// Partially update multiple existing entities.
+    pub fn update_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        self.save::<E>().update_many(entities)
     }
 
     /// Insert a new view value for an entity.
