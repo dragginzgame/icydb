@@ -141,7 +141,21 @@ impl<E: EntityKind> DeleteExecutor<E> {
     /// EXECUTION METHODS
     ///
 
-    // explain
+    pub fn ensure_delete_one(self, pk: impl FieldValue) -> Result<(), Error> {
+        self.one(pk)?.require_one()?;
+
+        Ok(())
+    }
+
+    pub fn ensure_delete_any(
+        self,
+        pks: impl IntoIterator<Item = impl FieldValue>,
+    ) -> Result<(), Error> {
+        self.many(pks)?.require_some()?;
+
+        Ok(())
+    }
+
     /// Validate and return the query plan without executing.
     pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, Error> {
         QueryValidate::<E>::validate(&query)?;
@@ -149,7 +163,6 @@ impl<E: EntityKind> DeleteExecutor<E> {
         Ok(plan_for::<E>(query.filter.as_ref()))
     }
 
-    // execute
     /// Execute a delete query and return the removed rows.
     pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, Error> {
         QueryValidate::<E>::validate(&query)?;

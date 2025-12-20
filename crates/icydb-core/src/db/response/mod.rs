@@ -67,6 +67,30 @@ impl<E: EntityKind> Response<E> {
         }
     }
 
+    /// Require at least one row.
+    pub fn require_some(&self) -> Result<(), Error> {
+        match self.count() {
+            0 => Err(ResponseError::NotFound { entity: E::PATH }.into()),
+            _ => Ok(()),
+        }
+    }
+
+    /// Require exactly `expected` rows.
+    pub fn require_len(&self, expected: u32) -> Result<(), Error> {
+        let actual = self.count();
+        if actual == expected {
+            Ok(())
+        } else if actual == 0 {
+            Err(ResponseError::NotFound { entity: E::PATH }.into())
+        } else {
+            Err(ResponseError::NotUnique {
+                entity: E::PATH,
+                count: actual,
+            }
+            .into())
+        }
+    }
+
     // ======================================================================
     // Row extractors (consume self)
     // ======================================================================

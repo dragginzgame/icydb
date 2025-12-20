@@ -5,6 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.1.15] - 2025-12-20
+### Added
+- Added cardinality guards to `Response`: `require_some` and `require_len`, complementing existing `require_one`.
+- Added delete-side executor helpers `ensure_deleted_one` and `ensure_deleted_any` to express strict deletion invariants without leaking `Response` handling into call sites.
+
+### Changed
+- Simplified delete call sites by replacing per-row delete loops and manual response checks with executor-level `ensure_deleted_*` helpers.
+
+### Other
+- Happy birthday me!
+
 ## [0.1.14] - 2025-12-19
 - started on the aggregation layer with group_count_by in LoadExecutor.  Not added to the Response because we need the
 Executor to decide whether it's needs to deserialize rows or not (slow vs fast path)
