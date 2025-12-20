@@ -194,7 +194,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().insert_view::<E::ViewType>(view)
+        self.save::<E>().insert_view(view)
     }
 
     /// Replace an existing view or insert it if it does not yet exist.
@@ -202,7 +202,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().replace_view::<E::ViewType>(view)
+        self.save::<E>().replace_view(view)
     }
 
     /// Partially update an existing view.
@@ -210,6 +210,6 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().update_view::<E::ViewType>(view)
+        self.save::<E>().update_view(view)
     }
 }
