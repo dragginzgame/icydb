@@ -5,6 +5,33 @@ pub use ext::*;
 use crate::{Error, Key, ThisError, db::DbError, traits::EntityKind};
 
 ///
+/// Page
+///
+
+pub struct Page<T> {
+    pub items: Vec<T>,
+    pub has_more: bool,
+}
+
+impl<T> Page<T> {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.items.len()
+    }
+}
+
+///
+/// Row
+///
+
+pub type Row<E> = (Key, E);
+
+///
 /// ResponseError
 /// Errors related to interpreting a materialized response.
 ///
@@ -30,7 +57,7 @@ impl From<ResponseError> for Error {
 ///
 
 #[derive(Debug)]
-pub struct Response<E: EntityKind>(pub Vec<(Key, E)>);
+pub struct Response<E: EntityKind>(pub Vec<Row<E>>);
 
 impl<E: EntityKind> Response<E> {
     // ======================================================================
@@ -96,21 +123,52 @@ impl<E: EntityKind> Response<E> {
     // ======================================================================
 
     /// Require exactly one row and return it.
-    pub fn one(self) -> Result<(Key, E), Error> {
+    pub fn one(self) -> Result<Row<E>, Error> {
         self.require_one()?;
         Ok(self.0.into_iter().next().unwrap())
     }
 
     /// Require at most one row and return it.
-    pub fn one_opt(self) -> Result<Option<(Key, E)>, Error> {
-        match self.count() {
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn one_opt(self) -> Result<Option<Row<E>>, Error> {
+        match self.0.len() {
             0 => Ok(None),
             1 => Ok(Some(self.0.into_iter().next().unwrap())),
             n => Err(ResponseError::NotUnique {
                 entity: E::PATH,
-                count: n,
+                count: n as u32,
             }
             .into()),
+        }
+    }
+
+    /// Convert the response into a page of entities with a `has_more` indicator.
+    ///
+    /// This consumes at most `limit + 1` rows to determine whether more results
+    /// exist. Ordering is preserved.
+    ///
+    /// NOTE:
+    /// - `has_more` only indicates the existence of additional rows
+    /// - Page boundaries are not stable unless the underlying query ordering is stable
+    #[must_use]
+    pub fn into_page(self, limit: usize) -> Page<E> {
+        let mut iter = self.0.into_iter();
+
+        let mut items = Vec::with_capacity(limit);
+        for _ in 0..limit {
+            if let Some((_, entity)) = iter.next() {
+                items.push(entity);
+            } else {
+                return Page {
+                    items,
+                    has_more: false,
+                };
+            }
+        }
+
+        Page {
+            items,
+            has_more: iter.next().is_some(),
         }
     }
 
@@ -232,7 +290,7 @@ impl<E: EntityKind> Response<E> {
     /// This does NOT enforce cardinality. Use only when row order is
     /// well-defined and uniqueness is irrelevant.
     #[must_use]
-    pub fn first(self) -> Option<(Key, E)> {
+    pub fn first(self) -> Option<Row<E>> {
         self.0.into_iter().next()
     }
 
@@ -255,7 +313,7 @@ impl<E: EntityKind> Response<E> {
 }
 
 impl<E: EntityKind> IntoIterator for Response<E> {
-    type Item = (Key, E);
+    type Item = Row<E>;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
