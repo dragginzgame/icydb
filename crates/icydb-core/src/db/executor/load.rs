@@ -62,11 +62,13 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Execute a query matching multiple primary keys.
-    pub fn many(
-        &self,
-        values: impl IntoIterator<Item = impl FieldValue>,
-    ) -> Result<Response<E>, Error> {
-        self.execute(LoadQuery::new().many::<E>(values))
+    pub fn many<I, V>(&self, values: I) -> Result<Response<E>, Error>
+    where
+        I: IntoIterator<Item = V>,
+        V: FieldValue,
+    {
+        let query = LoadQuery::new().many_by_field(E::PRIMARY_KEY, values);
+        self.execute(query)
     }
 
     /// Execute an unfiltered query for all rows.
@@ -146,6 +148,26 @@ impl<E: EntityKind> LoadExecutor<E> {
         } else {
             Err(ResponseError::NotFound { entity: E::PATH }.into())
         }
+    }
+
+    /// Require that all provided primary keys exist.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn ensure_exists_many<I, V>(&self, values: I) -> Result<(), Error>
+    where
+        I: IntoIterator<Item = V>,
+        V: FieldValue,
+    {
+        let pks: Vec<_> = values.into_iter().collect();
+
+        let expected = pks.len() as u32;
+        if expected == 0 {
+            return Ok(());
+        }
+
+        let res = self.many(pks)?;
+        res.require_len(expected)?;
+
+        Ok(())
     }
 
     /// Require at least one row from a filter.

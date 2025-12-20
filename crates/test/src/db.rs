@@ -199,7 +199,7 @@ impl DbSuite {
         assert_eq!(count_before, ROWS, "Expected {ROWS} inserted rows");
 
         // Step 3: Delete all inserted rows
-        let deleted = db!().delete::<SimpleEntity>().many(keys.clone()).unwrap();
+        let deleted = db!().delete::<SimpleEntity>().many(keys).unwrap();
 
         assert_eq!(
             deleted.count(),

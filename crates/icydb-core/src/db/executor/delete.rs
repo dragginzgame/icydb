@@ -19,9 +19,6 @@ use std::{marker::PhantomData, ops::ControlFlow};
 ///
 /// DeleteAccumulator
 ///
-/// collects matched rows for deletion while applying filter + offset/limit during iteration
-/// stops scanning once the window is satisfied.
-///
 
 struct DeleteAccumulator<'f, E> {
     filter: Option<&'f FilterExpr>,
@@ -46,7 +43,6 @@ impl<'f, E: EntityKind> DeleteAccumulator<'f, E> {
         self.limit.is_some_and(|lim| self.matches.len() >= lim)
     }
 
-    /// Returns true when the limit has been reached and iteration should stop.
     fn should_stop(&mut self, dk: DataKey, entity: E) -> bool {
         if let Some(f) = self.filter
             && !FilterEvaluator::new(&entity).eval(f)
@@ -89,20 +85,19 @@ impl<E: EntityKind> DeleteExecutor<E> {
         }
     }
 
-    // debug
     #[must_use]
     pub const fn debug(mut self) -> Self {
         self.debug = true;
         self
     }
 
-    ///
-    /// HELPER METHODS
-    ///
+    // ─────────────────────────────────────────────
+    // PK-BASED HELPERS
+    // ─────────────────────────────────────────────
 
-    /// Delete a single matching row.
-    pub fn one(self, value: impl FieldValue) -> Result<Response<E>, Error> {
-        let query = DeleteQuery::new().one::<E>(value);
+    /// Delete a single row by primary key.
+    pub fn one(self, pk: impl FieldValue) -> Result<Response<E>, Error> {
+        let query = DeleteQuery::new().one::<E>(pk);
         self.execute(query)
     }
 
@@ -113,18 +108,47 @@ impl<E: EntityKind> DeleteExecutor<E> {
     }
 
     /// Delete multiple rows by primary keys.
-    pub fn many(
+    pub fn many<I, V>(self, values: I) -> Result<Response<E>, Error>
+    where
+        I: IntoIterator<Item = V>,
+        V: FieldValue,
+    {
+        let query = DeleteQuery::new().many_by_field(E::PRIMARY_KEY, values);
+
+        self.execute(query)
+    }
+
+    // ─────────────────────────────────────────────
+    // GENERIC FIELD-BASED DELETE
+    // ─────────────────────────────────────────────
+
+    /// Delete a single row by an arbitrary field value.
+    pub fn one_by_field(
         self,
-        values: impl IntoIterator<Item = impl FieldValue>,
+        field: impl AsRef<str>,
+        value: impl FieldValue,
     ) -> Result<Response<E>, Error> {
-        let query = DeleteQuery::new().many::<E>(values);
+        let query = DeleteQuery::new().one_by_field(field, value);
+        self.execute(query)
+    }
+
+    /// Delete multiple rows by an arbitrary field.
+    pub fn many_by_field<I, V>(
+        self,
+        field: impl AsRef<str>,
+        values: I,
+    ) -> Result<Response<E>, Error>
+    where
+        I: IntoIterator<Item = V>,
+        V: FieldValue,
+    {
+        let query = DeleteQuery::new().many_by_field(field, values);
         self.execute(query)
     }
 
     /// Delete all rows.
     pub fn all(self) -> Result<Response<E>, Error> {
-        let query = DeleteQuery::new();
-        self.execute(query)
+        self.execute(DeleteQuery::new())
     }
 
     /// Apply a filter builder and delete matches.
@@ -137,46 +161,55 @@ impl<E: EntityKind> DeleteExecutor<E> {
         self.execute(query)
     }
 
-    ///
-    /// EXECUTION METHODS
-    ///
+    // ─────────────────────────────────────────────
+    // ENSURE HELPERS
+    // ─────────────────────────────────────────────
 
     pub fn ensure_delete_one(self, pk: impl FieldValue) -> Result<(), Error> {
         self.one(pk)?.require_one()?;
-
         Ok(())
     }
 
-    pub fn ensure_delete_any(
-        self,
-        pks: impl IntoIterator<Item = impl FieldValue>,
-    ) -> Result<(), Error> {
+    pub fn ensure_delete_any_by_pk<I, V>(self, pks: I) -> Result<(), Error>
+    where
+        I: IntoIterator<Item = V>,
+        V: FieldValue,
+    {
         self.many(pks)?.require_some()?;
 
         Ok(())
     }
 
-    /// Validate and return the query plan without executing.
+    pub fn ensure_delete_any<I, V>(self, values: I) -> Result<(), Error>
+    where
+        I: IntoIterator<Item = V>,
+        V: FieldValue,
+    {
+        self.ensure_delete_any_by_pk(values)
+    }
+
+    // ─────────────────────────────────────────────
+    // EXECUTION
+    // ─────────────────────────────────────────────
+
     pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, Error> {
         QueryValidate::<E>::validate(&query)?;
-
         Ok(plan_for::<E>(query.filter.as_ref()))
     }
 
-    /// Execute a delete query and return the removed rows.
     pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, Error> {
         QueryValidate::<E>::validate(&query)?;
         let mut span = metrics::Span::<E>::new(metrics::ExecKind::Delete);
 
         let plan = plan_for::<E>(query.filter.as_ref());
 
-        // query prep
         let limit = query
             .limit
             .as_ref()
             .and_then(|l| l.limit)
             .map(|l| l as usize);
-        let offset = query.limit.as_ref().map_or(0_usize, |l| l.offset as usize);
+
+        let offset = query.limit.as_ref().map_or(0, |l| l.offset as usize);
         let filter_simplified = query.filter.as_ref().map(|f| f.clone().simplify());
 
         let mut acc = DeleteAccumulator::new(filter_simplified.as_ref(), offset, limit);
@@ -189,7 +222,6 @@ impl<E: EntityKind> DeleteExecutor<E> {
             }
         })?;
 
-        // Apply deletions + index teardown
         let mut res: Vec<(Key, E)> = Vec::with_capacity(acc.matches.len());
         self.db.context::<E>().with_store_mut(|s| {
             for (dk, entity) in acc.matches {
@@ -199,25 +231,20 @@ impl<E: EntityKind> DeleteExecutor<E> {
                 }
                 res.push((dk.key(), entity));
             }
-
             Ok::<_, Error>(())
         })??;
 
         set_rows_from_len(&mut span, res.len());
-
         Ok(Response(res))
     }
 
-    // remove_indexes
     fn remove_indexes(&self, entity: &E) -> Result<(), Error> {
         for index in E::INDEXES {
             let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
-
             store.with_borrow_mut(|this| {
                 this.remove_index_entry(entity, index);
             });
         }
-
         Ok(())
     }
 }

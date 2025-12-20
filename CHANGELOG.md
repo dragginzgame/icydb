@@ -5,6 +5,9 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.1.17] - 2025-12-20
+- LoadQuery/DeleteQuery gained explicit many_by_field helpers and keep PK-based many as a convenience wrapper.
+
 ## [0.1.16] - 2025-12-20
 - got rid of the unused generic on insert/create/replace_view
 - added insert/create/replace_many to the SaveExecutor

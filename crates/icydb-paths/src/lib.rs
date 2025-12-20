@@ -85,6 +85,9 @@ mod tests {
     use super::*;
     use quote::quote;
     use std::env;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     struct TempEnv {
         key: &'static str,
@@ -117,6 +120,7 @@ mod tests {
 
     #[test]
     fn uses_internal_crate_names_inside_workspace() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let _pkg = TempEnv::set("CARGO_PKG_NAME", Some("icydb-paths"));
         let _core = TempEnv::set("ICYDB_CORE_CRATE", None);
         let _schema = TempEnv::set("ICYDB_SCHEMA_CRATE", None);
@@ -131,6 +135,7 @@ mod tests {
 
     #[test]
     fn honors_env_overrides_for_external_consumers() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let _pkg = TempEnv::set("CARGO_PKG_NAME", Some("external-app"));
         let _core = TempEnv::set("ICYDB_CORE_CRATE", Some("custom::core"));
         let _schema = TempEnv::set("ICYDB_SCHEMA_CRATE", Some("custom::schema"));

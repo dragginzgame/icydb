@@ -6,8 +6,7 @@ use crate::{
     traits::{EntityKind, FieldValue},
 };
 use candid::CandidType;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 ///
 /// DeleteQuery
@@ -20,30 +19,69 @@ pub struct DeleteQuery {
 }
 
 impl DeleteQuery {
-    #[must_use]
+    // ─────────────────────────────────────────────
+    // CONSTRUCTORS
+    // ─────────────────────────────────────────────
+
     /// Construct an empty delete query.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    #[must_use]
+    // ─────────────────────────────────────────────
+    // ENTITY CONVENIENCE HELPERS
+    // ─────────────────────────────────────────────
+
     /// Delete a single row by primary key value.
+    ///
+    /// Convenience wrapper; entity knowledge lives here only for ergonomics.
+    #[must_use]
     pub fn one<E: EntityKind>(self, value: impl FieldValue) -> Self {
-        self.filter(|f| f.eq(E::PRIMARY_KEY, value))
+        self.one_by_field(E::PRIMARY_KEY, value)
     }
 
-    #[must_use]
     /// Delete a single row where the primary key is unit.
+    #[must_use]
     pub fn only<E: EntityKind>(self) -> Self {
-        self.filter(|f| f.eq(E::PRIMARY_KEY, ()))
+        self.one_by_field(E::PRIMARY_KEY, ())
     }
 
+    /// Delete multiple rows by an arbitrary field.
     #[must_use]
-    /// Delete multiple rows by primary key values.
-    pub fn many<E: EntityKind>(self, values: impl IntoIterator<Item = impl FieldValue>) -> Self {
-        self.filter(move |f| f.in_iter(E::PRIMARY_KEY, values))
+    pub fn many<E, I, V>(self, values: I) -> Self
+    where
+        E: EntityKind,
+        I: IntoIterator<Item = V>,
+        V: FieldValue,
+    {
+        self.filter(|f| f.in_iter(E::PRIMARY_KEY, values))
+    }
+
+    // ─────────────────────────────────────────────
+    // FIELD-BASED HELPERS (PRIMITIVES)
+    // ─────────────────────────────────────────────
+
+    /// Delete a single row by an arbitrary field value.
+    #[must_use]
+    pub fn one_by_field(self, field: impl AsRef<str>, value: impl FieldValue) -> Self {
+        self.filter(|f| f.eq(field, value))
+    }
+
+    /// Delete multiple rows by an arbitrary field.
+    #[must_use]
+    pub fn many_by_field<I, V>(self, field: impl AsRef<str>, values: I) -> Self
+    where
+        I: IntoIterator<Item = V>,
+        V: FieldValue,
+    {
+        self.filter(|f| f.in_iter(field, values))
     }
 }
+
+// ─────────────────────────────────────────────
+// TRAIT IMPLEMENTATIONS
+// ─────────────────────────────────────────────
 
 impl FilterSlot for DeleteQuery {
     fn filter_slot(&mut self) -> &mut Option<FilterExpr> {
