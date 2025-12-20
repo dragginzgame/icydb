@@ -118,13 +118,13 @@ impl<E: EntityKind> LoadExecutor<E> {
         QueryValidate::<E>::validate(&query)?;
 
         let plan = plan_for::<E>(query.filter.as_ref());
-        let filter = query.filter.map(|f| f.simplify());
+        let filter = query.filter.map(FilterExpr::simplify);
         let mut found = false;
 
         scan_plan::<E, _>(&self.db, plan, |_, entity| {
             let matches = filter
                 .as_ref()
-                .map_or(true, |f| FilterEvaluator::new(&entity).eval(f));
+                .is_none_or(|f| FilterEvaluator::new(&entity).eval(f));
 
             if matches {
                 found = true;
