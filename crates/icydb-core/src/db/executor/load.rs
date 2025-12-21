@@ -506,6 +506,10 @@ mod tests {
         fn primary_key(&self) -> Self::PrimaryKey {
             self.id
         }
+
+        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+            self.id = key;
+        }
     }
 
     #[test]

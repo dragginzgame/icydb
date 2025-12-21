@@ -5,12 +5,14 @@ mod filter;
 mod load;
 mod plan;
 mod save;
+mod upsert;
 
 pub(crate) use context::*;
 pub use delete::DeleteExecutor;
 use filter::*;
 pub use load::LoadExecutor;
 pub use save::SaveExecutor;
+pub use upsert::{PrimaryKeyFromKey, UniqueIndexSpec, UpsertExecutor};
 
 use crate::{
     Error,
@@ -32,6 +34,24 @@ pub enum ExecutorError {
 
     #[error("index constraint violation: {0} ({1})")]
     IndexViolation(String, String),
+
+    #[error("index not found: {0} ({1})")]
+    IndexNotFound(String, String),
+
+    #[error("index not unique: {0} ({1})")]
+    IndexNotUnique(String, String),
+
+    #[error("index key missing: {0} ({1})")]
+    IndexKeyMissing(String, String),
+
+    #[error("index corrupted: {0} ({1}) -> {2} keys")]
+    IndexCorrupted(String, String, usize),
+
+    #[error("primary key type mismatch: expected {0}, got {1}")]
+    KeyTypeMismatch(String, String),
+
+    #[error("primary key out of range for {0}: {1}")]
+    KeyOutOfRange(String, String),
 }
 
 impl ExecutorError {

@@ -53,9 +53,6 @@ use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError)]
 pub enum NodeError {
-    #[error("error downcasting schema node: {0}")]
-    DowncastFail(String),
-
     #[error("{0} is an incorrect node type")]
     IncorrectNodeType(String),
 

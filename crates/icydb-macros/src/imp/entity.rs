@@ -66,5 +66,9 @@ fn key(node: &Entity) -> TokenStream {
         fn primary_key(&self) -> Self::PrimaryKey {
             self.#primary_key
         }
+
+        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+            self.#primary_key = key;
+        }
     }
 }

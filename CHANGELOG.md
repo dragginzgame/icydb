@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 - Fix `LoadExecutor::exists`/`exists_filter` to honor filters when index plans are used.
+- Add unique-index upsert executor for insert-or-update without primary key lookup.
 
 ## [0.1.18] - 2025-12-20
 - added Row<E>, Page<T> and into_page to Response

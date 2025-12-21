@@ -360,6 +360,16 @@ impl IndexEntry {
         self.keys.len()
     }
 
+    /// Returns the only key when exactly one exists.
+    #[must_use]
+    pub fn single_key(&self) -> Option<Key> {
+        if self.keys.len() == 1 {
+            self.keys.iter().copied().next()
+        } else {
+            None
+        }
+    }
+
     /// Returns keys as a sorted `Vec<Key>` (useful for serialization/debug).
     #[must_use]
     pub fn to_sorted_vec(&self) -> Vec<Key> {

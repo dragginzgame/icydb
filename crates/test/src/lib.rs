@@ -4,6 +4,7 @@ mod index;
 mod merge;
 mod metrics;
 mod ops;
+mod upsert;
 mod view_into;
 
 use canic_cdk::{export_candid, query, update};
@@ -46,6 +47,7 @@ pub fn test() {
         ("metrics", metrics::MetricsSuite::test),
         ("merge", merge::MergeSuite::test),
         ("view_into", view_into::ViewIntoSuite::test),
+        ("upsert", upsert::UpsertSuite::test),
         // filter
         ("delete_filter", filter::delete::DeleteFilterSuite::test),
         ("index_filter", filter::index::IndexFilterSuite::test),

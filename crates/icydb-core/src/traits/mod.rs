@@ -70,6 +70,7 @@ pub trait EntityKind: Kind + TypeKind + FieldValues {
 
     fn key(&self) -> Key;
     fn primary_key(&self) -> Self::PrimaryKey;
+    fn set_primary_key(&mut self, key: Self::PrimaryKey);
 }
 
 ///

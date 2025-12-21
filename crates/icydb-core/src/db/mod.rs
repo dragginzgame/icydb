@@ -7,7 +7,10 @@ pub mod store;
 use crate::{
     Error,
     db::{
-        executor::{Context, DeleteExecutor, ExecutorError, LoadExecutor, SaveExecutor},
+        executor::{
+            Context, DeleteExecutor, ExecutorError, LoadExecutor, PrimaryKeyFromKey, SaveExecutor,
+            UpsertExecutor,
+        },
         query::QueryError,
         response::ResponseError,
         store::{DataStoreRegistry, IndexStoreRegistry, StoreError},
@@ -150,6 +153,16 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         SaveExecutor::new(self.db, self.debug)
+    }
+
+    /// Get an [`UpsertExecutor`] for inserting or updating by a unique index.
+    #[must_use]
+    pub const fn upsert<E>(&self) -> UpsertExecutor<E>
+    where
+        E: EntityKind<Canister = C>,
+        E::PrimaryKey: PrimaryKeyFromKey,
+    {
+        UpsertExecutor::new(self.db, self.debug)
     }
 
     /// Get a [`DeleteExecutor`] for deleting entities by key or query.
