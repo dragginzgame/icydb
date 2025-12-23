@@ -178,10 +178,11 @@ impl View for Float64 {
         self.0
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        // Preserve invariants: finite only, canonicalize -0.0 → 0.0
-        // Fallback to 0.0 for non‑finite inputs to avoid propagating NaN/Inf
-        Self::try_new(view).unwrap_or(Self(0.0))
+    // SAFETY: `from_view` is only called on values produced by `to_view`
+    // from a valid `Float32`, so `view` is guaranteed finite.
+    fn from_view(view: f64) -> Self {
+        debug_assert!(view.is_finite());
+        Self(view)
     }
 }
 

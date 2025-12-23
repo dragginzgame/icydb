@@ -211,7 +211,7 @@ impl Value {
             Self::Decimal(d) => Some(*d),
             Self::Duration(d) => Decimal::from_u64(d.get()),
             Self::E8s(v) => Some(v.to_decimal()),
-            Self::E18s(v) => Some(v.to_decimal()),
+            Self::E18s(v) => v.to_decimal(),
             Self::Float64(f) => Decimal::from_f64(f.get()),
             Self::Float32(f) => Decimal::from_f32(f.get()),
             Self::Int(i) => Decimal::from_i64(*i),

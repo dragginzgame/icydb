@@ -442,6 +442,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::should_panic_without_expect)]
     #[should_panic]
     fn multiple_of_zero_target_panics() {
         let validator = MultipleOf::new(0);

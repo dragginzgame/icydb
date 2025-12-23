@@ -76,8 +76,12 @@ impl Timestamp {
     pub fn parse_rfc3339(s: &str) -> Result<Self, String> {
         let dt =
             DateTime::parse_from_rfc3339(s).map_err(|e| format!("timestamp parse error: {e}"))?;
+        let ts = dt.timestamp();
+        if ts < 0 {
+            return Err("timestamp before epoch".to_string());
+        }
 
-        Ok(Self(dt.timestamp() as u64))
+        Ok(Self(ts as u64))
     }
 
     pub fn parse_flexible(s: &str) -> Result<Self, String> {
@@ -147,7 +151,7 @@ impl NumCast for Timestamp {
 impl NumFromPrimitive for Timestamp {
     #[allow(clippy::cast_sign_loss)]
     fn from_i64(n: i64) -> Option<Self> {
-        Some(Self(n as u64))
+        if n < 0 { None } else { Some(Self(n as u64)) }
     }
 
     fn from_u64(n: u64) -> Option<Self> {
@@ -220,6 +224,18 @@ mod tests {
         let expected = 1_710_013_530u64;
 
         assert_eq!(parsed.get(), expected);
+    }
+
+    #[test]
+    fn test_parse_rfc3339_rejects_pre_epoch() {
+        let result = Timestamp::parse_rfc3339("1969-12-31T23:59:59Z");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_i64_rejects_negative() {
+        let t = <Timestamp as NumFromPrimitive>::from_i64(-1);
+        assert!(t.is_none());
     }
 
     #[test]

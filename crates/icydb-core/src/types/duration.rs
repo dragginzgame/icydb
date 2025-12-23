@@ -7,7 +7,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic_cdk::utils::time::now_secs;
+use canic_cdk::utils::time::{now_millis, now_secs};
 use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
 
@@ -44,10 +44,16 @@ impl Duration {
     pub const MIN: Self = Self(u64::MIN);
     pub const MAX: Self = Self(u64::MAX);
 
+    /// Duration since the Unix epoch in seconds
     #[must_use]
-    /// Duration since the Unix epoch in seconds (as milliseconds).
-    pub fn now() -> Self {
+    pub fn now_secs() -> Self {
         Self(now_secs())
+    }
+
+    /// Duration since the Unix epoch in milliseconds
+    #[must_use]
+    pub fn now_millis() -> Self {
+        Self(now_millis())
     }
 
     #[must_use]
@@ -162,7 +168,7 @@ impl NumCast for Duration {
 impl NumFromPrimitive for Duration {
     #[allow(clippy::cast_sign_loss)]
     fn from_i64(n: i64) -> Option<Self> {
-        Some(Self(n as u64))
+        if n < 0 { None } else { Some(Self(n as u64)) }
     }
 
     fn from_u64(n: u64) -> Option<Self> {
@@ -209,3 +215,14 @@ impl View for Duration {
 }
 
 impl Visitable for Duration {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_i64_rejects_negative() {
+        let t = <Duration as NumFromPrimitive>::from_i64(-1);
+        assert!(t.is_none());
+    }
+}

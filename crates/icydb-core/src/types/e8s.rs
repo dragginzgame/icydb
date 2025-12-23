@@ -100,7 +100,7 @@ impl E8s {
     #[allow(clippy::cast_sign_loss)]
     #[doc = "⚠️ Use only for non-critical float conversions. Prefer try_from_decimal."]
     pub fn from_f64(value: f64) -> Option<Self> {
-        if value.is_nan() || value.is_infinite() {
+        if value.is_nan() || value.is_infinite() || value < 0.0 {
             return None;
         }
 
@@ -175,7 +175,7 @@ impl NumCast for E8s {
 impl NumFromPrimitive for E8s {
     #[allow(clippy::cast_sign_loss)]
     fn from_i64(n: i64) -> Option<Self> {
-        Some(Self(n as u64))
+        if n < 0 { None } else { Some(Self(n as u64)) }
     }
 
     fn from_u64(n: u64) -> Option<Self> {
@@ -283,6 +283,13 @@ mod tests {
         assert!(E8s::from_f64(f64::NAN).is_none());
         assert!(E8s::from_f64(f64::INFINITY).is_none());
         assert!(E8s::from_f64(f64::NEG_INFINITY).is_none());
+        assert!(E8s::from_f64(-0.1).is_none());
+    }
+
+    #[test]
+    fn test_from_i64_rejects_negative() {
+        let v = <E8s as NumFromPrimitive>::from_i64(-1);
+        assert!(v.is_none());
     }
 
     #[test]

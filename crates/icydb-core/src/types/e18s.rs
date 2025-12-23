@@ -84,7 +84,7 @@ impl E18s {
     )]
     /// Convert from `f64`, rounding to 18 decimal places (lossy).
     pub fn from_f64(value: f64) -> Option<Self> {
-        if !value.is_finite() {
+        if !value.is_finite() || value < 0.0 {
             return None;
         }
         Some(Self((value * Self::SCALE as f64).round() as u128))
@@ -102,8 +102,13 @@ impl E18s {
     #[must_use]
     #[allow(clippy::cast_possible_wrap)]
     /// Convert the fixed-point value into a normalized `Decimal`.
-    pub fn to_decimal(self) -> Decimal {
-        Decimal::from_i128_with_scale(self.0 as i128, Self::DECIMALS).normalize()
+    /// Returns `None` if the value does not fit in `i128`.
+    pub fn to_decimal(self) -> Option<Decimal> {
+        if self.0 > i128::MAX as u128 {
+            return None;
+        }
+
+        Some(Decimal::from_i128_with_scale(self.0 as i128, Self::DECIMALS).normalize())
     }
 
     #[must_use]
@@ -114,7 +119,10 @@ impl E18s {
 
 impl Display for E18s {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.to_decimal().fmt(f)
+        match self.to_decimal() {
+            Some(d) => d.fmt(f),
+            None => write!(f, "[overflow]"),
+        }
     }
 }
 
@@ -160,7 +168,7 @@ impl NumCast for E18s {
 impl NumFromPrimitive for E18s {
     #[allow(clippy::cast_sign_loss)]
     fn from_i64(n: i64) -> Option<Self> {
-        Some(Self(n as u128))
+        if n < 0 { None } else { Some(Self(n as u128)) }
     }
 
     fn from_u64(n: u64) -> Option<Self> {
@@ -237,14 +245,20 @@ mod tests {
         let raw = 42 * E18s::SCALE;
         let e18s = <E18s as NumCast>::from(raw).unwrap();
 
-        assert_eq!(e18s.to_decimal(), <Decimal as NumCast>::from(42).unwrap());
+        assert_eq!(e18s.to_decimal(), <Decimal as NumCast>::from(42));
     }
 
     #[test]
     fn test_default_is_zero() {
         let fixed = E18s::default();
 
-        assert_eq!(fixed.to_decimal(), Decimal::ZERO);
+        assert_eq!(fixed.to_decimal(), Some(Decimal::ZERO));
+    }
+
+    #[test]
+    fn test_to_decimal_overflow_rejected() {
+        let too_large = E18s::from_atomic(i128::MAX as u128 + 1);
+        assert!(too_large.to_decimal().is_none());
     }
 
     #[test]
@@ -252,5 +266,12 @@ mod tests {
         assert!(E18s::from_f64(f64::NAN).is_none());
         assert!(E18s::from_f64(f64::INFINITY).is_none());
         assert!(E18s::from_f64(f64::NEG_INFINITY).is_none());
+        assert!(E18s::from_f64(-0.1).is_none());
+    }
+
+    #[test]
+    fn test_from_i64_rejects_negative() {
+        let v = <E18s as NumFromPrimitive>::from_i64(-1);
+        assert!(v.is_none());
     }
 }

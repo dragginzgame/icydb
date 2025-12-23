@@ -5,7 +5,7 @@ use crate::prelude::*;
 ///
 /// - Trim
 /// - Length: 1–100
-/// - Allowed: letters, digits, spaces, commas, periods, hyphens, apostrophes, TODO
+/// - Allowed characters are not enforced
 ///
 
 #[newtype(
@@ -44,7 +44,7 @@ pub struct CityName {}
 /// - Trim whitespace
 /// - Uppercase
 /// - Length: 3–12 chars
-/// - Allowed: letters, digits, space, dash  TODO
+/// - Allowed characters are not enforced
 ///
 
 #[newtype(
@@ -65,7 +65,7 @@ pub struct PostalCode {}
 /// - Trim
 /// - Uppercase
 /// - Length: 2–50
-/// - Allowed: letters, spaces, hyphens  TODO
+/// - Allowed characters are not enforced
 ///
 
 #[newtype(
