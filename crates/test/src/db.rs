@@ -53,7 +53,7 @@ impl DbSuite {
     // TESTS
     //
 
-    fn debug_session_smoke() {
+    const fn debug_session_smoke() {
         let _ = db!().debug();
     }
 

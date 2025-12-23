@@ -177,7 +177,7 @@ impl Value {
             return Some(key);
         }
 
-        let Value::Text(s) = self else {
+        let Self::Text(s) = self else {
             return None;
         };
 
