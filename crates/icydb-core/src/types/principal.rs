@@ -1,8 +1,9 @@
 use crate::{
     ThisError,
     db::primitives::filter::{TextEqualityFilterKind, TextListFilterKind},
+    key::Key,
     traits::{
-        FieldValue, Filterable, Inner, SanitizeAuto, SanitizeCustom, Storable, UpdateView,
+        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, Storable, UpdateView,
         ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
@@ -120,6 +121,15 @@ impl From<&WrappedPrincipal> for Principal {
 impl From<Principal> for WrappedPrincipal {
     fn from(p: Principal) -> Self {
         *p
+    }
+}
+
+impl FromKey for Principal {
+    fn try_from_key(key: Key) -> Option<Self> {
+        match key {
+            Key::Principal(v) => Some(v),
+            _ => None,
+        }
     }
 }
 

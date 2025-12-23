@@ -5,6 +5,7 @@ use std::fmt::{self, Display};
 /// Runtime-only descriptor for an index used by the executor and stores.
 /// Keeps core decoupled from the schema `Index` shape.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IndexSpec {
     pub store: &'static str,

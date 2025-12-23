@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.1.19] - 2025-12-23
+- Fix upsert to resolve unique-index matches using sanitized input values.
+- Add upsert result helpers that report whether a unique-index upsert inserted or updated.
+- Add upsert merge helpers to apply update logic inside the executor.
+- Rename `UniqueIndexSpec` to `UniqueIndexHandle` to clarify the unique-index upsert API.
+- Move `FromKey` into the core traits module (path change for callers).
+- Add strict unique-index delete via `DeleteExecutor::by_unique_index` with corruption checks.
+- Save sanitizes entities before primary key extraction to keep keys/indexes consistent.
+- Query planning for `IN` on primary keys returns empty results for empty lists and dedups keys.
+- Index-backed loads now return deterministic key order by sorting index candidates.
+- `DeleteExecutor::by_unique_index` now emits delete metrics.
+
 ## [0.1.18] - 2025-12-21
 - added Row<E>, Page<T> and into_page to Response
 - Fix `LoadExecutor::exists`/`exists_filter` to honor filters when index plans are used.

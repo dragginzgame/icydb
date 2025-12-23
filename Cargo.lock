@@ -208,9 +208,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.6.10"
+version = "0.6.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a223485a0a28970367c52ef0f5a7d7c4f33f2f378effb0ca21892a095aba355f"
+checksum = "46a5ff02bf396518a4833fb0e90f437063fba0738e6f7bf8a90e6e9f27d9fec7"
 dependencies = [
  "base32 0.5.1",
  "candid",
@@ -229,9 +229,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.6.10"
+version = "0.6.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf74f80f7310c3e447125f014f171152e173c07c94b4bf280dac4bd2eebc458d"
+checksum = "bd30a0028433d1f670b2a6534c93bfa16ca016e2f3e2bda3271d3efcfc0c678b"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -244,9 +244,9 @@ dependencies = [
 
 [[package]]
 name = "canic-types"
-version = "0.6.10"
+version = "0.6.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14df27b82cd8eb650dbb226eb409bf79cc51c6accdc7a7e122445f4bda0f2631"
+checksum = "f056debaabc69285b337d39cf3aeac8f7c7b7a6c26e8d25464846fe482b73f05"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -258,9 +258,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.6.10"
+version = "0.6.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e939dc5225d9f93bea207b17f14bddeb70f66f6d1463a2d472b261eea306abb4"
+checksum = "5ee7454c74f4d1f323f3022075f9ed92956ee89fcb68707916af842059b5149b"
 dependencies = [
  "candid",
  "convert_case",
@@ -440,18 +440,18 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
-version = "2.1.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10b768e943bed7bf2cab53df09f4bc34bfd217cdb57d971e769874c9a6710618"
+checksum = "d751e9e49156b02b44f9c1815bcb94b984cdcc4396ecc32521c739452808b134"
 dependencies = [
  "derive_more-impl",
 ]
 
 [[package]]
 name = "derive_more-impl"
-version = "2.1.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d286bfdaf75e988b4a78e013ecd79c581e06399ab53fbacd2d916c2f904f30b"
+checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
 dependencies = [
  "convert_case",
  "proc-macro2",
@@ -1435,9 +1435,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.145"
+version = "1.0.146"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "402a6f66d8c709116cf22f558eab210f5a50187f702eb4d7e5ef38d9a7f1c79c"
+checksum = "217ca874ae0207aac254aa02c957ded05585a90892cc8d87f9e5fa49669dadd8"
 dependencies = [
  "itoa",
  "memchr",

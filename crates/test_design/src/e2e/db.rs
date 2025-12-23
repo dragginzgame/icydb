@@ -174,6 +174,33 @@ impl Index {
 }
 
 ///
+/// LowerIndexText
+///
+
+#[newtype(
+    primitive = "Text",
+    item(prim = "Text"),
+    ty(sanitizer(path = "base::sanitizer::text::case::Lower"))
+)]
+pub struct LowerIndexText {}
+
+///
+/// IndexSanitized
+///
+
+#[entity(
+    store = "TestDataStore",
+    pk = "id",
+    index(store = "TestIndexStore", fields = "username", unique),
+    fields(
+        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(ident = "username", value(item(is = "LowerIndexText"))),
+        field(ident = "score", value(item(prim = "Int32")))
+    )
+)]
+pub struct IndexSanitized {}
+
+///
 /// IndexRelation
 ///
 

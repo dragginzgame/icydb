@@ -34,11 +34,11 @@ pub enum QueryError {
     #[error("invalid filter field '{0}'")]
     InvalidFilterField(String),
 
-    #[error("invalid sort field '{0}'")]
-    InvalidSortField(String),
-
     #[error("invalid filter value: {0}")]
     InvalidFilterValue(String),
+
+    #[error("invalid sort field '{0}'")]
+    InvalidSortField(String),
 }
 
 impl From<QueryError> for Error {

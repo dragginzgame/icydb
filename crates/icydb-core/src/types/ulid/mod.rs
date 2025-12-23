@@ -4,8 +4,9 @@ pub mod generator;
 use crate::{
     ThisError,
     db::primitives::{TextFilterKind, TextListFilterKind},
+    key::Key,
     traits::{
-        FieldValue, Filterable, Inner, SanitizeAuto, SanitizeCustom, Storable, UpdateView,
+        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, Storable, UpdateView,
         ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
@@ -136,6 +137,15 @@ impl Filterable for Ulid {
 impl From<WrappedUlid> for Ulid {
     fn from(ulid: WrappedUlid) -> Self {
         Self(ulid)
+    }
+}
+
+impl FromKey for Ulid {
+    fn try_from_key(key: Key) -> Option<Self> {
+        match key {
+            Key::Ulid(v) => Some(v),
+            _ => None,
+        }
     }
 }
 

@@ -5,19 +5,21 @@ mod filter;
 mod load;
 mod plan;
 mod save;
+mod unique;
 mod upsert;
 
 pub(crate) use context::*;
 pub use delete::DeleteExecutor;
-use filter::*;
 pub use load::LoadExecutor;
 pub use save::SaveExecutor;
-pub use upsert::{PrimaryKeyFromKey, UniqueIndexSpec, UpsertExecutor};
+pub(crate) use unique::resolve_unique_pk;
+pub use upsert::{UniqueIndexHandle, UpsertExecutor, UpsertResult};
 
 use crate::{
     Error,
     db::{DbError, store::DataKey},
 };
+use filter::*;
 use thiserror::Error as ThisError;
 
 ///

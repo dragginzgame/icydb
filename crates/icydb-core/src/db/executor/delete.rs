@@ -1,18 +1,21 @@
 use crate::{
-    Error, Key,
+    Error, IndexSpec, Key,
     db::{
         Db,
         executor::{
-            FilterEvaluator,
+            ExecutorError, FilterEvaluator, UniqueIndexHandle,
             plan::{plan_for, scan_plan, set_rows_from_len},
+            resolve_unique_pk,
         },
         primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr},
         query::{DeleteQuery, QueryPlan, QueryValidate},
         response::Response,
         store::DataKey,
     },
+    deserialize,
     obs::metrics,
-    traits::{EntityKind, FieldValue},
+    traits::{EntityKind, FieldValue, FromKey},
+    visitor::sanitize,
 };
 use std::{marker::PhantomData, ops::ControlFlow};
 
@@ -119,6 +122,39 @@ impl<E: EntityKind> DeleteExecutor<E> {
     }
 
     // ─────────────────────────────────────────────
+    // UNIQUE INDEX DELETE
+    // ─────────────────────────────────────────────
+
+    /// Delete a single row using a unique index handle.
+    pub fn by_unique_index(self, index: UniqueIndexHandle, entity: E) -> Result<Response<E>, Error>
+    where
+        E::PrimaryKey: FromKey,
+    {
+        let mut span = metrics::Span::<E>::new(metrics::ExecKind::Delete);
+        let index = index.index();
+        let mut lookup = entity;
+        sanitize(&mut lookup);
+
+        let Some(pk) = resolve_unique_pk::<E>(&self.db, index, &lookup)? else {
+            set_rows_from_len(&mut span, 0);
+            return Ok(Response(Vec::new()));
+        };
+
+        let (dk, stored) = self.load_existing(index, pk)?;
+
+        self.db.context::<E>().with_store_mut(|s| {
+            s.remove(&dk);
+            if !E::INDEXES.is_empty() {
+                self.remove_indexes(&stored)?;
+            }
+            Ok::<_, Error>(())
+        })??;
+
+        set_rows_from_len(&mut span, 1);
+        Ok(Response(vec![(dk.key(), stored)]))
+    }
+
+    // ─────────────────────────────────────────────
     // GENERIC FIELD-BASED DELETE
     // ─────────────────────────────────────────────
 
@@ -197,6 +233,11 @@ impl<E: EntityKind> DeleteExecutor<E> {
         Ok(plan_for::<E>(query.filter.as_ref()))
     }
 
+    /// Execute a planner-based delete query.
+    ///
+    /// Note: index-planned deletes are best-effort and do not validate unique-index
+    /// invariants. Corrupt index entries may be skipped. Use `by_unique_index` for
+    /// strict unique-index semantics.
     pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, Error> {
         QueryValidate::<E>::validate(&query)?;
         let mut span = metrics::Span::<E>::new(metrics::ExecKind::Delete);
@@ -235,6 +276,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         })??;
 
         set_rows_from_len(&mut span, res.len());
+
         Ok(Response(res))
     }
 
@@ -246,5 +288,29 @@ impl<E: EntityKind> DeleteExecutor<E> {
             });
         }
         Ok(())
+    }
+
+    fn load_existing(
+        &self,
+        index: &'static IndexSpec,
+        pk: E::PrimaryKey,
+    ) -> Result<(DataKey, E), Error> {
+        let data_key = DataKey::new::<E>(pk.into());
+        let bytes = self
+            .db
+            .context::<E>()
+            .with_store(|store| store.get(&data_key))?;
+
+        let Some(bytes) = bytes else {
+            return Err(ExecutorError::IndexCorrupted(
+                E::PATH.to_string(),
+                index.fields.join(", "),
+                1,
+            )
+            .into());
+        };
+
+        let entity = deserialize::<E>(&bytes)?;
+        Ok((data_key, entity))
     }
 }

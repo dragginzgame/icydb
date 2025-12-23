@@ -120,13 +120,13 @@ impl QueryPlanner {
 
                 Cmp::In => {
                     if let Value::List(values) = &clause.value {
-                        let keys = values.iter().filter_map(Value::as_key).collect::<Vec<_>>();
-
+                        let mut keys = values.iter().filter_map(Value::as_key).collect::<Vec<_>>();
                         if keys.is_empty() {
-                            None
-                        } else {
-                            Some(QueryPlan::Keys(keys))
+                            return Some(QueryPlan::Keys(Vec::new()));
                         }
+                        keys.sort_unstable();
+                        keys.dedup();
+                        Some(QueryPlan::Keys(keys))
                     } else {
                         None
                     }

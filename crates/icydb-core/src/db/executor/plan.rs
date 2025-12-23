@@ -24,6 +24,7 @@ pub const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: usize) {
 }
 
 /// Iterate a query plan and deserialize rows, delegating row handling to `on_row`.
+/// This is a best-effort scan: missing rows and deserialization failures are skipped.
 pub fn scan_plan<E, F>(db: &Db<E::Canister>, plan: QueryPlan, mut on_row: F) -> Result<(), Error>
 where
     E: EntityKind,

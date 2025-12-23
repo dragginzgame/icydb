@@ -1,7 +1,8 @@
 use crate::{
     db::primitives::{TextFilterKind, TextListFilterKind},
+    key::Key,
     traits::{
-        FieldValue, Filterable, Inner, SanitizeAuto, SanitizeCustom, Storable, UpdateView,
+        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, Storable, UpdateView,
         ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::{Principal, Subaccount},
@@ -120,6 +121,15 @@ impl From<IcrcAccount> for Account {
         Self {
             owner: acc.owner.into(),
             subaccount: acc.subaccount.map(Into::into),
+        }
+    }
+}
+
+impl FromKey for Account {
+    fn try_from_key(key: Key) -> Option<Self> {
+        match key {
+            Key::Account(v) => Some(v),
+            _ => None,
         }
     }
 }

@@ -3,7 +3,7 @@ use icydb::{
     prelude::*,
 };
 use test_design::{
-    e2e::db::{Index, IndexUniqueOpt},
+    e2e::db::{Index, IndexSanitized, IndexUniqueOpt, LowerIndexText},
     schema::TestIndexStore,
 };
 
@@ -37,8 +37,20 @@ impl UpsertSuite {
                 Self::upsert_empty_index_entry_errors,
             ),
             (
-                "upsert_view_preserves_existing_key",
-                Self::upsert_view_preserves_existing_key,
+                "upsert_result_reports_inserted",
+                Self::upsert_result_reports_inserted,
+            ),
+            (
+                "upsert_merge_updates_existing",
+                Self::upsert_merge_updates_existing,
+            ),
+            (
+                "upsert_merge_inserts_without_closure",
+                Self::upsert_merge_inserts_without_closure,
+            ),
+            (
+                "upsert_matches_sanitized_unique_index",
+                Self::upsert_matches_sanitized_unique_index,
             ),
         ];
 
@@ -176,22 +188,78 @@ impl UpsertSuite {
         assert!(err.to_string().contains("index corrupted"));
     }
 
-    fn upsert_view_preserves_existing_key() {
-        let inserted_view = db!()
+    fn upsert_result_reports_inserted() {
+        let inserted = db!()
             .upsert::<Index>()
-            .by_unique_fields_view(&["y"], Index::new(4, 123).to_view())
+            .by_unique_fields_result(&["y"], Index::new(1, 777))
             .unwrap();
 
-        let pk = inserted_view.id;
-        assert_eq!(inserted_view.x, 4);
+        assert!(inserted.inserted);
+        let pk = inserted.entity.primary_key();
 
-        let updated_view = db!()
+        let updated = db!()
             .upsert::<Index>()
-            .by_unique_fields_view(&["y"], Index::new(9, 123).to_view())
+            .by_unique_fields_result(&["y"], Index::new(2, 777))
             .unwrap();
 
-        assert_eq!(updated_view.id, pk);
-        assert_eq!(updated_view.x, 9);
-        assert_eq!(updated_view.y, 123);
+        assert!(!updated.inserted);
+        assert_eq!(updated.entity.primary_key(), pk);
+        assert_eq!(updated.entity.x, 2);
+    }
+
+    fn upsert_merge_updates_existing() {
+        let inserted = db!().insert(Index::new(3, 444)).unwrap();
+
+        let merged = db!()
+            .upsert::<Index>()
+            .by_unique_fields_merge(&["y"], Index::new(7, 444), |mut existing, incoming| {
+                existing.x += incoming.x;
+                existing
+            })
+            .unwrap();
+
+        assert_eq!(merged.primary_key(), inserted.primary_key());
+        assert_eq!(merged.x, 10);
+    }
+
+    fn upsert_merge_inserts_without_closure() {
+        let inserted = db!()
+            .upsert::<Index>()
+            .by_unique_fields_merge_result(&["y"], Index::new(1, 555), |_, _| {
+                panic!("merge closure should not run on insert");
+            })
+            .unwrap();
+
+        assert!(inserted.inserted);
+        assert_eq!(inserted.entity.x, 1);
+        assert_eq!(inserted.entity.y, 555);
+    }
+
+    fn upsert_matches_sanitized_unique_index() {
+        let inserted = db!()
+            .insert(IndexSanitized {
+                username: LowerIndexText::from("MiXeD"),
+                score: 1,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let pk = inserted.primary_key();
+
+        let updated = db!()
+            .upsert::<IndexSanitized>()
+            .by_unique_fields(
+                &["username"],
+                IndexSanitized {
+                    username: LowerIndexText::from("MIXED"),
+                    score: 42,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.primary_key(), pk);
+        assert_eq!(updated.score, 42);
+        assert_eq!(updated.username, LowerIndexText::from("mixed"));
     }
 }

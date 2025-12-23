@@ -8,15 +8,14 @@ use crate::{
     Error,
     db::{
         executor::{
-            Context, DeleteExecutor, ExecutorError, LoadExecutor, PrimaryKeyFromKey, SaveExecutor,
-            UpsertExecutor,
+            Context, DeleteExecutor, ExecutorError, LoadExecutor, SaveExecutor, UpsertExecutor,
         },
         query::QueryError,
         response::ResponseError,
         store::{DataStoreRegistry, IndexStoreRegistry, StoreError},
     },
     serialize::SerializeError,
-    traits::{CanisterKind, EntityKind},
+    traits::{CanisterKind, EntityKind, FromKey},
     visitor::VisitorError,
 };
 use std::{marker::PhantomData, thread::LocalKey};
@@ -160,7 +159,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub const fn upsert<E>(&self) -> UpsertExecutor<E>
     where
         E: EntityKind<Canister = C>,
-        E::PrimaryKey: PrimaryKeyFromKey,
+        E::PrimaryKey: FromKey,
     {
         UpsertExecutor::new(self.db, self.debug)
     }

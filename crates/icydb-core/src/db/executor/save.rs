@@ -125,7 +125,6 @@ impl<E: EntityKind> SaveExecutor<E> {
 
     fn save_entity(&self, mode: SaveMode, mut entity: E) -> Result<E, Error> {
         let mut span = metrics::Span::<E>::new(metrics::ExecKind::Save);
-        let key = entity.key();
         let ctx = self.db.context::<E>();
 
         // sanitize & validate
@@ -133,6 +132,7 @@ impl<E: EntityKind> SaveExecutor<E> {
         validate(&entity)?;
 
         // match save mode
+        let key = entity.key();
         let data_key = DataKey::new::<E>(key);
         let old_result = ctx.with_store(|store| store.get(&data_key))?;
 

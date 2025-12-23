@@ -47,8 +47,13 @@ where
     ///
 
     /// Compute candidate data keys for the given query plan.
+    ///
+    /// Note: index candidates are returned in deterministic key order.
+    /// This ordering is for stability only and does not imply semantic ordering.
     pub fn candidates_from_plan(&self, plan: QueryPlan) -> Result<Vec<DataKey>, Error> {
-        let candidates = match plan {
+        let is_index_plan = matches!(&plan, QueryPlan::Index(_));
+
+        let mut candidates = match plan {
             QueryPlan::Keys(keys) => Self::to_data_keys(keys),
 
             QueryPlan::Range(start, end) => self.with_store(|s| {
@@ -79,6 +84,10 @@ where
                 })
             }
         };
+
+        if is_index_plan {
+            candidates.sort_unstable();
+        }
 
         Ok(candidates)
     }
