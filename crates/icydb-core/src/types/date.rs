@@ -33,7 +33,7 @@ use std::fmt::{self, Display};
     SubAssign,
 )]
 #[repr(transparent)]
-pub struct Date(pub i32);
+pub struct Date(i32);
 
 impl Date {
     pub const EPOCH: Self = Self(0);
@@ -47,11 +47,13 @@ impl Date {
         // clamp month
         let m = m.clamp(1, 12);
 
-        // clamp day
+        // clamp day; if the year is out of range, default to epoch
         let last_valid_day = (28..=31)
             .rev()
-            .find(|&d| NaiveDate::from_ymd_opt(y, m, d).is_some())
-            .unwrap();
+            .find(|&d| NaiveDate::from_ymd_opt(y, m, d).is_some());
+        let Some(last_valid_day) = last_valid_day else {
+            return Self::EPOCH;
+        };
         let d = d.clamp(1, last_valid_day);
 
         match NaiveDate::from_ymd_opt(y, m, d) {
@@ -132,12 +134,6 @@ impl FieldValue for Date {
 impl Filterable for Date {
     type Filter = Int64RangeFilterKind;
     type ListFilter = Int64ListFilterKind;
-}
-
-impl From<i32> for Date {
-    fn from(n: i32) -> Self {
-        Self(n)
-    }
 }
 
 impl Inner<Self> for Date {
@@ -277,6 +273,12 @@ mod tests {
     fn invalid_date_parse_returns_none() {
         assert!(Date::parse("2025-13-40").is_none());
         assert!(Date::new_checked(2025, 2, 30).is_none());
+    }
+
+    #[test]
+    fn new_out_of_range_year_defaults_to_epoch() {
+        let date = Date::new(i32::MAX, 1, 1);
+        assert_eq!(date, Date::EPOCH);
     }
 
     #[test]

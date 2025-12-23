@@ -440,4 +440,11 @@ mod tests {
         // If target = 0 is illegal, this should panic during new().
         assert!(MultipleOf::new(1).validate(&0).is_ok());
     }
+
+    #[test]
+    #[should_panic]
+    fn multiple_of_zero_target_panics() {
+        let validator = MultipleOf::new(0);
+        let _ = validator.validate(&1);
+    }
 }
