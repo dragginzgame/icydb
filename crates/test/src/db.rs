@@ -14,6 +14,7 @@ pub struct DbSuite {}
 impl DbSuite {
     pub fn test() {
         let tests: Vec<(&str, fn())> = vec![
+            ("debug_session_smoke", Self::debug_session_smoke),
             ("query_fail_filter", Self::query_fail_filter),
             ("query_fail_sort", Self::query_fail_sort),
             ("blob", Self::blob),
@@ -51,6 +52,10 @@ impl DbSuite {
     //
     // TESTS
     //
+
+    fn debug_session_smoke() {
+        let _ = db!().debug();
+    }
 
     fn query_fail_filter() {
         use test_design::e2e::db::SimpleEntity;

@@ -12,7 +12,7 @@ use crate::{
 use candid::CandidType;
 use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
+use std::{cmp::Ordering, str::FromStr};
 
 pub use family::{ValueFamily, ValueFamilyExt};
 
@@ -168,6 +168,24 @@ impl Value {
             Self::Unit => Some(Key::Unit),
             _ => None,
         }
+    }
+
+    #[must_use]
+    /// Lossy key conversion that accepts identifier strings (ULID/Principal/Account).
+    pub(crate) fn as_key_coerced(&self) -> Option<Key> {
+        if let Some(key) = self.as_key() {
+            return Some(key);
+        }
+
+        let Value::Text(s) = self else {
+            return None;
+        };
+
+        Ulid::from_str(s)
+            .ok()
+            .map(Key::Ulid)
+            .or_else(|| Principal::from_str(s).ok().map(Key::Principal))
+            .or_else(|| Account::from_str(s).ok().map(Key::Account))
     }
 
     #[must_use]

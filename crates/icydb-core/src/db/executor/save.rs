@@ -127,7 +127,7 @@ impl<E: EntityKind> SaveExecutor<E> {
         let mut span = metrics::Span::<E>::new(metrics::ExecKind::Save);
         let ctx = self.db.context::<E>();
 
-        // sanitize & validate
+        // sanitize & validate before key extraction in case PK fields are normalized
         sanitize(&mut entity);
         validate(&entity)?;
 

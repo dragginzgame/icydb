@@ -113,12 +113,22 @@ impl<E: EntityKind> LoadExecutor<E> {
     // ======================================================================
 
     /// Check whether at least one row matches the query.
+    ///
+    /// Note: existence checks are best-effort. If matching rows are malformed
+    /// or missing, `exists` may return false.
+    ///
+    /// Respects offset/limit when provided (limit=0 returns false).
     pub fn exists(&self, query: LoadQuery) -> Result<bool, Error> {
-        let query = query.limit_1();
         QueryValidate::<E>::validate(&query)?;
 
         let plan = plan_for::<E>(query.filter.as_ref());
         let filter = query.filter.map(FilterExpr::simplify);
+        let offset = query.limit.as_ref().map_or(0, |lim| lim.offset);
+        let limit = query.limit.as_ref().and_then(|lim| lim.limit);
+        if limit == Some(0) {
+            return Ok(false);
+        }
+        let mut seen = 0u32;
         let mut found = false;
 
         scan_plan::<E, _>(&self.db, plan, |_, entity| {
@@ -127,8 +137,13 @@ impl<E: EntityKind> LoadExecutor<E> {
                 .is_none_or(|f| FilterEvaluator::new(&entity).eval(f));
 
             if matches {
-                found = true;
-                ControlFlow::Break(())
+                if seen < offset {
+                    seen += 1;
+                    ControlFlow::Continue(())
+                } else {
+                    found = true;
+                    ControlFlow::Break(())
+                }
             } else {
                 ControlFlow::Continue(())
             }
@@ -214,8 +229,6 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     fn execute_raw(&self, query: &LoadQuery) -> Result<Vec<DataRow>, Error> {
-        QueryValidate::<E>::validate(query)?;
-
         let ctx = self.db.context::<E>();
         let plan = plan_for::<E>(query.filter.as_ref());
 

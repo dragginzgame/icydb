@@ -81,6 +81,9 @@ impl QueryPlanner {
 
     #[must_use]
     /// Generate a query plan for the given entity type.
+    ///
+    /// Index plans are only produced when all equality values are indexable;
+    /// otherwise the planner falls back to a scan.
     pub fn plan<E: EntityKind>(&self) -> QueryPlan {
         // If filter is a primary key match
         // this would handle One and Many queries
@@ -120,7 +123,10 @@ impl QueryPlanner {
 
                 Cmp::In => {
                     if let Value::List(values) = &clause.value {
-                        let mut keys = values.iter().filter_map(Value::as_key).collect::<Vec<_>>();
+                        let mut keys = values
+                            .iter()
+                            .filter_map(Value::as_key_coerced)
+                            .collect::<Vec<_>>();
                         if keys.is_empty() {
                             return Some(QueryPlan::Keys(Vec::new()));
                         }
@@ -139,7 +145,8 @@ impl QueryPlanner {
         }
     }
 
-    // extract_from_index: build a leftmost equality prefix in terms of Value
+    // extract_from_index: build a leftmost equality prefix in terms of Value.
+    // Skip index planning when any equality value is not indexable.
     fn extract_from_index<E: EntityKind>(&self) -> Option<QueryPlan> {
         let Some(filter) = &self.filter else {
             return None;
@@ -150,9 +157,14 @@ impl QueryPlanner {
         for index in E::INDEXES {
             // Build leftmost equality prefix (only == supported for hashed indexes)
             let mut values: Vec<Value> = Vec::with_capacity(index.fields.len());
+            let mut unusable = false;
 
             for field in index.fields {
                 if let Some(v) = Self::find_eq_value(filter, field) {
+                    if v.to_index_fingerprint().is_none() {
+                        unusable = true;
+                        break;
+                    }
                     values.push(v);
                 } else {
                     break; // stop at first non-match
@@ -160,7 +172,7 @@ impl QueryPlanner {
             }
 
             // Skip indexes that produced no equality prefix
-            if values.is_empty() {
+            if unusable || values.is_empty() {
                 continue;
             }
 

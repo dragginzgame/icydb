@@ -151,10 +151,10 @@ fn coerce_collection(actual: &Value, expected: &Value, cmp: Cmp) -> Option<bool>
         Cmp::AllIn => actual.contains_all(expected),
         Cmp::AnyIn => actual.contains_any(expected),
         Cmp::Contains => actual.contains(expected),
-        Cmp::In => actual.in_list(expected),
+        Cmp::In => in_list_with_identifier_text(actual, expected),
 
         // Negated membership
-        Cmp::NotIn => actual.in_list(expected).map(|v| !v),
+        Cmp::NotIn => in_list_with_identifier_text(actual, expected).map(|v| !v),
 
         // CI variants
         Cmp::AllInCi => actual.contains_all_ci(expected),
@@ -165,4 +165,17 @@ fn coerce_collection(actual: &Value, expected: &Value, cmp: Cmp) -> Option<bool>
         Cmp::IsNotEmpty => actual.is_not_empty(),
         _ => None,
     }
+}
+
+fn in_list_with_identifier_text(actual: &Value, expected: &Value) -> Option<bool> {
+    let Value::List(items) = expected else {
+        return None;
+    };
+
+    Some(items.iter().any(|item| {
+        if let Some(res) = coerce_identifier_text(actual, item, Cmp::Eq) {
+            return res;
+        }
+        actual == item
+    }))
 }

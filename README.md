@@ -1,5 +1,5 @@
 
-![MSRV](https://img.shields.io/badge/rustc-1.91+-blue.svg)
+![MSRV](https://img.shields.io/badge/rustc-1.92+-blue.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
 [![Crate](https://img.shields.io/crates/v/icydb.svg)](https://crates.io/crates/icydb)
@@ -21,10 +21,10 @@
 
 - **Entity macros** – define entities declaratively with schema attributes.
 - **Query builder** – type-safe filters, sorting, offsets, limits.
-- **Stable storage** – powered by `ic-stable-structures` B-Trees with predictable costs.
+- **Stable storage** – B-Tree-backed stable memory via `canic` structures with predictable costs.
 - **Path dispatch** – `icydb_build` generates internal dispatch helpers so you can map paths to entity types without exposing global endpoints.
 - **Observability endpoints** – `icydb_snapshot`, `icydb_logs`, `icydb_metrics`, `icydb_metrics_reset` ship automatically.
-- **Integration with IC canisters** – ergonomic `icydb_start!` and `icydb_build!` macros.
+- **Integration with IC canisters** – ergonomic `icydb::start!` and `icydb::build!` macros.
 - **Testability** – fixtures, query validation, index testing utilities.
 
 ---
@@ -35,7 +35,7 @@
 2. **Add IcyDB** to your `Cargo.toml` using the latest tag:
    ```toml
    [dependencies]
-   icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
+   icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.1.18" }
    ```
 3. **Declare an entity** with the `#[entity]` macro and a primary key.
 4. **Query your data** via `db!().load::<Entity>()...`.
@@ -52,9 +52,10 @@ See [INTEGRATION.md](INTEGRATION.md) for pinning strategies, feature flags, and 
 /// Rarity
 /// Affects the chance of an item dropping or an event occurring.
 #[entity(
-    sk(field = "id"),
+    store = "GameStore",
+    pk = "id",
     fields(
-        field(ident = "id", value(item(is = "types::Ulid"))),
+        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "name", value(item(is = "text::Name"))),
         field(ident = "description", value(item(is = "text::Description"))),
         field(ident = "order", value(item(is = "game::Order"))),
@@ -77,7 +78,7 @@ pub fn rarities() -> Result<Vec<RarityView>, icydb::Error> {
         .sort(|s| s.desc("level"))
         .limit(100);
 
-    let rows = db().load::<Rarity>().debug().execute(&query)?;
+    let rows = db!().debug().load::<Rarity>().execute(query)?;
     Ok(rows.views())
 }
 ```

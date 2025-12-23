@@ -146,6 +146,24 @@ impl<E: EntityKind> QueryValidate<E> for FilterExpr {
 
                     // Membership & equality family
                     Cmp::In | Cmp::NotIn | Cmp::Eq | Cmp::Ne => {
+                        if matches!(c.cmp, Cmp::In | Cmp::NotIn) && field == E::PRIMARY_KEY {
+                            match v {
+                                Value::List(values) => {
+                                    if values.iter().any(|val| val.as_key_coerced().is_none()) {
+                                        return Err(QueryError::InvalidFilterValue(format!(
+                                            "field '{field}' expects key values for {cmp:?}",
+                                            cmp = c.cmp
+                                        )));
+                                    }
+                                }
+                                _ => {
+                                    return Err(QueryError::InvalidFilterValue(format!(
+                                        "field '{field}' expects key list for {cmp:?}",
+                                        cmp = c.cmp
+                                    )));
+                                }
+                            }
+                        }
                         // no strong type enforcement — allow scalar or list
                     }
 

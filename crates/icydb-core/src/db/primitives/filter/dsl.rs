@@ -103,6 +103,8 @@ impl FilterDsl {
     //
 
     /// field IN (v1, v2, v3)
+    ///
+    /// For primary keys, values must be convertible to storage keys; identifier strings are accepted.
     pub fn in_iter<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,
@@ -138,6 +140,8 @@ impl FilterDsl {
     }
 
     /// NOT IN (v1, v2, v3)
+    ///
+    /// For primary keys, values must be convertible to storage keys; identifier strings are accepted.
     pub fn not_in_iter<I>(self, field: impl AsRef<str>, vals: I) -> FilterExpr
     where
         I: IntoIterator,

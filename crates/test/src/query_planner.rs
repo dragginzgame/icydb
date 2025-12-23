@@ -25,6 +25,11 @@ impl QueryPlannerSuite {
                 "planner_in_list_dedups_keys",
                 Self::planner_in_list_dedups_keys,
             ),
+            (
+                "pk_in_rejects_non_key_values",
+                Self::pk_in_rejects_non_key_values,
+            ),
+            ("pk_in_accepts_text_keys", Self::pk_in_accepts_text_keys),
         ];
 
         for (name, test_fn) in tests {
@@ -69,5 +74,45 @@ impl QueryPlannerSuite {
             }
             _ => panic!("expected key plan"),
         }
+    }
+
+    fn pk_in_rejects_non_key_values() {
+        let expr = FilterExpr::Clause(FilterClause::new(
+            Index::PRIMARY_KEY,
+            Cmp::In,
+            Value::List(vec![Value::Text("nope".to_string())]),
+        ));
+        let query = db::query::load().filter_expr(expr);
+
+        let err = db!().load::<Index>().execute(query).unwrap_err();
+        assert!(err.to_string().contains("invalid filter value"));
+    }
+
+    fn pk_in_accepts_text_keys() {
+        let id = Ulid::from_parts(42, 42);
+        db!()
+            .insert(Index {
+                id,
+                x: 1,
+                y: 2,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let expr = FilterExpr::Clause(FilterClause::new(
+            Index::PRIMARY_KEY,
+            Cmp::In,
+            Value::List(vec![Value::Text(id.to_string())]),
+        ));
+        let query = db::query::load().filter_expr(expr);
+        let plan = db!().load::<Index>().explain(query.clone()).unwrap();
+
+        match plan {
+            QueryPlan::Keys(_) => {}
+            _ => panic!("expected key plan for PK IN"),
+        }
+
+        let res = db!().load::<Index>().execute(query).unwrap();
+        assert_eq!(res.pks(), vec![id]);
     }
 }

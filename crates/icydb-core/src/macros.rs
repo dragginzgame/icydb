@@ -10,15 +10,11 @@ macro_rules! start {
 }
 
 // db
-/// Access the current canister's database session; use `db!()` or `db!(debug)` for verbose tracing.
+/// Access the current canister's database session; use `db!().debug()` for verbose tracing.
 #[macro_export]
 #[allow(clippy::crate_in_macro_def)]
 macro_rules! db {
     () => {
         crate::db()
-    };
-
-    (debug) => {
-        crate::db().debug()
     };
 }

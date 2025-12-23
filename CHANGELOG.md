@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Query planning for `IN` on primary keys returns empty results for empty lists and dedups keys.
 - Index-backed loads now return deterministic key order by sorting index candidates.
 - `DeleteExecutor::by_unique_index` now emits delete metrics.
+- Index planning now skips non-indexable equality values to avoid false negatives.
+- PK `IN` filters now error when any element is not convertible to a storage key.
+- PK `IN` filters now accept text keys for identifiers (Ulid/Principal/Account).
+- `LoadExecutor::exists` now respects caller-provided offset/limit (limit=0 returns false).
+- Remove the `db!(debug)` macro arm; use `db!().debug()` for verbose tracing.
 
 ## [0.1.18] - 2025-12-21
 - added Row<E>, Page<T> and into_page to Response
@@ -216,7 +221,7 @@ engines could be swapped out (plus makes more sense for the LLM)
 - changed the db api to consume query to match other ORMs
 
 ## [0.24.2] - 2025-10-07
-- redid the debug for db!  so now you either do db!() or db!(debug) and it passes the top level
+- redid the debug for db!  so now you either do db!() or db!().debug() and it passes the top level
 debug boolean all the way through
 - much better query debugging for load queries
 - got rid of the sentinel values in Value and now use FullScan
