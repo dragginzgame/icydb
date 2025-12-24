@@ -394,7 +394,7 @@ mod tests {
     #[test]
     fn from_bytes_handles_empty_input() {
         let decoded = Account::from_bytes(Cow::Borrowed(&[]));
-        assert!(decoded.owner.as_slice().is_empty());
+        assert_eq!(decoded.owner, Principal::anonymous());
         assert!(decoded.subaccount.is_none());
     }
 
@@ -404,7 +404,7 @@ mod tests {
         bytes[1] = 1;
 
         let decoded = Account::from_bytes(Cow::Borrowed(&bytes));
-        assert!(decoded.owner.as_slice().is_empty());
+        assert_eq!(decoded.owner, Principal::anonymous());
         assert!(decoded.subaccount.is_some());
     }
 }
