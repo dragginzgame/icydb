@@ -64,7 +64,6 @@ pub fn to_path<T: ToTokens>(t: &T) -> TokenStream {
     quote! { <#t as #cp::traits::Path>::PATH }
 }
 
-#[allow(clippy::needless_pass_by_value)]
 #[must_use]
 /// Split a comma-separated list into idents for Darling parsing.
 pub fn split_idents(s: String) -> Vec<Ident> {

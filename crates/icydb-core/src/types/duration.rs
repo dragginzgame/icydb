@@ -8,8 +8,9 @@ use crate::{
 };
 use candid::CandidType;
 use canic_cdk::utils::time::{now_millis, now_secs};
-use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
+use derive_more::{Display, FromStr};
 use serde::{Deserialize, Serialize};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 ///
 /// Duration
@@ -17,8 +18,6 @@ use serde::{Deserialize, Serialize};
 ///
 
 #[derive(
-    Add,
-    AddAssign,
     CandidType,
     Clone,
     Copy,
@@ -33,8 +32,6 @@ use serde::{Deserialize, Serialize};
     PartialOrd,
     Serialize,
     Deserialize,
-    Sub,
-    SubAssign,
 )]
 #[repr(transparent)]
 pub struct Duration(u64);
@@ -43,6 +40,13 @@ impl Duration {
     pub const ZERO: Self = Self(0);
     pub const MIN: Self = Self(u64::MIN);
     pub const MAX: Self = Self(u64::MAX);
+
+    // ratio constants
+    const MS_PER_SEC: u64 = 1_000;
+    const SECS_PER_MIN: u64 = 60;
+    const MINS_PER_HOUR: u64 = 60;
+    const HOURS_PER_DAY: u64 = 24;
+    const DAYS_PER_WEEK: u64 = 7;
 
     /// Duration since the Unix epoch in seconds
     #[must_use]
@@ -70,27 +74,47 @@ impl Duration {
 
     #[must_use]
     pub const fn from_secs(secs: u64) -> Self {
-        Self(secs * 1_000)
+        Self(secs.saturating_mul(Self::MS_PER_SEC))
     }
 
     #[must_use]
     pub const fn from_minutes(mins: u64) -> Self {
-        Self(mins * 60 * 1_000)
+        Self(
+            mins.saturating_mul(Self::SECS_PER_MIN)
+                .saturating_mul(Self::MS_PER_SEC),
+        )
     }
 
     #[must_use]
     pub const fn from_hours(hours: u64) -> Self {
-        Self(hours * 60 * 60 * 1_000)
+        Self(
+            hours
+                .saturating_mul(Self::MINS_PER_HOUR)
+                .saturating_mul(Self::SECS_PER_MIN)
+                .saturating_mul(Self::MS_PER_SEC),
+        )
     }
 
     #[must_use]
     pub const fn from_days(days: u64) -> Self {
-        Self(days * 24 * 60 * 60 * 1_000)
+        Self(
+            days.saturating_mul(Self::HOURS_PER_DAY)
+                .saturating_mul(Self::MINS_PER_HOUR)
+                .saturating_mul(Self::SECS_PER_MIN)
+                .saturating_mul(Self::MS_PER_SEC),
+        )
     }
 
     #[must_use]
     pub const fn from_weeks(weeks: u64) -> Self {
-        Self(weeks * 24 * 60 * 60 * 1_000 * 7)
+        Self(
+            weeks
+                .saturating_mul(Self::DAYS_PER_WEEK)
+                .saturating_mul(Self::HOURS_PER_DAY)
+                .saturating_mul(Self::MINS_PER_HOUR)
+                .saturating_mul(Self::SECS_PER_MIN)
+                .saturating_mul(Self::MS_PER_SEC),
+        )
     }
 
     // ---- Conversion back to larger units ----
@@ -102,27 +126,46 @@ impl Duration {
 
     #[must_use]
     pub const fn as_secs(self) -> u64 {
-        self.0 / 1_000
+        self.0 / Self::MS_PER_SEC
     }
 
     #[must_use]
     pub const fn as_minutes(self) -> u64 {
-        self.0 / (60 * 1_000)
+        self.0 / (Self::SECS_PER_MIN * Self::MS_PER_SEC)
     }
 
     #[must_use]
     pub const fn as_hours(self) -> u64 {
-        self.0 / (60 * 60 * 1_000)
+        self.0 / (Self::MINS_PER_HOUR * Self::SECS_PER_MIN * Self::MS_PER_SEC)
     }
 
     #[must_use]
     pub const fn as_days(self) -> u64 {
-        self.0 / (24 * 60 * 60 * 1_000)
+        self.0 / (Self::HOURS_PER_DAY * Self::MINS_PER_HOUR * Self::SECS_PER_MIN * Self::MS_PER_SEC)
     }
 
     #[must_use]
     pub const fn as_weeks(self) -> u64 {
-        self.0 / (24 * 60 * 60 * 1_000 * 7)
+        self.0
+            / (Self::DAYS_PER_WEEK
+                * Self::HOURS_PER_DAY
+                * Self::MINS_PER_HOUR
+                * Self::SECS_PER_MIN
+                * Self::MS_PER_SEC)
+    }
+}
+
+impl Add for Duration {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self(self.0.saturating_add(rhs.0))
+    }
+}
+
+impl AddAssign for Duration {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 = self.0.saturating_add(rhs.0);
     }
 }
 
@@ -190,6 +233,20 @@ impl SanitizeAuto for Duration {}
 
 impl SanitizeCustom for Duration {}
 
+impl Sub for Duration {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self {
+        Self(self.0.saturating_sub(rhs.0))
+    }
+}
+
+impl SubAssign for Duration {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 = self.0.saturating_sub(rhs.0);
+    }
+}
+
 impl UpdateView for Duration {
     type UpdateViewType = Self;
 
@@ -215,6 +272,10 @@ impl View for Duration {
 }
 
 impl Visitable for Duration {}
+
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {

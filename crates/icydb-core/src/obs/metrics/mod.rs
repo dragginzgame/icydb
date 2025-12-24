@@ -36,6 +36,7 @@ impl Default for EventState {
 pub struct EventOps {
     // Executor entrypoints
     pub load_calls: u64,
+    pub exists_calls: u64,
     pub save_calls: u64,
     pub delete_calls: u64,
 
@@ -43,9 +44,11 @@ pub struct EventOps {
     pub plan_index: u64,
     pub plan_keys: u64,
     pub plan_range: u64,
+    pub plan_full_scan: u64,
 
     // Rows touched
     pub rows_loaded: u64,
+    pub rows_scanned: u64,
     pub rows_deleted: u64,
 
     // Index maintenance
@@ -61,9 +64,11 @@ pub struct EventOps {
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EntityCounters {
     pub load_calls: u64,
+    pub exists_calls: u64,
     pub save_calls: u64,
     pub delete_calls: u64,
     pub rows_loaded: u64,
+    pub rows_scanned: u64,
     pub rows_deleted: u64,
     pub index_inserts: u64,
     pub index_removes: u64,
@@ -289,10 +294,13 @@ pub struct EventReport {
 pub struct EntitySummary {
     pub path: String,
     pub load_calls: u64,
+    pub exists_calls: u64,
     pub delete_calls: u64,
     pub rows_loaded: u64,
+    pub rows_scanned: u64,
     pub rows_deleted: u64,
     pub avg_rows_per_load: f64,
+    pub avg_rows_scanned_per_load: f64,
     pub avg_rows_per_delete: f64,
     pub index_inserts: u64,
     pub index_removes: u64,
@@ -307,6 +315,30 @@ where
     m.ops.unique_violations = m.ops.unique_violations.saturating_add(1);
     let entry = m.entities.entry(E::PATH.to_string()).or_default();
     entry.unique_violations = entry.unique_violations.saturating_add(1);
+}
+
+/// Increment existence-check counters globally and for a specific entity type.
+pub(crate) fn record_exists_call_for<E>()
+where
+    E: crate::traits::EntityKind,
+{
+    with_state_mut(|m| {
+        m.ops.exists_calls = m.ops.exists_calls.saturating_add(1);
+        let entry = m.entities.entry(E::PATH.to_string()).or_default();
+        entry.exists_calls = entry.exists_calls.saturating_add(1);
+    });
+}
+
+/// Increment row-scan counters globally and for a specific entity type.
+pub(crate) fn record_rows_scanned_for<E>(rows_scanned: u64)
+where
+    E: crate::traits::EntityKind,
+{
+    with_state_mut(|m| {
+        m.ops.rows_scanned = m.ops.rows_scanned.saturating_add(rows_scanned);
+        let entry = m.entities.entry(E::PATH.to_string()).or_default();
+        entry.rows_scanned = entry.rows_scanned.saturating_add(rows_scanned);
+    });
 }
 
 ///
@@ -354,6 +386,11 @@ pub fn report() -> EventReport {
         } else {
             0.0
         };
+        let avg_scanned = if ops.load_calls > 0 {
+            ops.rows_scanned as f64 / ops.load_calls as f64
+        } else {
+            0.0
+        };
         let avg_delete = if ops.delete_calls > 0 {
             ops.rows_deleted as f64 / ops.delete_calls as f64
         } else {
@@ -363,10 +400,13 @@ pub fn report() -> EventReport {
         entity_counters.push(EntitySummary {
             path: path.clone(),
             load_calls: ops.load_calls,
+            exists_calls: ops.exists_calls,
             delete_calls: ops.delete_calls,
             rows_loaded: ops.rows_loaded,
+            rows_scanned: ops.rows_scanned,
             rows_deleted: ops.rows_deleted,
             avg_rows_per_load: avg_load,
+            avg_rows_scanned_per_load: avg_scanned,
             avg_rows_per_delete: avg_delete,
             index_inserts: ops.index_inserts,
             index_removes: ops.index_removes,

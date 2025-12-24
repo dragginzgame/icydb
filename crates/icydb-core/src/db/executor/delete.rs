@@ -255,13 +255,17 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
         let mut acc = DeleteAccumulator::new(filter_simplified.as_ref(), offset, limit);
 
+        let mut scanned = 0u64;
         scan_plan::<E, _>(&self.db, plan, |dk, entity| {
+            scanned = scanned.saturating_add(1);
             if acc.should_stop(dk, entity) {
                 ControlFlow::Break(())
             } else {
                 ControlFlow::Continue(())
             }
         })?;
+
+        metrics::record_rows_scanned_for::<E>(scanned);
 
         let mut res: Vec<(Key, E)> = Vec::with_capacity(acc.matches.len());
         self.db.context::<E>().with_store_mut(|s| {

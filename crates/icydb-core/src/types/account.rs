@@ -181,28 +181,49 @@ impl Storable for Account {
 
     fn from_bytes(bytes: Cow<[u8]>) -> Self {
         let bytes = bytes.as_ref();
+        if bytes.is_empty() {
+            return Self {
+                owner: Principal::anonymous(),
+                subaccount: None,
+            };
+        }
+
         // reconstruct from your custom binary layout
         let len = bytes[0] as usize;
-        let principal_bytes = &bytes[1..=len];
-        let subaccount_bytes = &bytes[1 + len..];
+        let principal_end = 1 + len;
+        if bytes.len() < principal_end {
+            return Self {
+                owner: Principal::anonymous(),
+                subaccount: None,
+            };
+        }
 
-        let owner = Principal::from_slice(principal_bytes);
-        let subaccount = {
-            let mut sub = [0u8; 32];
-            sub.copy_from_slice(subaccount_bytes);
-            if sub == [0; 32] {
-                None
-            } else {
-                Some(Subaccount::from_array(sub))
-            }
+        let owner = if len == 0 {
+            Principal::anonymous()
+        } else {
+            let principal_bytes = &bytes[1..principal_end];
+            Principal::from_slice(principal_bytes)
         };
+
+        let subaccount =
+            bytes
+                .get(principal_end..principal_end + 32)
+                .and_then(|subaccount_bytes| {
+                    let mut sub = [0u8; 32];
+                    sub.copy_from_slice(subaccount_bytes);
+                    if sub == [0; 32] {
+                        None
+                    } else {
+                        Some(Subaccount::from_array(sub))
+                    }
+                });
 
         Self { owner, subaccount }
     }
 
     const BOUND: Bound = Bound::Bounded {
         max_size: Self::STORABLE_MAX_SIZE,
-        is_fixed_size: true,
+        is_fixed_size: false,
     };
 }
 
@@ -368,5 +389,22 @@ mod tests {
         };
 
         assert_eq!(original, decoded, "manual round-trip mismatch");
+    }
+
+    #[test]
+    fn from_bytes_handles_empty_input() {
+        let decoded = Account::from_bytes(Cow::Borrowed(&[]));
+        assert!(decoded.owner.as_slice().is_empty());
+        assert!(decoded.subaccount.is_none());
+    }
+
+    #[test]
+    fn from_bytes_handles_anonymous_principal_with_subaccount() {
+        let mut bytes = vec![0u8; 1 + 32];
+        bytes[1] = 1;
+
+        let decoded = Account::from_bytes(Cow::Borrowed(&bytes));
+        assert!(decoded.owner.as_slice().is_empty());
+        assert!(decoded.subaccount.is_some());
     }
 }

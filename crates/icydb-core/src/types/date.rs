@@ -108,7 +108,15 @@ impl Date {
 
     #[must_use]
     fn to_naive_date(self) -> NaiveDate {
-        NaiveDate::from_ymd_opt(1970, 1, 1).unwrap() + ChronoDuration::days(self.0.into())
+        let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+        let delta = ChronoDuration::days(self.0.into());
+        epoch.checked_add_signed(delta).unwrap_or({
+            if self.0 >= 0 {
+                NaiveDate::MAX
+            } else {
+                NaiveDate::MIN
+            }
+        })
     }
 }
 
@@ -279,6 +287,12 @@ mod tests {
     fn new_out_of_range_year_defaults_to_epoch() {
         let date = Date::new(i32::MAX, 1, 1);
         assert_eq!(date, Date::EPOCH);
+    }
+
+    #[test]
+    fn to_naive_date_clamps_out_of_range_values() {
+        assert_eq!(Date::MAX.to_naive_date(), NaiveDate::MAX);
+        assert_eq!(Date::MIN.to_naive_date(), NaiveDate::MIN);
     }
 
     #[test]

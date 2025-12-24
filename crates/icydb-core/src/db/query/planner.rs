@@ -91,7 +91,8 @@ impl QueryPlanner {
             metrics::with_state_mut(|m| match plan {
                 QueryPlan::Keys(_) => m.ops.plan_keys += 1,
                 QueryPlan::Index(_) => m.ops.plan_index += 1,
-                QueryPlan::Range(_, _) | QueryPlan::FullScan => m.ops.plan_range += 1,
+                QueryPlan::Range(_, _) => m.ops.plan_range += 1,
+                QueryPlan::FullScan => m.ops.plan_full_scan += 1,
             });
             return plan;
         }
@@ -106,7 +107,7 @@ impl QueryPlanner {
         }
 
         // Fallback: do a full scan
-        metrics::with_state_mut(|m| m.ops.plan_range += 1);
+        metrics::with_state_mut(|m| m.ops.plan_full_scan += 1);
 
         QueryPlan::FullScan
     }

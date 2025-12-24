@@ -120,6 +120,7 @@ impl<E: EntityKind> LoadExecutor<E> {
     /// Respects offset/limit when provided (limit=0 returns false).
     pub fn exists(&self, query: LoadQuery) -> Result<bool, Error> {
         QueryValidate::<E>::validate(&query)?;
+        metrics::record_exists_call_for::<E>();
 
         let plan = plan_for::<E>(query.filter.as_ref());
         let filter = query.filter.map(FilterExpr::simplify);
@@ -129,9 +130,11 @@ impl<E: EntityKind> LoadExecutor<E> {
             return Ok(false);
         }
         let mut seen = 0u32;
+        let mut scanned = 0u64;
         let mut found = false;
 
         scan_plan::<E, _>(&self.db, plan, |_, entity| {
+            scanned = scanned.saturating_add(1);
             let matches = filter
                 .as_ref()
                 .is_none_or(|f| FilterEvaluator::new(&entity).eval(f));
@@ -148,6 +151,8 @@ impl<E: EntityKind> LoadExecutor<E> {
                 ControlFlow::Continue(())
             }
         })?;
+
+        metrics::record_rows_scanned_for::<E>(scanned);
 
         Ok(found)
     }
@@ -259,6 +264,7 @@ impl<E: EntityKind> LoadExecutor<E> {
         let pre_paginated = query.filter.is_none() && query.sort.is_none() && query.limit.is_some();
         let mut rows: Vec<(Key, E)> = if pre_paginated {
             let data_rows = self.execute_raw(&query)?;
+            metrics::record_rows_scanned_for::<E>(data_rows.len() as u64);
 
             self.debug_log(format!(
                 "📦 Scanned {} data rows before deserialization",
@@ -273,6 +279,7 @@ impl<E: EntityKind> LoadExecutor<E> {
             rows
         } else {
             let data_rows = ctx.rows_from_plan(plan)?;
+            metrics::record_rows_scanned_for::<E>(data_rows.len() as u64);
             self.debug_log(format!(
                 "📦 Scanned {} data rows before deserialization",
                 data_rows.len()

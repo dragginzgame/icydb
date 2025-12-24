@@ -17,6 +17,7 @@ impl MetricsSuite {
                 Self::index_counters_and_violation,
             ),
             ("reset_metrics", Self::reset_metrics),
+            ("exists_counters", Self::exists_counters),
         ];
 
         for (name, test_fn) in tests {
@@ -53,8 +54,10 @@ impl MetricsSuite {
         // Global counters
         assert_eq!(m.ops.save_calls, 3, "save_calls should be 3");
         assert_eq!(m.ops.load_calls, 1, "load_calls should be 1");
+        assert_eq!(m.ops.exists_calls, 0, "exists_calls should be 0");
         assert_eq!(m.ops.delete_calls, 1, "delete_calls should be 1");
         assert_eq!(m.ops.rows_loaded, 3, "rows_loaded should be 3");
+        assert_eq!(m.ops.rows_scanned, 4, "rows_scanned should be 4");
         assert_eq!(m.ops.rows_deleted, 1, "rows_deleted should be 1");
 
         // Per-entity counters
@@ -64,8 +67,10 @@ impl MetricsSuite {
             .get(&path)
             .expect("per-entity counters present for SimpleEntity");
         assert_eq!(e_ops.load_calls, 1);
+        assert_eq!(e_ops.exists_calls, 0);
         assert_eq!(e_ops.delete_calls, 1);
         assert_eq!(e_ops.rows_loaded, 3);
+        assert_eq!(e_ops.rows_scanned, 4);
         assert_eq!(e_ops.rows_deleted, 1);
 
         // Derived entity_stats entry contains correct averages
@@ -147,8 +152,33 @@ impl MetricsSuite {
         let m = after.counters.as_ref().unwrap();
         assert_eq!(m.ops.save_calls, 0);
         assert_eq!(m.ops.load_calls, 0);
+        assert_eq!(m.ops.exists_calls, 0);
         assert_eq!(m.ops.delete_calls, 0);
         assert_eq!(m.ops.rows_loaded, 0);
+        assert_eq!(m.ops.rows_scanned, 0);
         assert_eq!(m.ops.rows_deleted, 0);
+    }
+
+    fn exists_counters() {
+        use test_design::e2e::db::SimpleEntity;
+
+        let saved = db!().insert(SimpleEntity::default()).unwrap();
+        let key = saved.key();
+
+        assert!(db!().load::<SimpleEntity>().exists_one(key).unwrap());
+
+        let stats = crate::icydb_metrics().unwrap();
+        let m = stats.counters.as_ref().unwrap();
+
+        assert_eq!(m.ops.exists_calls, 1);
+        assert_eq!(m.ops.rows_scanned, 1);
+
+        let path = SimpleEntity::PATH.to_string();
+        let e_ops = m
+            .entities
+            .get(&path)
+            .expect("per-entity counters present for SimpleEntity");
+        assert_eq!(e_ops.exists_calls, 1);
+        assert_eq!(e_ops.rows_scanned, 1);
     }
 }

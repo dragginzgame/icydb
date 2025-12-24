@@ -208,9 +208,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.6.16"
+version = "0.6.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46a5ff02bf396518a4833fb0e90f437063fba0738e6f7bf8a90e6e9f27d9fec7"
+checksum = "3cabb94163921a4fc0a450b582b7af58567422caed88cdb39c717b2545d347b2"
 dependencies = [
  "base32 0.5.1",
  "candid",
@@ -229,9 +229,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.6.16"
+version = "0.6.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd30a0028433d1f670b2a6534c93bfa16ca016e2f3e2bda3271d3efcfc0c678b"
+checksum = "9acc78d638b9980ffae0fbd2aacca9bb38962e46b54dfba948a1edc022a1c1cb"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -244,9 +244,9 @@ dependencies = [
 
 [[package]]
 name = "canic-types"
-version = "0.6.16"
+version = "0.6.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f056debaabc69285b337d39cf3aeac8f7c7b7a6c26e8d25464846fe482b73f05"
+checksum = "7acff7bb1a8ae923a1cff2063c6aa47247b3ebf536c3f8369068e656ac9e07f6"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -258,9 +258,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.6.16"
+version = "0.6.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ee7454c74f4d1f323f3022075f9ed92956ee89fcb68707916af842059b5149b"
+checksum = "11c07f4dc4db103ab1a00ffc1cf9f0d4b8ec611f82486669b0c49e44751bd655"
 dependencies = [
  "candid",
  "convert_case",
@@ -1366,12 +1366,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
-name = "ryu"
-version = "1.0.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62049b2877bf12821e8f9ad256ee38fdc31db7387ec2d3b3f403024de2034aea"
-
-[[package]]
 name = "seahash"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1435,15 +1429,15 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.146"
+version = "1.0.147"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "217ca874ae0207aac254aa02c957ded05585a90892cc8d87f9e5fa49669dadd8"
+checksum = "6af14725505314343e673e9ecb7cd7e8a36aa9791eb936235a3567cc31447ae4"
 dependencies = [
  "itoa",
  "memchr",
- "ryu",
  "serde",
  "serde_core",
+ "zmij",
 ]
 
 [[package]]
@@ -1950,3 +1944,9 @@ dependencies = [
  "quote",
  "syn 2.0.111",
 ]
+
+[[package]]
+name = "zmij"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e404bcd8afdaf006e529269d3e85a743f9480c3cef60034d77860d02964f3ba"

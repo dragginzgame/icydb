@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [Unreleased]
+- Metrics: add `rows_scanned`, `exists_calls`, and `plan_full_scan`; count scan rows during loads, exists, and deletes; report average rows scanned per load.
+- Timestamp parsing rejects pre-epoch RFC3339 values; negative `from_i64` returns `None`.
+- Date: `Date::new` returns epoch for out-of-range years; `Date` no longer exposes a public `i32` field.
+- Numeric types: `Duration`/`E8s`/`E18s` reject negative inputs for `from_i64` and `from_f64`.
+- E18s: `to_decimal` now returns `None` on overflow instead of wrapping; display shows `[overflow]`.
+- Tests: added coverage for timestamp/date edge cases, negative numeric inputs, E18s overflow, and metrics exists/scan counters.
+
 
 ## [0.1.19] - 2025-12-23
 - Fix upsert to resolve unique-index matches using sanitized input values.

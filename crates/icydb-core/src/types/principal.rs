@@ -175,7 +175,7 @@ impl SanitizeCustom for Principal {}
 impl Storable for Principal {
     const BOUND: Bound = Bound::Bounded {
         max_size: Self::STORABLE_MAX_SIZE,
-        is_fixed_size: true,
+        is_fixed_size: false,
     };
 
     fn into_bytes(self) -> Vec<u8> {
