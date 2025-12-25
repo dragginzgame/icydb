@@ -5,11 +5,10 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.2.0] - 2025-12-25 - Christmas Release
+## [0.2.0] - 2025-12-25 - Christmas Cleanup
 - 3 crates removed: icydb_error, icydb_paths, icydb_base.  Much simpler dependency graph.
 - Goodbye 1100+ lines of code
-- Refactored Sanitize/Validate so that creating Validators and Sanitizers cannot panic, but instead new() errors get added to the
-error tree
+- Refactored Sanitize/Validate so that creating Validators and Sanitizers cannot panic, but instead Validator::new() errors get added to the error tree
 - Visitor method now uses a context instead of recursive trees
 - Visitor method now has a generic return Error method via the VisitorCore / VisitorAdapter pattern
 - Paths are now automatically ::icydb because we do an `extern crate self as icydb`
