@@ -19,11 +19,10 @@ impl Imp<Newtype> for NumCastTrait {
         let from_method = format_ident!("from_{}", num_fn);
 
         // quote
-        let cp = paths().core;
         let q = quote! {
-            fn from<T: #cp::traits::NumToPrimitive>(n: T) -> Option<Self> {
+            fn from<T: ::icydb::core::traits::NumToPrimitive>(n: T) -> Option<Self> {
                 let num = n.#to_method()?;
-                <Self as #cp::traits::NumFromPrimitive>::#from_method(num)
+                <Self as ::icydb::core::traits::NumFromPrimitive>::#from_method(num)
             }
         };
 
@@ -91,14 +90,13 @@ pub struct NumToPrimitiveTrait {}
 
 impl Imp<Newtype> for NumToPrimitiveTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
-        let cp = paths().core;
         let q = quote! {
             fn to_i64(&self) -> Option<i64> {
-                #cp::__reexports::num_traits::NumCast::from(self.0)
+                ::icydb::__reexports::num_traits::NumCast::from(self.0)
             }
 
             fn to_u64(&self) -> Option<u64> {
-                #cp::__reexports::num_traits::NumCast::from(self.0)
+                ::icydb::__reexports::num_traits::NumCast::from(self.0)
             }
         };
 

@@ -77,9 +77,8 @@ impl HasSchemaPart for Item {
         let indirect = self.indirect;
 
         // quote
-        let sp = paths().schema;
         quote! {
-            #sp::node::Item{
+            ::icydb::schema::node::Item{
                 target: #target,
                 relation: #relation,
                 validators: #validators,
@@ -113,18 +112,16 @@ pub enum ItemTarget {
 
 impl HasSchemaPart for ItemTarget {
     fn schema_part(&self) -> TokenStream {
-        let sp = paths().schema;
-
         match self {
             Self::Is(path) => {
                 let path = quote_one(path, to_path);
                 quote! {
-                    #sp::node::ItemTarget::Is(#path)
+                    ::icydb::schema::node::ItemTarget::Is(#path)
                 }
             }
             Self::Primitive(prim) => {
                 quote! {
-                    #sp::node::ItemTarget::Primitive(#prim)
+                    ::icydb::schema::node::ItemTarget::Primitive(#prim)
                 }
             }
         }

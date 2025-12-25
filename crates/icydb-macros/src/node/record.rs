@@ -38,9 +38,8 @@ impl HasSchemaPart for Record {
         let ty = self.ty.schema_part();
 
         // quote
-        let sp = paths().schema;
         quote! {
-            #sp::node::Record {
+            ::icydb::schema::node::Record {
                 def: #def,
                 fields: #fields,
                 ty: #ty,

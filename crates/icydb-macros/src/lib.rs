@@ -30,7 +30,6 @@ mod prelude {
         trait_kind::{TraitBuilder, TraitKind, TraitSet},
         types::TraitStrategy,
     };
-    pub use icydb_paths::paths;
     pub use icydb_schema::types::{Cardinality, Primitive, StoreType};
 
     // proc-macro essentials

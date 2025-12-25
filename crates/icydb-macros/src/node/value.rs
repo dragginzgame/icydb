@@ -33,9 +33,8 @@ impl HasSchemaPart for Value {
         let item = &self.item.schema_part();
 
         // quote
-        let sp = paths().schema;
         quote!(
-            #sp::node::Value {
+            ::icydb::schema::node::Value {
                 cardinality: #cardinality,
                 item: #item,
             }

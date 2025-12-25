@@ -45,10 +45,9 @@ impl ViewExpr for ItemFilter<'_> {
 
         // Payload of the scalar filter kind:
         // <T::Filter as FilterKind>::Payload
-        let cp = paths().core;
         let payload = quote!(
-            <<#ty as #cp::traits::Filterable>::Filter
-                as #cp::db::primitives::FilterKind
+            <<#ty as ::icydb::core::traits::Filterable>::Filter
+                as ::icydb::core::db::primitives::FilterKind
             >::Payload
         );
 

@@ -227,18 +227,14 @@ pub trait HasSchema: HasSchemaPart + HasDef {
         let const_var = self.schema_const();
         let kind = Self::schema_node_kind();
 
-        // paths
-        let cp = &paths().core;
-        let sp = &paths().schema;
-
         quote! {
-            const #const_var: #sp::node::#kind = #schema_expr;
+            const #const_var: ::icydb::schema::node::#kind = #schema_expr;
 
             #[cfg(not(target_arch = "wasm32"))]
-            #[#cp::__reexports::ctor::ctor(anonymous, crate_path = #cp::__reexports::ctor)]
+            #[::icydb::__reexports::ctor::ctor(anonymous, crate_path = ::icydb::__reexports::ctor)]
             fn __ctor() {
-                #sp::build::schema_write().insert_node(
-                    #sp::node::SchemaNode::#kind(#const_var)
+                ::icydb::schema::build::schema_write().insert_node(
+                    ::icydb::schema::node::SchemaNode::#kind(#const_var)
                 );
             }
         }

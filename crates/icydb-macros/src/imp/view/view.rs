@@ -38,7 +38,6 @@ impl Imp<Enum> for ViewTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
         let ident = node.def.ident();
         let view_ident = &node.view_ident();
-        let cp = paths().core;
 
         // to_view_arms
         let to_view_arms = node.variants.iter().map(|variant| {
@@ -61,7 +60,7 @@ impl Imp<Enum> for ViewTrait {
 
             if variant.value.is_some() {
                 quote! {
-                    Self::ViewType::#variant_ident(v) => Self::#variant_ident(#cp::traits::View::from_view(v))
+                    Self::ViewType::#variant_ident(v) => Self::#variant_ident(::icydb::core::traits::View::from_view(v))
                 }
             } else {
                 quote! {
@@ -199,19 +198,18 @@ impl Imp<Tuple> for ViewTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
         let view_ident = node.view_ident();
         let indices: Vec<_> = (0..node.values.len()).collect();
-        let cp = paths().core;
 
         let to_view_fields = indices.iter().map(|i| {
             let index = syn::Index::from(*i);
             quote! {
-                #cp::traits::View::to_view(&self.#index)
+                ::icydb::core::traits::View::to_view(&self.#index)
             }
         });
 
         let from_view_fields = indices.iter().map(|i| {
             let index = syn::Index::from(*i);
             quote! {
-                #cp::traits::View::from_view(view.#index)
+                ::icydb::core::traits::View::from_view(view.#index)
             }
         });
 
@@ -245,14 +243,12 @@ impl Imp<Tuple> for ViewTrait {
 
 // field_list
 fn field_list(view_ident: &Ident, fields: &FieldList) -> TokenStream {
-    let cp = paths().core;
-
     let to_pairs: Vec<_> = fields
         .iter()
         .map(|field| {
             let ident = &field.ident;
             quote! {
-                #ident: #cp::traits::View::to_view(&self.#ident)
+                #ident: ::icydb::core::traits::View::to_view(&self.#ident)
             }
         })
         .collect();
@@ -262,7 +258,7 @@ fn field_list(view_ident: &Ident, fields: &FieldList) -> TokenStream {
         .map(|field| {
             let ident = &field.ident;
             quote! {
-                #ident: #cp::traits::View::from_view(view.#ident)
+                #ident: ::icydb::core::traits::View::from_view(view.#ident)
             }
         })
         .collect();
@@ -285,41 +281,37 @@ fn field_list(view_ident: &Ident, fields: &FieldList) -> TokenStream {
 }
 
 fn owned_view_conversions(ident: &Ident, view_ident: &Ident) -> TokenStream {
-    let cp = paths().core;
-
     quote! {
         impl From<#ident> for #view_ident {
             fn from(value: #ident) -> Self {
-                #cp::traits::View::to_view(&value)
+                ::icydb::core::traits::View::to_view(&value)
             }
         }
 
         impl From<&#ident> for #view_ident {
             fn from(value: &#ident) -> Self {
-                #cp::traits::View::to_view(value)
+                ::icydb::core::traits::View::to_view(value)
             }
         }
 
         impl From<#view_ident> for #ident {
             fn from(view: #view_ident) -> Self {
-                #cp::traits::View::from_view(view)
+                ::icydb::core::traits::View::from_view(view)
             }
         }
     }
 }
 
 fn quote_view_delegate(view_ident: &Ident) -> TokenStream {
-    let cp = paths().core;
-
     quote! {
         type ViewType = #view_ident;
 
         fn to_view(&self) -> Self::ViewType {
-            #cp::traits::View::to_view(&self.0)
+            ::icydb::core::traits::View::to_view(&self.0)
         }
 
         fn from_view(view: Self::ViewType) -> Self {
-            Self(#cp::traits::View::from_view(view))
+            Self(::icydb::core::traits::View::from_view(view))
         }
     }
 }

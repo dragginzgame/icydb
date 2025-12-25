@@ -12,8 +12,6 @@ pub struct FieldValueTrait {}
 
 impl Imp<Enum> for FieldValueTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
-        let cp = paths().core;
-
         // generate match arms
         let arms = node.variants.iter().map(|v| {
             let v_match = {
@@ -27,7 +25,7 @@ impl Imp<Enum> for FieldValueTrait {
             };
             let v_name = &v.ident.to_string(); // schema variant name (String)
             let payload = if v.value.is_some() {
-                quote!(.with_payload(#cp::traits::FieldValue::to_value(v)))
+                quote!(.with_payload(::icydb::core::traits::FieldValue::to_value(v)))
             } else {
                 quote!()
             };
@@ -44,8 +42,8 @@ impl Imp<Enum> for FieldValueTrait {
 
         // quote
         let q = quote! {
-            fn to_value(&self) -> #cp::value::Value {
-                use #cp::value::{ValueEnum, Value};
+            fn to_value(&self) -> ::icydb::core::value::Value {
+                use ::icydb::core::value::{ValueEnum, Value};
 
                 let ev = match self {
                     #(#arms),*
@@ -69,13 +67,11 @@ impl Imp<Enum> for FieldValueTrait {
 
 impl Imp<List> for FieldValueTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
-        let cp = paths().core;
-
         let q = quote! {
-            fn to_value(&self) -> #cp::value::Value {
-                #cp::value::Value::List(
+            fn to_value(&self) -> ::icydb::core::value::Value {
+                ::icydb::core::value::Value::List(
                     self.iter()
-                        .map(#cp::traits::FieldValue::to_value)
+                        .map(::icydb::core::traits::FieldValue::to_value)
                         .collect()
                 )
             }
@@ -95,10 +91,8 @@ impl Imp<List> for FieldValueTrait {
 
 impl Imp<Newtype> for FieldValueTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
-        let cp = paths().core;
-
         let q = quote! {
-            fn to_value(&self) -> #cp::value::Value {
+            fn to_value(&self) -> ::icydb::core::value::Value {
                 self.0.to_value()
             }
         };
@@ -117,13 +111,11 @@ impl Imp<Newtype> for FieldValueTrait {
 
 impl Imp<Set> for FieldValueTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
-        let cp = paths().core;
-
         let q = quote! {
-            fn to_value(&self) -> #cp::value::Value {
-                #cp::value::Value::List(
+            fn to_value(&self) -> ::icydb::core::value::Value {
+                ::icydb::core::value::Value::List(
                     self.iter()
-                        .map(#cp::traits::FieldValue::to_value)
+                        .map(::icydb::core::traits::FieldValue::to_value)
                         .collect()
                 )
             }

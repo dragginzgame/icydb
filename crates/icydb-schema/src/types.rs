@@ -174,9 +174,8 @@ impl Primitive {
     #[must_use]
     pub fn as_type(self) -> TokenStream {
         let ident = format_ident!("{self}");
-        let cp = paths().core;
 
-        quote!(#cp::types::#ident)
+        quote!(::icydb::core::types::#ident)
     }
 
     #[must_use]
@@ -209,9 +208,8 @@ impl FromMeta for Primitive {
 impl ToTokens for Primitive {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ident = format_ident!("{self}");
-        let sp = paths().schema;
 
-        tokens.extend(quote!(#sp::types::Primitive::#ident));
+        tokens.extend(quote!(::icydb::schema::types::Primitive::#ident));
     }
 }
 
@@ -235,8 +233,7 @@ impl FromMeta for StoreType {
 impl ToTokens for StoreType {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ident = format_ident!("{self}");
-        let sp = paths().schema;
 
-        tokens.extend(quote!(#sp::types::StoreType::#ident));
+        tokens.extend(quote!(::icydb::schema::types::StoreType::#ident));
     }
 }

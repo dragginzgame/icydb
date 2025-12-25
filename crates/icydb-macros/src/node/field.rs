@@ -53,9 +53,8 @@ impl HasSchemaPart for FieldList {
         let fields = quote_slice(&self.fields, Field::schema_part);
 
         // quote
-        let sp = paths().schema;
         quote! {
-            #sp::node::FieldList {
+            ::icydb::schema::node::FieldList {
                 fields: #fields,
             }
         }
@@ -145,9 +144,8 @@ impl HasSchemaPart for Field {
         let default = quote_option(self.default.as_ref(), Arg::schema_part);
 
         // quote
-        let sp = paths().schema;
         quote! {
-            #sp::node::Field {
+            ::icydb::schema::node::Field {
                 ident: #ident,
                 value: #value,
                 default: #default,

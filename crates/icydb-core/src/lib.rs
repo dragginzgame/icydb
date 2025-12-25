@@ -20,22 +20,6 @@ pub use serialize::{deserialize, serialize};
 pub use value::Value;
 pub use visitor::{sanitize, validate};
 
-/// re-exports
-///
-/// macros can use these, stops the user having to specify all the dependencies
-/// in the Cargo.toml file manually
-///
-/// these have to be in icydb_core because of the base library not being able to import icydb
-pub mod __reexports {
-    pub use canic_cdk;
-    pub use canic_memory;
-    pub use canic_utils;
-    pub use ctor;
-    pub use derive_more;
-    pub use num_traits;
-    pub use remain;
-}
-
 ///
 /// CONSTANTS
 ///
@@ -45,36 +29,6 @@ pub mod __reexports {
 /// This limit keeps hashed index keys within bounded, storable sizes and
 /// simplifies sizing tests in the stores.
 pub const MAX_INDEX_FIELDS: usize = 4;
-
-///
-/// ICYDB ACTOR PRELUDE
-/// using _ brings traits into scope and avoids name conflicts
-///
-
-pub mod prelude {
-    pub use crate::{
-        db,
-        db::{
-            executor::SaveExecutor,
-            primitives::{
-                self, Cmp, FilterClause, FilterDsl, FilterExpr, FilterExt as _, LimitExpr,
-                LimitExt as _, SortExpr, SortExt as _,
-            },
-            query,
-            response::{Response, ResponseExt},
-        },
-        key::Key,
-        traits::{
-            CreateView as _, EntityKind as _, FilterView as _, Inner as _, Path as _,
-            UpdateView as _, View as _,
-        },
-        types::*,
-        value::Value,
-        view::{Create, Filter, Update, View},
-    };
-    pub use candid::CandidType;
-    pub use serde::{Deserialize, Serialize};
-}
 
 use candid::CandidType;
 use serde::{Deserialize, Serialize};

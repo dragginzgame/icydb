@@ -21,7 +21,6 @@ pub mod prelude {
         visit::Visitor,
     };
     pub use candid::CandidType;
-    pub use icydb_paths::paths;
     pub use serde::{Deserialize, Serialize};
 }
 

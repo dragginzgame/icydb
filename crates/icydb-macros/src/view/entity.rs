@@ -59,11 +59,10 @@ impl View for EntityCreate<'_> {
         let fields = node.iter_editable_fields().map(|f| FieldView(f).expr());
 
         // paths
-        let cp = paths().core;
         let defaults = node.iter_editable_fields().map(|f| {
             let ident = &f.ident;
 
-            quote!(#ident: #cp::traits::View::to_view(&entity.#ident))
+            quote!(#ident: ::icydb::core::traits::View::to_view(&entity.#ident))
         });
 
         let derives = self.traits();

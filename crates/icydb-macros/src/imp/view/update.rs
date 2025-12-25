@@ -80,12 +80,11 @@ impl Imp<Tuple> for UpdateViewTrait {
         let values = &node.values;
 
         // paths
-        let cp = paths().core;
         let merge_parts = values.iter().enumerate().map(|(i, _)| {
             let idx = syn::Index::from(i);
             quote! {
                 if let Some(v) = update.#idx {
-                    #cp::traits::UpdateView::merge(&mut self.#idx, v);
+                    ::icydb::core::traits::UpdateView::merge(&mut self.#idx, v);
                 }
             }
         });
@@ -120,13 +119,12 @@ where
     let field_idents = iter_fields(node);
 
     // paths
-    let cp = paths().core;
     let merge_pairs: Vec<_> = field_idents
         .iter()
         .map(|ident| {
             quote! {
                 if let Some(v) = update.#ident {
-                    #cp::traits::UpdateView::merge(&mut self.#ident, v);
+                    ::icydb::core::traits::UpdateView::merge(&mut self.#ident, v);
                 }
             }
         })
@@ -155,13 +153,12 @@ fn update_impl_delegate(node: &impl HasType) -> TraitStrategy {
     let update_ident = node.update_ident();
 
     // quote
-    let cp = paths().core;
     let q = quote! {
         type UpdateViewType = #update_ident;
 
         fn merge(&mut self, update: Self::UpdateViewType) {
             // Forward to the inner collection (Vec, HashSet, HashMap)
-            #cp::traits::UpdateView::merge(&mut self.0, update);
+            ::icydb::core::traits::UpdateView::merge(&mut self.0, update);
         }
     };
 

@@ -22,9 +22,8 @@ impl HasSchemaPart for Index {
         let unique = &self.unique;
 
         // quote
-        let sp = paths().schema;
         quote! {
-            #sp::node::Index {
+            ::icydb::schema::node::Index {
                 store: #store,
                 fields: #fields,
                 unique: #unique,
@@ -40,9 +39,8 @@ impl Index {
         let unique = &self.unique;
 
         // quote
-        let cp = paths().core;
         quote! {
-            #cp::IndexSpec::new(#store, #fields, #unique)
+            ::icydb::core::IndexSpec::new(#store, #fields, #unique)
         }
     }
 }

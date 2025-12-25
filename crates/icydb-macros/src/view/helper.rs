@@ -14,22 +14,20 @@ pub fn generate_field_list_filter(
     let names = fields.iter().map(|f| f.ident.to_string());
 
     // paths
-    let cp = paths().core;
-
     quote! {
         #derives
         pub struct #filter_ident {
             #(#field_defs),*
         }
 
-        impl #cp::db::primitives::filter::IntoFilterExpr for #filter_ident {
-            fn into_expr(self) -> #cp::db::primitives::filter::FilterExpr {
+        impl ::icydb::core::db::primitives::filter::IntoFilterExpr for #filter_ident {
+            fn into_expr(self) -> ::icydb::core::db::primitives::filter::FilterExpr {
                 let mut exprs = Vec::new();
 
                 #(
                     if let Some(f) = self.#idents {
                         exprs.push(
-                            #cp::db::primitives::filter::IntoScopedFilterExpr::into_scoped(
+                            ::icydb::core::db::primitives::filter::IntoScopedFilterExpr::into_scoped(
                                 f,
                                 #names
                             )
@@ -38,9 +36,9 @@ pub fn generate_field_list_filter(
                 )*
 
                 if exprs.is_empty() {
-                    #cp::db::primitives::filter::FilterExpr::True
+                    ::icydb::core::db::primitives::filter::FilterExpr::True
                 } else {
-                    #cp::db::primitives::filter::FilterDsl::all(exprs)
+                    ::icydb::core::db::primitives::filter::FilterDsl::all(exprs)
                 }
             }
         }

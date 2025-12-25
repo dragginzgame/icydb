@@ -19,6 +19,22 @@ pub mod base;
 // export so things just work in base/
 extern crate self as icydb;
 
+/// re-exports
+///
+/// macros can use these, stops the user having to specify all the dependencies
+/// in the Cargo.toml file manually
+///
+/// these have to be in icydb_core because of the base library not being able to import icydb
+pub mod __reexports {
+    pub use canic_cdk;
+    pub use canic_memory;
+    pub use canic_utils;
+    pub use ctor;
+    pub use derive_more;
+    pub use num_traits;
+    pub use remain;
+}
+
 //
 // Consts
 //

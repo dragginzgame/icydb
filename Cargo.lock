@@ -904,21 +904,11 @@ dependencies = [
  "canic-utils",
  "darling 0.23.0",
  "derive_more",
- "icydb-paths",
  "icydb-schema",
  "proc-macro2",
  "quote",
  "remain",
  "serde",
- "syn 2.0.111",
-]
-
-[[package]]
-name = "icydb-paths"
-version = "0.1.20"
-dependencies = [
- "proc-macro2",
- "quote",
  "syn 2.0.111",
 ]
 
@@ -931,7 +921,6 @@ dependencies = [
  "canic-utils",
  "darling 0.23.0",
  "derive_more",
- "icydb-paths",
  "proc-macro2",
  "quote",
  "remain",

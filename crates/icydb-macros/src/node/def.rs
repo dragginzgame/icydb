@@ -32,9 +32,8 @@ impl HasSchemaPart for Def {
         let ident = quote_one(&self.ident(), to_str_lit);
 
         // quote
-        let sp = paths().schema;
         quote! {
-            #sp::node::Def {
+            ::icydb::schema::node::Def {
                 module_path: module_path!(),
                 comments: #comments,
                 ident: #ident,

@@ -27,9 +27,8 @@ impl HasSchemaPart for Validator {
         let def = self.def.schema_part();
 
         // quote
-        let sp = paths().schema;
         quote! {
-            #sp::node::Validator {
+            ::icydb::schema::node::Validator {
                 def: #def,
             }
         }

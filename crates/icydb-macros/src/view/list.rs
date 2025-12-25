@@ -43,10 +43,9 @@ impl View for ListUpdate<'_> {
         let item_update = ItemUpdate(&node.item).expr();
 
         // quote
-        let cp = paths().core;
         quote! {
             pub type #update_ident =
-                Vec<#cp::view::ListPatch<#item_update>>;
+                Vec<::icydb::core::view::ListPatch<#item_update>>;
         }
     }
 }

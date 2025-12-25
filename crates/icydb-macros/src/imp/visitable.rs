@@ -251,20 +251,18 @@ fn quote_drives(inner: &TokenStream, inner_mut: &TokenStream) -> TokenStream {
 }
 
 fn quote_drive(inner: &TokenStream) -> TokenStream {
-    let cp = paths().core;
     quote! {
-        fn drive(&self, visitor: &mut dyn #cp::visitor::VisitorCore) {
-            use #cp::visitor::perform_visit;
+        fn drive(&self, visitor: &mut dyn ::icydb::core::visitor::VisitorCore) {
+            use ::icydb::core::visitor::perform_visit;
             #inner
         }
     }
 }
 
 fn quote_drive_mut(inner: &TokenStream) -> TokenStream {
-    let cp = paths().core;
     quote! {
-        fn drive_mut(&mut self, visitor: &mut dyn #cp::visitor::VisitorMutCore) {
-            use #cp::visitor::perform_visit_mut;
+        fn drive_mut(&mut self, visitor: &mut dyn ::icydb::core::visitor::VisitorMutCore) {
+            use ::icydb::core::visitor::perform_visit_mut;
             #inner
         }
     }

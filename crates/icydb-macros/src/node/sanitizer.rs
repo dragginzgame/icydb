@@ -30,9 +30,8 @@ impl HasSchemaPart for Sanitizer {
         let def = self.def.schema_part();
 
         // quote
-        let sp = paths().schema;
         quote! {
-            #sp::node::Sanitizer {
+            ::icydb::schema::node::Sanitizer {
                 def: #def,
             }
         }

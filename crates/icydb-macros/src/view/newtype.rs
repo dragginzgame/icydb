@@ -13,9 +13,8 @@ impl View for NewtypeView<'_> {
         let view_type = node.item.type_expr();
 
         // quote
-        let cp = paths().core;
         quote! {
-            pub type #view_ident = <#view_type as #cp::traits::View>::ViewType;
+            pub type #view_ident = <#view_type as ::icydb::core::traits::View>::ViewType;
         }
     }
 }
@@ -39,9 +38,8 @@ impl View for NewtypeUpdate<'_> {
         let update_type = node.item.type_expr();
 
         // quote
-        let cp = paths().core;
         quote! {
-            pub type #update_ident = <#update_type as #cp::traits::UpdateView>::UpdateViewType;
+            pub type #update_ident = <#update_type as ::icydb::core::traits::UpdateView>::UpdateViewType;
         }
     }
 }

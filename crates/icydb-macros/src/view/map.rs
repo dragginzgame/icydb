@@ -45,10 +45,9 @@ impl View for MapUpdate<'_> {
         let value_update = ValueUpdate(&node.value).expr();
 
         // quote
-        let cp = paths().core;
         quote! {
             pub type #update_ident = Vec<
-                #cp::view::MapPatch<
+                ::icydb::core::view::MapPatch<
                     #key_update,
                     #value_update
                 >

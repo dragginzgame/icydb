@@ -34,9 +34,8 @@ impl HasSchemaPart for Canister {
         let memory_max = self.memory_max;
 
         // quote
-        let sp = paths().schema;
         quote! {
-            #sp::node::Canister{
+            ::icydb::schema::node::Canister{
                 def: #def,
                 memory_min: #memory_min,
                 memory_max: #memory_max,

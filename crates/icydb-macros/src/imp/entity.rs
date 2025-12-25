@@ -28,19 +28,16 @@ impl Imp<Entity> for EntityKindTrait {
             .map(Index::runtime_part)
             .collect::<Vec<_>>();
 
-        // paths
-        let cp = paths().core;
-
         // static definitions
         let mut q = quote! {
             type PrimaryKey = #pk_type;
             type Store = #store;
-            type Canister = <Self::Store as #cp::traits::StoreKind>::Canister;
+            type Canister = <Self::Store as ::icydb::core::traits::StoreKind>::Canister;
 
-            const ENTITY_ID: u64 = #cp::hash::fnv1a_64(Self::PATH.as_bytes());
+            const ENTITY_ID: u64 = ::icydb::core::hash::fnv1a_64(Self::PATH.as_bytes());
             const PRIMARY_KEY: &'static str = #pk_field;
             const FIELDS: &'static [&'static str]  = &[ #( Self::#field_refs ),* ];
-            const INDEXES: &'static [&'static #cp::IndexSpec]  = &[#(&#indexes),*];
+            const INDEXES: &'static [&'static ::icydb::core::IndexSpec]  = &[#(&#indexes),*];
         };
 
         // impls

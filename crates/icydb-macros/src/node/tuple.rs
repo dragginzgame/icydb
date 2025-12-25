@@ -38,9 +38,8 @@ impl HasSchemaPart for Tuple {
         let ty = &self.ty.schema_part();
 
         // quote
-        let sp = paths().schema;
         quote! {
-            #sp::node::Tuple {
+            ::icydb::schema::node::Tuple {
                 def: #def,
                 values: #values,
                 ty: #ty,

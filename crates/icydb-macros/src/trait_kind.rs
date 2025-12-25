@@ -117,43 +117,39 @@ impl TraitKind {
     #[must_use]
     #[remain::check]
     pub(crate) fn derive_path(self) -> Option<TokenStream> {
-        let cp = paths().core;
-
         #[remain::sorted]
         match self {
-            Self::Add => Some(quote!(#cp::__reexports::derive_more::Add)),
-            Self::AddAssign => Some(quote!(#cp::__reexports::derive_more::AddAssign)),
+            Self::Add => Some(quote!(::icydb::__reexports::derive_more::Add)),
+            Self::AddAssign => Some(quote!(::icydb::__reexports::derive_more::AddAssign)),
             Self::CandidType => Some(quote!(::candid::CandidType)),
             Self::Clone => Some(quote!(Clone)),
             Self::Copy => Some(quote!(Copy)),
             Self::Debug => Some(quote!(Debug)),
             Self::Default => Some(quote!(Default)),
-            Self::Deref => Some(quote!(#cp::__reexports::derive_more::Deref)),
-            Self::DerefMut => Some(quote!(#cp::__reexports::derive_more::DerefMut)),
+            Self::Deref => Some(quote!(::icydb::__reexports::derive_more::Deref)),
+            Self::DerefMut => Some(quote!(::icydb::__reexports::derive_more::DerefMut)),
             Self::Deserialize => Some(quote!(::serde::Deserialize)),
-            Self::Display => Some(quote!(#cp::__reexports::derive_more::Display)),
+            Self::Display => Some(quote!(::icydb::__reexports::derive_more::Display)),
             Self::Eq => Some(quote!(Eq)),
             Self::Hash => Some(quote!(Hash)),
-            Self::IntoIterator => Some(quote!(#cp::__reexports::derive_more::IntoIterator)),
-            Self::Mul => Some(quote!(#cp::__reexports::derive_more::Mul)),
-            Self::MulAssign => Some(quote!(#cp::__reexports::derive_more::MulAssign)),
+            Self::IntoIterator => Some(quote!(::icydb::__reexports::derive_more::IntoIterator)),
+            Self::Mul => Some(quote!(::icydb::__reexports::derive_more::Mul)),
+            Self::MulAssign => Some(quote!(::icydb::__reexports::derive_more::MulAssign)),
             Self::Ord => Some(quote!(Ord)),
             Self::PartialEq => Some(quote!(PartialEq)),
             Self::PartialOrd => Some(quote!(PartialOrd)),
             Self::Serialize => Some(quote!(::serde::Serialize)),
-            Self::Sub => Some(quote!(#cp::__reexports::derive_more::Sub)),
-            Self::SubAssign => Some(quote!(#cp::__reexports::derive_more::SubAssign)),
-            Self::Sum => Some(quote!(#cp::__reexports::derive_more::Sum)),
+            Self::Sub => Some(quote!(::icydb::__reexports::derive_more::Sub)),
+            Self::SubAssign => Some(quote!(::icydb::__reexports::derive_more::SubAssign)),
+            Self::Sum => Some(quote!(::icydb::__reexports::derive_more::Sum)),
 
             _ => None,
         }
     }
 
     pub(crate) fn derive_attribute(self) -> Option<TokenStream> {
-        let core = &icydb_paths::paths().core;
-
         match self {
-            Self::Sorted => Some(quote!(#[::#core::__reexports::remain::sorted])),
+            Self::Sorted => Some(quote!(#[::icydb::__reexports::remain::sorted])),
             Self::Default => Some(quote!(#[serde(default)])),
             _ => None,
         }
@@ -181,8 +177,7 @@ impl ToTokens for TraitKind {
         let trait_name = format_ident!("{}", self.to_string());
 
         // quote
-        let cp = paths().core;
-        quote!(#cp::traits::#trait_name).to_tokens(tokens);
+        quote!(::icydb::core::traits::#trait_name).to_tokens(tokens);
     }
 }
 
