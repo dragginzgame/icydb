@@ -12,11 +12,14 @@ authors = { workspace = true }
 default = []
 
 [dependencies]
-icydb-base = { workspace = true }
 icydb-build = { workspace = true }
 icydb-core = { workspace = true }
 icydb-macros = { workspace = true }
 icydb-schema = { workspace = true }
+serde = { workspace = true }
+candid = { workspace = true }
+canic-utils = { workspace = true }
+derive_more = { workspace = true }
 
 [lints]
 workspace = true

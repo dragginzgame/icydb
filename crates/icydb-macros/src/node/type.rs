@@ -57,7 +57,7 @@ impl TypeSanitizer {
         if args.is_empty() {
             quote! { #path::default() }
         } else {
-            quote! { #path::new(#(#args),*)? }
+            quote! { #path::new(#(#args),*) }
         }
     }
 }
@@ -98,7 +98,7 @@ impl TypeValidator {
         if args.is_empty() {
             quote! { #path::default() }
         } else {
-            quote! { #path::new(#(#args),*)? }
+            quote! { #path::new(#(#args),*) }
         }
     }
 }

@@ -21,22 +21,6 @@ pub fn sanitize(node: &mut dyn Visitable) -> Result<(), SanitizeError> {
 }
 
 ///
-/// SanitizeIssue
-/// Fatal sanitization failure (non-recoverable).
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SanitizeIssue {
-    InvalidConfig(String),
-}
-
-impl SanitizeIssue {
-    pub fn invalid_config(msg: impl Into<String>) -> Self {
-        Self::InvalidConfig(msg.into())
-    }
-}
-
-///
 /// SanitizeError
 /// Public-facing sanitization error
 ///
@@ -45,14 +29,6 @@ impl SanitizeIssue {
 pub enum SanitizeError {
     #[error("invalid sanitizer configuration: {0}")]
     InvalidConfig(String),
-}
-
-impl From<SanitizeIssue> for SanitizeError {
-    fn from(issue: SanitizeIssue) -> Self {
-        match issue {
-            SanitizeIssue::InvalidConfig(msg) => Self::InvalidConfig(msg),
-        }
-    }
 }
 
 impl From<SanitizeError> for Error {
@@ -82,8 +58,8 @@ impl VisitorMut<SanitizeError> for SanitizeVisitor {
         node: &mut dyn Visitable,
         ctx: &mut dyn VisitorContext,
     ) -> Result<(), SanitizeError> {
-        node.sanitize_self(ctx)?;
-        node.sanitize_custom(ctx)?;
+        node.sanitize_self(ctx);
+        node.sanitize_custom(ctx);
 
         Ok(())
     }

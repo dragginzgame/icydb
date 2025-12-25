@@ -1,0 +1,152 @@
+use crate::{
+    core::traits::{NumCast, Sanitizer},
+    design::prelude::*,
+};
+use std::any::type_name;
+
+///
+/// Clamp
+///
+
+#[sanitizer]
+pub struct Clamp {
+    min: Decimal,
+    max: Decimal,
+    #[serde(skip)]
+    error: Option<String>,
+}
+
+impl Clamp {
+    pub fn new<N: NumCast + Clone>(min: N, max: N) -> Self {
+        let min = <Decimal as NumCast>::from(min);
+        let max = <Decimal as NumCast>::from(max);
+
+        match (min, max) {
+            (Some(min), Some(max)) if min <= max => Self {
+                min,
+                max,
+                error: None,
+            },
+            (Some(_), Some(_)) => Self {
+                error: Some("clamp requires min <= max".to_string()),
+                ..Default::default()
+            },
+            _ => Self {
+                error: Some("clamp bounds cannot be represented as Decimal".to_string()),
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl<T: NumCast + Clone> Sanitizer<T> for Clamp {
+    fn sanitize(&self, value: &mut T) -> Result<(), String> {
+        if let Some(err) = &self.error {
+            return Err(err.clone());
+        }
+
+        let v = <Decimal as NumCast>::from(value.clone()).ok_or_else(|| {
+            format!(
+                "value of type {} cannot be represented as Decimal",
+                type_name::<T>()
+            )
+        })?;
+
+        let clamped = if v < self.min {
+            self.min
+        } else if v > self.max {
+            self.max
+        } else {
+            v
+        };
+
+        *value = <T as NumCast>::from(clamped).ok_or_else(|| {
+            format!(
+                "clamped value cannot be represented as {}",
+                type_name::<T>()
+            )
+        })?;
+
+        Ok(())
+    }
+}
+
+///
+/// RoundDecimalPlaces
+///
+
+#[sanitizer]
+pub struct RoundDecimalPlaces {
+    scale: u32,
+}
+
+impl RoundDecimalPlaces {
+    #[must_use]
+    pub const fn new(scale: u32) -> Self {
+        Self { scale }
+    }
+}
+
+impl Sanitizer<Decimal> for RoundDecimalPlaces {
+    fn sanitize(&self, value: &mut Decimal) -> Result<(), String> {
+        *value = value.round_dp(self.scale);
+
+        Ok(())
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::str::FromStr;
+
+    fn dec(v: &str) -> Decimal {
+        Decimal::from_str(v).unwrap()
+    }
+
+    #[test]
+    fn clamps_integers() {
+        let clamp = Clamp::new(10, 20);
+
+        let mut v = 5;
+        clamp.sanitize(&mut v).unwrap();
+        assert_eq!(v, 10);
+
+        let mut v = 25;
+        clamp.sanitize(&mut v).unwrap();
+        assert_eq!(v, 20);
+
+        let mut v = 15;
+        clamp.sanitize(&mut v).unwrap();
+        assert_eq!(v, 15);
+    }
+
+    #[test]
+    fn clamp_invalid_config() {
+        let clamp = Clamp::new(20, 10);
+
+        let mut v = 15;
+        assert!(clamp.sanitize(&mut v).is_err());
+    }
+
+    #[test]
+    fn rounds_decimal_places_midpoint_away_from_zero() {
+        let round = RoundDecimalPlaces::new(2);
+
+        let mut v = dec("1.234");
+        round.sanitize(&mut v).unwrap();
+        assert_eq!(v, dec("1.23"));
+
+        let mut v = dec("1.235");
+        round.sanitize(&mut v).unwrap();
+        assert_eq!(v, dec("1.24"));
+
+        let mut v = dec("-1.235");
+        round.sanitize(&mut v).unwrap();
+        assert_eq!(v, dec("-1.24"));
+    }
+}

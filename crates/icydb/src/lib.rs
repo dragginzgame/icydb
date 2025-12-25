@@ -9,11 +9,15 @@
 //! The `prelude` module mirrors the runtime surface used inside actor code;
 //! `design::prelude` exposes schema and macro-facing helpers.
 
-pub use icydb_base as base;
 pub use icydb_build as build;
 pub use icydb_core as core;
 pub use icydb_macros as macros;
 pub use icydb_schema as schema;
+
+pub mod base;
+
+// export so things just work in base/
+extern crate self as icydb;
 
 //
 // Consts
@@ -29,13 +33,34 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub use core::{Error, db, start};
 pub use icydb_build::build;
 
-//
-// Actor Prelude
-//
+///
+/// Actor Prelude
+/// using _ brings traits into scope and avoids name conflicts
+///
 
-/// Bring the runtime-facing types, traits, and helpers into scope for actor code.
 pub mod prelude {
-    pub use icydb_core::prelude::*;
+    pub use crate::core::{
+        db,
+        db::{
+            executor::SaveExecutor,
+            primitives::{
+                self, Cmp, FilterClause, FilterDsl, FilterExpr, FilterExt as _, LimitExpr,
+                LimitExt as _, SortExpr, SortExt as _,
+            },
+            query,
+            response::{Response, ResponseExt},
+        },
+        key::Key,
+        traits::{
+            CreateView as _, EntityKind as _, FilterView as _, Inner as _, Path as _,
+            UpdateView as _, View as _,
+        },
+        types::*,
+        value::Value,
+        view::{Create, Filter, Update, View},
+    };
+    pub use candid::CandidType;
+    pub use serde::{Deserialize, Serialize};
 }
 
 //
@@ -46,6 +71,24 @@ pub mod prelude {
 /// Schema/design-facing helpers (separate from the actor/runtime prelude).
 pub mod design {
     pub mod prelude {
-        pub use icydb_core::design::prelude::*;
+        pub use ::candid::CandidType;
+        pub use ::derive_more;
+
+        pub use crate::{
+            base,
+            core::{
+                Key, Value, db,
+                db::Db,
+                traits::{
+                    EntityKind, FieldValue as _, Inner as _, Path as _, Sanitize as _,
+                    Sanitizer as _, Serialize as _, Validate as _, ValidateCustom, Validator as _,
+                    View as _, Visitable as _,
+                },
+                types::*,
+                view::View,
+                visitor::VisitorContext,
+            },
+            macros::*,
+        };
     }
 }

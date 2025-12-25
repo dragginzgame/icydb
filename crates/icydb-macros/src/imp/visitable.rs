@@ -250,24 +250,20 @@ fn quote_drives(inner: &TokenStream, inner_mut: &TokenStream) -> TokenStream {
     }
 }
 
-// quote_drive
-// (immutable)
 fn quote_drive(inner: &TokenStream) -> TokenStream {
     let cp = paths().core;
     quote! {
-        fn drive(&self, visitor: &mut dyn #cp::visitor::Visitor) {
+        fn drive(&self, visitor: &mut dyn #cp::visitor::VisitorCore) {
             use #cp::visitor::perform_visit;
             #inner
         }
     }
 }
 
-// quote_drive_mut
-// (mutable)
 fn quote_drive_mut(inner: &TokenStream) -> TokenStream {
     let cp = paths().core;
     quote! {
-        fn drive_mut(&mut self, visitor: &mut dyn #cp::visitor::VisitorMut) {
+        fn drive_mut(&mut self, visitor: &mut dyn #cp::visitor::VisitorMutCore) {
             use #cp::visitor::perform_visit_mut;
             #inner
         }

@@ -1,117 +1,155 @@
 use crate::prelude::*;
 
-///
+/// ---------------------------------------------------------------------------
 /// SanitizeAuto
-///
+/// ---------------------------------------------------------------------------
 
 pub struct SanitizeAutoTrait;
 
-/// Small helper trait: each node type can say how to emit sanitizer code.
+/// Each node type can emit sanitizer code for its *own value only*.
+/// Traversal into children is handled by the visitor.
 pub trait SanitizeAutoFn {
     fn self_tokens(_: &Self) -> TokenStream {
-        quote!()
-    }
-
-    fn child_tokens(_: &Self) -> TokenStream {
         quote!()
     }
 }
 
 macro_rules! impl_sanitize_auto {
-    ($ty:ty) => {
-        impl Imp<$ty> for SanitizeAutoTrait {
+    ($($ty:ty),* $(,)?) => {
+        $(impl Imp<$ty> for SanitizeAutoTrait {
             fn strategy(node: &$ty) -> Option<TraitStrategy> {
                 let self_tokens = SanitizeAutoFn::self_tokens(node);
-                let child_tokens = SanitizeAutoFn::child_tokens(node);
 
                 let tokens = Implementor::new(node.def(), TraitKind::SanitizeAuto)
                     .add_tokens(self_tokens)
-                    .add_tokens(child_tokens)
                     .to_token_stream();
 
                 Some(TraitStrategy::from_impl(tokens))
             }
-        }
+        })*
     };
 }
 
-impl_sanitize_auto!(Entity);
-impl_sanitize_auto!(Enum);
-impl_sanitize_auto!(List);
-impl_sanitize_auto!(Map);
-impl_sanitize_auto!(Newtype);
-impl_sanitize_auto!(Record);
-impl_sanitize_auto!(Set);
+impl_sanitize_auto!(Entity, Enum, List, Map, Newtype, Record, Set);
 
+/// ---------------------------------------------------------------------------
+/// Entity / Record
+/// ---------------------------------------------------------------------------
+/// Apply field-level sanitizers directly to owned fields.
+/// Do NOT recurse.
 impl SanitizeAutoFn for Entity {
-    fn child_tokens(node: &Self) -> TokenStream {
-        fn_wrap(field_list(&node.fields))
-    }
-}
-
-impl SanitizeAutoFn for Enum {}
-
-impl SanitizeAutoFn for List {
-    fn child_tokens(node: &Self) -> TokenStream {
-        if node.item.sanitizers.is_empty() {
-            quote!()
-        } else {
-            let stmts = generate_sanitizers(&node.item.sanitizers, quote!(self.0[i]));
-
-            fn_wrap(Some(quote! {
-                for i in 0..self.0.len() {
-                    #(#stmts)*
-                }
-            }))
-        }
-    }
-}
-
-impl SanitizeAutoFn for Map {}
-
-impl SanitizeAutoFn for Newtype {
-    fn child_tokens(node: &Self) -> TokenStream {
-        fn_wrap(newtype_sanitizers(node))
+    fn self_tokens(node: &Self) -> TokenStream {
+        fn_wrap_sanitize_self(field_list(&node.fields))
     }
 }
 
 impl SanitizeAutoFn for Record {
-    fn child_tokens(node: &Self) -> TokenStream {
-        fn_wrap(field_list(&node.fields))
+    fn self_tokens(node: &Self) -> TokenStream {
+        fn_wrap_sanitize_self(field_list(&node.fields))
     }
 }
 
-impl SanitizeAutoFn for Set {}
+/// ---------------------------------------------------------------------------
+/// Enum
+/// ---------------------------------------------------------------------------
+/// No direct sanitization for enum selection.
+/// Payload sanitization occurs when payload node is visited.
+impl SanitizeAutoFn for Enum {}
 
-///
+/// ---------------------------------------------------------------------------
+/// Newtype
+/// ---------------------------------------------------------------------------
+/// Apply sanitizers attached to the newtype itself / its inner value.
+impl SanitizeAutoFn for Newtype {
+    fn self_tokens(node: &Self) -> TokenStream {
+        fn_wrap_sanitize_self(newtype_sanitizers(node))
+    }
+}
+
+/// ---------------------------------------------------------------------------
+/// List / Set / Map
+/// ---------------------------------------------------------------------------
+/// IMPORTANT:
+/// - Do NOT iterate items here
+/// - Item sanitization happens via traversal
+/// - Only container-level sanitizers belong here
+impl SanitizeAutoFn for List {
+    fn self_tokens(node: &Self) -> TokenStream {
+        fn_wrap_sanitize_self(container_sanitizers(&node.ty.sanitizers, quote!(self.0)))
+    }
+}
+
+impl SanitizeAutoFn for Set {
+    fn self_tokens(node: &Self) -> TokenStream {
+        fn_wrap_sanitize_self(container_sanitizers(&node.ty.sanitizers, quote!(self.0)))
+    }
+}
+
+impl SanitizeAutoFn for Map {
+    fn self_tokens(node: &Self) -> TokenStream {
+        fn_wrap_sanitize_self(container_sanitizers(&node.ty.sanitizers, quote!(self.0)))
+    }
+}
+
+/// ---------------------------------------------------------------------------
 /// Helpers
-///
+/// ---------------------------------------------------------------------------
 
-/// Emit sanitizer calls from a list of TypeSanitizers
-fn generate_sanitizers(sanitizers: &[TypeSanitizer], target: TokenStream) -> Vec<TokenStream> {
+/// Emit sanitizer calls.
+/// Errors are recorded via VisitorContext.
+fn generate_sanitizers(
+    sanitizers: &[TypeSanitizer],
+    target: TokenStream,
+    seg: Option<TokenStream>,
+) -> Vec<TokenStream> {
     sanitizers
         .iter()
         .map(|sanitizer| {
-            let constructor = sanitizer.quote_constructor();
-            quote! {
-                #constructor.sanitize(&mut #target)?;
+            let ctor = sanitizer.quote_constructor();
+            match &seg {
+                None => quote! {
+                    if let Err(msg) = #ctor.sanitize(&mut #target) {
+                        ctx.add_issue(msg);
+                    }
+                },
+                Some(seg) => quote! {
+                    if let Err(msg) = #ctor.sanitize(&mut #target) {
+                        ctx.add_issue_at(#seg, msg);
+                    }
+                },
             }
         })
         .collect()
 }
 
-/// Collect sanitizers for all fields in a record/entity
+/// Sanitizers attached to the container itself (not items).
+fn container_sanitizers(sanitizers: &[TypeSanitizer], target: TokenStream) -> Option<TokenStream> {
+    let stmts = generate_sanitizers(sanitizers, target, None);
+    if stmts.is_empty() {
+        None
+    } else {
+        Some(quote! { #(#stmts)* })
+    }
+}
+
+/// Field-level sanitizers for Entity / Record.
+/// Applies directly to owned fields.
 fn field_list(fields: &FieldList) -> Option<TokenStream> {
     let rules: Vec<TokenStream> = fields
         .iter()
         .filter_map(|field| {
             let field_ident = &field.ident;
             let target = quote!(self.#field_ident);
-            let rules = generate_sanitizers(&field.value.item.sanitizers, target);
-            if rules.is_empty() {
+            let seg = quote!(::icydb::core::visitor::PathSegment::Field(
+                stringify!(#field_ident)
+            ));
+
+            let stmts = generate_sanitizers(&field.value.item.sanitizers, target, Some(seg));
+
+            if stmts.is_empty() {
                 None
             } else {
-                Some(quote! { #(#rules)* })
+                Some(quote! { #(#stmts)* })
             }
         })
         .collect();
@@ -123,13 +161,17 @@ fn field_list(fields: &FieldList) -> Option<TokenStream> {
     }
 }
 
-/// Build sanitizer block for a newtype’s inner value
+/// Sanitizers for a newtype’s inner value (`self.0`).
 fn newtype_sanitizers(node: &Newtype) -> Option<TokenStream> {
-    let mut stmts = Vec::new();
-
     let target = quote!(self.0);
-    stmts.extend(generate_sanitizers(&node.ty.sanitizers, target.clone()));
-    stmts.extend(generate_sanitizers(&node.item.sanitizers, target));
+
+    let mut stmts = Vec::new();
+    stmts.extend(generate_sanitizers(
+        &node.ty.sanitizers,
+        target.clone(),
+        None,
+    ));
+    stmts.extend(generate_sanitizers(&node.item.sanitizers, target, None));
 
     if stmts.is_empty() {
         None
@@ -138,15 +180,17 @@ fn newtype_sanitizers(node: &Newtype) -> Option<TokenStream> {
     }
 }
 
-/// Only emits sanitize_children if inner is not empty
-fn fn_wrap(inner: Option<TokenStream>) -> TokenStream {
+/// Emit `fn sanitize_self(&mut self, ctx: &mut dyn VisitorContext)`
+/// only if there is something to do.
+fn fn_wrap_sanitize_self(inner: Option<TokenStream>) -> TokenStream {
     match inner {
         None => quote!(),
         Some(inner) => quote! {
-            fn sanitize_children(&mut self) -> Result<(), SanitizeIssue> {
+            fn sanitize_self(
+                &mut self,
+                ctx: &mut dyn ::icydb::core::visitor::VisitorContext
+            ) {
                 #inner
-
-                Ok(())
             }
         },
     }

@@ -24,7 +24,7 @@ pub enum VisitorError {
 // Path
 // ============================================================================
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum PathSegment {
     Empty,
     Field(&'static str),
@@ -112,7 +112,7 @@ fn render_path(path: &[PathSegment], extra: Option<PathSegment>) -> String {
     let mut out = String::new();
     let mut first = true;
 
-    let iter = path.iter().cloned().chain(extra.into_iter());
+    let iter = path.iter().cloned().chain(extra);
 
     for seg in iter {
         match seg {

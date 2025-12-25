@@ -29,9 +29,8 @@ impl FromMeta for Cardinality {
 impl ToTokens for Cardinality {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let ident = format_ident!("{self}");
-        let sp = paths().schema;
 
-        tokens.extend(quote!(#sp::types::Cardinality::#ident));
+        tokens.extend(quote!(::icydb::schema::types::Cardinality::#ident));
     }
 }
 

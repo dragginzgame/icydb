@@ -4,7 +4,6 @@ use syn::Path;
 
 const INTERNAL_CRATES: &[&str] = &[
     "icydb",
-    "icydb-base",
     "icydb-build",
     "icydb-core",
     "icydb-macros",

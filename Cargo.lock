@@ -855,21 +855,12 @@ dependencies = [
 name = "icydb"
 version = "0.1.20"
 dependencies = [
- "icydb-base",
+ "candid",
+ "canic-utils",
+ "derive_more",
  "icydb-build",
  "icydb-core",
  "icydb-macros",
- "icydb-schema",
-]
-
-[[package]]
-name = "icydb-base"
-version = "0.1.20"
-dependencies = [
- "bencher",
- "candid",
- "canic-utils",
- "icydb-core",
  "icydb-schema",
  "serde",
 ]
@@ -896,7 +887,6 @@ dependencies = [
  "chrono",
  "ctor",
  "derive_more",
- "icydb-macros",
  "num-traits",
  "remain",
  "rust_decimal",
@@ -1934,6 +1924,6 @@ dependencies = [
 
 [[package]]
 name = "zmij"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e404bcd8afdaf006e529269d3e85a743f9480c3cef60034d77860d02964f3ba"
+checksum = "f1dccf46b25b205e4bebe1d5258a991df1cc17801017a845cb5b3fe0269781aa"

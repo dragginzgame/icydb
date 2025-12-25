@@ -93,7 +93,7 @@ impl ValidateAutoFn for List {
         let item_rules = generate_validators_inner(
             &node.item.validators,
             quote!(item),
-            Some(quote!(::crate::visitor::PathSegment::Index(i))),
+            Some(quote!(::icydb::core::visitor::PathSegment::Index(i))),
         )
         .map(|block| {
             let item_ident = format_ident!("__item");
@@ -122,13 +122,13 @@ impl ValidateAutoFn for Map {
         let key_rules = generate_validators_inner(
             &node.key.validators,
             quote!(k),
-            Some(quote!(::crate::visitor::PathSegment::Field("key"))),
+            Some(quote!(::icydb::core::visitor::PathSegment::Field("key"))),
         );
 
         let value_rules = generate_value_validation_inner(
             &node.value,
             quote!(v),
-            Some(quote!(::crate::visitor::PathSegment::Field("value"))),
+            Some(quote!(::icydb::core::visitor::PathSegment::Field("value"))),
         );
 
         let entry_rules = match (key_rules, value_rules) {
@@ -136,6 +136,7 @@ impl ValidateAutoFn for Map {
             (k, v) => {
                 let k = k.unwrap_or_default();
                 let v = v.unwrap_or_default();
+
                 Some(quote! {
                     for (k, v) in &self.0 {
                         #k
@@ -187,7 +188,7 @@ impl ValidateAutoFn for Set {
         let item_rules = generate_validators_inner(
             &node.item.validators,
             quote!(item),
-            Some(quote!(::crate::visitor::PathSegment::Empty)),
+            Some(quote!(::icydb::core::visitor::PathSegment::Empty)),
         )
         .map(|block| {
             let item_ident = format_ident!("__item");
@@ -279,7 +280,7 @@ fn wrap_validate_self_fn(inner: Option<TokenStream>) -> TokenStream {
     match inner {
         None => quote!(),
         Some(inner) => quote! {
-            fn validate_self(&self, ctx: &mut dyn ::crate::visitor::VisitorContext) {
+            fn validate_self(&self, ctx: &mut dyn ::icydb::core::visitor::VisitorContext) {
                 #inner
             }
         },
@@ -359,7 +360,7 @@ fn generate_field_value_validation_inner(
     var_expr: TokenStream,
     field_key: &TokenStream,
 ) -> Option<TokenStream> {
-    let seg = quote!(::crate::visitor::PathSegment::Field(#field_key));
+    let seg = quote!(::icydb::core::visitor::PathSegment::Field(#field_key));
 
     let rules: Vec<TokenStream> = value
         .item
