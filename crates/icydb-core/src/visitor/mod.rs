@@ -4,25 +4,61 @@ pub mod validate;
 pub use sanitize::*;
 pub use validate::*;
 
-use crate::{ThisError, traits::Visitable};
-use std::collections::BTreeMap;
+use crate::traits::Visitable;
+use candid::CandidType;
+use derive_more::{Deref, DerefMut};
+use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, fmt};
 
-// ============================================================================
-// Public integration error
-// ============================================================================
+///
+/// VisitorIssues
+///
 
-#[derive(Debug, ThisError)]
-pub enum VisitorError {
-    #[error(transparent)]
-    ValidateError(#[from] validate::ValidateError),
+#[derive(
+    Clone, Debug, Default, Deserialize, Deref, DerefMut, Serialize, CandidType, Eq, PartialEq,
+)]
+pub struct VisitorIssues(BTreeMap<String, Vec<String>>);
 
-    #[error(transparent)]
-    SanitizeError(#[from] sanitize::SanitizeError),
+impl VisitorIssues {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self(BTreeMap::new())
+    }
 }
 
-// ============================================================================
-// Path
-// ============================================================================
+impl fmt::Display for VisitorIssues {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut wrote = false;
+
+        for (path, messages) in &self.0 {
+            for message in messages {
+                if wrote {
+                    writeln!(f)?;
+                }
+
+                if path.is_empty() {
+                    write!(f, "{message}")?;
+                } else {
+                    write!(f, "{path}: {message}")?;
+                }
+
+                wrote = true;
+            }
+        }
+
+        if !wrote {
+            write!(f, "no visitor issues")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl std::error::Error for VisitorIssues {}
+
+///
+/// PathSegment
+///
 
 #[derive(Clone, Debug)]
 pub enum PathSegment {
@@ -52,12 +88,12 @@ impl From<Option<&'static str>> for PathSegment {
     }
 }
 
-// ============================================================================
-// VisitorContext
-// ============================================================================
-
+///
+/// VisitorContext
 /// Narrow interface exposed to visitors for reporting non-fatal issues.
 /// Implemented by adapters via a short-lived context object.
+///
+
 pub trait VisitorContext {
     fn add_issue(&mut self, message: String);
     fn add_issue_at(&mut self, seg: PathSegment, message: String);
@@ -67,10 +103,9 @@ pub trait VisitorContext {
 // Visitor (immutable)
 // ============================================================================
 
-pub trait Visitor<E> {
-    fn enter(&mut self, node: &dyn Visitable, ctx: &mut dyn VisitorContext) -> Result<(), E>;
-
-    fn exit(&mut self, node: &dyn Visitable) -> Result<(), E>;
+pub trait Visitor {
+    fn enter(&mut self, node: &dyn Visitable, ctx: &mut dyn VisitorContext);
+    fn exit(&mut self, node: &dyn Visitable, ctx: &mut dyn VisitorContext);
 }
 
 // ============================================================================
@@ -91,7 +126,7 @@ pub trait VisitorCore {
 
 struct AdapterContext<'a> {
     path: &'a [PathSegment],
-    issues: &'a mut BTreeMap<String, Vec<String>>,
+    issues: &'a mut VisitorIssues,
 }
 
 impl VisitorContext for AdapterContext<'_> {
@@ -137,41 +172,40 @@ fn render_path(path: &[PathSegment], extra: Option<PathSegment>) -> String {
 // VisitorAdapter (immutable)
 // ============================================================================
 
-pub struct VisitorAdapter<V, E> {
+pub struct VisitorAdapter<V> {
     visitor: V,
-    fatal: Option<E>,
     path: Vec<PathSegment>,
-    issues: BTreeMap<String, Vec<String>>,
+    issues: VisitorIssues,
 }
 
-impl<V, E> VisitorAdapter<V, E>
+impl<V> VisitorAdapter<V>
 where
-    V: Visitor<E>,
+    V: Visitor,
 {
     pub const fn new(visitor: V) -> Self {
         Self {
             visitor,
-            fatal: None,
             path: Vec::new(),
-            issues: BTreeMap::new(),
+            issues: VisitorIssues::new(),
         }
     }
 
-    pub fn finish(self) -> Result<(), E> {
-        match self.fatal {
-            Some(e) => Err(e),
-            None => Ok(()),
-        }
-    }
-
-    pub const fn issues(&self) -> &BTreeMap<String, Vec<String>> {
+    pub const fn issues(&self) -> &VisitorIssues {
         &self.issues
+    }
+
+    pub fn result(self) -> Result<(), VisitorIssues> {
+        if self.issues.is_empty() {
+            Ok(())
+        } else {
+            Err(self.issues)
+        }
     }
 }
 
-impl<V, E> VisitorCore for VisitorAdapter<V, E>
+impl<V> VisitorCore for VisitorAdapter<V>
 where
-    V: Visitor<E>,
+    V: Visitor,
 {
     fn push(&mut self, seg: PathSegment) {
         if !matches!(seg, PathSegment::Empty) {
@@ -184,24 +218,19 @@ where
     }
 
     fn enter(&mut self, node: &dyn Visitable) {
-        if self.fatal.is_none() {
-            let mut ctx = AdapterContext {
-                path: &self.path,
-                issues: &mut self.issues,
-            };
-
-            if let Err(e) = self.visitor.enter(node, &mut ctx) {
-                self.fatal = Some(e);
-            }
-        }
+        let mut ctx = AdapterContext {
+            path: &self.path,
+            issues: &mut self.issues,
+        };
+        self.visitor.enter(node, &mut ctx);
     }
 
     fn exit(&mut self, node: &dyn Visitable) {
-        if self.fatal.is_none()
-            && let Err(e) = self.visitor.exit(node)
-        {
-            self.fatal = Some(e);
-        }
+        let mut ctx = AdapterContext {
+            path: &self.path,
+            issues: &mut self.issues,
+        };
+        self.visitor.exit(node, &mut ctx);
     }
 }
 
@@ -234,14 +263,9 @@ pub fn perform_visit<S: Into<PathSegment>>(
 // VisitorMut (mutable)
 // ============================================================================
 
-pub trait VisitorMut<E> {
-    fn enter_mut(
-        &mut self,
-        node: &mut dyn Visitable,
-        ctx: &mut dyn VisitorContext,
-    ) -> Result<(), E>;
-
-    fn exit_mut(&mut self, node: &mut dyn Visitable) -> Result<(), E>;
+pub trait VisitorMut {
+    fn enter_mut(&mut self, node: &mut dyn Visitable, ctx: &mut dyn VisitorContext);
+    fn exit_mut(&mut self, node: &mut dyn Visitable, ctx: &mut dyn VisitorContext);
 }
 
 // ============================================================================
@@ -260,41 +284,40 @@ pub trait VisitorMutCore {
 // VisitorMutAdapter
 // ============================================================================
 
-pub struct VisitorMutAdapter<V, E> {
+pub struct VisitorMutAdapter<V> {
     visitor: V,
-    fatal: Option<E>,
     path: Vec<PathSegment>,
-    issues: BTreeMap<String, Vec<String>>,
+    issues: VisitorIssues,
 }
 
-impl<V, E> VisitorMutAdapter<V, E>
+impl<V> VisitorMutAdapter<V>
 where
-    V: VisitorMut<E>,
+    V: VisitorMut,
 {
     pub const fn new(visitor: V) -> Self {
         Self {
             visitor,
-            fatal: None,
             path: Vec::new(),
-            issues: BTreeMap::new(),
+            issues: VisitorIssues::new(),
         }
     }
 
-    pub fn finish(self) -> Result<(), E> {
-        match self.fatal {
-            Some(e) => Err(e),
-            None => Ok(()),
-        }
-    }
-
-    pub const fn issues(&self) -> &BTreeMap<String, Vec<String>> {
+    pub const fn issues(&self) -> &VisitorIssues {
         &self.issues
+    }
+
+    pub fn result(self) -> Result<(), VisitorIssues> {
+        if self.issues.is_empty() {
+            Ok(())
+        } else {
+            Err(self.issues)
+        }
     }
 }
 
-impl<V, E> VisitorMutCore for VisitorMutAdapter<V, E>
+impl<V> VisitorMutCore for VisitorMutAdapter<V>
 where
-    V: VisitorMut<E>,
+    V: VisitorMut,
 {
     fn push(&mut self, seg: PathSegment) {
         if !matches!(seg, PathSegment::Empty) {
@@ -307,24 +330,19 @@ where
     }
 
     fn enter_mut(&mut self, node: &mut dyn Visitable) {
-        if self.fatal.is_none() {
-            let mut ctx = AdapterContext {
-                path: &self.path,
-                issues: &mut self.issues,
-            };
-
-            if let Err(e) = self.visitor.enter_mut(node, &mut ctx) {
-                self.fatal = Some(e);
-            }
-        }
+        let mut ctx = AdapterContext {
+            path: &self.path,
+            issues: &mut self.issues,
+        };
+        self.visitor.enter_mut(node, &mut ctx);
     }
 
     fn exit_mut(&mut self, node: &mut dyn Visitable) {
-        if self.fatal.is_none()
-            && let Err(e) = self.visitor.exit_mut(node)
-        {
-            self.fatal = Some(e);
-        }
+        let mut ctx = AdapterContext {
+            path: &self.path,
+            issues: &mut self.issues,
+        };
+        self.visitor.exit_mut(node, &mut ctx);
     }
 }
 

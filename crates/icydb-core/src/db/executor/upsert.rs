@@ -5,9 +5,8 @@ use crate::{
         executor::{ExecutorError, SaveExecutor, resolve_unique_pk},
         store::DataKey,
     },
-    deserialize,
+    deserialize, sanitize,
     traits::{EntityKind, FromKey},
-    visitor::sanitize,
 };
 use std::marker::PhantomData;
 

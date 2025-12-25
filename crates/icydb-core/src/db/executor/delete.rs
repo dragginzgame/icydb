@@ -14,8 +14,8 @@ use crate::{
     },
     deserialize,
     obs::metrics,
+    sanitize,
     traits::{EntityKind, FieldValue, FromKey},
-    visitor::sanitize,
 };
 use std::{marker::PhantomData, ops::ControlFlow};
 

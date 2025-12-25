@@ -1,8 +1,8 @@
 use crate::{
-    Error, ThisError,
     traits::Visitable,
     visitor::{
-        PathSegment, VisitorContext, VisitorError, VisitorMut, VisitorMutAdapter, perform_visit_mut,
+        PathSegment, VisitorContext, VisitorIssues, VisitorMut, VisitorMutAdapter,
+        perform_visit_mut,
     },
 };
 
@@ -10,36 +10,21 @@ use crate::{
 /// sanitize
 /// Run the sanitizer visitor over a mutable visitable tree.
 ///
-pub fn sanitize(node: &mut dyn Visitable) -> Result<(), SanitizeError> {
+/// Sanitization is total and non-failing. Any issues discovered during
+/// sanitization are reported via the returned `VisitorIssues`.
+///
+pub(crate) fn sanitize(node: &mut dyn Visitable) -> Result<(), VisitorIssues> {
     let visitor = SanitizeVisitor::new();
     let mut adapter = VisitorMutAdapter::new(visitor);
 
     perform_visit_mut(&mut adapter, node, PathSegment::Empty);
 
-    // Fatal sanitization error only
-    adapter.finish()
-}
-
-///
-/// SanitizeError
-/// Public-facing sanitization error
-///
-
-#[derive(Debug, ThisError)]
-pub enum SanitizeError {
-    #[error("invalid sanitizer configuration: {0}")]
-    InvalidConfig(String),
-}
-
-impl From<SanitizeError> for Error {
-    fn from(err: SanitizeError) -> Self {
-        VisitorError::from(err).into()
-    }
+    adapter.result()
 }
 
 ///
 /// SanitizeVisitor
-/// Walks a tree and applies sanitization at each node
+/// Walks a tree and applies sanitization at each node.
 ///
 
 #[derive(Debug, Default)]
@@ -52,19 +37,11 @@ impl SanitizeVisitor {
     }
 }
 
-impl VisitorMut<SanitizeError> for SanitizeVisitor {
-    fn enter_mut(
-        &mut self,
-        node: &mut dyn Visitable,
-        ctx: &mut dyn VisitorContext,
-    ) -> Result<(), SanitizeError> {
+impl VisitorMut for SanitizeVisitor {
+    fn enter_mut(&mut self, node: &mut dyn Visitable, ctx: &mut dyn VisitorContext) {
         node.sanitize_self(ctx);
         node.sanitize_custom(ctx);
-
-        Ok(())
     }
 
-    fn exit_mut(&mut self, _: &mut dyn Visitable) -> Result<(), SanitizeError> {
-        Ok(())
-    }
+    fn exit_mut(&mut self, _: &mut dyn Visitable, _: &mut dyn VisitorContext) {}
 }

@@ -16,7 +16,6 @@ use crate::{
     },
     serialize::SerializeError,
     traits::{CanisterKind, EntityKind, FromKey},
-    visitor::VisitorError,
 };
 use std::{marker::PhantomData, thread::LocalKey};
 use thiserror::Error as ThisError;
@@ -41,9 +40,6 @@ pub enum DbError {
 
     #[error(transparent)]
     StoreError(#[from] StoreError),
-
-    #[error(transparent)]
-    VisitorError(#[from] VisitorError),
 }
 
 ///

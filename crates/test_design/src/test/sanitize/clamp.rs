@@ -58,37 +58,37 @@ mod tests {
     #[test]
     fn test_clamp_int32() {
         let mut v = ClampInt32::from(5);
-        sanitize(&mut v);
+        sanitize(&mut v).unwrap();
         assert_eq!(*v, 10, "should clamp up to min");
 
         let mut v = ClampInt32::from(25);
-        sanitize(&mut v);
+        sanitize(&mut v).unwrap();
         assert_eq!(*v, 20, "should clamp down to max");
 
         let mut v = ClampInt32::from(15);
-        sanitize(&mut v);
+        sanitize(&mut v).unwrap();
         assert_eq!(*v, 15, "in-range value should be unchanged");
     }
 
     #[test]
     fn test_clamp_decimal() {
         let mut v = ClampDecimal::from(Decimal::from(0.1));
-        sanitize(&mut v);
+        sanitize(&mut v).unwrap();
         assert_eq!(*v, Decimal::from(0.5), "should clamp up to min");
 
         let mut v = ClampDecimal::from(Decimal::from(10));
-        sanitize(&mut v);
+        sanitize(&mut v).unwrap();
         assert_eq!(*v, Decimal::from(5.5), "should clamp down to max");
 
         let mut v = ClampDecimal::from(Decimal::from(2));
-        sanitize(&mut v);
+        sanitize(&mut v).unwrap();
         assert_eq!(*v, Decimal::from(2.0), "in-range value should be unchanged");
     }
 
     #[test]
     fn test_clamp_option_fields() {
         let mut opt: Option<ClampInt32> = Some(ClampInt32::from(5));
-        sanitize(&mut opt);
+        sanitize(&mut opt).unwrap();
         assert_eq!(
             opt.unwrap(),
             ClampInt32::from(10),
@@ -96,7 +96,7 @@ mod tests {
         );
 
         let mut none: Option<ClampInt32> = None;
-        sanitize(&mut none);
+        sanitize(&mut none).unwrap();
         assert!(none.is_none(), "None should remain untouched");
     }
 
@@ -107,7 +107,7 @@ mod tests {
             Decimal::from(2.0),
             Decimal::from(10.0),
         ]);
-        sanitize(&mut list);
+        sanitize(&mut list).unwrap();
 
         let expected = vec![Decimal::from(0.5), Decimal::from(2.0), Decimal::from(5.5)];
         assert_eq!(
@@ -126,7 +126,7 @@ mod tests {
             ..Default::default()
         };
 
-        sanitize(&mut e);
+        sanitize(&mut e).unwrap();
 
         assert_eq!(e.cint32, ClampInt32::from(10), "clamped up");
         assert_eq!(e.cint32_opt.unwrap(), ClampInt32::from(20), "clamped down");

@@ -18,7 +18,6 @@ pub use index::IndexSpec;
 pub use key::Key;
 pub use serialize::{deserialize, serialize};
 pub use value::Value;
-pub use visitor::{sanitize, validate};
 
 ///
 /// CONSTANTS
@@ -33,6 +32,8 @@ pub const MAX_INDEX_FIELDS: usize = 4;
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
+use traits::Visitable;
+use visitor::VisitorIssues;
 
 ///
 /// Error
@@ -50,10 +51,13 @@ pub enum Error {
     InterfaceError(String),
 
     #[error("{0}")]
+    SanitizeError(VisitorIssues),
+
+    #[error("{0}")]
     SerializeError(String),
 
     #[error("{0}")]
-    VisitorError(String),
+    ValidateError(VisitorIssues),
 }
 
 macro_rules! from_to_string {
@@ -69,4 +73,13 @@ macro_rules! from_to_string {
 from_to_string!(db::DbError, DbError);
 from_to_string!(interface::InterfaceError, InterfaceError);
 from_to_string!(serialize::SerializeError, SerializeError);
-from_to_string!(visitor::VisitorError, VisitorError);
+
+/// sanitize
+pub fn sanitize(node: &mut dyn Visitable) -> Result<(), Error> {
+    visitor::sanitize(node).map_err(Error::SanitizeError)
+}
+
+/// validate
+pub fn validate(node: &dyn Visitable) -> Result<(), Error> {
+    visitor::validate(node).map_err(Error::ValidateError)
+}

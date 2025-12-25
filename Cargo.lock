@@ -856,12 +856,17 @@ name = "icydb"
 version = "0.1.20"
 dependencies = [
  "candid",
+ "canic-cdk",
+ "canic-memory",
  "canic-utils",
+ "ctor",
  "derive_more",
  "icydb-build",
  "icydb-core",
  "icydb-macros",
  "icydb-schema",
+ "num-traits",
+ "remain",
  "serde",
 ]
 
@@ -885,10 +890,8 @@ dependencies = [
  "canic-memory",
  "canic-utils",
  "chrono",
- "ctor",
  "derive_more",
  "num-traits",
- "remain",
  "rust_decimal",
  "serde",
  "serde_bytes",

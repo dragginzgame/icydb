@@ -8,9 +8,9 @@ use crate::{
     },
     deserialize,
     obs::metrics,
-    serialize,
+    sanitize, serialize,
     traits::EntityKind,
-    visitor::{sanitize, validate},
+    validate,
 };
 use std::marker::PhantomData;
 

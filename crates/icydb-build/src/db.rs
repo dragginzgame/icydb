@@ -39,10 +39,10 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         if matches!(store.ty, StoreType::Index) {
             // Index store
             index_defs.extend(quote! {
-                ::icydb::core::__reexports::canic_memory::eager_static! {
+                ::icydb::__reexports::canic_memory::eager_static! {
                     static #cell_ident: ::std::cell::RefCell<::icydb::core::db::store::IndexStore> =
                         ::std::cell::RefCell::new(::icydb::core::db::store::IndexStore::init(
-                            ::icydb::core::__reexports::canic_memory::ic_memory!(::icydb::core::db::store::IndexStore, #memory_id)
+                            ::icydb::__reexports::canic_memory::ic_memory!(::icydb::core::db::store::IndexStore, #memory_id)
                         ));
                 }
             });
@@ -53,10 +53,10 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         } else {
             // Data store
             data_defs.extend(quote! {
-                ::icydb::core::__reexports::canic_memory::eager_static! {
+                ::icydb::__reexports::canic_memory::eager_static! {
                     static #cell_ident: ::std::cell::RefCell<::icydb::core::db::store::DataStore> =
                         ::std::cell::RefCell::new(::icydb::core::db::store::DataStore::init(
-                            ::icydb::core::__reexports::canic_memory::ic_memory!(::icydb::core::db::store::DataStore, #memory_id)
+                            ::icydb::__reexports::canic_memory::ic_memory!(::icydb::core::db::store::DataStore, #memory_id)
                         ));
                 }
             });
@@ -100,8 +100,8 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
             ::icydb::core::db::Db::<#canister_path>::new(&DATA_REGISTRY, &INDEX_REGISTRY);
 
         // reserve the ic memory range
-        ::icydb::core::__reexports::canic_memory::eager_init!({
-            ::icydb::core::__reexports::canic_memory::ic_memory_range!(#memory_min, #memory_max);
+        ::icydb::__reexports::canic_memory::eager_init!({
+            ::icydb::__reexports::canic_memory::ic_memory_range!(#memory_min, #memory_max);
         });
 
         /// Global accessor (fat handle) for this canister’s DB

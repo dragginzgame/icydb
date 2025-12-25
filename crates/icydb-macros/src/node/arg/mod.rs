@@ -31,7 +31,7 @@ impl Arg {
             Self::Char(_) => quote!(char),
             Self::Number(n) => n.as_type(),
             _ => {
-                quote!(::core::compile_error!("invalid arg"))
+                quote!(::std::compile_error!("invalid arg"))
             }
         }
     }

@@ -5,7 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2025-12-25 - Christmas Release
+- 3 crates removed: icydb_error, icydb_paths, icydb_base.  Much simpler dependency graph.
+- Goodbye 1100+ lines of code
+- Refactored Sanitize/Validate so that creating Validators and Sanitizers cannot panic, but instead new() errors get added to the
+error tree
+- Visitor method now uses a context instead of recursive trees
+- Visitor method now has a generic return Error method via the VisitorCore / VisitorAdapter pattern
+- Paths are now automatically ::icydb because we do an `extern crate self as icydb`
+- Merry Christmas!
+
+## [0.1.20] - 2025-12-24
 - Metrics: add `rows_scanned`, `exists_calls`, and `plan_full_scan`; count scan rows during loads, exists, and deletes; report average rows scanned per load.
 - Timestamp parsing rejects pre-epoch RFC3339 values; negative `from_i64` returns `None`.
 - Date: `Date::new` returns epoch for out-of-range years; `Date` no longer exposes a public `i32` field.
@@ -13,7 +23,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - E18s: `to_decimal` now returns `None` on overflow instead of wrapping; display shows `[overflow]`.
 - Validators/sanitizers: numeric validators return errors for invalid configs instead of panicking; clamp sanitization no-ops on invalid configs.
 - Tests: added coverage for timestamp/date edge cases, negative numeric inputs, E18s overflow, and metrics exists/scan counters.
-
 
 ## [0.1.19] - 2025-12-23
 - Fix upsert to resolve unique-index matches using sanitized input values.

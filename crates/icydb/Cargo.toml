@@ -18,6 +18,11 @@ icydb-macros = { workspace = true }
 icydb-schema = { workspace = true }
 serde = { workspace = true }
 candid = { workspace = true }
+remain = { workspace = true }
+ctor = { workspace = true }
+canic-cdk = { workspace = true }
+canic-memory = { workspace = true }
+num-traits = { workspace = true }
 canic-utils = { workspace = true }
 derive_more = { workspace = true }
 

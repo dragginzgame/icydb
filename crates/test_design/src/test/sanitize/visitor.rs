@@ -70,7 +70,7 @@ mod tests {
             ]),
         };
 
-        sanitize(&mut node);
+        sanitize(&mut node).unwrap();
 
         let expected_list = vec!["mixed".to_string(), "another".to_string()];
         assert_eq!(*node.list, expected_list);

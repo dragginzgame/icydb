@@ -104,49 +104,49 @@ mod tests {
     #[test]
     fn lower_sanitizer_to_lowercase() {
         let mut value = LowerCaseText::from("MiXeD Case");
-        sanitize(&mut value);
+        sanitize(&mut value).unwrap();
         assert_eq!(&*value, "mixed case");
     }
 
     #[test]
     fn upper_sanitizer_to_uppercase() {
         let mut value = UpperCaseText::from("MiXeD Case");
-        sanitize(&mut value);
+        sanitize(&mut value).unwrap();
         assert_eq!(&*value, "MIXED CASE");
     }
 
     #[test]
     fn snake_sanitizer_to_snake_case() {
         let mut value = SnakeCaseText::from("Mixed Case Text");
-        sanitize(&mut value);
+        sanitize(&mut value).unwrap();
         assert_eq!(&*value, "mixed_case_text");
     }
 
     #[test]
     fn kebab_sanitizer_to_kebab_case() {
         let mut value = KebabCaseText::from("Mixed Case Text");
-        sanitize(&mut value);
+        sanitize(&mut value).unwrap();
         assert_eq!(&*value, "mixed-case-text");
     }
 
     #[test]
     fn title_sanitizer_to_title_case() {
         let mut value = TitleCaseText::from("the lord of the rings");
-        sanitize(&mut value);
+        sanitize(&mut value).unwrap();
         assert_eq!(&*value, "The Lord of the Rings");
     }
 
     #[test]
     fn upper_snake_sanitizer_to_upper_snake_case() {
         let mut value = UpperSnakeText::from("Mixed Case Text");
-        sanitize(&mut value);
+        sanitize(&mut value).unwrap();
         assert_eq!(&*value, "MIXED_CASE_TEXT");
     }
 
     #[test]
     fn upper_camel_sanitizer_to_upper_camel_case() {
         let mut value = UpperCamelText::from("mixed case text");
-        sanitize(&mut value);
+        sanitize(&mut value).unwrap();
         assert_eq!(&*value, "MixedCaseText");
     }
 
@@ -157,7 +157,7 @@ mod tests {
             "another Value".to_string(),
         ]);
 
-        sanitize(&mut list);
+        sanitize(&mut list).unwrap();
 
         let expected = vec!["mixed_case_text".to_string(), "another_value".to_string()];
         assert_eq!(*list, expected);
@@ -173,7 +173,7 @@ mod tests {
             ("owner".to_string(), "gandalf the grey".to_string()),
         ]);
 
-        sanitize(&mut map);
+        sanitize(&mut map).unwrap();
 
         let actual: HashMap<_, _> = map
             .iter()
