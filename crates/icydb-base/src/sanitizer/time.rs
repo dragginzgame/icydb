@@ -8,12 +8,12 @@ use crate::{core::traits::Sanitizer, prelude::*};
 pub struct CreatedAt;
 
 impl Sanitizer<Timestamp> for CreatedAt {
-    fn sanitize(&self, value: Timestamp) -> Timestamp {
-        if value == Timestamp::EPOCH {
-            Timestamp::now()
-        } else {
-            value
+    fn sanitize(&self, value: &mut Timestamp) -> Result<(), SanitizeIssue> {
+        if *value == Timestamp::EPOCH {
+            *value = Timestamp::now();
         }
+
+        Ok(())
     }
 }
 
@@ -25,7 +25,9 @@ impl Sanitizer<Timestamp> for CreatedAt {
 pub struct UpdatedAt;
 
 impl Sanitizer<Timestamp> for UpdatedAt {
-    fn sanitize(&self, _: Timestamp) -> Timestamp {
-        Timestamp::now()
+    fn sanitize(&self, value: &mut Timestamp) -> Result<(), SanitizeIssue> {
+        *value = Timestamp::now();
+
+        Ok(())
     }
 }

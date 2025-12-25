@@ -208,9 +208,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.6.18"
+version = "0.6.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "414fe332414b5538722264b1d55b1b508fc569485dce3ca3d0b477973afa71b5"
+checksum = "f4ffc876941c083b10e5c815af39dbd2fb9bc86419a36767211c1b62593697d9"
 dependencies = [
  "base32 0.5.1",
  "candid",
@@ -229,9 +229,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.6.18"
+version = "0.6.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec1df143303eeab014920b32fa869069a6d08c40bbca247af48d1c55964dce64"
+checksum = "1d75a4dd9625cb71b88241f30733453c1cf1268091a97b6cb1c8140aa5de4330"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -244,9 +244,9 @@ dependencies = [
 
 [[package]]
 name = "canic-types"
-version = "0.6.18"
+version = "0.6.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a72eadfb8690d8151bc6f8f077ad17efb9feee0fc815ec208e239b7c9f46cac"
+checksum = "dcc31d403facb97fb424d59b8d181748b588a290c97a58e8c806c91a035eea19"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -258,9 +258,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.6.18"
+version = "0.6.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2cc6ad1a3def0aa440f04320188682da1ab5056b6180a1ab2a2cd87844f5441"
+checksum = "5e61d1fcc55fe128252aadbe2a5d467b1f787b7adf74024c6942db374c086bfe"
 dependencies = [
  "candid",
  "convert_case",
@@ -858,7 +858,6 @@ dependencies = [
  "icydb-base",
  "icydb-build",
  "icydb-core",
- "icydb-error",
  "icydb-macros",
  "icydb-schema",
 ]
@@ -871,10 +870,8 @@ dependencies = [
  "candid",
  "canic-utils",
  "icydb-core",
- "icydb-error",
  "icydb-schema",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -899,7 +896,6 @@ dependencies = [
  "chrono",
  "ctor",
  "derive_more",
- "icydb-error",
  "icydb-macros",
  "num-traits",
  "remain",
@@ -909,14 +905,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "ulid",
-]
-
-[[package]]
-name = "icydb-error"
-version = "0.1.20"
-dependencies = [
- "candid",
- "serde",
 ]
 
 [[package]]
@@ -953,7 +941,6 @@ dependencies = [
  "canic-utils",
  "darling 0.23.0",
  "derive_more",
- "icydb-error",
  "icydb-paths",
  "proc-macro2",
  "quote",

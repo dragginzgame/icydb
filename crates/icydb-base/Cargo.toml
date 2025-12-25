@@ -15,13 +15,11 @@ doctest = false
 candid = { workspace = true }
 canic-utils = { workspace = true }
 icydb-core = { workspace = true }
-icydb-error = { workspace = true }
 icydb-schema = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
 bencher = "0.1"
-serde_json = "1.0"
 
 [lints]
 workspace = true

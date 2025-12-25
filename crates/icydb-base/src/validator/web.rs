@@ -1,17 +1,19 @@
-use crate::{core::traits::Validator, prelude::*};
+use crate::{core::traits::Validator, core::visitor::ValidateIssue, prelude::*};
 
 ///
 /// MimeType
 ///
 
 #[validator]
-pub struct MimeType {}
+pub struct MimeType;
 
 impl Validator<str> for MimeType {
-    fn validate(&self, s: &str) -> Result<(), String> {
+    fn validate(&self, s: &str) -> Result<(), ValidateIssue> {
         let parts: Vec<&str> = s.split('/').collect();
         if parts.len() != 2 {
-            return Err(format!("MIME type '{s}' must contain exactly one '/'"));
+            return Err(ValidateIssue::validation(format!(
+                "MIME type '{s}' must contain exactly one '/'"
+            )));
         }
 
         let is_valid_part = |part: &str| {
@@ -22,9 +24,9 @@ impl Validator<str> for MimeType {
         };
 
         if !is_valid_part(parts[0]) || !is_valid_part(parts[1]) {
-            return Err(format!(
+            return Err(ValidateIssue::validation(format!(
                 "MIME type '{s}' contains invalid characters; only alphanumeric, '+', '-', '.' allowed"
-            ));
+            )));
         }
 
         Ok(())
@@ -36,15 +38,16 @@ impl Validator<str> for MimeType {
 ///
 
 #[validator]
-pub struct Url {}
+pub struct Url;
 
 impl Validator<str> for Url {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        // Very basic check — can be expanded
+    fn validate(&self, s: &str) -> Result<(), ValidateIssue> {
         if s.starts_with("http://") || s.starts_with("https://") {
             Ok(())
         } else {
-            Err(format!("URL '{s}' must start with 'http://' or 'https://'"))
+            Err(ValidateIssue::validation(format!(
+                "URL '{s}' must start with 'http://' or 'https://'"
+            )))
         }
     }
 }

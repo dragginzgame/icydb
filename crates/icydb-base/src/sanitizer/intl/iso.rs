@@ -9,8 +9,18 @@ use crate::prelude::*;
 pub struct Iso3166_1A2;
 
 impl Sanitizer<String> for Iso3166_1A2 {
-    fn sanitize(&self, value: String) -> String {
-        value.trim().to_ascii_uppercase()
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        // trim in place
+        let trimmed = value.trim();
+
+        if trimmed.len() != value.len() {
+            *value = trimmed.to_owned();
+        }
+
+        // uppercase in place (ASCII)
+        value.make_ascii_uppercase();
+
+        Ok(())
     }
 }
 
@@ -23,7 +33,15 @@ impl Sanitizer<String> for Iso3166_1A2 {
 pub struct Iso639_1;
 
 impl Sanitizer<String> for Iso639_1 {
-    fn sanitize(&self, value: String) -> String {
-        value.trim().to_ascii_lowercase()
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        let trimmed = value.trim();
+
+        if trimmed.len() != value.len() {
+            *value = trimmed.to_owned();
+        }
+
+        value.make_ascii_lowercase();
+
+        Ok(())
     }
 }

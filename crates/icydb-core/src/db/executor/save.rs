@@ -128,7 +128,7 @@ impl<E: EntityKind> SaveExecutor<E> {
         let ctx = self.db.context::<E>();
 
         // sanitize & validate before key extraction in case PK fields are normalized
-        sanitize(&mut entity);
+        sanitize(&mut entity)?;
         validate(&entity)?;
 
         // match save mode

@@ -1,4 +1,4 @@
-use crate::{core::traits::Sanitizer, prelude::*};
+use crate::prelude::*;
 
 ///
 /// MimeType
@@ -9,8 +9,16 @@ use crate::{core::traits::Sanitizer, prelude::*};
 pub struct MimeType;
 
 impl Sanitizer<String> for MimeType {
-    fn sanitize(&self, value: String) -> String {
-        value.trim().to_ascii_lowercase()
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        let trimmed = value.trim();
+
+        if trimmed.len() != value.len() {
+            *value = trimmed.to_owned();
+        }
+
+        value.make_ascii_lowercase();
+
+        Ok(())
     }
 }
 
@@ -23,20 +31,24 @@ impl Sanitizer<String> for MimeType {
 pub struct Url;
 
 impl Sanitizer<String> for Url {
-    fn sanitize(&self, value: String) -> String {
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
         let trimmed = value.trim();
 
-        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
-            trimmed.to_string()
+        let mut normalized = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            trimmed.to_owned()
         } else {
             format!("https://{trimmed}")
-        }
+        };
+
+        *value = std::mem::take(&mut normalized);
+
+        Ok(())
     }
 }
 
-///
-/// TESTS
-///
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -46,53 +58,55 @@ mod tests {
     fn test_mime_type_sanitize_trims_and_lowercases() {
         let sanitizer = MimeType;
 
-        assert_eq!(sanitizer.sanitize("  Text/HTML  ".to_string()), "text/html");
-        assert_eq!(
-            sanitizer.sanitize("APPLICATION/JSON".to_string()),
-            "application/json"
-        );
-        assert_eq!(sanitizer.sanitize(" image/JPEG ".to_string()), "image/jpeg");
+        let mut v = "  Text/HTML  ".to_string();
+        sanitizer.sanitize(&mut v).unwrap();
+        assert_eq!(v, "text/html");
+
+        let mut v = "APPLICATION/JSON".to_string();
+        sanitizer.sanitize(&mut v).unwrap();
+        assert_eq!(v, "application/json");
+
+        let mut v = " image/JPEG ".to_string();
+        sanitizer.sanitize(&mut v).unwrap();
+        assert_eq!(v, "image/jpeg");
     }
 
     #[test]
     fn test_url_sanitize_adds_https_when_missing() {
         let sanitizer = Url;
 
-        assert_eq!(
-            sanitizer.sanitize("example.com".to_string()),
-            "https://example.com"
-        );
-        assert_eq!(
-            sanitizer.sanitize(" www.example.com ".to_string()),
-            "https://www.example.com"
-        );
+        let mut v = "example.com".to_string();
+        sanitizer.sanitize(&mut v).unwrap();
+        assert_eq!(v, "https://example.com");
+
+        let mut v = " www.example.com ".to_string();
+        sanitizer.sanitize(&mut v).unwrap();
+        assert_eq!(v, "https://www.example.com");
     }
 
     #[test]
     fn test_url_sanitize_keeps_existing_scheme() {
         let sanitizer = Url;
 
-        assert_eq!(
-            sanitizer.sanitize("https://example.com".to_string()),
-            "https://example.com"
-        );
-        assert_eq!(
-            sanitizer.sanitize("http://example.com".to_string()),
-            "http://example.com"
-        );
+        let mut v = "https://example.com".to_string();
+        sanitizer.sanitize(&mut v).unwrap();
+        assert_eq!(v, "https://example.com");
+
+        let mut v = "http://example.com".to_string();
+        sanitizer.sanitize(&mut v).unwrap();
+        assert_eq!(v, "http://example.com");
     }
 
     #[test]
     fn test_url_sanitize_trims_whitespace() {
         let sanitizer = Url;
 
-        assert_eq!(
-            sanitizer.sanitize("   https://example.com   ".to_string()),
-            "https://example.com"
-        );
-        assert_eq!(
-            sanitizer.sanitize("   example.com   ".to_string()),
-            "https://example.com"
-        );
+        let mut v = "   https://example.com   ".to_string();
+        sanitizer.sanitize(&mut v).unwrap();
+        assert_eq!(v, "https://example.com");
+
+        let mut v = "   example.com   ".to_string();
+        sanitizer.sanitize(&mut v).unwrap();
+        assert_eq!(v, "https://example.com");
     }
 }

@@ -1,4 +1,7 @@
-use crate::{core::traits::Validator, prelude::*};
+use crate::{
+    core::{traits::Validator, visitor::ValidateIssue},
+    prelude::*,
+};
 use std::convert::TryInto;
 
 ///
@@ -8,6 +11,8 @@ use std::convert::TryInto;
 #[validator]
 pub struct MaxDecimalPlaces {
     target: u32,
+    #[serde(skip)]
+    error: Option<ValidateIssue>,
 }
 
 impl MaxDecimalPlaces {
@@ -17,23 +22,37 @@ impl MaxDecimalPlaces {
         N: TryInto<u32>,
         N::Error: std::fmt::Debug,
     {
-        Self {
-            target: target.try_into().expect("invalid number of decimal places"),
+        match target.try_into() {
+            Ok(target) => Self {
+                target,
+                error: None,
+            },
+            Err(e) => Self {
+                target: 0,
+                error: Some(ValidateIssue::invalid_config(format!(
+                    "invalid number of decimal places: {:?}",
+                    e
+                ))),
+            },
         }
     }
 }
 
 impl Validator<Decimal> for MaxDecimalPlaces {
-    fn validate(&self, n: &Decimal) -> Result<(), String> {
+    fn validate(&self, n: &Decimal) -> Result<(), ValidateIssue> {
+        if let Some(err) = &self.error {
+            return Err(err.clone());
+        }
+
         if n.scale() <= self.target {
             Ok(())
         } else {
             let plural = if self.target == 1 { "" } else { "s" };
 
-            Err(format!(
+            Err(ValidateIssue::validation(format!(
                 "{n} must not have more than {} decimal place{}",
                 self.target, plural
-            ))
+            )))
         }
     }
 }

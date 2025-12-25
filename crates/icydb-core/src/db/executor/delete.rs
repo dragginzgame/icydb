@@ -133,7 +133,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         let mut span = metrics::Span::<E>::new(metrics::ExecKind::Delete);
         let index = index.index();
         let mut lookup = entity;
-        sanitize(&mut lookup);
+        sanitize(&mut lookup)?;
 
         let Some(pk) = resolve_unique_pk::<E>(&self.db, index, &lookup)? else {
             set_rows_from_len(&mut span, 0);

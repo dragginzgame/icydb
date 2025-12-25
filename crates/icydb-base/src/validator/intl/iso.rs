@@ -30,11 +30,13 @@ pub const VALID_ENTRIES_3166_1A2: &[&str] = &[
 ];
 
 impl Validator<str> for Iso3166_1A2 {
-    fn validate(&self, s: &str) -> Result<(), String> {
+    fn validate(&self, s: &str) -> Result<(), ValidateIssue> {
         if VALID_ENTRIES_3166_1A2.contains(&s) {
             Ok(())
         } else {
-            Err(format!("unknown ISO 3166-1 alpha-2 country code: {s}"))
+            Err(ValidateIssue::validation(format!(
+                "unknown ISO 3166-1 alpha-2 country code: {s}"
+            )))
         }
     }
 }
@@ -65,11 +67,13 @@ pub const VALID_ENTRIES_639_1: &[&str] = &[
 ];
 
 impl Validator<str> for Iso639_1 {
-    fn validate(&self, s: &str) -> Result<(), String> {
+    fn validate(&self, s: &str) -> Result<(), ValidateIssue> {
         if VALID_ENTRIES_639_1.contains(&s) {
             Ok(())
         } else {
-            Err(format!("unknown ISO 639-1 language code: {s}"))
+            Err(ValidateIssue::validation(format!(
+                "unknown ISO 639-1 language code: {s}"
+            )))
         }
     }
 }

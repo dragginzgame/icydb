@@ -202,7 +202,7 @@ where
         entity: &E,
     ) -> Result<Option<E::PrimaryKey>, Error> {
         let mut lookup = entity.clone();
-        sanitize(&mut lookup);
+        sanitize(&mut lookup)?;
         resolve_unique_pk::<E>(&self.db, index, &lookup)
     }
 

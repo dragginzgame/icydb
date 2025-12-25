@@ -6,6 +6,7 @@ pub mod list;
 pub mod newtype;
 pub mod option;
 pub mod record;
+pub mod visitor;
 
 use crate::prelude::*;
 

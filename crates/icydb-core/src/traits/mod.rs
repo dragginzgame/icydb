@@ -1,14 +1,10 @@
 #[macro_use]
 mod macros;
-mod sanitize;
-mod validate;
 mod view;
-mod visitable;
+mod visitor;
 
-pub use sanitize::*;
-pub use validate::*;
 pub use view::*;
-pub use visitable::*;
+pub use visitor::*;
 
 // re-exports of other traits
 // for the standard traits::X pattern
@@ -336,16 +332,21 @@ pub trait Path {
 /// transforms a value into a sanitized version
 ///
 
-pub trait Sanitizer<T: ?Sized> {
-    /// Takes ownership of `value` and returns a sanitized version.
-    fn sanitize(&self, value: T) -> T;
+pub trait Sanitizer<T> {
+    /// Apply in-place sanitization.
+    ///
+    /// - `Ok(())` means success (possibly with issues recorded by the caller)
+    /// - `Err(String)` means a fatal sanitization failure
+    fn sanitize(&self, value: &mut T) -> Result<(), String>;
 }
 
 ///
 /// Validator
 /// allows a node to validate different types of primitives
+/// ?Sized so we can operate on str
 ///
 
 pub trait Validator<T: ?Sized> {
+    /// Returns `Ok(())` if valid, or a human-readable message if invalid.
     fn validate(&self, value: &T) -> Result<(), String>;
 }

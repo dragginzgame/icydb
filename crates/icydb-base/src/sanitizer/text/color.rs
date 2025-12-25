@@ -4,7 +4,7 @@ use crate::prelude::*;
 /// RgbHex
 ///
 /// Normalize RGB hex:
-/// - `#RRGGBB` → `RRGGBB`
+/// - `#RRGGBB` or `RRGGBB` (case-insensitive) → `RRGGBB`
 /// - anything else → `"FFFFFF"`
 ///
 
@@ -12,14 +12,20 @@ use crate::prelude::*;
 pub struct RgbHex;
 
 impl Sanitizer<String> for RgbHex {
-    fn sanitize(&self, value: String) -> String {
-        let hex = value.trim_start_matches('#').to_ascii_uppercase();
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        let raw = value.trim_start_matches('#');
+        let hex = raw.trim(); // optional: keep or drop; remove if you only want to strip '#'
 
-        if hex.len() == 6 {
-            hex
-        } else {
-            String::from("FFFFFF")
+        let mut normalized = hex.to_ascii_uppercase();
+
+        let ok = normalized.len() == 6 && normalized.chars().all(|c| c.is_ascii_hexdigit());
+        if !ok {
+            normalized = "FFFFFF".to_string();
         }
+
+        *value = normalized;
+
+        Ok(())
     }
 }
 
@@ -27,8 +33,8 @@ impl Sanitizer<String> for RgbHex {
 /// RgbaHex
 ///
 /// Normalize RGBA hex:
-/// - `#RRGGBB` → `RRGGBBFF`
-/// - `#RRGGBBAA` → `RRGGBBAA`
+/// - `#RRGGBB` or `RRGGBB` → `RRGGBBFF`
+/// - `#RRGGBBAA` or `RRGGBBAA` → `RRGGBBAA`
 /// - anything else → `"FFFFFFFF"`
 ///
 
@@ -36,13 +42,20 @@ impl Sanitizer<String> for RgbHex {
 pub struct RgbaHex;
 
 impl Sanitizer<String> for RgbaHex {
-    fn sanitize(&self, value: String) -> String {
-        let hex = value.trim_start_matches('#').to_ascii_uppercase();
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        let raw = value.trim_start_matches('#');
+        let hex = raw.trim(); // optional: keep or drop; remove if you only want to strip '#'
 
-        match hex.len() {
-            6 => format!("{hex}FF"),
-            8 => hex,
-            _ => String::from("FFFFFFFF"),
-        }
+        let upper = hex.to_ascii_uppercase();
+
+        let normalized = match upper.len() {
+            6 if upper.chars().all(|c| c.is_ascii_hexdigit()) => format!("{upper}FF"),
+            8 if upper.chars().all(|c| c.is_ascii_hexdigit()) => upper,
+            _ => "FFFFFFFF".to_string(),
+        };
+
+        *value = normalized;
+
+        Ok(())
     }
 }

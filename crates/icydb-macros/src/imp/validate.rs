@@ -4,25 +4,12 @@ use quote::format_ident;
 /// ---------------------------------------------------------------------------
 /// ValidateAuto
 /// ---------------------------------------------------------------------------
-///
-/// Generates auto-validation logic for schema nodes.
-/// Each node type (`Entity`, `Enum`, `List`, etc.) implements
-/// [`ValidateAutoFn`], which returns one or both token streams:
-/// - `self_tokens`: validation logic for the node itself
-/// - `child_tokens`: validation logic for its child values
-///
-/// The macro [`impl_validate_auto!`] wires these up into a concrete
-/// implementation of [`TraitKind::ValidateAuto`].
-///
 
 pub struct ValidateAutoTrait;
 
 pub trait ValidateAutoFn {
+    /// Emit schema-defined validation for this node.
     fn self_tokens(_: &Self) -> TokenStream {
-        quote!()
-    }
-
-    fn child_tokens(_: &Self) -> TokenStream {
         quote!()
     }
 }
@@ -33,16 +20,9 @@ macro_rules! impl_validate_auto {
         $(impl Imp<$ty> for ValidateAutoTrait {
             fn strategy(node: &$ty) -> Option<TraitStrategy> {
                 let self_tokens = ValidateAutoFn::self_tokens(node);
-                let child_tokens = ValidateAutoFn::child_tokens(node);
-
-                // Combine both token sets into a single impl body
-                let tokens = quote! {
-                    #self_tokens
-                    #child_tokens
-                };
 
                 let tokens = Implementor::new(node.def(), TraitKind::ValidateAuto)
-                    .add_tokens(tokens)
+                    .add_tokens(self_tokens)
                     .to_token_stream();
 
                 Some(TraitStrategy::from_impl(tokens))
@@ -58,15 +38,14 @@ impl_validate_auto!(Entity, Enum, List, Map, Newtype, Record, Set);
 /// ---------------------------------------------------------------------------
 
 impl ValidateAutoFn for Entity {
-    fn child_tokens(node: &Self) -> TokenStream {
-        wrap_validate_fn(field_list(&node.fields))
+    fn self_tokens(node: &Self) -> TokenStream {
+        wrap_validate_self_fn(field_list(&node.fields))
     }
 }
 
 /// ---------------------------------------------------------------------------
 /// Enum
 /// ---------------------------------------------------------------------------
-///
 /// Any variants marked `unspecified` are invalid if selected.
 ///
 impl ValidateAutoFn for Enum {
@@ -79,29 +58,25 @@ impl ValidateAutoFn for Enum {
                 let ident = v.effective_ident();
                 let ident_str = format!("{ident}");
                 quote! {
-                    Self::#ident => Err(format!("unspecified variant: {}", #ident_str).into()),
+                    Self::#ident => {
+                        ctx.add_issue(format!("unspecified variant: {}", #ident_str));
+                    }
                 }
             })
             .collect();
 
         let inner = if invalid_arms.is_empty() {
-            quote!(Ok(()))
+            quote!()
         } else {
             quote! {
                 match self {
                     #invalid_arms
-                    _ => Ok(()),
+                    _ => {}
                 }
             }
         };
 
-        // quote
-        let ep = paths().error;
-        quote! {
-            fn validate_self(&self) -> ::std::result::Result<(), #ep::ErrorTree> {
-                #inner
-            }
-        }
+        wrap_validate_self_fn(Some(inner))
     }
 }
 
@@ -110,19 +85,27 @@ impl ValidateAutoFn for Enum {
 /// ---------------------------------------------------------------------------
 
 impl ValidateAutoFn for List {
-    fn child_tokens(node: &Self) -> TokenStream {
-        let list_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0));
-        let item_rules = generate_validators_inner(&node.item.validators, quote!(v)).map(|block| {
-            let item = format_ident!("__item");
+    fn self_tokens(node: &Self) -> TokenStream {
+        // Validators on the list itself (e.g. length constraints)
+        let list_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), None);
+
+        // Validators on items; attach at [i]
+        let item_rules = generate_validators_inner(
+            &node.item.validators,
+            quote!(item),
+            Some(quote!(::crate::visitor::PathSegment::Index(i))),
+        )
+        .map(|block| {
+            let item_ident = format_ident!("__item");
             quote! {
-                for #item in &self.0 {
-                    let v = #item;
+                for (i, #item_ident) in self.0.iter().enumerate() {
+                    let item = #item_ident;
                     #block
                 }
             }
         });
 
-        wrap_validate_fn(merge_rules(list_rules, item_rules))
+        wrap_validate_self_fn(merge_rules(list_rules, item_rules))
     }
 }
 
@@ -131,10 +114,22 @@ impl ValidateAutoFn for List {
 /// ---------------------------------------------------------------------------
 
 impl ValidateAutoFn for Map {
-    fn child_tokens(node: &Self) -> TokenStream {
-        let map_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0));
-        let key_rules = generate_validators_inner(&node.key.validators, quote!(k));
-        let value_rules = generate_value_validation_inner(&node.value, quote!(v));
+    fn self_tokens(node: &Self) -> TokenStream {
+        // Validators on the map itself
+        let map_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), None);
+
+        // Key/value validators; attach at "key" / "value"
+        let key_rules = generate_validators_inner(
+            &node.key.validators,
+            quote!(k),
+            Some(quote!(::crate::visitor::PathSegment::Field("key"))),
+        );
+
+        let value_rules = generate_value_validation_inner(
+            &node.value,
+            quote!(v),
+            Some(quote!(::crate::visitor::PathSegment::Field("value"))),
+        );
 
         let entry_rules = match (key_rules, value_rules) {
             (None, None) => None,
@@ -150,7 +145,7 @@ impl ValidateAutoFn for Map {
             }
         };
 
-        wrap_validate_fn(merge_rules(map_rules, entry_rules))
+        wrap_validate_self_fn(merge_rules(map_rules, entry_rules))
     }
 }
 
@@ -159,11 +154,11 @@ impl ValidateAutoFn for Map {
 /// ---------------------------------------------------------------------------
 
 impl ValidateAutoFn for Newtype {
-    fn child_tokens(node: &Self) -> TokenStream {
-        let type_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0));
-        let item_rules = generate_validators_inner(&node.item.validators, quote!(&self.0));
+    fn self_tokens(node: &Self) -> TokenStream {
+        let type_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), None);
+        let item_rules = generate_validators_inner(&node.item.validators, quote!(&self.0), None);
 
-        wrap_validate_fn(merge_rules(type_rules, item_rules))
+        wrap_validate_self_fn(merge_rules(type_rules, item_rules))
     }
 }
 
@@ -172,8 +167,8 @@ impl ValidateAutoFn for Newtype {
 /// ---------------------------------------------------------------------------
 
 impl ValidateAutoFn for Record {
-    fn child_tokens(node: &Self) -> TokenStream {
-        wrap_validate_fn(field_list(&node.fields))
+    fn self_tokens(node: &Self) -> TokenStream {
+        wrap_validate_self_fn(field_list(&node.fields))
     }
 }
 
@@ -182,19 +177,29 @@ impl ValidateAutoFn for Record {
 /// ---------------------------------------------------------------------------
 
 impl ValidateAutoFn for Set {
-    fn child_tokens(node: &Self) -> TokenStream {
-        let set_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0));
-        let item_rules = generate_validators_inner(&node.item.validators, quote!(v)).map(|block| {
-            let item = format_ident!("__item");
+    fn self_tokens(node: &Self) -> TokenStream {
+        // Validators on the set itself
+        let set_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), None);
+
+        // Validators on items; attach at [i] (iteration order is stable only for Vec,
+        // but using indices here still provides useful localization for sets if you
+        // enumerate; if you prefer, attach at Empty for sets.)
+        let item_rules = generate_validators_inner(
+            &node.item.validators,
+            quote!(item),
+            Some(quote!(::crate::visitor::PathSegment::Empty)),
+        )
+        .map(|block| {
+            let item_ident = format_ident!("__item");
             quote! {
-                for #item in &self.0 {
-                    let v = #item;
+                for #item_ident in &self.0 {
+                    let item = #item_ident;
                     #block
                 }
             }
         });
 
-        wrap_validate_fn(merge_rules(set_rules, item_rules))
+        wrap_validate_self_fn(merge_rules(set_rules, item_rules))
     }
 }
 
@@ -218,11 +223,12 @@ fn field_list(fields: &FieldList) -> Option<TokenStream> {
         .iter()
         .filter_map(|field| {
             let field_ident = &field.ident;
-            let field_key = quote_one(&field.ident, to_str_lit);
+            let field_name = quote_one(&field.ident, to_str_lit);
+
             generate_field_value_validation_inner(
                 &field.value,
                 quote!(&self.#field_ident),
-                &field_key,
+                &field_name,
             )
         })
         .collect();
@@ -235,42 +241,46 @@ fn field_list(fields: &FieldList) -> Option<TokenStream> {
 }
 
 /// Generate validator expressions for a list of validators on a variable.
-fn generate_validators(validators: &[TypeValidator], var_expr: TokenStream) -> Vec<TokenStream> {
-    validators
-        .iter()
-        .map(|validator| {
-            let constructor = validator.quote_constructor();
-            quote!(errs.add_result(#constructor.validate(#var_expr));)
-        })
-        .collect()
-}
-
-/// Combine multiple validator expressions into one block.
-/// This no longer emits `let v = &self.0;`, removing the dead code.
+/// If `seg` is Some(..), the issue is recorded at that relative segment.
+/// Otherwise, issue is recorded at current node path.
 fn generate_validators_inner(
     validators: &[TypeValidator],
     var_expr: TokenStream,
+    seg: Option<TokenStream>,
 ) -> Option<TokenStream> {
     if validators.is_empty() {
         return None;
     }
-    let exprs = generate_validators(validators, var_expr);
+
+    let exprs: Vec<TokenStream> = validators
+        .iter()
+        .map(|validator| {
+            let ctor = validator.quote_constructor();
+            match &seg {
+                None => quote! {
+                    if let Err(err) = #ctor.validate(#var_expr) {
+                        ctx.add_issue(err.to_string());
+                    }
+                },
+                Some(seg) => quote! {
+                    if let Err(err) = #ctor.validate(#var_expr) {
+                        ctx.add_issue_at(#seg, err.to_string());
+                    }
+                },
+            }
+        })
+        .collect();
 
     Some(quote!(#(#exprs)*))
 }
 
-/// Wraps validation code in a standard `fn validate_children()`
-/// method body if `inner` is present.
-fn wrap_validate_fn(inner: Option<TokenStream>) -> TokenStream {
-    let ep = paths().error;
-
+/// Wrap `inner` into `fn validate_self(&self, ctx: &mut dyn VisitorContext)` if present.
+fn wrap_validate_self_fn(inner: Option<TokenStream>) -> TokenStream {
     match inner {
         None => quote!(),
         Some(inner) => quote! {
-            fn validate_children(&self) -> ::std::result::Result<(), #ep::ErrorTree> {
-                let mut errs = #ep::ErrorTree::new();
+            fn validate_self(&self, ctx: &mut dyn ::crate::visitor::VisitorContext) {
                 #inner
-                errs.result()
             }
         },
     }
@@ -285,7 +295,9 @@ fn cardinality_wrapper(
     if rules.is_empty() {
         return None;
     }
-    let body = quote! { #(#rules;)* };
+
+    let body = quote! { #(#rules)* };
+
     let tokens = match card {
         Cardinality::One => quote! {
             let v = #var_expr;
@@ -311,8 +323,33 @@ fn cardinality_wrapper(
 }
 
 /// Generates validation logic for a `Value` including its cardinality.
-fn generate_value_validation_inner(value: &Value, var_expr: TokenStream) -> Option<TokenStream> {
-    let rules = generate_validators(&value.item.validators, quote!(v));
+/// If `seg` is Some(..), issues are recorded under that relative segment.
+fn generate_value_validation_inner(
+    value: &Value,
+    var_expr: TokenStream,
+    seg: Option<TokenStream>,
+) -> Option<TokenStream> {
+    let rules: Vec<TokenStream> = value
+        .item
+        .validators
+        .iter()
+        .map(|validator| {
+            let ctor = validator.quote_constructor();
+            match &seg {
+                None => quote! {
+                    if let Err(err) = #ctor.validate(v) {
+                        ctx.add_issue(err.to_string());
+                    }
+                },
+                Some(seg) => quote! {
+                    if let Err(err) = #ctor.validate(v) {
+                        ctx.add_issue_at(#seg, err.to_string());
+                    }
+                },
+            }
+        })
+        .collect();
+
     cardinality_wrapper(value.cardinality(), rules, var_expr)
 }
 
@@ -322,7 +359,9 @@ fn generate_field_value_validation_inner(
     var_expr: TokenStream,
     field_key: &TokenStream,
 ) -> Option<TokenStream> {
-    let rules = value
+    let seg = quote!(::crate::visitor::PathSegment::Field(#field_key));
+
+    let rules: Vec<TokenStream> = value
         .item
         .validators
         .iter()
@@ -330,7 +369,7 @@ fn generate_field_value_validation_inner(
             let ctor = validator.quote_constructor();
             quote! {
                 if let Err(err) = #ctor.validate(v) {
-                    errs.add_for(#field_key, err);
+                    ctx.add_issue_at(#seg, err.to_string());
                 }
             }
         })

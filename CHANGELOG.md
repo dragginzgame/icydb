@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Date: `Date::new` returns epoch for out-of-range years; `Date` no longer exposes a public `i32` field.
 - Numeric types: `Duration`/`E8s`/`E18s` reject negative inputs for `from_i64` and `from_f64`.
 - E18s: `to_decimal` now returns `None` on overflow instead of wrapping; display shows `[overflow]`.
+- Validators/sanitizers: numeric validators return errors for invalid configs instead of panicking; clamp sanitization no-ops on invalid configs.
 - Tests: added coverage for timestamp/date edge cases, negative numeric inputs, E18s overflow, and metrics exists/scan counters.
 
 

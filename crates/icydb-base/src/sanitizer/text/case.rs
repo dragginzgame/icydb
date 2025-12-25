@@ -9,8 +9,10 @@ use canic_utils::case::{Case, Casing};
 pub struct Kebab;
 
 impl Sanitizer<String> for Kebab {
-    fn sanitize(&self, value: String) -> String {
-        value.to_case(Case::Kebab)
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        *value = value.to_case(Case::Kebab);
+
+        Ok(())
     }
 }
 
@@ -22,8 +24,11 @@ impl Sanitizer<String> for Kebab {
 pub struct Lower;
 
 impl Sanitizer<String> for Lower {
-    fn sanitize(&self, value: String) -> String {
-        value.to_lowercase()
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        // Unicode-aware lowercase; allocates
+        *value = value.to_lowercase();
+
+        Ok(())
     }
 }
 
@@ -35,8 +40,10 @@ impl Sanitizer<String> for Lower {
 pub struct Snake;
 
 impl Sanitizer<String> for Snake {
-    fn sanitize(&self, value: String) -> String {
-        value.to_case(Case::Snake)
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        *value = value.to_case(Case::Snake);
+
+        Ok(())
     }
 }
 
@@ -48,8 +55,10 @@ impl Sanitizer<String> for Snake {
 pub struct Title;
 
 impl Sanitizer<String> for Title {
-    fn sanitize(&self, value: String) -> String {
-        value.to_case(Case::Title)
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        *value = value.to_case(Case::Title);
+
+        Ok(())
     }
 }
 
@@ -61,8 +70,11 @@ impl Sanitizer<String> for Title {
 pub struct Upper;
 
 impl Sanitizer<String> for Upper {
-    fn sanitize(&self, value: String) -> String {
-        value.to_uppercase()
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        // Unicode-aware uppercase; allocates
+        *value = value.to_uppercase();
+
+        Ok(())
     }
 }
 
@@ -74,8 +86,10 @@ impl Sanitizer<String> for Upper {
 pub struct UpperCamel;
 
 impl Sanitizer<String> for UpperCamel {
-    fn sanitize(&self, value: String) -> String {
-        value.to_case(Case::UpperCamel)
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        *value = value.to_case(Case::UpperCamel);
+
+        Ok(())
     }
 }
 
@@ -87,7 +101,9 @@ impl Sanitizer<String> for UpperCamel {
 pub struct UpperSnake;
 
 impl Sanitizer<String> for UpperSnake {
-    fn sanitize(&self, value: String) -> String {
-        value.to_case(Case::UpperSnake)
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        *value = value.to_case(Case::UpperSnake);
+
+        Ok(())
     }
 }

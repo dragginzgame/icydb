@@ -13,11 +13,13 @@ use crate::{core::traits::Validator, prelude::*};
 pub struct AlphaUscore {}
 
 impl Validator<str> for AlphaUscore {
-    fn validate(&self, s: &str) -> Result<(), String> {
+    fn validate(&self, s: &str) -> Result<(), ValidateIssue> {
         if s.chars().all(|c| c.is_alphabetic() || c == '_') {
             Ok(())
         } else {
-            Err(format!("'{s}' is not alphabetic with underscores"))
+            Err(ValidateIssue::validation(format!(
+                "'{s}' is not alphabetic with underscores"
+            )))
         }
     }
 }
@@ -30,11 +32,13 @@ impl Validator<str> for AlphaUscore {
 pub struct AlphanumUscore {}
 
 impl Validator<str> for AlphanumUscore {
-    fn validate(&self, s: &str) -> Result<(), String> {
+    fn validate(&self, s: &str) -> Result<(), ValidateIssue> {
         if s.chars().all(|c| c.is_alphanumeric() || c == '_') {
             Ok(())
         } else {
-            Err(format!("'{s}' is not alphanumeric with underscores"))
+            Err(ValidateIssue::validation(format!(
+                "'{s}' is not alphanumeric with underscores"
+            )))
         }
     }
 }
@@ -47,11 +51,13 @@ impl Validator<str> for AlphanumUscore {
 pub struct Ascii {}
 
 impl Validator<str> for Ascii {
-    fn validate(&self, s: &str) -> Result<(), String> {
+    fn validate(&self, s: &str) -> Result<(), ValidateIssue> {
         if s.is_ascii() {
             Ok(())
         } else {
-            Err("string contains non-ascii characters".to_string())
+            Err(ValidateIssue::validation(
+                "string contains non-ascii characters".to_string(),
+            ))
         }
     }
 }

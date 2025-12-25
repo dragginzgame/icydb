@@ -10,7 +10,7 @@ pub mod prelude {
     pub use icydb_core::{
         design::prelude::*,
         traits::{Sanitizer, Validator},
-        visitor::{sanitize, validate},
+        visitor::{SanitizeIssue, ValidateIssue, sanitize, validate},
     };
     pub use std::str::FromStr as _;
 }

@@ -10,11 +10,11 @@ use crate::{
         ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
+    visitor::VisitorContext,
 };
 use candid::CandidType;
 use canic_cdk::structures::storable::Bound;
 use derive_more::{Deref, DerefMut, Display, FromStr};
-use icydb_error::ErrorTree;
 use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
 use std::borrow::Cow;
 use ulid::Ulid as WrappedUlid;
@@ -239,14 +239,10 @@ impl UpdateView for Ulid {
 }
 
 impl ValidateAuto for Ulid {
-    fn validate_self(&self) -> Result<(), ErrorTree> {
-        let mut errs = ErrorTree::default();
-
+    fn validate_self(&self, ctx: &mut dyn VisitorContext) {
         if self.0 == WrappedUlid::nil() {
-            errs.add("ulid is nil");
+            ctx.add_issue("ulid is nil".to_string());
         }
-
-        errs.result()
     }
 }
 

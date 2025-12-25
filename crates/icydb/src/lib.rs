@@ -12,7 +12,6 @@
 pub use icydb_base as base;
 pub use icydb_build as build;
 pub use icydb_core as core;
-pub use icydb_error as error;
 pub use icydb_macros as macros;
 pub use icydb_schema as schema;
 

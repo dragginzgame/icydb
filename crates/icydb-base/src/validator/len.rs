@@ -1,6 +1,7 @@
-#![allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
-
-use crate::{core::traits::Validator, prelude::*};
+use crate::{
+    core::{traits::Validator, visitor::ValidateIssue},
+    prelude::*,
+};
 use std::{
     collections::{HashMap, HashSet},
     hash::BuildHasher,
@@ -63,26 +64,42 @@ impl<K, V, S: BuildHasher> HasLen for HashMap<K, V, S> {
 
 #[validator]
 pub struct Equal {
-    target: i32,
+    target: usize,
+    #[serde(skip)]
+    error: Option<ValidateIssue>,
 }
 
 impl Equal {
-    pub fn new(target: impl Into<i32>) -> Self {
-        let target = target.into();
-        assert!(target >= 0, "equal target must be non-negative");
-
-        Self { target }
+    pub fn new(target: impl TryInto<usize>) -> Self {
+        match target.try_into() {
+            Ok(target) => Self {
+                target,
+                error: None,
+            },
+            Err(_) => Self {
+                target: 0,
+                error: Some(ValidateIssue::invalid_config(
+                    "Equal target must be non-negative",
+                )),
+            },
+        }
     }
 }
 
 impl<T: HasLen + ?Sized> Validator<T> for Equal {
-    fn validate(&self, t: &T) -> Result<(), String> {
-        let len = t.len() as i32;
+    fn validate(&self, t: &T) -> Result<(), ValidateIssue> {
+        if let Some(err) = &self.error {
+            return Err(err.clone());
+        }
 
+        let len = t.len();
         if len == self.target {
             Ok(())
         } else {
-            Err(format!("length ({}) is not equal to {}", len, self.target))
+            Err(ValidateIssue::validation(format!(
+                "length ({len}) is not equal to {}",
+                self.target
+            )))
         }
     }
 }
@@ -93,27 +110,40 @@ impl<T: HasLen + ?Sized> Validator<T> for Equal {
 
 #[validator]
 pub struct Min {
-    target: i32,
+    target: usize,
+    #[serde(skip)]
+    error: Option<ValidateIssue>,
 }
 
 impl Min {
-    pub fn new(target: impl Into<i32>) -> Self {
-        let target = target.into();
-        assert!(target >= 0, "min target must be non-negative");
-
-        Self { target }
+    pub fn new(target: impl TryInto<usize>) -> Self {
+        match target.try_into() {
+            Ok(target) => Self {
+                target,
+                error: None,
+            },
+            Err(_) => Self {
+                target: 0,
+                error: Some(ValidateIssue::invalid_config(
+                    "Min target must be non-negative",
+                )),
+            },
+        }
     }
 }
 
 impl<T: HasLen + ?Sized> Validator<T> for Min {
-    fn validate(&self, t: &T) -> Result<(), String> {
-        let len = t.len() as i32;
+    fn validate(&self, t: &T) -> Result<(), ValidateIssue> {
+        if let Some(err) = &self.error {
+            return Err(err.clone());
+        }
 
+        let len = t.len();
         if len < self.target {
-            Err(format!(
-                "length ({}) is lower than minimum of {}",
-                len, self.target
-            ))
+            Err(ValidateIssue::validation(format!(
+                "length ({len}) is lower than minimum of {}",
+                self.target
+            )))
         } else {
             Ok(())
         }
@@ -126,27 +156,40 @@ impl<T: HasLen + ?Sized> Validator<T> for Min {
 
 #[validator]
 pub struct Max {
-    target: i32,
+    target: usize,
+    #[serde(skip)]
+    error: Option<ValidateIssue>,
 }
 
 impl Max {
-    pub fn new(target: impl Into<i32>) -> Self {
-        let target = target.into();
-        assert!(target >= 0, "max target must be non-negative");
-
-        Self { target }
+    pub fn new(target: impl TryInto<usize>) -> Self {
+        match target.try_into() {
+            Ok(target) => Self {
+                target,
+                error: None,
+            },
+            Err(_) => Self {
+                target: 0,
+                error: Some(ValidateIssue::invalid_config(
+                    "Max target must be non-negative",
+                )),
+            },
+        }
     }
 }
 
 impl<T: HasLen + ?Sized> Validator<T> for Max {
-    fn validate(&self, t: &T) -> Result<(), String> {
-        let len = t.len() as i32;
+    fn validate(&self, t: &T) -> Result<(), ValidateIssue> {
+        if let Some(err) = &self.error {
+            return Err(err.clone());
+        }
 
+        let len = t.len();
         if len > self.target {
-            Err(format!(
-                "length ({}) is greater than maximum of {}",
-                len, self.target
-            ))
+            Err(ValidateIssue::validation(format!(
+                "length ({len}) is greater than maximum of {}",
+                self.target
+            )))
         } else {
             Ok(())
         }
@@ -159,30 +202,51 @@ impl<T: HasLen + ?Sized> Validator<T> for Max {
 
 #[validator]
 pub struct Range {
-    min: i32,
-    max: i32,
+    min: usize,
+    max: usize,
+    #[serde(skip)]
+    error: Option<ValidateIssue>,
 }
 
 impl Range {
-    pub fn new(min: impl Into<i32>, max: impl Into<i32>) -> Self {
-        let (min, max) = (min.into(), max.into());
-        assert!(min >= 0, "min target must be non-negative");
-        assert!(max >= 0, "max target must be non-negative");
-        assert!(min <= max, "range requires min <= max");
+    pub fn new(min: impl TryInto<usize>, max: impl TryInto<usize>) -> Self {
+        let min = min.try_into();
+        let max = max.try_into();
 
-        Self { min, max }
+        match (min, max) {
+            (Ok(min), Ok(max)) if min <= max => Self {
+                min,
+                max,
+                error: None,
+            },
+            (Ok(_), Ok(_)) => Self {
+                min: 0,
+                max: 0,
+                error: Some(ValidateIssue::invalid_config("range requires min <= max")),
+            },
+            _ => Self {
+                min: 0,
+                max: 0,
+                error: Some(ValidateIssue::invalid_config(
+                    "range bounds must be non-negative",
+                )),
+            },
+        }
     }
 }
 
 impl<T: HasLen + ?Sized> Validator<T> for Range {
-    fn validate(&self, t: &T) -> Result<(), String> {
-        let len = t.len() as i32;
+    fn validate(&self, t: &T) -> Result<(), ValidateIssue> {
+        if let Some(err) = &self.error {
+            return Err(err.clone());
+        }
 
+        let len = t.len();
         if len < self.min || len > self.max {
-            Err(format!(
+            Err(ValidateIssue::validation(format!(
                 "length ({len}) must be between {} and {} (inclusive)",
                 self.min, self.max
-            ))
+            )))
         } else {
             Ok(())
         }
@@ -200,12 +264,18 @@ mod tests {
     #[test]
     fn test_range_ok() {
         let r = Range::new(2, 5);
-        assert!(r.validate("hey").is_ok()); // len = 3
+        assert!(r.validate("hey").is_ok());
     }
 
     #[test]
     fn test_range_err() {
         let r = Range::new(2, 5);
-        assert!(r.validate("hello world").is_err()); // len = 11
+        assert!(r.validate("hello world").is_err());
+    }
+
+    #[test]
+    fn test_invalid_range_config() {
+        let r = Range::new(5, 2);
+        assert!(r.validate("hey").is_err());
     }
 }

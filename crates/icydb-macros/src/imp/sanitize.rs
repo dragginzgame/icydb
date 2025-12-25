@@ -54,11 +54,9 @@ impl SanitizeAutoFn for Enum {}
 impl SanitizeAutoFn for List {
     fn child_tokens(node: &Self) -> TokenStream {
         if node.item.sanitizers.is_empty() {
-            // no sanitizers → rely on blanket impl
             quote!()
         } else {
-            let stmts =
-                generate_sanitizers(&node.item.sanitizers, quote!(self.0[i]), quote!(self.0[i]));
+            let stmts = generate_sanitizers(&node.item.sanitizers, quote!(self.0[i]));
 
             fn_wrap(Some(quote! {
                 for i in 0..self.0.len() {
@@ -90,17 +88,13 @@ impl SanitizeAutoFn for Set {}
 ///
 
 /// Emit sanitizer calls from a list of TypeSanitizers
-fn generate_sanitizers(
-    sanitizers: &[TypeSanitizer],
-    lhs: TokenStream,
-    rhs: TokenStream,
-) -> Vec<TokenStream> {
+fn generate_sanitizers(sanitizers: &[TypeSanitizer], target: TokenStream) -> Vec<TokenStream> {
     sanitizers
         .iter()
         .map(|sanitizer| {
             let constructor = sanitizer.quote_constructor();
             quote! {
-                #lhs = #constructor.sanitize(#rhs);
+                #constructor.sanitize(&mut #target)?;
             }
         })
         .collect()
@@ -112,9 +106,8 @@ fn field_list(fields: &FieldList) -> Option<TokenStream> {
         .iter()
         .filter_map(|field| {
             let field_ident = &field.ident;
-            let lhs = quote!(self.#field_ident);
-            let rhs = quote!(self.#field_ident.clone());
-            let rules = generate_sanitizers(&field.value.item.sanitizers, lhs, rhs);
+            let target = quote!(self.#field_ident);
+            let rules = generate_sanitizers(&field.value.item.sanitizers, target);
             if rules.is_empty() {
                 None
             } else {
@@ -134,14 +127,9 @@ fn field_list(fields: &FieldList) -> Option<TokenStream> {
 fn newtype_sanitizers(node: &Newtype) -> Option<TokenStream> {
     let mut stmts = Vec::new();
 
-    let lhs = quote!(self.0);
-    let rhs = quote!(self.0.clone());
-    stmts.extend(generate_sanitizers(
-        &node.ty.sanitizers,
-        lhs.clone(),
-        rhs.clone(),
-    ));
-    stmts.extend(generate_sanitizers(&node.item.sanitizers, lhs, rhs));
+    let target = quote!(self.0);
+    stmts.extend(generate_sanitizers(&node.ty.sanitizers, target.clone()));
+    stmts.extend(generate_sanitizers(&node.item.sanitizers, target));
 
     if stmts.is_empty() {
         None
@@ -155,8 +143,10 @@ fn fn_wrap(inner: Option<TokenStream>) -> TokenStream {
     match inner {
         None => quote!(),
         Some(inner) => quote! {
-            fn sanitize_children(&mut self) {
+            fn sanitize_children(&mut self) -> Result<(), SanitizeIssue> {
                 #inner
+
+                Ok(())
             }
         },
     }

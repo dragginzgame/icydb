@@ -15,7 +15,6 @@ default = []
 icydb-base = { workspace = true }
 icydb-build = { workspace = true }
 icydb-core = { workspace = true }
-icydb-error = { workspace = true }
 icydb-macros = { workspace = true }
 icydb-schema = { workspace = true }
 

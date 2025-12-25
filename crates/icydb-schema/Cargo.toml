@@ -14,7 +14,6 @@ canic-cdk = { workspace = true }
 canic-utils = { workspace = true }
 darling = { workspace = true }
 derive_more = { workspace = true }
-icydb-error = { workspace = true }
 icydb-paths = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }

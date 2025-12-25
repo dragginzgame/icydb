@@ -12,15 +12,19 @@ use crate::{core::traits::Validator, prelude::*};
 pub struct E164PhoneNumber;
 
 impl Validator<str> for E164PhoneNumber {
-    fn validate(&self, s: &str) -> Result<(), String> {
+    fn validate(&self, s: &str) -> Result<(), ValidateIssue> {
         if !s.starts_with('+') {
-            return Err(format!("phone number '{s}' must start with '+'"));
+            return Err(ValidateIssue::validation(format!(
+                "phone number '{s}' must start with '+'"
+            )));
         }
 
         let digits = s.chars().filter(char::is_ascii_digit).count();
 
         if !(7..=15).contains(&digits) {
-            return Err(format!("phone number '{s}' has the wrong number of digits"));
+            return Err(ValidateIssue::validation(format!(
+                "phone number '{s}' has the wrong number of digits"
+            )));
         }
 
         Ok(())

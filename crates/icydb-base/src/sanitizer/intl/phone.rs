@@ -9,21 +9,15 @@ use crate::prelude::*;
 pub struct E164PhoneNumber;
 
 impl Sanitizer<String> for E164PhoneNumber {
-    fn sanitize(&self, value: String) -> String {
-        let mut out = String::with_capacity(value.len());
+    fn sanitize(&self, value: &mut String) -> Result<(), SanitizeIssue> {
+        // Retain only ASCII digits
+        value.retain(|c| c.is_ascii_digit());
 
-        // Keep only digits
-        for c in value.chars() {
-            if c.is_ascii_digit() {
-                out.push(c);
-            }
+        if !value.is_empty() {
+            // Prepend '+'
+            value.insert(0, '+');
         }
 
-        // Always prefix with '+'
-        if out.is_empty() {
-            out
-        } else {
-            format!("+{out}")
-        }
+        Ok(())
     }
 }

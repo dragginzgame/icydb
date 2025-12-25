@@ -57,7 +57,7 @@ impl DecimalRange {
 
 impl ValidateCustom for DecimalRange {
     fn validate_custom(&self) -> Result<(), ErrorTree> {
-        validator::num::Lte::new(self.max)
+        validator::num::Lte::new(self.max)?
             .validate(&self.min)
             .map_err(ErrorTree::from)
     }
@@ -85,7 +85,7 @@ impl DurationRange {
 
 impl ValidateCustom for DurationRange {
     fn validate_custom(&self) -> Result<(), ErrorTree> {
-        validator::num::Lte::new(self.max)
+        validator::num::Lte::new(self.max)?
             .validate(&self.min)
             .map_err(ErrorTree::from)
     }
@@ -113,7 +113,7 @@ impl Int32Range {
 
 impl ValidateCustom for Int32Range {
     fn validate_custom(&self) -> Result<(), ErrorTree> {
-        validator::num::Lte::new(self.max)
+        validator::num::Lte::new(self.max)?
             .validate(&self.min)
             .map_err(ErrorTree::from)
     }
@@ -141,7 +141,7 @@ impl Nat32Range {
 
 impl ValidateCustom for Nat32Range {
     fn validate_custom(&self) -> Result<(), ErrorTree> {
-        validator::num::Lte::new(self.max)
+        validator::num::Lte::new(self.max)?
             .validate(&self.min)
             .map_err(ErrorTree::from)
     }

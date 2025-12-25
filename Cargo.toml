@@ -4,7 +4,6 @@ members = [
     "crates/icydb-base",
     "crates/icydb-build",
     "crates/icydb-core",
-    "crates/icydb-error",
     "crates/icydb-macros",
     "crates/icydb-paths",
     "crates/icydb-schema",
@@ -39,7 +38,6 @@ icydb = { path = "crates/icydb", version = "0.1.20" }
 icydb-base = { path = "crates/icydb-base", version = "0.1.20" }
 icydb-build = { path = "crates/icydb-build", version = "0.1.20" }
 icydb-core = { path = "crates/icydb-core", version = "0.1.20" }
-icydb-error = { path = "crates/icydb-error", version = "0.1.20" }
 icydb-macros = { path = "crates/icydb-macros", version = "0.1.20" }
 icydb-paths = { path = "crates/icydb-paths", version = "0.1.20" }
 icydb-schema = { path = "crates/icydb-schema", version = "0.1.20" }
@@ -99,7 +97,6 @@ icydb-macros = { path = "crates/icydb-macros" }
 icydb-schema = { path = "crates/icydb-schema" }
 icydb-build = { path = "crates/icydb-build" }
 icydb-base = { path = "crates/icydb-base" }
-icydb-error = { path = "crates/icydb-error" }
 icydb-paths = { path = "crates/icydb-paths" }
 
 # ---------------------
