@@ -12,9 +12,7 @@ pub(crate) mod prelude {
         assert_invalid, assert_valid,
         schema::{TestDataStore, TestIndexStore},
     };
-    pub use icydb::base;
-    pub use icydb::core::validate;
-    pub use icydb::design::prelude::*;
+    pub use icydb::{base, core::validate, design::prelude::*};
     pub use std::str::FromStr as _;
 }
 

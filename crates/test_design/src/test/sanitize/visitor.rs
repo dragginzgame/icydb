@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use icydb::core::traits::Sanitizer;
 
 ///
 /// VisitorLowerText
@@ -47,13 +48,60 @@ pub struct VisitorLowerTextMap {}
 pub struct VisitorOuter {}
 
 ///
+/// Reject
+///
+
+#[sanitizer]
+pub struct Reject;
+
+impl Sanitizer<String> for Reject {
+    fn sanitize(&self, _value: &mut String) -> Result<(), String> {
+        Err("rejected".to_string())
+    }
+}
+
+///
+/// VisitorRejectText
+///
+
+#[newtype(
+    primitive = "Text",
+    item(prim = "Text"),
+    ty(sanitizer(path = "crate::test::sanitize::visitor::Reject"))
+)]
+pub struct VisitorRejectText {}
+
+///
+/// VisitorRejectTextList
+///
+
+#[list(item(is = "VisitorRejectText"))]
+pub struct VisitorRejectTextList {}
+
+///
+/// VisitorRejectOuter
+///
+
+#[record(fields(
+    field(
+        ident = "field",
+        value(item(
+            prim = "Text",
+            sanitizer(path = "crate::test::sanitize::visitor::Reject")
+        ))
+    ),
+    field(ident = "list", value(item(is = "VisitorRejectTextList"))),
+))]
+pub struct VisitorRejectOuter {}
+
+///
 /// TESTS
 ///
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::core::sanitize;
+    use icydb::core::{Error, sanitize};
     use std::collections::HashMap;
 
     #[test]
@@ -88,5 +136,36 @@ mod tests {
         ]);
 
         assert_eq!(actual_map, expected_map);
+    }
+
+    #[test]
+    fn sanitize_collects_issue_paths() {
+        let mut node = VisitorRejectOuter {
+            field: "bad".to_string(),
+            list: VisitorRejectTextList::from(vec!["one".to_string(), "two".to_string()]),
+        };
+
+        let err = sanitize(&mut node).expect_err("expected sanitization issues");
+        let err_string = err.to_string();
+        let issues = match &err {
+            Error::SanitizeError(issues) => issues,
+            other => panic!("unexpected error: {other:?}"),
+        };
+
+        assert_eq!(issues.len(), 3);
+
+        for key in ["field", "list[0]", "list[1]"] {
+            let messages = issues
+                .get(key)
+                .unwrap_or_else(|| panic!("missing issues for {key}"));
+            assert!(
+                messages.iter().any(|msg| msg.contains("rejected")),
+                "missing rejection message for {key}"
+            );
+            assert!(
+                err_string.contains(key),
+                "expected error string to mention {key}"
+            );
+        }
     }
 }
