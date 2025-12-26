@@ -21,7 +21,7 @@ use std::{
 ///
 
 #[repr(transparent)]
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Display, Serialize)]
+#[derive(CandidType, Clone, Copy, Debug, Default, Display, Serialize)]
 pub struct Float64(f64);
 
 impl Float64 {
@@ -178,12 +178,50 @@ impl View for Float64 {
         self.0
     }
 
-    // SAFETY: `from_view` is only called on values produced by `to_view`
-    // from a valid `Float32`, so `view` is guaranteed finite.
+    // SAFETY CONTRACT:
+    // `from_view` MUST only be called on values produced by `to_view` or
+    // equivalent validated sources. Violations are programmer errors and panic.
     fn from_view(view: f64) -> Self {
-        debug_assert!(view.is_finite());
-        Self(view)
+        assert!(
+            view.is_finite(),
+            "Float64::from_view called with non-finite value: {view}"
+        );
+
+        Self(if view == 0.0 { 0.0 } else { view })
     }
 }
 
 impl Visitable for Float64 {}
+
+impl<'de> Deserialize<'de> for Float64 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = f64::deserialize(deserializer)?;
+        Self::try_new(value)
+            .ok_or_else(|| serde::de::Error::custom(format!("invalid Float64 value: {value}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::de::value::{Error as DeError, F64Deserializer};
+
+    #[test]
+    fn deserialize_normalizes_negative_zero() {
+        let value =
+            Float64::deserialize(F64Deserializer::<DeError>::new(-0.0)).expect("deserialize -0.0");
+        assert_eq!(value.to_be_bytes(), 0.0f64.to_bits().to_be_bytes());
+    }
+
+    #[test]
+    fn deserialize_rejects_non_finite() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let err =
+                Float64::deserialize(F64Deserializer::<DeError>::new(value)).expect_err("invalid");
+            assert!(err.to_string().contains("invalid Float64 value"));
+        }
+    }
+}

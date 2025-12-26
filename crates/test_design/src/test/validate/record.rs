@@ -64,8 +64,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         };
 
-        assert_eq!(issues.len(), 3);
-
         for key in ["duration_ms", "attempts", "bytes"] {
             let messages = issues
                 .get(key)

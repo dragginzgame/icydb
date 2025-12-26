@@ -118,17 +118,17 @@ impl ValidateAutoFn for Map {
         // Validators on the map itself
         let map_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), None);
 
-        // Key/value validators; attach at "key" / "value"
+        // Key/value validators; attach at [i] to match traversal paths.
         let key_rules = generate_validators_inner(
             &node.key.validators,
             quote!(k),
-            Some(quote!(::icydb::core::visitor::PathSegment::Field("key"))),
+            Some(quote!(::icydb::core::visitor::PathSegment::Index(i))),
         );
 
         let value_rules = generate_value_validation_inner(
             &node.value,
             quote!(v),
-            Some(quote!(::icydb::core::visitor::PathSegment::Field("value"))),
+            Some(quote!(::icydb::core::visitor::PathSegment::Index(i))),
         );
 
         let entry_rules = match (key_rules, value_rules) {
@@ -138,7 +138,7 @@ impl ValidateAutoFn for Map {
                 let v = v.unwrap_or_default();
 
                 Some(quote! {
-                    for (k, v) in &self.0 {
+                    for (i, (k, v)) in self.0.iter().enumerate() {
                         #k
                         #v
                     }
@@ -182,18 +182,16 @@ impl ValidateAutoFn for Set {
         // Validators on the set itself
         let set_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), None);
 
-        // Validators on items; attach at [i] (iteration order is stable only for Vec,
-        // but using indices here still provides useful localization for sets if you
-        // enumerate; if you prefer, attach at Empty for sets.)
+        // Validators on items; attach at [i] even though set iteration order is not stable.
         let item_rules = generate_validators_inner(
             &node.item.validators,
             quote!(item),
-            Some(quote!(::icydb::core::visitor::PathSegment::Empty)),
+            Some(quote!(::icydb::core::visitor::PathSegment::Index(i))),
         )
         .map(|block| {
             let item_ident = format_ident!("__item");
             quote! {
-                for #item_ident in &self.0 {
+                for (i, #item_ident) in self.0.iter().enumerate() {
                     let item = #item_ident;
                     #block
                 }

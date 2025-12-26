@@ -64,6 +64,7 @@ impl ValidateCustom for DecimalRange {
         }
     }
 }
+
 ///
 /// DurationRange
 ///

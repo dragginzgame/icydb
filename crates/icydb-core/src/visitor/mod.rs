@@ -26,6 +26,12 @@ impl VisitorIssues {
     }
 }
 
+impl From<BTreeMap<String, Vec<String>>> for VisitorIssues {
+    fn from(map: BTreeMap<String, Vec<String>>) -> Self {
+        Self(map)
+    }
+}
+
 impl fmt::Display for VisitorIssues {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut wrote = false;
@@ -99,9 +105,10 @@ pub trait VisitorContext {
     fn add_issue_at(&mut self, seg: PathSegment, message: String);
 }
 
-// ============================================================================
-// Visitor (immutable)
-// ============================================================================
+///
+/// Visitor
+/// (immutable)
+///
 
 pub trait Visitor {
     fn enter(&mut self, node: &dyn Visitable, ctx: &mut dyn VisitorContext);

@@ -85,6 +85,7 @@ impl Imp<Map> for VisitableTrait {
         };
 
         let inner_mut = quote! {
+            // Keys are not visited mutably to avoid invalidating hash map invariants.
             for (i, (_k, v)) in self.0.iter_mut().enumerate() {
                 perform_visit_mut(visitor, v, i);
             }
@@ -151,7 +152,7 @@ impl Imp<Set> for VisitableTrait {
             }
         };
 
-        let q = quote_drive(&inner); // only immutable
+        let q = quote_drive(&inner); // Only immutable; mutating set entries can break hashing.
 
         let tokens = Implementor::new(node.def(), TraitKind::Visitable)
             .set_tokens(q)

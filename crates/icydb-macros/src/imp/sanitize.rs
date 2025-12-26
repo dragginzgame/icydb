@@ -71,7 +71,8 @@ impl SanitizeAutoFn for Newtype {
 /// ---------------------------------------------------------------------------
 /// IMPORTANT:
 /// - Do NOT iterate items here
-/// - Item sanitization happens via traversal
+/// - List items and map values are sanitized via traversal
+/// - Set items and map keys are not visited in mutable traversal
 /// - Only container-level sanitizers belong here
 impl SanitizeAutoFn for List {
     fn self_tokens(node: &Self) -> TokenStream {

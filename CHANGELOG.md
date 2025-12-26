@@ -5,7 +5,10 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.2.0] - 2025-12-25 - Christmas Cleanup
+## [0.2.1] - 2025-12-26 - 📦 Boxing Day 📦
+- Float32/Float64 deserialization rejects non-finite values; `from_view` now panics on non-finite inputs to enforce invariants.
+
+## [0.2.0] - 2025-12-25 - 🎄 Christmas Cleanup 🎄
 - 3 crates removed: icydb_error, icydb_paths, icydb_base.  Much simpler dependency graph.
 - Goodbye 1100+ lines of code
 - Refactored Sanitize/Validate so that creating Validators and Sanitizers cannot panic, but instead Validator::new() errors get added to the error tree
@@ -13,6 +16,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Visitor method now has a generic return Error method via the VisitorCore / VisitorAdapter pattern
 - Paths are now automatically ::icydb because we do an `extern crate self as icydb`
 - Merry Christmas!
+
+--------------------------------------------------------------------------------------------------------------------------
 
 ## [0.1.20] - 2025-12-24
 - Metrics: add `rows_scanned`, `exists_calls`, and `plan_full_scan`; count scan rows during loads, exists, and deletes; report average rows scanned per load.

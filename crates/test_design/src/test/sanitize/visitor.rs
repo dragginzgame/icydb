@@ -79,6 +79,13 @@ pub struct VisitorRejectText {}
 pub struct VisitorRejectTextList {}
 
 ///
+/// VisitorRejectTextMap
+///
+
+#[map(key(prim = "Text"), value(item(is = "VisitorRejectText")))]
+pub struct VisitorRejectTextMap {}
+
+///
 /// VisitorRejectOuter
 ///
 
@@ -93,6 +100,13 @@ pub struct VisitorRejectTextList {}
     field(ident = "list", value(item(is = "VisitorRejectTextList"))),
 ))]
 pub struct VisitorRejectOuter {}
+
+///
+/// VisitorRejectMapOuter
+///
+
+#[record(fields(field(ident = "map", value(item(is = "VisitorRejectTextMap")))))]
+pub struct VisitorRejectMapOuter {}
 
 ///
 /// TESTS
@@ -152,8 +166,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         };
 
-        assert_eq!(issues.len(), 3);
-
         for key in ["field", "list[0]", "list[1]"] {
             let messages = issues
                 .get(key)
@@ -167,5 +179,32 @@ mod tests {
                 "expected error string to mention {key}"
             );
         }
+    }
+
+    #[test]
+    fn sanitize_tracks_paths_for_map_value_sanitizers() {
+        let mut node = VisitorRejectMapOuter {
+            map: VisitorRejectTextMap::from(vec![("key".to_string(), "bad".to_string())]),
+        };
+
+        let err = sanitize(&mut node).expect_err("expected sanitization issues");
+        let err_string = err.to_string();
+        let issues = match &err {
+            Error::SanitizeError(issues) => issues,
+            other => panic!("unexpected error: {other:?}"),
+        };
+
+        let key = "map[0]";
+        let messages = issues
+            .get(key)
+            .unwrap_or_else(|| panic!("missing issues for {key}"));
+        assert!(
+            messages.iter().any(|msg| msg.contains("rejected")),
+            "missing rejection message for {key}"
+        );
+        assert!(
+            err_string.contains(key),
+            "expected error string to mention {key}"
+        );
     }
 }

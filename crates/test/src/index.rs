@@ -32,14 +32,13 @@ impl IndexSuite {
         let db = db!();
         let pid = Principal::from_slice(&[1; 29]);
 
-        db!()
-            .replace(Indexable {
-                pid,
-                ulid: Ulid::from_u128(1),
-                score: 42,
-                ..Default::default()
-            })
-            .unwrap();
+        db.replace(Indexable {
+            pid,
+            ulid: Ulid::from_u128(1),
+            score: 42,
+            ..Default::default()
+        })
+        .unwrap();
 
         let query = query::load().filter(|f| f.eq("pid", pid));
 
@@ -67,8 +66,8 @@ impl IndexSuite {
     fn index_uses_all_fields() {
         let query = query::load().filter(|f| {
             f.eq("pid", Principal::from_slice(&[1; 29]))
-                & f.eq("score", Ulid::from_u128(1))
-                & f.eq("ulid", 10u32)
+                & f.eq("score", 1u32)
+                & f.eq("ulid", Ulid::from_u128(10))
         });
 
         let planner = QueryPlanner::new(query.filter.as_ref());
@@ -91,9 +90,8 @@ impl IndexSuite {
     }
 
     fn index_cant_use_all_fields() {
-        let query = query::load().filter(|f| {
-            f.eq("pid", Principal::from_slice(&[1; 29])) & f.eq("score", Ulid::from_u128(1))
-        });
+        let query = query::load()
+            .filter(|f| f.eq("pid", Principal::from_slice(&[1; 29])) & f.eq("score", 1u32));
 
         let planner = QueryPlanner::new(query.filter.as_ref());
         let plan = planner.plan::<Indexable>();
@@ -146,9 +144,7 @@ impl IndexSuite {
         })
         .unwrap();
 
-        // case 2: insert with None — indexable_opt_text index is UNIQUE, so:
-        // - if None is excluded from index, should succeed (no index entry created)
-        // - if None is included as token, should allow only the first, second should error
+        // case 2: insert with None — None should be excluded from the UNIQUE index.
         let first_none_insert = db.replace(IndexableOptText {
             username: None,
             ..Default::default()
@@ -162,16 +158,11 @@ impl IndexSuite {
             username: None,
             ..Default::default()
         });
-
-        match second_none_insert {
-            Ok(_) => {
-                // If your `Value::to_index_fingerprint` skips None, you will land here:
-                println!("✅ Multiple NULL usernames allowed (NULL excluded from index)");
-            }
-            Err(err) => {
-                panic!("❌ Unexpected error inserting NULL username: {err:?}");
-            }
-        }
+        assert!(
+            second_none_insert.is_ok(),
+            "Multiple NULL usernames should be allowed (NULL excluded from index)"
+        );
+        println!("✅ Multiple NULL usernames allowed (NULL excluded from index)");
 
         // case 3: insert with Some("bob") again — should violate UNIQUE index
         let dup_bob_insert = db.replace(IndexableOptText {
