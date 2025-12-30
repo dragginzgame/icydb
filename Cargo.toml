@@ -14,7 +14,7 @@ resolver = "2"
 [workspace.package]
 rust-version = "1.92.0"
 edition = "2024"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A type-safe, embedded ORM and schema system for the Internet Computer"
 categories = ["database", "web-programming", "wasm"]
@@ -23,10 +23,9 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic-cdk = "0.6.19"
-canic-memory = "0.6.19"
-canic-types = "0.6.19"
-canic-utils = "0.6.19"
+canic-cdk = "0.7.0"
+canic-memory = "0.7.0"
+canic-utils = "0.7.0"
 chrono = { version = "0.4", default-features = false }
 ctor = "0.6"
 darling = "0.23"

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.2.1] - 2025-12-26 - 📦 Boxing Day 📦
 - Float32/Float64 deserialization rejects non-finite values; `from_view` now panics on non-finite inputs to enforce invariants.
+- more tests!
 
 ## [0.2.0] - 2025-12-25 - 🎄 Christmas Cleanup 🎄
 - 3 crates removed: icydb_error, icydb_paths, icydb_base.  Much simpler dependency graph.
