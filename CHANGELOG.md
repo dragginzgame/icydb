@@ -5,6 +5,9 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.2.2] - 2026-01-04
+- Been working on Canic since Boxing Day, so pushing a new release with the latest [0.7.6] version
+
 ## [0.2.1] - 2025-12-26 - 📦 Boxing Day 📦
 - Float32/Float64 deserialization rejects non-finite values; `from_view` now panics on non-finite inputs to enforce invariants.
 - more tests!
