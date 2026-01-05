@@ -59,7 +59,7 @@ impl ValidateAutoFn for Enum {
                 let ident_str = format!("{ident}");
                 quote! {
                     Self::#ident => {
-                        ctx.add_issue(format!("unspecified variant: {}", #ident_str));
+                        ctx.issue(format!("unspecified variant: {}", #ident_str));
                     }
                 }
             })
@@ -258,12 +258,12 @@ fn generate_validators_inner(
             match &seg {
                 None => quote! {
                     if let Err(err) = #ctor.validate(#var_expr) {
-                        ctx.add_issue(err.to_string());
+                        ctx.issue(err);
                     }
                 },
                 Some(seg) => quote! {
                     if let Err(err) = #ctor.validate(#var_expr) {
-                        ctx.add_issue_at(#seg, err.to_string());
+                        ctx.issue_at(#seg, err);
                     }
                 },
             }
@@ -337,12 +337,12 @@ fn generate_value_validation_inner(
             match &seg {
                 None => quote! {
                     if let Err(err) = #ctor.validate(v) {
-                        ctx.add_issue(err.to_string());
+                        ctx.issue(err);
                     }
                 },
                 Some(seg) => quote! {
                     if let Err(err) = #ctor.validate(v) {
-                        ctx.add_issue_at(#seg, err.to_string());
+                        ctx.issue_at(#seg, err);
                     }
                 },
             }
@@ -368,7 +368,7 @@ fn generate_field_value_validation_inner(
             let ctor = validator.quote_constructor();
             quote! {
                 if let Err(err) = #ctor.validate(v) {
-                    ctx.add_issue_at(#seg, err.to_string());
+                    ctx.issue_at(#seg, err);
                 }
             }
         })

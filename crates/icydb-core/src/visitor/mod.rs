@@ -101,8 +101,34 @@ impl From<Option<&'static str>> for PathSegment {
 ///
 
 pub trait VisitorContext {
-    fn add_issue(&mut self, message: String);
-    fn add_issue_at(&mut self, seg: PathSegment, message: String);
+    fn add_issue(&mut self, issue: Issue);
+    fn add_issue_at(&mut self, seg: PathSegment, issue: Issue);
+}
+
+impl dyn VisitorContext + '_ {
+    pub fn issue(&mut self, msg: impl Into<String>) {
+        self.add_issue(Issue {
+            message: msg.into(),
+        });
+    }
+
+    pub fn issue_at(&mut self, seg: PathSegment, msg: impl Into<String>) {
+        self.add_issue_at(
+            seg,
+            Issue {
+                message: msg.into(),
+            },
+        );
+    }
+}
+
+///
+/// Issue
+///
+
+#[derive(Clone, Debug, Default)]
+pub struct Issue {
+    pub message: String,
 }
 
 ///
@@ -137,14 +163,14 @@ struct AdapterContext<'a> {
 }
 
 impl VisitorContext for AdapterContext<'_> {
-    fn add_issue(&mut self, message: String) {
+    fn add_issue(&mut self, issue: Issue) {
         let key = render_path(self.path, None);
-        self.issues.entry(key).or_default().push(message);
+        self.issues.entry(key).or_default().push(issue.message);
     }
 
-    fn add_issue_at(&mut self, seg: PathSegment, message: String) {
+    fn add_issue_at(&mut self, seg: PathSegment, issue: Issue) {
         let key = render_path(self.path, Some(seg));
-        self.issues.entry(key).or_default().push(message);
+        self.issues.entry(key).or_default().push(issue.message);
     }
 }
 
@@ -163,13 +189,14 @@ fn render_path(path: &[PathSegment], extra: Option<PathSegment>) -> String {
                     out.push('.');
                 }
                 out.push_str(s);
+                first = false;
             }
             PathSegment::Index(i) => {
                 let _ = write!(out, "[{i}]");
+                first = false;
             }
             PathSegment::Empty => {}
         }
-        first = false;
     }
 
     out

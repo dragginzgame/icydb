@@ -241,7 +241,7 @@ impl UpdateView for Ulid {
 impl ValidateAuto for Ulid {
     fn validate_self(&self, ctx: &mut dyn VisitorContext) {
         if self.0 == WrappedUlid::nil() {
-            ctx.add_issue("ulid is nil".to_string());
+            ctx.issue("ulid is nil");
         }
     }
 }

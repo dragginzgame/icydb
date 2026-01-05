@@ -60,7 +60,7 @@ impl ValidateCustom for DecimalRange {
         let validator = base::validator::num::Lte::new(self.max);
 
         if let Err(msg) = validator.validate(&self.min) {
-            ctx.add_issue(msg);
+            ctx.issue(msg);
         }
     }
 }
@@ -90,7 +90,7 @@ impl ValidateCustom for DurationRange {
         let validator = base::validator::num::Lte::new(self.max);
 
         if let Err(msg) = validator.validate(&self.min) {
-            ctx.add_issue(msg);
+            ctx.issue(msg);
         }
     }
 }
@@ -120,7 +120,7 @@ impl ValidateCustom for Int32Range {
         let validator = base::validator::num::Lte::new(self.max);
 
         if let Err(msg) = validator.validate(&self.min) {
-            ctx.add_issue(msg);
+            ctx.issue(msg);
         }
     }
 }
@@ -150,7 +150,7 @@ impl ValidateCustom for Nat32Range {
         let validator = base::validator::num::Lte::new(self.max);
 
         if let Err(msg) = validator.validate(&self.min) {
-            ctx.add_issue(msg);
+            ctx.issue(msg);
         }
     }
 }

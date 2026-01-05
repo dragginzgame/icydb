@@ -110,12 +110,12 @@ fn generate_sanitizers(
             match &seg {
                 None => quote! {
                     if let Err(msg) = #ctor.sanitize(&mut #target) {
-                        ctx.add_issue(msg);
+                        ctx.issue(msg);
                     }
                 },
                 Some(seg) => quote! {
                     if let Err(msg) = #ctor.sanitize(&mut #target) {
-                        ctx.add_issue_at(#seg, msg);
+                        ctx.issue_at(#seg, msg);
                     }
                 },
             }
