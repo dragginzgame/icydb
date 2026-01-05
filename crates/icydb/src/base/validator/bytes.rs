@@ -1,4 +1,7 @@
-use crate::{core::traits::Validator, design::prelude::*};
+use crate::{
+    core::{traits::Validator, visitor::VisitorContext},
+    design::prelude::*,
+};
 
 ///
 /// Utf8
@@ -8,9 +11,9 @@ use crate::{core::traits::Validator, design::prelude::*};
 pub struct Utf8;
 
 impl Validator<[u8]> for Utf8 {
-    fn validate(&self, bytes: &[u8]) -> Result<(), String> {
-        std::str::from_utf8(bytes)
-            .map(|_| ())
-            .map_err(|_| "invalid UTF-8 data".to_string())
+    fn validate(&self, bytes: &[u8], ctx: &mut dyn VisitorContext) {
+        if std::str::from_utf8(bytes).is_err() {
+            ctx.issue("invalid UTF-8 data".to_string());
+        }
     }
 }

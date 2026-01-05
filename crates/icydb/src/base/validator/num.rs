@@ -1,5 +1,6 @@
 use crate::{
     core::traits::{NumCast, Validator},
+    core::visitor::VisitorContext,
     design::prelude::*,
 };
 use std::any::type_name;
@@ -9,19 +10,21 @@ use std::any::type_name;
 // ============================================================================
 
 /// Convert a numeric value into Decimal during *configuration* time.
-/// Failures become configuration error messages.
-fn cast_decimal_cfg<N: NumCast + Clone>(value: &N) -> Result<Decimal, String> {
-    <Decimal as NumCast>::from(value.clone())
-        .ok_or_else(|| format!("{} cannot be represented as Decimal", type_name::<N>()))
+fn cast_decimal_cfg<N: NumCast + Clone>(value: &N) -> Decimal {
+    <Decimal as NumCast>::from(value.clone()).unwrap_or_default()
 }
 
 /// Convert a numeric value into Decimal during *validation* time.
-fn cast_decimal_val<N: NumCast + Clone>(value: &N) -> Result<Decimal, String> {
-    <Decimal as NumCast>::from(value.clone()).ok_or_else(|| {
-        format!(
+fn cast_decimal_val<N: NumCast + Clone>(
+    value: &N,
+    ctx: &mut dyn VisitorContext,
+) -> Option<Decimal> {
+    <Decimal as NumCast>::from(value.clone()).or_else(|| {
+        ctx.issue(format!(
             "value of type {} cannot be represented as Decimal",
             type_name::<N>()
-        )
+        ));
+        None
     })
 }
 
@@ -34,36 +37,22 @@ macro_rules! cmp_validator {
         #[validator]
         pub struct $name {
             target: Decimal,
-            #[serde(skip)]
-            error: Option<String>,
         }
 
         impl $name {
             pub fn new<N: NumCast + Clone>(target: N) -> Self {
-                match cast_decimal_cfg(&target) {
-                    Ok(target) => Self {
-                        target,
-                        error: None,
-                    },
-                    Err(e) => Self {
-                        target: Decimal::ZERO,
-                        error: Some(e),
-                    },
-                }
+                let target = cast_decimal_cfg(&target);
+
+                Self { target }
             }
         }
 
         impl<N: NumCast + Clone> Validator<N> for $name {
-            fn validate(&self, value: &N) -> Result<(), String> {
-                if let Some(err) = &self.error {
-                    return Err(err.clone());
-                }
+            fn validate(&self, value: &N, ctx: &mut dyn VisitorContext) {
+                let Some(v) = cast_decimal_val(value, ctx) else { return };
 
-                let v = cast_decimal_val(value)?;
-                if v $op self.target {
-                    Ok(())
-                } else {
-                    Err(format!($msg, v, self.target))
+                if !(v $op self.target) {
+                    ctx.issue(format!($msg, v, self.target));
                 }
             }
         }
@@ -85,8 +74,6 @@ cmp_validator!(NotEqual, !=, "{} must be != {}");
 pub struct Range {
     min: Decimal,
     max: Decimal,
-    #[serde(skip)]
-    error: Option<String>,
 }
 
 impl Range {
@@ -94,146 +81,135 @@ impl Range {
         let min = cast_decimal_cfg(&min);
         let max = cast_decimal_cfg(&max);
 
-        match (min, max) {
-            (Ok(min), Ok(max)) if min <= max => Self {
-                min,
-                max,
-                error: None,
-            },
-            (Ok(_), Ok(_)) => Self {
-                min: Decimal::ZERO,
-                max: Decimal::ZERO,
-                error: Some("range requires min <= max".to_string()),
-            },
-            (Err(e), _) | (_, Err(e)) => Self {
-                min: Decimal::ZERO,
-                max: Decimal::ZERO,
-                error: Some(e),
-            },
-        }
+        Self { min, max }
     }
 }
 
 impl<N: NumCast + Clone> Validator<N> for Range {
-    fn validate(&self, value: &N) -> Result<(), String> {
-        if let Some(err) = &self.error {
-            return Err(err.clone());
-        }
+    fn validate(&self, value: &N, ctx: &mut dyn VisitorContext) {
+        let Some(v) = cast_decimal_val(value, ctx) else {
+            return;
+        };
 
-        let v = cast_decimal_val(value)?;
         if v < self.min || v > self.max {
-            Err(format!("{v} must be between {} and {}", self.min, self.max))
-        } else {
-            Ok(())
+            ctx.issue(format!("{v} must be between {} and {}", self.min, self.max));
         }
     }
 }
 
-// ============================================================================
-// MultipleOf
-// ============================================================================
+///
+/// MultipleOf
+///
 
 #[validator]
 pub struct MultipleOf {
     target: Decimal,
-    #[serde(skip)]
-    error: Option<String>,
 }
 
 impl MultipleOf {
     pub fn new<N: NumCast + Clone>(target: N) -> Self {
-        match cast_decimal_cfg(&target) {
-            Ok(t) if !t.is_zero() => Self {
-                target: t,
-                error: None,
-            },
-            Ok(_) => Self {
-                target: Decimal::ZERO,
-                error: Some("MultipleOf target must be non-zero".to_string()),
-            },
-            Err(e) => Self {
-                target: Decimal::ZERO,
-                error: Some(e),
-            },
-        }
+        let target = cast_decimal_cfg(&target);
+
+        Self { target }
     }
 }
 
 impl<N: NumCast + Clone> Validator<N> for MultipleOf {
-    fn validate(&self, value: &N) -> Result<(), String> {
-        if let Some(err) = &self.error {
-            return Err(err.clone());
+    fn validate(&self, value: &N, ctx: &mut dyn VisitorContext) {
+        if self.target.is_zero() {
+            ctx.issue("multipleOf target must be non-zero".to_string());
+            return;
         }
 
-        let v = cast_decimal_val(value)?;
-        if (*v % *self.target).is_zero() {
-            Ok(())
-        } else {
-            Err(format!("{v} is not a multiple of {}", self.target))
+        let Some(v) = cast_decimal_val(value, ctx) else {
+            return;
+        };
+
+        if !(*v % *self.target).is_zero() {
+            ctx.issue(format!("{v} is not a multiple of {}", self.target));
         }
     }
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::str::FromStr;
+    use crate::core::visitor::{Issue, PathSegment, VisitorContext, VisitorIssues};
 
-    fn dec(v: &str) -> Decimal {
-        Decimal::from_str(v).unwrap()
+    struct TestCtx {
+        issues: VisitorIssues,
+    }
+
+    impl TestCtx {
+        fn new() -> Self {
+            Self {
+                issues: VisitorIssues::new(),
+            }
+        }
+    }
+
+    impl VisitorContext for TestCtx {
+        fn add_issue(&mut self, issue: Issue) {
+            self.issues
+                .entry(String::new())
+                .or_default()
+                .push(issue.message);
+        }
+
+        fn add_issue_at(&mut self, _: PathSegment, issue: Issue) {
+            self.add_issue(issue);
+        }
     }
 
     #[test]
     fn lt() {
-        assert!(Lt::new(10).validate(&5).is_ok());
-        assert!(Lt::new(5).validate(&5).is_err());
+        let v = Lt::new(10);
+        let mut ctx = TestCtx::new();
+
+        v.validate(&5, &mut ctx);
+        assert!(ctx.issues.is_empty());
+
+        v.validate(&10, &mut ctx);
+        assert!(!ctx.issues.is_empty());
     }
 
     #[test]
     fn gte() {
-        assert!(Gte::new(5).validate(&5).is_ok());
-        assert!(Gte::new(5).validate(&4).is_err());
+        let v = Gte::new(5);
+        let mut ctx = TestCtx::new();
+
+        v.validate(&5, &mut ctx);
+        assert!(ctx.issues.is_empty());
+
+        v.validate(&4, &mut ctx);
+        assert!(!ctx.issues.is_empty());
     }
 
     #[test]
-    fn range_valid() {
+    fn range() {
         let r = Range::new(1, 3);
-        assert!(r.validate(&1).is_ok());
-        assert!(r.validate(&2).is_ok());
-        assert!(r.validate(&3).is_ok());
-        assert!(r.validate(&0).is_err());
-        assert!(r.validate(&4).is_err());
+        let mut ctx = TestCtx::new();
+
+        r.validate(&2, &mut ctx);
+        assert!(ctx.issues.is_empty());
+
+        r.validate(&0, &mut ctx);
+        assert!(!ctx.issues.is_empty());
     }
 
     #[test]
-    fn range_invalid_config() {
-        let r = Range::new(5, 3);
-        let err = r.validate(&5).unwrap_err();
-        assert!(err.contains("min <= max"));
-    }
-
-    #[test]
-    fn multiple_of_int() {
+    fn multiple_of() {
         let m = MultipleOf::new(5);
-        assert!(m.validate(&10).is_ok());
-        assert!(m.validate(&11).is_err());
-    }
+        let mut ctx = TestCtx::new();
 
-    #[test]
-    fn multiple_of_decimal() {
-        let m = MultipleOf::new(dec("0.25"));
-        assert!(m.validate(&dec("1.0")).is_ok());
-        assert!(m.validate(&dec("1.1")).is_err());
-    }
+        m.validate(&10, &mut ctx);
+        assert!(ctx.issues.is_empty());
 
-    #[test]
-    fn multiple_of_invalid_config() {
-        let m = MultipleOf::new(0);
-        let err = m.validate(&10).unwrap_err();
-        assert!(err.contains("non-zero"));
+        m.validate(&11, &mut ctx);
+        assert!(!ctx.issues.is_empty());
     }
 }

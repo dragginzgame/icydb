@@ -1,4 +1,4 @@
-use crate::{core::traits::Validator, design::prelude::*};
+use crate::{core::traits::Validator, core::visitor::VisitorContext, design::prelude::*};
 use canic_utils::case::{Case, Casing};
 
 ///
@@ -6,14 +6,12 @@ use canic_utils::case::{Case, Casing};
 ///
 
 #[validator]
-pub struct Kebab {}
+pub struct Kebab;
 
 impl Validator<str> for Kebab {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.is_case(Case::Kebab) {
-            Ok(())
-        } else {
-            Err(format!("'{s}' is not kebab-case"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_case(Case::Kebab) {
+            ctx.issue(format!("'{s}' is not kebab-case"));
         }
     }
 }
@@ -23,14 +21,12 @@ impl Validator<str> for Kebab {
 ///
 
 #[validator]
-pub struct Lower {}
+pub struct Lower;
 
 impl Validator<str> for Lower {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.is_case(Case::Lower) {
-            Ok(())
-        } else {
-            Err(format!("'{s}' is not lower case"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_case(Case::Lower) {
+            ctx.issue(format!("'{s}' is not lower case"));
         }
     }
 }
@@ -40,14 +36,12 @@ impl Validator<str> for Lower {
 ///
 
 #[validator]
-pub struct LowerUscore {}
+pub struct LowerUscore;
 
 impl Validator<str> for LowerUscore {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.chars().all(|c| c.is_lowercase() || c == '_') {
-            Ok(())
-        } else {
-            Err(format!("'{s}' is not lower case with underscores"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.chars().all(|c| c.is_lowercase() || c == '_') {
+            ctx.issue(format!("'{s}' is not lower case with underscores"));
         }
     }
 }
@@ -57,14 +51,12 @@ impl Validator<str> for LowerUscore {
 ///
 
 #[validator]
-pub struct Snake {}
+pub struct Snake;
 
 impl Validator<str> for Snake {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.is_case(Case::Snake) {
-            Ok(())
-        } else {
-            Err(format!("'{s}' is not snake_case"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_case(Case::Snake) {
+            ctx.issue(format!("'{s}' is not snake_case"));
         }
     }
 }
@@ -74,14 +66,12 @@ impl Validator<str> for Snake {
 ///
 
 #[validator]
-pub struct Title {}
+pub struct Title;
 
 impl Validator<str> for Title {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.is_case(Case::Title) {
-            Ok(())
-        } else {
-            Err(format!("'{s}' is not Title Case"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_case(Case::Title) {
+            ctx.issue(format!("'{s}' is not Title Case"));
         }
     }
 }
@@ -91,14 +81,12 @@ impl Validator<str> for Title {
 ///
 
 #[validator]
-pub struct Upper {}
+pub struct Upper;
 
 impl Validator<str> for Upper {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.is_case(Case::Upper) {
-            Ok(())
-        } else {
-            Err(format!("'{s}' is not UPPER CASE"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_case(Case::Upper) {
+            ctx.issue(format!("'{s}' is not UPPER CASE"));
         }
     }
 }
@@ -108,14 +96,12 @@ impl Validator<str> for Upper {
 ///
 
 #[validator]
-pub struct UpperCamel {}
+pub struct UpperCamel;
 
 impl Validator<str> for UpperCamel {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.is_case(Case::UpperCamel) {
-            Ok(())
-        } else {
-            Err(format!("'{s}' is not UpperCamelCase"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_case(Case::UpperCamel) {
+            ctx.issue(format!("'{s}' is not UpperCamelCase"));
         }
     }
 }
@@ -125,14 +111,12 @@ impl Validator<str> for UpperCamel {
 ///
 
 #[validator]
-pub struct UpperSnake {}
+pub struct UpperSnake;
 
 impl Validator<str> for UpperSnake {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.is_case(Case::UpperSnake) {
-            Ok(())
-        } else {
-            Err(format!("'{s}' is not UPPER_SNAKE_CASE"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_case(Case::UpperSnake) {
+            ctx.issue(format!("'{s}' is not UPPER_SNAKE_CASE"));
         }
     }
 }

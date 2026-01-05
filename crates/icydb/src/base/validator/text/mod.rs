@@ -1,23 +1,24 @@
 pub mod case;
 pub mod color;
 
-use crate::{core::traits::Validator, design::prelude::*};
+use crate::{
+    core::{traits::Validator, visitor::VisitorContext},
+    design::prelude::*,
+};
 
 ///
 /// AlphaUscore
-/// this doesn't force ASCII, instead we're using the unicode is_alphabetic
-/// and ASCII is handled in a separate validator
+/// this doesn't force ASCII; it uses Unicode `is_alphabetic`
+/// ASCII is handled by a separate validator
 ///
 
 #[validator]
-pub struct AlphaUscore {}
+pub struct AlphaUscore;
 
 impl Validator<str> for AlphaUscore {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.chars().all(|c| c.is_alphabetic() || c == '_') {
-            Ok(())
-        } else {
-            Err(format!("'{s}' is not alphabetic with underscores"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.chars().all(|c| c.is_alphabetic() || c == '_') {
+            ctx.issue(format!("'{s}' is not alphabetic with underscores"));
         }
     }
 }
@@ -27,14 +28,12 @@ impl Validator<str> for AlphaUscore {
 ///
 
 #[validator]
-pub struct AlphanumUscore {}
+pub struct AlphanumUscore;
 
 impl Validator<str> for AlphanumUscore {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            Ok(())
-        } else {
-            Err(format!("'{s}' is not alphanumeric with underscores"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            ctx.issue(format!("'{s}' is not alphanumeric with underscores"));
         }
     }
 }
@@ -44,14 +43,12 @@ impl Validator<str> for AlphanumUscore {
 ///
 
 #[validator]
-pub struct Ascii {}
+pub struct Ascii;
 
 impl Validator<str> for Ascii {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.is_ascii() {
-            Ok(())
-        } else {
-            Err("string contains non-ascii characters".to_string())
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !s.is_ascii() {
+            ctx.issue("string contains non-ascii characters".to_string());
         }
     }
 }

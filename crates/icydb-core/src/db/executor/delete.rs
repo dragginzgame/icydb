@@ -230,6 +230,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
     pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, Error> {
         QueryValidate::<E>::validate(&query)?;
+
         Ok(plan_for::<E>(query.filter.as_ref()))
     }
 

@@ -29,6 +29,7 @@ use crate::{
         IntListFilterKind, Nat64RangeFilterKind, NatListFilterKind, TextFilterKind,
         TextListFilterKind,
     },
+    visitor::VisitorContext,
 };
 
 /// ------------------------
@@ -347,6 +348,5 @@ pub trait Sanitizer<T> {
 ///
 
 pub trait Validator<T: ?Sized> {
-    /// Returns `Ok(())` if valid, or a human-readable message if invalid.
-    fn validate(&self, value: &T) -> Result<(), String>;
+    fn validate(&self, value: &T, ctx: &mut dyn VisitorContext);
 }

@@ -1,4 +1,7 @@
-use crate::{core::traits::Validator, design::prelude::*};
+use crate::{
+    core::{traits::Validator, visitor::VisitorContext},
+    design::prelude::*,
+};
 
 ///
 /// MimeType
@@ -8,10 +11,16 @@ use crate::{core::traits::Validator, design::prelude::*};
 pub struct MimeType;
 
 impl Validator<str> for MimeType {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        let parts: Vec<&str> = s.split('/').collect();
-        if parts.len() != 2 {
-            return Err(format!("MIME type '{s}' must contain exactly one '/'"));
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        let mut parts = s.split('/');
+
+        let type_part = parts.next();
+        let subtype_part = parts.next();
+
+        // Must contain exactly one '/'
+        if type_part.is_none() || subtype_part.is_none() || parts.next().is_some() {
+            ctx.issue(format!("MIME type '{s}' must contain exactly one '/'"));
+            return;
         }
 
         let is_valid_part = |part: &str| {
@@ -21,13 +30,15 @@ impl Validator<str> for MimeType {
                     .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
         };
 
-        if !is_valid_part(parts[0]) || !is_valid_part(parts[1]) {
-            return Err(format!(
-                "MIME type '{s}' contains invalid characters; only alphanumeric, '+', '-', '.' allowed"
+        let type_part = type_part.unwrap();
+        let subtype_part = subtype_part.unwrap();
+
+        if !is_valid_part(type_part) || !is_valid_part(subtype_part) {
+            ctx.issue(format!(
+                "MIME type '{s}' contains invalid characters; \
+                 only alphanumeric, '+', '-', '.' allowed"
             ));
         }
-
-        Ok(())
     }
 }
 
@@ -39,11 +50,9 @@ impl Validator<str> for MimeType {
 pub struct Url;
 
 impl Validator<str> for Url {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if s.starts_with("http://") || s.starts_with("https://") {
-            Ok(())
-        } else {
-            Err(format!("URL '{s}' must start with 'http://' or 'https://'"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !(s.starts_with("http://") || s.starts_with("https://")) {
+            ctx.issue(format!("URL '{s}' must start with 'http://' or 'https://'"));
         }
     }
 }

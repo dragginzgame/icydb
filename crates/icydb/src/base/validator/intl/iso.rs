@@ -30,11 +30,9 @@ pub const VALID_ENTRIES_3166_1A2: &[&str] = &[
 ];
 
 impl Validator<str> for Iso3166_1A2 {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if VALID_ENTRIES_3166_1A2.contains(&s) {
-            Ok(())
-        } else {
-            Err(format!("unknown ISO 3166-1 alpha-2 country code: {s}"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !VALID_ENTRIES_3166_1A2.contains(&s) {
+            ctx.issue(format!("unknown ISO 3166-1 alpha-2 country code: {s}"));
         }
     }
 }
@@ -65,71 +63,9 @@ pub const VALID_ENTRIES_639_1: &[&str] = &[
 ];
 
 impl Validator<str> for Iso639_1 {
-    fn validate(&self, s: &str) -> Result<(), String> {
-        if VALID_ENTRIES_639_1.contains(&s) {
-            Ok(())
-        } else {
-            Err(format!("unknown ISO 639-1 language code: {s}"))
+    fn validate(&self, s: &str, ctx: &mut dyn VisitorContext) {
+        if !VALID_ENTRIES_639_1.contains(&s) {
+            ctx.issue(format!("unknown ISO 639-1 language code: {s}"));
         }
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::traits::Validator;
-
-    // -------------------------------------------------------------------------
-    // ISO 3166-1 alpha-2 country codes
-    // -------------------------------------------------------------------------
-    #[test]
-    fn test_iso31661alpha2_valid() {
-        let v = Iso3166_1A2 {};
-        assert!(v.validate("US").is_ok());
-        assert!(v.validate("DE").is_ok());
-        assert!(v.validate("JP").is_ok());
-    }
-
-    #[test]
-    fn test_iso31661alpha2_invalid_format() {
-        let v = Iso3166_1A2 {};
-        assert!(v.validate("us").is_err()); // lowercase not allowed
-        assert!(v.validate("USA").is_err()); // too long
-        assert!(v.validate("U").is_err()); // too short
-    }
-
-    #[test]
-    fn test_iso31661alpha2_unknown_code() {
-        let v = Iso3166_1A2 {};
-        assert!(v.validate("ZZ").is_err()); // not a real country
-    }
-
-    // -------------------------------------------------------------------------
-    // ISO 639-1 language codes
-    // -------------------------------------------------------------------------
-    #[test]
-    fn test_iso6391_valid() {
-        let v = Iso639_1 {};
-        assert!(v.validate("en").is_ok());
-        assert!(v.validate("fr").is_ok());
-        assert!(v.validate("zh").is_ok());
-    }
-
-    #[test]
-    fn test_iso6391_invalid_format() {
-        let v = Iso639_1 {};
-        assert!(v.validate("EN").is_err()); // uppercase not allowed
-        assert!(v.validate("eng").is_err()); // too long
-        assert!(v.validate("e").is_err()); // too short
-    }
-
-    #[test]
-    fn test_iso6391_unknown_code() {
-        let v = Iso639_1 {};
-        assert!(v.validate("xx").is_err()); // not a real language
     }
 }

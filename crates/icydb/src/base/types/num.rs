@@ -59,9 +59,7 @@ impl ValidateCustom for DecimalRange {
     fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
         let validator = base::validator::num::Lte::new(self.max);
 
-        if let Err(msg) = validator.validate(&self.min) {
-            ctx.issue(msg);
-        }
+        validator.validate(&self.min, ctx);
     }
 }
 
@@ -89,9 +87,7 @@ impl ValidateCustom for DurationRange {
     fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
         let validator = base::validator::num::Lte::new(self.max);
 
-        if let Err(msg) = validator.validate(&self.min) {
-            ctx.issue(msg);
-        }
+        validator.validate(&self.min, ctx);
     }
 }
 
@@ -119,9 +115,7 @@ impl ValidateCustom for Int32Range {
     fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
         let validator = base::validator::num::Lte::new(self.max);
 
-        if let Err(msg) = validator.validate(&self.min) {
-            ctx.issue(msg);
-        }
+        validator.validate(&self.min, ctx);
     }
 }
 
@@ -149,8 +143,6 @@ impl ValidateCustom for Nat32Range {
     fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
         let validator = base::validator::num::Lte::new(self.max);
 
-        if let Err(msg) = validator.validate(&self.min) {
-            ctx.issue(msg);
-        }
+        validator.validate(&self.min, ctx);
     }
 }

@@ -12,37 +12,24 @@ use std::any::type_name;
 pub struct Clamp {
     min: Decimal,
     max: Decimal,
-    #[serde(skip)]
-    error: Option<String>,
 }
 
 impl Clamp {
     pub fn new<N: NumCast + Clone>(min: N, max: N) -> Self {
-        let min = <Decimal as NumCast>::from(min);
-        let max = <Decimal as NumCast>::from(max);
+        let min = <Decimal as NumCast>::from(min).unwrap_or_default();
+        let max = <Decimal as NumCast>::from(max).unwrap_or_default();
 
-        match (min, max) {
-            (Some(min), Some(max)) if min <= max => Self {
-                min,
-                max,
-                error: None,
-            },
-            (Some(_), Some(_)) => Self {
-                error: Some("clamp requires min <= max".to_string()),
-                ..Default::default()
-            },
-            _ => Self {
-                error: Some("clamp bounds cannot be represented as Decimal".to_string()),
-                ..Default::default()
-            },
-        }
+        Self { min, max }
     }
 }
 
 impl<T: NumCast + Clone> Sanitizer<T> for Clamp {
     fn sanitize(&self, value: &mut T) -> Result<(), String> {
-        if let Some(err) = &self.error {
-            return Err(err.clone());
+        if self.min > self.max {
+            return Err(format!(
+                "Clamp requires min <= max (got {}..={})",
+                self.min, self.max
+            ));
         }
 
         let v = <Decimal as NumCast>::from(value.clone()).ok_or_else(|| {
@@ -82,8 +69,10 @@ pub struct RoundDecimalPlaces {
 
 impl RoundDecimalPlaces {
     #[must_use]
-    pub const fn new(scale: u32) -> Self {
-        Self { scale }
+    pub fn new(scale: impl TryInto<u32>) -> Self {
+        Self {
+            scale: scale.try_into().unwrap_or_default(),
+        }
     }
 }
 

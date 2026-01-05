@@ -55,43 +55,31 @@ impl<K, V, S: BuildHasher> HasLen for HashMap<K, V, S> {
     }
 }
 
-///
-/// Equal
-///
+//
+// ============================================================================
+// Equal
+// ============================================================================
+//
 
 #[validator]
 pub struct Equal {
     target: usize,
-    #[serde(skip)]
-    error: Option<String>,
 }
 
 impl Equal {
     pub fn new(target: impl TryInto<usize>) -> Self {
-        match target.try_into() {
-            Ok(target) => Self {
-                target,
-                error: None,
-            },
-            Err(_) => Self {
-                target: 0,
-                error: Some("Equal target must be non-negative".to_string()),
-            },
+        Self {
+            target: target.try_into().unwrap_or_default(),
         }
     }
 }
 
 impl<T: HasLen + ?Sized> Validator<T> for Equal {
-    fn validate(&self, t: &T) -> Result<(), String> {
-        if let Some(err) = &self.error {
-            return Err(err.clone());
-        }
-
+    fn validate(&self, t: &T, ctx: &mut dyn VisitorContext) {
         let len = t.len();
-        if len == self.target {
-            Ok(())
-        } else {
-            Err(format!("length ({len}) is not equal to {}", self.target))
+
+        if len != self.target {
+            ctx.issue(format!("length ({len}) is not equal to {}", self.target));
         }
     }
 }
@@ -103,39 +91,25 @@ impl<T: HasLen + ?Sized> Validator<T> for Equal {
 #[validator]
 pub struct Min {
     target: usize,
-    #[serde(skip)]
-    error: Option<String>,
 }
 
 impl Min {
     pub fn new(target: impl TryInto<usize>) -> Self {
-        match target.try_into() {
-            Ok(target) => Self {
-                target,
-                error: None,
-            },
-            Err(_) => Self {
-                target: 0,
-                error: Some("Min target must be non-negative".to_string()),
-            },
+        Self {
+            target: target.try_into().unwrap_or_default(),
         }
     }
 }
 
 impl<T: HasLen + ?Sized> Validator<T> for Min {
-    fn validate(&self, t: &T) -> Result<(), String> {
-        if let Some(err) = &self.error {
-            return Err(err.clone());
-        }
-
+    fn validate(&self, t: &T, ctx: &mut dyn VisitorContext) {
         let len = t.len();
+
         if len < self.target {
-            Err(format!(
+            ctx.issue(format!(
                 "length ({len}) is lower than minimum of {}",
                 self.target
-            ))
-        } else {
-            Ok(())
+            ));
         }
     }
 }
@@ -147,39 +121,25 @@ impl<T: HasLen + ?Sized> Validator<T> for Min {
 #[validator]
 pub struct Max {
     target: usize,
-    #[serde(skip)]
-    error: Option<String>,
 }
 
 impl Max {
     pub fn new(target: impl TryInto<usize>) -> Self {
-        match target.try_into() {
-            Ok(target) => Self {
-                target,
-                error: None,
-            },
-            Err(_) => Self {
-                target: 0,
-                error: Some("Max target must be non-negative".to_string()),
-            },
+        Self {
+            target: target.try_into().unwrap_or_default(),
         }
     }
 }
 
 impl<T: HasLen + ?Sized> Validator<T> for Max {
-    fn validate(&self, t: &T) -> Result<(), String> {
-        if let Some(err) = &self.error {
-            return Err(err.clone());
-        }
-
+    fn validate(&self, t: &T, ctx: &mut dyn VisitorContext) {
         let len = t.len();
+
         if len > self.target {
-            Err(format!(
+            ctx.issue(format!(
                 "length ({len}) is greater than maximum of {}",
                 self.target
-            ))
-        } else {
-            Ok(())
+            ));
         }
     }
 }
@@ -192,49 +152,26 @@ impl<T: HasLen + ?Sized> Validator<T> for Max {
 pub struct Range {
     min: usize,
     max: usize,
-    #[serde(skip)]
-    error: Option<String>,
 }
 
 impl Range {
     pub fn new(min: impl TryInto<usize>, max: impl TryInto<usize>) -> Self {
-        let min = min.try_into();
-        let max = max.try_into();
-
-        match (min, max) {
-            (Ok(min), Ok(max)) if min <= max => Self {
-                min,
-                max,
-                error: None,
-            },
-            (Ok(_), Ok(_)) => Self {
-                min: 0,
-                max: 0,
-                error: Some("range requires min <= max".to_string()),
-            },
-            _ => Self {
-                min: 0,
-                max: 0,
-                error: Some("range bounds must be non-negative".to_string()),
-            },
+        Self {
+            min: min.try_into().unwrap_or_default(),
+            max: max.try_into().unwrap_or_default(),
         }
     }
 }
 
 impl<T: HasLen + ?Sized> Validator<T> for Range {
-    fn validate(&self, t: &T) -> Result<(), String> {
-        if let Some(err) = &self.error {
-            return Err(err.clone());
-        }
-
+    fn validate(&self, t: &T, ctx: &mut dyn VisitorContext) {
         let len = t.len();
+
         if len < self.min || len > self.max {
-            Err(format!(
+            ctx.issue(format!(
                 "length ({len}) must be between {} and {} (inclusive)",
                 self.min, self.max
-            ))
-        } else {
-            Ok(())
+            ));
         }
     }
 }
@@ -246,22 +183,63 @@ impl<T: HasLen + ?Sized> Validator<T> for Range {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::visitor::{Issue, PathSegment, VisitorContext, VisitorIssues};
 
-    #[test]
-    fn test_range_ok() {
-        let r = Range::new(2, 5);
-        assert!(r.validate("hey").is_ok());
+    struct TestCtx {
+        issues: VisitorIssues,
+    }
+
+    impl TestCtx {
+        fn new() -> Self {
+            Self {
+                issues: VisitorIssues::new(),
+            }
+        }
+    }
+
+    impl VisitorContext for TestCtx {
+        fn add_issue(&mut self, issue: Issue) {
+            self.issues
+                .entry(String::new())
+                .or_default()
+                .push(issue.message);
+        }
+
+        fn add_issue_at(&mut self, _: PathSegment, issue: Issue) {
+            self.add_issue(issue);
+        }
     }
 
     #[test]
-    fn test_range_err() {
-        let r = Range::new(2, 5);
-        assert!(r.validate("hello world").is_err());
+    fn equal_reports_mismatch() {
+        let v = Equal::new(3);
+        let mut ctx = TestCtx::new();
+
+        v.validate("abcd", &mut ctx);
+
+        assert_eq!(ctx.issues[""][0], "length (4) is not equal to 3");
     }
 
     #[test]
-    fn test_invalid_range_config() {
-        let r = Range::new(5, 2);
-        assert!(r.validate("hey").is_err());
+    fn range_accepts_in_bounds() {
+        let v = Range::new(2, 4);
+        let mut ctx = TestCtx::new();
+
+        v.validate("abc", &mut ctx);
+
+        assert!(ctx.issues.is_empty());
+    }
+
+    #[test]
+    fn range_reports_out_of_bounds() {
+        let v = Range::new(2, 4);
+        let mut ctx = TestCtx::new();
+
+        v.validate("a", &mut ctx);
+
+        assert_eq!(
+            ctx.issues[""][0],
+            "length (1) must be between 2 and 4 (inclusive)"
+        );
     }
 }

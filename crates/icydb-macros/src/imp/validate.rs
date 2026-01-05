@@ -1,9 +1,11 @@
 use crate::prelude::*;
 use quote::format_ident;
 
+///
 /// ---------------------------------------------------------------------------
 /// ValidateAuto
 /// ---------------------------------------------------------------------------
+///
 
 pub struct ValidateAutoTrait;
 
@@ -33,9 +35,11 @@ macro_rules! impl_validate_auto {
 
 impl_validate_auto!(Entity, Enum, List, Map, Newtype, Record, Set);
 
+///
 /// ---------------------------------------------------------------------------
-/// Entity
+/// Entity / Record
 /// ---------------------------------------------------------------------------
+///
 
 impl ValidateAutoFn for Entity {
     fn self_tokens(node: &Self) -> TokenStream {
@@ -43,11 +47,19 @@ impl ValidateAutoFn for Entity {
     }
 }
 
+impl ValidateAutoFn for Record {
+    fn self_tokens(node: &Self) -> TokenStream {
+        wrap_validate_self_fn(field_list(&node.fields))
+    }
+}
+
+///
 /// ---------------------------------------------------------------------------
 /// Enum
 /// ---------------------------------------------------------------------------
 /// Any variants marked `unspecified` are invalid if selected.
 ///
+
 impl ValidateAutoFn for Enum {
     fn self_tokens(node: &Self) -> TokenStream {
         let invalid_arms: TokenStream = node
@@ -65,71 +77,66 @@ impl ValidateAutoFn for Enum {
             })
             .collect();
 
-        let inner = if invalid_arms.is_empty() {
+        if invalid_arms.is_empty() {
             quote!()
         } else {
-            quote! {
+            wrap_validate_self_fn(Some(quote! {
                 match self {
                     #invalid_arms
                     _ => {}
                 }
-            }
-        };
-
-        wrap_validate_self_fn(Some(inner))
+            }))
+        }
     }
 }
 
+///
 /// ---------------------------------------------------------------------------
 /// List
 /// ---------------------------------------------------------------------------
+///
 
 impl ValidateAutoFn for List {
     fn self_tokens(node: &Self) -> TokenStream {
-        // Validators on the list itself (e.g. length constraints)
-        let list_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), None);
+        let list_rules =
+            generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx));
 
-        // Validators on items; attach at [i]
-        let item_rules = generate_validators_inner(
-            &node.item.validators,
-            quote!(item),
-            Some(quote!(::icydb::core::visitor::PathSegment::Index(i))),
-        )
-        .map(|block| {
-            let item_ident = format_ident!("__item");
-            quote! {
-                for (i, #item_ident) in self.0.iter().enumerate() {
-                    let item = #item_ident;
-                    #block
-                }
-            }
-        });
+        let item_rules =
+            generate_validators_inner(&node.item.validators, quote!(item), quote!(&mut item_ctx))
+                .map(|block| {
+                    let item_ident = format_ident!("__item");
+                    quote! {
+                        for (i, #item_ident) in self.0.iter().enumerate() {
+                            let item = #item_ident;
+                            let mut item_ctx = ::icydb::core::visitor::ScopedContext::new(
+                                ctx,
+                                ::icydb::core::visitor::PathSegment::Index(i),
+                            );
+                            #block
+                        }
+                    }
+                });
 
         wrap_validate_self_fn(merge_rules(list_rules, item_rules))
     }
 }
 
+///
 /// ---------------------------------------------------------------------------
 /// Map
 /// ---------------------------------------------------------------------------
+///
 
 impl ValidateAutoFn for Map {
     fn self_tokens(node: &Self) -> TokenStream {
-        // Validators on the map itself
-        let map_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), None);
+        let map_rules =
+            generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx));
 
-        // Key/value validators; attach at [i] to match traversal paths.
-        let key_rules = generate_validators_inner(
-            &node.key.validators,
-            quote!(k),
-            Some(quote!(::icydb::core::visitor::PathSegment::Index(i))),
-        );
+        let key_rules =
+            generate_validators_inner(&node.key.validators, quote!(k), quote!(&mut entry_ctx));
 
-        let value_rules = generate_value_validation_inner(
-            &node.value,
-            quote!(v),
-            Some(quote!(::icydb::core::visitor::PathSegment::Index(i))),
-        );
+        let value_rules =
+            generate_value_validation_inner(&node.value, quote!(v), quote!(&mut entry_ctx));
 
         let entry_rules = match (key_rules, value_rules) {
             (None, None) => None,
@@ -139,6 +146,10 @@ impl ValidateAutoFn for Map {
 
                 Some(quote! {
                     for (i, (k, v)) in self.0.iter().enumerate() {
+                        let mut entry_ctx = ::icydb::core::visitor::ScopedContext::new(
+                            ctx,
+                            ::icydb::core::visitor::PathSegment::Index(i),
+                        );
                         #k
                         #v
                     }
@@ -150,63 +161,60 @@ impl ValidateAutoFn for Map {
     }
 }
 
+///
 /// ---------------------------------------------------------------------------
 /// Newtype
 /// ---------------------------------------------------------------------------
+///
 
 impl ValidateAutoFn for Newtype {
     fn self_tokens(node: &Self) -> TokenStream {
-        let type_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), None);
-        let item_rules = generate_validators_inner(&node.item.validators, quote!(&self.0), None);
+        let type_rules =
+            generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx));
+        let item_rules =
+            generate_validators_inner(&node.item.validators, quote!(&self.0), quote!(ctx));
 
         wrap_validate_self_fn(merge_rules(type_rules, item_rules))
     }
 }
 
-/// ---------------------------------------------------------------------------
-/// Record
-/// ---------------------------------------------------------------------------
-
-impl ValidateAutoFn for Record {
-    fn self_tokens(node: &Self) -> TokenStream {
-        wrap_validate_self_fn(field_list(&node.fields))
-    }
-}
-
+///
 /// ---------------------------------------------------------------------------
 /// Set
 /// ---------------------------------------------------------------------------
+///
 
 impl ValidateAutoFn for Set {
     fn self_tokens(node: &Self) -> TokenStream {
-        // Validators on the set itself
-        let set_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), None);
+        let set_rules =
+            generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx));
 
-        // Validators on items; attach at [i] even though set iteration order is not stable.
-        let item_rules = generate_validators_inner(
-            &node.item.validators,
-            quote!(item),
-            Some(quote!(::icydb::core::visitor::PathSegment::Index(i))),
-        )
-        .map(|block| {
-            let item_ident = format_ident!("__item");
-            quote! {
-                for (i, #item_ident) in self.0.iter().enumerate() {
-                    let item = #item_ident;
-                    #block
-                }
-            }
-        });
+        let item_rules =
+            generate_validators_inner(&node.item.validators, quote!(item), quote!(&mut item_ctx))
+                .map(|block| {
+                    let item_ident = format_ident!("__item");
+                    quote! {
+                        for (i, #item_ident) in self.0.iter().enumerate() {
+                            let item = #item_ident;
+                            let mut item_ctx = ::icydb::core::visitor::ScopedContext::new(
+                                ctx,
+                                ::icydb::core::visitor::PathSegment::Index(i),
+                            );
+                            #block
+                        }
+                    }
+                });
 
         wrap_validate_self_fn(merge_rules(set_rules, item_rules))
     }
 }
 
+///
 /// ---------------------------------------------------------------------------
 /// Helper functions
 /// ---------------------------------------------------------------------------
+///
 
-/// Merge two optional token blocks into one, preserving `None` as `None`.
 fn merge_rules(a: Option<TokenStream>, b: Option<TokenStream>) -> Option<TokenStream> {
     match (a, b) {
         (None, None) => None,
@@ -216,18 +224,18 @@ fn merge_rules(a: Option<TokenStream>, b: Option<TokenStream>) -> Option<TokenSt
     }
 }
 
-/// Field-level validator list for Records / Entities
+/// Field-level validators for Records / Entities
 fn field_list(fields: &FieldList) -> Option<TokenStream> {
     let validations: Vec<_> = fields
         .iter()
         .filter_map(|field| {
             let field_ident = &field.ident;
-            let field_name = quote_one(&field.ident, to_str_lit);
-
             generate_field_value_validation_inner(
                 &field.value,
                 quote!(&self.#field_ident),
-                &field_name,
+                quote!(::icydb::core::visitor::PathSegment::Field(
+                    stringify!(#field_ident)
+                )),
             )
         })
         .collect();
@@ -239,13 +247,12 @@ fn field_list(fields: &FieldList) -> Option<TokenStream> {
     }
 }
 
-/// Generate validator expressions for a list of validators on a variable.
-/// If `seg` is Some(..), the issue is recorded at that relative segment.
-/// Otherwise, issue is recorded at current node path.
+/// Generate validator expressions for a list of validators.
+/// Validators emit issues directly via `VisitorContext`.
 fn generate_validators_inner(
     validators: &[TypeValidator],
     var_expr: TokenStream,
-    seg: Option<TokenStream>,
+    ctx_expr: TokenStream,
 ) -> Option<TokenStream> {
     if validators.is_empty() {
         return None;
@@ -254,18 +261,9 @@ fn generate_validators_inner(
     let exprs: Vec<TokenStream> = validators
         .iter()
         .map(|validator| {
-            let ctor = validator.quote_constructor();
-            match &seg {
-                None => quote! {
-                    if let Err(err) = #ctor.validate(#var_expr) {
-                        ctx.issue(err);
-                    }
-                },
-                Some(seg) => quote! {
-                    if let Err(err) = #ctor.validate(#var_expr) {
-                        ctx.issue_at(#seg, err);
-                    }
-                },
+            let ctor = validator.quote_constructor(); // yields "...::new(args...)"
+            quote! {
+                (#ctor).validate(#var_expr, #ctx_expr);
             }
         })
         .collect();
@@ -273,7 +271,7 @@ fn generate_validators_inner(
     Some(quote!(#(#exprs)*))
 }
 
-/// Wrap `inner` into `fn validate_self(&self, ctx: &mut dyn VisitorContext)` if present.
+/// Wrap inner tokens into `fn validate_self`
 fn wrap_validate_self_fn(inner: Option<TokenStream>) -> TokenStream {
     match inner {
         None => quote!(),
@@ -285,7 +283,7 @@ fn wrap_validate_self_fn(inner: Option<TokenStream>) -> TokenStream {
     }
 }
 
-/// Applies cardinality (One/Opt/Many) to a set of rule expressions.
+/// Applies cardinality (One / Opt / Many)
 fn cardinality_wrapper(
     card: Cardinality,
     rules: Vec<TokenStream>,
@@ -321,30 +319,20 @@ fn cardinality_wrapper(
     Some(tokens)
 }
 
-/// Generates validation logic for a `Value` including its cardinality.
-/// If `seg` is Some(..), issues are recorded under that relative segment.
+/// Value-level validation (no path manipulation)
 fn generate_value_validation_inner(
     value: &Value,
     var_expr: TokenStream,
-    seg: Option<TokenStream>,
+    ctx_expr: TokenStream,
 ) -> Option<TokenStream> {
     let rules: Vec<TokenStream> = value
         .item
         .validators
         .iter()
         .map(|validator| {
-            let ctor = validator.quote_constructor();
-            match &seg {
-                None => quote! {
-                    if let Err(err) = #ctor.validate(v) {
-                        ctx.issue(err);
-                    }
-                },
-                Some(seg) => quote! {
-                    if let Err(err) = #ctor.validate(v) {
-                        ctx.issue_at(#seg, err);
-                    }
-                },
+            let ctor = validator.quote_constructor(); // "...::new(args...)"
+            quote! {
+                (#ctor).validate(v, #ctx_expr);
             }
         })
         .collect();
@@ -352,27 +340,29 @@ fn generate_value_validation_inner(
     cardinality_wrapper(value.cardinality(), rules, var_expr)
 }
 
-/// Field-level value validation, adds errors under field key.
+/// Field-level value validation
 fn generate_field_value_validation_inner(
     value: &Value,
     var_expr: TokenStream,
-    field_key: &TokenStream,
+    seg: TokenStream,
 ) -> Option<TokenStream> {
-    let seg = quote!(::icydb::core::visitor::PathSegment::Field(#field_key));
-
     let rules: Vec<TokenStream> = value
         .item
         .validators
         .iter()
         .map(|validator| {
-            let ctor = validator.quote_constructor();
+            let ctor = validator.quote_constructor(); // "...::new(args...)"
             quote! {
-                if let Err(err) = #ctor.validate(v) {
-                    ctx.issue_at(#seg, err);
-                }
+                (#ctor).validate(v, &mut __field_ctx);
             }
         })
         .collect();
 
-    cardinality_wrapper(value.cardinality(), rules, var_expr)
+    let body = cardinality_wrapper(value.cardinality(), rules, var_expr)?;
+
+    Some(quote! {{
+        let mut __field_ctx =
+            ::icydb::core::visitor::ScopedContext::new(ctx, #seg);
+        #body
+    }})
 }

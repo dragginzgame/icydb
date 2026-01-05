@@ -12,7 +12,7 @@ use crate::design::prelude::*;
     primitive = "Decimal",
     item(prim = "Decimal"),
     ty(
-        sanitizer(path = "base::sanitizer::num::RoundDecimalPlaces", args(2u32)),
+        sanitizer(path = "base::sanitizer::num::RoundDecimalPlaces", args(2)),
         validator(path = "base::validator::decimal::MaxDecimalPlaces", args(2)),
         validator(path = "base::validator::num::Gte", args(0))
     )
