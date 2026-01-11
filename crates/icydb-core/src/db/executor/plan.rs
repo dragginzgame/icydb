@@ -1,5 +1,4 @@
 use crate::{
-    Error,
     db::{
         Db,
         primitives::FilterExpr,
@@ -8,6 +7,7 @@ use crate::{
     },
     deserialize,
     obs::metrics::Span,
+    runtime_error::RuntimeError,
     traits::EntityKind,
 };
 use std::ops::{Bound, ControlFlow};
@@ -25,7 +25,11 @@ pub const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: usize) {
 
 /// Iterate a query plan and deserialize rows, delegating row handling to `on_row`.
 /// This is a best-effort scan: missing rows and deserialization failures are skipped.
-pub fn scan_plan<E, F>(db: &Db<E::Canister>, plan: QueryPlan, mut on_row: F) -> Result<(), Error>
+pub fn scan_plan<E, F>(
+    db: &Db<E::Canister>,
+    plan: QueryPlan,
+    mut on_row: F,
+) -> Result<(), RuntimeError>
 where
     E: EntityKind,
     F: FnMut(DataKey, E) -> ControlFlow<()>,
@@ -51,7 +55,7 @@ where
                     }
                 }
 
-                Ok::<_, Error>(())
+                Ok::<_, RuntimeError>(())
             })??;
         }
 
@@ -73,7 +77,7 @@ where
                     }
                 }
 
-                Ok::<_, Error>(())
+                Ok::<_, RuntimeError>(())
             })??;
         }
 
@@ -93,7 +97,7 @@ where
                     }
                 }
 
-                Ok::<_, Error>(())
+                Ok::<_, RuntimeError>(())
             })??;
         }
 
@@ -113,7 +117,7 @@ where
                     }
                 }
 
-                Ok::<_, Error>(())
+                Ok::<_, RuntimeError>(())
             })??;
         }
     }

@@ -1,5 +1,5 @@
 
-![MSRV](https://img.shields.io/badge/rustc-1.92+-blue.svg)
+![MSRV](https://img.shields.io/badge/rustc-1.92.0-blue.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
 [![Crate](https://img.shields.io/crates/v/icydb.svg)](https://crates.io/crates/icydb)
@@ -23,7 +23,7 @@
 - **Query builder** – type-safe filters, sorting, offsets, limits.
 - **Stable storage** – B-Tree-backed stable memory via `canic` structures with predictable costs.
 - **Path dispatch** – `icydb_build` generates internal dispatch helpers so you can map paths to entity types without exposing global endpoints.
-- **Observability endpoints** – `icydb_snapshot`, `icydb_logs`, `icydb_metrics`, `icydb_metrics_reset` ship automatically.
+- **Observability endpoints** – `icydb_snapshot`, `icydb_metrics`, `icydb_metrics_reset` ship automatically.
 - **Integration with IC canisters** – ergonomic `icydb::start!` and `icydb::build!` macros.
 - **Testability** – fixtures, query validation, index testing utilities.
 
@@ -31,7 +31,7 @@
 
 ## ⚡ Quickstart
 
-1. **Install Rust 1.92.0+** (workspace uses edition 2024).
+1. **Install Rust 1.92.0** (workspace uses edition 2024).
 2. **Add IcyDB** to your `Cargo.toml` using the latest tag:
    ```toml
    [dependencies]
@@ -91,9 +91,8 @@ pub fn rarities() -> Result<Vec<RarityView>, icydb::Error> {
 - `crates/icydb-core` — runtime (entities, traits, filters, query engine, stores).
 - `crates/icydb-macros` — proc-macros that generate schema, traits, and views.
 - `crates/icydb-schema` — schema AST, builder, and validation.
-- `crates/icydb-base` — built-in design types/sanitizers/validators.
-- `crates/icydb-error` — shared error types (e.g., `ErrorTree`).
 - `crates/icydb-build` — build-time codegen for actors/queries/metrics.
+- `crates/icydb/src/base` — built-in design types, sanitizers, and validators.
 - `crates/test` and `crates/test_design` — integration and design tests.
 - `assets/`, `scripts/`, `Makefile` — docs, helper scripts, and workspace tasks.
 
@@ -102,14 +101,12 @@ pub fn rarities() -> Result<Vec<RarityView>, icydb::Error> {
 ## 📟 Observability & Tooling
 
 - `icydb_snapshot()` → live `StorageReport` with data/index/state breakdowns.
-- `icydb_logs()` → in-memory log buffer (oldest → newest).
 - `icydb_metrics()` → `EventReport` for counters since `since_ms`.
 - `icydb_metrics_reset()` → clears metrics state.
 
 Examples:
 ```bash
 dfx canister call <canister> icydb_snapshot
-dfx canister call <canister> icydb_logs
 dfx canister call <canister> icydb_metrics
 dfx canister call <canister> icydb_metrics_reset
 ```

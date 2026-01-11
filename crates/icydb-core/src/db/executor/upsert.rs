@@ -1,11 +1,13 @@
 use crate::{
-    Error, IndexSpec,
+    IndexSpec,
     db::{
         Db,
         executor::{ExecutorError, SaveExecutor, resolve_unique_pk},
         store::DataKey,
     },
-    deserialize, sanitize,
+    deserialize,
+    runtime_error::RuntimeError,
+    sanitize,
     traits::{EntityKind, FromKey},
 };
 use std::marker::PhantomData;
@@ -28,7 +30,7 @@ impl UniqueIndexHandle {
     }
 
     /// Wrap a unique index for the given entity type.
-    pub fn new<E: EntityKind>(index: &'static IndexSpec) -> Result<Self, Error> {
+    pub fn new<E: EntityKind>(index: &'static IndexSpec) -> Result<Self, RuntimeError> {
         if !E::INDEXES.iter().any(|cand| **cand == *index) {
             return Err(
                 ExecutorError::IndexNotFound(E::PATH.to_string(), index.fields.join(", ")).into(),
@@ -47,7 +49,7 @@ impl UniqueIndexHandle {
     }
 
     /// Resolve a unique index by its field list for the given entity type.
-    pub fn for_fields<E: EntityKind>(fields: &[&str]) -> Result<Self, Error> {
+    pub fn for_fields<E: EntityKind>(fields: &[&str]) -> Result<Self, RuntimeError> {
         for index in E::INDEXES {
             if index.fields == fields {
                 return Self::new::<E>(index);
@@ -101,7 +103,7 @@ where
     }
 
     /// Upsert using a unique index specification.
-    pub fn by_unique_index(&self, index: UniqueIndexHandle, entity: E) -> Result<E, Error> {
+    pub fn by_unique_index(&self, index: UniqueIndexHandle, entity: E) -> Result<E, RuntimeError> {
         self.upsert(index.index(), entity)
     }
 
@@ -111,7 +113,7 @@ where
         index: UniqueIndexHandle,
         entity: E,
         merge: F,
-    ) -> Result<E, Error>
+    ) -> Result<E, RuntimeError>
     where
         F: FnOnce(E, E) -> E,
     {
@@ -126,7 +128,7 @@ where
         index: UniqueIndexHandle,
         entity: E,
         merge: F,
-    ) -> Result<UpsertResult<E>, Error>
+    ) -> Result<UpsertResult<E>, RuntimeError>
     where
         F: FnOnce(E, E) -> E,
     {
@@ -138,12 +140,12 @@ where
         &self,
         index: UniqueIndexHandle,
         entity: E,
-    ) -> Result<UpsertResult<E>, Error> {
+    ) -> Result<UpsertResult<E>, RuntimeError> {
         self.upsert_result(index.index(), entity)
     }
 
     /// Upsert using a unique index identified by its field list.
-    pub fn by_unique_fields(&self, fields: &[&str], entity: E) -> Result<E, Error> {
+    pub fn by_unique_fields(&self, fields: &[&str], entity: E) -> Result<E, RuntimeError> {
         let index = UniqueIndexHandle::for_fields::<E>(fields)?;
         self.upsert(index.index(), entity)
     }
@@ -154,7 +156,7 @@ where
         fields: &[&str],
         entity: E,
         merge: F,
-    ) -> Result<E, Error>
+    ) -> Result<E, RuntimeError>
     where
         F: FnOnce(E, E) -> E,
     {
@@ -169,7 +171,7 @@ where
         fields: &[&str],
         entity: E,
         merge: F,
-    ) -> Result<UpsertResult<E>, Error>
+    ) -> Result<UpsertResult<E>, RuntimeError>
     where
         F: FnOnce(E, E) -> E,
     {
@@ -182,7 +184,7 @@ where
         &self,
         fields: &[&str],
         entity: E,
-    ) -> Result<UpsertResult<E>, Error> {
+    ) -> Result<UpsertResult<E>, RuntimeError> {
         let index = UniqueIndexHandle::for_fields::<E>(fields)?;
         self.upsert_result(index.index(), entity)
     }
@@ -199,13 +201,13 @@ where
         &self,
         index: &'static IndexSpec,
         entity: &E,
-    ) -> Result<Option<E::PrimaryKey>, Error> {
+    ) -> Result<Option<E::PrimaryKey>, RuntimeError> {
         let mut lookup = entity.clone();
         sanitize(&mut lookup)?;
         resolve_unique_pk::<E>(&self.db, index, &lookup)
     }
 
-    fn upsert(&self, index: &'static IndexSpec, entity: E) -> Result<E, Error> {
+    fn upsert(&self, index: &'static IndexSpec, entity: E) -> Result<E, RuntimeError> {
         Ok(self.upsert_result(index, entity)?.entity)
     }
 
@@ -213,7 +215,7 @@ where
         &self,
         index: &'static IndexSpec,
         entity: E,
-    ) -> Result<UpsertResult<E>, Error> {
+    ) -> Result<UpsertResult<E>, RuntimeError> {
         let existing_pk = self.resolve_existing_pk(index, &entity)?;
         let inserted = existing_pk.is_none();
 
@@ -237,7 +239,7 @@ where
         index: &'static IndexSpec,
         entity: E,
         merge: F,
-    ) -> Result<UpsertResult<E>, Error>
+    ) -> Result<UpsertResult<E>, RuntimeError>
     where
         F: FnOnce(E, E) -> E,
     {
@@ -268,7 +270,11 @@ where
         Ok(result)
     }
 
-    fn load_existing(&self, index: &'static IndexSpec, pk: E::PrimaryKey) -> Result<E, Error> {
+    fn load_existing(
+        &self,
+        index: &'static IndexSpec,
+        pk: E::PrimaryKey,
+    ) -> Result<E, RuntimeError> {
         let data_key = DataKey::new::<E>(pk.into());
         let bytes = self
             .db

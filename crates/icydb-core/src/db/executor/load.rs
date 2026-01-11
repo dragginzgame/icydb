@@ -1,5 +1,5 @@
 use crate::{
-    Error, Key,
+    Key,
     db::{
         Db,
         executor::{
@@ -12,6 +12,7 @@ use crate::{
         store::DataRow,
     },
     obs::metrics,
+    runtime_error::RuntimeError,
     traits::{EntityKind, FieldValue},
 };
 use std::{cmp::Ordering, collections::HashMap, hash::Hash, marker::PhantomData, ops::ControlFlow};
@@ -52,17 +53,17 @@ impl<E: EntityKind> LoadExecutor<E> {
     // ======================================================================
 
     /// Execute a query for a single primary key.
-    pub fn one(&self, value: impl FieldValue) -> Result<Response<E>, Error> {
+    pub fn one(&self, value: impl FieldValue) -> Result<Response<E>, RuntimeError> {
         self.execute(LoadQuery::new().one::<E>(value))
     }
 
     /// Execute a query for the unit primary key.
-    pub fn only(&self) -> Result<Response<E>, Error> {
+    pub fn only(&self) -> Result<Response<E>, RuntimeError> {
         self.execute(LoadQuery::new().one::<E>(()))
     }
 
     /// Execute a query matching multiple primary keys.
-    pub fn many<I, V>(&self, values: I) -> Result<Response<E>, Error>
+    pub fn many<I, V>(&self, values: I) -> Result<Response<E>, RuntimeError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
@@ -72,12 +73,12 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Execute an unfiltered query for all rows.
-    pub fn all(&self) -> Result<Response<E>, Error> {
+    pub fn all(&self) -> Result<Response<E>, RuntimeError> {
         self.execute(LoadQuery::new())
     }
 
     /// Execute a query built from a filter.
-    pub fn filter<F, I>(&self, f: F) -> Result<Response<E>, Error>
+    pub fn filter<F, I>(&self, f: F) -> Result<Response<E>, RuntimeError>
     where
         F: FnOnce(FilterDsl) -> I,
         I: IntoFilterExpr,
@@ -90,17 +91,17 @@ impl<E: EntityKind> LoadExecutor<E> {
     // ======================================================================
 
     /// Execute a query and require exactly one row.
-    pub fn require_one(&self, query: LoadQuery) -> Result<(), Error> {
+    pub fn require_one(&self, query: LoadQuery) -> Result<(), RuntimeError> {
         self.execute(query)?.require_one()
     }
 
     /// Require exactly one row by primary key.
-    pub fn require_one_pk(&self, value: impl FieldValue) -> Result<(), Error> {
+    pub fn require_one_pk(&self, value: impl FieldValue) -> Result<(), RuntimeError> {
         self.require_one(LoadQuery::new().one::<E>(value))
     }
 
     /// Require exactly one row from a filter.
-    pub fn require_one_filter<F, I>(&self, f: F) -> Result<(), Error>
+    pub fn require_one_filter<F, I>(&self, f: F) -> Result<(), RuntimeError>
     where
         F: FnOnce(FilterDsl) -> I,
         I: IntoFilterExpr,
@@ -118,7 +119,7 @@ impl<E: EntityKind> LoadExecutor<E> {
     /// or missing, `exists` may return false.
     ///
     /// Respects offset/limit when provided (limit=0 returns false).
-    pub fn exists(&self, query: LoadQuery) -> Result<bool, Error> {
+    pub fn exists(&self, query: LoadQuery) -> Result<bool, RuntimeError> {
         QueryValidate::<E>::validate(&query)?;
         metrics::record_exists_call_for::<E>();
 
@@ -158,12 +159,12 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Check existence by primary key.
-    pub fn exists_one(&self, value: impl FieldValue) -> Result<bool, Error> {
+    pub fn exists_one(&self, value: impl FieldValue) -> Result<bool, RuntimeError> {
         self.exists(LoadQuery::new().one::<E>(value))
     }
 
     /// Check existence with a filter.
-    pub fn exists_filter<F, I>(&self, f: F) -> Result<bool, Error>
+    pub fn exists_filter<F, I>(&self, f: F) -> Result<bool, RuntimeError>
     where
         F: FnOnce(FilterDsl) -> I,
         I: IntoFilterExpr,
@@ -172,7 +173,7 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Check whether the table contains any rows.
-    pub fn exists_any(&self) -> Result<bool, Error> {
+    pub fn exists_any(&self) -> Result<bool, RuntimeError> {
         self.exists(LoadQuery::new())
     }
 
@@ -181,7 +182,7 @@ impl<E: EntityKind> LoadExecutor<E> {
     // ======================================================================
 
     /// Require at least one row by primary key.
-    pub fn ensure_exists_one(&self, value: impl FieldValue) -> Result<(), Error> {
+    pub fn ensure_exists_one(&self, value: impl FieldValue) -> Result<(), RuntimeError> {
         if self.exists_one(value)? {
             Ok(())
         } else {
@@ -191,7 +192,7 @@ impl<E: EntityKind> LoadExecutor<E> {
 
     /// Require that all provided primary keys exist.
     #[allow(clippy::cast_possible_truncation)]
-    pub fn ensure_exists_many<I, V>(&self, values: I) -> Result<(), Error>
+    pub fn ensure_exists_many<I, V>(&self, values: I) -> Result<(), RuntimeError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
@@ -210,7 +211,7 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Require at least one row from a filter.
-    pub fn ensure_exists_filter<F, I>(&self, f: F) -> Result<(), Error>
+    pub fn ensure_exists_filter<F, I>(&self, f: F) -> Result<(), RuntimeError>
     where
         F: FnOnce(FilterDsl) -> I,
         I: IntoFilterExpr,
@@ -227,13 +228,13 @@ impl<E: EntityKind> LoadExecutor<E> {
     // ======================================================================
 
     /// Validate and return the query plan without executing.
-    pub fn explain(self, query: LoadQuery) -> Result<QueryPlan, Error> {
+    pub fn explain(self, query: LoadQuery) -> Result<QueryPlan, RuntimeError> {
         QueryValidate::<E>::validate(&query)?;
 
         Ok(plan_for::<E>(query.filter.as_ref()))
     }
 
-    fn execute_raw(&self, query: &LoadQuery) -> Result<Vec<DataRow>, Error> {
+    fn execute_raw(&self, query: &LoadQuery) -> Result<Vec<DataRow>, RuntimeError> {
         let ctx = self.db.context::<E>();
         let plan = plan_for::<E>(query.filter.as_ref());
 
@@ -249,7 +250,7 @@ impl<E: EntityKind> LoadExecutor<E> {
     /// Note: index-backed loads are best-effort. If index entries point to missing
     /// or malformed rows, those candidates are skipped. Use explicit strict APIs
     /// when corruption must surface as an error.
-    pub fn execute(&self, query: LoadQuery) -> Result<Response<E>, Error> {
+    pub fn execute(&self, query: LoadQuery) -> Result<Response<E>, RuntimeError> {
         let mut span = metrics::Span::<E>::new(metrics::ExecKind::Load);
         QueryValidate::<E>::validate(&query)?;
 
@@ -333,11 +334,11 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Count rows matching a query.
-    pub fn count(&self, query: LoadQuery) -> Result<u32, Error> {
+    pub fn count(&self, query: LoadQuery) -> Result<u32, RuntimeError> {
         Ok(self.execute(query)?.count())
     }
 
-    pub fn count_all(&self) -> Result<u32, Error> {
+    pub fn count_all(&self) -> Result<u32, RuntimeError> {
         self.count(LoadQuery::new())
     }
 
@@ -353,7 +354,7 @@ impl<E: EntityKind> LoadExecutor<E> {
         &self,
         query: LoadQuery,
         key_fn: F,
-    ) -> Result<HashMap<K, u32>, Error>
+    ) -> Result<HashMap<K, u32>, RuntimeError>
     where
         K: Eq + Hash,
         F: Fn(&E) -> K,

@@ -23,7 +23,11 @@ pub mod prelude {
     };
 }
 
-use crate::{Error, ThisError, db::DbError, traits::EntityKind};
+use crate::{
+    ThisError,
+    runtime_error::{ErrorClass, ErrorOrigin, RuntimeError},
+    traits::EntityKind,
+};
 
 ///
 /// QueryError
@@ -41,9 +45,19 @@ pub enum QueryError {
     InvalidSortField(String),
 }
 
-impl From<QueryError> for Error {
+impl QueryError {
+    pub(crate) const fn class(&self) -> ErrorClass {
+        match self {
+            Self::InvalidFilterField(_)
+            | Self::InvalidFilterValue(_)
+            | Self::InvalidSortField(_) => ErrorClass::Unsupported,
+        }
+    }
+}
+
+impl From<QueryError> for RuntimeError {
     fn from(err: QueryError) -> Self {
-        DbError::from(err).into()
+        Self::new(err.class(), ErrorOrigin::Query, err.to_string())
     }
 }
 

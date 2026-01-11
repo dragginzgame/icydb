@@ -57,24 +57,17 @@ mod tests {
             bytes: vec![0u8; 600].into(),
         };
 
-        let err = validate(&r).expect_err("expected validation issues");
-        let err_string = err.to_string();
-        let issues = match &err {
-            Error::ValidateError(issues) => issues,
-            other => panic!("unexpected error: {other:?}"),
-        };
+        // Convert at the boundary, exactly like a real API would
+        let err: Error = validate(&r)
+            .map_err(Error::from)
+            .expect_err("expected validation error");
+
+        let msg = err.to_string();
 
         for key in ["duration_ms", "attempts", "bytes"] {
-            let messages = issues
-                .get(key)
-                .unwrap_or_else(|| panic!("missing issues for {key}"));
             assert!(
-                !messages.is_empty(),
-                "expected validation messages for {key}"
-            );
-            assert!(
-                err_string.contains(key),
-                "expected error string to mention {key}"
+                msg.contains(key),
+                "expected error message to mention field `{key}`"
             );
         }
     }

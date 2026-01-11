@@ -144,6 +144,7 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.clone(), v.to_string()))
             .collect();
+
         let expected_map = HashMap::from([
             ("KeyOne".to_string(), "mixed".to_string()),
             ("KeyTwo".to_string(), "another".to_string()),
@@ -159,24 +160,20 @@ mod tests {
             list: VisitorRejectTextList::from(vec!["one".to_string(), "two".to_string()]),
         };
 
-        let err = sanitize(&mut node).expect_err("expected sanitization issues");
-        let err_string = err.to_string();
-        let issues = match &err {
-            Error::SanitizeError(issues) => issues,
-            other => panic!("unexpected error: {other:?}"),
-        };
+        let err: Error = sanitize(&mut node)
+            .map_err(Error::from)
+            .expect_err("expected sanitization error");
+
+        let msg = err.to_string();
 
         for key in ["field", "list[0]", "list[1]"] {
-            let messages = issues
-                .get(key)
-                .unwrap_or_else(|| panic!("missing issues for {key}"));
             assert!(
-                messages.iter().any(|msg| msg.contains("rejected")),
-                "missing rejection message for {key}"
+                msg.contains(key),
+                "expected error message to mention path `{key}`"
             );
             assert!(
-                err_string.contains(key),
-                "expected error string to mention {key}"
+                msg.contains("rejected"),
+                "expected rejection message for `{key}`"
             );
         }
     }
@@ -187,24 +184,20 @@ mod tests {
             map: VisitorRejectTextMap::from(vec![("key".to_string(), "bad".to_string())]),
         };
 
-        let err = sanitize(&mut node).expect_err("expected sanitization issues");
-        let err_string = err.to_string();
-        let issues = match &err {
-            Error::SanitizeError(issues) => issues,
-            other => panic!("unexpected error: {other:?}"),
-        };
+        let err: Error = sanitize(&mut node)
+            .map_err(Error::from)
+            .expect_err("expected sanitization error");
+
+        let msg = err.to_string();
 
         let key = "map[0]";
-        let messages = issues
-            .get(key)
-            .unwrap_or_else(|| panic!("missing issues for {key}"));
         assert!(
-            messages.iter().any(|msg| msg.contains("rejected")),
-            "missing rejection message for {key}"
+            msg.contains(key),
+            "expected error message to mention path `{key}`"
         );
         assert!(
-            err_string.contains(key),
-            "expected error string to mention {key}"
+            msg.contains("rejected"),
+            "expected rejection message for `{key}`"
         );
     }
 }

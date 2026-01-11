@@ -1,5 +1,4 @@
 use icydb::{
-    Error,
     core::{db::store::DataKey, traits::Path, types::Ulid},
     prelude::*,
 };
@@ -368,6 +367,7 @@ impl DbSuite {
     }
 
     fn load_malformed_row_errors() {
+        use icydb::core::Error;
         use test_design::e2e::db::SimpleEntity;
 
         let good = db!().insert(SimpleEntity::default()).unwrap().key();
@@ -375,10 +375,18 @@ impl DbSuite {
 
         Self::insert_malformed_simple_entity(bad);
 
-        let err = db!().load::<SimpleEntity>().all().unwrap_err();
+        let err: Error = db!()
+            .load::<SimpleEntity>()
+            .all()
+            .map_err(Error::from)
+            .expect_err("expected error when encountering malformed bytes");
+
+        let msg = err.to_string();
+
+        // Assert observable behavior: error indicates a serialization / corruption issue
         assert!(
-            matches!(err, Error::SerializeError(_)),
-            "expected deserialization error when encountering malformed bytes"
+            msg.contains("serialize") || msg.contains("deserialize") || msg.contains("corrupt"),
+            "expected deserialization-related error, got: {msg}"
         );
 
         // Targeted load for a valid key still works because it does not touch the malformed row.
@@ -387,6 +395,7 @@ impl DbSuite {
     }
 
     fn delete_skips_malformed_rows() {
+        use icydb::core::Error;
         use test_design::e2e::db::SimpleEntity;
 
         let valid = db!().insert(SimpleEntity::default()).unwrap().key();
@@ -401,8 +410,18 @@ impl DbSuite {
         assert!(deleted.contains_key(&valid));
 
         // Remaining malformed bytes still break load scans, but did not block deletion.
-        let err = db!().load::<SimpleEntity>().all().unwrap_err();
-        assert!(matches!(err, Error::SerializeError(_)));
+        let err: Error = db!()
+            .load::<SimpleEntity>()
+            .all()
+            .map_err(Error::from)
+            .expect_err("expected error when loading malformed rows");
+
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("serialize") || msg.contains("deserialize") || msg.contains("corrupt"),
+            "expected deserialization-related error, got: {msg}"
+        );
     }
 
     fn insert_malformed_simple_entity(id: Ulid) {

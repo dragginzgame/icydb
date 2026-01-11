@@ -1,10 +1,11 @@
 use crate::{
-    Error, IndexSpec,
+    IndexSpec,
     db::{
         Db,
         executor::ExecutorError,
         store::{DataKey, IndexKey},
     },
+    runtime_error::RuntimeError,
     traits::{EntityKind, FromKey},
 };
 
@@ -18,7 +19,7 @@ pub fn resolve_unique_pk<E>(
     db: &Db<E::Canister>,
     index: &'static IndexSpec,
     entity: &E,
-) -> Result<Option<E::PrimaryKey>, Error>
+) -> Result<Option<E::PrimaryKey>, RuntimeError>
 where
     E: EntityKind,
     E::PrimaryKey: FromKey,

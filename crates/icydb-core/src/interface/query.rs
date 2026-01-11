@@ -1,7 +1,7 @@
 use crate::{
-    Error, Key,
+    Key,
     db::query::{DeleteQuery, LoadQuery, SaveQuery},
-    interface::InterfaceError,
+    runtime_error::{ErrorClass, ErrorOrigin, RuntimeError},
 };
 use thiserror::Error as ThisError;
 
@@ -15,20 +15,28 @@ pub enum QueryError {
     EntityNotFound(String),
 }
 
-impl From<QueryError> for Error {
+impl From<QueryError> for RuntimeError {
     fn from(err: QueryError) -> Self {
-        InterfaceError::from(err).into()
+        Self::new(err.class(), ErrorOrigin::Interface, err.to_string())
+    }
+}
+
+impl QueryError {
+    pub(crate) const fn class(&self) -> ErrorClass {
+        match self {
+            Self::EntityNotFound(_) => ErrorClass::Unsupported,
+        }
     }
 }
 
 /// Function pointer that executes a load query for a specific entity type.
-pub type LoadHandler = fn(LoadQuery) -> Result<Vec<Key>, Error>;
+pub type LoadHandler = fn(LoadQuery) -> Result<Vec<Key>, RuntimeError>;
 
 /// Function pointer that executes a save query for a specific entity type.
-pub type SaveHandler = fn(SaveQuery) -> Result<Key, Error>;
+pub type SaveHandler = fn(SaveQuery) -> Result<Key, RuntimeError>;
 
 /// Function pointer that executes a delete query for a specific entity type.
-pub type DeleteHandler = fn(DeleteQuery) -> Result<Vec<Key>, Error>;
+pub type DeleteHandler = fn(DeleteQuery) -> Result<Vec<Key>, RuntimeError>;
 
 /// Metadata and typed handlers for a single entity path.
 ///

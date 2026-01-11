@@ -167,24 +167,20 @@ mod tests {
             map: VisitorLowerTextMap::from(vec![("KeyOne".to_string(), "MiXeD".to_string())]),
         };
 
-        let err = validate(&node).expect_err("expected validation issues");
-        let err_string = err.to_string();
-        let issues = match &err {
-            Error::ValidateError(issues) => issues,
-            other => panic!("unexpected error: {other:?}"),
-        };
+        let err: Error = validate(&node)
+            .map_err(Error::from)
+            .expect_err("expected validation error");
+
+        let msg = err.to_string();
 
         for key in ["list[1]", "tup.0", "map[0]", "rec.leaf"] {
-            let messages = issues
-                .get(key)
-                .unwrap_or_else(|| panic!("missing issues for {key}"));
             assert!(
-                messages.iter().any(|msg| msg.contains("not lower case")),
-                "missing validation message for {key}"
+                msg.contains(key),
+                "expected error message to mention `{key}`"
             );
             assert!(
-                err_string.contains(key),
-                "expected error string to mention {key}"
+                msg.contains("not lower case"),
+                "expected validation message for `{key}`"
             );
         }
     }
@@ -195,24 +191,20 @@ mod tests {
             set: VisitorLowerTextSetValidated::from(vec!["MiXeD".to_string()]),
         };
 
-        let err = validate(&node).expect_err("expected validation issues");
-        let err_string = err.to_string();
-        let issues = match &err {
-            Error::ValidateError(issues) => issues,
-            other => panic!("unexpected error: {other:?}"),
-        };
+        let err: Error = validate(&node)
+            .map_err(Error::from)
+            .expect_err("expected validation error");
+
+        let msg = err.to_string();
 
         let key = "set[0]";
-        let messages = issues
-            .get(key)
-            .unwrap_or_else(|| panic!("missing issues for {key}"));
         assert!(
-            messages.iter().any(|msg| msg.contains("not lower case")),
-            "missing validation message for {key}"
+            msg.contains(key),
+            "expected error message to mention `{key}`"
         );
         assert!(
-            err_string.contains(key),
-            "expected error string to mention {key}"
+            msg.contains("not lower case"),
+            "expected validation message for `{key}`"
         );
     }
 
@@ -225,24 +217,20 @@ mod tests {
             )]),
         };
 
-        let err = validate(&node).expect_err("expected validation issues");
-        let err_string = err.to_string();
-        let issues = match &err {
-            Error::ValidateError(issues) => issues,
-            other => panic!("unexpected error: {other:?}"),
-        };
+        let err: Error = validate(&node)
+            .map_err(Error::from)
+            .expect_err("expected validation error");
+
+        let msg = err.to_string();
 
         let key = "map[0]";
-        let messages = issues
-            .get(key)
-            .unwrap_or_else(|| panic!("missing issues for {key}"));
         assert!(
-            messages.iter().any(|msg| msg.contains("not lower case")),
-            "missing validation message for {key}"
+            msg.contains(key),
+            "expected error message to mention `{key}`"
         );
         assert!(
-            err_string.contains(key),
-            "expected error string to mention {key}"
+            msg.contains("not lower case"),
+            "expected validation message for `{key}`"
         );
     }
 
@@ -255,24 +243,20 @@ mod tests {
             )]),
         };
 
-        let err = validate(&node).expect_err("expected validation issues");
-        let err_string = err.to_string();
-        let issues = match &err {
-            Error::ValidateError(issues) => issues,
-            other => panic!("unexpected error: {other:?}"),
-        };
+        let err: Error = validate(&node)
+            .map_err(Error::from)
+            .expect_err("expected validation error");
+
+        let msg = err.to_string();
 
         let key = "map[0]";
-        let messages = issues
-            .get(key)
-            .unwrap_or_else(|| panic!("missing issues for {key}"));
         assert!(
-            messages.iter().any(|msg| msg.contains("not lower case")),
-            "missing validation message for {key}"
+            msg.contains(key),
+            "expected error message to mention `{key}`"
         );
         assert!(
-            err_string.contains(key),
-            "expected error string to mention {key}"
+            msg.contains("not lower case"),
+            "expected validation message for `{key}`"
         );
     }
 
@@ -287,24 +271,16 @@ mod tests {
             ]),
         };
 
-        let err = validate(&node).expect_err("expected validation issues");
-        let err_string = err.to_string();
-        let issues = match &err {
-            Error::ValidateError(issues) => issues,
-            other => panic!("unexpected error: {other:?}"),
-        };
+        let err: Error = validate(&node)
+            .map_err(Error::from)
+            .expect_err("expected validation error");
+
+        let msg = err.to_string();
 
         for key in ["list", "set", "map"] {
-            let messages = issues
-                .get(key)
-                .unwrap_or_else(|| panic!("missing issues for {key}"));
             assert!(
-                !messages.is_empty(),
-                "expected validation messages for {key}"
-            );
-            assert!(
-                err_string.contains(key),
-                "expected error string to mention {key}"
+                msg.contains(key),
+                "expected error message to mention `{key}`"
             );
         }
     }

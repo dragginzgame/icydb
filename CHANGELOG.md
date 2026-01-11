@@ -5,6 +5,11 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.2.4] - 2026-01-11 - Error Upgrade
+- Runtime errors are now unified under `RuntimeError` with class + origin metadata (internal taxonomy, not a stable API).
+- Public `Error` values are produced only at API boundaries and now stringify with `origin:class:` prefixes.
+- Added `REFACTOR.md` to document the maintainer-facing runtime contract and refactor baseline.
+
 ## [0.2.3] - 2026-01-04
 - Added issue() and issue_at() for sanitizer and validators so you can pass Into<Issue>.  You couldn't before because
 it's a dynamic trait.

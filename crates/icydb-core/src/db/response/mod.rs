@@ -2,7 +2,11 @@ mod ext;
 
 pub use ext::*;
 
-use crate::{Error, Key, ThisError, db::DbError, traits::EntityKind};
+use crate::{
+    Key, ThisError,
+    runtime_error::{ErrorClass, ErrorOrigin, RuntimeError},
+    traits::EntityKind,
+};
 
 ///
 /// Page
@@ -45,9 +49,17 @@ pub enum ResponseError {
     NotUnique { entity: &'static str, count: u32 },
 }
 
-impl From<ResponseError> for Error {
+impl ResponseError {
+    pub(crate) const fn class(&self) -> ErrorClass {
+        match self {
+            Self::NotFound { .. } | Self::NotUnique { .. } => ErrorClass::Unsupported,
+        }
+    }
+}
+
+impl From<ResponseError> for RuntimeError {
     fn from(err: ResponseError) -> Self {
-        DbError::from(err).into()
+        Self::new(err.class(), ErrorOrigin::Response, err.to_string())
     }
 }
 
@@ -82,7 +94,7 @@ impl<E: EntityKind> Response<E> {
     // ======================================================================
 
     /// Require exactly one row.
-    pub fn require_one(&self) -> Result<(), Error> {
+    pub fn require_one(&self) -> Result<(), RuntimeError> {
         match self.count() {
             1 => Ok(()),
             0 => Err(ResponseError::NotFound { entity: E::PATH }.into()),
@@ -95,7 +107,7 @@ impl<E: EntityKind> Response<E> {
     }
 
     /// Require at least one row.
-    pub fn require_some(&self) -> Result<(), Error> {
+    pub fn require_some(&self) -> Result<(), RuntimeError> {
         match self.count() {
             0 => Err(ResponseError::NotFound { entity: E::PATH }.into()),
             _ => Ok(()),
@@ -103,7 +115,7 @@ impl<E: EntityKind> Response<E> {
     }
 
     /// Require exactly `expected` rows.
-    pub fn require_len(&self, expected: u32) -> Result<(), Error> {
+    pub fn require_len(&self, expected: u32) -> Result<(), RuntimeError> {
         let actual = self.count();
         if actual == expected {
             Ok(())
@@ -123,14 +135,14 @@ impl<E: EntityKind> Response<E> {
     // ======================================================================
 
     /// Require exactly one row and return it.
-    pub fn one(self) -> Result<Row<E>, Error> {
+    pub fn one(self) -> Result<Row<E>, RuntimeError> {
         self.require_one()?;
         Ok(self.0.into_iter().next().unwrap())
     }
 
     /// Require at most one row and return it.
     #[allow(clippy::cast_possible_truncation)]
-    pub fn one_opt(self) -> Result<Option<Row<E>>, Error> {
+    pub fn one_opt(self) -> Result<Option<Row<E>>, RuntimeError> {
         match self.0.len() {
             0 => Ok(None),
             1 => Ok(Some(self.0.into_iter().next().unwrap())),
@@ -189,12 +201,12 @@ impl<E: EntityKind> Response<E> {
     }
 
     /// Require exactly one row and return its key.
-    pub fn one_key(self) -> Result<Key, Error> {
+    pub fn one_key(self) -> Result<Key, RuntimeError> {
         self.one().map(|(k, _)| k)
     }
 
     /// Require at most one row and return its key.
-    pub fn one_opt_key(self) -> Result<Option<Key>, Error> {
+    pub fn one_opt_key(self) -> Result<Option<Key>, RuntimeError> {
         Ok(self.one_opt()?.map(|(k, _)| k))
     }
 
@@ -220,12 +232,12 @@ impl<E: EntityKind> Response<E> {
     }
 
     /// Require exactly one entity.
-    pub fn one_entity(self) -> Result<E, Error> {
+    pub fn one_entity(self) -> Result<E, RuntimeError> {
         self.one().map(|(_, e)| e)
     }
 
     /// Require at most one entity.
-    pub fn one_opt_entity(self) -> Result<Option<E>, Error> {
+    pub fn one_opt_entity(self) -> Result<Option<E>, RuntimeError> {
         Ok(self.one_opt()?.map(|(_, e)| e))
     }
 
@@ -246,12 +258,12 @@ impl<E: EntityKind> Response<E> {
     }
 
     /// Require exactly one primary key.
-    pub fn one_pk(self) -> Result<E::PrimaryKey, Error> {
+    pub fn one_pk(self) -> Result<E::PrimaryKey, RuntimeError> {
         self.one_entity().map(|e| e.primary_key())
     }
 
     /// Require at most one primary key.
-    pub fn one_opt_pk(self) -> Result<Option<E::PrimaryKey>, Error> {
+    pub fn one_opt_pk(self) -> Result<Option<E::PrimaryKey>, RuntimeError> {
         Ok(self.one_opt_entity()?.map(|e| e.primary_key()))
     }
 
@@ -266,12 +278,12 @@ impl<E: EntityKind> Response<E> {
     }
 
     /// Require exactly one view.
-    pub fn one_view(self) -> Result<E::ViewType, Error> {
+    pub fn one_view(self) -> Result<E::ViewType, RuntimeError> {
         self.one_entity().map(|e| e.to_view())
     }
 
     /// Require at most one view.
-    pub fn one_opt_view(self) -> Result<Option<E::ViewType>, Error> {
+    pub fn one_opt_view(self) -> Result<Option<E::ViewType>, RuntimeError> {
         Ok(self.one_opt_entity()?.map(|e| e.to_view()))
     }
 

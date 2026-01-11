@@ -5,42 +5,14 @@ pub mod response;
 pub mod store;
 
 use crate::{
-    Error,
     db::{
-        executor::{
-            Context, DeleteExecutor, ExecutorError, LoadExecutor, SaveExecutor, UpsertExecutor,
-        },
-        query::QueryError,
-        response::ResponseError,
-        store::{DataStoreRegistry, IndexStoreRegistry, StoreError},
+        executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor, UpsertExecutor},
+        store::{DataStoreRegistry, IndexStoreRegistry},
     },
-    serialize::SerializeError,
+    runtime_error::RuntimeError,
     traits::{CanisterKind, EntityKind, FromKey},
 };
 use std::{marker::PhantomData, thread::LocalKey};
-use thiserror::Error as ThisError;
-
-///
-/// DbError
-///
-
-#[derive(Debug, ThisError)]
-pub enum DbError {
-    #[error(transparent)]
-    ExecutorError(#[from] ExecutorError),
-
-    #[error(transparent)]
-    QueryError(#[from] QueryError),
-
-    #[error(transparent)]
-    ResponseError(#[from] ResponseError),
-
-    #[error(transparent)]
-    SerializeError(#[from] SerializeError),
-
-    #[error(transparent)]
-    StoreError(#[from] StoreError),
-}
 
 ///
 /// Db
@@ -174,7 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
     //
 
     /// Insert a new entity, returning the stored value.
-    pub fn insert<E>(&self, entity: E) -> Result<E, Error>
+    pub fn insert<E>(&self, entity: E) -> Result<E, RuntimeError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -182,7 +154,10 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Insert multiple entities, returning stored values.
-    pub fn insert_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
+    pub fn insert_many<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<Vec<E>, RuntimeError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -190,7 +165,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Replace an existing entity or insert it if it does not yet exist.
-    pub fn replace<E>(&self, entity: E) -> Result<E, Error>
+    pub fn replace<E>(&self, entity: E) -> Result<E, RuntimeError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -198,7 +173,10 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Replace multiple entities, inserting if missing.
-    pub fn replace_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
+    pub fn replace_many<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<Vec<E>, RuntimeError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -206,7 +184,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Partially update an existing entity.
-    pub fn update<E>(&self, entity: E) -> Result<E, Error>
+    pub fn update<E>(&self, entity: E) -> Result<E, RuntimeError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -214,7 +192,10 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Partially update multiple existing entities.
-    pub fn update_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
+    pub fn update_many<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<Vec<E>, RuntimeError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -222,7 +203,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Insert a new view value for an entity.
-    pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
+    pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, RuntimeError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -230,7 +211,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Replace an existing view or insert it if it does not yet exist.
-    pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
+    pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, RuntimeError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -238,7 +219,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Partially update an existing view.
-    pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
+    pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, RuntimeError>
     where
         E: EntityKind<Canister = C>,
     {

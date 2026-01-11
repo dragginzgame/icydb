@@ -7,12 +7,15 @@ pub mod interface;
 pub mod key;
 pub mod macros;
 pub mod obs;
+pub mod runtime_error;
 pub mod serialize;
 pub mod traits;
 pub mod types;
 pub mod value;
 pub mod view;
 pub mod visitor;
+
+pub(crate) use runtime_error::RuntimeError;
 
 pub use index::IndexSpec;
 pub use key::Key;
@@ -43,43 +46,31 @@ use visitor::VisitorIssues;
 ///
 
 #[derive(CandidType, Debug, Deserialize, Serialize, ThisError)]
-pub enum Error {
-    #[error("{0}")]
-    DbError(String),
+#[error("{0}")]
+pub struct Error(pub String);
 
-    #[error("{0}")]
-    InterfaceError(String),
-
-    #[error("{0}")]
-    SanitizeError(VisitorIssues),
-
-    #[error("{0}")]
-    SerializeError(String),
-
-    #[error("{0}")]
-    ValidateError(VisitorIssues),
+impl From<VisitorIssues> for runtime_error::RuntimeError {
+    fn from(err: VisitorIssues) -> Self {
+        Self::new(
+            runtime_error::ErrorClass::Unsupported,
+            runtime_error::ErrorOrigin::Executor,
+            err.to_string(),
+        )
+    }
 }
 
-macro_rules! from_to_string {
-    ($from:ty, $variant:ident) => {
-        impl From<$from> for Error {
-            fn from(e: $from) -> Self {
-                Error::$variant(e.to_string())
-            }
-        }
-    };
+impl From<RuntimeError> for Error {
+    fn from(err: runtime_error::RuntimeError) -> Self {
+        Self(err.display_with_class())
+    }
 }
-
-from_to_string!(db::DbError, DbError);
-from_to_string!(interface::InterfaceError, InterfaceError);
-from_to_string!(serialize::SerializeError, SerializeError);
 
 /// sanitize
-pub fn sanitize(node: &mut dyn Visitable) -> Result<(), Error> {
-    visitor::sanitize(node).map_err(Error::SanitizeError)
+pub fn sanitize(node: &mut dyn Visitable) -> Result<(), runtime_error::RuntimeError> {
+    visitor::sanitize(node).map_err(runtime_error::RuntimeError::from)
 }
 
 /// validate
-pub fn validate(node: &dyn Visitable) -> Result<(), Error> {
-    visitor::validate(node).map_err(Error::ValidateError)
+pub fn validate(node: &dyn Visitable) -> Result<(), runtime_error::RuntimeError> {
+    visitor::validate(node).map_err(runtime_error::RuntimeError::from)
 }

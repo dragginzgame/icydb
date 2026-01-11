@@ -16,11 +16,22 @@ pub(crate) use unique::resolve_unique_pk;
 pub use upsert::{UniqueIndexHandle, UpsertExecutor, UpsertResult};
 
 use crate::{
-    Error,
-    db::{DbError, store::DataKey},
+    db::store::DataKey,
+    runtime_error::{ErrorClass, ErrorOrigin, RuntimeError},
 };
 use filter::*;
 use thiserror::Error as ThisError;
+
+/// Conceptual write boundary for intended atomicity (no transactions, no rollback).
+pub(crate) struct WriteUnit {
+    _label: &'static str,
+}
+
+impl WriteUnit {
+    pub(crate) const fn new(label: &'static str) -> Self {
+        Self { _label: label }
+    }
+}
 
 ///
 /// ExecutorError
@@ -62,10 +73,35 @@ impl ExecutorError {
     pub(crate) fn index_violation(path: &str, index_fields: &[&str]) -> Self {
         Self::IndexViolation(path.to_string(), index_fields.join(", "))
     }
+
+    pub(crate) const fn class(&self) -> ErrorClass {
+        match self {
+            Self::KeyExists(_) | Self::IndexViolation(_, _) => ErrorClass::Conflict,
+            Self::KeyNotFound(_) => ErrorClass::InvariantViolation,
+            Self::IndexNotFound(_, _)
+            | Self::IndexNotUnique(_, _)
+            | Self::IndexKeyMissing(_, _)
+            | Self::KeyTypeMismatch(_, _)
+            | Self::KeyOutOfRange(_, _) => ErrorClass::Unsupported,
+            Self::IndexCorrupted(_, _, _) => ErrorClass::Corruption,
+        }
+    }
+
+    pub(crate) const fn origin(&self) -> ErrorOrigin {
+        match self {
+            Self::KeyExists(_) | Self::KeyNotFound(_) => ErrorOrigin::Store,
+            Self::IndexViolation(_, _)
+            | Self::IndexNotFound(_, _)
+            | Self::IndexNotUnique(_, _)
+            | Self::IndexKeyMissing(_, _)
+            | Self::IndexCorrupted(_, _, _) => ErrorOrigin::Index,
+            Self::KeyTypeMismatch(_, _) | Self::KeyOutOfRange(_, _) => ErrorOrigin::Executor,
+        }
+    }
 }
 
-impl From<ExecutorError> for Error {
+impl From<ExecutorError> for RuntimeError {
     fn from(err: ExecutorError) -> Self {
-        DbError::from(err).into()
+        Self::new(err.class(), err.origin(), err.to_string())
     }
 }

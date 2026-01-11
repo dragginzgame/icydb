@@ -14,6 +14,10 @@ use std::{collections::BTreeMap, fmt};
 
 ///
 /// VisitorIssues
+/// Aggregated visitor diagnostics.
+///
+/// NOTE: This is not an error type. It does not represent failure.
+/// It is converted into a RuntimeError only at the runtime boundary.
 ///
 
 #[derive(

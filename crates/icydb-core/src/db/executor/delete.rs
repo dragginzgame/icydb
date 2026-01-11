@@ -1,9 +1,9 @@
 use crate::{
-    Error, IndexSpec, Key,
+    IndexSpec, Key,
     db::{
         Db,
         executor::{
-            ExecutorError, FilterEvaluator, UniqueIndexHandle,
+            ExecutorError, FilterEvaluator, UniqueIndexHandle, WriteUnit,
             plan::{plan_for, scan_plan, set_rows_from_len},
             resolve_unique_pk,
         },
@@ -14,6 +14,7 @@ use crate::{
     },
     deserialize,
     obs::metrics,
+    runtime_error::RuntimeError,
     sanitize,
     traits::{EntityKind, FieldValue, FromKey},
 };
@@ -99,19 +100,19 @@ impl<E: EntityKind> DeleteExecutor<E> {
     // ─────────────────────────────────────────────
 
     /// Delete a single row by primary key.
-    pub fn one(self, pk: impl FieldValue) -> Result<Response<E>, Error> {
+    pub fn one(self, pk: impl FieldValue) -> Result<Response<E>, RuntimeError> {
         let query = DeleteQuery::new().one::<E>(pk);
         self.execute(query)
     }
 
     /// Delete the unit-key row.
-    pub fn only(self) -> Result<Response<E>, Error> {
+    pub fn only(self) -> Result<Response<E>, RuntimeError> {
         let query = DeleteQuery::new().one::<E>(());
         self.execute(query)
     }
 
     /// Delete multiple rows by primary keys.
-    pub fn many<I, V>(self, values: I) -> Result<Response<E>, Error>
+    pub fn many<I, V>(self, values: I) -> Result<Response<E>, RuntimeError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
@@ -126,7 +127,11 @@ impl<E: EntityKind> DeleteExecutor<E> {
     // ─────────────────────────────────────────────
 
     /// Delete a single row using a unique index handle.
-    pub fn by_unique_index(self, index: UniqueIndexHandle, entity: E) -> Result<Response<E>, Error>
+    pub fn by_unique_index(
+        self,
+        index: UniqueIndexHandle,
+        entity: E,
+    ) -> Result<Response<E>, RuntimeError>
     where
         E::PrimaryKey: FromKey,
     {
@@ -143,11 +148,15 @@ impl<E: EntityKind> DeleteExecutor<E> {
         let (dk, stored) = self.load_existing(index, pk)?;
 
         self.db.context::<E>().with_store_mut(|s| {
+            // Delete semantics: data removal happens before index removal.
+            // Corruption risk: if index removal fails, orphaned index entries remain.
+            // Retry-safe only if missing rows are acceptable to the caller.
+            let _unit = WriteUnit::new("delete_unique_row");
             s.remove(&dk);
             if !E::INDEXES.is_empty() {
                 self.remove_indexes(&stored)?;
             }
-            Ok::<_, Error>(())
+            Ok::<_, RuntimeError>(())
         })??;
 
         set_rows_from_len(&mut span, 1);
@@ -163,7 +172,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         self,
         field: impl AsRef<str>,
         value: impl FieldValue,
-    ) -> Result<Response<E>, Error> {
+    ) -> Result<Response<E>, RuntimeError> {
         let query = DeleteQuery::new().one_by_field(field, value);
         self.execute(query)
     }
@@ -173,7 +182,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         self,
         field: impl AsRef<str>,
         values: I,
-    ) -> Result<Response<E>, Error>
+    ) -> Result<Response<E>, RuntimeError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
@@ -183,12 +192,12 @@ impl<E: EntityKind> DeleteExecutor<E> {
     }
 
     /// Delete all rows.
-    pub fn all(self) -> Result<Response<E>, Error> {
+    pub fn all(self) -> Result<Response<E>, RuntimeError> {
         self.execute(DeleteQuery::new())
     }
 
     /// Apply a filter builder and delete matches.
-    pub fn filter<F, I>(self, f: F) -> Result<Response<E>, Error>
+    pub fn filter<F, I>(self, f: F) -> Result<Response<E>, RuntimeError>
     where
         F: FnOnce(FilterDsl) -> I,
         I: IntoFilterExpr,
@@ -201,12 +210,12 @@ impl<E: EntityKind> DeleteExecutor<E> {
     // ENSURE HELPERS
     // ─────────────────────────────────────────────
 
-    pub fn ensure_delete_one(self, pk: impl FieldValue) -> Result<(), Error> {
+    pub fn ensure_delete_one(self, pk: impl FieldValue) -> Result<(), RuntimeError> {
         self.one(pk)?.require_one()?;
         Ok(())
     }
 
-    pub fn ensure_delete_any_by_pk<I, V>(self, pks: I) -> Result<(), Error>
+    pub fn ensure_delete_any_by_pk<I, V>(self, pks: I) -> Result<(), RuntimeError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
@@ -216,7 +225,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         Ok(())
     }
 
-    pub fn ensure_delete_any<I, V>(self, values: I) -> Result<(), Error>
+    pub fn ensure_delete_any<I, V>(self, values: I) -> Result<(), RuntimeError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
@@ -228,7 +237,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
     // EXECUTION
     // ─────────────────────────────────────────────
 
-    pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, Error> {
+    pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, RuntimeError> {
         QueryValidate::<E>::validate(&query)?;
 
         Ok(plan_for::<E>(query.filter.as_ref()))
@@ -239,7 +248,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
     /// Note: index-planned deletes are best-effort and do not validate unique-index
     /// invariants. Corrupt index entries may be skipped. Use `by_unique_index` for
     /// strict unique-index semantics.
-    pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, Error> {
+    pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, RuntimeError> {
         QueryValidate::<E>::validate(&query)?;
         let mut span = metrics::Span::<E>::new(metrics::ExecKind::Delete);
 
@@ -270,14 +279,19 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
         let mut res: Vec<(Key, E)> = Vec::with_capacity(acc.matches.len());
         self.db.context::<E>().with_store_mut(|s| {
+            // Delete semantics: incremental and non-atomic across data/index stores.
+            // Acceptable: partial deletions remain if an error occurs mid-loop.
+            // Corruption risk: if index removal fails after data removal, indexes
+            // can retain orphaned entries. Retry-safe only if missing rows are ok.
             for (dk, entity) in acc.matches {
+                let _unit = WriteUnit::new("delete_row");
                 s.remove(&dk);
                 if !E::INDEXES.is_empty() {
                     self.remove_indexes(&entity)?;
                 }
                 res.push((dk.key(), entity));
             }
-            Ok::<_, Error>(())
+            Ok::<_, RuntimeError>(())
         })??;
 
         set_rows_from_len(&mut span, res.len());
@@ -285,7 +299,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         Ok(Response(res))
     }
 
-    fn remove_indexes(&self, entity: &E) -> Result<(), Error> {
+    fn remove_indexes(&self, entity: &E) -> Result<(), RuntimeError> {
         for index in E::INDEXES {
             let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
             store.with_borrow_mut(|this| {
@@ -299,7 +313,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         &self,
         index: &'static IndexSpec,
         pk: E::PrimaryKey,
-    ) -> Result<(DataKey, E), Error> {
+    ) -> Result<(DataKey, E), RuntimeError> {
         let data_key = DataKey::new::<E>(pk.into());
         let bytes = self
             .db

@@ -1,4 +1,4 @@
-use crate::{Error, serialize, traits::EntityKind};
+use crate::{runtime_error::RuntimeError, serialize, traits::EntityKind};
 use candid::CandidType;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,7 @@ impl SaveQuery {
 
     // from
     /// Serialize an entity into the query payload.
-    pub fn from<E: EntityKind>(mut self, input: impl Into<E>) -> Result<Self, Error> {
+    pub fn from<E: EntityKind>(mut self, input: impl Into<E>) -> Result<Self, RuntimeError> {
         let entity = input.into();
         self.bytes = serialize(&entity)?;
 
@@ -59,7 +59,7 @@ impl SaveQuery {
 
     // from_entity
     /// Serialize the provided entity into the query payload.
-    pub fn from_entity<E: EntityKind>(mut self, entity: E) -> Result<Self, Error> {
+    pub fn from_entity<E: EntityKind>(mut self, entity: E) -> Result<Self, RuntimeError> {
         self.bytes = serialize(&entity)?;
 
         Ok(self)

@@ -1,10 +1,11 @@
 use crate::{
-    Error, IndexSpec, Key, MAX_INDEX_FIELDS, Value,
+    IndexSpec, Key, MAX_INDEX_FIELDS, Value,
     db::{
         executor::ExecutorError,
         store::{DataKey, StoreRegistry},
     },
     obs::metrics,
+    runtime_error::RuntimeError,
     traits::EntityKind,
 };
 use candid::CandidType;
@@ -56,7 +57,7 @@ impl IndexStore {
         &mut self,
         entity: &E,
         index: &IndexSpec,
-    ) -> Result<(), Error> {
+    ) -> Result<(), RuntimeError> {
         // Skip if index key can't be built (e.g. optional fields missing)
         let Some(index_key) = IndexKey::new(entity, index) else {
             return Ok(());
@@ -74,7 +75,7 @@ impl IndexStore {
                 if !existing.is_empty() {
                     metrics::with_state_mut(|m| metrics::record_unique_violation_for::<E>(m));
 
-                    return Err(ExecutorError::index_violation(E::PATH, index.fields))?;
+                    return Err(ExecutorError::index_violation(E::PATH, index.fields).into());
                 }
 
                 self.insert(index_key.clone(), IndexEntry::new(index.fields, key));

@@ -38,17 +38,17 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
                 path: #ty::PATH,
 
                 // Load closure: executes the LoadQuery on this entity type.
-                load_keys: |query: ::icydb::core::db::query::LoadQuery| -> Result<Vec<::icydb::core::Key>, ::icydb::core::Error> {
+                load_keys: |query: ::icydb::core::db::query::LoadQuery| -> Result<Vec<::icydb::core::Key>, ::icydb::core::runtime_error::RuntimeError> {
                     db!().load::<#ty>().execute(query).map(|res| res.keys())
                 },
 
                 // Save closure: executes a SaveQuery and returns the resulting key.
-                save_key: |query: ::icydb::core::db::query::SaveQuery| -> Result<::icydb::core::Key, ::icydb::core::Error> {
+                save_key: |query: ::icydb::core::db::query::SaveQuery| -> Result<::icydb::core::Key, ::icydb::core::runtime_error::RuntimeError> {
                     db!().save::<#ty>().execute(query).map(|res| res.key())
                 },
 
                 // Delete closure: executes DeleteQuery and returns all removed keys.
-                delete_keys: |query: ::icydb::core::db::query::DeleteQuery| -> Result<Vec<::icydb::core::Key>, ::icydb::core::Error> {
+                delete_keys: |query: ::icydb::core::db::query::DeleteQuery| -> Result<Vec<::icydb::core::Key>, ::icydb::core::runtime_error::RuntimeError> {
                     db!().delete::<#ty>().execute(query).map(|res| res.keys())
                 },
             }),
@@ -76,7 +76,7 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
         pub(crate) fn dispatch_load(
             path: &str,
             query: ::icydb::core::db::query::LoadQuery,
-        ) -> Result<Vec<::icydb::core::Key>, ::icydb::core::Error> {
+        ) -> Result<Vec<::icydb::core::Key>, ::icydb::core::runtime_error::RuntimeError> {
             let dispatch = dispatch_entity(path)?;
             (dispatch.load_keys)(query)
         }
@@ -87,7 +87,7 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
         pub(crate) fn dispatch_save(
             path: &str,
             query: ::icydb::core::db::query::SaveQuery,
-        ) -> Result<::icydb::core::Key, ::icydb::core::Error> {
+        ) -> Result<::icydb::core::Key, ::icydb::core::runtime_error::RuntimeError> {
             let dispatch = dispatch_entity(path)?;
             (dispatch.save_key)(query)
         }
@@ -98,7 +98,7 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
         pub(crate) fn dispatch_delete(
             path: &str,
             query: ::icydb::core::db::query::DeleteQuery,
-        ) -> Result<Vec<::icydb::core::Key>, ::icydb::core::Error> {
+        ) -> Result<Vec<::icydb::core::Key>, ::icydb::core::runtime_error::RuntimeError> {
             let dispatch = dispatch_entity(path)?;
             (dispatch.delete_keys)(query)
         }
