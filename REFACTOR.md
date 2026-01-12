@@ -62,8 +62,8 @@ Undefined (consistency)
 - Automatic detection or repair of index corruption.
 
 Failure semantics
-- Internal operations return a structured `RuntimeError` (class + origin);
-  public `Error` is a lossy string created at the API boundary.
+- Internal operations return a structured `InternalError` (class + origin);
+  public `Error` exposes class/origin/message at the API boundary.
 - Errors are classified into a stable internal taxonomy; string representations
   are non-contractual.
 - Operations may partially update stores before returning an error.
@@ -110,15 +110,15 @@ Maintainer obligations implied by this contract
 Structural risks (current)
 - Cross-cutting concerns (metrics, validation, storage) live in the same
   runtime layer, increasing coupling and local reasoning cost.
-- Boundary errors are string-only; internal taxonomy is not exposed, limiting
-  programmatic handling in user code.
+- Boundary errors now expose class/origin, but retry guidance and stability
+  guarantees for the mapping are not yet documented.
 - Upgrade risk is high due to unversioned serialization and derived indexes.
 - Observability lacks durable auditability and traceability.
 - Multi-tenant and security boundaries are not modeled at the runtime layer.
 
 Missing or under-modeled concepts
 - Explicit consistency model and transaction boundaries.
-- Public error contract (taxonomy exposure, retry guidance, stability).
+- Public error contract (retry guidance, stability).
 - Schema/version compatibility contract and migration lifecycle.
 - Observability contract (structured logs, durable audit events).
 - Tenancy, authorization, and quota boundaries.

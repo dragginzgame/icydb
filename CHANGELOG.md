@@ -5,6 +5,10 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [Unreleased]
+### Changed
+- Public `Error` now exposes `class` and `origin` alongside the message.
+
 ## [0.3.1] - 2026-01-12
 - fixed stupid bug
 

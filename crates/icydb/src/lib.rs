@@ -68,6 +68,8 @@ pub use icydb_core::{hash, key, model, obs, traits, types, value, view, visitor}
 // canic modules
 pub mod base;
 pub mod db;
+pub mod error;
+pub use error::Error;
 
 /// Internal
 #[doc(hidden)]
@@ -162,10 +164,8 @@ pub mod design {
 }
 
 /// -------------------------- CODE -----------------------------------
-use candid::CandidType;
 use icydb_core::{error::InternalError, traits::Visitable};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use thiserror::Error as ThisError;
+use serde::{Serialize, de::DeserializeOwned};
 
 ///
 /// Consts
@@ -197,23 +197,6 @@ macro_rules! db {
     () => {
         crate::db()
     };
-}
-
-///
-/// Error
-///
-/// top level error should handle all sub-errors, but not expose the candid types
-/// as that would be a lot of them
-///
-
-#[derive(CandidType, Debug, Deserialize, Serialize, ThisError)]
-#[error("{0}")]
-pub struct Error(pub String);
-
-impl From<InternalError> for Error {
-    fn from(err: InternalError) -> Self {
-        Self(err.to_string())
-    }
 }
 
 ///
