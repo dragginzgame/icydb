@@ -24,10 +24,10 @@ pub mod prelude {
 }
 
 use crate::{
-    ThisError,
-    runtime_error::{ErrorClass, ErrorOrigin, RuntimeError},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
 };
+use thiserror::Error as ThisError;
 
 ///
 /// QueryError
@@ -55,7 +55,7 @@ impl QueryError {
     }
 }
 
-impl From<QueryError> for RuntimeError {
+impl From<QueryError> for InternalError {
     fn from(err: QueryError) -> Self {
         Self::new(err.class(), ErrorOrigin::Query, err.to_string())
     }

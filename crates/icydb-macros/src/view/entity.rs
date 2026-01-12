@@ -62,7 +62,7 @@ impl View for EntityCreate<'_> {
         let defaults = node.iter_editable_fields().map(|f| {
             let ident = &f.ident;
 
-            quote!(#ident: ::icydb::core::traits::View::to_view(&entity.#ident))
+            quote!(#ident: ::icydb::traits::View::to_view(&entity.#ident))
         });
 
         let derives = self.traits();

@@ -14,7 +14,7 @@ pub struct Usd {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::core::{sanitize, types::Decimal, validate};
+    use icydb::{sanitize, types::Decimal, validate};
     use std::str::FromStr;
 
     #[test]

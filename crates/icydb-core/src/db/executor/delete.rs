@@ -1,5 +1,4 @@
 use crate::{
-    IndexSpec, Key,
     db::{
         Db,
         executor::{
@@ -12,10 +11,11 @@ use crate::{
         response::Response,
         store::DataKey,
     },
-    deserialize,
+    error::InternalError,
     obs::metrics,
-    runtime_error::RuntimeError,
-    sanitize,
+    prelude::*,
+    sanitize::sanitize,
+    serialize::deserialize,
     traits::{EntityKind, FieldValue, FromKey},
 };
 use std::{marker::PhantomData, ops::ControlFlow};
@@ -100,19 +100,19 @@ impl<E: EntityKind> DeleteExecutor<E> {
     // ─────────────────────────────────────────────
 
     /// Delete a single row by primary key.
-    pub fn one(self, pk: impl FieldValue) -> Result<Response<E>, RuntimeError> {
+    pub fn one(self, pk: impl FieldValue) -> Result<Response<E>, InternalError> {
         let query = DeleteQuery::new().one::<E>(pk);
         self.execute(query)
     }
 
     /// Delete the unit-key row.
-    pub fn only(self) -> Result<Response<E>, RuntimeError> {
+    pub fn only(self) -> Result<Response<E>, InternalError> {
         let query = DeleteQuery::new().one::<E>(());
         self.execute(query)
     }
 
     /// Delete multiple rows by primary keys.
-    pub fn many<I, V>(self, values: I) -> Result<Response<E>, RuntimeError>
+    pub fn many<I, V>(self, values: I) -> Result<Response<E>, InternalError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
@@ -131,7 +131,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         self,
         index: UniqueIndexHandle,
         entity: E,
-    ) -> Result<Response<E>, RuntimeError>
+    ) -> Result<Response<E>, InternalError>
     where
         E::PrimaryKey: FromKey,
     {
@@ -156,7 +156,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
             if !E::INDEXES.is_empty() {
                 self.remove_indexes(&stored)?;
             }
-            Ok::<_, RuntimeError>(())
+            Ok::<_, InternalError>(())
         })??;
 
         set_rows_from_len(&mut span, 1);
@@ -172,7 +172,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         self,
         field: impl AsRef<str>,
         value: impl FieldValue,
-    ) -> Result<Response<E>, RuntimeError> {
+    ) -> Result<Response<E>, InternalError> {
         let query = DeleteQuery::new().one_by_field(field, value);
         self.execute(query)
     }
@@ -182,7 +182,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         self,
         field: impl AsRef<str>,
         values: I,
-    ) -> Result<Response<E>, RuntimeError>
+    ) -> Result<Response<E>, InternalError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
@@ -192,12 +192,12 @@ impl<E: EntityKind> DeleteExecutor<E> {
     }
 
     /// Delete all rows.
-    pub fn all(self) -> Result<Response<E>, RuntimeError> {
+    pub fn all(self) -> Result<Response<E>, InternalError> {
         self.execute(DeleteQuery::new())
     }
 
     /// Apply a filter builder and delete matches.
-    pub fn filter<F, I>(self, f: F) -> Result<Response<E>, RuntimeError>
+    pub fn filter<F, I>(self, f: F) -> Result<Response<E>, InternalError>
     where
         F: FnOnce(FilterDsl) -> I,
         I: IntoFilterExpr,
@@ -210,12 +210,12 @@ impl<E: EntityKind> DeleteExecutor<E> {
     // ENSURE HELPERS
     // ─────────────────────────────────────────────
 
-    pub fn ensure_delete_one(self, pk: impl FieldValue) -> Result<(), RuntimeError> {
+    pub fn ensure_delete_one(self, pk: impl FieldValue) -> Result<(), InternalError> {
         self.one(pk)?.require_one()?;
         Ok(())
     }
 
-    pub fn ensure_delete_any_by_pk<I, V>(self, pks: I) -> Result<(), RuntimeError>
+    pub fn ensure_delete_any_by_pk<I, V>(self, pks: I) -> Result<(), InternalError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
@@ -225,7 +225,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         Ok(())
     }
 
-    pub fn ensure_delete_any<I, V>(self, values: I) -> Result<(), RuntimeError>
+    pub fn ensure_delete_any<I, V>(self, values: I) -> Result<(), InternalError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
@@ -237,7 +237,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
     // EXECUTION
     // ─────────────────────────────────────────────
 
-    pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, RuntimeError> {
+    pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, InternalError> {
         QueryValidate::<E>::validate(&query)?;
 
         Ok(plan_for::<E>(query.filter.as_ref()))
@@ -248,7 +248,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
     /// Note: index-planned deletes are best-effort and do not validate unique-index
     /// invariants. Corrupt index entries may be skipped. Use `by_unique_index` for
     /// strict unique-index semantics.
-    pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, RuntimeError> {
+    pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, InternalError> {
         QueryValidate::<E>::validate(&query)?;
         let mut span = metrics::Span::<E>::new(metrics::ExecKind::Delete);
 
@@ -291,7 +291,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                 }
                 res.push((dk.key(), entity));
             }
-            Ok::<_, RuntimeError>(())
+            Ok::<_, InternalError>(())
         })??;
 
         set_rows_from_len(&mut span, res.len());
@@ -299,7 +299,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         Ok(Response(res))
     }
 
-    fn remove_indexes(&self, entity: &E) -> Result<(), RuntimeError> {
+    fn remove_indexes(&self, entity: &E) -> Result<(), InternalError> {
         for index in E::INDEXES {
             let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
             store.with_borrow_mut(|this| {
@@ -311,9 +311,9 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
     fn load_existing(
         &self,
-        index: &'static IndexSpec,
+        index: &'static IndexModel,
         pk: E::PrimaryKey,
-    ) -> Result<(DataKey, E), RuntimeError> {
+    ) -> Result<(DataKey, E), InternalError> {
         let data_key = DataKey::new::<E>(pk.into());
         let bytes = self
             .db

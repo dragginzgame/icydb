@@ -1,4 +1,4 @@
-use crate::{core::traits::Validator, design::prelude::*};
+use crate::{design::prelude::*, traits::Validator};
 
 ///
 /// Iso3166_1A2

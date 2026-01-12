@@ -1,15 +1,5 @@
-use icydb::core::traits::EntityKind;
-use icydb::{
-    core::{
-        Key,
-        db::{
-            executor::UniqueIndexHandle,
-            store::{DataKey, IndexEntry, IndexKey},
-        },
-        serialize,
-    },
-    prelude::*,
-};
+use icydb::__internal::core::db::store::{DataKey, IndexEntry, IndexKey};
+use icydb::{db::UniqueIndexHandle, design::prelude::*, serialize};
 use test_design::{e2e::db::Index, schema::TestIndexStore};
 
 ///
@@ -157,7 +147,7 @@ impl DeleteUniqueSuite {
         UniqueIndexHandle::for_fields::<Index>(&["y"]).expect("expected unique index on y")
     }
 
-    fn unique_index() -> &'static icydb::core::IndexSpec {
+    fn unique_index() -> &'static icydb::model::index::IndexModel {
         Index::INDEXES
             .iter()
             .find(|idx| idx.fields == ["y"])

@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use icydb::core::traits::Sanitizer;
 
 ///
 /// VisitorLowerText
@@ -115,7 +114,7 @@ pub struct VisitorRejectMapOuter {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::core::{Error, sanitize};
+    use icydb::{Error, sanitize};
     use std::collections::HashMap;
 
     #[test]
@@ -160,10 +159,7 @@ mod tests {
             list: VisitorRejectTextList::from(vec!["one".to_string(), "two".to_string()]),
         };
 
-        let err: Error = sanitize(&mut node)
-            .map_err(Error::from)
-            .expect_err("expected sanitization error");
-
+        let err = sanitize(&mut node).expect_err("expected sanitization error");
         let msg = err.to_string();
 
         for key in ["field", "list[0]", "list[1]"] {
@@ -184,9 +180,7 @@ mod tests {
             map: VisitorRejectTextMap::from(vec![("key".to_string(), "bad".to_string())]),
         };
 
-        let err: Error = sanitize(&mut node)
-            .map_err(Error::from)
-            .expect_err("expected sanitization error");
+        let err: Error = sanitize(&mut node).expect_err("expected sanitization error");
 
         let msg = err.to_string();
 

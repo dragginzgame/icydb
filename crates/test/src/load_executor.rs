@@ -1,5 +1,4 @@
-use icydb::core::db::query::QueryPlan;
-use icydb::prelude::*;
+use icydb::{db::query::QueryPlan, design::prelude::*};
 use test_design::e2e::db::{ContainsBlob, Index};
 
 ///

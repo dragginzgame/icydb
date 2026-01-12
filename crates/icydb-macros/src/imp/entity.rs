@@ -32,12 +32,12 @@ impl Imp<Entity> for EntityKindTrait {
         let mut q = quote! {
             type PrimaryKey = #pk_type;
             type Store = #store;
-            type Canister = <Self::Store as ::icydb::core::traits::StoreKind>::Canister;
+            type Canister = <Self::Store as ::icydb::traits::StoreKind>::Canister;
 
-            const ENTITY_ID: u64 = ::icydb::core::hash::fnv1a_64(Self::PATH.as_bytes());
+            const ENTITY_ID: u64 = ::icydb::hash::fnv1a_64(Self::PATH.as_bytes());
             const PRIMARY_KEY: &'static str = #pk_field;
             const FIELDS: &'static [&'static str]  = &[ #( Self::#field_refs ),* ];
-            const INDEXES: &'static [&'static ::icydb::core::IndexSpec]  = &[#(&#indexes),*];
+            const INDEXES: &'static [&'static ::icydb::model::index::IndexModel]  = &[#(&#indexes),*];
         };
 
         // impls

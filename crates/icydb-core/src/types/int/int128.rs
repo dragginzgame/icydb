@@ -1,6 +1,6 @@
 use crate::{
-    Value,
     db::primitives::{IntListFilterKind, IntRangeFilterKind},
+    prelude::*,
     traits::{
         FieldValue, Filterable, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
         SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
@@ -201,7 +201,7 @@ impl Visitable for Int128 {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{deserialize, serialize};
+    use crate::serialize::{deserialize, serialize};
 
     fn roundtrip(v: i128) {
         let int128: Int128 = v.into();

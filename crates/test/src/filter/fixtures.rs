@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use icydb::{
-    core::types::{Decimal, Principal, Ulid},
     prelude::*,
+    types::{Decimal, Principal, Ulid},
 };
 use test_design::e2e::filter::{Filterable, FilterableEnum, FilterableOpt};
 

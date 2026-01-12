@@ -5,12 +5,12 @@ use crate::{
         query::{SaveMode, SaveQuery},
         store::DataKey,
     },
-    deserialize,
+    error::InternalError,
     obs::metrics,
-    runtime_error::RuntimeError,
-    sanitize, serialize,
+    sanitize::sanitize,
+    serialize::{deserialize, serialize},
     traits::EntityKind,
-    validate,
+    validate::validate,
 };
 use std::marker::PhantomData;
 
@@ -50,34 +50,34 @@ impl<E: EntityKind> SaveExecutor<E> {
     // ======================================================================
 
     /// Insert a brand-new entity (errors if the key already exists).
-    pub fn insert(&self, entity: E) -> Result<E, RuntimeError> {
+    pub fn insert(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Insert, entity)
     }
 
     /// Insert a new view, returning the stored view.
-    pub fn insert_view(&self, view: E::ViewType) -> Result<E::ViewType, RuntimeError> {
+    pub fn insert_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
         let entity = E::from_view(view);
         Ok(self.insert(entity)?.to_view())
     }
 
     /// Update an existing entity (errors if it does not exist).
-    pub fn update(&self, entity: E) -> Result<E, RuntimeError> {
+    pub fn update(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Update, entity)
     }
 
     /// Update an existing view (errors if it does not exist).
-    pub fn update_view(&self, view: E::ViewType) -> Result<E::ViewType, RuntimeError> {
+    pub fn update_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
         let entity = E::from_view(view);
         Ok(self.update(entity)?.to_view())
     }
 
     /// Replace an entity, inserting if missing.
-    pub fn replace(&self, entity: E) -> Result<E, RuntimeError> {
+    pub fn replace(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Replace, entity)
     }
 
     /// Replace a view, inserting if missing.
-    pub fn replace_view(&self, view: E::ViewType) -> Result<E::ViewType, RuntimeError> {
+    pub fn replace_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
         let entity = E::from_view(view);
         Ok(self.replace(entity)?.to_view())
     }
@@ -89,7 +89,7 @@ impl<E: EntityKind> SaveExecutor<E> {
     pub fn insert_many(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, RuntimeError> {
+    ) -> Result<Vec<E>, InternalError> {
         let iter = entities.into_iter();
         let mut out = Vec::with_capacity(iter.size_hint().0);
         // Batch semantics: fail-fast and non-atomic; partial successes remain.
@@ -103,7 +103,7 @@ impl<E: EntityKind> SaveExecutor<E> {
     pub fn update_many(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, RuntimeError> {
+    ) -> Result<Vec<E>, InternalError> {
         let iter = entities.into_iter();
         let mut out = Vec::with_capacity(iter.size_hint().0);
         // Batch semantics: fail-fast and non-atomic; partial successes remain.
@@ -117,7 +117,7 @@ impl<E: EntityKind> SaveExecutor<E> {
     pub fn replace_many(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, RuntimeError> {
+    ) -> Result<Vec<E>, InternalError> {
         let iter = entities.into_iter();
         let mut out = Vec::with_capacity(iter.size_hint().0);
         // Batch semantics: fail-fast and non-atomic; partial successes remain.
@@ -133,12 +133,12 @@ impl<E: EntityKind> SaveExecutor<E> {
     // ======================================================================
 
     /// Execute a serialized save query.
-    pub fn execute(&self, query: SaveQuery) -> Result<E, RuntimeError> {
+    pub fn execute(&self, query: SaveQuery) -> Result<E, InternalError> {
         let entity: E = deserialize(&query.bytes)?;
         self.save_entity(query.mode, entity)
     }
 
-    fn save_entity(&self, mode: SaveMode, mut entity: E) -> Result<E, RuntimeError> {
+    fn save_entity(&self, mode: SaveMode, mut entity: E) -> Result<E, InternalError> {
         let mut span = metrics::Span::<E>::new(metrics::ExecKind::Save);
         let ctx = self.db.context::<E>();
         let _unit = WriteUnit::new("save_entity");
@@ -187,7 +187,7 @@ impl<E: EntityKind> SaveExecutor<E> {
 
     /// Replace index entries using a two-phase (validate, then mutate) approach
     /// to avoid partial updates on uniqueness violations.
-    fn replace_indexes(&self, old: Option<&E>, new: &E) -> Result<(), RuntimeError> {
+    fn replace_indexes(&self, old: Option<&E>, new: &E) -> Result<(), InternalError> {
         use crate::db::store::IndexKey;
 
         // Phase 1: validate uniqueness constraints without mutating.
@@ -225,7 +225,7 @@ impl<E: EntityKind> SaveExecutor<E> {
                     s.remove_index_entry(old, index);
                 }
                 s.insert_index_entry(new, index)?;
-                Ok::<(), RuntimeError>(())
+                Ok::<(), InternalError>(())
             })?;
         }
 

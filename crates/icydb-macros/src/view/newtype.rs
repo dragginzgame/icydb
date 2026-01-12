@@ -14,7 +14,7 @@ impl View for NewtypeView<'_> {
 
         // quote
         quote! {
-            pub type #view_ident = <#view_type as ::icydb::core::traits::View>::ViewType;
+            pub type #view_ident = <#view_type as ::icydb::traits::View>::ViewType;
         }
     }
 }
@@ -39,7 +39,7 @@ impl View for NewtypeUpdate<'_> {
 
         // quote
         quote! {
-            pub type #update_ident = <#update_type as ::icydb::core::traits::UpdateView>::UpdateViewType;
+            pub type #update_ident = <#update_type as ::icydb::traits::UpdateView>::UpdateViewType;
         }
     }
 }

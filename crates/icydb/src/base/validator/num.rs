@@ -1,7 +1,6 @@
 use crate::{
-    core::traits::{NumCast, Validator},
-    core::visitor::VisitorContext,
     design::prelude::*,
+    traits::{NumCast, Validator},
 };
 use std::any::type_name;
 
@@ -138,7 +137,7 @@ impl<N: NumCast + Clone> Validator<N> for MultipleOf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::visitor::{Issue, PathSegment, VisitorContext, VisitorIssues};
+    use crate::visitor::{Issue, PathSegment, VisitorContext, VisitorIssues};
 
     struct TestCtx {
         issues: VisitorIssues,

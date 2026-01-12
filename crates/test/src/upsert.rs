@@ -1,7 +1,5 @@
-use icydb::{
-    core::db::store::{DataKey, IndexKey},
-    prelude::*,
-};
+use icydb::__internal::core::db::store::{DataKey, IndexKey};
+use icydb::prelude::*;
 use test_design::{
     e2e::db::{Index, IndexSanitized, IndexUniqueOpt, LowerIndexText},
     schema::TestIndexStore,
@@ -139,13 +137,10 @@ impl UpsertSuite {
 
         crate::DATA_REGISTRY
             .with(|reg| {
-                reg.with_store_mut(
-                    <Index as icydb::core::traits::EntityKind>::Store::PATH,
-                    |store| {
-                        let data_key = DataKey::new::<Index>(saved.key());
-                        store.remove(&data_key);
-                    },
-                )
+                reg.with_store_mut(<Index as icydb::traits::EntityKind>::Store::PATH, |store| {
+                    let data_key = DataKey::new::<Index>(saved.key());
+                    store.remove(&data_key);
+                })
             })
             .unwrap();
 

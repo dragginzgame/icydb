@@ -141,7 +141,7 @@ fn field_list(fields: &FieldList) -> Option<TokenStream> {
         .filter_map(|field| {
             let field_ident = &field.ident;
             let target = quote!(self.#field_ident);
-            let seg = quote!(::icydb::core::visitor::PathSegment::Field(
+            let seg = quote!(::icydb::visitor::PathSegment::Field(
                 stringify!(#field_ident)
             ));
 
@@ -189,7 +189,7 @@ fn fn_wrap_sanitize_self(inner: Option<TokenStream>) -> TokenStream {
         Some(inner) => quote! {
             fn sanitize_self(
                 &mut self,
-                ctx: &mut dyn ::icydb::core::visitor::VisitorContext
+                ctx: &mut dyn ::icydb::visitor::VisitorContext
             ) {
                 #inner
             }

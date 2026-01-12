@@ -20,14 +20,14 @@ pub fn generate_field_list_filter(
             #(#field_defs),*
         }
 
-        impl ::icydb::core::db::primitives::filter::IntoFilterExpr for #filter_ident {
-            fn into_expr(self) -> ::icydb::core::db::primitives::filter::FilterExpr {
+        impl ::icydb::db::primitives::filter::IntoFilterExpr for #filter_ident {
+            fn into_expr(self) -> ::icydb::db::primitives::filter::FilterExpr {
                 let mut exprs = Vec::new();
 
                 #(
                     if let Some(f) = self.#idents {
                         exprs.push(
-                            ::icydb::core::db::primitives::filter::IntoScopedFilterExpr::into_scoped(
+                            ::icydb::db::primitives::filter::IntoScopedFilterExpr::into_scoped(
                                 f,
                                 #names
                             )
@@ -36,9 +36,9 @@ pub fn generate_field_list_filter(
                 )*
 
                 if exprs.is_empty() {
-                    ::icydb::core::db::primitives::filter::FilterExpr::True
+                    ::icydb::db::primitives::filter::FilterExpr::True
                 } else {
-                    ::icydb::core::db::primitives::filter::FilterDsl::all(exprs)
+                    ::icydb::db::primitives::filter::FilterDsl::all(exprs)
                 }
             }
         }

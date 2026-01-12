@@ -26,7 +26,7 @@ impl Imp<Entity> for CreateViewTrait {
             .iter()
             .map(|ident| {
                 quote! {
-                    #ident: ::icydb::core::traits::View::from_view(create.#ident),
+                    #ident: ::icydb::traits::View::from_view(create.#ident),
                 }
             })
             .collect();

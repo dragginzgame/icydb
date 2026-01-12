@@ -53,7 +53,7 @@ pub struct ClampDecimal {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::core::sanitize;
+    use icydb::sanitize;
 
     #[test]
     fn test_clamp_int32() {

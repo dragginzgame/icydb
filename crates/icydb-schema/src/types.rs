@@ -175,7 +175,7 @@ impl Primitive {
     pub fn as_type(self) -> TokenStream {
         let ident = format_ident!("{self}");
 
-        quote!(::icydb::core::types::#ident)
+        quote!(::icydb::types::#ident)
     }
 
     #[must_use]

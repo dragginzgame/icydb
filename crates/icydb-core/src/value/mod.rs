@@ -5,7 +5,7 @@ mod family;
 mod tests;
 
 use crate::{
-    Key,
+    prelude::*,
     traits::{FieldValue, NumFromPrimitive},
     types::*,
 };

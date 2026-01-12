@@ -32,24 +32,24 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
             parse_str(entity_path).unwrap_or_else(|_| panic!("Invalid path: {entity_path}"));
 
         quote! {
-            #entity_path => Ok(::icydb::core::interface::query::EntityDispatch {
+            #entity_path => Ok(::icydb::__internal::core::interface::query::EntityDispatch {
                 // Static identity for this entity type
                 entity_id: #ty::ENTITY_ID,
                 path: #ty::PATH,
 
                 // Load closure: executes the LoadQuery on this entity type.
-                load_keys: |query: ::icydb::core::db::query::LoadQuery| -> Result<Vec<::icydb::core::Key>, ::icydb::core::runtime_error::RuntimeError> {
-                    db!().load::<#ty>().execute(query).map(|res| res.keys())
+                load_keys: |query: ::icydb::__internal::core::db::query::LoadQuery| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
+                    crate::db_core().load::<#ty>().execute(query).map(|res| res.keys())
                 },
 
                 // Save closure: executes a SaveQuery and returns the resulting key.
-                save_key: |query: ::icydb::core::db::query::SaveQuery| -> Result<::icydb::core::Key, ::icydb::core::runtime_error::RuntimeError> {
-                    db!().save::<#ty>().execute(query).map(|res| res.key())
+                save_key: |query: ::icydb::__internal::core::db::query::SaveQuery| -> Result<::icydb::key::Key, ::icydb::__internal::core::error::InternalError> {
+                    crate::db_core().save::<#ty>().execute(query).map(|res| res.key())
                 },
 
                 // Delete closure: executes DeleteQuery and returns all removed keys.
-                delete_keys: |query: ::icydb::core::db::query::DeleteQuery| -> Result<Vec<::icydb::core::Key>, ::icydb::core::runtime_error::RuntimeError> {
-                    db!().delete::<#ty>().execute(query).map(|res| res.keys())
+                delete_keys: |query: ::icydb::__internal::core::db::query::DeleteQuery| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
+                    crate::db_core().delete::<#ty>().execute(query).map(|res| res.keys())
                 },
             }),
         }
@@ -61,12 +61,12 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
         /// already passed authentication/authorization checks.
         pub(crate) fn dispatch_entity(
             path: &str,
-        ) -> Result<::icydb::core::interface::query::EntityDispatch, ::icydb::core::interface::query::QueryError> {
+        ) -> Result<::icydb::__internal::core::interface::query::EntityDispatch, ::icydb::__internal::core::interface::query::QueryError> {
             match path {
                 #(#arms)*
 
                 // Unknown entity path
-                _ => Err(::icydb::core::interface::query::QueryError::EntityNotFound(path.to_string())),
+                _ => Err(::icydb::__internal::core::interface::query::QueryError::EntityNotFound(path.to_string())),
             }
         }
 
@@ -75,10 +75,11 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
         #[allow(dead_code)]
         pub(crate) fn dispatch_load(
             path: &str,
-            query: ::icydb::core::db::query::LoadQuery,
-        ) -> Result<Vec<::icydb::core::Key>, ::icydb::core::runtime_error::RuntimeError> {
-            let dispatch = dispatch_entity(path)?;
-            (dispatch.load_keys)(query)
+            query: ::icydb::db::query::LoadQuery,
+        ) -> Result<Vec<::icydb::key::Key>, ::icydb::Error> {
+            let dispatch = dispatch_entity(path)
+                .map_err(|err| ::icydb::Error::from(::icydb::__internal::core::error::InternalError::from(err)))?;
+            (dispatch.load_keys)(query).map_err(::icydb::Error::from)
         }
 
         /// High-level save dispatcher:
@@ -86,10 +87,11 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
         #[allow(dead_code)]
         pub(crate) fn dispatch_save(
             path: &str,
-            query: ::icydb::core::db::query::SaveQuery,
-        ) -> Result<::icydb::core::Key, ::icydb::core::runtime_error::RuntimeError> {
-            let dispatch = dispatch_entity(path)?;
-            (dispatch.save_key)(query)
+            query: ::icydb::db::query::SaveQuery,
+        ) -> Result<::icydb::key::Key, ::icydb::Error> {
+            let dispatch = dispatch_entity(path)
+                .map_err(|err| ::icydb::Error::from(::icydb::__internal::core::error::InternalError::from(err)))?;
+            (dispatch.save_key)(query.into()).map_err(::icydb::Error::from)
         }
 
         /// High-level delete dispatcher:
@@ -97,10 +99,11 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
         #[allow(dead_code)]
         pub(crate) fn dispatch_delete(
             path: &str,
-            query: ::icydb::core::db::query::DeleteQuery,
-        ) -> Result<Vec<::icydb::core::Key>, ::icydb::core::runtime_error::RuntimeError> {
-            let dispatch = dispatch_entity(path)?;
-            (dispatch.delete_keys)(query)
+            query: ::icydb::db::query::DeleteQuery,
+        ) -> Result<Vec<::icydb::key::Key>, ::icydb::Error> {
+            let dispatch = dispatch_entity(path)
+                .map_err(|err| ::icydb::Error::from(::icydb::__internal::core::error::InternalError::from(err)))?;
+            (dispatch.delete_keys)(query).map_err(::icydb::Error::from)
         }
     }
 }

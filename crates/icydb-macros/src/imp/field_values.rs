@@ -49,8 +49,8 @@ impl Imp<Entity> for FieldValuesTrait {
 
         // quote
         let q = quote! {
-            fn get_value(&self, field: &str) -> Option<::icydb::core::Value> {
-                use ::icydb::core::{traits::FieldValue, Value};
+            fn get_value(&self, field: &str) -> Option<::icydb::value::Value> {
+                use ::icydb::{traits::FieldValue, value::Value};
 
                 match field {
                     #(#match_arms)*

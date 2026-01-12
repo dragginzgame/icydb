@@ -108,9 +108,9 @@ impl ValidateAutoFn for List {
                     quote! {
                         for (i, #item_ident) in self.0.iter().enumerate() {
                             let item = #item_ident;
-                            let mut item_ctx = ::icydb::core::visitor::ScopedContext::new(
+                            let mut item_ctx = ::icydb::visitor::ScopedContext::new(
                                 ctx,
-                                ::icydb::core::visitor::PathSegment::Index(i),
+                                ::icydb::visitor::PathSegment::Index(i),
                             );
                             #block
                         }
@@ -146,9 +146,9 @@ impl ValidateAutoFn for Map {
 
                 Some(quote! {
                     for (i, (k, v)) in self.0.iter().enumerate() {
-                        let mut entry_ctx = ::icydb::core::visitor::ScopedContext::new(
+                        let mut entry_ctx = ::icydb::visitor::ScopedContext::new(
                             ctx,
-                            ::icydb::core::visitor::PathSegment::Index(i),
+                            ::icydb::visitor::PathSegment::Index(i),
                         );
                         #k
                         #v
@@ -196,9 +196,9 @@ impl ValidateAutoFn for Set {
                     quote! {
                         for (i, #item_ident) in self.0.iter().enumerate() {
                             let item = #item_ident;
-                            let mut item_ctx = ::icydb::core::visitor::ScopedContext::new(
+                            let mut item_ctx = ::icydb::visitor::ScopedContext::new(
                                 ctx,
-                                ::icydb::core::visitor::PathSegment::Index(i),
+                                ::icydb::visitor::PathSegment::Index(i),
                             );
                             #block
                         }
@@ -233,7 +233,7 @@ fn field_list(fields: &FieldList) -> Option<TokenStream> {
             generate_field_value_validation_inner(
                 &field.value,
                 quote!(&self.#field_ident),
-                quote!(::icydb::core::visitor::PathSegment::Field(
+                quote!(::icydb::visitor::PathSegment::Field(
                     stringify!(#field_ident)
                 )),
             )
@@ -276,7 +276,7 @@ fn wrap_validate_self_fn(inner: Option<TokenStream>) -> TokenStream {
     match inner {
         None => quote!(),
         Some(inner) => quote! {
-            fn validate_self(&self, ctx: &mut dyn ::icydb::core::visitor::VisitorContext) {
+            fn validate_self(&self, ctx: &mut dyn ::icydb::visitor::VisitorContext) {
                 #inner
             }
         },
@@ -362,7 +362,7 @@ fn generate_field_value_validation_inner(
 
     Some(quote! {{
         let mut __field_ctx =
-            ::icydb::core::visitor::ScopedContext::new(ctx, #seg);
+            ::icydb::visitor::ScopedContext::new(ctx, #seg);
         #body
     }})
 }

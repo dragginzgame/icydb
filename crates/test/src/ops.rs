@@ -1,4 +1,4 @@
-use icydb::core::{deserialize, serialize, types::Ulid};
+use icydb::{deserialize, serialize, types::Ulid};
 
 ///
 /// OpsSuite

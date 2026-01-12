@@ -1,6 +1,6 @@
 use crate::{
-    core::traits::{NumCast, Sanitizer},
     design::prelude::*,
+    traits::{NumCast, Sanitizer},
 };
 use std::any::type_name;
 

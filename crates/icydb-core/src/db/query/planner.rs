@@ -1,7 +1,7 @@
 use crate::{
-    IndexSpec, Key, Value,
     db::primitives::filter::{Cmp, FilterExpr},
     obs::metrics,
+    prelude::*,
     traits::EntityKind,
 };
 use std::fmt::{self, Display};
@@ -50,7 +50,7 @@ impl fmt::Display for QueryPlan {
 
 #[derive(Debug)]
 pub struct IndexPlan {
-    pub index: &'static IndexSpec,
+    pub index: &'static IndexModel,
     pub values: Vec<Value>,
 }
 

@@ -1,10 +1,7 @@
 pub mod case;
 pub mod color;
 
-use crate::{
-    core::{traits::Validator, visitor::VisitorContext},
-    design::prelude::*,
-};
+use crate::{design::prelude::*, traits::Validator};
 
 ///
 /// AlphaUscore

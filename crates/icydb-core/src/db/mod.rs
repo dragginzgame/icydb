@@ -9,7 +9,7 @@ use crate::{
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor, UpsertExecutor},
         store::{DataStoreRegistry, IndexStoreRegistry},
     },
-    runtime_error::RuntimeError,
+    error::InternalError,
     traits::{CanisterKind, EntityKind, FromKey},
 };
 use std::{marker::PhantomData, thread::LocalKey};
@@ -146,7 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
     //
 
     /// Insert a new entity, returning the stored value.
-    pub fn insert<E>(&self, entity: E) -> Result<E, RuntimeError>
+    pub fn insert<E>(&self, entity: E) -> Result<E, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -157,7 +157,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn insert_many<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, RuntimeError>
+    ) -> Result<Vec<E>, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -165,7 +165,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Replace an existing entity or insert it if it does not yet exist.
-    pub fn replace<E>(&self, entity: E) -> Result<E, RuntimeError>
+    pub fn replace<E>(&self, entity: E) -> Result<E, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -176,7 +176,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn replace_many<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, RuntimeError>
+    ) -> Result<Vec<E>, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -184,7 +184,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Partially update an existing entity.
-    pub fn update<E>(&self, entity: E) -> Result<E, RuntimeError>
+    pub fn update<E>(&self, entity: E) -> Result<E, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -195,7 +195,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn update_many<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, RuntimeError>
+    ) -> Result<Vec<E>, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -203,7 +203,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Insert a new view value for an entity.
-    pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, RuntimeError>
+    pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -211,7 +211,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Replace an existing view or insert it if it does not yet exist.
-    pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, RuntimeError>
+    pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
         E: EntityKind<Canister = C>,
     {
@@ -219,7 +219,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Partially update an existing view.
-    pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, RuntimeError>
+    pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
         E: EntityKind<Canister = C>,
     {

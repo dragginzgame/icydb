@@ -23,6 +23,7 @@ icydb-core = { workspace = true }
 icydb-macros = { workspace = true }
 icydb-schema = { workspace = true }
 num-traits = { workspace = true }
+thiserror = { workspace = true }
 remain = { workspace = true }
 serde = { workspace = true }
 

@@ -1,11 +1,4 @@
-use icydb::{
-    core::{
-        Value,
-        db::primitives::*,
-        types::{Account, Decimal, Principal, Ulid},
-    },
-    prelude::*,
-};
+use icydb::{db::primitives::*, design::prelude::*, view::Filter};
 use test_design::e2e::filter::{Filterable, FilterableEnum, FilterableEnumFake, FilterableOpt};
 
 use super::fixtures;
@@ -761,8 +754,9 @@ impl LoadFilterSuite {
 
     fn any_in_ci_list_of_ulids_matches() {
         use icydb::{
-            core::{types::Ulid, value::Value},
             db::primitives::{Cmp, FilterClause, FilterExpr},
+            types::Ulid,
+            value::Value,
         };
 
         // tags is list of Text; filter with AnyInCi where RHS is list of ULID strings.
@@ -786,8 +780,8 @@ impl LoadFilterSuite {
 
     fn any_in_ci_list_non_text_still_validates() {
         use icydb::{
-            core::value::Value,
             db::primitives::{Cmp, FilterClause, FilterExpr},
+            value::Value,
         };
 
         // Ensure non-text RHS (ints) does not trigger validation error after relaxation.
@@ -806,8 +800,8 @@ impl LoadFilterSuite {
 
     fn invalid_presence_rhs_non_unit() {
         use icydb::{
-            core::value::Value,
             db::primitives::{Cmp, FilterClause, FilterExpr},
+            value::Value,
         };
 
         // Manually construct an invalid presence filter: IsNone should use Unit RHS

@@ -4,7 +4,7 @@ mod index;
 pub use data::*;
 pub use index::*;
 
-use crate::runtime_error::{ErrorClass, ErrorOrigin, RuntimeError};
+use crate::error::{ErrorClass, ErrorOrigin, InternalError};
 use std::{cell::RefCell, collections::HashMap, thread::LocalKey};
 use thiserror::Error as ThisError;
 
@@ -26,7 +26,7 @@ impl StoreError {
     }
 }
 
-impl From<StoreError> for RuntimeError {
+impl From<StoreError> for InternalError {
     fn from(err: StoreError) -> Self {
         Self::new(err.class(), ErrorOrigin::Store, err.to_string())
     }
@@ -72,7 +72,10 @@ impl<T: 'static> StoreRegistry<T> {
 
     // try_get_store
     /// Look up a store accessor by path.
-    pub fn try_get_store(&self, path: &str) -> Result<&'static LocalKey<RefCell<T>>, RuntimeError> {
+    pub fn try_get_store(
+        &self,
+        path: &str,
+    ) -> Result<&'static LocalKey<RefCell<T>>, InternalError> {
         self.0
             .get(path)
             .copied()
@@ -81,7 +84,7 @@ impl<T: 'static> StoreRegistry<T> {
 
     // with_store
     /// Borrow a store immutably by path.
-    pub fn with_store<R>(&self, path: &str, f: impl FnOnce(&T) -> R) -> Result<R, RuntimeError> {
+    pub fn with_store<R>(&self, path: &str, f: impl FnOnce(&T) -> R) -> Result<R, InternalError> {
         let store = self.try_get_store(path)?;
 
         Ok(store.with_borrow(|s| f(s)))
@@ -93,7 +96,7 @@ impl<T: 'static> StoreRegistry<T> {
         &self,
         path: &str,
         f: impl FnOnce(&mut T) -> R,
-    ) -> Result<R, RuntimeError> {
+    ) -> Result<R, InternalError> {
         let store = self.try_get_store(path)?;
 
         Ok(store.with_borrow_mut(|s| f(s)))

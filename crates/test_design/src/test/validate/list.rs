@@ -17,7 +17,7 @@ pub struct FriendsList {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use icydb::core::validate;
+    use icydb::validate;
 
     #[test]
     fn friends_list_allows_up_to_max_length() {

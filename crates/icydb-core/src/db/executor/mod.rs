@@ -17,7 +17,7 @@ pub use upsert::{UniqueIndexHandle, UpsertExecutor, UpsertResult};
 
 use crate::{
     db::store::DataKey,
-    runtime_error::{ErrorClass, ErrorOrigin, RuntimeError},
+    error::{ErrorClass, ErrorOrigin, InternalError},
 };
 use filter::*;
 use thiserror::Error as ThisError;
@@ -100,7 +100,7 @@ impl ExecutorError {
     }
 }
 
-impl From<ExecutorError> for RuntimeError {
+impl From<ExecutorError> for InternalError {
     fn from(err: ExecutorError) -> Self {
         Self::new(err.class(), err.origin(), err.to_string())
     }

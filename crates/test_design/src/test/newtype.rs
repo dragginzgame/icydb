@@ -117,7 +117,7 @@ pub struct BoolDefault {}
 #[newtype(
     primitive = "Date",
     item(prim = "Date"),
-    default = "icydb::core::types::Date::EPOCH"
+    default = "icydb::types::Date::EPOCH"
 )]
 pub struct DateDefault {}
 
@@ -160,7 +160,7 @@ pub struct Nat128Default;
 #[newtype(
     primitive = "Principal",
     item(prim = "Principal"),
-    default = "icydb::core::types::Principal::anonymous"
+    default = "icydb::types::Principal::anonymous"
 )]
 pub struct PrincipalDefault;
 
@@ -173,14 +173,14 @@ pub struct TextDefault;
 #[newtype(
     primitive = "Timestamp",
     item(prim = "Timestamp"),
-    default = "icydb::core::types::Timestamp::EPOCH"
+    default = "icydb::types::Timestamp::EPOCH"
 )]
 pub struct TimestampDefault;
 
 #[newtype(
     primitive = "Ulid",
     item(prim = "Ulid"),
-    default = "icydb::core::types::Ulid::generate"
+    default = "icydb::types::Ulid::generate"
 )]
 pub struct UlidDefault;
 

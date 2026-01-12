@@ -40,7 +40,7 @@ impl Index {
 
         // quote
         quote! {
-            ::icydb::core::IndexSpec::new(#store, #fields, #unique)
+            ::icydb::model::index::IndexModel::new(#store, #fields, #unique)
         }
     }
 }

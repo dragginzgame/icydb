@@ -1,5 +1,34 @@
-use crate::ThisError;
 use std::fmt;
+use thiserror::Error as ThisError;
+
+///
+/// InternalError
+/// Structured runtime error with a stable internal classification.
+/// Not a stable API; intended for internal use and may change without notice.
+///
+
+#[derive(Debug, ThisError)]
+#[error("{message}")]
+pub struct InternalError {
+    pub class: ErrorClass,
+    pub origin: ErrorOrigin,
+    pub message: String,
+}
+
+impl InternalError {
+    pub fn new(class: ErrorClass, origin: ErrorOrigin, message: impl Into<String>) -> Self {
+        Self {
+            class,
+            origin,
+            message: message.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn display_with_class(&self) -> String {
+        format!("{}:{}: {}", self.origin, self.class, self.message)
+    }
+}
 
 ///
 /// ErrorClass
@@ -58,34 +87,5 @@ impl fmt::Display for ErrorOrigin {
             Self::Interface => "interface",
         };
         write!(f, "{label}")
-    }
-}
-
-///
-/// RuntimeError
-/// Structured runtime error with a stable internal classification.
-/// Not a stable API; intended for internal use and may change without notice.
-///
-
-#[derive(Debug, ThisError)]
-#[error("{message}")]
-pub struct RuntimeError {
-    pub class: ErrorClass,
-    pub origin: ErrorOrigin,
-    pub message: String,
-}
-
-impl RuntimeError {
-    pub fn new(class: ErrorClass, origin: ErrorOrigin, message: impl Into<String>) -> Self {
-        Self {
-            class,
-            origin,
-            message: message.into(),
-        }
-    }
-
-    #[must_use]
-    pub fn display_with_class(&self) -> String {
-        format!("{}:{}: {}", self.origin, self.class, self.message)
     }
 }

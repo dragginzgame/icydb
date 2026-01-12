@@ -1,19 +1,19 @@
 use std::fmt::{self, Display};
 
 ///
-/// IndexSpec
+/// IndexModel
 /// Runtime-only descriptor for an index used by the executor and stores.
 /// Keeps core decoupled from the schema `Index` shape.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct IndexSpec {
+pub struct IndexModel {
     pub store: &'static str,
     pub fields: &'static [&'static str],
     pub unique: bool,
 }
 
-impl IndexSpec {
+impl IndexModel {
     #[must_use]
     pub const fn new(store: &'static str, fields: &'static [&'static str], unique: bool) -> Self {
         Self {
@@ -30,7 +30,7 @@ impl IndexSpec {
     }
 }
 
-impl Display for IndexSpec {
+impl Display for IndexModel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let fields = self.fields.join(", ");
 

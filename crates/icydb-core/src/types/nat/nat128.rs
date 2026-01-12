@@ -183,7 +183,7 @@ impl Visitable for Nat128 {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{deserialize, serialize};
+    use crate::serialize::{deserialize, serialize};
 
     fn roundtrip(v: u128) {
         let nat128: Nat128 = v.into();

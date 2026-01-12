@@ -1,4 +1,4 @@
-use crate::{core::traits::Sanitizer, design::prelude::*};
+use crate::design::prelude::*;
 
 ///
 /// RgbHex

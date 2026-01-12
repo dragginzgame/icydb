@@ -3,21 +3,64 @@ pub mod sanitize;
 pub mod validate;
 
 pub use context::*;
-pub use sanitize::*;
-pub use validate::*;
+pub use sanitize::SanitizeVisitor;
+pub use validate::ValidateVisitor;
 
+use crate::error::{ErrorClass, ErrorOrigin, InternalError};
 use crate::traits::Visitable;
 use candid::CandidType;
 use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt};
+use thiserror::Error as ThisError;
+
+///
+/// VisitorError
+/// Structured error type for visitor-based sanitization and validation.
+///
+
+#[derive(Debug, ThisError)]
+#[error("{issues}")]
+pub struct VisitorError {
+    issues: VisitorIssues,
+}
+
+impl VisitorError {
+    #[must_use]
+    pub const fn issues(&self) -> &VisitorIssues {
+        &self.issues
+    }
+}
+
+impl From<VisitorIssues> for VisitorError {
+    fn from(issues: VisitorIssues) -> Self {
+        Self { issues }
+    }
+}
+
+impl From<VisitorError> for VisitorIssues {
+    fn from(err: VisitorError) -> Self {
+        err.issues
+    }
+}
+
+impl From<VisitorError> for InternalError {
+    fn from(err: VisitorError) -> Self {
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Executor,
+            err.to_string(),
+        )
+    }
+}
 
 ///
 /// VisitorIssues
 /// Aggregated visitor diagnostics.
 ///
 /// NOTE: This is not an error type. It does not represent failure.
-/// It is converted into a RuntimeError only at the runtime boundary.
+/// It is converted into a `VisitorError` at the runtime boundary and
+/// may be lifted into an `InternalError` as needed.
 ///
 
 #[derive(

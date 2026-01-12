@@ -47,7 +47,7 @@ impl View for MapUpdate<'_> {
         // quote
         quote! {
             pub type #update_ident = Vec<
-                ::icydb::core::view::MapPatch<
+                ::icydb::view::MapPatch<
                     #key_update,
                     #value_update
                 >

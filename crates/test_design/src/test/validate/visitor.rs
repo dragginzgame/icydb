@@ -151,7 +151,7 @@ pub struct VisitorLengthOuter {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::core::{Error, validate};
+    use icydb::{Error, validate};
 
     #[test]
     fn validate_tracks_paths_for_nested_structures() {
@@ -167,9 +167,7 @@ mod tests {
             map: VisitorLowerTextMap::from(vec![("KeyOne".to_string(), "MiXeD".to_string())]),
         };
 
-        let err: Error = validate(&node)
-            .map_err(Error::from)
-            .expect_err("expected validation error");
+        let err: Error = validate(&node).expect_err("expected validation error");
 
         let msg = err.to_string();
 
@@ -191,9 +189,7 @@ mod tests {
             set: VisitorLowerTextSetValidated::from(vec!["MiXeD".to_string()]),
         };
 
-        let err: Error = validate(&node)
-            .map_err(Error::from)
-            .expect_err("expected validation error");
+        let err: Error = validate(&node).expect_err("expected validation error");
 
         let msg = err.to_string();
 
@@ -217,9 +213,7 @@ mod tests {
             )]),
         };
 
-        let err: Error = validate(&node)
-            .map_err(Error::from)
-            .expect_err("expected validation error");
+        let err: Error = validate(&node).expect_err("expected validation error");
 
         let msg = err.to_string();
 
@@ -243,9 +237,7 @@ mod tests {
             )]),
         };
 
-        let err: Error = validate(&node)
-            .map_err(Error::from)
-            .expect_err("expected validation error");
+        let err: Error = validate(&node).expect_err("expected validation error");
 
         let msg = err.to_string();
 
@@ -271,9 +263,7 @@ mod tests {
             ]),
         };
 
-        let err: Error = validate(&node)
-            .map_err(Error::from)
-            .expect_err("expected validation error");
+        let err: Error = validate(&node).expect_err("expected validation error");
 
         let msg = err.to_string();
 

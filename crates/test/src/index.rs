@@ -1,10 +1,6 @@
 use icydb::{
-    core::{
-        db::query::{self, LoadQuery, QueryPlan, QueryPlanner},
-        traits::EntityKind,
-        types::{Principal, Ulid},
-    },
-    prelude::*,
+    db::query::{self, LoadQuery, QueryPlan, QueryPlanner},
+    design::prelude::*,
 };
 use test_design::e2e::index::{Indexable, IndexableOptText, NotIndexable};
 

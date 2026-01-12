@@ -38,7 +38,7 @@ pub struct Map {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use icydb::core::validate;
+    use icydb::validate;
 
     fn ulid() -> Ulid {
         Ulid::generate()

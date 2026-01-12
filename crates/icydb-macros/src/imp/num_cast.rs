@@ -20,9 +20,9 @@ impl Imp<Newtype> for NumCastTrait {
 
         // quote
         let q = quote! {
-            fn from<T: ::icydb::core::traits::NumToPrimitive>(n: T) -> Option<Self> {
+            fn from<T: ::icydb::traits::NumToPrimitive>(n: T) -> Option<Self> {
                 let num = n.#to_method()?;
-                <Self as ::icydb::core::traits::NumFromPrimitive>::#from_method(num)
+                <Self as ::icydb::traits::NumFromPrimitive>::#from_method(num)
             }
         };
 

@@ -1,23 +1,87 @@
-//! ## Crate layout
-//! - `base`: builtin design-time helpers, sanitizers, and validators.
-//! - `build`: internal codegen helpers used by macros and tests.
-//! - `core`: runtime data model, filters, queries, values, and observability.
-//! - `error`: shared error types for generated and runtime code.
-//! - `macros`: derive macros for entities, schemas, and views.
-//! - `schema`: schema AST, builder, and validation utilities.
+//! # icydb
 //!
-//! The `prelude` module mirrors the runtime surface used inside actor code;
-//! `design::prelude` exposes schema and macro-facing helpers.
-
-pub use icydb_build as build;
-pub use icydb_core as core;
-pub use icydb_macros as macros;
-pub use icydb_schema as schema;
-
-pub mod base;
+//! `icydb` is the **public facade crate** for the IcyDB runtime.
+//! It is the recommended dependency for downstream canister projects.
+//!
+//! This crate exposes:
+//! - the stable runtime surface used inside canister actor code,
+//! - schema and design-time helpers for macros and validation,
+//! - and a small set of macros and entry points that wire generated code.
+//!
+//! All low-level execution, storage, and engine internals live in
+//! `icydb-core` and are *not* part of the public API contract.
+//!
+//! ## Crate layout
+//!
+//! - `base`
+//!   Design-time helpers, sanitizers, and validators used by schemas and macros.
+//!
+//! - `build`
+//!   Internal code generation helpers used by macros and tests
+//!   (not intended for direct use).
+//!
+//! - `core` *(internal)*
+//!   Runtime data model, queries, filters, values, and observability.
+//!   This crate is intentionally hidden behind internal adapters.
+//!
+//! - `error`
+//!   Shared error types for generated code and runtime boundaries.
+//!
+//! - `macros`
+//!   Derive macros for entities, schemas, and views.
+//!
+//! - `schema`
+//!   Schema AST, builders, and validation utilities.
+//!
+//! - `db`
+//!   The public database façade: session handles, query builders,
+//!   executors, and typed responses.
+//!
+//! ## Preludes
+//!
+//! - `prelude`
+//!   Opinionated runtime prelude for canister actor code.
+//!   Intended to be glob-imported in `lib.rs` to keep endpoints concise.
+//!
+//! - `design::prelude`
+//!   Prelude for schema and design-time code (macros, validators,
+//!   and base helpers).
+//!
+//! ## Internal boundaries
+//!
+//! The `__internal` module exposes selected engine internals strictly for
+//! generated code and macro expansion. It is not part of the supported API
+//! surface and may change without notice.
 
 // export so things just work in base/
 extern crate self as icydb;
+
+// crates
+pub use icydb_build as build;
+pub use icydb_build::build;
+pub use icydb_macros as macros;
+pub use icydb_schema as schema;
+
+// core modules
+pub use icydb_core::{hash, key, model, obs, traits, types, value, view, visitor};
+
+// canic modules
+pub mod base;
+pub mod db;
+
+/// Internal
+#[doc(hidden)]
+pub mod __internal {
+    pub use icydb_core as core;
+
+    use crate::db::DbSession;
+    use core::traits::CanisterKind;
+
+    #[must_use]
+    pub const fn db_session<C: CanisterKind>(db: core::db::Db<C>) -> DbSession<C> {
+        DbSession::from_core(db)
+    }
+}
 
 /// re-exports
 ///
@@ -28,26 +92,11 @@ extern crate self as icydb;
 pub mod __reexports {
     pub use canic_cdk;
     pub use canic_memory;
-    pub use canic_utils;
     pub use ctor;
     pub use derive_more;
     pub use num_traits;
     pub use remain;
 }
-
-//
-// Consts
-//
-
-/// Workspace version re-export for downstream tooling/tests.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-
-//
-// Macros
-//
-
-pub use core::{Error, db, start};
-pub use icydb_build::build;
 
 ///
 /// Actor Prelude
@@ -55,14 +104,9 @@ pub use icydb_build::build;
 ///
 
 pub mod prelude {
-    pub use crate::core::{
+    pub use crate::{
         db,
         db::{
-            executor::SaveExecutor,
-            primitives::{
-                self, Cmp, FilterClause, FilterDsl, FilterExpr, FilterExt as _, LimitExpr,
-                LimitExt as _, SortExpr, SortExt as _,
-            },
             query,
             response::{Response, ResponseExt},
         },
@@ -79,32 +123,135 @@ pub mod prelude {
     pub use serde::{Deserialize, Serialize};
 }
 
-//
-// Design Prelude
-// For schema/design code (macros, traits, base helpers).
-//
+///
+/// Design Prelude
+/// For schema/design code (macros, traits, base helpers).
+///
 
-/// Schema/design-facing helpers (separate from the actor/runtime prelude).
 pub mod design {
     pub mod prelude {
         pub use ::candid::CandidType;
         pub use ::derive_more;
 
         pub use crate::{
-            base,
-            core::{
-                Key, Value, db,
-                db::Db,
-                traits::{
-                    EntityKind, FieldValue as _, Inner as _, Path as _, Sanitize as _,
-                    Sanitizer as _, Serialize as _, Validate as _, ValidateCustom, Validator as _,
-                    View as _, Visitable as _,
+            base, db,
+            db::{
+                primitives::{
+                    self, Cmp, FilterClause, FilterDsl, FilterExpr, FilterExt as _, LimitExpr,
+                    LimitExt as _, SortExpr, SortExt as _,
                 },
-                types::*,
-                view::View,
-                visitor::VisitorContext,
+                response::ResponseExt as _,
             },
+            key::Key,
             macros::*,
+            traits::{
+                EntityKind, FieldValue as _, Inner as _, Path as _, Sanitize as _, Sanitizer,
+                Serialize as _, Validate as _, ValidateCustom, Validator, View as _,
+                Visitable as _,
+            },
+            types::*,
+            value::Value,
+            view::View,
+            visitor::VisitorContext,
         };
     }
+}
+
+/// -------------------------- CODE -----------------------------------
+use candid::CandidType;
+use icydb_core::{error::InternalError, traits::Visitable};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use thiserror::Error as ThisError;
+
+///
+/// Consts
+///
+
+/// Workspace version re-export for downstream tooling/tests.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+///
+/// Macros
+///
+
+// start
+// macro to be included at the start of each canister lib.rs file
+/// Include the generated actor module emitted by `build!` (placed in `OUT_DIR/actor.rs`).
+#[macro_export]
+macro_rules! start {
+    () => {
+        // actor.rs
+        include!(concat!(env!("OUT_DIR"), "/actor.rs"));
+    };
+}
+
+/// db
+/// Access the current canister's database session; use `db!().debug()` for verbose tracing.
+#[macro_export]
+#[allow(clippy::crate_in_macro_def)]
+macro_rules! db {
+    () => {
+        crate::db()
+    };
+}
+
+///
+/// Error
+///
+/// top level error should handle all sub-errors, but not expose the candid types
+/// as that would be a lot of them
+///
+
+#[derive(CandidType, Debug, Deserialize, Serialize, ThisError)]
+#[error("{0}")]
+pub struct Error(pub String);
+
+impl From<InternalError> for Error {
+    fn from(err: InternalError) -> Self {
+        Self(err.to_string())
+    }
+}
+
+///
+/// Helpers
+///
+
+/// Run sanitization over a mutable visitable tree.
+pub fn sanitize(node: &mut dyn Visitable) -> Result<(), Error> {
+    icydb_core::sanitize::sanitize(node)
+        .map_err(InternalError::from)
+        .map_err(Error::from)
+}
+
+/// Validate a visitable tree, collecting issues by path.
+pub fn validate(node: &dyn Visitable) -> Result<(), Error> {
+    icydb_core::validate::validate(node)
+        .map_err(InternalError::from)
+        .map_err(Error::from)
+}
+
+/// Serialize a visitable value into bytes.
+///
+/// The encoding format is an internal detail of icydb and is only
+/// guaranteed to round-trip via `deserialize`.
+pub fn serialize<T>(ty: &T) -> Result<Vec<u8>, Error>
+where
+    T: Serialize,
+{
+    icydb_core::serialize::serialize(ty)
+        .map_err(InternalError::from)
+        .map_err(Error::from)
+}
+
+/// Deserialize bytes into a concrete visitable value.
+///
+/// This is intended for testing, tooling, and round-trip verification.
+/// It should not be used in hot runtime paths.
+pub fn deserialize<T>(bytes: &[u8]) -> Result<T, Error>
+where
+    T: DeserializeOwned,
+{
+    icydb_core::serialize::deserialize(bytes)
+        .map_err(InternalError::from)
+        .map_err(Error::from)
 }

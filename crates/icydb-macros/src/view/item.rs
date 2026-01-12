@@ -11,7 +11,7 @@ impl ViewExpr for ItemView<'_> {
         let node = self.0;
         let ty = node.target().type_expr();
 
-        quote!(<#ty as ::icydb::core::traits::View>::ViewType).into()
+        quote!(<#ty as ::icydb::traits::View>::ViewType).into()
     }
 }
 
@@ -26,7 +26,7 @@ impl ViewExpr for ItemUpdate<'_> {
         let node = self.0;
         let ty = node.target().type_expr();
 
-        quote!(<#ty as ::icydb::core::traits::UpdateView>::UpdateViewType).into()
+        quote!(<#ty as ::icydb::traits::UpdateView>::UpdateViewType).into()
     }
 }
 
@@ -46,8 +46,8 @@ impl ViewExpr for ItemFilter<'_> {
         // Payload of the scalar filter kind:
         // <T::Filter as FilterKind>::Payload
         let payload = quote!(
-            <<#ty as ::icydb::core::traits::Filterable>::Filter
-                as ::icydb::core::db::primitives::FilterKind
+            <<#ty as ::icydb::traits::Filterable>::Filter
+                as ::icydb::db::primitives::FilterKind
             >::Payload
         );
 

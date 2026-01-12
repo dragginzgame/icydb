@@ -5,7 +5,19 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.2.4] - 2026-01-11 - Error Upgrade
+## [0.3.0] – 2026-01-12 – Public Facade Rewrite
+### Changed
+- 🧱 Major layering refactor: icydb is now a strict public facade over icydb-core, with internal subsystems depending directly on core rather than facade modules.
+- 🔌 Clear API boundaries: Engine internals (execution, queries, serialization, validation) are fully isolated in icydb-core; icydb exposes only intentional, stable entry points.
+- 📦 Public query surface: icydb::db::query is now a supported public API and re-exports core query types for direct use.
+- 🛠️ New facade utilities: Added top-level serialize, deserialize, sanitize, and validate helpers with normalized public errors.
+- 🔒 Hardened macros & executors: Generated code now targets canonical core paths, preventing accidental API leakage.
+
+### Impact
+- ⚠️ Downstream crates using icydb-core internals may need import updates.
+- 🚀 Future internal refactors should now cause far fewer breaking changes.
+
+## [0.2.5] - 2026-01-11 - Error Upgrade
 - Runtime errors are now unified under `RuntimeError` with class + origin metadata (internal taxonomy, not a stable API).
 - Public `Error` values are produced only at API boundaries and now stringify with `origin:class:` prefixes.
 - Added `REFACTOR.md` to document the maintainer-facing runtime contract and refactor baseline.

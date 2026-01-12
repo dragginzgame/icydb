@@ -35,7 +35,7 @@
 2. **Add IcyDB** to your `Cargo.toml` using the latest tag:
    ```toml
    [dependencies]
-   icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.1.18" }
+  icydb = { git = "https://github.com/dragginzgame/icydb.git" }
    ```
 3. **Declare an entity** with the `#[entity]` macro and a primary key.
 4. **Query your data** via `db!().load::<Entity>()...`.

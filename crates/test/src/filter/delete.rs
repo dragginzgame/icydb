@@ -1,10 +1,4 @@
-use icydb::{
-    core::{
-        Value,
-        types::{Decimal, Principal},
-    },
-    prelude::*,
-};
+use icydb::design::prelude::*;
 use test_design::e2e::filter::{Filterable, FilterableOpt};
 
 pub struct DeleteFilterSuite {}

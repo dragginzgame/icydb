@@ -20,7 +20,7 @@ pub struct Blob {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use icydb::core::validate;
+    use icydb::validate;
 
     #[test]
     fn blob_length_validation() {

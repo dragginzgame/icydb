@@ -5,9 +5,9 @@ use crate::{
         query::{QueryPlan, QueryPlanner},
         store::DataKey,
     },
-    deserialize,
+    error::InternalError,
     obs::metrics::Span,
-    runtime_error::RuntimeError,
+    serialize::deserialize,
     traits::EntityKind,
 };
 use std::ops::{Bound, ControlFlow};
@@ -29,7 +29,7 @@ pub fn scan_plan<E, F>(
     db: &Db<E::Canister>,
     plan: QueryPlan,
     mut on_row: F,
-) -> Result<(), RuntimeError>
+) -> Result<(), InternalError>
 where
     E: EntityKind,
     F: FnMut(DataKey, E) -> ControlFlow<()>,
@@ -55,7 +55,7 @@ where
                     }
                 }
 
-                Ok::<_, RuntimeError>(())
+                Ok::<_, InternalError>(())
             })??;
         }
 
@@ -77,7 +77,7 @@ where
                     }
                 }
 
-                Ok::<_, RuntimeError>(())
+                Ok::<_, InternalError>(())
             })??;
         }
 
@@ -97,7 +97,7 @@ where
                     }
                 }
 
-                Ok::<_, RuntimeError>(())
+                Ok::<_, InternalError>(())
             })??;
         }
 
@@ -117,7 +117,7 @@ where
                     }
                 }
 
-                Ok::<_, RuntimeError>(())
+                Ok::<_, InternalError>(())
             })??;
         }
     }

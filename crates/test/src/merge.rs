@@ -1,9 +1,7 @@
 use icydb::{
-    core::{
-        traits::UpdateView,
-        view::{ListPatch, MapPatch, SetPatch, Update},
-    },
     prelude::*,
+    traits::UpdateView,
+    view::{ListPatch, MapPatch, SetPatch, Update},
 };
 use std::collections::HashSet;
 use test_design::test::merge::{

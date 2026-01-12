@@ -2,7 +2,7 @@
 /// TESTS
 ///
 use crate::{
-    Key,
+    prelude::*,
     traits::{FieldValue, NumFromPrimitive},
     types::{Decimal, E8s, E18s, Float32 as F32, Float64 as F64, Ulid},
     value::{TextMode, Value, ValueEnum},

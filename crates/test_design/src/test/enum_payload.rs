@@ -32,20 +32,18 @@ pub struct EnumEntity {}
 pub mod test {
     use super::*;
     use base::types::ic::icp::Tokens;
-    use icydb::core::{deserialize, serialize};
+    use icydb::{deserialize, serialize};
 
     #[test]
     fn enum_field_value_carries_payload() {
         let v = EnumWithPayload::Icp(Tokens::from(123_u64));
 
-        match icydb::core::traits::FieldValue::to_value(&v) {
-            icydb::core::value::Value::Enum(e) => {
+        match icydb::traits::FieldValue::to_value(&v) {
+            icydb::value::Value::Enum(e) => {
                 assert_eq!(e.variant, "Icp");
                 assert_eq!(
                     e.payload.as_deref(),
-                    Some(&icydb::core::traits::FieldValue::to_value(&Tokens::from(
-                        123_u64
-                    )))
+                    Some(&icydb::traits::FieldValue::to_value(&Tokens::from(123_u64)))
                 );
             }
             other => panic!("expected Value::Enum with payload, got {other:?}"),
@@ -68,17 +66,17 @@ pub mod test {
 
     #[test]
     fn vec_box_value_field_value() {
-        use icydb::core::traits::FieldValue;
+        use icydb::traits::FieldValue;
 
-        let value = icydb::core::value::Value::Uint(5);
-        let vec: Vec<Box<icydb::core::value::Value>> = vec![Box::new(value.clone())];
+        let value = icydb::value::Value::Uint(5);
+        let vec: Vec<Box<icydb::value::Value>> = vec![Box::new(value.clone())];
         let list = FieldValue::to_value(&vec);
-        assert_eq!(list, icydb::core::value::Value::List(vec![value]));
+        assert_eq!(list, icydb::value::Value::List(vec![value]));
     }
 
     #[test]
     fn option_field_value_handles_some_and_none() {
-        use icydb::core::{traits::FieldValue, value::Value};
+        use icydb::{traits::FieldValue, value::Value};
 
         let some_val: Option<Value> = Some(Value::Uint(7));
         let none_val: Option<Value> = None;

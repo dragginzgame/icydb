@@ -177,7 +177,7 @@ impl ToTokens for TraitKind {
         let trait_name = format_ident!("{}", self.to_string());
 
         // quote
-        quote!(::icydb::core::traits::#trait_name).to_tokens(tokens);
+        quote!(::icydb::traits::#trait_name).to_tokens(tokens);
     }
 }
 

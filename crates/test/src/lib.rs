@@ -11,8 +11,7 @@ mod upsert;
 mod view_into;
 
 use canic_cdk::{export_candid, query, update};
-use icydb::core::db::response::ResponseExt as _;
-use icydb::{Error, design::prelude::*};
+use icydb::{Error, db::response::ResponseExt as _, design::prelude::*};
 use test_design::{
     e2e::filter::{Filterable, FilterableView},
     schema::{TestDataStore, TestIndexStore},

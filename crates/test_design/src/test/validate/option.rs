@@ -27,7 +27,7 @@ pub struct OptionalThreshold {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::core::validate;
+    use icydb::validate;
 
     #[test]
     fn none_is_valid() {

@@ -37,7 +37,7 @@ impl ViewExpr for ValueUpdate<'_> {
         match node.cardinality() {
             Cardinality::One => quote!(#item),
             Cardinality::Opt => quote!(Option<#item>),
-            Cardinality::Many => quote!(Vec<::icydb::core::view::ListPatch<#item>>),
+            Cardinality::Many => quote!(Vec<::icydb::view::ListPatch<#item>>),
         }
         .into()
     }
@@ -71,8 +71,8 @@ impl ViewExpr for ValueFilter<'_> {
             }
             Cardinality::Many => {
                 quote!(
-                    <<#ty as ::icydb::core::traits::Filterable>::ListFilter
-                        as ::icydb::core::db::primitives::filter::FilterKind>::Payload
+                    <<#ty as ::icydb::traits::Filterable>::ListFilter
+                        as ::icydb::db::primitives::filter::FilterKind>::Payload
                 )
             }
         };

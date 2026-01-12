@@ -1,4 +1,4 @@
-use crate::{core::traits::Validator, design::prelude::*};
+use crate::{design::prelude::*, traits::Validator};
 use std::{
     collections::{HashMap, HashSet},
     hash::BuildHasher,
@@ -183,7 +183,7 @@ impl<T: HasLen + ?Sized> Validator<T> for Range {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::visitor::{Issue, PathSegment, VisitorContext, VisitorIssues};
+    use crate::visitor::{Issue, PathSegment, VisitorContext, VisitorIssues};
 
     struct TestCtx {
         issues: VisitorIssues,

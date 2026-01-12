@@ -1,7 +1,5 @@
-use icydb::{
-    core::{db::store::DataKey, traits::Path, types::Ulid},
-    prelude::*,
-};
+use icydb::__internal::core::db::store::DataKey;
+use icydb::{design::prelude::*, traits::Path, types::Ulid};
 use test_design::schema::TestDataStore;
 
 ///
@@ -367,7 +365,7 @@ impl DbSuite {
     }
 
     fn load_malformed_row_errors() {
-        use icydb::core::Error;
+        use icydb::Error;
         use test_design::e2e::db::SimpleEntity;
 
         let good = db!().insert(SimpleEntity::default()).unwrap().key();
@@ -378,7 +376,6 @@ impl DbSuite {
         let err: Error = db!()
             .load::<SimpleEntity>()
             .all()
-            .map_err(Error::from)
             .expect_err("expected error when encountering malformed bytes");
 
         let msg = err.to_string();
@@ -395,7 +392,7 @@ impl DbSuite {
     }
 
     fn delete_skips_malformed_rows() {
-        use icydb::core::Error;
+        use icydb::Error;
         use test_design::e2e::db::SimpleEntity;
 
         let valid = db!().insert(SimpleEntity::default()).unwrap().key();
@@ -413,7 +410,6 @@ impl DbSuite {
         let err: Error = db!()
             .load::<SimpleEntity>()
             .all()
-            .map_err(Error::from)
             .expect_err("expected error when loading malformed rows");
 
         let msg = err.to_string();
@@ -471,7 +467,7 @@ impl DbSuite {
     }
 
     fn unit_primary_key() {
-        use icydb::core::{Key, types::Unit};
+        use icydb::types::Unit;
         use test_design::test::entity::UnitKey;
 
         let inserted = db!().insert(UnitKey::default()).unwrap();

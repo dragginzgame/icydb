@@ -58,7 +58,7 @@ pub fn to_str_lit<T: ToTokens>(t: &T) -> TokenStream {
 
 /// Resolve a `Path` implementor to its associated `PATH` constant.
 pub fn to_path<T: ToTokens>(t: &T) -> TokenStream {
-    quote! { <#t as ::icydb::core::traits::Path>::PATH }
+    quote! { <#t as ::icydb::traits::Path>::PATH }
 }
 
 #[must_use]

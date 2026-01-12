@@ -15,7 +15,7 @@ impl Imp<Newtype> for SubTrait {
 
         // quote
         let tokens = quote! {
-            impl ::icydb::core::traits::Sub<Self> for #ident {
+            impl ::icydb::traits::Sub<Self> for #ident {
                 type Output = Self;
 
                 fn sub(self, other: Self) -> Self::Output {
@@ -23,7 +23,7 @@ impl Imp<Newtype> for SubTrait {
                 }
             }
 
-            impl ::icydb::core::traits::Sub<#prim> for #ident {
+            impl ::icydb::traits::Sub<#prim> for #ident {
                 type Output = Self;
 
                 fn sub(self, other: #prim) -> Self::Output {
@@ -31,7 +31,7 @@ impl Imp<Newtype> for SubTrait {
                 }
             }
 
-            impl ::icydb::core::traits::Sub<#ident> for #prim {
+            impl ::icydb::traits::Sub<#ident> for #prim {
                 type Output = #ident;
 
                 fn sub(self, other: #ident) -> Self::Output {
@@ -60,13 +60,13 @@ impl Imp<Newtype> for SubAssignTrait {
 
         // quote
         let tokens = quote! {
-            impl ::icydb::core::traits::SubAssign<#prim> for #ident {
+            impl ::icydb::traits::SubAssign<#prim> for #ident {
                 fn sub_assign(&mut self, other: #prim) {
                     self.0 -= other;
                 }
             }
 
-            impl ::icydb::core::traits::SubAssign<#ident> for #ident {
+            impl ::icydb::traits::SubAssign<#ident> for #ident {
                 fn sub_assign(&mut self, other: #ident) {
                     self.0 -= other.0;
                 }

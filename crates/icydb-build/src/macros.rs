@@ -1,4 +1,3 @@
-// build
 /// Build-script helper that runs IcyDB codegen for the specified canister actor path.
 #[macro_export]
 macro_rules! build {

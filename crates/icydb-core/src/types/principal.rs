@@ -1,5 +1,4 @@
 use crate::{
-    ThisError,
     db::primitives::filter::{TextEqualityFilterKind, TextListFilterKind},
     key::Key,
     traits::{
@@ -15,6 +14,7 @@ use canic_cdk::{
 use derive_more::{Deref, DerefMut, Display};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, str::FromStr};
+use thiserror::Error as ThisError;
 
 ///
 /// PrincipalError

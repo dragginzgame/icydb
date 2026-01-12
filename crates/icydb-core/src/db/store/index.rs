@@ -1,12 +1,12 @@
 use crate::{
-    IndexSpec, Key, MAX_INDEX_FIELDS, Value,
+    MAX_INDEX_FIELDS,
     db::{
         executor::ExecutorError,
         store::{DataKey, StoreRegistry},
     },
+    error::InternalError,
     obs::metrics,
-    runtime_error::RuntimeError,
-    traits::EntityKind,
+    prelude::*,
 };
 use candid::CandidType;
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
@@ -56,8 +56,8 @@ impl IndexStore {
     pub fn insert_index_entry<E: EntityKind>(
         &mut self,
         entity: &E,
-        index: &IndexSpec,
-    ) -> Result<(), RuntimeError> {
+        index: &IndexModel,
+    ) -> Result<(), InternalError> {
         // Skip if index key can't be built (e.g. optional fields missing)
         let Some(index_key) = IndexKey::new(entity, index) else {
             return Ok(());
@@ -97,7 +97,7 @@ impl IndexStore {
 
     // remove_index_entry
     /// Remove an entity's entry for the given index if present.
-    pub fn remove_index_entry<E: EntityKind>(&mut self, entity: &E, index: &IndexSpec) {
+    pub fn remove_index_entry<E: EntityKind>(&mut self, entity: &E, index: &IndexModel) {
         // Skip if index key can't be built (e.g. optional fields missing)
         let Some(index_key) = IndexKey::new(entity, index) else {
             return;
@@ -124,7 +124,7 @@ impl IndexStore {
     /// Resolve data keys for a given index prefix.
     pub fn resolve_data_values<E: EntityKind>(
         &self,
-        index: &IndexSpec,
+        index: &IndexModel,
         prefix: &[Value],
     ) -> Vec<DataKey> {
         let mut out = Vec::new();
@@ -147,7 +147,7 @@ impl IndexStore {
     /// Uses a bounded range for efficient scanning.
     fn iter_with_hashed_prefix<E: EntityKind>(
         &self,
-        index: &IndexSpec,
+        index: &IndexModel,
         prefix: &[Value],
     ) -> impl Iterator<Item = (IndexKey, IndexEntry)> {
         let index_id = IndexId::new::<E>(index);
@@ -203,7 +203,7 @@ pub struct IndexId(u64);
 impl IndexId {
     #[must_use]
     /// Deterministic index identifier derived from entity path and field list.
-    pub fn new<E: EntityKind>(index: &IndexSpec) -> Self {
+    pub fn new<E: EntityKind>(index: &IndexModel) -> Self {
         Self::from_path_and_fields(E::PATH, index.fields)
     }
 
@@ -252,7 +252,7 @@ impl IndexKey {
 
     #[must_use]
     /// Build an index key from an entity and spec, returning None if a component is missing/non-indexable.
-    pub fn new<E: EntityKind>(entity: &E, index: &IndexSpec) -> Option<Self> {
+    pub fn new<E: EntityKind>(entity: &E, index: &IndexModel) -> Option<Self> {
         let mut hashed_values = Vec::<[u8; 16]>::with_capacity(index.fields.len());
 
         // get each value and convert to key

@@ -1,26 +1,7 @@
 use crate::{
     traits::Visitable,
-    visitor::{
-        PathSegment, VisitorContext, VisitorIssues, VisitorMut, VisitorMutAdapter,
-        perform_visit_mut,
-    },
+    visitor::{VisitorContext, VisitorMut},
 };
-
-///
-/// sanitize
-/// Run the sanitizer visitor over a mutable visitable tree.
-///
-/// Sanitization is total and non-failing. Any issues discovered during
-/// sanitization are reported via the returned `VisitorIssues`.
-///
-pub(crate) fn sanitize(node: &mut dyn Visitable) -> Result<(), VisitorIssues> {
-    let visitor = SanitizeVisitor::new();
-    let mut adapter = VisitorMutAdapter::new(visitor);
-
-    perform_visit_mut(&mut adapter, node, PathSegment::Empty);
-
-    adapter.result()
-}
 
 ///
 /// SanitizeVisitor

@@ -95,7 +95,7 @@ let query = icydb::db::query::load()
     .sort(|s| s.asc("name"))
     .limit(50);
 
-let views: Vec<<User as icydb::core::traits::TypeView>::View> =
+let views: Vec<<User as icydb::traits::TypeView>::View> =
     db().load::<User>().execute(&query)?.views();
 ```
 

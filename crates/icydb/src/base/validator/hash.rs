@@ -1,4 +1,4 @@
-use crate::{core::traits::Validator, core::visitor::VisitorContext, design::prelude::*};
+use crate::{design::prelude::*, traits::Validator};
 
 ///
 /// Sha256

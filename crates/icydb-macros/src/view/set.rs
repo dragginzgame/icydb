@@ -45,7 +45,7 @@ impl View for SetUpdate<'_> {
         // quote
         quote! {
             pub type #update_ident =
-                Vec<::icydb::core::view::SetPatch<#item_update>>;
+                Vec<::icydb::view::SetPatch<#item_update>>;
         }
     }
 }

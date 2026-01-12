@@ -1,4 +1,4 @@
-use crate::{Key, db::store::StoreRegistry, traits::EntityKind};
+use crate::{db::store::StoreRegistry, prelude::*};
 use candid::CandidType;
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
 use canic_memory::impl_storable_bounded;

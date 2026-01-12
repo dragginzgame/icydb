@@ -1,12 +1,12 @@
 use crate::{
-    Key,
     db::{
         Db,
         query::QueryPlan,
         store::{DataKey, DataRow, DataStore},
     },
-    deserialize,
-    runtime_error::RuntimeError,
+    error::InternalError,
+    key::Key,
+    serialize::deserialize,
     traits::{EntityKind, Path},
 };
 use std::{marker::PhantomData, ops::Bound};
@@ -33,7 +33,7 @@ where
     }
 
     /// Access the entity's data store in read-only mode.
-    pub fn with_store<R>(&self, f: impl FnOnce(&DataStore) -> R) -> Result<R, RuntimeError> {
+    pub fn with_store<R>(&self, f: impl FnOnce(&DataStore) -> R) -> Result<R, InternalError> {
         self.db.with_data(|reg| reg.with_store(E::Store::PATH, f))
     }
 
@@ -41,7 +41,7 @@ where
     pub fn with_store_mut<R>(
         &self,
         f: impl FnOnce(&mut DataStore) -> R,
-    ) -> Result<R, RuntimeError> {
+    ) -> Result<R, InternalError> {
         self.db
             .with_data(|reg| reg.with_store_mut(E::Store::PATH, f))
     }
@@ -54,7 +54,7 @@ where
     ///
     /// Note: index candidates are returned in deterministic key order.
     /// This ordering is for stability only and does not imply semantic ordering.
-    pub fn candidates_from_plan(&self, plan: QueryPlan) -> Result<Vec<DataKey>, RuntimeError> {
+    pub fn candidates_from_plan(&self, plan: QueryPlan) -> Result<Vec<DataKey>, InternalError> {
         let is_index_plan = matches!(&plan, QueryPlan::Index(_));
 
         let mut candidates = match plan {
@@ -97,7 +97,7 @@ where
     }
 
     /// Load data rows for the given query plan.
-    pub fn rows_from_plan(&self, plan: QueryPlan) -> Result<Vec<DataRow>, RuntimeError> {
+    pub fn rows_from_plan(&self, plan: QueryPlan) -> Result<Vec<DataRow>, InternalError> {
         match plan {
             QueryPlan::Keys(keys) => {
                 let data_keys = Self::to_data_keys(keys);
@@ -130,7 +130,7 @@ where
         plan: QueryPlan,
         offset: u32,
         limit: Option<u32>,
-    ) -> Result<Vec<DataRow>, RuntimeError> {
+    ) -> Result<Vec<DataRow>, InternalError> {
         let skip = offset as usize;
         let take = limit.map(|l| l as usize);
 
@@ -236,7 +236,7 @@ where
         (start, end)
     }
 
-    fn load_many(&self, keys: &[DataKey]) -> Result<Vec<DataRow>, RuntimeError> {
+    fn load_many(&self, keys: &[DataKey]) -> Result<Vec<DataRow>, InternalError> {
         self.with_store(|s| {
             keys.iter()
                 .filter_map(|k| s.get(k).map(|entry| (k.clone(), entry)))
@@ -244,7 +244,7 @@ where
         })
     }
 
-    fn load_range(&self, start: DataKey, end: DataKey) -> Result<Vec<DataRow>, RuntimeError> {
+    fn load_range(&self, start: DataKey, end: DataKey) -> Result<Vec<DataRow>, InternalError> {
         self.with_store(|s| {
             s.range((Bound::Included(start), Bound::Included(end)))
                 .map(|e| (e.key().clone(), e.value()))
@@ -254,9 +254,13 @@ where
 
     /// Deserialize raw data rows into typed entity rows, mapping `DataKey` → `(Key, E)`.
     #[allow(clippy::unused_self)]
-    pub fn deserialize_rows(&self, rows: Vec<DataRow>) -> Result<Vec<(Key, E)>, RuntimeError> {
+    pub fn deserialize_rows(&self, rows: Vec<DataRow>) -> Result<Vec<(Key, E)>, InternalError> {
         rows.into_iter()
-            .map(|(k, v)| deserialize::<E>(&v).map(|entry| (k.key(), entry)))
+            .map(|(k, v)| {
+                deserialize::<E>(&v)
+                    .map(|entry| (k.key(), entry))
+                    .map_err(InternalError::from)
+            })
             .collect()
     }
 }

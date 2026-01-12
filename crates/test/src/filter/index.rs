@@ -1,4 +1,4 @@
-use icydb::{core::traits::FieldValue, db::query::QueryPlan, prelude::*};
+use icydb::{db::query::QueryPlan, design::prelude::*, traits::FieldValue};
 use test_design::e2e::filter::FilterableIndex;
 
 ///

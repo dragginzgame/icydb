@@ -41,7 +41,7 @@ pub struct SetValidated {}
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use icydb::core::validate;
+    use icydb::validate;
 
     //
     // Helpers

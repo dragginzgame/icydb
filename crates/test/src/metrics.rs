@@ -1,7 +1,4 @@
-use icydb::{
-    core::{obs::metrics, traits::EntityKind},
-    prelude::*,
-};
+use icydb::{obs::metrics, prelude::*, traits::EntityKind};
 
 ///
 /// MetricsSuite

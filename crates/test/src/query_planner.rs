@@ -1,11 +1,10 @@
-use icydb::core::{
-    Key, Value,
+use icydb::{
     db::{
         primitives::filter::{Cmp, FilterClause, FilterExpr},
         query::{QueryPlan, QueryPlanner},
     },
+    design::prelude::*,
 };
-use icydb::prelude::*;
 use test_design::e2e::db::Index;
 
 ///

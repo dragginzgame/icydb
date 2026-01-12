@@ -2,7 +2,6 @@ pub mod fixture;
 pub mod generator;
 
 use crate::{
-    ThisError,
     db::primitives::{TextFilterKind, TextListFilterKind},
     key::Key,
     traits::{
@@ -17,6 +16,7 @@ use canic_cdk::structures::storable::Bound;
 use derive_more::{Deref, DerefMut, Display, FromStr};
 use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
 use std::borrow::Cow;
+use thiserror::Error as ThisError;
 use ulid::Ulid as WrappedUlid;
 
 ///
