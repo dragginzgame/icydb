@@ -114,6 +114,7 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         /// Internal raw DB access for tests and invariant-breaking tooling.
         /// Not part of the public API.
         #[doc(hidden)]
+        #[allow(dead_code)]
         pub(crate) const fn db_core() -> ::icydb::__internal::core::db::DbSession<#canister_path> {
             ::icydb::__internal::core::db::DbSession::new(DB)
         }
