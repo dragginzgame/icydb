@@ -107,6 +107,10 @@ pub mod prelude {
     pub use crate::{
         db,
         db::{
+            primitives::{
+                self, Cmp, FilterClause, FilterDsl, FilterExpr, FilterExt as _, LimitExpr,
+                LimitExt as _, SortExpr, SortExt as _,
+            },
             query,
             response::{Response, ResponseExt},
         },
