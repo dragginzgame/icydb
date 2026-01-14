@@ -12,7 +12,7 @@ use crate::{
         store::DataKey,
     },
     error::InternalError,
-    obs::metrics,
+    obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     sanitize::sanitize,
     serialize::deserialize,
@@ -135,7 +135,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
     where
         E::PrimaryKey: FromKey,
     {
-        let mut span = metrics::Span::<E>::new(metrics::ExecKind::Delete);
+        let mut span = Span::<E>::new(ExecKind::Delete);
         let index = index.index();
         let mut lookup = entity;
         sanitize(&mut lookup)?;
@@ -250,7 +250,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
     /// strict unique-index semantics.
     pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, InternalError> {
         QueryValidate::<E>::validate(&query)?;
-        let mut span = metrics::Span::<E>::new(metrics::ExecKind::Delete);
+        let mut span = Span::<E>::new(ExecKind::Delete);
 
         let plan = plan_for::<E>(query.filter.as_ref());
 
@@ -275,7 +275,10 @@ impl<E: EntityKind> DeleteExecutor<E> {
             }
         })?;
 
-        metrics::record_rows_scanned_for::<E>(scanned);
+        sink::record(MetricsEvent::RowsScanned {
+            entity_path: E::PATH,
+            rows_scanned: scanned,
+        });
 
         let mut res: Vec<(Key, E)> = Vec::with_capacity(acc.matches.len());
         self.db.context::<E>().with_store_mut(|s| {

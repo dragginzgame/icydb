@@ -1,6 +1,6 @@
 use crate::{
     db::primitives::filter::{Cmp, FilterExpr},
-    obs::metrics,
+    obs::sink::{self, MetricsEvent, PlanKind},
     prelude::*,
     traits::EntityKind,
 };
@@ -88,11 +88,13 @@ impl QueryPlanner {
         // If filter is a primary key match
         // this would handle One and Many queries
         if let Some(plan) = self.extract_from_filter::<E>() {
-            metrics::with_state_mut(|m| match plan {
-                QueryPlan::Keys(_) => m.ops.plan_keys += 1,
-                QueryPlan::Index(_) => m.ops.plan_index += 1,
-                QueryPlan::Range(_, _) => m.ops.plan_range += 1,
-                QueryPlan::FullScan => m.ops.plan_full_scan += 1,
+            sink::record(MetricsEvent::Plan {
+                kind: match &plan {
+                    QueryPlan::Keys(_) => PlanKind::Keys,
+                    QueryPlan::Index(_) => PlanKind::Index,
+                    QueryPlan::Range(_, _) => PlanKind::Range,
+                    QueryPlan::FullScan => PlanKind::FullScan,
+                },
             });
             return plan;
         }
@@ -102,12 +104,16 @@ impl QueryPlanner {
         if !E::INDEXES.is_empty()
             && let Some(plan) = self.extract_from_index::<E>()
         {
-            metrics::with_state_mut(|m| m.ops.plan_index += 1);
+            sink::record(MetricsEvent::Plan {
+                kind: PlanKind::Index,
+            });
             return plan;
         }
 
         // Fallback: do a full scan
-        metrics::with_state_mut(|m| m.ops.plan_full_scan += 1);
+        sink::record(MetricsEvent::Plan {
+            kind: PlanKind::FullScan,
+        });
 
         QueryPlan::FullScan
     }

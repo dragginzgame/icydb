@@ -11,7 +11,7 @@ use crate::{
         store::DataRow,
     },
     error::InternalError,
-    obs::metrics,
+    obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     traits::{EntityKind, FieldValue},
 };
@@ -121,7 +121,9 @@ impl<E: EntityKind> LoadExecutor<E> {
     /// Respects offset/limit when provided (limit=0 returns false).
     pub fn exists(&self, query: LoadQuery) -> Result<bool, InternalError> {
         QueryValidate::<E>::validate(&query)?;
-        metrics::record_exists_call_for::<E>();
+        sink::record(MetricsEvent::ExistsCall {
+            entity_path: E::PATH,
+        });
 
         let plan = plan_for::<E>(query.filter.as_ref());
         let filter = query.filter.map(FilterExpr::simplify);
@@ -153,7 +155,10 @@ impl<E: EntityKind> LoadExecutor<E> {
             }
         })?;
 
-        metrics::record_rows_scanned_for::<E>(scanned);
+        sink::record(MetricsEvent::RowsScanned {
+            entity_path: E::PATH,
+            rows_scanned: scanned,
+        });
 
         Ok(found)
     }
@@ -251,7 +256,7 @@ impl<E: EntityKind> LoadExecutor<E> {
     /// or malformed rows, those candidates are skipped. Use explicit strict APIs
     /// when corruption must surface as an error.
     pub fn execute(&self, query: LoadQuery) -> Result<Response<E>, InternalError> {
-        let mut span = metrics::Span::<E>::new(metrics::ExecKind::Load);
+        let mut span = Span::<E>::new(ExecKind::Load);
         QueryValidate::<E>::validate(&query)?;
 
         self.debug_log(format!("🧭 Executing query: {:?} on {}", query, E::PATH));
@@ -265,7 +270,10 @@ impl<E: EntityKind> LoadExecutor<E> {
         let pre_paginated = query.filter.is_none() && query.sort.is_none() && query.limit.is_some();
         let mut rows: Vec<(Key, E)> = if pre_paginated {
             let data_rows = self.execute_raw(&query)?;
-            metrics::record_rows_scanned_for::<E>(data_rows.len() as u64);
+            sink::record(MetricsEvent::RowsScanned {
+                entity_path: E::PATH,
+                rows_scanned: data_rows.len() as u64,
+            });
 
             self.debug_log(format!(
                 "📦 Scanned {} data rows before deserialization",
@@ -280,7 +288,10 @@ impl<E: EntityKind> LoadExecutor<E> {
             rows
         } else {
             let data_rows = ctx.rows_from_plan(plan)?;
-            metrics::record_rows_scanned_for::<E>(data_rows.len() as u64);
+            sink::record(MetricsEvent::RowsScanned {
+                entity_path: E::PATH,
+                rows_scanned: data_rows.len() as u64,
+            });
             self.debug_log(format!(
                 "📦 Scanned {} data rows before deserialization",
                 data_rows.len()

@@ -1,12 +1,10 @@
-use crate::traits::EntityKind;
 use candid::CandidType;
-use canic_cdk::{api::performance_counter, utils::time::now_millis};
+use canic_cdk::utils::time::now_millis;
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap, marker::PhantomData};
+use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap};
 
 ///
-/// Metrics
-/// Ephemeral, in-memory counters and simple perf totals for operations.
+/// EventState
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
@@ -58,7 +56,7 @@ pub struct EventOps {
 }
 
 ///
-/// EntityOps
+/// EntityCounters
 ///
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
@@ -76,7 +74,7 @@ pub struct EntityCounters {
 }
 
 ///
-/// Perf
+/// EventPerf
 ///
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
@@ -126,154 +124,6 @@ pub fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64) {
 }
 
 ///
-/// ExecKind
-///
-
-#[derive(Clone, Copy, Debug)]
-pub enum ExecKind {
-    Load,
-    Save,
-    Delete,
-}
-
-/// Begin an executor timing span and increment call counters.
-/// Returns the start instruction counter value.
-#[must_use]
-pub(crate) fn exec_start(kind: ExecKind) -> u64 {
-    with_state_mut(|m| match kind {
-        ExecKind::Load => m.ops.load_calls = m.ops.load_calls.saturating_add(1),
-        ExecKind::Save => m.ops.save_calls = m.ops.save_calls.saturating_add(1),
-        ExecKind::Delete => m.ops.delete_calls = m.ops.delete_calls.saturating_add(1),
-    });
-
-    // Instruction counter (counter_type = 1) is per-message and monotonic.
-    performance_counter(1)
-}
-
-/// Finish an executor timing span and aggregate instruction deltas and row counters.
-pub(crate) fn exec_finish(kind: ExecKind, start_inst: u64, rows_touched: u64) {
-    let now = performance_counter(1);
-    let delta = now.saturating_sub(start_inst);
-
-    with_state_mut(|m| match kind {
-        ExecKind::Load => {
-            m.ops.rows_loaded = m.ops.rows_loaded.saturating_add(rows_touched);
-            add_instructions(
-                &mut m.perf.load_inst_total,
-                &mut m.perf.load_inst_max,
-                delta,
-            );
-        }
-        ExecKind::Save => {
-            add_instructions(
-                &mut m.perf.save_inst_total,
-                &mut m.perf.save_inst_max,
-                delta,
-            );
-        }
-        ExecKind::Delete => {
-            m.ops.rows_deleted = m.ops.rows_deleted.saturating_add(rows_touched);
-            add_instructions(
-                &mut m.perf.delete_inst_total,
-                &mut m.perf.delete_inst_max,
-                delta,
-            );
-        }
-    });
-}
-
-/// Per-entity variants using EntityKind::PATH
-#[must_use]
-pub(crate) fn exec_start_for<E>(kind: ExecKind) -> u64
-where
-    E: EntityKind,
-{
-    let start = exec_start(kind);
-    with_state_mut(|m| {
-        let entry = m.entities.entry(E::PATH.to_string()).or_default();
-        match kind {
-            ExecKind::Load => entry.load_calls = entry.load_calls.saturating_add(1),
-            ExecKind::Save => entry.save_calls = entry.save_calls.saturating_add(1),
-            ExecKind::Delete => entry.delete_calls = entry.delete_calls.saturating_add(1),
-        }
-    });
-    start
-}
-
-/// Finish a per-entity span and accumulate rows touched.
-pub(crate) fn exec_finish_for<E>(kind: ExecKind, start_inst: u64, rows_touched: u64)
-where
-    E: EntityKind,
-{
-    exec_finish(kind, start_inst, rows_touched);
-    with_state_mut(|m| {
-        let entry = m.entities.entry(E::PATH.to_string()).or_default();
-        match kind {
-            ExecKind::Load => entry.rows_loaded = entry.rows_loaded.saturating_add(rows_touched),
-            ExecKind::Delete => {
-                entry.rows_deleted = entry.rows_deleted.saturating_add(rows_touched);
-            }
-            ExecKind::Save => {}
-        }
-    });
-}
-
-///
-/// Span
-/// RAII guard to simplify metrics instrumentation
-///
-
-pub(crate) struct Span<E: EntityKind> {
-    kind: ExecKind,
-    start: u64,
-    rows: u64,
-    finished: bool,
-    _marker: PhantomData<E>,
-}
-
-impl<E: EntityKind> Span<E> {
-    #[must_use]
-    /// Start a metrics span for a specific entity and executor kind.
-    pub(crate) fn new(kind: ExecKind) -> Self {
-        Self {
-            kind,
-            start: exec_start_for::<E>(kind),
-            rows: 0,
-            finished: false,
-            _marker: PhantomData,
-        }
-    }
-
-    pub(crate) const fn set_rows(&mut self, rows: u64) {
-        self.rows = rows;
-    }
-
-    #[expect(dead_code)]
-    /// Increment the recorded row count.
-    pub(crate) const fn add_rows(&mut self, rows: u64) {
-        self.rows = self.rows.saturating_add(rows);
-    }
-
-    #[expect(dead_code)]
-    /// Finish the span early (also happens on Drop).
-    pub(crate) fn finish(mut self) {
-        if !self.finished {
-            exec_finish_for::<E>(self.kind, self.start, self.rows);
-            self.finished = true;
-        }
-    }
-}
-
-impl<E: EntityKind> Drop for Span<E> {
-    fn drop(&mut self) {
-        if !self.finished {
-            exec_finish_for::<E>(self.kind, self.start, self.rows);
-            self.finished = true;
-        }
-    }
-}
-
-///
 /// EventReport
 /// Event/counter report; storage snapshot types live in snapshot/storage modules.
 ///
@@ -305,40 +155,6 @@ pub struct EntitySummary {
     pub index_inserts: u64,
     pub index_removes: u64,
     pub unique_violations: u64,
-}
-
-/// Increment unique-violation counters globally and for a specific entity type.
-pub(crate) fn record_unique_violation_for<E>(m: &mut EventState)
-where
-    E: crate::traits::EntityKind,
-{
-    m.ops.unique_violations = m.ops.unique_violations.saturating_add(1);
-    let entry = m.entities.entry(E::PATH.to_string()).or_default();
-    entry.unique_violations = entry.unique_violations.saturating_add(1);
-}
-
-/// Increment existence-check counters globally and for a specific entity type.
-pub(crate) fn record_exists_call_for<E>()
-where
-    E: crate::traits::EntityKind,
-{
-    with_state_mut(|m| {
-        m.ops.exists_calls = m.ops.exists_calls.saturating_add(1);
-        let entry = m.entities.entry(E::PATH.to_string()).or_default();
-        entry.exists_calls = entry.exists_calls.saturating_add(1);
-    });
-}
-
-/// Increment row-scan counters globally and for a specific entity type.
-pub(crate) fn record_rows_scanned_for<E>(rows_scanned: u64)
-where
-    E: crate::traits::EntityKind,
-{
-    with_state_mut(|m| {
-        m.ops.rows_scanned = m.ops.rows_scanned.saturating_add(rows_scanned);
-        let entry = m.entities.entry(E::PATH.to_string()).or_default();
-        entry.rows_scanned = entry.rows_scanned.saturating_add(rows_scanned);
-    });
 }
 
 ///

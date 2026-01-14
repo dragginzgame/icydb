@@ -6,7 +6,7 @@ use crate::{
         store::DataKey,
     },
     error::InternalError,
-    obs::metrics,
+    obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::{deserialize, serialize},
     traits::EntityKind,
@@ -139,7 +139,7 @@ impl<E: EntityKind> SaveExecutor<E> {
     }
 
     fn save_entity(&self, mode: SaveMode, mut entity: E) -> Result<E, InternalError> {
-        let mut span = metrics::Span::<E>::new(metrics::ExecKind::Save);
+        let mut span = Span::<E>::new(ExecKind::Save);
         let ctx = self.db.context::<E>();
         let _unit = WriteUnit::new("save_entity");
 
@@ -207,8 +207,8 @@ impl<E: EntityKind> SaveExecutor<E> {
                 });
 
                 if violates {
-                    metrics::with_state_mut(|m| {
-                        metrics::record_unique_violation_for::<E>(m);
+                    sink::record(MetricsEvent::UniqueViolation {
+                        entity_path: E::PATH,
                     });
 
                     return Err(ExecutorError::index_violation(E::PATH, index.fields).into());

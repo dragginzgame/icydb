@@ -6,7 +6,7 @@ use crate::{
         store::DataKey,
     },
     error::InternalError,
-    obs::metrics::Span,
+    obs::sink::Span,
     serialize::deserialize,
     traits::EntityKind,
 };

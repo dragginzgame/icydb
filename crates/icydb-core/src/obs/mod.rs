@@ -1,6 +1,7 @@
 //! Observability: runtime event telemetry (metrics) and storage snapshots.
 
 pub mod metrics;
+pub mod sink;
 pub mod snapshot;
 
 // Convenient re-exports

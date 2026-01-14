@@ -1,4 +1,4 @@
-use icydb::{obs::metrics, prelude::*, traits::EntityKind};
+use icydb::{prelude::*, traits::EntityKind};
 
 ///
 /// MetricsSuite
@@ -22,7 +22,7 @@ impl MetricsSuite {
 
         for (name, test_fn) in tests {
             // fresh counters and data
-            metrics::reset();
+            icydb::obs::metrics::reset();
             crate::clear_test_data_store();
 
             println!("Running test: {name}");

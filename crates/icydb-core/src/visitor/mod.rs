@@ -6,8 +6,10 @@ pub use context::*;
 pub use sanitize::SanitizeVisitor;
 pub use validate::ValidateVisitor;
 
-use crate::error::{ErrorClass, ErrorOrigin, InternalError};
-use crate::traits::Visitable;
+use crate::{
+    error::{ErrorClass, ErrorOrigin, InternalError},
+    traits::Visitable,
+};
 use candid::CandidType;
 use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
