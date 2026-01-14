@@ -108,7 +108,7 @@ release: ensure-clean
 # Tests
 #
 
-test: test-canisters test-unit
+test: clippy test-canisters test-unit
 
 test-unit:
 	$(CARGO_ENV) cargo test --workspace --all-targets --verbose

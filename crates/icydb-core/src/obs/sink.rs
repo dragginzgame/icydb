@@ -242,6 +242,7 @@ pub fn record(event: MetricsEvent) {
 }
 
 /// Snapshot the current metrics state for endpoint/test plumbing.
+#[must_use]
 pub fn metrics_report() -> metrics::EventReport {
     metrics::report()
 }

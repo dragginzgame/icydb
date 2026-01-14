@@ -6,7 +6,6 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.3.2] - 2026-01-14 - Metrics Decoupling
-### Changed
 - Public `Error` now exposes `class` and `origin` alongside the message.
 - Observability: unbundled metrics + query instrumentation via `obs::sink` dependency inversion, keeping executors/planner/storage metrics-agnostic while preserving global default and scoped overrides.
 - Metrics: route report/reset through `obs::sink` helpers to keep metrics ingress sealed.
