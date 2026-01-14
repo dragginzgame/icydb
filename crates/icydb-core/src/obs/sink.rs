@@ -7,7 +7,11 @@
 //! and the global metrics state.
 use crate::{obs::metrics, traits::EntityKind};
 use canic_cdk::api::performance_counter;
-use std::marker::PhantomData;
+use std::{cell::RefCell, marker::PhantomData};
+
+thread_local! {
+    static SINK_OVERRIDE: RefCell<Option<*const dyn MetricsSink>> = RefCell::new(None);
+}
 
 ///
 /// ExecKind
@@ -228,7 +232,52 @@ impl MetricsSink for GlobalMetricsSink {
 pub const GLOBAL_METRICS_SINK: GlobalMetricsSink = GlobalMetricsSink;
 
 pub fn record(event: MetricsEvent) {
-    GLOBAL_METRICS_SINK.record(event);
+    let override_ptr = SINK_OVERRIDE.with(|cell| *cell.borrow());
+    if let Some(ptr) = override_ptr {
+        // SAFETY: override is scoped by with_metrics_sink and only used synchronously.
+        unsafe { (&*ptr).record(event) };
+    } else {
+        GLOBAL_METRICS_SINK.record(event);
+    }
+}
+
+/// Snapshot the current metrics state for endpoint/test plumbing.
+pub fn metrics_report() -> metrics::EventReport {
+    metrics::report()
+}
+
+/// Reset ephemeral metrics counters.
+pub fn metrics_reset() {
+    metrics::reset();
+}
+
+/// Reset all metrics state (counters + perf).
+pub fn metrics_reset_all() {
+    metrics::reset_all();
+}
+
+/// Run a closure with a temporary metrics sink override.
+pub fn with_metrics_sink<T>(sink: &dyn MetricsSink, f: impl FnOnce() -> T) -> T {
+    struct Guard(Option<*const dyn MetricsSink>);
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            SINK_OVERRIDE.with(|cell| {
+                *cell.borrow_mut() = self.0;
+            });
+        }
+    }
+
+    // SAFETY: we erase the reference lifetime for scoped storage in TLS and
+    // restore the previous value on scope exit via Guard.
+    let sink_ptr = unsafe { std::mem::transmute::<&dyn MetricsSink, *const dyn MetricsSink>(sink) };
+    let prev = SINK_OVERRIDE.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        slot.replace(sink_ptr)
+    });
+    let _guard = Guard(prev);
+
+    f()
 }
 
 ///

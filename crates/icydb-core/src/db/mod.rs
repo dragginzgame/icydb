@@ -10,6 +10,7 @@ use crate::{
         store::{DataStoreRegistry, IndexStoreRegistry},
     },
     error::InternalError,
+    obs::sink::{self, MetricsSink},
     traits::{CanisterKind, EntityKind, FromKey},
 };
 use std::{marker::PhantomData, thread::LocalKey};
@@ -82,13 +83,18 @@ impl<C: CanisterKind> Clone for Db<C> {
 pub struct DbSession<C: CanisterKind> {
     db: Db<C>,
     debug: bool,
+    metrics: Option<&'static dyn MetricsSink>,
 }
 
 impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     /// Create a new session scoped to the provided database.
     pub const fn new(db: Db<C>) -> Self {
-        Self { db, debug: false }
+        Self {
+            db,
+            debug: false,
+            metrics: None,
+        }
     }
 
     #[must_use]
@@ -98,11 +104,27 @@ impl<C: CanisterKind> DbSession<C> {
         self
     }
 
+    #[must_use]
+    /// Override the metrics sink for operations executed through this session.
+    pub const fn metrics_sink(mut self, sink: &'static dyn MetricsSink) -> Self {
+        self.metrics = Some(sink);
+        self
+    }
+
+    fn with_metrics<T>(&self, f: impl FnOnce() -> T) -> T {
+        if let Some(sink) = self.metrics {
+            sink::with_metrics_sink(sink, f)
+        } else {
+            f()
+        }
+    }
+
     //
     // Low-level executors
     //
 
     /// Get a [`LoadExecutor`] for building and executing queries that read entities.
+    /// Note: executor methods do not apply the session metrics override.
     #[must_use]
     pub const fn load<E>(&self) -> LoadExecutor<E>
     where
@@ -114,6 +136,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Get a [`SaveExecutor`] for inserting or updating entities.
     ///
     /// Normally you will use the higher-level `create/replace/update` shortcuts instead.
+    /// Note: executor methods do not apply the session metrics override.
     #[must_use]
     pub const fn save<E>(&self) -> SaveExecutor<E>
     where
@@ -123,6 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Get an [`UpsertExecutor`] for inserting or updating by a unique index.
+    /// Note: executor methods do not apply the session metrics override.
     #[must_use]
     pub const fn upsert<E>(&self) -> UpsertExecutor<E>
     where
@@ -133,6 +157,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Get a [`DeleteExecutor`] for deleting entities by key or query.
+    /// Note: executor methods do not apply the session metrics override.
     #[must_use]
     pub const fn delete<E>(&self) -> DeleteExecutor<E>
     where
@@ -150,7 +175,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().insert(entity)
+        self.with_metrics(|| self.save::<E>().insert(entity))
     }
 
     /// Insert multiple entities, returning stored values.
@@ -161,7 +186,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().insert_many(entities)
+        self.with_metrics(|| self.save::<E>().insert_many(entities))
     }
 
     /// Replace an existing entity or insert it if it does not yet exist.
@@ -169,7 +194,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().replace(entity)
+        self.with_metrics(|| self.save::<E>().replace(entity))
     }
 
     /// Replace multiple entities, inserting if missing.
@@ -180,7 +205,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().replace_many(entities)
+        self.with_metrics(|| self.save::<E>().replace_many(entities))
     }
 
     /// Partially update an existing entity.
@@ -188,7 +213,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().update(entity)
+        self.with_metrics(|| self.save::<E>().update(entity))
     }
 
     /// Partially update multiple existing entities.
@@ -199,7 +224,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().update_many(entities)
+        self.with_metrics(|| self.save::<E>().update_many(entities))
     }
 
     /// Insert a new view value for an entity.
@@ -207,7 +232,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().insert_view(view)
+        self.with_metrics(|| self.save::<E>().insert_view(view))
     }
 
     /// Replace an existing view or insert it if it does not yet exist.
@@ -215,7 +240,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().replace_view(view)
+        self.with_metrics(|| self.save::<E>().replace_view(view))
     }
 
     /// Partially update an existing view.
@@ -223,6 +248,6 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.save::<E>().update_view(view)
+        self.with_metrics(|| self.save::<E>().update_view(view))
     }
 }

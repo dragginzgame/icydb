@@ -28,14 +28,14 @@ pub fn generate(builder: &ActorBuilder) -> TokenStream {
 
         /// Ephemeral event report since the internal `since_ms` (counters + per-entity summaries).
         #[::icydb::__reexports::canic_cdk::query]
-        pub fn icydb_metrics() -> Result<::icydb::obs::metrics::EventReport, ::icydb::Error> {
-            Ok(::icydb::obs::metrics::report())
+        pub fn icydb_metrics() -> Result<::icydb::obs::EventReport, ::icydb::Error> {
+            Ok(::icydb::obs::sink::metrics_report())
         }
 
         /// Reset ephemeral event state and refresh `since_ms`.
         #[::icydb::__reexports::canic_cdk::update]
         pub fn icydb_metrics_reset() -> Result<(), ::icydb::Error> {
-            ::icydb::obs::metrics::reset_all();
+            ::icydb::obs::sink::metrics_reset_all();
 
             Ok(())
         }

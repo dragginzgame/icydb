@@ -1,3 +1,7 @@
+//! Runtime metrics are update-only by contract.
+//! Query-side instrumentation is intentionally not surfaced by `report`, so
+//! query metrics are non-existent by design under IC query semantics.
+
 use candid::CandidType;
 use canic_cdk::utils::time::now_millis;
 use serde::{Deserialize, Serialize};
@@ -30,6 +34,8 @@ impl Default for EventState {
 /// EventOps
 ///
 
+/// Call counters are execution attempts; errors still increment them.
+/// Row counters reflect rows touched after execution, not requested rows.
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EventOps {
     // Executor entrypoints
@@ -77,6 +83,8 @@ pub struct EntityCounters {
 /// EventPerf
 ///
 
+/// Instruction deltas are pressure indicators (validation + planning + execution),
+/// not latency measurements.
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EventPerf {
     // Instruction totals per executor (ic_cdk::api::performance_counter(1))

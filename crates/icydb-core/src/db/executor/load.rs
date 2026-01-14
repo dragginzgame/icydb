@@ -239,9 +239,12 @@ impl<E: EntityKind> LoadExecutor<E> {
         Ok(plan_for::<E>(query.filter.as_ref()))
     }
 
-    fn execute_raw(&self, query: &LoadQuery) -> Result<Vec<DataRow>, InternalError> {
+    fn execute_raw(
+        &self,
+        plan: QueryPlan,
+        query: &LoadQuery,
+    ) -> Result<Vec<DataRow>, InternalError> {
         let ctx = self.db.context::<E>();
-        let plan = plan_for::<E>(query.filter.as_ref());
 
         if let Some(lim) = &query.limit {
             Ok(ctx.rows_from_plan_with_pagination(plan, lim.offset, lim.limit)?)
@@ -269,7 +272,7 @@ impl<E: EntityKind> LoadExecutor<E> {
         // Fast path: pre-pagination
         let pre_paginated = query.filter.is_none() && query.sort.is_none() && query.limit.is_some();
         let mut rows: Vec<(Key, E)> = if pre_paginated {
-            let data_rows = self.execute_raw(&query)?;
+            let data_rows = self.execute_raw(plan, &query)?;
             sink::record(MetricsEvent::RowsScanned {
                 entity_path: E::PATH,
                 rows_scanned: data_rows.len() as u64,

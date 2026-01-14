@@ -8,6 +8,7 @@ use crate::{
     },
     traits::{CanisterKind, EntityKind, FromKey},
 };
+use core::obs::sink::MetricsSink;
 use icydb_core::{self as core, error::InternalError, model::index::IndexModel};
 
 ///
@@ -60,11 +61,20 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    #[must_use]
+    /// Override the metrics sink for operations executed through this session.
+    pub const fn metrics_sink(self, sink: &'static dyn MetricsSink) -> Self {
+        Self {
+            inner: self.inner.metrics_sink(sink),
+        }
+    }
+
     //
     // Low-level executors
     //
 
     /// Get a [`LoadExecutor`] for building and executing queries that read entities.
+    /// Note: executor methods do not apply the session metrics override.
     #[must_use]
     pub const fn load<E>(&self) -> LoadExecutor<E>
     where
@@ -74,6 +84,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Get a [`SaveExecutor`] for inserting or updating entities.
+    /// Note: executor methods do not apply the session metrics override.
     #[must_use]
     pub const fn save<E>(&self) -> SaveExecutor<E>
     where
@@ -83,6 +94,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Get an [`UpsertExecutor`] for inserting or updating by a unique index.
+    /// Note: executor methods do not apply the session metrics override.
     #[must_use]
     pub const fn upsert<E>(&self) -> UpsertExecutor<E>
     where
@@ -93,6 +105,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Get a [`DeleteExecutor`] for deleting entities by key or query.
+    /// Note: executor methods do not apply the session metrics override.
     #[must_use]
     pub const fn delete<E>(&self) -> DeleteExecutor<E>
     where

@@ -22,7 +22,7 @@ impl MetricsSuite {
 
         for (name, test_fn) in tests {
             // fresh counters and data
-            icydb::obs::metrics::reset();
+            icydb::obs::sink::metrics_reset();
             crate::clear_test_data_store();
 
             println!("Running test: {name}");
