@@ -1,7 +1,6 @@
-use crate::build::reserved::WORDS;
+//! Schema-level validation helpers for naming constraints and identifiers.
 
-pub const MAX_ENTITY_NAME_LEN: usize = 64;
-pub const MAX_INDEX_NAME_LEN: usize = 200;
+use crate::{MAX_ENTITY_NAME_LEN, MAX_FIELD_NAME_LEN, MAX_INDEX_NAME_LEN, build::reserved::WORDS};
 
 /// Ensure an identifier is non-empty and not a reserved keyword.
 pub(crate) fn validate_ident(ident: &str) -> Result<(), String> {
@@ -27,6 +26,17 @@ pub(crate) fn validate_entity_name(name: &str) -> Result<(), String> {
     }
     if !name.is_ascii() {
         return Err(format!("entity name '{name}' must be ASCII"));
+    }
+
+    Ok(())
+}
+
+/// Ensure field names are within the maximum length.
+pub(crate) fn validate_field_name_len(name: &str) -> Result<(), String> {
+    if name.len() > MAX_FIELD_NAME_LEN {
+        return Err(format!(
+            "field name '{name}' exceeds max length {MAX_FIELD_NAME_LEN}"
+        ));
     }
 
     Ok(())
@@ -71,5 +81,34 @@ mod tests {
     #[test]
     fn accepts_non_reserved_identifier() {
         assert!(validate_ident("custom_ident").is_ok());
+    }
+
+    #[test]
+    fn rejects_field_name_over_limit() {
+        let long_name = "a".repeat(MAX_FIELD_NAME_LEN + 1);
+        assert!(validate_field_name_len(&long_name).is_err());
+    }
+
+    #[test]
+    fn accepts_index_name_at_max_len() {
+        let entity = "0123456789abcdef0123456789abcdef0123456789abcdef";
+        let field = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let fields = [field, field, field, field];
+
+        assert_eq!(
+            entity.len() + fields.len() * (1 + field.len()),
+            MAX_INDEX_NAME_LEN
+        );
+        assert!(validate_index_name_len(entity, &fields).is_ok());
+    }
+
+    #[test]
+    fn rejects_index_name_over_max_len() {
+        let entity = "0123456789abcdef0123456789abcdef0123456789abcdef";
+        let field = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let long_field = format!("{field}a");
+        let fields = [long_field.as_str(), field, field, field];
+
+        assert!(validate_index_name_len(entity, &fields).is_err());
     }
 }

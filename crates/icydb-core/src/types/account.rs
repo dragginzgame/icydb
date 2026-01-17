@@ -41,7 +41,7 @@ pub struct Account {
 }
 
 impl Account {
-    pub const STORABLE_MAX_SIZE: u32 = 62;
+    pub const STORED_SIZE: u32 = 62;
 
     /// Build an account from owner and optional subaccount.
     pub fn new<P: Into<Principal>, S: Into<Subaccount>>(owner: P, subaccount: Option<S>) -> Self {
@@ -222,7 +222,7 @@ impl Storable for Account {
     }
 
     const BOUND: Bound = Bound::Bounded {
-        max_size: Self::STORABLE_MAX_SIZE,
+        max_size: Self::STORED_SIZE,
         is_fixed_size: false,
     };
 }
@@ -274,9 +274,9 @@ mod tests {
         let size = bytes.len();
 
         assert!(
-            size == Account::STORABLE_MAX_SIZE as usize,
+            size == Account::STORED_SIZE as usize,
             "serialized Account size mismatch (got {size}, expected {})",
-            Account::STORABLE_MAX_SIZE
+            Account::STORED_SIZE
         );
     }
 

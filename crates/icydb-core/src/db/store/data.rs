@@ -1,13 +1,14 @@
 use crate::{
-    db::store::{EntityName, StoreRegistry},
+    db::store::{EntityName, MAX_ENTITY_NAME_LEN, StoreRegistry},
     prelude::*,
+    traits::Storable,
 };
-use candid::CandidType;
-use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
-use canic_memory::impl_storable_bounded;
+use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory, storable::Bound};
 use derive_more::{Deref, DerefMut};
-use serde::{Deserialize, Serialize};
-use std::fmt::{self, Display};
+use std::{
+    borrow::Cow,
+    fmt::{self, Display},
+};
 
 ///
 /// DataStoreRegistry
@@ -42,7 +43,7 @@ impl DataStore {
     /// Sum of bytes used by all stored rows.
     pub fn memory_bytes(&self) -> u64 {
         self.iter()
-            .map(|entry| u64::from(DataKey::STORABLE_MAX_SIZE) + entry.value().len() as u64)
+            .map(|entry| u64::from(DataKey::STORED_SIZE) + entry.value().len() as u64)
             .sum()
     }
 }
@@ -57,16 +58,14 @@ pub type DataRow = (DataKey, Vec<u8>);
 /// DataKey
 ///
 
-#[derive(
-    CandidType, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize,
-)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DataKey {
     entity: EntityName,
     key: Key,
 }
 
 impl DataKey {
-    pub const STORABLE_MAX_SIZE: u32 = 256;
+    pub const STORED_SIZE: u32 = 272;
 
     #[must_use]
     /// Build a data key for the given entity type and primary key.
@@ -109,7 +108,7 @@ impl DataKey {
     /// Includes the bounded `DataKey` size and the value bytes.
     #[must_use]
     pub const fn entry_size_bytes(value_len: u64) -> u64 {
-        Self::STORABLE_MAX_SIZE as u64 + value_len
+        Self::STORED_SIZE as u64 + value_len
     }
 
     #[must_use]
@@ -134,7 +133,57 @@ impl From<DataKey> for Key {
     }
 }
 
-impl_storable_bounded!(DataKey, Self::STORABLE_MAX_SIZE, false);
+/// Binary layout (fixed-size):
+/// [u8 entity_len]
+/// [MAX_ENTITY_NAME_LEN bytes entity_name]
+/// [Key bytes...]
+impl Storable for DataKey {
+    fn into_bytes(self) -> Vec<u8> {
+        // Delegate to &self version to keep encoding identical
+        self.to_bytes().to_vec()
+    }
+
+    fn to_bytes(&self) -> Cow<'_, [u8]> {
+        let mut buf = Vec::with_capacity(Self::STORED_SIZE as usize);
+
+        // ── EntityName ─────────────────────────────
+        buf.push(self.entity.len);
+        buf.extend_from_slice(&self.entity.bytes);
+
+        // ── Key ────────────────────────────────────
+        buf.extend_from_slice(&self.key.to_bytes());
+
+        buf.into()
+    }
+
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
+        let mut offset = 0;
+
+        // ── EntityName ─────────────────────────────
+        let len = bytes[offset];
+        debug_assert!(len as usize <= MAX_ENTITY_NAME_LEN);
+        offset += 1;
+
+        let mut entity_bytes = [0u8; MAX_ENTITY_NAME_LEN];
+        entity_bytes.copy_from_slice(&bytes[offset..offset + MAX_ENTITY_NAME_LEN]);
+        offset += MAX_ENTITY_NAME_LEN;
+
+        let entity = EntityName {
+            len,
+            bytes: entity_bytes,
+        };
+
+        // ── Key ────────────────────────────────────
+        let key = Key::from_bytes(bytes[offset..].into());
+
+        Self { entity, key }
+    }
+
+    const BOUND: Bound = Bound::Bounded {
+        max_size: DataKey::STORED_SIZE,
+        is_fixed_size: true,
+    };
+}
 
 ///
 /// TESTS
@@ -151,9 +200,9 @@ mod tests {
         let size = Storable::to_bytes(&data_key).len();
 
         assert!(
-            size <= DataKey::STORABLE_MAX_SIZE as usize,
+            size <= DataKey::STORED_SIZE as usize,
             "serialized DataKey too large: got {size} bytes (limit {})",
-            DataKey::STORABLE_MAX_SIZE
+            DataKey::STORED_SIZE
         );
     }
 }

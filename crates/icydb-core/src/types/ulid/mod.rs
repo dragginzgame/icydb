@@ -43,7 +43,7 @@ pub enum UlidError {
 pub struct Ulid(WrappedUlid);
 
 impl Ulid {
-    pub const STORABLE_MAX_SIZE: u32 = 16;
+    pub const STORED_SIZE: u32 = 16;
 
     pub const MIN: Self = Self::from_bytes([0x00; 16]);
     pub const MAX: Self = Self::from_bytes([0xFF; 16]);
@@ -204,7 +204,7 @@ impl<'de> Deserialize<'de> for Ulid {
 
 impl Storable for Ulid {
     const BOUND: Bound = Bound::Bounded {
-        max_size: Self::STORABLE_MAX_SIZE,
+        max_size: Self::STORED_SIZE,
         is_fixed_size: true,
     };
 
@@ -277,9 +277,9 @@ mod test {
         let size = Storable::to_bytes(&ulid).len();
 
         assert!(
-            size <= Ulid::STORABLE_MAX_SIZE as usize,
+            size <= Ulid::STORED_SIZE as usize,
             "serialized Ulid too large: got {size} bytes (limit {})",
-            Ulid::STORABLE_MAX_SIZE
+            Ulid::STORED_SIZE
         );
     }
 

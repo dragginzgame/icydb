@@ -3,7 +3,7 @@ use crate::{
         Db,
         executor::{
             FilterEvaluator,
-            plan::{plan_for, scan_strict, set_rows_from_len},
+            plan::{plan_for, record_plan_metrics, scan_strict, set_rows_from_len},
         },
         primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr, Order, SortExpr},
         query::{LoadQuery, QueryPlan, QueryValidate},
@@ -268,6 +268,7 @@ impl<E: EntityKind> LoadExecutor<E> {
         let plan = plan_for::<E>(query.filter.as_ref());
 
         self.debug_log(format!("📄 Query plan: {plan:?}"));
+        record_plan_metrics(&plan);
 
         // Fast path: pre-pagination
         let pre_paginated = query.filter.is_none() && query.sort.is_none() && query.limit.is_some();

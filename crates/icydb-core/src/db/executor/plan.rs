@@ -7,7 +7,7 @@ use crate::{
         store::DataKey,
     },
     error::{ErrorOrigin, InternalError},
-    obs::sink::Span,
+    obs::sink::{self, MetricsEvent, PlanKind, Span},
     serialize::deserialize,
     traits::EntityKind,
 };
@@ -17,6 +17,20 @@ use std::ops::{Bound, ControlFlow};
 #[must_use]
 pub fn plan_for<E: EntityKind>(filter: Option<&FilterExpr>) -> QueryPlan {
     QueryPlanner::new(filter).plan::<E>()
+}
+
+/// Records metrics for the chosen execution plan.
+/// Must be called exactly once per execution.
+/// Planning remains side-effect free.
+pub fn record_plan_metrics(plan: &QueryPlan) {
+    let kind = match plan {
+        QueryPlan::Keys(_) => PlanKind::Keys,
+        QueryPlan::Index(_) => PlanKind::Index,
+        QueryPlan::Range(_, _) => PlanKind::Range,
+        QueryPlan::FullScan => PlanKind::FullScan,
+    };
+
+    sink::record(MetricsEvent::Plan { kind });
 }
 
 ///

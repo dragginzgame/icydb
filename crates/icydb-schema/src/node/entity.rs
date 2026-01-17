@@ -1,11 +1,9 @@
-use crate::prelude::*;
+use crate::{MAX_INDEX_FIELDS, prelude::*};
 use std::{any::Any, collections::HashSet};
 
 ///
 /// Entity
 ///
-
-const MAX_INDEX_FIELDS: usize = 4;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Entity {

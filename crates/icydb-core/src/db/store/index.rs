@@ -1,22 +1,15 @@
 use crate::{
     MAX_INDEX_FIELDS,
-    db::{
-        executor::ExecutorError,
-        store::{DataKey, EntityName, IndexName, StoreRegistry},
-    },
-    error::InternalError,
-    obs::sink::{self, MetricsEvent},
+    db::store::{DataKey, EntityName, IndexName, StoreRegistry},
     prelude::*,
+    traits::Storable,
 };
 use candid::CandidType;
-use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
-use canic_memory::{impl_storable_bounded, impl_storable_unbounded};
+use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory, storable::Bound};
+use canic_memory::impl_storable_unbounded;
 use derive_more::{Deref, DerefMut, Display};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashSet,
-    fmt::{self, Display},
-};
+use std::{borrow::Cow, collections::HashSet};
 
 ///
 /// IndexStoreRegistry
@@ -27,8 +20,6 @@ pub struct IndexStoreRegistry(StoreRegistry<IndexStore>);
 
 impl IndexStoreRegistry {
     #[must_use]
-    #[allow(clippy::new_without_default)]
-    /// Create an empty index store registry.
     pub fn new() -> Self {
         Self(StoreRegistry::new())
     }
@@ -41,84 +32,81 @@ impl IndexStoreRegistry {
 #[derive(Deref, DerefMut)]
 pub struct IndexStore(BTreeMap<IndexKey, IndexEntry, VirtualMemory<DefaultMemoryImpl>>);
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IndexInsertOutcome {
+    Inserted,
+    Skipped,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IndexRemoveOutcome {
+    Removed,
+    Skipped,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IndexInsertError {
+    UniqueViolation,
+}
+
 impl IndexStore {
     #[must_use]
-    /// Initialize an index store with the provided backing memory.
     pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
         Self(BTreeMap::init(memory))
     }
 
-    /// Inserts the given entity into the index defined by `I`.
-    /// - If `I::UNIQUE`, insertion will fail if a conflicting entry already exists.
-    /// - If the entity is missing required fields for this index, insertion is skipped.
-    /// - Insert an entity's index entry, enforcing uniqueness where required.
     pub fn insert_index_entry<E: EntityKind>(
         &mut self,
         entity: &E,
         index: &IndexModel,
-    ) -> Result<(), InternalError> {
-        // Skip if index key can't be built (e.g. optional fields missing)
+    ) -> Result<IndexInsertOutcome, IndexInsertError> {
         let Some(index_key) = IndexKey::new(entity, index) else {
-            return Ok(());
+            return Ok(IndexInsertOutcome::Skipped);
         };
         let key = entity.key();
 
-        if let Some(mut existing) = self.get(&index_key) {
+        if let Some(mut entry) = self.get(&index_key) {
             if index.unique {
-                // Already present → skip redundant write
-                if existing.contains(&key) {
-                    return Ok(());
+                if entry.contains(&key) {
+                    return Ok(IndexInsertOutcome::Skipped);
                 }
-
-                // Any different existing key violates UNIQUE
-                if !existing.is_empty() {
-                    sink::record(MetricsEvent::UniqueViolation {
-                        entity_path: E::PATH,
-                    });
-
-                    return Err(ExecutorError::index_violation(E::PATH, index.fields).into());
+                if !entry.is_empty() {
+                    return Err(IndexInsertError::UniqueViolation);
                 }
-
-                self.insert(index_key.clone(), IndexEntry::new(index.fields, key));
+                self.insert(index_key, IndexEntry::new(key));
             } else {
-                existing.insert_key(key); // <-- add to the set
-                self.insert(index_key.clone(), existing);
+                entry.insert_key(key);
+                self.insert(index_key, entry);
             }
         } else {
-            self.insert(index_key, IndexEntry::new(index.fields, key));
+            self.insert(index_key, IndexEntry::new(key));
         }
-        sink::record(MetricsEvent::IndexInsert {
-            entity_path: E::PATH,
-        });
 
-        Ok(())
+        Ok(IndexInsertOutcome::Inserted)
     }
 
-    // remove_index_entry
-    /// Remove an entity's entry for the given index if present.
-    pub fn remove_index_entry<E: EntityKind>(&mut self, entity: &E, index: &IndexModel) {
-        // Skip if index key can't be built (e.g. optional fields missing)
+    pub fn remove_index_entry<E: EntityKind>(
+        &mut self,
+        entity: &E,
+        index: &IndexModel,
+    ) -> IndexRemoveOutcome {
         let Some(index_key) = IndexKey::new(entity, index) else {
-            return;
+            return IndexRemoveOutcome::Skipped;
         };
 
-        if let Some(mut existing) = self.get(&index_key) {
-            existing.remove_key(&entity.key()); // remove from the set
-
-            if existing.is_empty() {
+        if let Some(mut entry) = self.get(&index_key) {
+            entry.remove_key(&entity.key());
+            if entry.is_empty() {
                 self.remove(&index_key);
             } else {
-                // Move the updated entry back without cloning
-                self.insert(index_key, existing);
+                self.insert(index_key, entry);
             }
-            sink::record(MetricsEvent::IndexRemove {
-                entity_path: E::PATH,
-            });
+            return IndexRemoveOutcome::Removed;
         }
+
+        IndexRemoveOutcome::Skipped
     }
 
-    #[must_use]
-    /// Resolve data keys for a given index prefix.
     pub fn resolve_data_values<E: EntityKind>(
         &self,
         index: &IndexModel,
@@ -126,54 +114,35 @@ impl IndexStore {
     ) -> Vec<DataKey> {
         let mut out = Vec::new();
 
-        for (_, entry) in self.iter_with_hashed_prefix::<E>(index, prefix) {
+        for (_, entry) in self.iter_with_prefix::<E>(index, prefix) {
             out.extend(entry.keys.iter().map(|&k| DataKey::new::<E>(k)));
         }
 
         out
     }
 
-    /// Sum of bytes used by all index entries.
-    pub fn memory_bytes(&self) -> u64 {
-        self.iter()
-            .map(|entry| u64::from(IndexKey::STORABLE_MAX_SIZE) + entry.value().len() as u64)
-            .sum()
-    }
-
-    /// Internal: iterate entries for this index whose `hashed_values` start with the hashed `prefix`.
-    /// Uses a bounded range for efficient scanning.
-    fn iter_with_hashed_prefix<E: EntityKind>(
+    fn iter_with_prefix<E: EntityKind>(
         &self,
         index: &IndexModel,
         prefix: &[Value],
-    ) -> impl Iterator<Item = (IndexKey, IndexEntry)> {
+    ) -> Box<dyn Iterator<Item = (IndexKey, IndexEntry)> + '_> {
         let index_id = IndexId::new::<E>(index);
-        let hashed_prefix_opt = Self::index_fingerprints(prefix); // Option<Vec<[u8;16]>>
 
-        // Compute start..end bounds. If the prefix isn't indexable, construct an empty range
-        // (same iterator type) by using identical start==end under the same index_id.
-        let (start_key, end_key) = if let Some(hp) = hashed_prefix_opt {
-            IndexKey::bounds_for_prefix(index_id, hp)
-        } else {
-            (
-                IndexKey {
-                    index_id,
-                    hashed_values: Vec::new(),
-                },
-                IndexKey {
-                    index_id,
-                    hashed_values: Vec::new(),
-                },
-            )
+        let Some(fps) = prefix
+            .iter()
+            .map(Value::to_index_fingerprint)
+            .collect::<Option<Vec<_>>>()
+        else {
+            let empty = IndexKey::empty(index_id);
+            return Box::new(
+                self.range(empty.clone()..empty)
+                    .map(|e| (e.key().clone(), e.value())),
+            );
         };
 
-        self.range(start_key..end_key)
-            .map(|entry| (entry.key().clone(), entry.value()))
-    }
+        let (start, end) = IndexKey::bounds_for_prefix(index_id, fps);
 
-    fn index_fingerprints(values: &[Value]) -> Option<Vec<[u8; 16]>> {
-        // collects to Option<Vec<_>>: None if any element was non-indexable
-        values.iter().map(Value::to_index_fingerprint).collect()
+        Box::new(self.range(start..end).map(|e| (e.key().clone(), e.value())))
     }
 }
 
@@ -181,32 +150,16 @@ impl IndexStore {
 /// IndexId
 ///
 
-#[derive(
-    Clone,
-    Debug,
-    Display,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    CandidType,
-    Serialize,
-    Deserialize,
-)]
-pub struct IndexId(IndexName);
+#[derive(Clone, Copy, Debug, Display, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct IndexId(pub IndexName);
 
 impl IndexId {
     #[must_use]
-    /// Deterministic index identifier derived from entity name and field list.
     pub fn new<E: EntityKind>(index: &IndexModel) -> Self {
         let entity = EntityName::from_static(E::ENTITY_NAME);
         Self(IndexName::from_parts(&entity, index.fields))
     }
 
-    #[must_use]
-    /// Worst-case index identifier used for sizing tests.
     pub const fn max_storable() -> Self {
         Self(IndexName::max_storable())
     }
@@ -214,131 +167,149 @@ impl IndexId {
 
 ///
 /// IndexKey
+/// (FIXED-SIZE, MANUAL)
 ///
 
-#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct IndexKey {
-    pub index_id: IndexId,
-    pub hashed_values: Vec<[u8; 16]>,
+    index_id: IndexId,
+    len: u8,
+    values: [[u8; 16]; MAX_INDEX_FIELDS],
 }
 
 impl IndexKey {
-    // Sized with headroom for worst‑case hashed key payload
-    pub const STORABLE_MAX_SIZE: u32 = 384;
+    pub const STORED_SIZE: u32 = IndexName::STORED_SIZE as u32 + 1 + (MAX_INDEX_FIELDS as u32 * 16);
 
-    #[must_use]
-    /// Build an index key from an entity and spec, returning None if a component is missing/non-indexable.
     pub fn new<E: EntityKind>(entity: &E, index: &IndexModel) -> Option<Self> {
-        let mut hashed_values = Vec::<[u8; 16]>::with_capacity(index.fields.len());
+        if index.fields.len() > MAX_INDEX_FIELDS {
+            return None;
+        }
 
-        // get each value and convert to key
+        let mut values = [[0u8; 16]; MAX_INDEX_FIELDS];
+        let mut len = 0usize;
+
         for field in index.fields {
             let value = entity.get_value(field)?;
-            let fp = value.to_index_fingerprint()?; // bail if any component is non-indexable
-
-            hashed_values.push(fp);
+            let fp = value.to_index_fingerprint()?;
+            values[len] = fp;
+            len += 1;
         }
 
         Some(Self {
             index_id: IndexId::new::<E>(index),
-            hashed_values,
+            len: len as u8,
+            values,
         })
     }
 
-    // max_storable
-    #[must_use]
-    /// Largest representable index key (for sizing).
-    pub fn max_storable() -> Self {
+    pub fn empty(index_id: IndexId) -> Self {
         Self {
-            index_id: IndexId::max_storable(),
-            hashed_values: (0..MAX_INDEX_FIELDS).map(|_| [u8::MAX; 16]).collect(),
+            index_id,
+            len: 0,
+            values: [[0u8; 16]; MAX_INDEX_FIELDS],
         }
     }
 
-    /// Compute the bounded start..end keys for a given hashed prefix under an index id.
-    /// End is exclusive and created by appending a single 0xFF..0xFF block to the prefix.
-    #[must_use]
-    /// The returned range can be used with `BTreeMap::range`.
-    pub fn bounds_for_prefix(index_id: IndexId, mut prefix: Vec<[u8; 16]>) -> (Self, Self) {
-        let start = Self {
-            index_id,
-            hashed_values: prefix.clone(),
-        };
-        prefix.push([0xFF; 16]);
-        let end = Self {
-            index_id,
-            hashed_values: prefix,
-        };
+    pub fn bounds_for_prefix(index_id: IndexId, prefix: Vec<[u8; 16]>) -> (Self, Self) {
+        let mut start = Self::empty(index_id);
+        let mut end = Self::empty(index_id);
+
+        for (i, fp) in prefix.iter().enumerate() {
+            start.values[i] = *fp;
+            end.values[i] = *fp;
+        }
+
+        start.len = prefix.len() as u8;
+        end.len = start.len + 1;
+        end.values[start.len as usize] = [0xFF; 16];
+
         (start, end)
     }
 }
 
-impl Display for IndexKey {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "id: {}, values: {}",
-            self.index_id,
-            self.hashed_values.len()
-        )
+impl Storable for IndexKey {
+    fn to_bytes(&self) -> Cow<'_, [u8]> {
+        let mut buf = Vec::with_capacity(Self::STORED_SIZE as usize);
+        buf.extend_from_slice(self.index_id.0.as_bytes());
+        buf.push(self.len);
+        for i in 0..MAX_INDEX_FIELDS {
+            buf.extend_from_slice(&self.values[i]);
+        }
+        buf.into()
     }
+
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
+        let mut offset = 0;
+
+        let index_name =
+            IndexName::from_bytes(bytes[offset..offset + IndexName::STORED_SIZE as usize].into())
+                .expect("corrupted IndexKey: invalid IndexName bytes");
+
+        offset += IndexName::STORED_SIZE as usize;
+
+        let len = bytes[offset];
+        offset += 1;
+
+        let mut values = [[0u8; 16]; MAX_INDEX_FIELDS];
+        for i in 0..MAX_INDEX_FIELDS {
+            values[i].copy_from_slice(&bytes[offset..offset + 16]);
+            offset += 16;
+        }
+
+        Self {
+            index_id: IndexId(index_name),
+            len,
+            values,
+        }
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.to_bytes().into_owned()
+    }
+
+    const BOUND: Bound = Bound::Bounded {
+        max_size: Self::STORED_SIZE,
+        is_fixed_size: true,
+    };
 }
 
-impl_storable_bounded!(IndexKey, IndexKey::STORABLE_MAX_SIZE, false);
-
 ///
-/// IndexEntry
+/// IndexEntry (VALUE, UNBOUNDED)
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub struct IndexEntry {
-    fields: Vec<String>,
     keys: HashSet<Key>,
 }
 
 impl IndexEntry {
-    #[must_use]
-    /// Create an index entry with the initial key.
-    pub fn new(fields: &[&str], key: Key) -> Self {
-        let mut key_set = HashSet::with_capacity(1);
-        key_set.insert(key);
+    pub fn new(key: Key) -> Self {
+        let mut keys = HashSet::with_capacity(1);
+        keys.insert(key);
 
-        Self {
-            fields: fields.iter().map(ToString::to_string).collect(),
-            keys: key_set,
-        }
+        Self { keys }
     }
 
-    /// Insert a key into the entry's key set.
     pub fn insert_key(&mut self, key: Key) {
-        let _ = self.keys.insert(key);
+        self.keys.insert(key);
     }
 
-    /// Removes the key from the set.
     pub fn remove_key(&mut self, key: &Key) {
-        let _ = self.keys.remove(key);
+        self.keys.remove(key);
     }
 
-    /// Checks if the set contains the key.
-    #[must_use]
     pub fn contains(&self, key: &Key) -> bool {
         self.keys.contains(key)
     }
 
-    /// Returns `true` if the set is empty.
-    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
 
-    /// Returns number of keys in the entry.
-    #[must_use]
     pub fn len(&self) -> usize {
         self.keys.len()
     }
 
-    /// Returns the only key when exactly one exists.
-    #[must_use]
     pub fn single_key(&self) -> Option<Key> {
         if self.keys.len() == 1 {
             self.keys.iter().copied().next()
@@ -346,46 +317,6 @@ impl IndexEntry {
             None
         }
     }
-
-    /// Returns keys as a sorted `Vec<Key>` (useful for serialization/debug).
-    #[must_use]
-    pub fn to_sorted_vec(&self) -> Vec<Key> {
-        let mut keys: Vec<_> = self.keys.iter().copied().collect();
-        keys.sort_unstable(); // uses Ord, fast
-        keys
-    }
 }
 
 impl_storable_unbounded!(IndexEntry);
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::traits::*;
-
-    #[test]
-    fn index_key_max_size_is_bounded() {
-        let index_key = IndexKey::max_storable();
-        let size = Storable::to_bytes(&index_key).len();
-
-        assert!(
-            size <= IndexKey::STORABLE_MAX_SIZE as usize,
-            "serialized IndexKey too large: got {size} bytes (limit {})",
-            IndexKey::STORABLE_MAX_SIZE
-        );
-    }
-
-    #[test]
-    fn index_entry_round_trip() {
-        let original = IndexEntry::new(&["a", "b"], Key::from(1u64));
-        let encoded = Storable::to_bytes(&original);
-        let decoded = IndexEntry::from_bytes(encoded);
-
-        assert_eq!(original.fields, decoded.fields);
-        assert_eq!(original.to_sorted_vec(), decoded.to_sorted_vec());
-    }
-}

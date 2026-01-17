@@ -1,6 +1,5 @@
 use crate::{
     db::primitives::filter::{Cmp, FilterExpr},
-    obs::sink::{self, MetricsEvent, PlanKind},
     prelude::*,
     traits::EntityKind,
 };
@@ -88,14 +87,6 @@ impl QueryPlanner {
         // If filter is a primary key match
         // this would handle One and Many queries
         if let Some(plan) = self.extract_from_filter::<E>() {
-            sink::record(MetricsEvent::Plan {
-                kind: match &plan {
-                    QueryPlan::Keys(_) => PlanKind::Keys,
-                    QueryPlan::Index(_) => PlanKind::Index,
-                    QueryPlan::Range(_, _) => PlanKind::Range,
-                    QueryPlan::FullScan => PlanKind::FullScan,
-                },
-            });
             return plan;
         }
 
@@ -104,17 +95,10 @@ impl QueryPlanner {
         if !E::INDEXES.is_empty()
             && let Some(plan) = self.extract_from_index::<E>()
         {
-            sink::record(MetricsEvent::Plan {
-                kind: PlanKind::Index,
-            });
             return plan;
         }
 
         // Fallback: do a full scan
-        sink::record(MetricsEvent::Plan {
-            kind: PlanKind::FullScan,
-        });
-
         QueryPlan::FullScan
     }
 

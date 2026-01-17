@@ -47,6 +47,9 @@ impl ValidateNode for Field {
 
         // idents
         errs.add_result(validate_ident(self.ident));
+        if let Err(msg) = crate::build::validate::validate_field_name_len(self.ident) {
+            err!(errs, "{msg}");
+        }
 
         // snake case
         if !self.ident.is_case(Case::Snake) {

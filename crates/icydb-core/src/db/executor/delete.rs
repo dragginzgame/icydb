@@ -3,13 +3,13 @@ use crate::{
         Db,
         executor::{
             ExecutorError, FilterEvaluator, UniqueIndexHandle, WriteUnit,
-            plan::{plan_for, scan_strict, set_rows_from_len},
+            plan::{plan_for, record_plan_metrics, scan_strict, set_rows_from_len},
             resolve_unique_pk,
         },
         primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr},
         query::{DeleteQuery, QueryPlan, QueryValidate},
         response::Response,
-        store::DataKey,
+        store::{DataKey, IndexRemoveOutcome},
     },
     error::{ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
@@ -257,6 +257,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         let mut span = Span::<E>::new(ExecKind::Delete);
 
         let plan = plan_for::<E>(query.filter.as_ref());
+        record_plan_metrics(&plan);
 
         let limit = query
             .limit
@@ -308,9 +309,12 @@ impl<E: EntityKind> DeleteExecutor<E> {
     fn remove_indexes(&self, entity: &E) -> Result<(), InternalError> {
         for index in E::INDEXES {
             let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
-            store.with_borrow_mut(|this| {
-                this.remove_index_entry(entity, index);
-            });
+            let removed = store.with_borrow_mut(|this| this.remove_index_entry(entity, index));
+            if removed == IndexRemoveOutcome::Removed {
+                sink::record(MetricsEvent::IndexRemove {
+                    entity_path: E::PATH,
+                });
+            }
         }
 
         Ok(())

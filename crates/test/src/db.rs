@@ -30,8 +30,8 @@ impl DbSuite {
             ("perf_many_relations", Self::perf_many_relations),
             ("load_malformed_row_errors", Self::load_malformed_row_errors),
             (
-                "delete_skips_malformed_rows",
-                Self::delete_skips_malformed_rows,
+                "delete_errors_on_malformed_rows",
+                Self::delete_errors_on_malformed_rows,
             ),
         ];
 
@@ -391,7 +391,7 @@ impl DbSuite {
         assert_eq!(single.count(), 1);
     }
 
-    fn delete_skips_malformed_rows() {
+    fn delete_errors_on_malformed_rows() {
         use icydb::Error;
         use test_design::e2e::db::SimpleEntity;
 
@@ -400,13 +400,23 @@ impl DbSuite {
 
         Self::insert_malformed_simple_entity(bad);
 
-        let deleted = db!().delete::<SimpleEntity>().all().unwrap();
+        let err: Error = db!()
+            .delete::<SimpleEntity>()
+            .all()
+            .expect_err("expected error when deleting malformed rows");
 
-        // Only materialized entities are counted
-        assert_eq!(deleted.count(), 1);
-        assert!(deleted.contains_key(&valid));
+        let msg = err.to_string();
 
-        // Remaining malformed bytes still break load scans, but did not block deletion.
+        assert!(
+            msg.contains("serialize") || msg.contains("deserialize") || msg.contains("corrupt"),
+            "expected deserialization-related error, got: {msg}"
+        );
+
+        // Valid row should remain since delete aborted.
+        let single = db!().load::<SimpleEntity>().one(valid).unwrap();
+        assert_eq!(single.count(), 1);
+
+        // Remaining malformed bytes still break load scans.
         let err: Error = db!()
             .load::<SimpleEntity>()
             .all()

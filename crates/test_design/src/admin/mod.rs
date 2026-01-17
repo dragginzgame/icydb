@@ -100,6 +100,7 @@ pub struct RelatedEntity {}
 ///
 
 #[entity(
+    name = "AdminSimpleEntity",
     store = "TestDataStore",
     pk = "id",
     fields(

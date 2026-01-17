@@ -40,7 +40,7 @@ type SubaccountBytes = [u8; 32];
 pub struct Subaccount(SubaccountBytes);
 
 impl Subaccount {
-    pub const STORABLE_MAX_SIZE: u32 = 72;
+    pub const STORED_SIZE: u32 = 72;
 
     pub const MIN: Self = Self::from_array([0x00; 32]);
     pub const MAX: Self = Self::from_array([0xFF; 32]);
@@ -195,7 +195,7 @@ impl SanitizeAuto for Subaccount {}
 
 impl SanitizeCustom for Subaccount {}
 
-impl_storable_bounded!(Subaccount, Subaccount::STORABLE_MAX_SIZE, true);
+impl_storable_bounded!(Subaccount, Subaccount::STORED_SIZE, true);
 
 impl UpdateView for Subaccount {
     type UpdateViewType = Self;
@@ -245,9 +245,9 @@ mod tests {
         let size = Storable::to_bytes(&subaccount).len();
 
         assert!(
-            size <= Subaccount::STORABLE_MAX_SIZE as usize,
+            size <= Subaccount::STORED_SIZE as usize,
             "serialized Subaccount too large: got {size} bytes (limit {})",
-            Subaccount::STORABLE_MAX_SIZE
+            Subaccount::STORED_SIZE
         );
     }
 

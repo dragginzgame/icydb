@@ -27,3 +27,29 @@ pub struct Entity {}
     )
 )]
 pub struct UnitKey {}
+
+///
+/// RenamedEntity
+///
+
+#[entity(
+    name = "Potato",
+    store = "TestDataStore",
+    pk = "id",
+    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+)]
+pub struct RenamedEntity {}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entity_name_defaults_and_override() {
+        assert_eq!(RenamedEntity::ENTITY_NAME, "Potato");
+    }
+}

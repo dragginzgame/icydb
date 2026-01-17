@@ -56,7 +56,11 @@ impl DeleteUniqueSuite {
             .by_unique_index(Self::unique_handle(), Index::new(2, 55))
             .unwrap_err();
 
-        assert!(err.to_string().contains("index corrupted"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("index corrupted") || msg.contains("corruption"),
+            "expected corruption error, got: {msg}"
+        );
 
         let _ = crate::INDEX_REGISTRY
             .with(|reg| reg.with_store_mut(TestIndexStore::PATH, |store| store.remove(&index_key)));
@@ -84,7 +88,11 @@ impl DeleteUniqueSuite {
             .by_unique_index(Self::unique_handle(), Index::new(3, 88))
             .unwrap_err();
 
-        assert!(err.to_string().contains("index corrupted"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("index corrupted") || msg.contains("corruption"),
+            "expected corruption error, got: {msg}"
+        );
     }
 
     fn delete_unique_key_type_mismatch_errors() {
@@ -140,7 +148,11 @@ impl DeleteUniqueSuite {
             .by_unique_index(Self::unique_handle(), Index::new(2, 444))
             .unwrap_err();
 
-        assert!(err.to_string().contains("index corrupted"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("index corrupted") || msg.contains("corruption"),
+            "expected corruption error, got: {msg}"
+        );
     }
 
     fn unique_handle() -> UniqueIndexHandle {

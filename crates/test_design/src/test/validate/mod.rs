@@ -7,16 +7,3 @@ pub mod newtype;
 pub mod option;
 pub mod record;
 pub mod visitor;
-
-use crate::prelude::*;
-
-///
-/// Entity
-///
-
-#[entity(
-    store = "TestDataStore",
-    pk = "id",
-    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
-)]
-pub struct Entity {}

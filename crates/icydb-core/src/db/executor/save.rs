@@ -3,7 +3,7 @@ use crate::{
         Db,
         executor::{ExecutorError, WriteUnit},
         query::{SaveMode, SaveQuery},
-        store::DataKey,
+        store::{DataKey, IndexInsertError, IndexInsertOutcome, IndexRemoveOutcome},
     },
     error::InternalError,
     obs::sink::{self, ExecKind, MetricsEvent, Span},
@@ -224,13 +224,40 @@ impl<E: EntityKind> SaveExecutor<E> {
         // Failure here can leave partial index updates (corruption risk).
         for index in E::INDEXES {
             let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
+            let mut removed = false;
+            let mut inserted = false;
             store.with_borrow_mut(|s| {
-                if let Some(old) = old {
-                    s.remove_index_entry(old, index);
+                if let Some(old) = old
+                    && s.remove_index_entry(old, index) == IndexRemoveOutcome::Removed
+                {
+                    removed = true;
                 }
-                s.insert_index_entry(new, index)?;
+                match s.insert_index_entry(new, index) {
+                    Ok(IndexInsertOutcome::Inserted) => {
+                        inserted = true;
+                    }
+                    Ok(IndexInsertOutcome::Skipped) => {}
+                    Err(IndexInsertError::UniqueViolation) => {
+                        sink::record(MetricsEvent::UniqueViolation {
+                            entity_path: E::PATH,
+                        });
+                        return Err(ExecutorError::index_violation(E::PATH, index.fields).into());
+                    }
+                }
                 Ok::<(), InternalError>(())
             })?;
+
+            if removed {
+                sink::record(MetricsEvent::IndexRemove {
+                    entity_path: E::PATH,
+                });
+            }
+
+            if inserted {
+                sink::record(MetricsEvent::IndexInsert {
+                    entity_path: E::PATH,
+                });
+            }
         }
 
         Ok(())

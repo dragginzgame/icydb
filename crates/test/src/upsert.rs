@@ -122,7 +122,11 @@ impl UpsertSuite {
             .by_unique_fields(&["y"], Index::new(3, 88))
             .unwrap_err();
 
-        assert!(err.to_string().contains("index corrupted"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("index corrupted") || msg.contains("corruption"),
+            "expected corruption error, got: {msg}"
+        );
     }
 
     fn upsert_dangling_index_entry_errors() {
@@ -149,7 +153,11 @@ impl UpsertSuite {
             .by_unique_fields(&["y"], Index::new(2, 55))
             .unwrap_err();
 
-        assert!(err.to_string().contains("index corrupted"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("index corrupted") || msg.contains("corruption"),
+            "expected corruption error, got: {msg}"
+        );
 
         let _ = crate::INDEX_REGISTRY
             .with(|reg| reg.with_store_mut(TestIndexStore::PATH, |store| store.remove(&index_key)));

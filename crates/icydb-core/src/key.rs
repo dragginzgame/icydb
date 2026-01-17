@@ -30,7 +30,7 @@ pub enum Key {
 }
 
 impl Key {
-    pub const STORABLE_MAX_SIZE: u32 = 128;
+    pub const STORED_SIZE: u32 = 128;
 
     #[must_use]
     /// Sentinel key representing the maximum storable account value.
@@ -182,7 +182,7 @@ impl PartialOrd for Key {
     }
 }
 
-impl_storable_bounded!(Key, Self::STORABLE_MAX_SIZE, false);
+impl_storable_bounded!(Key, Self::STORED_SIZE, false);
 
 ///
 /// TESTS
@@ -199,9 +199,9 @@ mod tests {
         let size = Storable::to_bytes(&key).len();
 
         assert!(
-            size <= Key::STORABLE_MAX_SIZE as usize,
+            size <= Key::STORED_SIZE as usize,
             "serialized Key too large: got {size} bytes (limit {})",
-            Key::STORABLE_MAX_SIZE
+            Key::STORED_SIZE
         );
     }
 }

@@ -5,7 +5,10 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [Unreleased]
+## [0.3.4] - 2026-01-17 - Very Breaky Things
+- Storage: removed executor error/metrics coupling from index stores; executors now emit index metrics and map uniqueness conflicts.
+- Planner: planning is now side-effect free; plan-kind metrics are emitted during execution only.
+- IndexName sizing now derives from entity + 4 field names (48 chars each), with boundary checks in core and schema validators.
 - Strict reads now surface missing/malformed rows as corruption; delete/exists/unique paths use strict scans by default.
 - Unique index lookups now re-validate indexed field values; hash mismatches surface as corruption.
 - Breaking: entity identity is now per-canister `ENTITY_NAME` (name-based), replacing hashed `ENTITY_ID` in storage and index keys.

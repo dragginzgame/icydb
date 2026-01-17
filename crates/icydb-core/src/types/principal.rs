@@ -50,7 +50,7 @@ pub enum PrincipalError {
 pub struct Principal(WrappedPrincipal);
 
 impl Principal {
-    pub const STORABLE_MAX_SIZE: u32 = 29;
+    pub const STORED_SIZE: u32 = 29;
 
     pub const MIN: Self = Self::from_slice(&[0x00; 29]);
     pub const MAX: Self = Self::from_slice(&[0xFF; 29]);
@@ -174,7 +174,7 @@ impl SanitizeCustom for Principal {}
 
 impl Storable for Principal {
     const BOUND: Bound = Bound::Bounded {
-        max_size: Self::STORABLE_MAX_SIZE,
+        max_size: Self::STORED_SIZE,
         is_fixed_size: false,
     };
 
@@ -234,9 +234,9 @@ mod tests {
         let size = Storable::to_bytes(&principal).len();
 
         assert!(
-            size <= Principal::STORABLE_MAX_SIZE as usize,
+            size <= Principal::STORED_SIZE as usize,
             "serialized Principal too large: got {size} bytes (limit {})",
-            Principal::STORABLE_MAX_SIZE
+            Principal::STORED_SIZE
         );
     }
 
@@ -257,15 +257,15 @@ mod tests {
 
     #[test]
     fn principal_serialized_size_is_within_bounds() {
-        for len in 0..=Principal::STORABLE_MAX_SIZE {
+        for len in 0..=Principal::STORED_SIZE {
             let bytes: Vec<u8> = (0..len).map(u8::try_from).map(Result::unwrap).collect();
             let principal = Principal::from_slice(&bytes);
             let encoded = principal.to_bytes();
             assert!(
-                encoded.len() <= Principal::STORABLE_MAX_SIZE as usize,
+                encoded.len() <= Principal::STORED_SIZE as usize,
                 "Encoded size {} exceeded max {}",
                 encoded.len(),
-                Principal::STORABLE_MAX_SIZE
+                Principal::STORED_SIZE
             );
         }
     }
