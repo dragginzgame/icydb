@@ -5,6 +5,9 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [Unreleased]
+- Strict reads now surface missing/malformed rows as corruption; delete/exists/unique paths use strict scans by default.
+
 ## [0.3.3] - 2026-01-14
 - fixed a CI issue where clippy errors broke things
 - #mission70 is retarded

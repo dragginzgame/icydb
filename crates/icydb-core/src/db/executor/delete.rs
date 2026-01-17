@@ -3,7 +3,7 @@ use crate::{
         Db,
         executor::{
             ExecutorError, FilterEvaluator, UniqueIndexHandle, WriteUnit,
-            plan::{plan_for, scan_plan, set_rows_from_len},
+            plan::{plan_for, scan_strict, set_rows_from_len},
             resolve_unique_pk,
         },
         primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr},
@@ -11,7 +11,7 @@ use crate::{
         response::Response,
         store::DataKey,
     },
-    error::InternalError,
+    error::{ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     sanitize::sanitize,
@@ -118,7 +118,6 @@ impl<E: EntityKind> DeleteExecutor<E> {
         V: FieldValue,
     {
         let query = DeleteQuery::new().many_by_field(E::PRIMARY_KEY, values);
-
         self.execute(query)
     }
 
@@ -142,24 +141,26 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
         let Some(pk) = resolve_unique_pk::<E>(&self.db, index, &lookup)? else {
             set_rows_from_len(&mut span, 0);
+
             return Ok(Response(Vec::new()));
         };
 
-        let (dk, stored) = self.load_existing(index, pk)?;
+        let (dk, stored) = self.load_existing(pk)?;
 
         self.db.context::<E>().with_store_mut(|s| {
-            // Delete semantics: data removal happens before index removal.
-            // Corruption risk: if index removal fails, orphaned index entries remain.
-            // Retry-safe only if missing rows are acceptable to the caller.
-            let _unit = WriteUnit::new("delete_unique_row");
+            // Non-atomic delete: data removal happens before index removal.
+            // If index removal fails, orphaned index entries may remain.
+            let _unit = WriteUnit::new("delete_unique_row_non_atomic");
             s.remove(&dk);
             if !E::INDEXES.is_empty() {
                 self.remove_indexes(&stored)?;
             }
+
             Ok::<_, InternalError>(())
         })??;
 
         set_rows_from_len(&mut span, 1);
+
         Ok(Response(vec![(dk.key(), stored)]))
     }
 
@@ -203,6 +204,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         I: IntoFilterExpr,
     {
         let query = DeleteQuery::new().filter(f);
+
         self.execute(query)
     }
 
@@ -212,6 +214,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
     pub fn ensure_delete_one(self, pk: impl FieldValue) -> Result<(), InternalError> {
         self.one(pk)?.require_one()?;
+
         Ok(())
     }
 
@@ -239,15 +242,16 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
     pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, InternalError> {
         QueryValidate::<E>::validate(&query)?;
-
         Ok(plan_for::<E>(query.filter.as_ref()))
     }
 
     /// Execute a planner-based delete query.
     ///
-    /// Note: index-planned deletes are best-effort and do not validate unique-index
-    /// invariants. Corrupt index entries may be skipped. Use `by_unique_index` for
-    /// strict unique-index semantics.
+    /// NOTE:
+    /// - Planner-based deletes are strict on row integrity (missing/malformed rows
+    ///   surface corruption).
+    /// - Planner-based deletes DO NOT enforce unique-index invariants.
+    ///   Use `by_unique_index` for strict unique-index semantics.
     pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, InternalError> {
         QueryValidate::<E>::validate(&query)?;
         let mut span = Span::<E>::new(ExecKind::Delete);
@@ -266,7 +270,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         let mut acc = DeleteAccumulator::new(filter_simplified.as_ref(), offset, limit);
 
         let mut scanned = 0u64;
-        scan_plan::<E, _>(&self.db, plan, |dk, entity| {
+        scan_strict::<E, _>(&self.db, plan, |dk, entity| {
             scanned = scanned.saturating_add(1);
             if acc.should_stop(dk, entity) {
                 ControlFlow::Break(())
@@ -275,6 +279,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
             }
         })?;
 
+        // rows_scanned counts evaluated rows, not deleted rows
         sink::record(MetricsEvent::RowsScanned {
             entity_path: E::PATH,
             rows_scanned: scanned,
@@ -282,18 +287,16 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
         let mut res: Vec<(Key, E)> = Vec::with_capacity(acc.matches.len());
         self.db.context::<E>().with_store_mut(|s| {
-            // Delete semantics: incremental and non-atomic across data/index stores.
-            // Acceptable: partial deletions remain if an error occurs mid-loop.
-            // Corruption risk: if index removal fails after data removal, indexes
-            // can retain orphaned entries. Retry-safe only if missing rows are ok.
+            // Non-atomic delete loop: partial deletions may persist on failure.
             for (dk, entity) in acc.matches {
-                let _unit = WriteUnit::new("delete_row");
+                let _unit = WriteUnit::new("delete_row_non_atomic");
                 s.remove(&dk);
                 if !E::INDEXES.is_empty() {
                     self.remove_indexes(&entity)?;
                 }
                 res.push((dk.key(), entity));
             }
+
             Ok::<_, InternalError>(())
         })??;
 
@@ -309,30 +312,20 @@ impl<E: EntityKind> DeleteExecutor<E> {
                 this.remove_index_entry(entity, index);
             });
         }
+
         Ok(())
     }
 
-    fn load_existing(
-        &self,
-        index: &'static IndexModel,
-        pk: E::PrimaryKey,
-    ) -> Result<(DataKey, E), InternalError> {
+    fn load_existing(&self, pk: E::PrimaryKey) -> Result<(DataKey, E), InternalError> {
         let data_key = DataKey::new::<E>(pk.into());
-        let bytes = self
-            .db
-            .context::<E>()
-            .with_store(|store| store.get(&data_key))?;
-
-        let Some(bytes) = bytes else {
-            return Err(ExecutorError::IndexCorrupted(
-                E::PATH.to_string(),
-                index.fields.join(", "),
-                1,
+        let bytes = self.db.context::<E>().read_strict(&data_key)?;
+        let entity = deserialize::<E>(&bytes).map_err(|_| {
+            ExecutorError::corruption(
+                ErrorOrigin::Serialize,
+                format!("failed to deserialize row: {data_key}"),
             )
-            .into());
-        };
+        })?;
 
-        let entity = deserialize::<E>(&bytes)?;
         Ok((data_key, entity))
     }
 }

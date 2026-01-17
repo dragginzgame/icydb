@@ -3,7 +3,7 @@ use crate::{
         Db,
         executor::{
             FilterEvaluator,
-            plan::{plan_for, scan_plan, set_rows_from_len},
+            plan::{plan_for, scan_strict, set_rows_from_len},
         },
         primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr, Order, SortExpr},
         query::{LoadQuery, QueryPlan, QueryValidate},
@@ -115,8 +115,8 @@ impl<E: EntityKind> LoadExecutor<E> {
 
     /// Check whether at least one row matches the query.
     ///
-    /// Note: existence checks are best-effort. If matching rows are malformed
-    /// or missing, `exists` may return false.
+    /// Note: existence checks are strict. Missing or malformed rows surface
+    /// as corruption errors instead of returning false.
     ///
     /// Respects offset/limit when provided (limit=0 returns false).
     pub fn exists(&self, query: LoadQuery) -> Result<bool, InternalError> {
@@ -136,7 +136,7 @@ impl<E: EntityKind> LoadExecutor<E> {
         let mut scanned = 0u64;
         let mut found = false;
 
-        scan_plan::<E, _>(&self.db, plan, |_, entity| {
+        scan_strict::<E, _>(&self.db, plan, |_, entity| {
             scanned = scanned.saturating_add(1);
             let matches = filter
                 .as_ref()

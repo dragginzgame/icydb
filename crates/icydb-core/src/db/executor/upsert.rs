@@ -4,7 +4,7 @@ use crate::{
         executor::{ExecutorError, SaveExecutor, resolve_unique_pk},
         store::DataKey,
     },
-    error::InternalError,
+    error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
     sanitize::sanitize,
     serialize::deserialize,
@@ -283,10 +283,14 @@ where
 
         let Some(bytes) = bytes else {
             // Index pointed at a key that does not exist in the primary store.
-            return Err(ExecutorError::IndexCorrupted(
-                E::PATH.to_string(),
-                index.fields.join(", "),
-                1,
+            return Err(ExecutorError::corruption(
+                ErrorOrigin::Index,
+                format!(
+                    "index corrupted: {} ({}) -> {} keys",
+                    E::PATH,
+                    index.fields.join(", "),
+                    1
+                ),
             )
             .into());
         };

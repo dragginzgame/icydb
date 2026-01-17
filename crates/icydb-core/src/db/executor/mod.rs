@@ -22,7 +22,13 @@ use crate::{
 use filter::*;
 use thiserror::Error as ThisError;
 
-/// Conceptual write boundary for intended atomicity (no transactions, no rollback).
+///
+/// WriteUnit
+///
+/// Conceptual write boundary for intended atomicity (no transactions, no rollback)
+/// NOTE: This is a marker only; atomicity is not enforced.
+///
+
 pub(crate) struct WriteUnit {
     _label: &'static str,
 }
@@ -39,11 +45,11 @@ impl WriteUnit {
 
 #[derive(Debug, ThisError)]
 pub enum ExecutorError {
-    #[error("data key exists: {0}")]
-    KeyExists(DataKey),
-
-    #[error("data key not found: {0}")]
-    KeyNotFound(DataKey),
+    #[error("corruption detected ({origin}): {message}")]
+    Corruption {
+        origin: ErrorOrigin,
+        message: String,
+    },
 
     #[error("index constraint violation: {0} ({1})")]
     IndexViolation(String, String),
@@ -57,8 +63,11 @@ pub enum ExecutorError {
     #[error("index key missing: {0} ({1})")]
     IndexKeyMissing(String, String),
 
-    #[error("index corrupted: {0} ({1}) -> {2} keys")]
-    IndexCorrupted(String, String, usize),
+    #[error("data key exists: {0}")]
+    KeyExists(DataKey),
+
+    #[error("data key not found: {0}")]
+    KeyNotFound(DataKey),
 
     #[error("primary key type mismatch: expected {0}, got {1}")]
     KeyTypeMismatch(String, String),
@@ -83,7 +92,7 @@ impl ExecutorError {
             | Self::IndexKeyMissing(_, _)
             | Self::KeyTypeMismatch(_, _)
             | Self::KeyOutOfRange(_, _) => ErrorClass::Unsupported,
-            Self::IndexCorrupted(_, _, _) => ErrorClass::Corruption,
+            Self::Corruption { .. } => ErrorClass::Corruption,
         }
     }
 
@@ -93,9 +102,16 @@ impl ExecutorError {
             Self::IndexViolation(_, _)
             | Self::IndexNotFound(_, _)
             | Self::IndexNotUnique(_, _)
-            | Self::IndexKeyMissing(_, _)
-            | Self::IndexCorrupted(_, _, _) => ErrorOrigin::Index,
+            | Self::IndexKeyMissing(_, _) => ErrorOrigin::Index,
+            Self::Corruption { origin, .. } => *origin,
             Self::KeyTypeMismatch(_, _) | Self::KeyOutOfRange(_, _) => ErrorOrigin::Executor,
+        }
+    }
+
+    pub(crate) fn corruption(origin: ErrorOrigin, message: impl Into<String>) -> Self {
+        Self::Corruption {
+            origin,
+            message: message.into(),
         }
     }
 }

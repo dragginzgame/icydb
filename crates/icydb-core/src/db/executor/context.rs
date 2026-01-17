@@ -1,10 +1,11 @@
 use crate::{
     db::{
         Db,
+        executor::ExecutorError,
         query::QueryPlan,
         store::{DataKey, DataRow, DataStore},
     },
-    error::InternalError,
+    error::{ErrorOrigin, InternalError},
     key::Key,
     serialize::deserialize,
     traits::{EntityKind, Path},
@@ -44,6 +45,15 @@ where
     ) -> Result<R, InternalError> {
         self.db
             .with_data(|reg| reg.with_store_mut(E::Store::PATH, f))
+    }
+
+    /// Read a row strictly; missing rows surface as corruption.
+    pub fn read_strict(&self, key: &DataKey) -> Result<Vec<u8>, InternalError> {
+        self.with_store(|s| {
+            s.get(key).ok_or_else(|| {
+                ExecutorError::corruption(ErrorOrigin::Store, format!("missing row: {key}")).into()
+            })
+        })?
     }
 
     ///

@@ -68,6 +68,7 @@ impl<E: EntityKind> SaveExecutor<E> {
     /// Update an existing view (errors if it does not exist).
     pub fn update_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
         let entity = E::from_view(view);
+
         Ok(self.update(entity)?.to_view())
     }
 
@@ -79,6 +80,7 @@ impl<E: EntityKind> SaveExecutor<E> {
     /// Replace a view, inserting if missing.
     pub fn replace_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
         let entity = E::from_view(view);
+
         Ok(self.replace(entity)?.to_view())
     }
 
@@ -92,11 +94,13 @@ impl<E: EntityKind> SaveExecutor<E> {
     ) -> Result<Vec<E>, InternalError> {
         let iter = entities.into_iter();
         let mut out = Vec::with_capacity(iter.size_hint().0);
+
         // Batch semantics: fail-fast and non-atomic; partial successes remain.
         // Retry-safe only with caller idempotency and conflict handling.
         for entity in iter {
             out.push(self.insert(entity)?);
         }
+
         Ok(out)
     }
 
@@ -106,11 +110,13 @@ impl<E: EntityKind> SaveExecutor<E> {
     ) -> Result<Vec<E>, InternalError> {
         let iter = entities.into_iter();
         let mut out = Vec::with_capacity(iter.size_hint().0);
+
         // Batch semantics: fail-fast and non-atomic; partial successes remain.
         // Retry-safe only if the caller tolerates already-updated rows.
         for entity in iter {
             out.push(self.update(entity)?);
         }
+
         Ok(out)
     }
 
@@ -120,11 +126,13 @@ impl<E: EntityKind> SaveExecutor<E> {
     ) -> Result<Vec<E>, InternalError> {
         let iter = entities.into_iter();
         let mut out = Vec::with_capacity(iter.size_hint().0);
+
         // Batch semantics: fail-fast and non-atomic; partial successes remain.
         // Retry-safe only with caller idempotency and conflict handling.
         for entity in iter {
             out.push(self.replace(entity)?);
         }
+
         Ok(out)
     }
 
@@ -133,6 +141,9 @@ impl<E: EntityKind> SaveExecutor<E> {
     // ======================================================================
 
     /// Execute a serialized save query.
+    ///
+    /// NOTE: Deserialization here is over user-supplied bytes. Failures are
+    /// considered invalid input rather than storage corruption.
     pub fn execute(&self, query: SaveQuery) -> Result<E, InternalError> {
         let entity: E = deserialize(&query.bytes)?;
         self.save_entity(query.mode, entity)
@@ -141,40 +152,34 @@ impl<E: EntityKind> SaveExecutor<E> {
     fn save_entity(&self, mode: SaveMode, mut entity: E) -> Result<E, InternalError> {
         let mut span = Span::<E>::new(ExecKind::Save);
         let ctx = self.db.context::<E>();
-        let _unit = WriteUnit::new("save_entity");
+        let _unit = WriteUnit::new("save_entity_non_atomic");
 
-        // sanitize & validate before key extraction in case PK fields are normalized
+        // Sanitize & validate before key extraction in case PK fields are normalized
         sanitize(&mut entity)?;
         validate(&entity)?;
 
-        // match save mode
         let key = entity.key();
         let data_key = DataKey::new::<E>(key);
         let old_result = ctx.with_store(|store| store.get(&data_key))?;
 
         let old = match (mode, old_result) {
             (SaveMode::Insert | SaveMode::Replace, None) => None,
-
             (SaveMode::Update | SaveMode::Replace, Some(old_bytes)) => {
                 Some(deserialize::<E>(&old_bytes)?)
             }
-
             (SaveMode::Insert, Some(_)) => return Err(ExecutorError::KeyExists(data_key).into()),
             (SaveMode::Update, None) => return Err(ExecutorError::KeyNotFound(data_key).into()),
         };
 
-        // serialize new entity
         let bytes = serialize(&entity)?;
 
         // Partial-write window:
         // - Phase 1 uniqueness checks are safe (no mutation, retry-safe).
         // - Phase 2 mutates indexes; failures here can leave index divergence.
         // - Data write happens after index updates; failures can orphan indexes.
-        // Acceptable failure: uniqueness conflict (no mutation).
-        // update indexes (two-phase)
+        // Corruption risk exists if failures occur after index mutation.
         self.replace_indexes(old.as_ref(), &entity)?;
 
-        // write data row
         ctx.with_store_mut(|store| store.insert(data_key.clone(), bytes))?;
         span.set_rows(1);
 
@@ -191,7 +196,6 @@ impl<E: EntityKind> SaveExecutor<E> {
         use crate::db::store::IndexKey;
 
         // Phase 1: validate uniqueness constraints without mutating.
-        // Acceptable failure: uniqueness violation is safe and retryable.
         for index in E::INDEXES {
             if index.unique
                 && let Some(new_idx_key) = IndexKey::new(new, index)

@@ -4,7 +4,7 @@ use crate::{
         executor::ExecutorError,
         store::{DataKey, IndexKey},
     },
-    error::InternalError,
+    error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
     traits::{EntityKind, FromKey},
 };
@@ -25,7 +25,6 @@ where
     E::PrimaryKey: FromKey,
 {
     let fields = || index.fields.join(", ");
-
     let Some(index_key) = IndexKey::new(entity, index) else {
         return Err(ExecutorError::IndexKeyMissing(E::PATH.to_string(), fields()).into());
     };
@@ -35,14 +34,25 @@ where
         return Ok(None);
     };
 
+    // corruption error
     let len = entry.len();
-    if len != 1 {
-        return Err(ExecutorError::IndexCorrupted(E::PATH.to_string(), fields(), len).into());
-    }
+    let corrupted = || {
+        ExecutorError::corruption(
+            ErrorOrigin::Index,
+            format!(
+                "index corrupted: {} ({}) -> {} keys",
+                E::PATH,
+                fields(),
+                len
+            ),
+        )
+    };
 
-    let key = entry
-        .single_key()
-        .ok_or_else(|| ExecutorError::IndexCorrupted(E::PATH.to_string(), fields(), len))?;
+    // index checks
+    if len != 1 {
+        return Err(corrupted().into());
+    }
+    let key = entry.single_key().ok_or_else(corrupted)?;
 
     // Ensure the index doesn't point to a missing primary record.
     let data_key = DataKey::new::<E>(key);
@@ -51,7 +61,11 @@ where
         .with_store(|store| store.get(&data_key).is_some())?;
 
     if !exists {
-        return Err(ExecutorError::IndexCorrupted(E::PATH.to_string(), fields(), len).into());
+        return Err(ExecutorError::corruption(
+            ErrorOrigin::Store,
+            format!("index points to missing row: {data_key}"),
+        )
+        .into());
     }
 
     let pk = E::PrimaryKey::try_from_key(key).ok_or_else(|| {

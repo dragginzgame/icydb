@@ -1,11 +1,12 @@
 use crate::{
     db::{
         Db,
+        executor::ExecutorError,
         primitives::FilterExpr,
         query::{QueryPlan, QueryPlanner},
         store::DataKey,
     },
-    error::InternalError,
+    error::{ErrorOrigin, InternalError},
     obs::sink::Span,
     serialize::deserialize,
     traits::EntityKind,
@@ -18,16 +19,34 @@ pub fn plan_for<E: EntityKind>(filter: Option<&FilterExpr>) -> QueryPlan {
     QueryPlanner::new(filter).plan::<E>()
 }
 
+///
+/// ReadMode
+/// Read behavior policy for scan operations
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReadMode {
+    /// Skip missing or malformed rows.
+    BestEffort,
+
+    /// Treat missing or malformed rows as corruption.
+    Strict,
+}
+
 /// Convenience: set span rows from a usize length.
 pub const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: usize) {
     span.set_rows(len as u64);
 }
 
 /// Iterate a query plan and deserialize rows, delegating row handling to `on_row`.
-/// This is a best-effort scan: missing rows and deserialization failures are skipped.
+///
+/// In `ReadMode::Strict`, missing rows or deserialization failures are treated as
+/// corruption and returned as errors. In `ReadMode::BestEffort`, such rows are
+/// silently skipped.
 pub fn scan_plan<E, F>(
     db: &Db<E::Canister>,
     plan: QueryPlan,
+    mode: ReadMode,
     mut on_row: F,
 ) -> Result<(), InternalError>
 where
@@ -38,16 +57,19 @@ where
 
     match plan {
         QueryPlan::Keys(keys) => {
-            let data_keys: Vec<DataKey> = keys.into_iter().map(DataKey::new::<E>).collect();
-
             ctx.with_store(|s| {
-                for dk in data_keys {
+                for dk in keys.into_iter().map(DataKey::new::<E>) {
                     let Some(bytes) = s.get(&dk) else {
+                        if mode == ReadMode::Strict {
+                            return Err(missing_row(&dk));
+                        }
                         continue;
                     };
 
-                    let Ok(entity) = deserialize::<E>(&bytes) else {
-                        continue;
+                    let entity = match deserialize::<E>(&bytes) {
+                        Ok(entity) => entity,
+                        Err(_) if mode == ReadMode::BestEffort => continue,
+                        Err(_) => return Err(bad_row(&dk)),
                     };
 
                     if on_row(dk, entity) == ControlFlow::Break(()) {
@@ -65,11 +87,16 @@ where
             ctx.with_store(|s| {
                 for dk in keys {
                     let Some(bytes) = s.get(&dk) else {
+                        if mode == ReadMode::Strict {
+                            return Err(missing_row(&dk));
+                        }
                         continue;
                     };
 
-                    let Ok(entity) = deserialize::<E>(&bytes) else {
-                        continue;
+                    let entity = match deserialize::<E>(&bytes) {
+                        Ok(entity) => entity,
+                        Err(_) if mode == ReadMode::BestEffort => continue,
+                        Err(_) => return Err(bad_row(&dk)),
                     };
 
                     if on_row(dk, entity) == ControlFlow::Break(()) {
@@ -88,8 +115,11 @@ where
             ctx.with_store(|s| {
                 for entry in s.range((Bound::Included(start_key), Bound::Included(end_key))) {
                     let dk = entry.key().clone();
-                    let Ok(entity) = deserialize::<E>(&entry.value()) else {
-                        continue;
+
+                    let entity = match deserialize::<E>(&entry.value()) {
+                        Ok(entity) => entity,
+                        Err(_) if mode == ReadMode::BestEffort => continue,
+                        Err(_) => return Err(bad_row(&dk)),
                     };
 
                     if on_row(dk, entity) == ControlFlow::Break(()) {
@@ -108,8 +138,11 @@ where
             ctx.with_store(|s| {
                 for entry in s.range((Bound::Included(start.clone()), Bound::Included(end))) {
                     let dk = entry.key().clone();
-                    let Ok(entity) = deserialize::<E>(&entry.value()) else {
-                        continue;
+
+                    let entity = match deserialize::<E>(&entry.value()) {
+                        Ok(entity) => entity,
+                        Err(_) if mode == ReadMode::BestEffort => continue,
+                        Err(_) => return Err(bad_row(&dk)),
                     };
 
                     if on_row(dk, entity) == ControlFlow::Break(()) {
@@ -123,4 +156,45 @@ where
     }
 
     Ok(())
+}
+
+/// Strict scan that surfaces missing rows or deserialization failures as corruption.
+pub fn scan_strict<E, F>(
+    db: &Db<E::Canister>,
+    plan: QueryPlan,
+    on_row: F,
+) -> Result<(), InternalError>
+where
+    E: EntityKind,
+    F: FnMut(DataKey, E) -> ControlFlow<()>,
+{
+    scan_plan::<E, F>(db, plan, ReadMode::Strict, on_row)
+}
+
+/// Best-effort scan that skips missing or malformed rows.
+#[expect(dead_code)]
+pub fn scan_best_effort<E, F>(
+    db: &Db<E::Canister>,
+    plan: QueryPlan,
+    on_row: F,
+) -> Result<(), InternalError>
+where
+    E: EntityKind,
+    F: FnMut(DataKey, E) -> ControlFlow<()>,
+{
+    scan_plan::<E, F>(db, plan, ReadMode::BestEffort, on_row)
+}
+
+#[inline]
+fn missing_row(dk: &DataKey) -> InternalError {
+    ExecutorError::corruption(ErrorOrigin::Store, format!("missing row: {dk}")).into()
+}
+
+#[inline]
+fn bad_row(dk: &DataKey) -> InternalError {
+    ExecutorError::corruption(
+        ErrorOrigin::Serialize,
+        format!("failed to deserialize row: {dk}"),
+    )
+    .into()
 }
