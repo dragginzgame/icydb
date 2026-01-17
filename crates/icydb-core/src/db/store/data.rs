@@ -1,4 +1,7 @@
-use crate::{db::store::StoreRegistry, prelude::*};
+use crate::{
+    db::store::{EntityName, StoreRegistry},
+    prelude::*,
+};
 use candid::CandidType;
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
 use canic_memory::impl_storable_bounded;
@@ -58,18 +61,18 @@ pub type DataRow = (DataKey, Vec<u8>);
     CandidType, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize,
 )]
 pub struct DataKey {
-    entity_id: u64,
+    entity: EntityName,
     key: Key,
 }
 
 impl DataKey {
-    pub const STORABLE_MAX_SIZE: u32 = 160;
+    pub const STORABLE_MAX_SIZE: u32 = 256;
 
     #[must_use]
     /// Build a data key for the given entity type and primary key.
     pub fn new<E: EntityKind>(key: impl Into<Key>) -> Self {
         Self {
-            entity_id: E::ENTITY_ID,
+            entity: EntityName::from_static(E::ENTITY_NAME),
             key: key.into(),
         }
     }
@@ -77,7 +80,7 @@ impl DataKey {
     #[must_use]
     pub const fn lower_bound<E: EntityKind>() -> Self {
         Self {
-            entity_id: E::ENTITY_ID,
+            entity: EntityName::from_static(E::ENTITY_NAME),
             key: Key::lower_bound(),
         }
     }
@@ -85,7 +88,7 @@ impl DataKey {
     #[must_use]
     pub const fn upper_bound<E: EntityKind>() -> Self {
         Self {
-            entity_id: E::ENTITY_ID,
+            entity: EntityName::from_static(E::ENTITY_NAME),
             key: Key::upper_bound(),
         }
     }
@@ -96,10 +99,10 @@ impl DataKey {
         self.key
     }
 
-    /// Entity identifier (stable, compile-time constant per entity type).
+    /// Entity name (stable, compile-time constant per entity type).
     #[must_use]
-    pub const fn entity_id(&self) -> u64 {
-        self.entity_id
+    pub const fn entity_name(&self) -> &EntityName {
+        &self.entity
     }
 
     /// Compute the on-disk size used by a single data entry from its value length.
@@ -113,7 +116,7 @@ impl DataKey {
     /// Max sentinel key for sizing.
     pub fn max_storable() -> Self {
         Self {
-            entity_id: u64::MAX,
+            entity: EntityName::max_storable(),
             key: Key::max_storable(),
         }
     }
@@ -121,7 +124,7 @@ impl DataKey {
 
 impl Display for DataKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "#{} ({})", self.entity_id, self.key)
+        write!(f, "#{} ({})", self.entity, self.key)
     }
 }
 

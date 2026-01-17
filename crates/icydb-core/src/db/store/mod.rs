@@ -1,7 +1,9 @@
 mod data;
+mod identity;
 mod index;
 
 pub use data::*;
+pub use identity::*;
 pub use index::*;
 
 use crate::error::{ErrorClass, ErrorOrigin, InternalError};

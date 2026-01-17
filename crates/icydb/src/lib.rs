@@ -63,7 +63,7 @@ pub use icydb_macros as macros;
 pub use icydb_schema as schema;
 
 // core modules
-pub use icydb_core::{hash, key, model, obs, traits, types, value, view, visitor};
+pub use icydb_core::{key, model, obs, traits, types, value, view, visitor};
 
 // canic modules
 pub mod base;

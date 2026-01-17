@@ -45,7 +45,7 @@ pub type DeleteHandler = fn(DeleteQuery) -> Result<Vec<Key>, InternalError>;
 /// endpoints are generated automatically.
 #[derive(Clone, Copy)]
 pub struct EntityDispatch {
-    pub entity_id: u64,
+    pub entity_name: &'static str,
     pub path: &'static str,
     pub load_keys: LoadHandler,
     pub save_key: SaveHandler,

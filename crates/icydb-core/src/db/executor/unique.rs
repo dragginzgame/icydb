@@ -6,6 +6,7 @@ use crate::{
     },
     error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
+    serialize::deserialize,
     traits::{EntityKind, FromKey},
 };
 
@@ -56,16 +57,53 @@ where
 
     // Ensure the index doesn't point to a missing primary record.
     let data_key = DataKey::new::<E>(key);
-    let exists = db
-        .context::<E>()
-        .with_store(|store| store.get(&data_key).is_some())?;
+    let bytes = db.context::<E>().with_store(|store| store.get(&data_key))?;
 
-    if !exists {
+    let Some(bytes) = bytes else {
         return Err(ExecutorError::corruption(
             ErrorOrigin::Store,
             format!("index points to missing row: {data_key}"),
         )
         .into());
+    };
+
+    let stored = deserialize::<E>(&bytes).map_err(|_| {
+        ExecutorError::corruption(
+            ErrorOrigin::Serialize,
+            format!("failed to deserialize row: {data_key}"),
+        )
+    })?;
+
+    // Re-validate indexed field values to guard against hash collisions.
+    for field in index.fields {
+        let expected = entity.get_value(field).ok_or_else(|| {
+            ExecutorError::corruption(
+                ErrorOrigin::Index,
+                format!(
+                    "index field missing on lookup entity: {} ({})",
+                    E::PATH,
+                    field
+                ),
+            )
+        })?;
+        let actual = stored.get_value(field).ok_or_else(|| {
+            ExecutorError::corruption(
+                ErrorOrigin::Index,
+                format!(
+                    "index field missing on stored entity: {} ({})",
+                    E::PATH,
+                    field
+                ),
+            )
+        })?;
+
+        if expected != actual {
+            return Err(ExecutorError::corruption(
+                ErrorOrigin::Index,
+                format!("index hash collision: {} ({})", E::PATH, field),
+            )
+            .into());
+        }
     }
 
     let pk = E::PrimaryKey::try_from_key(key).ok_or_else(|| {

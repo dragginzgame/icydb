@@ -45,6 +45,7 @@ rust_decimal = { version = "1.37", default-features = false, features = [
     "maths",
 ] }
 serde = { version = "1.0", default-features = false }
+serde-big-array = "0.5"
 serde_bytes = "0.11"
 syn = "2.0"
 # Test harnesses

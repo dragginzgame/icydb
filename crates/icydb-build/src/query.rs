@@ -34,7 +34,7 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
         quote! {
             #entity_path => Ok(::icydb::__internal::core::interface::query::EntityDispatch {
                 // Static identity for this entity type
-                entity_id: #ty::ENTITY_ID,
+                entity_name: #ty::ENTITY_NAME,
                 path: #ty::PATH,
 
                 // Load closure: executes the LoadQuery on this entity type.

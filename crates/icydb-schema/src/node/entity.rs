@@ -13,6 +13,9 @@ pub struct Entity {
     pub store: &'static str,
     pub primary_key: &'static str,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<&'static str>,
+
     #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
     pub indexes: &'static [Index],
 
@@ -26,6 +29,11 @@ impl Entity {
         self.fields
             .get(self.primary_key)
             .unwrap_or_else(|| panic!("missing primary key field '{}'", self.primary_key))
+    }
+
+    #[must_use]
+    pub fn resolved_name(&self) -> &'static str {
+        self.name.unwrap_or(self.def.ident)
     }
 }
 
@@ -60,6 +68,11 @@ impl ValidateNode for Entity {
             None => {
                 err!(errs, "missing primary key field '{0}'", self.primary_key);
             }
+        }
+
+        // entity name length/encoding
+        if let Err(msg) = crate::build::validate::validate_entity_name(self.resolved_name()) {
+            err!(errs, "{msg}");
         }
 
         // store
@@ -112,6 +125,12 @@ impl ValidateNode for Entity {
                 } else {
                     err!(errs, "index field '{field}' not found");
                 }
+            }
+
+            if let Err(msg) =
+                crate::build::validate::validate_index_name_len(self.resolved_name(), index.fields)
+            {
+                err!(errs, "{msg}");
             }
             resolved_indexes.push(index);
         }

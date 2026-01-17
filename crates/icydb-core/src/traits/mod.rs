@@ -60,7 +60,7 @@ pub trait EntityKind: Kind + TypeKind + FieldValues {
     type Store: StoreKind;
     type Canister: CanisterKind; // Self::Store::Canister shortcut
 
-    const ENTITY_ID: u64;
+    const ENTITY_NAME: &'static str;
     const PRIMARY_KEY: &'static str;
     const FIELDS: &'static [&'static str];
     const INDEXES: &'static [&'static IndexModel];

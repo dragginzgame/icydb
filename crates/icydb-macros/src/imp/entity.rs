@@ -17,6 +17,12 @@ impl Imp<Entity> for EntityKindTrait {
             .value
             .item
             .type_expr();
+        let entity_name = if let Some(name) = &node.name {
+            quote!(#name)
+        } else {
+            let ident = node.def.ident();
+            quote!(stringify!(#ident))
+        };
 
         // instead of string literals, reference the inherent const idents
         let field_refs: Vec<Ident> = node.fields.iter().map(Field::const_ident).collect();
@@ -34,7 +40,7 @@ impl Imp<Entity> for EntityKindTrait {
             type Store = #store;
             type Canister = <Self::Store as ::icydb::traits::StoreKind>::Canister;
 
-            const ENTITY_ID: u64 = ::icydb::hash::fnv1a_64(Self::PATH.as_bytes());
+            const ENTITY_NAME: &'static str = #entity_name;
             const PRIMARY_KEY: &'static str = #pk_field;
             const FIELDS: &'static [&'static str]  = &[ #( Self::#field_refs ),* ];
             const INDEXES: &'static [&'static ::icydb::model::index::IndexModel]  = &[#(&#indexes),*];

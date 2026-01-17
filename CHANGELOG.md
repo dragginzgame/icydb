@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 - Strict reads now surface missing/malformed rows as corruption; delete/exists/unique paths use strict scans by default.
+- Unique index lookups now re-validate indexed field values; hash mismatches surface as corruption.
+- Breaking: entity identity is now per-canister `ENTITY_NAME` (name-based), replacing hashed `ENTITY_ID` in storage and index keys.
 
 ## [0.3.3] - 2026-01-14
 - fixed a CI issue where clippy errors broke things

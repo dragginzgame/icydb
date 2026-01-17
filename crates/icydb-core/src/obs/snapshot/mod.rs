@@ -1,4 +1,5 @@
 use crate::{
+    db::store::EntityName,
     db::{Db, store::DataKey},
     traits::CanisterKind,
 };
@@ -97,14 +98,14 @@ impl EntityStats {
     }
 }
 
-/// Build storage snapshot and per-entity breakdown; enrich path names using id→path map
+/// Build storage snapshot and per-entity breakdown; enrich path names using name→path map
 #[must_use]
 pub fn storage_report<C: CanisterKind>(
     db: &Db<C>,
-    id_to_path: &[(u64, &'static str)],
+    name_to_path: &[(&'static str, &'static str)],
 ) -> StorageReport {
-    // Build id→path map once, reuse across stores
-    let id_map: BTreeMap<u64, &str> = id_to_path.iter().copied().collect();
+    // Build name→path map once, reuse across stores
+    let name_map: BTreeMap<&'static str, &str> = name_to_path.iter().copied().collect();
     let mut data = Vec::new();
     let mut index = Vec::new();
     let mut entity_storage: Vec<EntitySnapshot> = Vec::new();
@@ -118,19 +119,19 @@ pub fn storage_report<C: CanisterKind>(
             });
 
             // Track per-entity counts, memory, and min/max DataKey
-            let mut by_entity: BTreeMap<u64, EntityStats> = BTreeMap::new();
+            let mut by_entity: BTreeMap<EntityName, EntityStats> = BTreeMap::new();
 
             for entry in store.iter() {
                 let dk = entry.key();
                 let value_len = entry.value().len() as u64;
                 by_entity
-                    .entry(dk.entity_id())
+                    .entry(*dk.entity_name())
                     .or_default()
                     .update(dk, value_len);
             }
 
-            for (entity_id, stats) in by_entity {
-                let path_name = id_map.get(&entity_id).copied().unwrap_or("");
+            for (entity_name, stats) in by_entity {
+                let path_name = name_map.get(entity_name.as_str()).copied().unwrap_or("");
                 entity_storage.push(EntitySnapshot {
                     store: path.to_string(),
                     path: path_name.to_string(),

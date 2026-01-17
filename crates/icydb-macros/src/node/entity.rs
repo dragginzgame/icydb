@@ -14,6 +14,9 @@ pub struct Entity {
     #[darling(rename = "pk")]
     pub primary_key: Ident,
 
+    #[darling(default)]
+    pub name: Option<LitStr>,
+
     #[darling(multiple, rename = "index")]
     pub indexes: Vec<Index>,
 
@@ -66,6 +69,7 @@ impl HasSchemaPart for Entity {
         let def = &self.def.schema_part();
         let store = quote_one(&self.store, to_path);
         let primary_key = quote_one(&self.primary_key, to_str_lit);
+        let name = quote_option(self.name.as_ref(), to_str_lit);
         let indexes = quote_slice(&self.indexes, Index::schema_part);
         let fields = &self.fields.schema_part();
         let ty = &self.ty.schema_part();
@@ -76,6 +80,7 @@ impl HasSchemaPart for Entity {
                 def: #def,
                 store: #store,
                 primary_key: #primary_key,
+                name: #name,
                 indexes: #indexes,
                 fields: #fields,
                 ty: #ty,

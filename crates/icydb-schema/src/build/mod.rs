@@ -3,11 +3,14 @@ pub mod validate;
 
 use crate::{
     Error, ThisError,
-    node::{Schema, VisitableNode},
+    node::{Entity, Schema, Store, VisitableNode},
     prelude::*,
     visit::ValidateVisitor,
 };
-use std::sync::{LazyLock, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::{
+    collections::BTreeMap,
+    sync::{LazyLock, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard},
+};
 
 ///
 /// BuildError
@@ -60,9 +63,37 @@ fn validate(schema: &Schema) -> Result<(), ErrorTree> {
     // validate
     let mut visitor = ValidateVisitor::new();
     schema.accept(&mut visitor);
+    validate_entity_names(schema, &mut visitor.errors);
     visitor.errors.result()?;
 
     SCHEMA_VALIDATED.set(true).ok();
 
     Ok(())
+}
+
+fn validate_entity_names(schema: &Schema, errs: &mut ErrorTree) {
+    let mut by_canister: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
+
+    for (entity_path, entity) in schema.get_nodes::<Entity>() {
+        let store = match schema.cast_node::<Store>(entity.store) {
+            Ok(store) => store,
+            Err(e) => {
+                errs.add(e);
+                continue;
+            }
+        };
+
+        let canister = store.canister.to_string();
+        let name = entity.resolved_name().to_string();
+        let entity_path = entity_path.to_string();
+
+        let entry = by_canister.entry(canister.clone()).or_default();
+
+        if let Some(prev) = entry.insert(name.clone(), entity_path.clone()) {
+            err!(
+                errs,
+                "duplicate entity name '{name}' in canister '{canister}' for '{prev}' and '{entity_path}'"
+            );
+        }
+    }
 }

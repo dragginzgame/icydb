@@ -2,7 +2,7 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         executor::ExecutorError,
-        store::{DataKey, StoreRegistry},
+        store::{DataKey, EntityName, IndexName, StoreRegistry},
     },
     error::InternalError,
     obs::sink::{self, MetricsEvent},
@@ -11,7 +11,6 @@ use crate::{
 use candid::CandidType;
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
 use canic_memory::{impl_storable_bounded, impl_storable_unbounded};
-use canic_utils::hash::hash_u64;
 use derive_more::{Deref, DerefMut, Display};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -196,41 +195,20 @@ impl IndexStore {
     Serialize,
     Deserialize,
 )]
-pub struct IndexId(u64);
+pub struct IndexId(IndexName);
 
 impl IndexId {
     #[must_use]
-    /// Deterministic index identifier derived from entity path and field list.
+    /// Deterministic index identifier derived from entity name and field list.
     pub fn new<E: EntityKind>(index: &IndexModel) -> Self {
-        Self::from_path_and_fields(E::PATH, index.fields)
-    }
-
-    fn from_path_and_fields(path: &str, fields: &[&str]) -> Self {
-        let cap = path.len() + fields.iter().map(|f| f.len() + 1).sum::<usize>();
-        let mut buffer = Vec::with_capacity(cap);
-
-        // much more efficient than format
-        buffer.extend_from_slice(path.as_bytes());
-        for field in fields {
-            buffer.extend_from_slice(field.as_bytes());
-            buffer.extend_from_slice(b"|");
-        }
-
-        Self(hash_u64(&buffer))
+        let entity = EntityName::from_static(E::ENTITY_NAME);
+        Self(IndexName::from_parts(&entity, index.fields))
     }
 
     #[must_use]
     /// Worst-case index identifier used for sizing tests.
-    pub fn max_storable() -> Self {
-        Self::from_path_and_fields(
-            "path::to::long::entity::name::Entity",
-            &[
-                "long_field_one",
-                "long_field_two",
-                "long_field_three",
-                "long_field_four",
-            ],
-        )
+    pub const fn max_storable() -> Self {
+        Self(IndexName::max_storable())
     }
 }
 
@@ -246,7 +224,7 @@ pub struct IndexKey {
 
 impl IndexKey {
     // Sized with headroom for worst‑case hashed key payload
-    pub const STORABLE_MAX_SIZE: u32 = 180;
+    pub const STORABLE_MAX_SIZE: u32 = 384;
 
     #[must_use]
     /// Build an index key from an entity and spec, returning None if a component is missing/non-indexable.
