@@ -167,7 +167,7 @@ dependencies = [
  "ctor",
  "serde",
  "serde_cbor",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -181,7 +181,7 @@ dependencies = [
  "derive_more",
  "hex",
  "rand_chacha",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "xxhash-rust",
 ]
 
@@ -493,7 +493,7 @@ dependencies = [
  "serde_bytes",
  "serde_cbor",
  "sha2",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -512,7 +512,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "slotmap",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -751,12 +751,12 @@ dependencies = [
  "num-traits",
  "remain",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "icydb-build"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -766,7 +766,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "bencher",
  "candid",
@@ -780,13 +780,13 @@ dependencies = [
  "serde",
  "serde_bytes",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "ulid",
 ]
 
 [[package]]
 name = "icydb-macros"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "canic-utils",
  "darling 0.23.0",
@@ -801,7 +801,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -812,7 +812,7 @@ dependencies = [
  "quote",
  "remain",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1262,7 +1262,7 @@ dependencies = [
 
 [[package]]
 name = "test"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1275,7 +1275,7 @@ dependencies = [
 
 [[package]]
 name = "test_design"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "candid",
  "icydb",
@@ -1293,11 +1293,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.17"
+version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
+checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
 dependencies = [
- "thiserror-impl 2.0.17",
+ "thiserror-impl 2.0.18",
 ]
 
 [[package]]
@@ -1313,9 +1313,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.17"
+version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
+checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
 dependencies = [
  "proc-macro2",
  "quote",
