@@ -6,8 +6,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
-## [Unreleased]
+## [0.4.2]
 - Increased `EntityName` and index field limits to 64 chars; `IndexName` length now uses a 2-byte prefix, widening `IndexKey` size.
+- `DataKey` now reuses canonical `EntityName` decoding, and `IndexKey` rejects non-zero fingerprint padding beyond `len`.
+- Standardized corruption error messages for strict decoders across keys and core types.
 
 ## [0.4.0] – 2026-01-18 – ⚠️ Very Breaky Things ⚠️
 

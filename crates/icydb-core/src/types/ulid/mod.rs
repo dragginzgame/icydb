@@ -219,7 +219,7 @@ impl Storable for Ulid {
     fn from_bytes(bytes: Cow<[u8]>) -> Self {
         assert!(
             bytes.len() == 16,
-            "Invalid Ulid byte length: expected 16, got {}",
+            "corrupted Ulid: invalid size: {}",
             bytes.len()
         );
 
@@ -292,14 +292,14 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Invalid Ulid byte length")]
+    #[should_panic(expected = "corrupted Ulid: invalid size")]
     fn ulid_from_bytes_rejects_undersized() {
         let buf = vec![0u8; 15];
         let _ = <Ulid as Storable>::from_bytes(buf.into());
     }
 
     #[test]
-    #[should_panic(expected = "Invalid Ulid byte length")]
+    #[should_panic(expected = "corrupted Ulid: invalid size")]
     fn ulid_from_bytes_rejects_oversized() {
         let buf = vec![0u8; 17];
         let _ = <Ulid as Storable>::from_bytes(buf.into());

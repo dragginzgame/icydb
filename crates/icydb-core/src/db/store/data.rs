@@ -1,5 +1,5 @@
 use crate::{
-    db::store::{EntityName, MAX_ENTITY_NAME_LEN, StoreRegistry},
+    db::store::{EntityName, StoreRegistry},
     prelude::*,
     traits::Storable,
 };
@@ -175,21 +175,9 @@ impl Storable for DataKey {
         let mut offset = 0;
 
         // ── EntityName ─────────────────────────────
-        let len = bytes[offset];
-        assert!(
-            len > 0 && len as usize <= MAX_ENTITY_NAME_LEN,
-            "corrupted DataKey: invalid entity name length"
-        );
-        offset += 1;
-
-        let mut entity_bytes = [0u8; MAX_ENTITY_NAME_LEN];
-        entity_bytes.copy_from_slice(&bytes[offset..offset + MAX_ENTITY_NAME_LEN]);
-        offset += MAX_ENTITY_NAME_LEN;
-
-        let entity = EntityName {
-            len,
-            bytes: entity_bytes,
-        };
+        let entity = EntityName::from_bytes(&bytes[offset..offset + EntityName::STORED_SIZE_USIZE])
+            .expect("corrupted DataKey: invalid EntityName bytes");
+        offset += EntityName::STORED_SIZE_USIZE;
 
         // ── Key ────────────────────────────────────
         let key = Key::from_bytes(bytes[offset..offset + Key::STORED_SIZE].into());
@@ -276,10 +264,35 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "corrupted DataKey: invalid entity name length")]
+    #[should_panic(expected = "corrupted DataKey: invalid EntityName bytes")]
     fn data_key_rejects_invalid_entity_len() {
         let mut buf = DataKey::max_storable().to_bytes().into_owned();
         buf[0] = 0;
+        let _ = DataKey::from_bytes(buf.into());
+    }
+
+    #[test]
+    #[should_panic(expected = "corrupted DataKey: invalid EntityName bytes")]
+    fn data_key_rejects_non_ascii_entity_bytes() {
+        let data_key = DataKey {
+            entity: EntityName::from_static("a"),
+            key: Key::Int(1),
+        };
+        let mut buf = data_key.to_bytes().into_owned();
+        buf[1] = 0xFF;
+        let _ = DataKey::from_bytes(buf.into());
+    }
+
+    #[test]
+    #[should_panic(expected = "corrupted DataKey: invalid EntityName bytes")]
+    fn data_key_rejects_entity_padding() {
+        let data_key = DataKey {
+            entity: EntityName::from_static("user"),
+            key: Key::Int(1),
+        };
+        let mut buf = data_key.to_bytes().into_owned();
+        let padding_offset = 1 + data_key.entity.len();
+        buf[padding_offset] = b'x';
         let _ = DataKey::from_bytes(buf.into());
     }
 }

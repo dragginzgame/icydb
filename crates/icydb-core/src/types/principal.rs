@@ -187,7 +187,12 @@ impl Storable for Principal {
     }
 
     fn from_bytes(bytes: Cow<[u8]>) -> Self {
-        Self::from_slice(bytes.as_ref())
+        let bytes = bytes.as_ref();
+        assert!(
+            bytes.len() <= Self::MAX_LENGTH_IN_BYTES as usize,
+            "corrupted Principal: invalid size"
+        );
+        Self::from_slice(bytes)
     }
 }
 
@@ -271,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "slice length exceeds capacity")]
+    #[should_panic(expected = "corrupted Principal: invalid size")]
     fn principal_from_bytes_rejects_oversized() {
         let size = (Principal::MAX_LENGTH_IN_BYTES as usize) + 1;
         let buf = vec![0u8; size];

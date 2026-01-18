@@ -298,7 +298,7 @@ impl Storable for IndexKey {
 
         let index_name =
             IndexName::from_bytes(&bytes[offset..offset + IndexName::STORED_SIZE as usize])
-                .expect("corrupted IndexKey: invalid IndexName");
+                .expect("corrupted IndexKey: invalid IndexName bytes");
         offset += IndexName::STORED_SIZE as usize;
 
         let len = bytes[offset];
@@ -306,13 +306,21 @@ impl Storable for IndexKey {
 
         assert!(
             len as usize <= MAX_INDEX_FIELDS,
-            "corrupted IndexKey: len exceeds MAX_INDEX_FIELDS"
+            "corrupted IndexKey: invalid index length"
         );
 
         let mut values = [[0u8; 16]; MAX_INDEX_FIELDS];
         for value in &mut values {
             value.copy_from_slice(&bytes[offset..offset + 16]);
             offset += 16;
+        }
+
+        let len_usize = len as usize;
+        for value in values.iter().skip(len_usize) {
+            assert!(
+                value.iter().all(|&b| b == 0),
+                "corrupted IndexKey: non-zero fingerprint padding"
+            );
         }
 
         Self {
@@ -410,7 +418,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::cast_possible_truncation)]
-    #[should_panic(expected = "corrupted IndexKey: len exceeds MAX_INDEX_FIELDS")]
+    #[should_panic(expected = "corrupted IndexKey: invalid index length")]
     fn index_key_rejects_len_over_max() {
         let key = IndexKey::empty(IndexId::max_storable());
         let mut bytes = key.to_bytes().into_owned();
@@ -420,12 +428,22 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "corrupted IndexKey: invalid IndexName")]
+    #[should_panic(expected = "corrupted IndexKey: invalid IndexName bytes")]
     fn index_key_rejects_invalid_index_name() {
         let key = IndexKey::empty(IndexId::max_storable());
         let mut bytes = key.to_bytes().into_owned();
         bytes[0] = 0;
         bytes[1] = 0;
+        let _ = IndexKey::from_bytes(bytes.into());
+    }
+
+    #[test]
+    #[should_panic(expected = "corrupted IndexKey: non-zero fingerprint padding")]
+    fn index_key_rejects_fingerprint_padding() {
+        let key = IndexKey::empty(IndexId::max_storable());
+        let mut bytes = key.to_bytes().into_owned();
+        let values_offset = IndexName::STORED_SIZE as usize + 1;
+        bytes[values_offset] = 1;
         let _ = IndexKey::from_bytes(bytes.into());
     }
 

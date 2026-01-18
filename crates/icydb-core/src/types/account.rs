@@ -236,7 +236,7 @@ impl Storable for Account {
         assert_eq!(
             bytes.len(),
             Self::STORED_SIZE as usize,
-            "invalid Account size"
+            "corrupted Account: invalid size"
         );
 
         let tag = bytes[0];
@@ -244,7 +244,7 @@ impl Storable for Account {
         let len = (tag & Self::LEN_MASK) as usize;
         assert!(
             len <= Self::PRINCIPAL_MAX_LEN,
-            "invalid Account principal length"
+            "corrupted Account: invalid principal length"
         );
 
         let principal_end = 1 + len;
@@ -255,7 +255,7 @@ impl Storable for Account {
         let padding = &bytes[principal_end..principal_region_end];
         assert!(
             padding.iter().all(|&b| b == 0),
-            "invalid Account principal padding"
+            "corrupted Account: non-zero principal padding"
         );
 
         let sub_offset = principal_region_end;
@@ -267,7 +267,7 @@ impl Storable for Account {
         } else {
             assert!(
                 sub.iter().all(|&b| b == 0),
-                "invalid Account: subaccount bytes set without flag"
+                "corrupted Account: non-zero subaccount bytes without flag"
             );
             None
         };
@@ -499,13 +499,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "invalid Account size")]
+    #[should_panic(expected = "corrupted Account: invalid size")]
     fn from_bytes_rejects_empty_input() {
         let _ = Account::from_bytes(Cow::Borrowed(&[]));
     }
 
     #[test]
-    #[should_panic(expected = "invalid Account size")]
+    #[should_panic(expected = "corrupted Account: invalid size")]
     fn from_bytes_rejects_oversized_input() {
         let buf = vec![0u8; Account::STORED_SIZE as usize + 1];
         let _ = Account::from_bytes(Cow::Borrowed(&buf));
@@ -513,7 +513,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::cast_possible_truncation)]
-    #[should_panic(expected = "invalid Account principal length")]
+    #[should_panic(expected = "corrupted Account: invalid principal length")]
     fn from_bytes_rejects_invalid_principal_len() {
         let mut buf = vec![0u8; Account::STORED_SIZE as usize];
         buf[0] = (Principal::MAX_LENGTH_IN_BYTES as u8) + 1;
@@ -521,7 +521,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "invalid Account principal padding")]
+    #[should_panic(expected = "corrupted Account: non-zero principal padding")]
     fn from_bytes_rejects_principal_padding() {
         let acc = Account::new(Principal::from_slice(&[1]), None::<Subaccount>);
         let mut bytes = acc.to_bytes();
@@ -530,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "invalid Account: subaccount bytes set without flag")]
+    #[should_panic(expected = "corrupted Account: non-zero subaccount bytes without flag")]
     fn from_bytes_rejects_subaccount_without_flag() {
         let acc = Account::new(Principal::from_slice(&[1]), None::<Subaccount>);
         let mut bytes = acc.to_bytes();

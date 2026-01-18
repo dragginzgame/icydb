@@ -85,18 +85,18 @@ impl EntityName {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
         if bytes.len() != Self::STORED_SIZE_USIZE {
-            return Err("invalid EntityName size");
+            return Err("corrupted EntityName: invalid size");
         }
 
         let len = bytes[0] as usize;
         if len == 0 || len > MAX_ENTITY_NAME_LEN {
-            return Err("invalid EntityName length");
+            return Err("corrupted EntityName: invalid length");
         }
         if !bytes[1..=len].is_ascii() {
-            return Err("invalid EntityName encoding");
+            return Err("corrupted EntityName: invalid encoding");
         }
         if bytes[1 + len..].iter().any(|&b| b != 0) {
-            return Err("invalid EntityName padding");
+            return Err("corrupted EntityName: non-zero padding");
         }
 
         let mut name = [0u8; MAX_ENTITY_NAME_LEN];
@@ -204,18 +204,18 @@ impl IndexName {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
         if bytes.len() != Self::STORED_SIZE_USIZE {
-            return Err("invalid IndexName size");
+            return Err("corrupted IndexName: invalid size");
         }
 
         let len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
         if len == 0 || len > MAX_INDEX_NAME_LEN {
-            return Err("invalid IndexName length");
+            return Err("corrupted IndexName: invalid length");
         }
         if !bytes[2..2 + len].is_ascii() {
-            return Err("invalid IndexName encoding");
+            return Err("corrupted IndexName: invalid encoding");
         }
         if bytes[2 + len..].iter().any(|&b| b != 0) {
-            return Err("invalid IndexName padding");
+            return Err("corrupted IndexName: non-zero padding");
         }
 
         let mut name = [0u8; MAX_INDEX_NAME_LEN];
