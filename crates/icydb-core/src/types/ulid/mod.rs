@@ -290,4 +290,18 @@ mod test {
 
         assert_eq!(u1, u2);
     }
+
+    #[test]
+    #[should_panic(expected = "Invalid Ulid byte length")]
+    fn ulid_from_bytes_rejects_undersized() {
+        let buf = vec![0u8; 15];
+        let _ = <Ulid as Storable>::from_bytes(buf.into());
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid Ulid byte length")]
+    fn ulid_from_bytes_rejects_oversized() {
+        let buf = vec![0u8; 17];
+        let _ = <Ulid as Storable>::from_bytes(buf.into());
+    }
 }

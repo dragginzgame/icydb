@@ -25,12 +25,15 @@ impl IndexStoreRegistry {
     }
 }
 
-///
-/// IndexStore
-///
+impl Default for IndexStoreRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-#[derive(Deref, DerefMut)]
-pub struct IndexStore(BTreeMap<IndexKey, IndexEntry, VirtualMemory<DefaultMemoryImpl>>);
+///
+/// IndexInsertOutcome
+///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IndexInsertOutcome {
@@ -38,16 +41,31 @@ pub enum IndexInsertOutcome {
     Skipped,
 }
 
+///
+/// IndexRemoveOutcome
+///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IndexRemoveOutcome {
     Removed,
     Skipped,
 }
 
+///
+/// IndexInsertError
+///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IndexInsertError {
     UniqueViolation,
 }
+
+///
+/// IndexStore
+///
+
+#[derive(Deref, DerefMut)]
+pub struct IndexStore(BTreeMap<IndexKey, IndexEntry, VirtualMemory<DefaultMemoryImpl>>);
 
 impl IndexStore {
     #[must_use]
@@ -140,9 +158,19 @@ impl IndexStore {
             );
         };
 
-        let (start, end) = IndexKey::bounds_for_prefix(index_id, fps);
+        let (start, end) = IndexKey::bounds_for_prefix(index_id, index.fields.len(), &fps);
 
-        Box::new(self.range(start..end).map(|e| (e.key().clone(), e.value())))
+        Box::new(
+            self.range(start..=end)
+                .map(|e| (e.key().clone(), e.value())),
+        )
+    }
+
+    /// Sum of bytes used by all index entries.
+    pub fn memory_bytes(&self) -> u64 {
+        self.iter()
+            .map(|entry| u64::from(IndexKey::STORED_SIZE) + entry.value().to_bytes().len() as u64)
+            .sum()
     }
 }
 
@@ -160,6 +188,7 @@ impl IndexId {
         Self(IndexName::from_parts(&entity, index.fields))
     }
 
+    #[must_use]
     pub const fn max_storable() -> Self {
         Self(IndexName::max_storable())
     }
@@ -178,7 +207,8 @@ pub struct IndexKey {
 }
 
 impl IndexKey {
-    pub const STORED_SIZE: u32 = IndexName::STORED_SIZE as u32 + 1 + (MAX_INDEX_FIELDS as u32 * 16);
+    #[allow(clippy::cast_possible_truncation)]
+    pub const STORED_SIZE: u32 = IndexName::STORED_SIZE + 1 + (MAX_INDEX_FIELDS as u32 * 16);
 
     pub fn new<E: EntityKind>(entity: &E, index: &IndexModel) -> Option<Self> {
         if index.fields.len() > MAX_INDEX_FIELDS {
@@ -195,6 +225,7 @@ impl IndexKey {
             len += 1;
         }
 
+        #[allow(clippy::cast_possible_truncation)]
         Some(Self {
             index_id: IndexId::new::<E>(index),
             len: len as u8,
@@ -202,7 +233,8 @@ impl IndexKey {
         })
     }
 
-    pub fn empty(index_id: IndexId) -> Self {
+    #[must_use]
+    pub const fn empty(index_id: IndexId) -> Self {
         Self {
             index_id,
             len: 0,
@@ -210,7 +242,13 @@ impl IndexKey {
         }
     }
 
-    pub fn bounds_for_prefix(index_id: IndexId, prefix: Vec<[u8; 16]>) -> (Self, Self) {
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn bounds_for_prefix(
+        index_id: IndexId,
+        index_len: usize,
+        prefix: &[[u8; 16]],
+    ) -> (Self, Self) {
         let mut start = Self::empty(index_id);
         let mut end = Self::empty(index_id);
 
@@ -219,9 +257,12 @@ impl IndexKey {
             end.values[i] = *fp;
         }
 
-        start.len = prefix.len() as u8;
-        end.len = start.len + 1;
-        end.values[start.len as usize] = [0xFF; 16];
+        start.len = index_len as u8;
+        end.len = start.len;
+
+        for value in end.values.iter_mut().take(index_len).skip(prefix.len()) {
+            *value = [0xFF; 16];
+        }
 
         (start, end)
     }
@@ -230,29 +271,47 @@ impl IndexKey {
 impl Storable for IndexKey {
     fn to_bytes(&self) -> Cow<'_, [u8]> {
         let mut buf = Vec::with_capacity(Self::STORED_SIZE as usize);
-        buf.extend_from_slice(self.index_id.0.as_bytes());
+
+        // IMPORTANT: fixed-size IndexName
+        buf.extend_from_slice(&self.index_id.0.to_bytes());
+
+        // len
         buf.push(self.len);
-        for i in 0..MAX_INDEX_FIELDS {
-            buf.extend_from_slice(&self.values[i]);
+
+        // ALL value slots (fixed-size)
+        for value in &self.values {
+            buf.extend_from_slice(value);
         }
+
+        debug_assert_eq!(buf.len(), Self::STORED_SIZE as usize);
         buf.into()
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
+        let bytes = bytes.as_ref();
+        assert_eq!(
+            bytes.len(),
+            Self::STORED_SIZE as usize,
+            "corrupted IndexKey: invalid size"
+        );
         let mut offset = 0;
 
         let index_name =
-            IndexName::from_bytes(bytes[offset..offset + IndexName::STORED_SIZE as usize].into())
-                .expect("corrupted IndexKey: invalid IndexName bytes");
-
+            IndexName::from_bytes(&bytes[offset..offset + IndexName::STORED_SIZE as usize])
+                .expect("corrupted IndexKey: invalid IndexName");
         offset += IndexName::STORED_SIZE as usize;
 
         let len = bytes[offset];
         offset += 1;
 
+        assert!(
+            len as usize <= MAX_INDEX_FIELDS,
+            "corrupted IndexKey: len exceeds MAX_INDEX_FIELDS"
+        );
+
         let mut values = [[0u8; 16]; MAX_INDEX_FIELDS];
-        for i in 0..MAX_INDEX_FIELDS {
-            values[i].copy_from_slice(&bytes[offset..offset + 16]);
+        for value in &mut values {
+            value.copy_from_slice(&bytes[offset..offset + 16]);
             offset += 16;
         }
 
@@ -283,6 +342,7 @@ pub struct IndexEntry {
 }
 
 impl IndexEntry {
+    #[must_use]
     pub fn new(key: Key) -> Self {
         let mut keys = HashSet::with_capacity(1);
         keys.insert(key);
@@ -298,18 +358,22 @@ impl IndexEntry {
         self.keys.remove(key);
     }
 
+    #[must_use]
     pub fn contains(&self, key: &Key) -> bool {
         self.keys.contains(key)
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty()
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.keys.len()
     }
 
+    #[must_use]
     pub fn single_key(&self) -> Option<Key> {
         if self.keys.len() == 1 {
             self.keys.iter().copied().next()
@@ -320,3 +384,83 @@ impl IndexEntry {
 }
 
 impl_storable_unbounded!(IndexEntry);
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::Storable;
+
+    #[test]
+    #[should_panic(expected = "corrupted IndexKey: invalid size")]
+    fn index_key_rejects_undersized_bytes() {
+        let buf = vec![0u8; IndexKey::STORED_SIZE as usize - 1];
+        let _ = IndexKey::from_bytes(buf.into());
+    }
+
+    #[test]
+    #[should_panic(expected = "corrupted IndexKey: invalid size")]
+    fn index_key_rejects_oversized_bytes() {
+        let buf = vec![0u8; IndexKey::STORED_SIZE as usize + 1];
+        let _ = IndexKey::from_bytes(buf.into());
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    #[should_panic(expected = "corrupted IndexKey: len exceeds MAX_INDEX_FIELDS")]
+    fn index_key_rejects_len_over_max() {
+        let key = IndexKey::empty(IndexId::max_storable());
+        let mut bytes = key.to_bytes().into_owned();
+        let len_offset = IndexName::STORED_SIZE as usize;
+        bytes[len_offset] = (MAX_INDEX_FIELDS as u8) + 1;
+        let _ = IndexKey::from_bytes(bytes.into());
+    }
+
+    #[test]
+    #[should_panic(expected = "corrupted IndexKey: invalid IndexName")]
+    fn index_key_rejects_invalid_index_name() {
+        let key = IndexKey::empty(IndexId::max_storable());
+        let mut bytes = key.to_bytes().into_owned();
+        bytes[0] = 0;
+        let _ = IndexKey::from_bytes(bytes.into());
+    }
+
+    #[test]
+    fn index_key_ordering_matches_bytes() {
+        fn make_key(index_id: IndexId, len: u8, first: u8, second: u8) -> IndexKey {
+            let mut values = [[0u8; 16]; MAX_INDEX_FIELDS];
+            values[0] = [first; 16];
+            values[1] = [second; 16];
+            IndexKey {
+                index_id,
+                len,
+                values,
+            }
+        }
+
+        let entity = EntityName::from_static("entity");
+        let idx_a = IndexId(IndexName::from_parts(&entity, &["a"]));
+        let idx_b = IndexId(IndexName::from_parts(&entity, &["b"]));
+
+        let keys = vec![
+            make_key(idx_a, 1, 1, 0),
+            make_key(idx_a, 2, 1, 2),
+            make_key(idx_a, 1, 2, 0),
+            make_key(idx_b, 1, 0, 0),
+        ];
+
+        let mut sorted_by_ord = keys.clone();
+        sorted_by_ord.sort();
+
+        let mut sorted_by_bytes = keys;
+        sorted_by_bytes.sort_by(|a, b| a.to_bytes().cmp(&b.to_bytes()));
+
+        assert_eq!(
+            sorted_by_ord, sorted_by_bytes,
+            "IndexKey Ord and byte ordering diverged"
+        );
+    }
+}

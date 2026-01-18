@@ -104,7 +104,7 @@ impl DeleteUniqueSuite {
         crate::INDEX_REGISTRY
             .with(|reg| {
                 reg.with_store_mut(TestIndexStore::PATH, |store| {
-                    let entry = IndexEntry::new(index.fields, bad_key);
+                    let entry = IndexEntry::new(bad_key);
                     store.insert(index_key.clone(), entry);
                 })
             })
@@ -137,7 +137,7 @@ impl DeleteUniqueSuite {
         crate::INDEX_REGISTRY
             .with(|reg| {
                 reg.with_store_mut(TestIndexStore::PATH, |store| {
-                    let entry = IndexEntry::new(index.fields, missing_key);
+                    let entry = IndexEntry::new(missing_key);
                     store.insert(index_key.clone(), entry);
                 })
             })

@@ -5,13 +5,124 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.3.4] - 2026-01-17 - Very Breaky Things
-- Storage: removed executor error/metrics coupling from index stores; executors now emit index metrics and map uniqueness conflicts.
-- Planner: planning is now side-effect free; plan-kind metrics are emitted during execution only.
-- IndexName sizing now derives from entity + 4 field names (48 chars each), with boundary checks in core and schema validators.
-- Strict reads now surface missing/malformed rows as corruption; delete/exists/unique paths use strict scans by default.
-- Unique index lookups now re-validate indexed field values; hash mismatches surface as corruption.
-- Breaking: entity identity is now per-canister `ENTITY_NAME` (name-based), replacing hashed `ENTITY_ID` in storage and index keys.
+
+## [0.4.0] – 2026-01-18 – Very Breaky Things ⚠️
+
+This release finalizes a major internal storage and planning refactor. It hardens corruption detection, fixes long-standing key-space ambiguities, and establishes strict invariants for ordered storage.
+
+---
+
+### 🚨 Breaking Changes
+
+* **Entity identity is now name-based**
+  Storage and index keys now use the per-canister `ENTITY_NAME` directly.
+  This replaces the previous hashed `ENTITY_ID` representation.
+
+  * Improves debuggability and introspection
+  * Removes hash collision risk
+  * Changes on-disk key layout
+
+* **Key serialization invariants enforced**
+
+  * `Key`, `DataKey`, and `IndexKey` are now *strictly fixed-size* and canonical
+  * Variable-length encodings are no longer permitted for ordered keys
+  * Any deviation is treated as corruption and surfaced immediately
+  * `Account` encoding is now canonical (`None` ≠ `Some([0; 32])`)
+  * `EntityName`/`IndexName` ordering now matches serialized bytes, with ASCII + padding validation on decode
+
+---
+
+### 🧱 Storage & Indexing
+
+* **Index executors decoupled from error/metrics plumbing**
+
+  * Index stores no longer emit executor-level errors
+  * Executors now:
+
+    * Emit index metrics
+    * Surface uniqueness conflicts explicitly
+
+* **Strict read semantics expanded**
+
+  * Missing or malformed rows are now treated as corruption
+  * `delete`, `exists`, and `unique` paths use strict scans by default
+  * Silent partial reads are no longer allowed
+
+* **Unique index lookups re-validated**
+
+  * Indexed field values are re-read and compared
+  * Hash or value mismatches are surfaced as corruption
+  * Prevents stale or inconsistent unique entries from going unnoticed
+
+---
+
+### 🧠 Planner & Execution Model
+
+* **Planner is now side-effect free**
+
+  * Planning no longer mutates state or emits metrics
+  * All plan-kind metrics are emitted during execution only
+  * Enables deterministic planning and easier reasoning about execution paths
+
+---
+
+### 🧩 Identity & Naming
+
+* **IndexName sizing is now derived and validated**
+
+  * Computed from:
+
+    * Entity name (≤ 48 chars)
+    * Up to 4 indexed field names (≤ 48 chars each)
+  * Boundary checks enforced in:
+
+    * Core storage
+    * Schema validators
+  * Prevents silent truncation and oversized index identifiers
+
+---
+
+### 🛡️ Data Integrity & Corruption Detection
+
+* **Fixed-size key enforcement**
+
+  * Ordered keys (`Key`, `DataKey`, `IndexKey`) now guarantee:
+
+    * Deterministic byte layout
+    * Total ordering equivalence between logical and serialized forms
+  * Stable memory corruption is detected early and fails fast
+
+* **Explicit size invariants**
+
+  * All bounded `Storable` implementations now:
+
+    * Enforce exact serialized size
+    * Validate input on decode
+    * Reject malformed or undersized buffers
+
+---
+
+### 🧪 Developer Impact
+
+* Existing stable data **must be migrated**
+* Custom storage code relying on:
+
+  * Variable-length keys
+  * Hashed entity identifiers
+  * Lenient reads
+    will need to be updated
+* In return, the storage layer now has **database-grade guarantees** around ordering, identity, and corruption detection
+
+---
+
+This release lays the foundation for:
+
+* Safer upgrades
+* More aggressive validation
+* Long-term storage stability
+
+Future versions will build on these invariants rather than revisiting them.
+
 
 ## [0.3.3] - 2026-01-14
 - fixed a CI issue where clippy errors broke things

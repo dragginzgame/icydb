@@ -1,6 +1,7 @@
 use crate::{
     db::store::EntityName,
     db::{Db, store::DataKey},
+    key::Key,
     traits::CanisterKind,
 };
 use candid::CandidType;
@@ -58,10 +59,10 @@ pub struct EntitySnapshot {
     pub entries: u64,
     /// Approximate bytes used (key + value)
     pub memory_bytes: u64,
-    /// Minimum DataKey for this entity (by full DataKey ordering)
-    pub min_key: Option<DataKey>,
-    /// Maximum DataKey for this entity (by full DataKey ordering)
-    pub max_key: Option<DataKey>,
+    /// Minimum primary key for this entity (entity-local ordering)
+    pub min_key: Option<Key>,
+    /// Maximum primary key for this entity (entity-local ordering)
+    pub max_key: Option<Key>,
 }
 
 ///
@@ -73,8 +74,8 @@ pub struct EntitySnapshot {
 struct EntityStats {
     entries: u64,
     memory_bytes: u64,
-    min_key: Option<DataKey>,
-    max_key: Option<DataKey>,
+    min_key: Option<Key>,
+    max_key: Option<Key>,
 }
 
 impl EntityStats {
@@ -84,15 +85,17 @@ impl EntityStats {
             .memory_bytes
             .saturating_add(DataKey::entry_size_bytes(value_len));
 
+        let k = dk.key();
+
         match &mut self.min_key {
-            Some(min) if dk < min => *min = dk.clone(),
-            None => self.min_key = Some(dk.clone()),
+            Some(min) if k < *min => *min = k,
+            None => self.min_key = Some(k),
             _ => {}
         }
 
         match &mut self.max_key {
-            Some(max) if dk > max => *max = dk.clone(),
-            None => self.max_key = Some(dk.clone()),
+            Some(max) if k > *max => *max = k,
+            None => self.max_key = Some(k),
             _ => {}
         }
     }
@@ -118,7 +121,7 @@ pub fn storage_report<C: CanisterKind>(
                 memory_bytes: store.memory_bytes(),
             });
 
-            // Track per-entity counts, memory, and min/max DataKey
+            // Track per-entity counts, memory, and min/max Keys (not DataKeys)
             let mut by_entity: BTreeMap<EntityName, EntityStats> = BTreeMap::new();
 
             for entry in store.iter() {

@@ -65,7 +65,8 @@ pub struct DataKey {
 }
 
 impl DataKey {
-    pub const STORED_SIZE: u32 = 272;
+    #[allow(clippy::cast_possible_truncation)]
+    pub const STORED_SIZE: u32 = EntityName::STORED_SIZE + Key::STORED_SIZE as u32;
 
     #[must_use]
     /// Build a data key for the given entity type and primary key.
@@ -138,30 +139,47 @@ impl From<DataKey> for Key {
 /// [MAX_ENTITY_NAME_LEN bytes entity_name]
 /// [Key bytes...]
 impl Storable for DataKey {
-    fn into_bytes(self) -> Vec<u8> {
-        // Delegate to &self version to keep encoding identical
-        self.to_bytes().to_vec()
-    }
-
     fn to_bytes(&self) -> Cow<'_, [u8]> {
         let mut buf = Vec::with_capacity(Self::STORED_SIZE as usize);
 
-        // ── EntityName ─────────────────────────────
+        // ── EntityName (fixed-size) ─────────────────
         buf.push(self.entity.len);
         buf.extend_from_slice(&self.entity.bytes);
 
-        // ── Key ────────────────────────────────────
-        buf.extend_from_slice(&self.key.to_bytes());
+        // ── Key (fixed-size) ───────────────────────
+        let key_bytes = self.key.to_bytes();
+        debug_assert_eq!(
+            key_bytes.len(),
+            Key::STORED_SIZE,
+            "Key serialization must be exactly fixed-size"
+        );
+        buf.extend_from_slice(&key_bytes);
 
-        buf.into()
+        debug_assert_eq!(
+            buf.len(),
+            Self::STORED_SIZE as usize,
+            "DataKey serialized size mismatch"
+        );
+
+        Cow::Owned(buf)
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
+        let bytes = bytes.as_ref();
+        assert_eq!(
+            bytes.len(),
+            Self::STORED_SIZE as usize,
+            "corrupted DataKey: invalid size"
+        );
+
         let mut offset = 0;
 
         // ── EntityName ─────────────────────────────
         let len = bytes[offset];
-        debug_assert!(len as usize <= MAX_ENTITY_NAME_LEN);
+        assert!(
+            len > 0 && len as usize <= MAX_ENTITY_NAME_LEN,
+            "corrupted DataKey: invalid entity name length"
+        );
         offset += 1;
 
         let mut entity_bytes = [0u8; MAX_ENTITY_NAME_LEN];
@@ -174,13 +192,17 @@ impl Storable for DataKey {
         };
 
         // ── Key ────────────────────────────────────
-        let key = Key::from_bytes(bytes[offset..].into());
+        let key = Key::from_bytes(bytes[offset..offset + Key::STORED_SIZE].into());
 
         Self { entity, key }
     }
 
+    fn into_bytes(self) -> Vec<u8> {
+        self.to_bytes().into_owned()
+    }
+
     const BOUND: Bound = Bound::Bounded {
-        max_size: DataKey::STORED_SIZE,
+        max_size: Self::STORED_SIZE,
         is_fixed_size: true,
     };
 }
@@ -195,14 +217,69 @@ mod tests {
     use crate::traits::Storable;
 
     #[test]
-    fn data_key_max_size_is_bounded() {
+    fn data_key_is_exactly_fixed_size() {
         let data_key = DataKey::max_storable();
-        let size = Storable::to_bytes(&data_key).len();
+        let size = data_key.to_bytes().len();
 
-        assert!(
-            size <= DataKey::STORED_SIZE as usize,
-            "serialized DataKey too large: got {size} bytes (limit {})",
-            DataKey::STORED_SIZE
+        assert_eq!(
+            size,
+            DataKey::STORED_SIZE as usize,
+            "DataKey must serialize to exactly STORED_SIZE bytes"
         );
+    }
+
+    #[test]
+    fn data_key_ordering_matches_bytes() {
+        let keys = vec![
+            DataKey {
+                entity: EntityName::from_static("a"),
+                key: Key::Int(0),
+            },
+            DataKey {
+                entity: EntityName::from_static("aa"),
+                key: Key::Int(0),
+            },
+            DataKey {
+                entity: EntityName::from_static("b"),
+                key: Key::Int(0),
+            },
+            DataKey {
+                entity: EntityName::from_static("a"),
+                key: Key::Uint(1),
+            },
+        ];
+
+        let mut sorted_by_ord = keys.clone();
+        sorted_by_ord.sort();
+
+        let mut sorted_by_bytes = keys;
+        sorted_by_bytes.sort_by(|a, b| a.to_bytes().cmp(&b.to_bytes()));
+
+        assert_eq!(
+            sorted_by_ord, sorted_by_bytes,
+            "DataKey Ord and byte ordering diverged"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "corrupted DataKey: invalid size")]
+    fn data_key_rejects_undersized_bytes() {
+        let buf = vec![0u8; DataKey::STORED_SIZE as usize - 1];
+        let _ = DataKey::from_bytes(buf.into());
+    }
+
+    #[test]
+    #[should_panic(expected = "corrupted DataKey: invalid size")]
+    fn data_key_rejects_oversized_bytes() {
+        let buf = vec![0u8; DataKey::STORED_SIZE as usize + 1];
+        let _ = DataKey::from_bytes(buf.into());
+    }
+
+    #[test]
+    #[should_panic(expected = "corrupted DataKey: invalid entity name length")]
+    fn data_key_rejects_invalid_entity_len() {
+        let mut buf = DataKey::max_storable().to_bytes().into_owned();
+        buf[0] = 0;
+        let _ = DataKey::from_bytes(buf.into());
     }
 }
