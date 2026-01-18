@@ -91,8 +91,8 @@ mod tests {
 
     #[test]
     fn accepts_index_name_at_max_len() {
-        let entity = "0123456789abcdef0123456789abcdef0123456789abcdef";
-        let field = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let entity = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let field = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let fields = [field, field, field, field];
 
         assert_eq!(
@@ -104,8 +104,8 @@ mod tests {
 
     #[test]
     fn rejects_index_name_over_max_len() {
-        let entity = "0123456789abcdef0123456789abcdef0123456789abcdef";
-        let field = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let entity = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let field = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let long_field = format!("{field}a");
         let fields = [long_field.as_str(), field, field, field];
 

@@ -10,8 +10,8 @@ use std::{
 /// Constants
 ///
 
-pub const MAX_ENTITY_NAME_LEN: usize = 48;
-pub const MAX_INDEX_FIELD_NAME_LEN: usize = 48;
+pub const MAX_ENTITY_NAME_LEN: usize = 64;
+pub const MAX_INDEX_FIELD_NAME_LEN: usize = 64;
 pub const MAX_INDEX_NAME_LEN: usize =
     MAX_ENTITY_NAME_LEN + (MAX_INDEX_FIELDS * (MAX_INDEX_FIELD_NAME_LEN + 1));
 
@@ -149,12 +149,12 @@ impl fmt::Debug for EntityName {
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct IndexName {
-    pub len: u8,
+    pub len: u16,
     pub bytes: [u8; MAX_INDEX_NAME_LEN],
 }
 
 impl IndexName {
-    pub const STORED_SIZE: u32 = 1 + MAX_INDEX_NAME_LEN as u32;
+    pub const STORED_SIZE: u32 = 2 + MAX_INDEX_NAME_LEN as u32;
     pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE as usize;
 
     #[must_use]
@@ -179,7 +179,7 @@ impl IndexName {
         }
 
         Self {
-            len: len as u8,
+            len: len as u16,
             bytes: out,
         }
     }
@@ -197,8 +197,8 @@ impl IndexName {
     #[must_use]
     pub fn to_bytes(self) -> [u8; Self::STORED_SIZE_USIZE] {
         let mut out = [0u8; Self::STORED_SIZE_USIZE];
-        out[0] = self.len;
-        out[1..].copy_from_slice(&self.bytes);
+        out[..2].copy_from_slice(&self.len.to_be_bytes());
+        out[2..].copy_from_slice(&self.bytes);
         out
     }
 
@@ -207,22 +207,22 @@ impl IndexName {
             return Err("invalid IndexName size");
         }
 
-        let len = bytes[0] as usize;
+        let len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
         if len == 0 || len > MAX_INDEX_NAME_LEN {
             return Err("invalid IndexName length");
         }
-        if !bytes[1..=len].is_ascii() {
+        if !bytes[2..2 + len].is_ascii() {
             return Err("invalid IndexName encoding");
         }
-        if bytes[1 + len..].iter().any(|&b| b != 0) {
+        if bytes[2 + len..].iter().any(|&b| b != 0) {
             return Err("invalid IndexName padding");
         }
 
         let mut name = [0u8; MAX_INDEX_NAME_LEN];
-        name.copy_from_slice(&bytes[1..]);
+        name.copy_from_slice(&bytes[2..]);
 
         Ok(Self {
-            len: len as u8,
+            len: len as u16,
             bytes: name,
         })
     }
@@ -241,7 +241,7 @@ impl IndexName {
     #[must_use]
     pub const fn max_storable() -> Self {
         Self {
-            len: MAX_INDEX_NAME_LEN as u8,
+            len: MAX_INDEX_NAME_LEN as u16,
             bytes: [b'z'; MAX_INDEX_NAME_LEN],
         }
     }
@@ -281,16 +281,17 @@ impl PartialOrd for IndexName {
 mod tests {
     use super::*;
 
-    const ENTITY_48: &str = "0123456789abcdef0123456789abcdef0123456789abcdef";
-    const FIELD_48_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    const FIELD_48_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-    const FIELD_48_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccc";
-    const FIELD_48_D: &str = "dddddddddddddddddddddddddddddddddddddddddddddddd";
+    const ENTITY_64: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const ENTITY_64_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const FIELD_64_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const FIELD_64_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const FIELD_64_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+    const FIELD_64_D: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 
     #[test]
     fn index_name_max_len_matches_limits() {
-        let entity = EntityName::from_static(ENTITY_48);
-        let fields = [FIELD_48_A, FIELD_48_B, FIELD_48_C, FIELD_48_D];
+        let entity = EntityName::from_static(ENTITY_64);
+        let fields = [FIELD_64_A, FIELD_64_B, FIELD_64_C, FIELD_64_D];
 
         assert_eq!(entity.as_str().len(), MAX_ENTITY_NAME_LEN);
         for field in &fields {
@@ -301,6 +302,25 @@ mod tests {
         let name = IndexName::from_parts(&entity, &fields);
 
         assert_eq!(name.as_bytes().len(), MAX_INDEX_NAME_LEN);
+    }
+
+    #[test]
+    fn index_name_max_size_roundtrip_and_ordering() {
+        let entity_a = EntityName::from_static(ENTITY_64);
+        let entity_b = EntityName::from_static(ENTITY_64_B);
+        let fields_a = [FIELD_64_A, FIELD_64_A, FIELD_64_A, FIELD_64_A];
+        let fields_b = [FIELD_64_B, FIELD_64_B, FIELD_64_B, FIELD_64_B];
+
+        let idx_a = IndexName::from_parts(&entity_a, &fields_a);
+        let idx_b = IndexName::from_parts(&entity_b, &fields_b);
+
+        assert_eq!(idx_a.as_bytes().len(), MAX_INDEX_NAME_LEN);
+        assert_eq!(idx_b.as_bytes().len(), MAX_INDEX_NAME_LEN);
+
+        let decoded = IndexName::from_bytes(&idx_a.to_bytes()).unwrap();
+        assert_eq!(idx_a, decoded);
+
+        assert_eq!(idx_a.cmp(&idx_b), idx_a.to_bytes().cmp(&idx_b.to_bytes()));
     }
 
     #[test]
@@ -449,15 +469,16 @@ mod tests {
     #[test]
     fn index_rejects_len_over_max() {
         let mut buf = [0u8; IndexName::STORED_SIZE_USIZE];
-        buf[0] = (MAX_INDEX_NAME_LEN as u8).saturating_add(1);
+        let len = (MAX_INDEX_NAME_LEN as u16).saturating_add(1);
+        buf[..2].copy_from_slice(&len.to_be_bytes());
         assert!(IndexName::from_bytes(&buf).is_err());
     }
 
     #[test]
     fn index_rejects_non_ascii_from_bytes() {
         let mut buf = [0u8; IndexName::STORED_SIZE_USIZE];
-        buf[0] = 1;
-        buf[1] = 0xFF;
+        buf[..2].copy_from_slice(&1u16.to_be_bytes());
+        buf[2] = 0xFF;
         assert!(IndexName::from_bytes(&buf).is_err());
     }
 
@@ -466,7 +487,7 @@ mod tests {
         let entity = EntityName::from_static("user");
         let idx = IndexName::from_parts(&entity, &["a"]);
         let mut bytes = idx.to_bytes();
-        bytes[1 + idx.len as usize] = b'x';
+        bytes[2 + idx.len as usize] = b'x';
         assert!(IndexName::from_bytes(&bytes).is_err());
     }
 

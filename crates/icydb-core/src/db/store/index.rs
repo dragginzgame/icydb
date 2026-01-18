@@ -425,10 +425,12 @@ mod tests {
         let key = IndexKey::empty(IndexId::max_storable());
         let mut bytes = key.to_bytes().into_owned();
         bytes[0] = 0;
+        bytes[1] = 0;
         let _ = IndexKey::from_bytes(bytes.into());
     }
 
     #[test]
+    #[expect(clippy::large_types_passed_by_value)]
     fn index_key_ordering_matches_bytes() {
         fn make_key(index_id: IndexId, len: u8, first: u8, second: u8) -> IndexKey {
             let mut values = [[0u8; 16]; MAX_INDEX_FIELDS];

@@ -5,9 +5,9 @@ pub mod types;
 pub mod visit;
 
 /// Maximum length for entity schema identifiers.
-pub const MAX_ENTITY_NAME_LEN: usize = 48;
+pub const MAX_ENTITY_NAME_LEN: usize = 64;
 /// Maximum length for field schema identifiers.
-pub const MAX_FIELD_NAME_LEN: usize = 48;
+pub const MAX_FIELD_NAME_LEN: usize = 64;
 /// Maximum number of fields allowed in a derived index.
 pub const MAX_INDEX_FIELDS: usize = 4;
 /// Maximum length for derived index identifiers.
