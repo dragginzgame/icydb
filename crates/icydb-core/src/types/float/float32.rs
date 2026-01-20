@@ -13,6 +13,7 @@ use std::{
     cmp::Ordering,
     hash::{Hash, Hasher},
 };
+use thiserror::Error as ThisError;
 
 ///
 /// Float32
@@ -44,6 +45,33 @@ impl Float32 {
     #[must_use]
     pub const fn to_be_bytes(&self) -> [u8; 4] {
         self.0.to_bits().to_be_bytes()
+    }
+
+    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, Float32DecodeError> {
+        if bytes.len() != 4 {
+            return Err(Float32DecodeError::InvalidSize { len: bytes.len() });
+        }
+
+        let mut buf = [0u8; 4];
+        buf.copy_from_slice(bytes);
+        let value = f32::from_bits(u32::from_be_bytes(buf));
+        Self::try_new(value).ok_or(Float32DecodeError::NonFinite)
+    }
+}
+
+#[derive(Debug, ThisError)]
+pub enum Float32DecodeError {
+    #[error("invalid float32 length: {len} bytes")]
+    InvalidSize { len: usize },
+    #[error("non-finite float32 payload")]
+    NonFinite,
+}
+
+impl TryFrom<&[u8]> for Float32 {
+    type Error = Float32DecodeError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
     }
 }
 

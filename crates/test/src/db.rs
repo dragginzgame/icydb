@@ -1,4 +1,4 @@
-use icydb::__internal::core::db::store::DataKey;
+use icydb::__internal::core::db::store::{DataKey, RawRow};
 use icydb::{design::prelude::*, traits::Path, types::Ulid};
 use test_design::schema::TestDataStore;
 
@@ -436,7 +436,8 @@ impl DbSuite {
         crate::DATA_REGISTRY
             .with(|reg| {
                 reg.with_store_mut(TestDataStore::PATH, |store| {
-                    store.insert(DataKey::new::<SimpleEntity>(id), vec![0, 1, 2]);
+                    let raw = DataKey::new::<SimpleEntity>(id).to_raw();
+                    store.insert(raw, RawRow::try_new(vec![0, 1, 2]).unwrap());
                 })
             })
             .unwrap();

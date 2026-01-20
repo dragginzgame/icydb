@@ -11,7 +11,6 @@ use crate::{
     },
 };
 use candid::{CandidType, Int as WrappedInt};
-use canic_memory::impl_storable_unbounded;
 use derive_more::{Add, AddAssign, Deref, DerefMut, Display, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
 use std::iter::Sum;
@@ -90,8 +89,6 @@ impl Inner<Self> for Int {
 impl SanitizeAuto for Int {}
 
 impl SanitizeCustom for Int {}
-
-impl_storable_unbounded!(Int);
 
 impl Sum for Int {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {

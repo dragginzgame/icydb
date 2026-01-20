@@ -6,7 +6,6 @@ use crate::{
     },
     error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
-    serialize::deserialize,
     traits::{EntityKind, FromKey},
 };
 
@@ -29,13 +28,20 @@ where
     let Some(index_key) = IndexKey::new(entity, index) else {
         return Err(ExecutorError::IndexKeyMissing(E::PATH.to_string(), fields()).into());
     };
+    let raw_index_key = index_key.to_raw();
 
     let store = db.with_index(|reg| reg.try_get_store(index.store))?;
-    let Some(entry) = store.with_borrow(|s| s.get(&index_key)) else {
+    let Some(entry) = store.with_borrow(|s| s.get(&raw_index_key)) else {
         return Ok(None);
     };
 
     // corruption error
+    let entry = entry.try_decode().map_err(|err| {
+        ExecutorError::corruption(
+            ErrorOrigin::Index,
+            format!("index corrupted: {} ({}) -> {}", E::PATH, fields(), err),
+        )
+    })?;
     let len = entry.len();
     let corrupted = || {
         ExecutorError::corruption(
@@ -57,9 +63,12 @@ where
 
     // Ensure the index doesn't point to a missing primary record.
     let data_key = DataKey::new::<E>(key);
-    let bytes = db.context::<E>().with_store(|store| store.get(&data_key))?;
+    let raw_data_key = data_key.to_raw();
+    let row = db
+        .context::<E>()
+        .with_store(|store| store.get(&raw_data_key))?;
 
-    let Some(bytes) = bytes else {
+    let Some(row) = row else {
         return Err(ExecutorError::corruption(
             ErrorOrigin::Store,
             format!("index points to missing row: {data_key}"),
@@ -67,10 +76,10 @@ where
         .into());
     };
 
-    let stored = deserialize::<E>(&bytes).map_err(|_| {
+    let stored = row.try_decode::<E>().map_err(|err| {
         ExecutorError::corruption(
             ErrorOrigin::Serialize,
-            format!("failed to deserialize row: {data_key}"),
+            format!("failed to deserialize row: {data_key} ({err})"),
         )
     })?;
 

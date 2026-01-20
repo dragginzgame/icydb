@@ -108,12 +108,24 @@ impl EntityName {
         })
     }
 
+    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
+        Self::from_bytes(bytes)
+    }
+
     #[must_use]
     pub const fn max_storable() -> Self {
         Self {
             len: MAX_ENTITY_NAME_LEN as u8,
             bytes: [b'z'; MAX_ENTITY_NAME_LEN],
         }
+    }
+}
+
+impl TryFrom<&[u8]> for EntityName {
+    type Error = &'static str;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
     }
 }
 
@@ -227,6 +239,10 @@ impl IndexName {
         })
     }
 
+    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
+        Self::from_bytes(bytes)
+    }
+
     fn push_ascii(out: &mut [u8; MAX_INDEX_NAME_LEN], len: &mut usize, bytes: &[u8]) {
         assert!(bytes.is_ascii(), "index name must be ASCII");
         assert!(
@@ -244,6 +260,14 @@ impl IndexName {
             len: MAX_INDEX_NAME_LEN as u16,
             bytes: [b'z'; MAX_INDEX_NAME_LEN],
         }
+    }
+}
+
+impl TryFrom<&[u8]> for IndexName {
+    type Error = &'static str;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
     }
 }
 

@@ -3,9 +3,9 @@ use crate::{
         Db,
         executor::{ExecutorError, WriteUnit},
         query::{SaveMode, SaveQuery},
-        store::{DataKey, IndexInsertError, IndexInsertOutcome, IndexRemoveOutcome},
+        store::{DataKey, IndexInsertError, IndexInsertOutcome, IndexRemoveOutcome, RawRow},
     },
-    error::InternalError,
+    error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::{deserialize, serialize},
@@ -160,18 +160,25 @@ impl<E: EntityKind> SaveExecutor<E> {
 
         let key = entity.key();
         let data_key = DataKey::new::<E>(key);
-        let old_result = ctx.with_store(|store| store.get(&data_key))?;
+        let raw_key = data_key.to_raw();
+        let old_result = ctx.with_store(|store| store.get(&raw_key))?;
 
         let old = match (mode, old_result) {
             (SaveMode::Insert | SaveMode::Replace, None) => None,
-            (SaveMode::Update | SaveMode::Replace, Some(old_bytes)) => {
-                Some(deserialize::<E>(&old_bytes)?)
+            (SaveMode::Update | SaveMode::Replace, Some(old_row)) => {
+                Some(old_row.try_decode::<E>().map_err(|err| {
+                    ExecutorError::corruption(
+                        ErrorOrigin::Serialize,
+                        format!("failed to deserialize row: {data_key} ({err})"),
+                    )
+                })?)
             }
             (SaveMode::Insert, Some(_)) => return Err(ExecutorError::KeyExists(data_key).into()),
             (SaveMode::Update, None) => return Err(ExecutorError::KeyNotFound(data_key).into()),
         };
 
         let bytes = serialize(&entity)?;
+        let row = RawRow::try_new(bytes)?;
 
         // Partial-write window:
         // - Phase 1 uniqueness checks are safe (no mutation, retry-safe).
@@ -180,7 +187,7 @@ impl<E: EntityKind> SaveExecutor<E> {
         // Corruption risk exists if failures occur after index mutation.
         self.replace_indexes(old.as_ref(), &entity)?;
 
-        ctx.with_store_mut(|store| store.insert(data_key.clone(), bytes))?;
+        ctx.with_store_mut(|store| store.insert(raw_key, row))?;
         span.set_rows(1);
 
         Ok(entity)
@@ -192,6 +199,7 @@ impl<E: EntityKind> SaveExecutor<E> {
 
     /// Replace index entries using a two-phase (validate, then mutate) approach
     /// to avoid partial updates on uniqueness violations.
+    #[allow(clippy::too_many_lines)]
     fn replace_indexes(&self, old: Option<&E>, new: &E) -> Result<(), InternalError> {
         use crate::db::store::IndexKey;
 
@@ -200,15 +208,39 @@ impl<E: EntityKind> SaveExecutor<E> {
             if index.unique
                 && let Some(new_idx_key) = IndexKey::new(new, index)
             {
+                let raw_key = new_idx_key.to_raw();
                 let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
-                let violates = store.with_borrow(|s| {
-                    if let Some(existing) = s.get(&new_idx_key) {
+                let violates = store.with_borrow(|s| -> Result<bool, InternalError> {
+                    if let Some(existing) = s.get(&raw_key) {
+                        let entry = existing.try_decode().map_err(|err| {
+                            ExecutorError::corruption(
+                                ErrorOrigin::Index,
+                                format!(
+                                    "index corrupted: {} ({}) -> {}",
+                                    E::PATH,
+                                    index.fields.join(", "),
+                                    err
+                                ),
+                            )
+                        })?;
+                        if entry.len() > 1 {
+                            return Err(ExecutorError::corruption(
+                                ErrorOrigin::Index,
+                                format!(
+                                    "index corrupted: {} ({}) -> {} keys",
+                                    E::PATH,
+                                    index.fields.join(", "),
+                                    entry.len()
+                                ),
+                            )
+                            .into());
+                        }
                         let new_entity_key = new.key();
-                        !existing.contains(&new_entity_key) && !existing.is_empty()
+                        Ok(!entry.contains(&new_entity_key) && !entry.is_empty())
                     } else {
-                        false
+                        Ok(false)
                     }
-                });
+                })?;
 
                 if violates {
                     sink::record(MetricsEvent::UniqueViolation {
@@ -228,7 +260,17 @@ impl<E: EntityKind> SaveExecutor<E> {
             let mut inserted = false;
             store.with_borrow_mut(|s| {
                 if let Some(old) = old
-                    && s.remove_index_entry(old, index) == IndexRemoveOutcome::Removed
+                    && s.remove_index_entry(old, index).map_err(|err| {
+                        ExecutorError::corruption(
+                            ErrorOrigin::Index,
+                            format!(
+                                "index corrupted: {} ({}) -> {}",
+                                E::PATH,
+                                index.fields.join(", "),
+                                err
+                            ),
+                        )
+                    })? == IndexRemoveOutcome::Removed
                 {
                     removed = true;
                 }
@@ -242,6 +284,29 @@ impl<E: EntityKind> SaveExecutor<E> {
                             entity_path: E::PATH,
                         });
                         return Err(ExecutorError::index_violation(E::PATH, index.fields).into());
+                    }
+                    Err(IndexInsertError::CorruptedEntry(err)) => {
+                        return Err(ExecutorError::corruption(
+                            ErrorOrigin::Index,
+                            format!(
+                                "index corrupted: {} ({}) -> {}",
+                                E::PATH,
+                                index.fields.join(", "),
+                                err
+                            ),
+                        )
+                        .into());
+                    }
+                    Err(IndexInsertError::EntryTooLarge { keys }) => {
+                        return Err(InternalError::new(
+                            ErrorClass::Unsupported,
+                            ErrorOrigin::Index,
+                            format!(
+                                "index entry exceeds max keys: {} ({}) -> {keys} keys",
+                                E::PATH,
+                                index.fields.join(", ")
+                            ),
+                        ));
                     }
                 }
                 Ok::<(), InternalError>(())

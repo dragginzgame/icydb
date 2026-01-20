@@ -15,7 +15,6 @@ use crate::{
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     sanitize::sanitize,
-    serialize::deserialize,
     traits::{EntityKind, FieldValue, FromKey},
 };
 use std::{marker::PhantomData, ops::ControlFlow};
@@ -151,7 +150,8 @@ impl<E: EntityKind> DeleteExecutor<E> {
             // Non-atomic delete: data removal happens before index removal.
             // If index removal fails, orphaned index entries may remain.
             let _unit = WriteUnit::new("delete_unique_row_non_atomic");
-            s.remove(&dk);
+            let raw = dk.to_raw();
+            s.remove(&raw);
             if !E::INDEXES.is_empty() {
                 self.remove_indexes(&stored)?;
             }
@@ -291,7 +291,8 @@ impl<E: EntityKind> DeleteExecutor<E> {
             // Non-atomic delete loop: partial deletions may persist on failure.
             for (dk, entity) in acc.matches {
                 let _unit = WriteUnit::new("delete_row_non_atomic");
-                s.remove(&dk);
+                let raw = dk.to_raw();
+                s.remove(&raw);
                 if !E::INDEXES.is_empty() {
                     self.remove_indexes(&entity)?;
                 }
@@ -309,7 +310,19 @@ impl<E: EntityKind> DeleteExecutor<E> {
     fn remove_indexes(&self, entity: &E) -> Result<(), InternalError> {
         for index in E::INDEXES {
             let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
-            let removed = store.with_borrow_mut(|this| this.remove_index_entry(entity, index));
+            let removed = store.with_borrow_mut(|this| {
+                this.remove_index_entry(entity, index).map_err(|err| {
+                    ExecutorError::corruption(
+                        ErrorOrigin::Index,
+                        format!(
+                            "index corrupted: {} ({}) -> {}",
+                            E::PATH,
+                            index.fields.join(", "),
+                            err
+                        ),
+                    )
+                })
+            })?;
             if removed == IndexRemoveOutcome::Removed {
                 sink::record(MetricsEvent::IndexRemove {
                     entity_path: E::PATH,
@@ -322,11 +335,11 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
     fn load_existing(&self, pk: E::PrimaryKey) -> Result<(DataKey, E), InternalError> {
         let data_key = DataKey::new::<E>(pk.into());
-        let bytes = self.db.context::<E>().read_strict(&data_key)?;
-        let entity = deserialize::<E>(&bytes).map_err(|_| {
+        let row = self.db.context::<E>().read_strict(&data_key)?;
+        let entity = row.try_decode::<E>().map_err(|err| {
             ExecutorError::corruption(
                 ErrorOrigin::Serialize,
-                format!("failed to deserialize row: {data_key}"),
+                format!("failed to deserialize row: {data_key} ({err})"),
             )
         })?;
 

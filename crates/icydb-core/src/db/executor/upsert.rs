@@ -7,7 +7,6 @@ use crate::{
     error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
     sanitize::sanitize,
-    serialize::deserialize,
     traits::{EntityKind, FromKey},
 };
 use std::marker::PhantomData;
@@ -276,12 +275,13 @@ where
         pk: E::PrimaryKey,
     ) -> Result<E, InternalError> {
         let data_key = DataKey::new::<E>(pk.into());
-        let bytes = self
+        let raw_data_key = data_key.to_raw();
+        let row = self
             .db
             .context::<E>()
-            .with_store(|store| store.get(&data_key))?;
+            .with_store(|store| store.get(&raw_data_key))?;
 
-        let Some(bytes) = bytes else {
+        let Some(row) = row else {
             // Index pointed at a key that does not exist in the primary store.
             return Err(ExecutorError::corruption(
                 ErrorOrigin::Index,
@@ -295,6 +295,12 @@ where
             .into());
         };
 
-        deserialize::<E>(&bytes).map_err(InternalError::from)
+        row.try_decode::<E>().map_err(|err| {
+            ExecutorError::corruption(
+                ErrorOrigin::Serialize,
+                format!("failed to deserialize row: {data_key} ({err})"),
+            )
+            .into()
+        })
     }
 }

@@ -4,11 +4,10 @@ use crate::{
         executor::ExecutorError,
         primitives::FilterExpr,
         query::{QueryPlan, QueryPlanner},
-        store::DataKey,
+        store::{DataKey, RawDataKey},
     },
     error::{ErrorOrigin, InternalError},
     obs::sink::{self, MetricsEvent, PlanKind, Span},
-    serialize::deserialize,
     traits::EntityKind,
 };
 use std::ops::{Bound, ControlFlow};
@@ -73,14 +72,15 @@ where
         QueryPlan::Keys(keys) => {
             ctx.with_store(|s| {
                 for dk in keys.into_iter().map(DataKey::new::<E>) {
-                    let Some(bytes) = s.get(&dk) else {
+                    let raw = dk.to_raw();
+                    let Some(row) = s.get(&raw) else {
                         if mode == ReadMode::Strict {
                             return Err(missing_row(&dk));
                         }
                         continue;
                     };
 
-                    let entity = match deserialize::<E>(&bytes) {
+                    let entity = match row.try_decode::<E>() {
                         Ok(entity) => entity,
                         Err(_) if mode == ReadMode::BestEffort => continue,
                         Err(_) => return Err(bad_row(&dk)),
@@ -100,14 +100,15 @@ where
 
             ctx.with_store(|s| {
                 for dk in keys {
-                    let Some(bytes) = s.get(&dk) else {
+                    let raw = dk.to_raw();
+                    let Some(row) = s.get(&raw) else {
                         if mode == ReadMode::Strict {
                             return Err(missing_row(&dk));
                         }
                         continue;
                     };
 
-                    let entity = match deserialize::<E>(&bytes) {
+                    let entity = match row.try_decode::<E>() {
                         Ok(entity) => entity,
                         Err(_) if mode == ReadMode::BestEffort => continue,
                         Err(_) => return Err(bad_row(&dk)),
@@ -125,12 +126,15 @@ where
         QueryPlan::Range(start, end) => {
             let start_key = DataKey::new::<E>(start);
             let end_key = DataKey::new::<E>(end);
+            let start_raw = start_key.to_raw();
+            let end_raw = end_key.to_raw();
 
             ctx.with_store(|s| {
-                for entry in s.range((Bound::Included(start_key), Bound::Included(end_key))) {
-                    let dk = entry.key().clone();
+                for entry in s.range((Bound::Included(start_raw), Bound::Included(end_raw))) {
+                    let dk = decode_data_key(entry.key())?;
 
-                    let entity = match deserialize::<E>(&entry.value()) {
+                    let row = entry.value();
+                    let entity = match row.try_decode::<E>() {
                         Ok(entity) => entity,
                         Err(_) if mode == ReadMode::BestEffort => continue,
                         Err(_) => return Err(bad_row(&dk)),
@@ -148,12 +152,15 @@ where
         QueryPlan::FullScan => {
             let start = DataKey::lower_bound::<E>();
             let end = DataKey::upper_bound::<E>();
+            let start_raw = start.to_raw();
+            let end_raw = end.to_raw();
 
             ctx.with_store(|s| {
-                for entry in s.range((Bound::Included(start.clone()), Bound::Included(end))) {
-                    let dk = entry.key().clone();
+                for entry in s.range((Bound::Included(start_raw), Bound::Included(end_raw))) {
+                    let dk = decode_data_key(entry.key())?;
 
-                    let entity = match deserialize::<E>(&entry.value()) {
+                    let row = entry.value();
+                    let entity = match row.try_decode::<E>() {
                         Ok(entity) => entity,
                         Err(_) if mode == ReadMode::BestEffort => continue,
                         Err(_) => return Err(bad_row(&dk)),
@@ -211,4 +218,10 @@ fn bad_row(dk: &DataKey) -> InternalError {
         format!("failed to deserialize row: {dk}"),
     )
     .into()
+}
+
+#[inline]
+fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
+    DataKey::try_from_raw(raw)
+        .map_err(|msg| ExecutorError::corruption(ErrorOrigin::Store, msg).into())
 }

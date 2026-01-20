@@ -9,7 +9,6 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic_memory::impl_storable_bounded;
 use canic_utils::rand::next_u128;
 use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
@@ -195,8 +194,6 @@ impl SanitizeAuto for Subaccount {}
 
 impl SanitizeCustom for Subaccount {}
 
-impl_storable_bounded!(Subaccount, Subaccount::STORED_SIZE, true);
-
 impl UpdateView for Subaccount {
     type UpdateViewType = Self;
 
@@ -230,7 +227,6 @@ impl Visitable for Subaccount {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::Storable;
     use canic_utils::rand::seed_from;
 
     const RNG_SEED: [u8; 32] = [7; 32];
@@ -242,7 +238,7 @@ mod tests {
     #[test]
     fn subaccount_max_size_is_bounded() {
         let subaccount = Subaccount::max_storable();
-        let size = Storable::to_bytes(&subaccount).len();
+        let size = subaccount.to_bytes().len();
 
         assert!(
             size <= Subaccount::STORED_SIZE as usize,

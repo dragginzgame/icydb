@@ -2,18 +2,15 @@ use crate::{
     db::primitives::filter::{TextEqualityFilterKind, TextListFilterKind},
     key::Key,
     traits::{
-        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, Storable, UpdateView,
+        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
         ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
 };
-use canic_cdk::{
-    candid::{CandidType, Principal as WrappedPrincipal},
-    structures::storable::Bound,
-};
+use canic_cdk::candid::{CandidType, Principal as WrappedPrincipal};
 use derive_more::{Deref, DerefMut, Display};
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, str::FromStr};
+use std::str::FromStr;
 use thiserror::Error as ThisError;
 
 ///
@@ -73,6 +70,19 @@ impl Principal {
     }
 
     #[must_use]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.as_slice().to_vec()
+    }
+
+    pub const fn try_from_bytes(bytes: &[u8]) -> Result<Self, PrincipalDecodeError> {
+        if bytes.len() > Self::MAX_LENGTH_IN_BYTES as usize {
+            return Err(PrincipalDecodeError::TooLarge { len: bytes.len() });
+        }
+
+        Ok(Self::from_slice(bytes))
+    }
+
+    #[must_use]
     pub const fn dummy(n: u8) -> Self {
         Self::from_slice(&[n; 29])
     }
@@ -80,6 +90,20 @@ impl Principal {
     #[must_use]
     pub const fn max_storable() -> Self {
         Self::from_slice(&[0xFF; 29])
+    }
+}
+
+#[derive(Debug, ThisError)]
+pub enum PrincipalDecodeError {
+    #[error("principal exceeds max length: {len} bytes")]
+    TooLarge { len: usize },
+}
+
+impl TryFrom<&[u8]> for Principal {
+    type Error = PrincipalDecodeError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
     }
 }
 
@@ -172,30 +196,6 @@ impl SanitizeAuto for Principal {}
 
 impl SanitizeCustom for Principal {}
 
-impl Storable for Principal {
-    const BOUND: Bound = Bound::Bounded {
-        max_size: Self::MAX_LENGTH_IN_BYTES,
-        is_fixed_size: false,
-    };
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.0.to_bytes().to_vec()
-    }
-
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(self.0.as_slice())
-    }
-
-    fn from_bytes(bytes: Cow<[u8]>) -> Self {
-        let bytes = bytes.as_ref();
-        assert!(
-            bytes.len() <= Self::MAX_LENGTH_IN_BYTES as usize,
-            "corrupted Principal: invalid size"
-        );
-        Self::from_slice(bytes)
-    }
-}
-
 impl UpdateView for Principal {
     type UpdateViewType = Self;
 
@@ -231,12 +231,11 @@ impl Visitable for Principal {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::Storable;
 
     #[test]
     fn principal_max_size_is_bounded() {
         let principal = Principal::max_storable();
-        let size = Storable::to_bytes(&principal).len();
+        let size = principal.as_slice().len();
 
         assert!(
             size <= Principal::MAX_LENGTH_IN_BYTES as usize,
@@ -255,7 +254,7 @@ mod tests {
 
         for original in inputs {
             let bytes = original.to_bytes();
-            let decoded = Principal::from_bytes(bytes);
+            let decoded = Principal::try_from_bytes(&bytes).expect("decode should succeed");
             assert_eq!(decoded, original, "Roundtrip failed for {original:?}");
         }
     }
@@ -276,10 +275,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Principal: invalid size")]
     fn principal_from_bytes_rejects_oversized() {
         let size = (Principal::MAX_LENGTH_IN_BYTES as usize) + 1;
         let buf = vec![0u8; size];
-        let _ = Principal::from_bytes(buf.into());
+        assert!(Principal::try_from_bytes(&buf).is_err());
     }
 }

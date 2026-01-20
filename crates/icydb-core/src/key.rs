@@ -1,13 +1,12 @@
 use crate::{
-    traits::{FieldValue, Storable},
+    traits::FieldValue,
     types::{Account, Principal, Subaccount, Timestamp, Ulid, Unit},
     value::Value,
 };
 use candid::{CandidType, Principal as WrappedPrincipal};
-use canic_cdk::structures::storable::Bound;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, cmp::Ordering};
+use std::cmp::Ordering;
 
 ///
 /// Key
@@ -89,6 +88,157 @@ impl Key {
 
     const fn variant_rank(&self) -> u8 {
         self.tag()
+    }
+
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; Self::STORED_SIZE] {
+        let mut buf = [0u8; Self::STORED_SIZE];
+
+        // ── Tag ─────────────────────────────────────
+        buf[Self::TAG_OFFSET] = self.tag();
+        let payload = &mut buf[Self::PAYLOAD_OFFSET..];
+
+        debug_assert_eq!(payload.len(), Self::PAYLOAD_SIZE);
+
+        // ── Payload ─────────────────────────────────
+        #[allow(clippy::cast_possible_truncation)]
+        match self {
+            Self::Account(v) => {
+                let bytes = v.to_bytes();
+                debug_assert_eq!(bytes.len(), Self::ACCOUNT_MAX_SIZE);
+                payload[..bytes.len()].copy_from_slice(&bytes);
+            }
+
+            Self::Int(v) => {
+                // Flip sign bit to preserve ordering in lexicographic bytes.
+                let biased = (*v).cast_unsigned() ^ (1u64 << 63);
+                payload[..Self::INT_SIZE].copy_from_slice(&biased.to_be_bytes());
+            }
+
+            Self::Uint(v) => {
+                payload[..Self::UINT_SIZE].copy_from_slice(&v.to_be_bytes());
+            }
+
+            Self::Timestamp(v) => {
+                payload[..Self::TIMESTAMP_SIZE].copy_from_slice(&v.get().to_be_bytes());
+            }
+
+            Self::Principal(v) => {
+                let bytes = v.to_bytes();
+                let len = bytes.len();
+                assert!(
+                    (1..=Principal::MAX_LENGTH_IN_BYTES as usize).contains(&len),
+                    "invalid Key principal length"
+                );
+                payload[0] = len as u8;
+                if len > 0 {
+                    payload[1..=len].copy_from_slice(&bytes[..len]);
+                }
+            }
+
+            Self::Subaccount(v) => {
+                let bytes = v.to_array();
+                debug_assert_eq!(bytes.len(), Self::SUBACCOUNT_SIZE);
+                payload[..Self::SUBACCOUNT_SIZE].copy_from_slice(&bytes);
+            }
+
+            Self::Ulid(v) => {
+                payload[..Self::ULID_SIZE].copy_from_slice(&v.to_bytes());
+            }
+
+            Self::Unit => {}
+        }
+
+        buf
+    }
+
+    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
+        if bytes.len() != Self::STORED_SIZE {
+            return Err("corrupted Key: invalid size");
+        }
+
+        let tag = bytes[Self::TAG_OFFSET];
+        let payload = &bytes[Self::PAYLOAD_OFFSET..];
+
+        let ensure_zero_padding = |used: usize, context: &str| {
+            if payload[used..].iter().all(|&b| b == 0) {
+                Ok(())
+            } else {
+                Err(match context {
+                    "account" => "corrupted Key: non-zero account padding",
+                    "int" => "corrupted Key: non-zero int padding",
+                    "principal" => "corrupted Key: non-zero principal padding",
+                    "subaccount" => "corrupted Key: non-zero subaccount padding",
+                    "timestamp" => "corrupted Key: non-zero timestamp padding",
+                    "uint" => "corrupted Key: non-zero uint padding",
+                    "ulid" => "corrupted Key: non-zero ulid padding",
+                    "unit" => "corrupted Key: non-zero unit padding",
+                    _ => "corrupted Key: non-zero padding",
+                })
+            }
+        };
+
+        match tag {
+            Self::TAG_ACCOUNT => {
+                let end = Account::STORED_SIZE as usize;
+                ensure_zero_padding(end, "account")?;
+                let account = Account::try_from_bytes(&payload[..end])?;
+                Ok(Self::Account(account))
+            }
+
+            Self::TAG_INT => {
+                let mut buf = [0u8; Self::INT_SIZE];
+                buf.copy_from_slice(&payload[..Self::INT_SIZE]);
+                let biased = u64::from_be_bytes(buf);
+                ensure_zero_padding(Self::INT_SIZE, "int")?;
+                Ok(Self::Int((biased ^ (1u64 << 63)).cast_signed()))
+            }
+
+            Self::TAG_PRINCIPAL => {
+                let len = payload[0] as usize;
+                if !(1..=Principal::MAX_LENGTH_IN_BYTES as usize).contains(&len) {
+                    return Err("corrupted Key: invalid principal length");
+                }
+                let end = 1 + len;
+                ensure_zero_padding(end, "principal")?;
+                Ok(Self::Principal(Principal::from_slice(&payload[1..end])))
+            }
+
+            Self::TAG_SUBACCOUNT => {
+                let mut buf = [0u8; Self::SUBACCOUNT_SIZE];
+                buf.copy_from_slice(&payload[..Self::SUBACCOUNT_SIZE]);
+                ensure_zero_padding(Self::SUBACCOUNT_SIZE, "subaccount")?;
+                Ok(Self::Subaccount(Subaccount::from_array(buf)))
+            }
+
+            Self::TAG_TIMESTAMP => {
+                let mut buf = [0u8; Self::TIMESTAMP_SIZE];
+                buf.copy_from_slice(&payload[..Self::TIMESTAMP_SIZE]);
+                ensure_zero_padding(Self::TIMESTAMP_SIZE, "timestamp")?;
+                Ok(Self::Timestamp(Timestamp::from(u64::from_be_bytes(buf))))
+            }
+
+            Self::TAG_UINT => {
+                let mut buf = [0u8; Self::UINT_SIZE];
+                buf.copy_from_slice(&payload[..Self::UINT_SIZE]);
+                ensure_zero_padding(Self::UINT_SIZE, "uint")?;
+                Ok(Self::Uint(u64::from_be_bytes(buf)))
+            }
+
+            Self::TAG_ULID => {
+                let mut buf = [0u8; Self::ULID_SIZE];
+                buf.copy_from_slice(&payload[..Self::ULID_SIZE]);
+                ensure_zero_padding(Self::ULID_SIZE, "ulid")?;
+                Ok(Self::Ulid(Ulid::from_bytes(buf)))
+            }
+
+            Self::TAG_UNIT => {
+                ensure_zero_padding(0, "unit")?;
+                Ok(Self::Unit)
+            }
+
+            _ => Err("corrupted Key: invalid tag"),
+        }
     }
 }
 
@@ -211,159 +361,6 @@ impl PartialOrd for Key {
         Some(Ord::cmp(self, other))
     }
 }
-
-#[allow(clippy::cast_possible_truncation)]
-impl Storable for Key {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        let mut buf = [0u8; Self::STORED_SIZE];
-
-        // ── Tag ─────────────────────────────────────
-        buf[Self::TAG_OFFSET] = self.tag();
-        let payload = &mut buf[Self::PAYLOAD_OFFSET..];
-
-        debug_assert_eq!(payload.len(), Self::PAYLOAD_SIZE);
-
-        // ── Payload ─────────────────────────────────
-        match self {
-            Self::Account(v) => {
-                let bytes = v.to_bytes();
-                debug_assert_eq!(bytes.len(), Self::ACCOUNT_MAX_SIZE);
-                payload[..bytes.len()].copy_from_slice(&bytes);
-            }
-
-            Self::Int(v) => {
-                // Flip sign bit to preserve ordering in lexicographic bytes.
-                let biased = (*v).cast_unsigned() ^ (1u64 << 63);
-                payload[..Self::INT_SIZE].copy_from_slice(&biased.to_be_bytes());
-            }
-
-            Self::Uint(v) => {
-                payload[..Self::UINT_SIZE].copy_from_slice(&v.to_be_bytes());
-            }
-
-            Self::Timestamp(v) => {
-                payload[..Self::TIMESTAMP_SIZE].copy_from_slice(&v.get().to_be_bytes());
-            }
-
-            Self::Principal(v) => {
-                let bytes = v.to_bytes();
-                let len = bytes.len();
-                assert!(
-                    (1..=Principal::MAX_LENGTH_IN_BYTES as usize).contains(&len),
-                    "invalid Key principal length"
-                );
-                payload[0] = len as u8;
-                if len > 0 {
-                    payload[1..=len].copy_from_slice(&bytes[..len]);
-                }
-            }
-
-            Self::Subaccount(v) => {
-                let bytes = v.to_array();
-                debug_assert_eq!(bytes.len(), Self::SUBACCOUNT_SIZE);
-                payload[..Self::SUBACCOUNT_SIZE].copy_from_slice(&bytes);
-            }
-
-            Self::Ulid(v) => {
-                payload[..Self::ULID_SIZE].copy_from_slice(&v.to_bytes());
-            }
-
-            Self::Unit => {}
-        }
-
-        Cow::Owned(buf.to_vec())
-    }
-
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        let bytes = bytes.as_ref();
-        assert_eq!(
-            bytes.len(),
-            Self::STORED_SIZE,
-            "corrupted Key: invalid size"
-        );
-
-        let tag = bytes[Self::TAG_OFFSET];
-        let payload = &bytes[Self::PAYLOAD_OFFSET..];
-
-        let assert_zero_padding = |used: usize, context: &str| {
-            assert!(
-                payload[used..].iter().all(|&b| b == 0),
-                "corrupted Key: non-zero {context} padding"
-            );
-        };
-
-        match tag {
-            Self::TAG_ACCOUNT => {
-                let end = Account::STORED_SIZE as usize;
-                assert_zero_padding(end, "account");
-                Self::Account(Account::from_bytes(payload[..end].into()))
-            }
-
-            Self::TAG_INT => {
-                let mut buf = [0u8; Self::INT_SIZE];
-                buf.copy_from_slice(&payload[..Self::INT_SIZE]);
-                let biased = u64::from_be_bytes(buf);
-                assert_zero_padding(Self::INT_SIZE, "int");
-                Self::Int((biased ^ (1u64 << 63)).cast_signed())
-            }
-
-            Self::TAG_PRINCIPAL => {
-                let len = payload[0] as usize;
-                assert!(
-                    (1..=Principal::MAX_LENGTH_IN_BYTES as usize).contains(&len),
-                    "corrupted Key: invalid principal length"
-                );
-                let end = 1 + len;
-                assert_zero_padding(end, "principal");
-                Self::Principal(Principal::from_slice(&payload[1..end]))
-            }
-
-            Self::TAG_SUBACCOUNT => {
-                let mut buf = [0u8; Self::SUBACCOUNT_SIZE];
-                buf.copy_from_slice(&payload[..Self::SUBACCOUNT_SIZE]);
-                assert_zero_padding(Self::SUBACCOUNT_SIZE, "subaccount");
-                Self::Subaccount(Subaccount::from_array(buf))
-            }
-
-            Self::TAG_TIMESTAMP => {
-                let mut buf = [0u8; Self::TIMESTAMP_SIZE];
-                buf.copy_from_slice(&payload[..Self::TIMESTAMP_SIZE]);
-                assert_zero_padding(Self::TIMESTAMP_SIZE, "timestamp");
-                Self::Timestamp(Timestamp::from(u64::from_be_bytes(buf)))
-            }
-
-            Self::TAG_UINT => {
-                let mut buf = [0u8; Self::UINT_SIZE];
-                buf.copy_from_slice(&payload[..Self::UINT_SIZE]);
-                assert_zero_padding(Self::UINT_SIZE, "uint");
-                Self::Uint(u64::from_be_bytes(buf))
-            }
-
-            Self::TAG_ULID => {
-                let mut buf = [0u8; Self::ULID_SIZE];
-                buf.copy_from_slice(&payload[..Self::ULID_SIZE]);
-                assert_zero_padding(Self::ULID_SIZE, "ulid");
-                Self::Ulid(Ulid::from_bytes(buf))
-            }
-
-            Self::TAG_UNIT => {
-                assert_zero_padding(0, "unit");
-                Self::Unit
-            }
-
-            _ => panic!("corrupted Key: invalid tag"),
-        }
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.to_bytes().into_owned()
-    }
-
-    const BOUND: Bound = Bound::Bounded {
-        max_size: Self::STORED_SIZE as u32,
-        is_fixed_size: true,
-    };
-}
 ///
 /// TESTS
 ///
@@ -371,12 +368,11 @@ impl Storable for Key {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::Storable;
 
     #[test]
     fn key_max_size_is_bounded() {
         let key = Key::max_storable();
-        let size = Storable::to_bytes(&key).len();
+        let size = key.to_bytes().len();
 
         assert!(
             size <= Key::STORED_SIZE,
@@ -399,8 +395,8 @@ mod tests {
         ];
 
         for key in keys {
-            let bytes = Storable::to_bytes(&key);
-            let decoded = Key::from_bytes(bytes);
+            let bytes = key.to_bytes();
+            let decoded = Key::try_from_bytes(&bytes).unwrap();
 
             assert_eq!(decoded, key, "Key round trip failed for {key:?}");
         }
@@ -453,7 +449,7 @@ mod tests {
         sorted_by_ord.sort();
 
         let mut sorted_by_bytes = keys;
-        sorted_by_bytes.sort_by(|a, b| a.to_bytes().cmp(&b.to_bytes()));
+        sorted_by_bytes.sort_by_key(Key::to_bytes);
 
         assert_eq!(
             sorted_by_ord, sorted_by_bytes,
@@ -462,124 +458,101 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Key: invalid size")]
     fn key_from_bytes_rejects_undersized() {
         let bytes = vec![0u8; Key::STORED_SIZE - 1];
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Key: invalid size")]
     fn key_from_bytes_rejects_oversized() {
         let bytes = vec![0u8; Key::STORED_SIZE + 1];
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Key: invalid principal length")]
     fn key_from_bytes_rejects_zero_principal_len() {
-        let mut bytes = Key::Principal(Principal::from_slice(&[1]))
-            .to_bytes()
-            .into_owned();
+        let mut bytes = Key::Principal(Principal::from_slice(&[1])).to_bytes();
         bytes[Key::TAG_OFFSET] = Key::TAG_PRINCIPAL;
         bytes[Key::PAYLOAD_OFFSET] = 0;
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
     #[allow(clippy::cast_possible_truncation)]
-    #[should_panic(expected = "corrupted Key: invalid principal length")]
     fn key_from_bytes_rejects_oversized_principal_len() {
-        let mut bytes = Key::Principal(Principal::from_slice(&[1]))
-            .to_bytes()
-            .into_owned();
+        let mut bytes = Key::Principal(Principal::from_slice(&[1])).to_bytes();
         bytes[Key::TAG_OFFSET] = Key::TAG_PRINCIPAL;
         bytes[Key::PAYLOAD_OFFSET] = (Principal::MAX_LENGTH_IN_BYTES as u8) + 1;
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Key: non-zero principal padding")]
     fn key_from_bytes_rejects_principal_padding() {
-        let mut bytes = Key::Principal(Principal::from_slice(&[1]))
-            .to_bytes()
-            .into_owned();
+        let mut bytes = Key::Principal(Principal::from_slice(&[1])).to_bytes();
         bytes[Key::TAG_OFFSET] = Key::TAG_PRINCIPAL;
         bytes[Key::PAYLOAD_OFFSET] = 1;
         bytes[Key::PAYLOAD_OFFSET + 2] = 1;
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Key: non-zero account padding")]
     fn key_from_bytes_rejects_account_padding() {
         let mut bytes = Key::Account(Account::new(
             Principal::from_slice(&[1]),
             None::<Subaccount>,
         ))
-        .to_bytes()
-        .into_owned();
+        .to_bytes();
         bytes[Key::TAG_OFFSET] = Key::TAG_ACCOUNT;
         bytes[Key::PAYLOAD_OFFSET + Account::STORED_SIZE as usize] = 1;
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Key: non-zero int padding")]
     fn key_from_bytes_rejects_int_padding() {
-        let mut bytes = Key::Int(0).to_bytes().into_owned();
+        let mut bytes = Key::Int(0).to_bytes();
         bytes[Key::TAG_OFFSET] = Key::TAG_INT;
         bytes[Key::PAYLOAD_OFFSET + Key::INT_SIZE] = 1;
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Key: non-zero uint padding")]
     fn key_from_bytes_rejects_uint_padding() {
-        let mut bytes = Key::Uint(0).to_bytes().into_owned();
+        let mut bytes = Key::Uint(0).to_bytes();
         bytes[Key::TAG_OFFSET] = Key::TAG_UINT;
         bytes[Key::PAYLOAD_OFFSET + Key::UINT_SIZE] = 1;
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Key: non-zero timestamp padding")]
     fn key_from_bytes_rejects_timestamp_padding() {
-        let mut bytes = Key::Timestamp(Timestamp::from_seconds(0))
-            .to_bytes()
-            .into_owned();
+        let mut bytes = Key::Timestamp(Timestamp::from_seconds(0)).to_bytes();
         bytes[Key::TAG_OFFSET] = Key::TAG_TIMESTAMP;
         bytes[Key::PAYLOAD_OFFSET + Key::TIMESTAMP_SIZE] = 1;
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Key: non-zero subaccount padding")]
     fn key_from_bytes_rejects_subaccount_padding() {
-        let mut bytes = Key::Subaccount(Subaccount::from_array([0; 32]))
-            .to_bytes()
-            .into_owned();
+        let mut bytes = Key::Subaccount(Subaccount::from_array([0; 32])).to_bytes();
         bytes[Key::TAG_OFFSET] = Key::TAG_SUBACCOUNT;
         bytes[Key::PAYLOAD_OFFSET + Key::SUBACCOUNT_SIZE] = 1;
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Key: non-zero ulid padding")]
     fn key_from_bytes_rejects_ulid_padding() {
-        let mut bytes = Key::Ulid(Ulid::from_bytes([0; 16])).to_bytes().into_owned();
+        let mut bytes = Key::Ulid(Ulid::from_bytes([0; 16])).to_bytes();
         bytes[Key::TAG_OFFSET] = Key::TAG_ULID;
         bytes[Key::PAYLOAD_OFFSET + Key::ULID_SIZE] = 1;
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Key: non-zero unit padding")]
     fn key_from_bytes_rejects_unit_padding() {
-        let mut bytes = Key::Unit.to_bytes().into_owned();
+        let mut bytes = Key::Unit.to_bytes();
         bytes[Key::TAG_OFFSET] = Key::TAG_UNIT;
         bytes[Key::PAYLOAD_OFFSET] = 1;
-        let _ = Key::from_bytes(bytes.into());
+        assert!(Key::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
@@ -589,5 +562,25 @@ mod tests {
 
         let bytes = key.to_bytes();
         assert_eq!(bytes.len(), Key::STORED_SIZE);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn key_decode_fuzz_roundtrip_is_canonical() {
+        const RUNS: u64 = 1_000;
+
+        let mut seed = 0x1234_5678_u64;
+        for _ in 0..RUNS {
+            let mut bytes = [0u8; Key::STORED_SIZE];
+            for b in &mut bytes {
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                *b = (seed >> 24) as u8;
+            }
+
+            if let Ok(decoded) = Key::try_from_bytes(&bytes) {
+                let re = decoded.to_bytes();
+                assert_eq!(bytes, re, "decoded key must be canonical");
+            }
+        }
     }
 }

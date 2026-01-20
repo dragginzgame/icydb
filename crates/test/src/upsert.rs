@@ -1,4 +1,4 @@
-use icydb::__internal::core::db::store::{DataKey, IndexKey};
+use icydb::__internal::core::db::store::{DataKey, IndexKey, RawIndexEntry};
 use icydb::prelude::*;
 use test_design::{
     e2e::db::{Index, IndexSanitized, IndexUniqueOpt, LowerIndexText},
@@ -110,9 +110,15 @@ impl UpsertSuite {
         crate::INDEX_REGISTRY
             .with(|reg| {
                 reg.with_store_mut(TestIndexStore::PATH, |store| {
-                    let mut entry = store.get(&index_key).expect("index entry should exist");
+                    let raw = index_key.to_raw();
+                    let mut entry = store
+                        .get(&raw)
+                        .expect("index entry should exist")
+                        .try_decode()
+                        .expect("index entry should decode");
                     entry.insert_key(other.key());
-                    store.insert(index_key.clone(), entry);
+                    let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
+                    store.insert(raw, raw_entry);
                 })
             })
             .unwrap();
@@ -143,7 +149,8 @@ impl UpsertSuite {
             .with(|reg| {
                 reg.with_store_mut(<Index as icydb::traits::EntityKind>::Store::PATH, |store| {
                     let data_key = DataKey::new::<Index>(saved.key());
-                    store.remove(&data_key);
+                    let raw = data_key.to_raw();
+                    store.remove(&raw);
                 })
             })
             .unwrap();
@@ -159,8 +166,12 @@ impl UpsertSuite {
             "expected corruption error, got: {msg}"
         );
 
-        let _ = crate::INDEX_REGISTRY
-            .with(|reg| reg.with_store_mut(TestIndexStore::PATH, |store| store.remove(&index_key)));
+        let _ = crate::INDEX_REGISTRY.with(|reg| {
+            reg.with_store_mut(TestIndexStore::PATH, |store| {
+                let raw = index_key.to_raw();
+                store.remove(&raw)
+            })
+        });
     }
 
     fn upsert_empty_index_entry_errors() {
@@ -176,9 +187,15 @@ impl UpsertSuite {
         crate::INDEX_REGISTRY
             .with(|reg| {
                 reg.with_store_mut(TestIndexStore::PATH, |store| {
-                    let mut entry = store.get(&index_key).expect("index entry should exist");
+                    let raw = index_key.to_raw();
+                    let mut entry = store
+                        .get(&raw)
+                        .expect("index entry should exist")
+                        .try_decode()
+                        .expect("index entry should decode");
                     entry.remove_key(&saved.key());
-                    store.insert(index_key.clone(), entry);
+                    let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
+                    store.insert(raw, raw_entry);
                 })
             })
             .unwrap();

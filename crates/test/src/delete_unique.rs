@@ -1,4 +1,4 @@
-use icydb::__internal::core::db::store::{DataKey, IndexEntry, IndexKey};
+use icydb::__internal::core::db::store::{DataKey, IndexEntry, IndexKey, RawIndexEntry, RawRow};
 use icydb::{db::UniqueIndexHandle, design::prelude::*, serialize};
 use test_design::{e2e::db::Index, schema::TestIndexStore};
 
@@ -46,7 +46,8 @@ impl DeleteUniqueSuite {
             .with(|reg| {
                 reg.with_store_mut(<Index as EntityKind>::Store::PATH, |store| {
                     let data_key = DataKey::new::<Index>(saved.key());
-                    store.remove(&data_key);
+                    let raw = data_key.to_raw();
+                    store.remove(&raw);
                 })
             })
             .unwrap();
@@ -62,8 +63,12 @@ impl DeleteUniqueSuite {
             "expected corruption error, got: {msg}"
         );
 
-        let _ = crate::INDEX_REGISTRY
-            .with(|reg| reg.with_store_mut(TestIndexStore::PATH, |store| store.remove(&index_key)));
+        let _ = crate::INDEX_REGISTRY.with(|reg| {
+            reg.with_store_mut(TestIndexStore::PATH, |store| {
+                let raw = index_key.to_raw();
+                store.remove(&raw)
+            })
+        });
     }
 
     fn delete_unique_index_corruption_errors() {
@@ -76,9 +81,15 @@ impl DeleteUniqueSuite {
         crate::INDEX_REGISTRY
             .with(|reg| {
                 reg.with_store_mut(TestIndexStore::PATH, |store| {
-                    let mut entry = store.get(&index_key).expect("index entry should exist");
+                    let raw = index_key.to_raw();
+                    let mut entry = store
+                        .get(&raw)
+                        .expect("index entry should exist")
+                        .try_decode()
+                        .expect("index entry should decode");
                     entry.insert_key(other.key());
-                    store.insert(index_key.clone(), entry);
+                    let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
+                    store.insert(raw, raw_entry);
                 })
             })
             .unwrap();
@@ -105,7 +116,9 @@ impl DeleteUniqueSuite {
             .with(|reg| {
                 reg.with_store_mut(TestIndexStore::PATH, |store| {
                     let entry = IndexEntry::new(bad_key);
-                    store.insert(index_key.clone(), entry);
+                    let raw = index_key.to_raw();
+                    let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
+                    store.insert(raw, raw_entry);
                 })
             })
             .unwrap();
@@ -115,7 +128,8 @@ impl DeleteUniqueSuite {
             .with(|reg| {
                 reg.with_store_mut(<Index as EntityKind>::Store::PATH, |store| {
                     let data_key = DataKey::new::<Index>(bad_key);
-                    store.insert(data_key, bytes);
+                    let raw = data_key.to_raw();
+                    store.insert(raw, RawRow::try_new(bytes).unwrap());
                 })
             })
             .unwrap();
@@ -138,7 +152,9 @@ impl DeleteUniqueSuite {
             .with(|reg| {
                 reg.with_store_mut(TestIndexStore::PATH, |store| {
                     let entry = IndexEntry::new(missing_key);
-                    store.insert(index_key.clone(), entry);
+                    let raw = index_key.to_raw();
+                    let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
+                    store.insert(raw, raw_entry);
                 })
             })
             .unwrap();

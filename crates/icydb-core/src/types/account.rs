@@ -2,17 +2,16 @@ use crate::{
     db::primitives::{TextFilterKind, TextListFilterKind},
     key::Key,
     traits::{
-        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, Storable, UpdateView,
+        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
         ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::{Principal, Subaccount},
     value::Value,
 };
 use candid::CandidType;
-use canic_cdk::{structures::storable::Bound, types::Account as IcrcAccount};
+use canic_cdk::types::Account as IcrcAccount;
 use serde::{Deserialize, Serialize};
 use std::{
-    borrow::Cow,
     fmt::{self, Display},
     str::FromStr,
 };
@@ -108,6 +107,43 @@ impl Account {
             tag |= Self::TAG_SUBACCOUNT;
         }
         tag
+    }
+
+    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
+        if bytes.len() != Self::STORED_SIZE as usize {
+            return Err("corrupted Account: invalid size");
+        }
+
+        let tag = bytes[0];
+        let has_subaccount = (tag & Self::TAG_SUBACCOUNT) != 0;
+        let len = (tag & Self::LEN_MASK) as usize;
+        if len > Self::PRINCIPAL_MAX_LEN {
+            return Err("corrupted Account: invalid principal length");
+        }
+
+        let principal_end = 1 + len;
+        let principal_region_end = 1 + Self::PRINCIPAL_MAX_LEN;
+        let owner = Principal::from_slice(&bytes[1..principal_end]);
+
+        let padding = &bytes[principal_end..principal_region_end];
+        if padding.iter().any(|&b| b != 0) {
+            return Err("corrupted Account: non-zero principal padding");
+        }
+
+        let sub_offset = principal_region_end;
+        let mut sub = [0u8; Self::SUBACCOUNT_LEN];
+        sub.copy_from_slice(&bytes[sub_offset..sub_offset + Self::SUBACCOUNT_LEN]);
+
+        let subaccount = if has_subaccount {
+            Some(Subaccount::from_array(sub))
+        } else {
+            if sub.iter().any(|&b| b != 0) {
+                return Err("corrupted Account: non-zero subaccount bytes without flag");
+            }
+            None
+        };
+
+        Ok(Self { owner, subaccount })
     }
 }
 
@@ -222,65 +258,6 @@ impl SanitizeAuto for Account {}
 
 impl SanitizeCustom for Account {}
 
-impl Storable for Account {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Owned(self.to_bytes()) // fixed-size encoding
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.to_bytes()
-    }
-
-    fn from_bytes(bytes: Cow<[u8]>) -> Self {
-        let bytes = bytes.as_ref();
-        assert_eq!(
-            bytes.len(),
-            Self::STORED_SIZE as usize,
-            "corrupted Account: invalid size"
-        );
-
-        let tag = bytes[0];
-        let has_subaccount = (tag & Self::TAG_SUBACCOUNT) != 0;
-        let len = (tag & Self::LEN_MASK) as usize;
-        assert!(
-            len <= Self::PRINCIPAL_MAX_LEN,
-            "corrupted Account: invalid principal length"
-        );
-
-        let principal_end = 1 + len;
-        let principal_region_end = 1 + Self::PRINCIPAL_MAX_LEN;
-
-        let owner = Principal::from_slice(&bytes[1..principal_end]);
-
-        let padding = &bytes[principal_end..principal_region_end];
-        assert!(
-            padding.iter().all(|&b| b == 0),
-            "corrupted Account: non-zero principal padding"
-        );
-
-        let sub_offset = principal_region_end;
-        let mut sub = [0u8; Self::SUBACCOUNT_LEN];
-        sub.copy_from_slice(&bytes[sub_offset..sub_offset + Self::SUBACCOUNT_LEN]);
-
-        let subaccount = if has_subaccount {
-            Some(Subaccount::from_array(sub))
-        } else {
-            assert!(
-                sub.iter().all(|&b| b == 0),
-                "corrupted Account: non-zero subaccount bytes without flag"
-            );
-            None
-        };
-
-        Self { owner, subaccount }
-    }
-
-    const BOUND: Bound = Bound::Bounded {
-        max_size: Self::STORED_SIZE,
-        is_fixed_size: true,
-    };
-}
-
 impl UpdateView for Account {
     type UpdateViewType = Self;
 
@@ -314,7 +291,6 @@ impl Visitable for Account {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::Storable;
 
     fn principal() -> Principal {
         Principal::from_text("rrkah-fqaaa-aaaaa-aaaaq-cai").unwrap()
@@ -323,7 +299,7 @@ mod tests {
     #[test]
     fn storable_bytes_are_exact_size() {
         let account = Account::max_storable();
-        let bytes = Storable::to_bytes(&account);
+        let bytes = account.to_bytes();
         let size = bytes.len();
 
         assert!(
@@ -464,8 +440,8 @@ mod tests {
     fn round_trip_via_storable_preserves_data() {
         let original = Account::new(principal(), Some([0xABu8; 32]));
 
-        let bytes = Storable::to_bytes(&original);
-        let decoded = Account::from_bytes(Cow::Borrowed(&bytes));
+        let bytes = original.to_bytes();
+        let decoded = Account::try_from_bytes(&bytes).expect("decode should succeed");
 
         assert_eq!(original, decoded, "Account did not round-trip correctly");
     }
@@ -499,44 +475,39 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Account: invalid size")]
     fn from_bytes_rejects_empty_input() {
-        let _ = Account::from_bytes(Cow::Borrowed(&[]));
+        assert!(Account::try_from_bytes(&[]).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Account: invalid size")]
     fn from_bytes_rejects_oversized_input() {
         let buf = vec![0u8; Account::STORED_SIZE as usize + 1];
-        let _ = Account::from_bytes(Cow::Borrowed(&buf));
+        assert!(Account::try_from_bytes(&buf).is_err());
     }
 
     #[test]
     #[allow(clippy::cast_possible_truncation)]
-    #[should_panic(expected = "corrupted Account: invalid principal length")]
     fn from_bytes_rejects_invalid_principal_len() {
         let mut buf = vec![0u8; Account::STORED_SIZE as usize];
         buf[0] = (Principal::MAX_LENGTH_IN_BYTES as u8) + 1;
-        let _ = Account::from_bytes(Cow::Borrowed(&buf));
+        assert!(Account::try_from_bytes(&buf).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Account: non-zero principal padding")]
     fn from_bytes_rejects_principal_padding() {
         let acc = Account::new(Principal::from_slice(&[1]), None::<Subaccount>);
         let mut bytes = acc.to_bytes();
         bytes[1 + acc.owner.as_slice().len()] = 1;
-        let _ = Account::from_bytes(Cow::Borrowed(&bytes));
+        assert!(Account::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Account: non-zero subaccount bytes without flag")]
     fn from_bytes_rejects_subaccount_without_flag() {
         let acc = Account::new(Principal::from_slice(&[1]), None::<Subaccount>);
         let mut bytes = acc.to_bytes();
         let sub_offset = 1 + Account::PRINCIPAL_MAX_LEN;
         bytes[sub_offset] = 1;
-        let _ = Account::from_bytes(Cow::Borrowed(&bytes));
+        assert!(Account::try_from_bytes(&bytes).is_err());
     }
 
     #[test]
@@ -554,7 +525,7 @@ mod tests {
         let sub_offset = 1 + Account::PRINCIPAL_MAX_LEN;
         bytes[sub_offset] = 1;
 
-        let decoded = Account::from_bytes(Cow::Borrowed(&bytes));
+        let decoded = Account::try_from_bytes(&bytes).expect("decode should succeed");
         assert_eq!(decoded.owner, owner);
         assert!(decoded.subaccount.is_some());
     }

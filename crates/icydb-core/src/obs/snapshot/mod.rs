@@ -1,6 +1,9 @@
 use crate::{
     db::store::EntityName,
-    db::{Db, store::DataKey},
+    db::{
+        Db,
+        store::{DataKey, IndexKey},
+    },
     key::Key,
     traits::CanisterKind,
 };
@@ -18,6 +21,8 @@ pub struct StorageReport {
     pub storage_data: Vec<DataStoreSnapshot>,
     pub storage_index: Vec<IndexStoreSnapshot>,
     pub entity_storage: Vec<EntitySnapshot>,
+    pub corrupted_keys: u64,
+    pub corrupted_entries: u64,
 }
 
 ///
@@ -112,6 +117,8 @@ pub fn storage_report<C: CanisterKind>(
     let mut data = Vec::new();
     let mut index = Vec::new();
     let mut entity_storage: Vec<EntitySnapshot> = Vec::new();
+    let mut corrupted_keys = 0u64;
+    let mut corrupted_entries = 0u64;
 
     db.with_data(|reg| {
         reg.for_each(|path, store| {
@@ -125,12 +132,17 @@ pub fn storage_report<C: CanisterKind>(
             let mut by_entity: BTreeMap<EntityName, EntityStats> = BTreeMap::new();
 
             for entry in store.iter() {
-                let dk = entry.key();
+                let Ok(dk) = DataKey::try_from_raw(entry.key()) else {
+                    corrupted_keys = corrupted_keys.saturating_add(1);
+                    continue;
+                };
+
                 let value_len = entry.value().len() as u64;
+
                 by_entity
                     .entry(*dk.entity_name())
                     .or_default()
-                    .update(dk, value_len);
+                    .update(&dk, value_len);
             }
 
             for (entity_name, stats) in by_entity {
@@ -154,6 +166,16 @@ pub fn storage_report<C: CanisterKind>(
                 entries: store.len(),
                 memory_bytes: store.memory_bytes(),
             });
+
+            for entry in store.iter() {
+                if IndexKey::try_from_raw(entry.key()).is_err() {
+                    corrupted_entries = corrupted_entries.saturating_add(1);
+                    continue;
+                }
+                if entry.value().try_decode().is_err() {
+                    corrupted_entries = corrupted_entries.saturating_add(1);
+                }
+            }
         });
     });
 
@@ -161,5 +183,7 @@ pub fn storage_report<C: CanisterKind>(
         storage_data: data,
         storage_index: index,
         entity_storage,
+        corrupted_keys,
+        corrupted_entries,
     }
 }

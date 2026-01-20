@@ -5,8 +5,18 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+---
 
-## [0.4.2]
+## [0.4.3] - 2026-01-20 - Explicit, classified, and localized error propagation at architectural boundaries at the Disco!
+- Storable encoding and decoding no longer panics
+- Persisted rows and index entries now use raw, bounded value codecs (`RawRow`, `RawIndexEntry`); domain types no longer decode directly from stable memory.
+- Added explicit size limits and corruption checks for row payloads and index entry key sets; invalid bytes surface as corruption instead of panics.
+- Domain types no longer implement `Storable`; decoding uses explicit `try_from_bytes`/`TryFrom<&[u8]>` APIs.
+- Added targeted raw codec tests for oversized payloads, truncated buffers, corrupted length fields, and duplicate index keys.
+- Storage snapshots now count corrupted index entries via value decode checks.
+- Fixed executor candidate scans to propagate decode errors from store range reads.
+
+## [0.4.2] - 2026-01-19
 - Increased `EntityName` and index field limits to 64 chars; `IndexName` length now uses a 2-byte prefix, widening `IndexKey` size.
 - `DataKey` now reuses canonical `EntityName` decoding, and `IndexKey` rejects non-zero fingerprint padding beyond `len`.
 - Standardized corruption error messages for strict decoders across keys and core types.

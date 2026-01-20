@@ -5,17 +5,15 @@ use crate::{
     db::primitives::{TextFilterKind, TextListFilterKind},
     key::Key,
     traits::{
-        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, Storable, UpdateView,
+        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
         ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
     visitor::VisitorContext,
 };
 use candid::CandidType;
-use canic_cdk::structures::storable::Bound;
 use derive_more::{Deref, DerefMut, Display, FromStr};
 use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
-use std::borrow::Cow;
 use thiserror::Error as ThisError;
 use ulid::Ulid as WrappedUlid;
 
@@ -84,6 +82,17 @@ impl Ulid {
         Self(WrappedUlid::from_bytes(bytes))
     }
 
+    pub const fn try_from_bytes(bytes: &[u8]) -> Result<Self, UlidDecodeError> {
+        if bytes.len() != Self::STORED_SIZE as usize {
+            return Err(UlidDecodeError::InvalidSize { len: bytes.len() });
+        }
+
+        let mut array = [0u8; 16];
+        array.copy_from_slice(bytes);
+
+        Ok(Self::from_bytes(array))
+    }
+
     /// from_str
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(encoded: &str) -> Result<Self, UlidError> {
@@ -101,6 +110,20 @@ impl Ulid {
     #[must_use]
     pub const fn max_storable() -> Self {
         Self::from_bytes([0xFF; 16])
+    }
+}
+
+#[derive(Debug, ThisError)]
+pub enum UlidDecodeError {
+    #[error("invalid ulid length: {len} bytes")]
+    InvalidSize { len: usize },
+}
+
+impl TryFrom<&[u8]> for Ulid {
+    type Error = UlidDecodeError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
     }
 }
 
@@ -202,34 +225,6 @@ impl<'de> Deserialize<'de> for Ulid {
     }
 }
 
-impl Storable for Ulid {
-    const BOUND: Bound = Bound::Bounded {
-        max_size: Self::STORED_SIZE,
-        is_fixed_size: true,
-    };
-
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Owned(self.0.to_bytes().to_vec())
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.0.to_bytes().to_vec()
-    }
-
-    fn from_bytes(bytes: Cow<[u8]>) -> Self {
-        assert!(
-            bytes.len() == 16,
-            "corrupted Ulid: invalid size: {}",
-            bytes.len()
-        );
-
-        let mut array = [0u8; 16];
-        array.copy_from_slice(&bytes);
-
-        Self::from_bytes(array)
-    }
-}
-
 impl UpdateView for Ulid {
     type UpdateViewType = Self;
 
@@ -269,12 +264,11 @@ impl Visitable for Ulid {}
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::traits::Storable;
 
     #[test]
     fn ulid_max_size_is_bounded() {
         let ulid = Ulid::max_storable();
-        let size = Storable::to_bytes(&ulid).len();
+        let size = ulid.to_bytes().len();
 
         assert!(
             size <= Ulid::STORED_SIZE as usize,
@@ -292,16 +286,10 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "corrupted Ulid: invalid size")]
-    fn ulid_from_bytes_rejects_undersized() {
-        let buf = vec![0u8; 15];
-        let _ = <Ulid as Storable>::from_bytes(buf.into());
-    }
-
-    #[test]
-    #[should_panic(expected = "corrupted Ulid: invalid size")]
-    fn ulid_from_bytes_rejects_oversized() {
-        let buf = vec![0u8; 17];
-        let _ = <Ulid as Storable>::from_bytes(buf.into());
+    fn ulid_bytes_roundtrip() {
+        let ulid = Ulid::generate();
+        let bytes = ulid.to_bytes();
+        let decoded = Ulid::from_bytes(bytes);
+        assert_eq!(ulid, decoded);
     }
 }

@@ -3,11 +3,10 @@ use crate::{
         Db,
         executor::ExecutorError,
         query::QueryPlan,
-        store::{DataKey, DataRow, DataStore},
+        store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorOrigin, InternalError},
     key::Key,
-    serialize::deserialize,
     traits::{EntityKind, Path},
 };
 use std::{marker::PhantomData, ops::Bound};
@@ -48,9 +47,10 @@ where
     }
 
     /// Read a row strictly; missing rows surface as corruption.
-    pub fn read_strict(&self, key: &DataKey) -> Result<Vec<u8>, InternalError> {
+    pub fn read_strict(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
-            s.get(key).ok_or_else(|| {
+            let raw = key.to_raw();
+            s.get(&raw).ok_or_else(|| {
                 ExecutorError::corruption(ErrorOrigin::Store, format!("missing row: {key}")).into()
             })
         })?
@@ -73,20 +73,24 @@ where
             QueryPlan::Range(start, end) => self.with_store(|s| {
                 let start = Self::to_data_key(start);
                 let end = Self::to_data_key(end);
+                let start_raw = start.to_raw();
+                let end_raw = end.to_raw();
 
-                s.range((Bound::Included(start), Bound::Included(end)))
-                    .map(|e| e.key().clone())
-                    .collect()
-            })?,
+                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                    .map(|e| Self::decode_data_key(e.key()))
+                    .collect::<Result<Vec<_>, _>>()
+            })??,
 
             QueryPlan::FullScan => self.with_store(|s| {
                 let start = DataKey::lower_bound::<E>();
                 let end = DataKey::upper_bound::<E>();
+                let start_raw = start.to_raw();
+                let end_raw = end.to_raw();
 
-                s.range((Bound::Included(start), Bound::Included(end)))
-                    .map(|entry| entry.key().clone())
-                    .collect()
-            })?,
+                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                    .map(|entry| Self::decode_data_key(entry.key()))
+                    .collect::<Result<Vec<_>, _>>()
+            })??,
 
             QueryPlan::Index(index_plan) => {
                 let index_store = self
@@ -94,8 +98,10 @@ where
                     .with_index(|reg| reg.try_get_store(index_plan.index.store))?;
 
                 index_store.with_borrow(|istore| {
-                    istore.resolve_data_values::<E>(index_plan.index, &index_plan.values)
-                })
+                    istore
+                        .resolve_data_values::<E>(index_plan.index, &index_plan.values)
+                        .map_err(|msg| ExecutorError::corruption(ErrorOrigin::Index, msg))
+                })?
             }
         };
 
@@ -121,11 +127,16 @@ where
             QueryPlan::FullScan => self.with_store(|s| {
                 let start = DataKey::lower_bound::<E>();
                 let end = DataKey::upper_bound::<E>();
+                let start_raw = start.to_raw();
+                let end_raw = end.to_raw();
 
-                s.range((Bound::Included(start), Bound::Included(end)))
-                    .map(|entry| (entry.key().clone(), entry.value()))
-                    .collect()
-            }),
+                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                    .map(|entry| {
+                        let dk = Self::decode_data_key(entry.key())?;
+                        Ok((dk, entry.value()))
+                    })
+                    .collect::<Result<Vec<_>, InternalError>>()
+            })?,
             QueryPlan::Index(_) => {
                 let data_keys = self.candidates_from_plan(plan)?;
                 self.load_many(&data_keys)
@@ -164,48 +175,56 @@ where
             QueryPlan::Range(start, end) => {
                 let start = Self::to_data_key(start);
                 let end = Self::to_data_key(end);
+                let start_raw = start.to_raw();
+                let end_raw = end.to_raw();
 
                 self.with_store(|s| {
-                    let base = s.range((Bound::Included(start), Bound::Included(end)));
+                    let base = s.range((Bound::Included(start_raw), Bound::Included(end_raw)));
                     let cap = take.unwrap_or(0);
                     let mut out = Vec::with_capacity(cap);
                     match take {
                         Some(t) => {
                             for entry in base.skip(skip).take(t) {
-                                out.push((entry.key().clone(), entry.value()));
+                                let dk = Self::decode_data_key(entry.key())?;
+                                out.push((dk, entry.value()));
                             }
                         }
                         None => {
                             for entry in base.skip(skip) {
-                                out.push((entry.key().clone(), entry.value()));
+                                let dk = Self::decode_data_key(entry.key())?;
+                                out.push((dk, entry.value()));
                             }
                         }
                     }
-                    out
-                })
+                    Ok::<_, InternalError>(out)
+                })?
             }
 
             QueryPlan::FullScan => self.with_store(|s| {
                 let start = DataKey::lower_bound::<E>();
                 let end = DataKey::upper_bound::<E>();
+                let start_raw = start.to_raw();
+                let end_raw = end.to_raw();
 
-                let base = s.range((Bound::Included(start), Bound::Included(end)));
+                let base = s.range((Bound::Included(start_raw), Bound::Included(end_raw)));
                 let cap = take.unwrap_or(0);
                 let mut out = Vec::with_capacity(cap);
                 match take {
                     Some(t) => {
                         for entry in base.skip(skip).take(t) {
-                            out.push((entry.key().clone(), entry.value()));
+                            let dk = Self::decode_data_key(entry.key())?;
+                            out.push((dk, entry.value()));
                         }
                     }
                     None => {
                         for entry in base.skip(skip) {
-                            out.push((entry.key().clone(), entry.value()));
+                            let dk = Self::decode_data_key(entry.key())?;
+                            out.push((dk, entry.value()));
                         }
                     }
                 }
-                out
-            }),
+                Ok::<_, InternalError>(out)
+            })?,
 
             QueryPlan::Index(_) => {
                 // Resolve candidate keys from index, then paginate before loading
@@ -249,17 +268,22 @@ where
     fn load_many(&self, keys: &[DataKey]) -> Result<Vec<DataRow>, InternalError> {
         self.with_store(|s| {
             keys.iter()
-                .filter_map(|k| s.get(k).map(|entry| (k.clone(), entry)))
+                .filter_map(|k| s.get(&k.to_raw()).map(|entry| (k.clone(), entry)))
                 .collect()
         })
     }
 
     fn load_range(&self, start: DataKey, end: DataKey) -> Result<Vec<DataRow>, InternalError> {
         self.with_store(|s| {
-            s.range((Bound::Included(start), Bound::Included(end)))
-                .map(|e| (e.key().clone(), e.value()))
-                .collect()
-        })
+            let start_raw = start.to_raw();
+            let end_raw = end.to_raw();
+            s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                .map(|e| {
+                    let dk = Self::decode_data_key(e.key())?;
+                    Ok((dk, e.value()))
+                })
+                .collect::<Result<Vec<_>, InternalError>>()
+        })?
     }
 
     /// Deserialize raw data rows into typed entity rows, mapping `DataKey` → `(Key, E)`.
@@ -267,10 +291,21 @@ where
     pub fn deserialize_rows(&self, rows: Vec<DataRow>) -> Result<Vec<(Key, E)>, InternalError> {
         rows.into_iter()
             .map(|(k, v)| {
-                deserialize::<E>(&v)
+                v.try_decode::<E>()
                     .map(|entry| (k.key(), entry))
-                    .map_err(InternalError::from)
+                    .map_err(|err| {
+                        ExecutorError::corruption(
+                            ErrorOrigin::Serialize,
+                            format!("failed to deserialize row: {k} ({err})"),
+                        )
+                        .into()
+                    })
             })
             .collect()
+    }
+
+    fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
+        DataKey::try_from_raw(raw)
+            .map_err(|msg| ExecutorError::corruption(ErrorOrigin::Store, msg).into())
     }
 }
