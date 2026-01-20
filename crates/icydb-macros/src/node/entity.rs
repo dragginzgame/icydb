@@ -58,6 +58,22 @@ impl HasDef for Entity {
     }
 }
 
+impl ValidateNode for Entity {
+    fn validate(&self) -> Result<(), DarlingError> {
+        self.traits.with_type_traits().validate()?;
+        self.fields.validate()?;
+
+        if self.fields.get(&self.primary_key).is_none() {
+            return Err(DarlingError::custom(format!(
+                "primary key field '{}' not found in entity fields",
+                self.primary_key
+            )));
+        }
+
+        Ok(())
+    }
+}
+
 impl HasSchema for Entity {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::Entity

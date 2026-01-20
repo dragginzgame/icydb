@@ -25,6 +25,14 @@ impl HasDef for Map {
     }
 }
 
+impl ValidateNode for Map {
+    fn validate(&self) -> Result<(), DarlingError> {
+        self.traits.with_type_traits().validate()?;
+        self.key.validate()?;
+        self.value.validate()
+    }
+}
+
 impl HasSchema for Map {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::Map

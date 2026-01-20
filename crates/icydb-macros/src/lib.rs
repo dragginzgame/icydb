@@ -6,7 +6,7 @@ mod trait_kind;
 mod types;
 mod view;
 
-use crate::node::Def;
+use crate::node::{Def, ValidateNode};
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
 use proc_macro2::Span;
 use quote::quote;
@@ -33,7 +33,7 @@ mod prelude {
     pub use icydb_schema::types::{Cardinality, Primitive, StoreType};
 
     // proc-macro essentials
-    pub use darling::FromMeta;
+    pub use darling::{Error as DarlingError, FromMeta};
     pub use proc_macro2::{Span, TokenStream};
     pub use quote::{ToTokens, format_ident, quote};
     pub use serde::{Deserialize, Serialize};
@@ -70,8 +70,14 @@ macro_rules! macro_node {
 
                     // build def
                     let debug = item.attrs.iter().any(|attr| attr.path().is_ident("debug"));
-                    let mut node = <$node_type>::from_list(&args).unwrap();
+                    let mut node = match <$node_type>::from_list(&args) {
+                        Ok(node) => node,
+                        Err(err) => return proc_macro::TokenStream::from(err.write_errors()),
+                    };
                     node.def = Def::new(item, comments);
+                    if let Err(err) = node.validate() {
+                        return proc_macro::TokenStream::from(err.write_errors());
+                    }
 
                     // instantiate the generator
                     let generator = $gen_type(&node);

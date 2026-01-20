@@ -26,14 +26,28 @@ pub struct Item {
 }
 
 impl Item {
+    pub fn validate(&self) -> Result<(), DarlingError> {
+        if self.is.is_some() && (self.primitive.is_some() || self.relation.is_some()) {
+            return Err(DarlingError::custom(
+                "item 'is' cannot be combined with 'prim' or 'rel'",
+            ));
+        }
+
+        Ok(())
+    }
+
     // if relation is Some and no type is set, we default to Ulid
     pub fn target(&self) -> ItemTarget {
+        debug_assert!(
+            !(self.is.is_some() && (self.primitive.is_some() || self.relation.is_some())),
+            "item 'is' cannot be combined with 'prim' or 'rel'"
+        );
+
         match (&self.is, &self.primitive, &self.relation) {
             (Some(path), None, _) => ItemTarget::Is(path.clone()),
             (None, Some(prim), _) => ItemTarget::Primitive(*prim),
             (None, None, Some(_)) => ItemTarget::Primitive(Primitive::Ulid),
-            (None, None, None) => ItemTarget::Primitive(Primitive::Unit),
-            _ => panic!("item should not have more than one target selected (is, prim, relation)"),
+            _ => ItemTarget::Primitive(Primitive::Unit),
         }
     }
 

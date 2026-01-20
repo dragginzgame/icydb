@@ -10,6 +10,16 @@ pub trait HasDef {
 }
 
 ///
+/// ValidateNode
+///
+/// Runs input validation for macro arguments before code generation.
+///
+
+pub trait ValidateNode {
+    fn validate(&self) -> Result<(), DarlingError>;
+}
+
+///
 /// TraitTokens
 ///
 /// Result of trait resolution — combines derived traits and manual impls.
@@ -207,9 +217,7 @@ pub trait HasTraits: HasType {
 
 pub trait HasSchema: HasSchemaPart + HasDef {
     /// The kind of schema node this represents (Entity, Enum, etc.)
-    fn schema_node_kind() -> SchemaNodeKind {
-        unreachable!("SchemaNodeKind must be defined by each node type")
-    }
+    fn schema_node_kind() -> SchemaNodeKind;
 
     /// The uppercase snake-case constant name used in the generated schema file.
     fn schema_const(&self) -> Ident {

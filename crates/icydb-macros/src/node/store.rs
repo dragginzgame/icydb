@@ -21,6 +21,12 @@ impl HasDef for Store {
     }
 }
 
+impl ValidateNode for Store {
+    fn validate(&self) -> Result<(), DarlingError> {
+        Ok(())
+    }
+}
+
 impl HasSchema for Store {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::Store

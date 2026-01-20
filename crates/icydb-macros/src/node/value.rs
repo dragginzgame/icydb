@@ -16,13 +16,29 @@ pub struct Value {
 }
 
 impl Value {
+    pub fn validate(&self) -> Result<(), DarlingError> {
+        if self.opt && self.many {
+            return Err(DarlingError::custom(
+                "cardinality cannot be opt and many at the same time",
+            ));
+        }
+
+        self.item.validate()
+    }
+
     // cardinality
     pub fn cardinality(&self) -> Cardinality {
-        match (&self.opt, &self.many) {
-            (false, false) => Cardinality::One,
-            (true, false) => Cardinality::Opt,
-            (false, true) => Cardinality::Many,
-            (true, true) => panic!("cardinality cannot be opt and many"),
+        debug_assert!(
+            !(self.opt && self.many),
+            "cardinality cannot be opt and many at the same time"
+        );
+
+        if self.many {
+            Cardinality::Many
+        } else if self.opt {
+            Cardinality::Opt
+        } else {
+            Cardinality::One
         }
     }
 }

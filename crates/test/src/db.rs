@@ -33,6 +33,10 @@ impl DbSuite {
                 "delete_errors_on_malformed_rows",
                 Self::delete_errors_on_malformed_rows,
             ),
+            (
+                "delete_strict_halts_on_corruption",
+                Self::delete_strict_halts_on_corruption,
+            ),
         ];
 
         for (name, test_fn) in tests {
@@ -428,6 +432,33 @@ impl DbSuite {
             msg.contains("serialize") || msg.contains("deserialize") || msg.contains("corrupt"),
             "expected deserialization-related error, got: {msg}"
         );
+    }
+
+    fn delete_strict_halts_on_corruption() {
+        use icydb::Error;
+        use test_design::e2e::db::SimpleEntity;
+
+        let first = db!().insert(SimpleEntity::default()).unwrap().key();
+        let second = db!().insert(SimpleEntity::default()).unwrap().key();
+        let bad = Ulid::generate();
+
+        Self::insert_malformed_simple_entity(bad);
+
+        let err: Error = db!()
+            .delete::<SimpleEntity>()
+            .all()
+            .expect_err("expected error when deleting malformed rows");
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains("serialize") || msg.contains("deserialize") || msg.contains("corrupt"),
+            "expected deserialization-related error, got: {msg}"
+        );
+
+        let single = db!().load::<SimpleEntity>().one(first).unwrap();
+        assert_eq!(single.count(), 1);
+        let single = db!().load::<SimpleEntity>().one(second).unwrap();
+        assert_eq!(single.count(), 1);
     }
 
     fn insert_malformed_simple_entity(id: Ulid) {

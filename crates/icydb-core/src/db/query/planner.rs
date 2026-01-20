@@ -84,6 +84,7 @@ impl QueryPlanner {
     /// Index plans are only produced when all equality values are indexable;
     /// otherwise the planner falls back to a scan.
     pub fn plan<E: EntityKind>(&self) -> QueryPlan {
+        // Planner does not validate filter semantics; callers must validate separately.
         // If filter is a primary key match
         // this would handle One and Many queries
         if let Some(plan) = self.extract_from_filter::<E>() {

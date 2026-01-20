@@ -19,6 +19,12 @@ impl HasDef for Sanitizer {
     }
 }
 
+impl ValidateNode for Sanitizer {
+    fn validate(&self) -> Result<(), DarlingError> {
+        Ok(())
+    }
+}
+
 impl HasSchema for Sanitizer {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::Sanitizer

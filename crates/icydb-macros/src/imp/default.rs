@@ -22,7 +22,11 @@ impl Imp<Entity> for DefaultTrait {
 
 impl Imp<Enum> for DefaultTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
-        let default_variant = node.default_variant().expect("default is required");
+        let Some(default_variant) = node.default_variant() else {
+            return Some(TraitStrategy::from_impl(quote!(compile_error!(
+                "default variant is required for Default"
+            ))));
+        };
         let variant_ident = default_variant.effective_ident();
 
         // if the default variant carries a value, generate it as `(Default::default())`

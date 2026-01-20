@@ -4,6 +4,7 @@ use icydb::{
         query::{QueryPlan, QueryPlanner},
     },
     design::prelude::*,
+    error::{ErrorClass, ErrorOrigin},
 };
 use test_design::e2e::db::Index;
 
@@ -29,6 +30,10 @@ impl QueryPlannerSuite {
                 Self::pk_in_rejects_non_key_values,
             ),
             ("pk_in_accepts_text_keys", Self::pk_in_accepts_text_keys),
+            (
+                "planner_rejects_invalid_field_in_explain",
+                Self::planner_rejects_invalid_field_in_explain,
+            ),
         ];
 
         for (name, test_fn) in tests {
@@ -113,5 +118,18 @@ impl QueryPlannerSuite {
 
         let res = db!().load::<Index>().execute(query).unwrap();
         assert_eq!(res.pks(), vec![id]);
+    }
+
+    fn planner_rejects_invalid_field_in_explain() {
+        let query = db::query::load().filter(|f| f.eq("unknown_field", 1));
+        let err = db!().load::<Index>().explain(query).unwrap_err();
+
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert_eq!(err.origin, ErrorOrigin::Query);
+        assert!(
+            err.message.contains("invalid filter field"),
+            "expected invalid field error, got: {}",
+            err.message
+        );
     }
 }

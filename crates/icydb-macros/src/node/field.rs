@@ -36,6 +36,14 @@ impl FieldList {
     pub fn push(&mut self, field: Field) {
         self.fields.push(field);
     }
+
+    pub fn validate(&self) -> Result<(), DarlingError> {
+        for field in &self.fields {
+            field.validate()?;
+        }
+
+        Ok(())
+    }
 }
 
 impl FieldList {
@@ -97,6 +105,10 @@ pub struct Field {
 }
 
 impl Field {
+    pub fn validate(&self) -> Result<(), DarlingError> {
+        self.value.validate()
+    }
+
     // default_expr
     pub fn default_expr(&self) -> TokenStream {
         match (&self.default, self.value.cardinality()) {

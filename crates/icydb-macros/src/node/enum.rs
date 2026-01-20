@@ -35,6 +35,25 @@ impl HasDef for Enum {
     }
 }
 
+impl ValidateNode for Enum {
+    fn validate(&self) -> Result<(), DarlingError> {
+        self.traits.with_type_traits().validate()?;
+
+        for variant in &self.variants {
+            variant.validate()?;
+        }
+
+        let traits = self.traits.with_type_traits().build();
+        if traits.contains(&TraitKind::Default) && self.default_variant().is_none() {
+            return Err(DarlingError::custom(
+                "default variant is required when Default is enabled",
+            ));
+        }
+
+        Ok(())
+    }
+}
+
 impl HasSchema for Enum {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::Enum
@@ -149,6 +168,14 @@ impl EnumVariant {
         } else {
             self.ident.clone()
         }
+    }
+
+    pub fn validate(&self) -> Result<(), DarlingError> {
+        if let Some(value) = &self.value {
+            value.validate()?;
+        }
+
+        Ok(())
     }
 }
 

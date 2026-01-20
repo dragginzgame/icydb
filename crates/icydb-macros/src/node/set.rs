@@ -24,6 +24,13 @@ impl HasDef for Set {
     }
 }
 
+impl ValidateNode for Set {
+    fn validate(&self) -> Result<(), DarlingError> {
+        self.traits.with_type_traits().validate()?;
+        self.item.validate()
+    }
+}
+
 impl HasSchema for Set {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::Set

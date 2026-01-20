@@ -48,7 +48,12 @@ impl FromMeta for Arg {
                     let path: Path = syn::parse_str(&lit.value())
                         .map_err(|_| DarlingError::custom("Failed to parse path"))?;
 
-                    let last = path.segments.last().unwrap().ident.to_string();
+                    let last = path
+                        .segments
+                        .last()
+                        .ok_or_else(|| DarlingError::custom("path has no segments"))?
+                        .ident
+                        .to_string();
 
                     if last.chars().next().is_some_and(char::is_uppercase) {
                         Ok(Self::ConstPath(path))
@@ -70,7 +75,12 @@ impl FromMeta for Arg {
             NestedMeta::Lit(lit) => Self::from_value(lit),
             NestedMeta::Meta(syn::Meta::Path(path)) => {
                 // bare path like CONST or my_func
-                let last = path.segments.last().unwrap().ident.to_string();
+                let last = path
+                    .segments
+                    .last()
+                    .ok_or_else(|| DarlingError::custom("path has no segments"))?
+                    .ident
+                    .to_string();
 
                 if last.chars().next().is_some_and(char::is_uppercase) {
                     Ok(Self::ConstPath(path.clone()))

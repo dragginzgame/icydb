@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [0.4.4] - 2026-01-20 - Localized CBOR safety checks and panic containment
+- CBOR serialization is now internalized in `icydb-core`, with local decode bounds and structural validation.
+- Deserialization rejects oversized payloads before decode and contains any decode panics as typed errors.
+- Added targeted CBOR tests for oversized, truncated, and malformed inputs.
+- Macro validation now reports invalid schema annotations as compile errors instead of panicking (including trait removal checks and item config validation).
+
 ## [0.4.3] - 2026-01-20 - Explicit, classified, and localized error propagation at the Disco!
 - Storable encoding and decoding no longer panics
 - Persisted rows and index entries now use raw, bounded value codecs (`RawRow`, `RawIndexEntry`); domain types no longer decode directly from stable memory.

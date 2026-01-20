@@ -31,6 +31,23 @@ impl HasDef for Newtype {
     }
 }
 
+impl ValidateNode for Newtype {
+    fn validate(&self) -> Result<(), DarlingError> {
+        self.traits.with_type_traits().validate()?;
+        self.item.validate()?;
+
+        match (self.primitive, self.item.primitive) {
+            (Some(a), Some(b)) if a != b => Err(DarlingError::custom(format!(
+                "invalid #[newtype] config: conflicting primitive ({a:?}) and item({b:?})"
+            ))),
+            (None, Some(_)) => Err(DarlingError::custom(
+                "invalid #[newtype] config: item has a primitive but outer 'primitive' is not set",
+            )),
+            _ => Ok(()),
+        }
+    }
+}
+
 impl HasSchema for Newtype {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::Newtype
@@ -39,18 +56,7 @@ impl HasSchema for Newtype {
 
 impl HasSchemaPart for Newtype {
     fn schema_part(&self) -> TokenStream {
-        // panic on invalid primitive/item combinations
-        match (self.primitive, self.item.primitive) {
-            (Some(a), Some(b)) if a != b => {
-                panic!("invalid #[newtype] config: conflicting primitive ({a:?}) and item({b:?})");
-            }
-            (None, Some(_)) => {
-                panic!(
-                    "invalid #[newtype] config: item has a primitive but outer 'primitive' is not set"
-                );
-            }
-            _ => {}
-        }
+        debug_assert!(self.validate().is_ok(), "invalid #[newtype] config");
 
         let def = self.def.schema_part();
         let item = self.item.schema_part();

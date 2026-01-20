@@ -25,6 +25,18 @@ impl HasDef for Tuple {
     }
 }
 
+impl ValidateNode for Tuple {
+    fn validate(&self) -> Result<(), DarlingError> {
+        self.traits.with_type_traits().validate()?;
+
+        for value in &self.values {
+            value.validate()?;
+        }
+
+        Ok(())
+    }
+}
+
 impl HasSchema for Tuple {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::Tuple

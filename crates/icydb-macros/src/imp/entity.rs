@@ -10,13 +10,17 @@ impl Imp<Entity> for EntityKindTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let store = &node.store;
         let pk_field = &node.primary_key.to_string();
-        let pk_type = &node
-            .fields
-            .get(&node.primary_key)
-            .unwrap()
-            .value
-            .item
-            .type_expr();
+        let Some(pk_entry) = node.fields.get(&node.primary_key) else {
+            let msg = LitStr::new(
+                &format!(
+                    "primary key field '{}' not found in entity fields",
+                    node.primary_key
+                ),
+                Span::call_site(),
+            );
+            return Some(TraitStrategy::from_impl(quote!(compile_error!(#msg))));
+        };
+        let pk_type = &pk_entry.value.item.type_expr();
         let entity_name = if let Some(name) = &node.name {
             quote!(#name)
         } else {

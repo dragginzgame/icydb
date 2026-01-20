@@ -254,6 +254,29 @@ impl TraitBuilder {
         clone
     }
 
+    pub(crate) fn validate(&self) -> Result<(), DarlingError> {
+        let mut set = TraitSet::new();
+        set.extend(DEFAULT_TRAITS.to_vec());
+
+        for tr in self.add.iter() {
+            if !set.insert(*tr) {
+                return Err(DarlingError::custom(format!(
+                    "adding duplicate trait '{tr}'"
+                )));
+            }
+        }
+
+        for tr in self.remove.iter() {
+            if !set.remove(tr) {
+                return Err(DarlingError::custom(format!(
+                    "cannot remove trait {tr} from {set:?}"
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     // build
     // generates the TraitList based on the defaults plus traits that have been added or removed
     pub(crate) fn build(&self) -> TraitSet {

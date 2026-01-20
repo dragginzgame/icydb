@@ -25,6 +25,13 @@ impl HasDef for Record {
     }
 }
 
+impl ValidateNode for Record {
+    fn validate(&self) -> Result<(), DarlingError> {
+        self.traits.with_type_traits().validate()?;
+        self.fields.validate()
+    }
+}
+
 impl HasSchema for Record {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::Record

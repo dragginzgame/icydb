@@ -24,6 +24,13 @@ impl HasDef for List {
     }
 }
 
+impl ValidateNode for List {
+    fn validate(&self) -> Result<(), DarlingError> {
+        self.traits.with_type_traits().validate()?;
+        self.item.validate()
+    }
+}
+
 impl HasSchema for List {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::List

@@ -21,6 +21,12 @@ impl HasDef for Canister {
     }
 }
 
+impl ValidateNode for Canister {
+    fn validate(&self) -> Result<(), DarlingError> {
+        Ok(())
+    }
+}
+
 impl HasSchema for Canister {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::Canister

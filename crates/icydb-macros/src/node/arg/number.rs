@@ -79,29 +79,48 @@ impl ArgNumber {
             if s.ends_with(suffix) {
                 let num_part = s.trim_end_matches(suffix);
 
-                let result: Result<Self, DarlingError> = if num_part.contains('.') {
+                let result: Result<Self, DarlingError> =
                     match suffix {
-                        "f32" => num_part.parse::<f32>().map(Self::Float32),
-                        "f64" => num_part.parse::<f64>().map(Self::Float64),
-                        _ => unreachable!(),
-                    }
-                    .map_err(|_| DarlingError::custom(format!("invalid float literal '{s}'")))
-                } else {
-                    match suffix {
-                        "i8" => num_part.parse::<i8>().map(Self::Int8),
-                        "i16" => num_part.parse::<i16>().map(Self::Int16),
-                        "i32" => num_part.parse::<i32>().map(Self::Int32),
-                        "i64" => num_part.parse::<i64>().map(Self::Int64),
-                        "i128" => num_part.parse::<i128>().map(Self::Int128),
-                        "u8" => num_part.parse::<u8>().map(Self::Nat8),
-                        "u16" => num_part.parse::<u16>().map(Self::Nat16),
-                        "u32" => num_part.parse::<u32>().map(Self::Nat32),
-                        "u64" => num_part.parse::<u64>().map(Self::Nat64),
-                        "u128" => num_part.parse::<u128>().map(Self::Nat128),
-                        _ => unreachable!(),
-                    }
-                    .map_err(|_| DarlingError::custom(format!("invalid numeric literal '{s}'")))
-                };
+                        "f32" => num_part.parse::<f32>().map(Self::Float32).map_err(|_| {
+                            DarlingError::custom(format!("invalid float literal '{s}'"))
+                        }),
+                        "f64" => num_part.parse::<f64>().map(Self::Float64).map_err(|_| {
+                            DarlingError::custom(format!("invalid float literal '{s}'"))
+                        }),
+                        "i8" => num_part.parse::<i8>().map(Self::Int8).map_err(|_| {
+                            DarlingError::custom(format!("invalid numeric literal '{s}'"))
+                        }),
+                        "i16" => num_part.parse::<i16>().map(Self::Int16).map_err(|_| {
+                            DarlingError::custom(format!("invalid numeric literal '{s}'"))
+                        }),
+                        "i32" => num_part.parse::<i32>().map(Self::Int32).map_err(|_| {
+                            DarlingError::custom(format!("invalid numeric literal '{s}'"))
+                        }),
+                        "i64" => num_part.parse::<i64>().map(Self::Int64).map_err(|_| {
+                            DarlingError::custom(format!("invalid numeric literal '{s}'"))
+                        }),
+                        "i128" => num_part.parse::<i128>().map(Self::Int128).map_err(|_| {
+                            DarlingError::custom(format!("invalid numeric literal '{s}'"))
+                        }),
+                        "u8" => num_part.parse::<u8>().map(Self::Nat8).map_err(|_| {
+                            DarlingError::custom(format!("invalid numeric literal '{s}'"))
+                        }),
+                        "u16" => num_part.parse::<u16>().map(Self::Nat16).map_err(|_| {
+                            DarlingError::custom(format!("invalid numeric literal '{s}'"))
+                        }),
+                        "u32" => num_part.parse::<u32>().map(Self::Nat32).map_err(|_| {
+                            DarlingError::custom(format!("invalid numeric literal '{s}'"))
+                        }),
+                        "u64" => num_part.parse::<u64>().map(Self::Nat64).map_err(|_| {
+                            DarlingError::custom(format!("invalid numeric literal '{s}'"))
+                        }),
+                        "u128" => num_part.parse::<u128>().map(Self::Nat128).map_err(|_| {
+                            DarlingError::custom(format!("invalid numeric literal '{s}'"))
+                        }),
+                        _ => Err(DarlingError::custom(format!(
+                            "invalid numeric literal '{s}'"
+                        ))),
+                    };
 
                 return result;
             }

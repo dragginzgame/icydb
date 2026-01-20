@@ -384,18 +384,25 @@ pub const MAX_INDEX_ENTRY_BYTES: u32 =
 pub enum IndexEntryCorruption {
     #[error("index entry exceeds max size")]
     TooLarge { len: usize },
+
     #[error("index entry missing key count")]
     MissingLength,
+
     #[error("index entry key count exceeds limit")]
     TooManyKeys { count: usize },
+
     #[error("index entry length does not match key count")]
     LengthMismatch,
+
     #[error("index entry contains invalid key bytes")]
     InvalidKey,
+
     #[error("index entry contains duplicate key")]
     DuplicateKey,
+
     #[error("index entry contains zero keys")]
     EmptyEntry,
+
     #[error("unique index entry contains {keys} keys")]
     NonUniqueEntry { keys: usize },
 }

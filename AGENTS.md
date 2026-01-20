@@ -1,8 +1,11 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `icydb/`: Public meta-crate re-exporting the workspace API.
-- `crates/icydb-{core,macros,schema,base,error,build,paths}`: Runtime, derive macros, schema AST/builders, shared design helpers, error modeling, build/codegen helpers, and crate path resolution.
+- `crates/icydb`: Public meta-crate re-exporting the workspace API.
+- `crates/icydb-core`: Runtime, storage, executors, and core types.
+- `crates/icydb-macros`: Derive and codegen macros.
+- `crates/icydb-schema`: Schema AST/builders and validation.
+- `crates/icydb-build`: Build/codegen helpers and canister glue.
 - `crates/test` and `crates/test_design`: Integration and design tests.
 - `assets/`: Images and docs assets. `scripts/`: release/version helpers. `Makefile`: common tasks.
 - Workspace manifest: `Cargo.toml` (edition 2024, rust-version 1.92.0).
@@ -36,12 +39,24 @@
 ### Additional Style Guidance
 - Docs: rustdoc triple-slash `/// ` with a space; include brief examples when practical.
 - Errors: prefer typed errors (thiserror); avoid panics in library code.
-- Functions: keep small and focused; extract helpers for clarity.
+- Functions: keep small and focused, except at trust boundaries where single, centralized validation is preferred.
 - Borrowing: avoid unnecessary clones; prefer iterator adapters.
 - Imports: group per-crate, nest items (e.g., `use crate::{a, b};`); pull common std items into scope at top.
 - Counters: use saturating arithmetic for totals; avoid wrapping arithmetic.
 - Performance: only optimize on proven hot paths; consider pre-allocation when it clearly pays off.
 - Codegen (icydb_build): generate minimal glue and delegate to `icydb::interface::*`.
+
+## Persistence Safety Invariants
+- Persisted bytes must never panic the system.
+- Persisted decoding must be locally bounded and fallible.
+- No domain type may decode directly from stable memory.
+- Safety must not rely on undocumented behavior of third-party crates.
+- Thin wrappers are fine until a helper becomes a trust boundary; enforce invariants locally at that boundary.
+
+## Error Classification Guidance
+- `Unsupported`: user-supplied values rejected before persistence.
+- `Corruption`: malformed or hostile persisted bytes.
+- `Internal`: logic bugs or invariant violations.
 
 ## CI Overview
 - Toolchain: Rust `1.92.0` with `rustfmt` and `clippy`.

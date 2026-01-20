@@ -16,6 +16,12 @@ impl HasDef for Validator {
     }
 }
 
+impl ValidateNode for Validator {
+    fn validate(&self) -> Result<(), DarlingError> {
+        Ok(())
+    }
+}
+
 impl HasSchema for Validator {
     fn schema_node_kind() -> SchemaNodeKind {
         SchemaNodeKind::Validator
