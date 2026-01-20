@@ -20,8 +20,8 @@ derive_more = { workspace = true }
 num-traits = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true }
-serde_cbor = { workspace = true }
 serde_bytes = { workspace = true }
+serde_cbor = { workspace = true }
 thiserror = { workspace = true }
 ulid = { workspace = true }
 
