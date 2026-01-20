@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [0.4.3] - 2026-01-20 - Explicit, classified, and localized error propagation at architectural boundaries at the Disco!
+## [0.4.3] - 2026-01-20 - Explicit, classified, and localized error propagation at the Disco!
 - Storable encoding and decoding no longer panics
 - Persisted rows and index entries now use raw, bounded value codecs (`RawRow`, `RawIndexEntry`); domain types no longer decode directly from stable memory.
 - Added explicit size limits and corruption checks for row payloads and index entry key sets; invalid bytes surface as corruption instead of panics.
