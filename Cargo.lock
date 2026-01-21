@@ -134,9 +134,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.9.2"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34e09decb5f9df92fb65259d43a6b08f1323308913bbfca3bed66a2736b172b6"
+checksum = "39de82a8b03a09f11431add43c3edaa791a082824220bb5274d3432a0f569e49"
 dependencies = [
  "base32 0.5.1",
  "candid",
@@ -158,9 +158,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.9.2"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddeb67119bdd531768872924f74bbf8e0148505d74dc4d333510a9a7a65991a6"
+checksum = "6a2cec6ce9a7ee9aad260249a62fdf2a03413f8d6888d889c52fc000aedf4025"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -172,9 +172,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.9.2"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e086ef418c70ff015490e4fbf001da5a1a61b961bcc59e22645a7a78c7ec153"
+checksum = "ba5faa5affcf5f9a996504d9f2da2b33a8d5edaf21cfc40553897a1552d96f66"
 dependencies = [
  "candid",
  "convert_case",
@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -756,7 +756,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -766,7 +766,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "bencher",
  "candid",
@@ -787,7 +787,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-macros"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "canic-utils",
  "darling 0.23.0",
@@ -802,7 +802,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1263,7 +1263,7 @@ dependencies = [
 
 [[package]]
 name = "test"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1276,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "test_design"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "candid",
  "icydb",
