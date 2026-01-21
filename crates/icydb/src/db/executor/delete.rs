@@ -2,7 +2,7 @@ use crate::{
     Error,
     db::{
         UniqueIndexHandle, map_response, map_runtime,
-        primitives::{FilterDsl, IntoFilterExpr},
+        primitives::{FilterDsl, FilterExt, IntoFilterExpr},
         query::{DeleteQuery, QueryPlan},
         response::Response,
     },
@@ -63,7 +63,8 @@ impl<E: EntityKind> DeleteExecutor<E> {
         field: impl AsRef<str>,
         value: impl FieldValue,
     ) -> Result<Response<E>, Error> {
-        map_response(self.inner.one_by_field(field, value))
+        let query = DeleteQuery::new().one_by_field(field, value);
+        map_response(self.inner.execute(query))
     }
 
     /// Delete multiple rows by an arbitrary field.
@@ -76,12 +77,13 @@ impl<E: EntityKind> DeleteExecutor<E> {
         I: IntoIterator<Item = V>,
         V: FieldValue,
     {
-        map_response(self.inner.many_by_field(field, values))
+        let query = DeleteQuery::new().many_by_field(field, values);
+        map_response(self.inner.execute(query))
     }
 
     /// Delete all rows.
     pub fn all(self) -> Result<Response<E>, Error> {
-        map_response(self.inner.all())
+        map_response(self.inner.execute(DeleteQuery::new()))
     }
 
     /// Apply a filter builder and delete matches.
@@ -90,27 +92,8 @@ impl<E: EntityKind> DeleteExecutor<E> {
         F: FnOnce(FilterDsl) -> I,
         I: IntoFilterExpr,
     {
-        map_response(self.inner.filter(f))
-    }
-
-    pub fn ensure_delete_one(self, pk: impl FieldValue) -> Result<(), Error> {
-        map_runtime(self.inner.ensure_delete_one(pk))
-    }
-
-    pub fn ensure_delete_any_by_pk<I, V>(self, pks: I) -> Result<(), Error>
-    where
-        I: IntoIterator<Item = V>,
-        V: FieldValue,
-    {
-        map_runtime(self.inner.ensure_delete_any_by_pk(pks))
-    }
-
-    pub fn ensure_delete_any<I, V>(self, values: I) -> Result<(), Error>
-    where
-        I: IntoIterator<Item = V>,
-        V: FieldValue,
-    {
-        map_runtime(self.inner.ensure_delete_any(values))
+        let query = DeleteQuery::new().filter(f);
+        map_response(self.inner.execute(query))
     }
 
     pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, Error> {

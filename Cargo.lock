@@ -771,6 +771,7 @@ dependencies = [
  "bencher",
  "candid",
  "canic-cdk",
+ "canic-memory",
  "canic-utils",
  "chrono",
  "derive_more",

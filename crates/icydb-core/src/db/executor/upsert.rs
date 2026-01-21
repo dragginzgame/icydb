@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        Db,
+        Db, ensure_recovered,
         executor::{ExecutorError, SaveExecutor, resolve_unique_pk},
         store::DataKey,
         traits::FromKey,
@@ -216,6 +216,8 @@ where
         index: &'static IndexModel,
         entity: E,
     ) -> Result<UpsertResult<E>, InternalError> {
+        // Recovery is mutation-only to keep read paths side-effect free.
+        ensure_recovered(&self.db)?;
         let existing_pk = self.resolve_existing_pk(index, &entity)?;
         let inserted = existing_pk.is_none();
 
@@ -243,6 +245,8 @@ where
     where
         F: FnOnce(E, E) -> E,
     {
+        // Recovery is mutation-only to keep read paths side-effect free.
+        ensure_recovered(&self.db)?;
         let existing_pk = self.resolve_existing_pk(index, &entity)?;
 
         // Keep saver construction local to avoid type/lifetime issues in helpers.

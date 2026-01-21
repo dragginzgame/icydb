@@ -1,6 +1,7 @@
 pub mod entry;
 pub mod fingerprint;
 pub mod key;
+pub mod plan;
 pub mod store;
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+mod commit;
 pub mod executor;
 pub mod identity;
 pub mod index;
@@ -7,6 +8,8 @@ pub mod response;
 pub mod store;
 pub mod traits;
 pub mod types;
+
+pub(crate) use commit::*;
 
 use crate::{
     db::{

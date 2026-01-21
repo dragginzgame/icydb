@@ -1,13 +1,17 @@
 use crate::{
     db::{
-        Db,
+        CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, begin_commit, ensure_recovered,
         executor::{
             ExecutorError, FilterEvaluator, UniqueIndexHandle, WriteUnit,
             plan::{plan_for, record_plan_metrics, scan_strict, set_rows_from_len},
             resolve_unique_pk,
         },
-        index::IndexRemoveOutcome,
-        primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr},
+        finish_commit,
+        index::{
+            IndexEntry, IndexEntryCorruption, IndexKey, IndexRemoveOutcome, IndexStore,
+            RawIndexEntry, RawIndexKey,
+        },
+        primitives::FilterExpr,
         query::{DeleteQuery, QueryPlan, QueryValidate},
         response::Response,
         store::DataKey,
@@ -17,12 +21,16 @@ use crate::{
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     sanitize::sanitize,
-    traits::{EntityKind, FieldValue},
+    traits::{EntityKind, FieldValue, Path},
 };
-use std::{marker::PhantomData, ops::ControlFlow};
+use canic_cdk::structures::Storable;
+use std::{
+    cell::RefCell, collections::BTreeMap, marker::PhantomData, ops::ControlFlow, thread::LocalKey,
+};
 
 ///
 /// DeleteAccumulator
+/// Collects rows to delete during planner execution.
 ///
 
 struct DeleteAccumulator<'f, E> {
@@ -70,9 +78,23 @@ impl<'f, E: EntityKind> DeleteAccumulator<'f, E> {
 }
 
 ///
-/// DeleteExecutor
+/// IndexPlan
+/// Prevalidated index store handle.
 ///
 
+struct IndexPlan {
+    index: &'static IndexModel,
+    store: &'static LocalKey<RefCell<IndexStore>>,
+}
+
+///
+/// DeleteExecutor
+///
+/// Stage-1 atomicity invariant:
+/// All fallible validation completes before the first stable write.
+/// After mutation begins, only infallible operations or traps remain.
+/// IC rollback semantics guarantee atomicity within this update call.
+///
 #[derive(Clone, Copy)]
 pub struct DeleteExecutor<E: EntityKind> {
     db: Db<E::Canister>,
@@ -97,36 +119,29 @@ impl<E: EntityKind> DeleteExecutor<E> {
     }
 
     // ─────────────────────────────────────────────
-    // PK-BASED HELPERS
+    // PK helpers
     // ─────────────────────────────────────────────
 
-    /// Delete a single row by primary key.
     pub fn one(self, pk: impl FieldValue) -> Result<Response<E>, InternalError> {
-        let query = DeleteQuery::new().one::<E>(pk);
-        self.execute(query)
+        self.execute(DeleteQuery::new().one::<E>(pk))
     }
 
-    /// Delete the unit-key row.
     pub fn only(self) -> Result<Response<E>, InternalError> {
-        let query = DeleteQuery::new().one::<E>(());
-        self.execute(query)
+        self.execute(DeleteQuery::new().one::<E>(()))
     }
 
-    /// Delete multiple rows by primary keys.
     pub fn many<I, V>(self, values: I) -> Result<Response<E>, InternalError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
     {
-        let query = DeleteQuery::new().many_by_field(E::PRIMARY_KEY, values);
-        self.execute(query)
+        self.execute(DeleteQuery::new().many_by_field(E::PRIMARY_KEY, values))
     }
 
     // ─────────────────────────────────────────────
-    // UNIQUE INDEX DELETE
+    // Unique-index delete
     // ─────────────────────────────────────────────
 
-    /// Delete a single row using a unique index handle.
     pub fn by_unique_index(
         self,
         index: UniqueIndexHandle,
@@ -136,110 +151,63 @@ impl<E: EntityKind> DeleteExecutor<E> {
         E::PrimaryKey: FromKey,
     {
         let mut span = Span::<E>::new(ExecKind::Delete);
+        ensure_recovered(&self.db)?;
+
         let index = index.index();
         let mut lookup = entity;
         sanitize(&mut lookup)?;
 
         let Some(pk) = resolve_unique_pk::<E>(&self.db, index, &lookup)? else {
             set_rows_from_len(&mut span, 0);
-
             return Ok(Response(Vec::new()));
         };
 
         let (dk, stored) = self.load_existing(pk)?;
+        let ctx = self.db.context::<E>();
+        let index_plans = self.build_index_plans()?;
+        let index_ops = Self::build_index_removal_ops(&index_plans, &[&stored])?;
 
-        self.db.context::<E>().with_store_mut(|s| {
-            // Non-atomic delete: data removal happens before index removal.
-            // If index removal fails, orphaned index entries may remain.
-            let _unit = WriteUnit::new("delete_unique_row_non_atomic");
-            let raw = dk.to_raw();
-            s.remove(&raw);
-            if !E::INDEXES.is_empty() {
-                self.remove_indexes(&stored)?;
-            }
+        ctx.with_store(|_| ())?;
 
-            Ok::<_, InternalError>(())
-        })??;
+        let marker = CommitMarker::new(
+            CommitKind::Delete,
+            index_ops,
+            vec![CommitDataOp {
+                store: E::Store::PATH.to_string(),
+                key: dk.to_raw().as_bytes().to_vec(),
+                value: None,
+            }],
+        )?;
+        let commit = begin_commit(marker)?;
+
+        finish_commit(
+            commit,
+            || {
+                let _unit = WriteUnit::new("delete_unique_row_stage1_atomic");
+                for plan in &index_plans {
+                    let outcome = plan
+                        .store
+                        .with_borrow_mut(|s| s.remove_index_entry(&stored, plan.index))
+                        .expect("index remove failed after prevalidation");
+                    if outcome == IndexRemoveOutcome::Removed {
+                        sink::record(MetricsEvent::IndexRemove {
+                            entity_path: E::PATH,
+                        });
+                    }
+                }
+            },
+            || {
+                ctx.with_store_mut(|s| s.remove(&dk.to_raw()))
+                    .expect("data store missing after preflight");
+            },
+        );
 
         set_rows_from_len(&mut span, 1);
-
         Ok(Response(vec![(dk.key(), stored)]))
     }
 
     // ─────────────────────────────────────────────
-    // GENERIC FIELD-BASED DELETE
-    // ─────────────────────────────────────────────
-
-    /// Delete a single row by an arbitrary field value.
-    pub fn one_by_field(
-        self,
-        field: impl AsRef<str>,
-        value: impl FieldValue,
-    ) -> Result<Response<E>, InternalError> {
-        let query = DeleteQuery::new().one_by_field(field, value);
-        self.execute(query)
-    }
-
-    /// Delete multiple rows by an arbitrary field.
-    pub fn many_by_field<I, V>(
-        self,
-        field: impl AsRef<str>,
-        values: I,
-    ) -> Result<Response<E>, InternalError>
-    where
-        I: IntoIterator<Item = V>,
-        V: FieldValue,
-    {
-        let query = DeleteQuery::new().many_by_field(field, values);
-        self.execute(query)
-    }
-
-    /// Delete all rows.
-    pub fn all(self) -> Result<Response<E>, InternalError> {
-        self.execute(DeleteQuery::new())
-    }
-
-    /// Apply a filter builder and delete matches.
-    pub fn filter<F, I>(self, f: F) -> Result<Response<E>, InternalError>
-    where
-        F: FnOnce(FilterDsl) -> I,
-        I: IntoFilterExpr,
-    {
-        let query = DeleteQuery::new().filter(f);
-
-        self.execute(query)
-    }
-
-    // ─────────────────────────────────────────────
-    // ENSURE HELPERS
-    // ─────────────────────────────────────────────
-
-    pub fn ensure_delete_one(self, pk: impl FieldValue) -> Result<(), InternalError> {
-        self.one(pk)?.require_one()?;
-
-        Ok(())
-    }
-
-    pub fn ensure_delete_any_by_pk<I, V>(self, pks: I) -> Result<(), InternalError>
-    where
-        I: IntoIterator<Item = V>,
-        V: FieldValue,
-    {
-        self.many(pks)?.require_some()?;
-
-        Ok(())
-    }
-
-    pub fn ensure_delete_any<I, V>(self, values: I) -> Result<(), InternalError>
-    where
-        I: IntoIterator<Item = V>,
-        V: FieldValue,
-    {
-        self.ensure_delete_any_by_pk(values)
-    }
-
-    // ─────────────────────────────────────────────
-    // EXECUTION
+    // Planner-based delete
     // ─────────────────────────────────────────────
 
     pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, InternalError> {
@@ -247,34 +215,25 @@ impl<E: EntityKind> DeleteExecutor<E> {
         Ok(plan_for::<E>(query.filter.as_ref()))
     }
 
-    /// Execute a planner-based delete query.
-    ///
-    /// NOTE:
-    /// - Planner-based deletes are strict on row integrity (missing/malformed rows
-    ///   surface corruption).
-    /// - Planner-based deletes DO NOT enforce unique-index invariants.
-    ///   Use `by_unique_index` for strict unique-index semantics.
     pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, InternalError> {
         QueryValidate::<E>::validate(&query)?;
-        let mut span = Span::<E>::new(ExecKind::Delete);
+        ensure_recovered(&self.db)?;
 
+        let mut span = Span::<E>::new(ExecKind::Delete);
         let plan = plan_for::<E>(query.filter.as_ref());
         record_plan_metrics(&plan);
 
-        let limit = query
-            .limit
-            .as_ref()
-            .and_then(|l| l.limit)
-            .map(|l| l as usize);
+        let (limit, offset) = match query.limit.as_ref() {
+            Some(l) => (l.limit.map(|v| v as usize), l.offset as usize),
+            None => (None, 0),
+        };
 
-        let offset = query.limit.as_ref().map_or(0, |l| l.offset as usize);
-        let filter_simplified = query.filter.as_ref().map(|f| f.clone().simplify());
-
-        let mut acc = DeleteAccumulator::new(filter_simplified.as_ref(), offset, limit);
-
+        let filter = query.filter.as_ref().map(|f| f.clone().simplify());
+        let mut acc = DeleteAccumulator::new(filter.as_ref(), offset, limit);
         let mut scanned = 0u64;
+
         scan_strict::<E, _>(&self.db, plan, |dk, entity| {
-            scanned = scanned.saturating_add(1);
+            scanned += 1;
             if acc.should_stop(dk, entity) {
                 ControlFlow::Break(())
             } else {
@@ -282,69 +241,164 @@ impl<E: EntityKind> DeleteExecutor<E> {
             }
         })?;
 
-        // rows_scanned counts evaluated rows, not deleted rows
         sink::record(MetricsEvent::RowsScanned {
             entity_path: E::PATH,
             rows_scanned: scanned,
         });
 
-        let mut res: Vec<(Key, E)> = Vec::with_capacity(acc.matches.len());
-        self.db.context::<E>().with_store_mut(|s| {
-            // Non-atomic delete loop: partial deletions may persist on failure.
-            for (dk, entity) in acc.matches {
-                let _unit = WriteUnit::new("delete_row_non_atomic");
-                let raw = dk.to_raw();
-                s.remove(&raw);
-                if !E::INDEXES.is_empty() {
-                    self.remove_indexes(&entity)?;
+        if acc.matches.is_empty() {
+            set_rows_from_len(&mut span, 0);
+            return Ok(Response(Vec::new()));
+        }
+
+        let index_plans = self.build_index_plans()?;
+        let entities: Vec<&E> = acc.matches.iter().map(|(_, e)| e).collect();
+        let index_ops = Self::build_index_removal_ops(&index_plans, &entities)?;
+
+        let ctx = self.db.context::<E>();
+        ctx.with_store(|_| ())?;
+
+        let data_ops = acc
+            .matches
+            .iter()
+            .map(|(dk, _)| CommitDataOp {
+                store: E::Store::PATH.to_string(),
+                key: dk.to_raw().as_bytes().to_vec(),
+                value: None,
+            })
+            .collect();
+
+        let marker = CommitMarker::new(CommitKind::Delete, index_ops, data_ops)?;
+        let commit = begin_commit(marker)?;
+
+        finish_commit(
+            commit,
+            || {
+                for (_, entity) in &acc.matches {
+                    let _unit = WriteUnit::new("delete_row_stage1_atomic");
+                    for plan in &index_plans {
+                        let outcome = plan
+                            .store
+                            .with_borrow_mut(|s| s.remove_index_entry(entity, plan.index))
+                            .expect("index remove failed after prevalidation");
+                        if outcome == IndexRemoveOutcome::Removed {
+                            sink::record(MetricsEvent::IndexRemove {
+                                entity_path: E::PATH,
+                            });
+                        }
+                    }
                 }
-                res.push((dk.key(), entity));
-            }
+            },
+            || {
+                ctx.with_store_mut(|s| {
+                    for (dk, _) in &acc.matches {
+                        s.remove(&dk.to_raw());
+                    }
+                })
+                .expect("data store missing after preflight");
+            },
+        );
 
-            Ok::<_, InternalError>(())
-        })??;
-
+        let res = acc
+            .matches
+            .into_iter()
+            .map(|(dk, e)| (dk.key(), e))
+            .collect::<Vec<_>>();
         set_rows_from_len(&mut span, res.len());
 
         Ok(Response(res))
     }
 
-    fn remove_indexes(&self, entity: &E) -> Result<(), InternalError> {
-        for index in E::INDEXES {
-            let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
-            let removed = store.with_borrow_mut(|this| {
-                this.remove_index_entry(entity, index).map_err(|err| {
-                    ExecutorError::corruption(
-                        ErrorOrigin::Index,
-                        format!(
-                            "index corrupted: {} ({}) -> {}",
-                            E::PATH,
-                            index.fields.join(", "),
-                            err
-                        ),
-                    )
-                })
-            })?;
-            if removed == IndexRemoveOutcome::Removed {
-                sink::record(MetricsEvent::IndexRemove {
-                    entity_path: E::PATH,
+    // ─────────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────────
+
+    fn load_existing(&self, pk: E::PrimaryKey) -> Result<(DataKey, E), InternalError> {
+        let dk = DataKey::new::<E>(pk.into());
+        let row = self.db.context::<E>().read_strict(&dk)?;
+        let entity = row.try_decode::<E>().map_err(|err| {
+            ExecutorError::corruption(
+                ErrorOrigin::Serialize,
+                format!("failed to deserialize row: {dk} ({err})"),
+            )
+        })?;
+        Ok((dk, entity))
+    }
+
+    fn build_index_plans(&self) -> Result<Vec<IndexPlan>, InternalError> {
+        E::INDEXES
+            .iter()
+            .map(|index| {
+                let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
+                Ok(IndexPlan { index, store })
+            })
+            .collect()
+    }
+
+    fn build_index_removal_ops(
+        plans: &[IndexPlan],
+        entities: &[&E],
+    ) -> Result<Vec<CommitIndexOp>, InternalError> {
+        let mut ops = Vec::new();
+
+        for plan in plans {
+            let fields = plan.index.fields.join(", ");
+            let mut entries: BTreeMap<RawIndexKey, Option<IndexEntry>> = BTreeMap::new();
+
+            for entity in entities {
+                let Some(key) = IndexKey::new(*entity, plan.index) else {
+                    continue;
+                };
+                let raw_key = key.to_raw();
+
+                let entry = entries.entry(raw_key).or_insert_with(|| {
+                    plan.store
+                        .with_borrow(|s| s.get(&raw_key))
+                        .map(|raw| raw.try_decode())
+                        .transpose()
+                        .map_err(|err| {
+                            ExecutorError::corruption(
+                                ErrorOrigin::Index,
+                                format!("index corrupted: {} ({}) -> {}", E::PATH, fields, err),
+                            )
+                        })
+                        .unwrap()
+                });
+
+                if let Some(e) = entry.as_mut() {
+                    e.remove_key(&entity.key());
+                    if e.is_empty() {
+                        *entry = None;
+                    }
+                }
+            }
+
+            for (raw_key, entry) in entries {
+                let value = if let Some(entry) = entry {
+                    let raw = RawIndexEntry::try_from_entry(&entry).map_err(|err| {
+                        ExecutorError::corruption(
+                            ErrorOrigin::Index,
+                            format!(
+                                "index corrupted: {} ({}) -> {}",
+                                E::PATH,
+                                fields,
+                                IndexEntryCorruption::TooManyKeys { count: err.keys() }
+                            ),
+                        )
+                    })?;
+                    Some(raw.into_bytes())
+                } else {
+                    None
+                };
+
+                ops.push(CommitIndexOp {
+                    store: plan.index.store.to_string(),
+                    key: raw_key.as_bytes().to_vec(),
+                    value,
                 });
             }
         }
 
-        Ok(())
-    }
-
-    fn load_existing(&self, pk: E::PrimaryKey) -> Result<(DataKey, E), InternalError> {
-        let data_key = DataKey::new::<E>(pk.into());
-        let row = self.db.context::<E>().read_strict(&data_key)?;
-        let entity = row.try_decode::<E>().map_err(|err| {
-            ExecutorError::corruption(
-                ErrorOrigin::Serialize,
-                format!("failed to deserialize row: {data_key} ({err})"),
-            )
-        })?;
-
-        Ok((data_key, entity))
+        Ok(ops)
     }
 }
