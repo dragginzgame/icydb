@@ -5,6 +5,7 @@ pub mod primitives;
 pub mod query;
 pub mod response;
 pub mod store;
+pub mod traits;
 pub mod types;
 
 use crate::{
@@ -12,10 +13,11 @@ use crate::{
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor, UpsertExecutor},
         index::IndexStoreRegistry,
         store::DataStoreRegistry,
+        traits::FromKey,
     },
     error::InternalError,
     obs::sink::{self, MetricsSink},
-    traits::{CanisterKind, EntityKind, FromKey},
+    traits::{CanisterKind, EntityKind},
 };
 use std::{marker::PhantomData, thread::LocalKey};
 

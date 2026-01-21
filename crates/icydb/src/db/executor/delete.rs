@@ -6,9 +6,9 @@ use crate::{
         query::{DeleteQuery, QueryPlan},
         response::Response,
     },
-    traits::{EntityKind, FieldValue, FromKey},
+    traits::{EntityKind, FieldValue},
 };
-use icydb_core::{self as core};
+use icydb_core::{self as core, db::traits::FromKey};
 
 ///
 /// DeleteExecutor

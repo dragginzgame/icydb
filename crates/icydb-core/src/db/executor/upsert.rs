@@ -3,11 +3,12 @@ use crate::{
         Db,
         executor::{ExecutorError, SaveExecutor, resolve_unique_pk},
         store::DataKey,
+        traits::FromKey,
     },
     error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
     sanitize::sanitize,
-    traits::{EntityKind, FromKey},
+    traits::EntityKind,
 };
 use std::marker::PhantomData;
 

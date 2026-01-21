@@ -1,8 +1,7 @@
 use crate::{
-    key::Key,
     traits::{
-        FieldValue, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
+        View, Visitable,
     },
     value::Value,
 };
@@ -40,15 +39,6 @@ impl FieldValue for () {
 impl FieldValue for Unit {
     fn to_value(&self) -> Value {
         Value::Unit
-    }
-}
-
-impl FromKey for Unit {
-    fn try_from_key(key: Key) -> Option<Self> {
-        match key {
-            Key::Unit => Some(Self),
-            _ => None,
-        }
     }
 }
 

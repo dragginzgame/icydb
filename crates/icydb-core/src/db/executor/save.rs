@@ -2,18 +2,31 @@ use crate::{
     db::{
         Db,
         executor::{ExecutorError, WriteUnit},
-        index::{IndexInsertError, IndexInsertOutcome, IndexKey, IndexRemoveOutcome},
+        index::{
+            IndexEntry, IndexEntryCorruption, IndexInsertOutcome, IndexKey, IndexRemoveOutcome,
+            IndexStore, RawIndexEntry,
+        },
         query::{SaveMode, SaveQuery},
         store::{DataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
+    model::index::IndexModel,
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::{deserialize, serialize},
     traits::EntityKind,
     validate::validate,
 };
-use std::marker::PhantomData;
+use std::{cell::RefCell, marker::PhantomData, thread::LocalKey};
+
+///
+/// IndexApplyPlan
+///
+
+struct IndexApplyPlan {
+    index: &'static IndexModel,
+    store: &'static LocalKey<RefCell<IndexStore>>,
+}
 
 ///
 /// SaveExecutor
@@ -181,6 +194,9 @@ impl<E: EntityKind> SaveExecutor<E> {
         let bytes = serialize(&entity)?;
         let row = RawRow::try_new(bytes)?;
 
+        // Preflight data store availability before index mutations.
+        ctx.with_store(|_| ())?;
+
         // Partial-write window:
         // - Phase 1 uniqueness checks are safe (no mutation, retry-safe).
         // - Phase 2 mutates indexes; failures here can leave index divergence.
@@ -188,7 +204,8 @@ impl<E: EntityKind> SaveExecutor<E> {
         // Corruption risk exists if failures occur after index mutation.
         self.replace_indexes(old.as_ref(), &entity)?;
 
-        ctx.with_store_mut(|store| store.insert(raw_key, row))?;
+        ctx.with_store_mut(|store| store.insert(raw_key, row))
+            .expect("data store missing after preflight");
         span.set_rows(1);
 
         Ok(entity)
@@ -202,114 +219,30 @@ impl<E: EntityKind> SaveExecutor<E> {
     /// to avoid partial updates on uniqueness violations.
     #[allow(clippy::too_many_lines)]
     fn replace_indexes(&self, old: Option<&E>, new: &E) -> Result<(), InternalError> {
-        // Phase 1: validate uniqueness constraints without mutating.
-        for index in E::INDEXES {
-            if index.unique
-                && let Some(new_idx_key) = IndexKey::new(new, index)
-            {
-                let raw_key = new_idx_key.to_raw();
-                let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
-                let violates = store.with_borrow(|s| -> Result<bool, InternalError> {
-                    if let Some(existing) = s.get(&raw_key) {
-                        let entry = existing.try_decode().map_err(|err| {
-                            ExecutorError::corruption(
-                                ErrorOrigin::Index,
-                                format!(
-                                    "index corrupted: {} ({}) -> {}",
-                                    E::PATH,
-                                    index.fields.join(", "),
-                                    err
-                                ),
-                            )
-                        })?;
-                        if entry.len() > 1 {
-                            return Err(ExecutorError::corruption(
-                                ErrorOrigin::Index,
-                                format!(
-                                    "index corrupted: {} ({}) -> {} keys",
-                                    E::PATH,
-                                    index.fields.join(", "),
-                                    entry.len()
-                                ),
-                            )
-                            .into());
-                        }
-                        let new_entity_key = new.key();
-                        Ok(!entry.contains(&new_entity_key) && !entry.is_empty())
-                    } else {
-                        Ok(false)
-                    }
-                })?;
+        let plans = self.prevalidate_indexes(old, new)?;
 
-                if violates {
-                    sink::record(MetricsEvent::UniqueViolation {
-                        entity_path: E::PATH,
-                    });
-
-                    return Err(ExecutorError::index_violation(E::PATH, index.fields).into());
-                }
-            }
-        }
-
-        // Phase 2: apply mutations.
-        // Failure here can leave partial index updates (corruption risk).
-        for index in E::INDEXES {
-            let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
+        // FIRST STABLE WRITE: index mutations begin here; apply is infallible or traps.
+        for plan in plans {
             let mut removed = false;
             let mut inserted = false;
-            store.with_borrow_mut(|s| {
-                if let Some(old) = old
-                    && s.remove_index_entry(old, index).map_err(|err| {
-                        ExecutorError::corruption(
-                            ErrorOrigin::Index,
-                            format!(
-                                "index corrupted: {} ({}) -> {}",
-                                E::PATH,
-                                index.fields.join(", "),
-                                err
-                            ),
-                        )
-                    })? == IndexRemoveOutcome::Removed
-                {
-                    removed = true;
-                }
-                match s.insert_index_entry(new, index) {
-                    Ok(IndexInsertOutcome::Inserted) => {
-                        inserted = true;
-                    }
-                    Ok(IndexInsertOutcome::Skipped) => {}
-                    Err(IndexInsertError::UniqueViolation) => {
-                        sink::record(MetricsEvent::UniqueViolation {
-                            entity_path: E::PATH,
-                        });
-                        return Err(ExecutorError::index_violation(E::PATH, index.fields).into());
-                    }
-                    Err(IndexInsertError::CorruptedEntry(err)) => {
-                        return Err(ExecutorError::corruption(
-                            ErrorOrigin::Index,
-                            format!(
-                                "index corrupted: {} ({}) -> {}",
-                                E::PATH,
-                                index.fields.join(", "),
-                                err
-                            ),
-                        )
-                        .into());
-                    }
-                    Err(IndexInsertError::EntryTooLarge { keys }) => {
-                        return Err(InternalError::new(
-                            ErrorClass::Unsupported,
-                            ErrorOrigin::Index,
-                            format!(
-                                "index entry exceeds max keys: {} ({}) -> {keys} keys",
-                                E::PATH,
-                                index.fields.join(", ")
-                            ),
-                        ));
+
+            plan.store.with_borrow_mut(|s| {
+                if let Some(old) = old {
+                    let outcome = s
+                        .remove_index_entry(old, plan.index)
+                        .expect("index remove failed after prevalidation");
+                    if outcome == IndexRemoveOutcome::Removed {
+                        removed = true;
                     }
                 }
-                Ok::<(), InternalError>(())
-            })?;
+
+                let outcome = s
+                    .insert_index_entry(new, plan.index)
+                    .expect("index insert failed after prevalidation");
+                if outcome == IndexInsertOutcome::Inserted {
+                    inserted = true;
+                }
+            });
 
             if removed {
                 sink::record(MetricsEvent::IndexRemove {
@@ -322,6 +255,191 @@ impl<E: EntityKind> SaveExecutor<E> {
                     entity_path: E::PATH,
                 });
             }
+        }
+
+        Ok(())
+    }
+
+    fn prevalidate_indexes(
+        &self,
+        old: Option<&E>,
+        new: &E,
+    ) -> Result<Vec<IndexApplyPlan>, InternalError> {
+        let old_entity_key = old.map(|entity| entity.key());
+        let new_entity_key = new.key();
+        let mut plans = Vec::with_capacity(E::INDEXES.len());
+
+        for index in E::INDEXES {
+            let fields = index.fields.join(", ");
+            let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
+
+            let old_key = old.and_then(|entity| IndexKey::new(entity, index));
+            let new_key = IndexKey::new(new, index);
+            let old_raw = old_key.as_ref().map(IndexKey::to_raw);
+            let new_raw = new_key.as_ref().map(IndexKey::to_raw);
+
+            let mut old_entry: Option<IndexEntry> = None;
+            let mut new_entry: Option<IndexEntry> = None;
+
+            if let Some(raw_key) = &old_raw {
+                if let Some(raw_entry) = store.with_borrow(|s| s.get(raw_key)) {
+                    let entry = raw_entry.try_decode().map_err(|err| {
+                        ExecutorError::corruption(
+                            ErrorOrigin::Index,
+                            format!("index corrupted: {} ({}) -> {}", E::PATH, &fields, err),
+                        )
+                    })?;
+                    old_entry = Some(entry);
+                }
+            }
+
+            if let Some(raw_key) = &new_raw {
+                if old_raw.as_ref() == Some(raw_key) {
+                    new_entry = old_entry.clone();
+                } else if let Some(raw_entry) = store.with_borrow(|s| s.get(raw_key)) {
+                    let entry = raw_entry.try_decode().map_err(|err| {
+                        ExecutorError::corruption(
+                            ErrorOrigin::Index,
+                            format!("index corrupted: {} ({}) -> {}", E::PATH, &fields, err),
+                        )
+                    })?;
+                    new_entry = Some(entry);
+                }
+            }
+
+            if index.unique
+                && let Some(entry) = &new_entry
+            {
+                if entry.len() > 1 {
+                    return Err(ExecutorError::corruption(
+                        ErrorOrigin::Index,
+                        format!(
+                            "index corrupted: {} ({}) -> {} keys",
+                            E::PATH,
+                            &fields,
+                            entry.len()
+                        ),
+                    )
+                    .into());
+                }
+                if !entry.contains(&new_entity_key) && !entry.is_empty() {
+                    sink::record(MetricsEvent::UniqueViolation {
+                        entity_path: E::PATH,
+                    });
+
+                    return Err(ExecutorError::index_violation(E::PATH, index.fields).into());
+                }
+            }
+
+            let mut entry_after_remove: Option<IndexEntry> = None;
+            if let (Some(_old_key), Some(mut entry), Some(old_entity_key)) =
+                (old_key.as_ref(), old_entry.clone(), old_entity_key)
+            {
+                entry.remove_key(&old_entity_key);
+                if entry.is_empty() {
+                    entry_after_remove = None;
+                } else {
+                    let raw = RawIndexEntry::try_from_entry(&entry).map_err(|err| {
+                        ExecutorError::corruption(
+                            ErrorOrigin::Index,
+                            format!(
+                                "index corrupted: {} ({}) -> {}",
+                                E::PATH,
+                                &fields,
+                                IndexEntryCorruption::TooManyKeys { count: err.keys() }
+                            ),
+                        )
+                    })?;
+                    drop(raw);
+                    entry_after_remove = Some(entry);
+                }
+            }
+
+            if let Some(_new_key) = new_key.as_ref() {
+                let base_entry = if old_raw.is_some() && old_raw == new_raw {
+                    entry_after_remove.clone()
+                } else {
+                    new_entry.clone()
+                };
+
+                match base_entry {
+                    Some(mut entry) => {
+                        if index.unique {
+                            if entry.len() > 1 {
+                                return Err(ExecutorError::corruption(
+                                    ErrorOrigin::Index,
+                                    format!(
+                                        "index corrupted: {} ({}) -> {} keys",
+                                        E::PATH,
+                                        &fields,
+                                        entry.len()
+                                    ),
+                                )
+                                .into());
+                            }
+                            if entry.contains(&new_entity_key) {
+                                // Skip (no mutation).
+                            } else if !entry.is_empty() {
+                                sink::record(MetricsEvent::UniqueViolation {
+                                    entity_path: E::PATH,
+                                });
+
+                                return Err(
+                                    ExecutorError::index_violation(E::PATH, index.fields).into()
+                                );
+                            } else {
+                                let entry = IndexEntry::new(new_entity_key);
+                                let raw = RawIndexEntry::try_from_entry(&entry).map_err(|err| {
+                                    InternalError::new(
+                                        ErrorClass::Unsupported,
+                                        ErrorOrigin::Index,
+                                        format!(
+                                            "index entry exceeds max keys: {} ({}) -> {} keys",
+                                            E::PATH,
+                                            &fields,
+                                            err.keys()
+                                        ),
+                                    )
+                                })?;
+                                drop(raw);
+                            }
+                        } else {
+                            entry.insert_key(new_entity_key);
+                            let raw = RawIndexEntry::try_from_entry(&entry).map_err(|err| {
+                                InternalError::new(
+                                    ErrorClass::Unsupported,
+                                    ErrorOrigin::Index,
+                                    format!(
+                                        "index entry exceeds max keys: {} ({}) -> {} keys",
+                                        E::PATH,
+                                        &fields,
+                                        err.keys()
+                                    ),
+                                )
+                            })?;
+                            drop(raw);
+                        }
+                    }
+                    None => {
+                        let entry = IndexEntry::new(new_entity_key);
+                        let raw = RawIndexEntry::try_from_entry(&entry).map_err(|err| {
+                            InternalError::new(
+                                ErrorClass::Unsupported,
+                                ErrorOrigin::Index,
+                                format!(
+                                    "index entry exceeds max keys: {} ({}) -> {} keys",
+                                    E::PATH,
+                                    &fields,
+                                    err.keys()
+                                ),
+                            )
+                        })?;
+                        drop(raw);
+                    }
+                }
+            }
+
+            plans.push(IndexApplyPlan { index, store });
         }
 
         Ok(())

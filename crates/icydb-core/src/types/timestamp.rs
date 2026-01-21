@@ -1,8 +1,7 @@
 use crate::{
-    key::Key,
     traits::{
-        FieldValue, FromKey, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
 };
@@ -114,15 +113,6 @@ impl FieldValue for Timestamp {
 impl From<u64> for Timestamp {
     fn from(u: u64) -> Self {
         Self(u)
-    }
-}
-
-impl FromKey for Timestamp {
-    fn try_from_key(key: Key) -> Option<Self> {
-        match key {
-            Key::Timestamp(v) => Some(v),
-            _ => None,
-        }
     }
 }
 

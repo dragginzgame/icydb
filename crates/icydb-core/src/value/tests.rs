@@ -5,7 +5,7 @@ use crate::{
     prelude::*,
     traits::{FieldValue, NumFromPrimitive},
     types::{Decimal, E8s, E18s, Float32 as F32, Float64 as F64, Ulid},
-    value::{TextMode, Value, ValueEnum},
+    value::{TextMode, Value},
 };
 use std::{cmp::Ordering, str::FromStr};
 
@@ -30,98 +30,12 @@ fn v_txt(s: &str) -> Value {
     Value::Text(s.to_string())
 }
 
-// ---- hashing -----------------------------------------------------------
-
-#[test]
-fn hash_is_deterministic_for_int() {
-    let v = Value::Int(42);
-    let a = v.hash_value();
-    let b = v.hash_value();
-    assert_eq!(a, b, "hash should be deterministic for same value");
-}
-
-#[test]
-fn different_variants_produce_different_hashes() {
-    let a = Value::Int(5).hash_value();
-    let b = Value::Uint(5).hash_value();
-    assert_ne!(
-        a, b,
-        "Int(5) and Uint(5) must hash differently (different tag)"
-    );
-}
-
-#[test]
-fn enum_hash_tracks_path_presence() {
-    let strict = Value::Enum(ValueEnum::new("A", Some("MyEnum")));
-    let loose = Value::Enum(ValueEnum::new("A", None));
-    assert_ne!(
-        strict.hash_value(),
-        loose.hash_value(),
-        "Enum hashes must differ when path is present vs absent"
-    );
-}
-
-#[test]
-fn enum_hash_includes_payload() {
-    let base = ValueEnum::new("A", Some("MyEnum"));
-    let with_one = Value::Enum(base.clone().with_payload(Value::Uint(1)));
-    let with_two = Value::Enum(base.with_payload(Value::Uint(2)));
-
-    assert_ne!(
-        with_one.hash_value(),
-        with_two.hash_value(),
-        "Enum payload must influence hash/fingerprint"
-    );
-}
-
 #[test]
 fn vec_box_value_field_value() {
     let inner = Value::Uint(5);
     let vec: Vec<Box<Value>> = vec![Box::new(inner.clone())];
     let value = FieldValue::to_value(&vec);
     assert_eq!(value, Value::List(vec![inner]));
-}
-
-#[test]
-fn float32_and_float64_hash_differ() {
-    let a = v_f32(1.0).hash_value();
-    let b = v_f64(1.0).hash_value();
-    assert_ne!(
-        a, b,
-        "Float32 and Float64 must hash differently (different tag)"
-    );
-}
-
-#[test]
-fn text_is_length_and_content_sensitive() {
-    let a = v_txt("foo").hash_value();
-    let b = v_txt("bar").hash_value();
-    assert_ne!(a, b, "different strings should hash differently");
-
-    let c = v_txt("foo").hash_value();
-    assert_eq!(a, c, "same string should hash the same");
-}
-
-#[test]
-fn list_hash_is_order_sensitive() {
-    let l1 = Value::from_list(&[v_i(1), v_i(2)]);
-    let l2 = Value::from_list(&[v_i(2), v_i(1)]);
-    assert_ne!(
-        l1.hash_value(),
-        l2.hash_value(),
-        "list order should affect hash"
-    );
-}
-
-#[test]
-fn list_hash_is_length_sensitive() {
-    let l1 = Value::from_list(&[v_i(1)]);
-    let l2 = Value::from_list(&[v_i(1), v_i(1)]);
-    assert_ne!(
-        l1.hash_value(),
-        l2.hash_value(),
-        "list length should affect hash"
-    );
 }
 
 // ---- keys --------------------------------------------------------------

@@ -1,8 +1,8 @@
 use crate::{
-    db::{Db, executor::ExecutorError, index::IndexKey, store::DataKey},
+    db::{Db, executor::ExecutorError, index::IndexKey, store::DataKey, traits::FromKey},
     error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
-    traits::{EntityKind, FromKey},
+    traits::EntityKind,
 };
 
 /// Resolve the primary key for a unique index, if an entry exists.

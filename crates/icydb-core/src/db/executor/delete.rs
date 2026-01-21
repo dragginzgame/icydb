@@ -11,12 +11,13 @@ use crate::{
         query::{DeleteQuery, QueryPlan, QueryValidate},
         response::Response,
         store::DataKey,
+        traits::FromKey,
     },
     error::{ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     sanitize::sanitize,
-    traits::{EntityKind, FieldValue, FromKey},
+    traits::{EntityKind, FieldValue},
 };
 use std::{marker::PhantomData, ops::ControlFlow};
 

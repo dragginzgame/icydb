@@ -1,8 +1,7 @@
 use crate::{
-    key::Key,
     traits::{
-        FieldValue, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
+        View, Visitable,
     },
     types::{Principal, Subaccount},
     value::Value,
@@ -171,15 +170,6 @@ impl From<IcrcAccount> for Account {
         Self {
             owner: acc.owner.into(),
             subaccount: acc.subaccount.map(Into::into),
-        }
-    }
-}
-
-impl FromKey for Account {
-    fn try_from_key(key: Key) -> Option<Self> {
-        match key {
-            Key::Account(v) => Some(v),
-            _ => None,
         }
     }
 }

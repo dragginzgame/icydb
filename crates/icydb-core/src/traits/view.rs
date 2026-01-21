@@ -318,11 +318,3 @@ macro_rules! impl_update_view {
 }
 
 impl_update_view!(bool, i8, i16, i32, i64, u8, u16, u32, u64, String);
-
-///
-/// FilterView
-///
-
-pub trait FilterView {
-    type FilterViewType: Default + crate::db::primitives::IntoFilterExpr;
-}

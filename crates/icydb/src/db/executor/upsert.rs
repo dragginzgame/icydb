@@ -1,9 +1,9 @@
 use crate::{
     Error,
     db::{UniqueIndexHandle, map_runtime},
-    traits::{EntityKind, FromKey},
+    traits::EntityKind,
 };
-use icydb_core::{self as core};
+use icydb_core::{self as core, db::traits::FromKey};
 
 // re-exports
 pub use core::db::executor::UpsertResult;

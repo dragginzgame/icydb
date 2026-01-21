@@ -1,6 +1,5 @@
 //! Semantic classification for `Value`.
 //!
-//! `ValueTag` is a hashing/serialization enum (repr(u8)).
 //! This module adds a *semantic* layer so filter/coercion logic
 //! can decide:
 //!   - which values are numeric
@@ -64,7 +63,7 @@ impl ValueFamily {
 }
 
 ///
-/// Extension trait mapping `ValueTag → ValueFamily`.
+/// Extension trait mapping `Value` to `ValueFamily`.
 ///
 
 pub trait ValueFamilyExt {

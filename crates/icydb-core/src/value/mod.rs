@@ -1,4 +1,3 @@
-mod bytes;
 mod family;
 
 #[cfg(test)]
@@ -251,15 +250,6 @@ impl Value {
             }
 
             _ => None,
-        }
-    }
-
-    #[must_use]
-    /// Stable 128-bit hash used for index keys; returns `None` for non-indexable values.
-    pub fn to_index_fingerprint(&self) -> Option<[u8; 16]> {
-        match self {
-            Self::None | Self::Unsupported => None,
-            _ => Some(self.hash_value()),
         }
     }
 

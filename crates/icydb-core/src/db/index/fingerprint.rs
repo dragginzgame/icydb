@@ -1,0 +1,354 @@
+use crate::value::Value;
+use canic_utils::hash::Xxh3;
+
+///
+/// ValueTag
+///
+/// Can we remove ValueTag?
+/// Yes, technically.
+///
+/// Should we?
+/// Almost certainly no, unless you control all serialization + don't need hashing + don't care about stability.
+///
+/// Why keep it?
+/// Binary stability, hashing, sorting, versioning, IC-safe ABI, robustness.
+///
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ValueTag {
+    Account = 1,
+    Blob = 2,
+    Bool = 3,
+    Date = 4,
+    Decimal = 5,
+    Duration = 6,
+    Enum = 7,
+    E8s = 8,
+    E18s = 9,
+    Float32 = 10,
+    Float64 = 11,
+    Int = 12,
+    Int128 = 13,
+    IntBig = 14,
+    List = 15,
+    None = 16,
+    Principal = 17,
+    Subaccount = 18,
+    Text = 19,
+    Timestamp = 20,
+    Uint = 21,
+    Uint128 = 22,
+    UintBig = 23,
+    Ulid = 24,
+    Unit = 25,
+    Unsupported = 26,
+}
+
+impl ValueTag {
+    #[must_use]
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+///
+/// Canonical Byte Representation
+///
+
+const fn value_tag(value: &Value) -> u8 {
+    match value {
+        Value::Account(_) => ValueTag::Account,
+        Value::Blob(_) => ValueTag::Blob,
+        Value::Bool(_) => ValueTag::Bool,
+        Value::Date(_) => ValueTag::Date,
+        Value::Decimal(_) => ValueTag::Decimal,
+        Value::Duration(_) => ValueTag::Duration,
+        Value::Enum(_) => ValueTag::Enum,
+        Value::E8s(_) => ValueTag::E8s,
+        Value::E18s(_) => ValueTag::E18s,
+        Value::Float32(_) => ValueTag::Float32,
+        Value::Float64(_) => ValueTag::Float64,
+        Value::Int(_) => ValueTag::Int,
+        Value::Int128(_) => ValueTag::Int128,
+        Value::IntBig(_) => ValueTag::IntBig,
+        Value::List(_) => ValueTag::List,
+        Value::None => ValueTag::None,
+        Value::Principal(_) => ValueTag::Principal,
+        Value::Subaccount(_) => ValueTag::Subaccount,
+        Value::Text(_) => ValueTag::Text,
+        Value::Timestamp(_) => ValueTag::Timestamp,
+        Value::Uint(_) => ValueTag::Uint,
+        Value::Uint128(_) => ValueTag::Uint128,
+        Value::UintBig(_) => ValueTag::UintBig,
+        Value::Ulid(_) => ValueTag::Ulid,
+        Value::Unit => ValueTag::Unit,
+        Value::Unsupported => ValueTag::Unsupported,
+    }
+    .to_u8()
+}
+
+fn feed_i32(h: &mut Xxh3, x: i32) {
+    h.update(&x.to_be_bytes());
+}
+fn feed_i64(h: &mut Xxh3, x: i64) {
+    h.update(&x.to_be_bytes());
+}
+fn feed_i128(h: &mut Xxh3, x: i128) {
+    h.update(&x.to_be_bytes());
+}
+fn feed_u8(h: &mut Xxh3, x: u8) {
+    h.update(&[x]);
+}
+fn feed_u32(h: &mut Xxh3, x: u32) {
+    h.update(&x.to_be_bytes());
+}
+fn feed_u64(h: &mut Xxh3, x: u64) {
+    h.update(&x.to_be_bytes());
+}
+fn feed_u128(h: &mut Xxh3, x: u128) {
+    h.update(&x.to_be_bytes());
+}
+fn feed_bytes(h: &mut Xxh3, b: &[u8]) {
+    h.update(b);
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn write_to_hasher(value: &Value, h: &mut Xxh3) {
+    feed_u8(h, value_tag(value));
+
+    match value {
+        Value::Account(a) => {
+            feed_bytes(h, &a.to_bytes());
+        }
+        Value::Blob(v) => {
+            feed_u8(h, 0x01);
+            feed_bytes(h, v);
+        }
+        Value::Bool(b) => {
+            feed_u8(h, u8::from(*b));
+        }
+        Value::Date(d) => feed_i32(h, d.get()),
+        Value::Decimal(d) => {
+            // encode (sign, scale, mantissa) deterministically:
+            feed_u8(h, u8::from(d.is_sign_negative()));
+            feed_u32(h, d.scale());
+            feed_bytes(h, &d.mantissa().to_be_bytes());
+        }
+        Value::Duration(t) => {
+            feed_u64(h, t.get());
+        }
+        Value::Enum(v) => {
+            match &v.path {
+                Some(path) => {
+                    feed_u8(h, 0x01); // path present
+                    feed_u32(h, path.len() as u32);
+                    feed_bytes(h, path.as_bytes());
+                }
+                None => feed_u8(h, 0x00), // path absent -> loose match
+            }
+
+            feed_u32(h, v.variant.len() as u32);
+            feed_bytes(h, v.variant.as_bytes());
+
+            match &v.payload {
+                Some(payload) => {
+                    feed_u8(h, 0x01); // payload present
+                    write_to_hasher(payload, h); // include nested value
+                }
+                None => feed_u8(h, 0x00),
+            }
+        }
+        Value::E8s(v) => {
+            feed_u64(h, v.get());
+        }
+        Value::E18s(v) => {
+            feed_bytes(h, &v.to_be_bytes());
+        }
+        Value::Float32(v) => {
+            feed_bytes(h, &v.to_be_bytes());
+        }
+        Value::Float64(v) => {
+            feed_bytes(h, &v.to_be_bytes());
+        }
+        Value::Int(i) => {
+            feed_i64(h, *i);
+        }
+        Value::Int128(i) => {
+            feed_i128(h, i.get());
+        }
+        Value::IntBig(v) => {
+            feed_bytes(h, &v.to_leb128());
+        }
+        Value::List(xs) => {
+            feed_u32(h, xs.len() as u32);
+            for x in xs {
+                feed_u8(h, 0xFF);
+                write_to_hasher(x, h); // recurse, no sub-hash
+            }
+        }
+        Value::Principal(p) => {
+            let raw = p.as_slice();
+            feed_u32(h, raw.len() as u32);
+            feed_bytes(h, raw);
+        }
+        Value::Subaccount(s) => {
+            feed_bytes(h, &s.to_bytes());
+        }
+        Value::Text(s) => {
+            // If you need case/Unicode insensitivity, normalize; else skip (much faster)
+            // let norm = normalize_nfkc_casefold(s);
+            // feed_u32( h, norm.len() as u32);
+            // feed_bytes( h, norm.as_bytes());
+            feed_u32(h, s.len() as u32);
+            feed_bytes(h, s.as_bytes());
+        }
+        Value::Timestamp(t) => {
+            feed_u64(h, t.get());
+        }
+        Value::Uint(u) => {
+            feed_u64(h, *u);
+        }
+        Value::Uint128(u) => {
+            feed_u128(h, u.get());
+        }
+        Value::UintBig(v) => {
+            feed_bytes(h, &v.to_leb128());
+        }
+        Value::Ulid(u) => {
+            feed_bytes(h, &u.to_bytes());
+        }
+        Value::None | Value::Unit | Value::Unsupported => {}
+    }
+}
+
+#[must_use]
+/// Stable hash used for index/storage fingerprints.
+pub fn hash_value(value: &Value) -> [u8; 16] {
+    const VERSION: u8 = 1;
+
+    let mut h = Xxh3::with_seed(0);
+    feed_u8(&mut h, VERSION); // version
+
+    write_to_hasher(value, &mut h);
+    h.digest128().to_be_bytes()
+}
+
+#[must_use]
+/// Stable 128-bit hash used for index keys; returns `None` for non-indexable values.
+pub fn to_index_fingerprint(value: &Value) -> Option<[u8; 16]> {
+    match value {
+        Value::None | Value::Unsupported => None,
+        _ => Some(hash_value(value)),
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        types::{Float32 as F32, Float64 as F64},
+        value::{Value, ValueEnum},
+    };
+
+    fn v_f64(x: f64) -> Value {
+        Value::Float64(F64::try_new(x).expect("finite f64"))
+    }
+    fn v_f32(x: f32) -> Value {
+        Value::Float32(F32::try_new(x).expect("finite f32"))
+    }
+    fn v_i(x: i64) -> Value {
+        Value::Int(x)
+    }
+    fn v_txt(s: &str) -> Value {
+        Value::Text(s.to_string())
+    }
+
+    #[test]
+    fn hash_is_deterministic_for_int() {
+        let v = Value::Int(42);
+        let a = hash_value(&v);
+        let b = hash_value(&v);
+        assert_eq!(a, b, "hash should be deterministic for same value");
+    }
+
+    #[test]
+    fn different_variants_produce_different_hashes() {
+        let a = hash_value(&Value::Int(5));
+        let b = hash_value(&Value::Uint(5));
+        assert_ne!(
+            a, b,
+            "Int(5) and Uint(5) must hash differently (different tag)"
+        );
+    }
+
+    #[test]
+    fn enum_hash_tracks_path_presence() {
+        let strict = Value::Enum(ValueEnum::new("A", Some("MyEnum")));
+        let loose = Value::Enum(ValueEnum::new("A", None));
+        assert_ne!(
+            hash_value(&strict),
+            hash_value(&loose),
+            "Enum hashes must differ when path is present vs absent"
+        );
+    }
+
+    #[test]
+    fn enum_hash_includes_payload() {
+        let base = ValueEnum::new("A", Some("MyEnum"));
+        let with_one = Value::Enum(base.clone().with_payload(Value::Uint(1)));
+        let with_two = Value::Enum(base.with_payload(Value::Uint(2)));
+
+        assert_ne!(
+            hash_value(&with_one),
+            hash_value(&with_two),
+            "Enum payload must influence hash/fingerprint"
+        );
+    }
+
+    #[test]
+    fn float32_and_float64_hash_differ() {
+        let a = hash_value(&v_f32(1.0));
+        let b = hash_value(&v_f64(1.0));
+        assert_ne!(
+            a, b,
+            "Float32 and Float64 must hash differently (different tag)"
+        );
+    }
+
+    #[test]
+    fn text_is_length_and_content_sensitive() {
+        let a = hash_value(&v_txt("foo"));
+        let b = hash_value(&v_txt("bar"));
+        assert_ne!(a, b, "different strings should hash differently");
+
+        let c = hash_value(&v_txt("foo"));
+        assert_eq!(a, c, "same string should hash the same");
+    }
+
+    #[test]
+    fn list_hash_is_order_sensitive() {
+        let l1 = Value::from_list(&[v_i(1), v_i(2)]);
+        let l2 = Value::from_list(&[v_i(2), v_i(1)]);
+        assert_ne!(
+            hash_value(&l1),
+            hash_value(&l2),
+            "list order should affect hash"
+        );
+    }
+
+    #[test]
+    fn list_hash_is_length_sensitive() {
+        let l1 = Value::from_list(&[v_i(1)]);
+        let l2 = Value::from_list(&[v_i(1), v_i(1)]);
+        assert_ne!(
+            hash_value(&l1),
+            hash_value(&l2),
+            "list length should affect hash"
+        );
+    }
+}

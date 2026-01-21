@@ -1,8 +1,7 @@
 use crate::{
-    key::Key,
     traits::{
-        FieldValue, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
+        View, Visitable,
     },
     types::{Principal, Ulid},
     value::Value,
@@ -150,15 +149,6 @@ impl From<Subaccount> for SubaccountBytes {
 impl From<SubaccountBytes> for Subaccount {
     fn from(wrap: SubaccountBytes) -> Self {
         Self(wrap)
-    }
-}
-
-impl FromKey for Subaccount {
-    fn try_from_key(key: Key) -> Option<Self> {
-        match key {
-            Key::Subaccount(v) => Some(v),
-            _ => None,
-        }
     }
 }
 

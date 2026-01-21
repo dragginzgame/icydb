@@ -1,5 +1,8 @@
 use crate::{
-    db::primitives::filter::{Cmp, FilterExpr},
+    db::{
+        index::fingerprint,
+        primitives::filter::{Cmp, FilterExpr},
+    },
     prelude::*,
     traits::EntityKind,
 };
@@ -153,7 +156,7 @@ impl QueryPlanner {
 
             for field in index.fields {
                 if let Some(v) = Self::find_eq_value(filter, field) {
-                    if v.to_index_fingerprint().is_none() {
+                    if fingerprint::to_index_fingerprint(&v).is_none() {
                         unusable = true;
                         break;
                     }

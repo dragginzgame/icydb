@@ -2,10 +2,9 @@ pub mod fixture;
 pub mod generator;
 
 use crate::{
-    key::Key,
     traits::{
-        FieldValue, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
+        View, Visitable,
     },
     value::Value,
     visitor::VisitorContext,
@@ -154,15 +153,6 @@ impl FieldValue for Ulid {
 impl From<WrappedUlid> for Ulid {
     fn from(ulid: WrappedUlid) -> Self {
         Self(ulid)
-    }
-}
-
-impl FromKey for Ulid {
-    fn try_from_key(key: Key) -> Option<Self> {
-        match key {
-            Key::Ulid(v) => Some(v),
-            _ => None,
-        }
     }
 }
 

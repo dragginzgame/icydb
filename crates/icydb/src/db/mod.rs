@@ -6,10 +6,12 @@ use crate::{
         },
         response::Response,
     },
-    traits::{CanisterKind, EntityKind, FromKey},
+    traits::{CanisterKind, EntityKind},
 };
 use core::obs::sink::MetricsSink;
-use icydb_core::{self as core, error::InternalError, model::index::IndexModel};
+use icydb_core::{
+    self as core, db::traits::FromKey, error::InternalError, model::index::IndexModel,
+};
 
 ///
 /// Re-exports

@@ -1,6 +1,9 @@
 use crate::{
     MAX_INDEX_FIELDS,
-    db::identity::{EntityName, IndexName},
+    db::{
+        identity::{EntityName, IndexName},
+        index::fingerprint,
+    },
     prelude::{EntityKind, IndexModel},
     traits::Storable,
 };
@@ -63,7 +66,7 @@ impl IndexKey {
 
         for field in index.fields {
             let value = entity.get_value(field)?;
-            let fp = value.to_index_fingerprint()?;
+            let fp = fingerprint::to_index_fingerprint(&value)?;
             values[len] = fp;
             len += 1;
         }

@@ -2,6 +2,7 @@ use crate::{
     db::{
         index::{
             entry::{IndexEntry, IndexEntryCorruption, MAX_INDEX_ENTRY_KEYS, RawIndexEntry},
+            fingerprint,
             key::{IndexId, IndexKey, RawIndexKey},
         },
         store::{DataKey, StoreRegistry},
@@ -172,7 +173,7 @@ impl IndexStore {
 
         let Some(fps) = prefix
             .iter()
-            .map(Value::to_index_fingerprint)
+            .map(fingerprint::to_index_fingerprint)
             .collect::<Option<Vec<_>>>()
         else {
             return Ok(out);

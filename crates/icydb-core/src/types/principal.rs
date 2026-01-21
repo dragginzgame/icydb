@@ -1,8 +1,7 @@
 use crate::{
-    key::Key,
     traits::{
-        FieldValue, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
+        View, Visitable,
     },
     value::Value,
 };
@@ -139,15 +138,6 @@ impl From<&WrappedPrincipal> for Principal {
 impl From<Principal> for WrappedPrincipal {
     fn from(p: Principal) -> Self {
         *p
-    }
-}
-
-impl FromKey for Principal {
-    fn try_from_key(key: Key) -> Option<Self> {
-        match key {
-            Key::Principal(v) => Some(v),
-            _ => None,
-        }
     }
 }
 
