@@ -5,6 +5,7 @@ pub mod merge;
 pub mod newtype;
 pub mod relation;
 pub mod sanitize;
+pub mod store;
 pub mod validate;
 pub mod view_into;
 

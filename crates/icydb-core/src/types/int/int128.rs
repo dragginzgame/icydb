@@ -1,9 +1,8 @@
 use crate::{
-    db::primitives::{IntListFilterKind, IntRangeFilterKind},
     prelude::*,
     traits::{
-        FieldValue, Filterable, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
 };
 use candid::CandidType;
@@ -49,11 +48,6 @@ impl FieldValue for Int128 {
     fn to_value(&self) -> Value {
         Value::Int128(*self)
     }
-}
-
-impl Filterable for Int128 {
-    type Filter = IntRangeFilterKind;
-    type ListFilter = IntListFilterKind;
 }
 
 #[allow(clippy::cast_lossless)]
@@ -201,17 +195,16 @@ impl Visitable for Int128 {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::serialize::{deserialize, serialize};
 
     fn roundtrip(v: i128) {
         let int128: Int128 = v.into();
 
         // serialize
-        let bytes = serialize(&int128).expect("serialize failed");
+        let bytes = crate::serialize::serialize(&int128).expect("serialize failed");
 
         // must be length-prefixed
         // so length = 16 + 1/2 bytes overhead, but we just check round-trip.
-        let decoded: Int128 = deserialize(&bytes).expect("deserialize failed");
+        let decoded: Int128 = crate::serialize::deserialize(&bytes).expect("deserialize failed");
 
         assert_eq!(decoded, int128, "roundtrip failed for {v}");
 
@@ -239,7 +232,7 @@ mod tests {
     #[test]
     fn test_manual_encoding() {
         let v: Int128 = 42.into();
-        let bytes = serialize(&v).unwrap();
+        let bytes = crate::serialize::serialize(&v).unwrap();
         let encoded_inner = &bytes[bytes.len() - 16..];
         assert_eq!(encoded_inner, &42i128.to_be_bytes());
     }

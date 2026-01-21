@@ -69,8 +69,7 @@ impl<K, V> From<(K, Option<V>)> for MapPatch<K, V> {
 
 #[cfg(test)]
 mod test {
-    use super::{ListPatch, MapPatch, SetPatch};
-    use crate::traits::UpdateView;
+    use super::*;
     use std::collections::{HashMap, HashSet};
 
     #[test]

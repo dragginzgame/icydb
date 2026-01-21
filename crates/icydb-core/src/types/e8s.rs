@@ -1,8 +1,7 @@
 use crate::{
-    db::primitives::{Nat64ListFilterKind, Nat64RangeFilterKind},
     traits::{
-        FieldValue, Filterable, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -129,11 +128,6 @@ impl FieldValue for E8s {
     fn to_value(&self) -> Value {
         Value::E8s(*self)
     }
-}
-
-impl Filterable for E8s {
-    type Filter = Nat64RangeFilterKind;
-    type ListFilter = Nat64ListFilterKind;
 }
 
 #[allow(clippy::cast_possible_wrap)]

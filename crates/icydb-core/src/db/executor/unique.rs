@@ -1,9 +1,5 @@
 use crate::{
-    db::{
-        Db,
-        executor::ExecutorError,
-        store::{DataKey, IndexKey},
-    },
+    db::{Db, executor::ExecutorError, index::IndexKey, store::DataKey},
     error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
     traits::{EntityKind, FromKey},

@@ -1,8 +1,7 @@
 use crate::{
-    db::primitives::{NatListFilterKind, NatRangeFilterKind},
     traits::{
-        FieldValue, Filterable, Inner, NumCast, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, Inner, NumCast, NumToPrimitive, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
 };
@@ -49,11 +48,6 @@ impl FieldValue for Nat128 {
     fn to_value(&self) -> Value {
         Value::Uint128(*self)
     }
-}
-
-impl Filterable for Nat128 {
-    type Filter = NatRangeFilterKind;
-    type ListFilter = NatListFilterKind;
 }
 
 impl From<u128> for Nat128 {
@@ -183,17 +177,16 @@ impl Visitable for Nat128 {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::serialize::{deserialize, serialize};
 
     fn roundtrip(v: u128) {
         let nat128: Nat128 = v.into();
 
         // serialize
-        let bytes = serialize(&nat128).expect("serialize failed");
+        let bytes = crate::serialize::serialize(&nat128).expect("serialize failed");
 
         // must be length-prefixed
         // so length = 16 + 1/2 bytes overhead, but we just check round-trip.
-        let decoded: Nat128 = deserialize(&bytes).expect("deserialize failed");
+        let decoded: Nat128 = crate::serialize::deserialize(&bytes).expect("deserialize failed");
 
         assert_eq!(decoded, nat128, "roundtrip failed for {v}");
 
@@ -218,7 +211,7 @@ mod tests {
     #[test]
     fn test_manual_encoding() {
         let v: Nat128 = 42.into();
-        let bytes = serialize(&v).unwrap();
+        let bytes = crate::serialize::serialize(&v).unwrap();
         let encoded_inner = &bytes[bytes.len() - 16..];
         assert_eq!(encoded_inner, &42i128.to_be_bytes());
     }

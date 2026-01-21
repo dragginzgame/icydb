@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{imp::*, prelude::*};
 
 ///
 /// Store
@@ -63,8 +63,6 @@ impl HasTraits for Store {
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
-        use crate::imp::*;
-
         match t {
             TraitKind::StoreKind => StoreKindTrait::strategy(self),
             _ => None,

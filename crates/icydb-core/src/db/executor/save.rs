@@ -2,8 +2,9 @@ use crate::{
     db::{
         Db,
         executor::{ExecutorError, WriteUnit},
+        index::{IndexInsertError, IndexInsertOutcome, IndexKey, IndexRemoveOutcome},
         query::{SaveMode, SaveQuery},
-        store::{DataKey, IndexInsertError, IndexInsertOutcome, IndexRemoveOutcome, RawRow},
+        store::{DataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
@@ -201,8 +202,6 @@ impl<E: EntityKind> SaveExecutor<E> {
     /// to avoid partial updates on uniqueness violations.
     #[allow(clippy::too_many_lines)]
     fn replace_indexes(&self, old: Option<&E>, new: &E) -> Result<(), InternalError> {
-        use crate::db::store::IndexKey;
-
         // Phase 1: validate uniqueness constraints without mutating.
         for index in E::INDEXES {
             if index.unique

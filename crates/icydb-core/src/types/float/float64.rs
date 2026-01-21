@@ -1,9 +1,8 @@
 use crate::{
-    db::primitives::{DecimalListFilterKind, DecimalRangeFilterKind},
     prelude::*,
     traits::{
-        FieldValue, Filterable, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
 };
 use candid::CandidType;
@@ -87,11 +86,6 @@ impl FieldValue for Float64 {
     fn to_value(&self) -> Value {
         Value::Float64(*self)
     }
-}
-
-impl Filterable for Float64 {
-    type Filter = DecimalRangeFilterKind;
-    type ListFilter = DecimalListFilterKind;
 }
 
 impl From<i32> for Float64 {
@@ -231,6 +225,10 @@ impl<'de> Deserialize<'de> for Float64 {
             .ok_or_else(|| serde::de::Error::custom(format!("invalid Float64 value: {value}")))
     }
 }
+
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {

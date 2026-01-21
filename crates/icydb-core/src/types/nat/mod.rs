@@ -3,10 +3,9 @@ mod nat128;
 pub use nat128::*;
 
 use crate::{
-    db::primitives::{NatListFilterKind, NatRangeFilterKind},
     traits::{
-        FieldValue, Filterable, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
+        View, Visitable,
     },
     value::Value,
 };
@@ -57,11 +56,6 @@ impl FieldValue for Nat {
     fn to_value(&self) -> Value {
         Value::UintBig(self.clone())
     }
-}
-
-impl Filterable for Nat {
-    type Filter = NatRangeFilterKind;
-    type ListFilter = NatListFilterKind;
 }
 
 impl From<i32> for Nat {

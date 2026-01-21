@@ -1,4 +1,5 @@
 use crate::{
+    imp::*,
     node::traits::{HasDef, HasSchema},
     prelude::*,
 };
@@ -124,8 +125,6 @@ impl HasTraits for Newtype {
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
-        use crate::imp::*;
-
         match t {
             TraitKind::PartialEq => PartialEqTrait::strategy(self).map(|s| s.with_derive(t)),
             TraitKind::PartialOrd => PartialOrdTrait::strategy(self).map(|s| s.with_derive(t)),

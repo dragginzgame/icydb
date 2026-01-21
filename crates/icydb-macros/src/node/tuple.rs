@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{imp::*, prelude::*};
 
 ///
 /// Tuple
@@ -68,8 +68,6 @@ impl HasTraits for Tuple {
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
-        use crate::imp::*;
-
         match t {
             TraitKind::Filterable => FilterableTrait::strategy(self),
             TraitKind::UpdateView => UpdateViewTrait::strategy(self),

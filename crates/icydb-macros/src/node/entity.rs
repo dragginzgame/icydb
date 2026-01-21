@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{imp::*, prelude::*};
 
 ///
 /// Entity
@@ -121,8 +121,6 @@ impl HasTraits for Entity {
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
-        use crate::imp::*;
-
         match t {
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::CreateView => CreateViewTrait::strategy(self),

@@ -3,11 +3,10 @@ mod int128;
 pub use int128::*;
 
 use crate::{
-    db::primitives::{IntListFilterKind, IntRangeFilterKind},
     prelude::*,
     traits::{
-        FieldValue, Filterable, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
+        View, Visitable,
     },
 };
 use candid::{CandidType, Int as WrappedInt};
@@ -57,11 +56,6 @@ impl FieldValue for Int {
     fn to_value(&self) -> Value {
         Value::IntBig(self.clone())
     }
-}
-
-impl Filterable for Int {
-    type Filter = IntRangeFilterKind;
-    type ListFilter = IntListFilterKind;
 }
 
 impl From<i32> for Int {

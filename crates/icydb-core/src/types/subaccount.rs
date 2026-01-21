@@ -1,9 +1,8 @@
 use crate::{
-    db::primitives::NoFilterKind,
     key::Key,
     traits::{
-        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
     types::{Principal, Ulid},
     value::Value,
@@ -121,11 +120,6 @@ impl FieldValue for Subaccount {
     fn to_value(&self) -> Value {
         Value::Subaccount(*self)
     }
-}
-
-impl Filterable for Subaccount {
-    type Filter = NoFilterKind;
-    type ListFilter = NoFilterKind;
 }
 
 /// code taken from

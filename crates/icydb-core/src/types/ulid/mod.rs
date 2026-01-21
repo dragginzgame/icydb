@@ -2,11 +2,10 @@ pub mod fixture;
 pub mod generator;
 
 use crate::{
-    db::primitives::{TextFilterKind, TextListFilterKind},
     key::Key,
     traits::{
-        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
     value::Value,
     visitor::VisitorContext,
@@ -150,11 +149,6 @@ impl FieldValue for Ulid {
     fn to_value(&self) -> Value {
         Value::Ulid(*self)
     }
-}
-
-impl Filterable for Ulid {
-    type Filter = TextFilterKind;
-    type ListFilter = TextListFilterKind;
 }
 
 impl From<WrappedUlid> for Ulid {

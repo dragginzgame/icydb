@@ -65,7 +65,6 @@ impl Generator {
 
 #[cfg(test)]
 mod test {
-    #[allow(unused_imports)] // weird
     use super::*;
 
     #[test]

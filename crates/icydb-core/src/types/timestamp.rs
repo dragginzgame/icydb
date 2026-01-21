@@ -1,9 +1,8 @@
 use crate::{
-    db::primitives::{Nat64ListFilterKind, Nat64RangeFilterKind},
     key::Key,
     traits::{
-        FieldValue, Filterable, FromKey, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
-        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, FromKey, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
+        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
 };
@@ -110,11 +109,6 @@ impl FieldValue for Timestamp {
     fn to_value(&self) -> Value {
         Value::Timestamp(*self)
     }
-}
-
-impl Filterable for Timestamp {
-    type Filter = Nat64RangeFilterKind;
-    type ListFilter = Nat64ListFilterKind;
 }
 
 impl From<u64> for Timestamp {

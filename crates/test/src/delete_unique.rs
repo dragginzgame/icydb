@@ -1,4 +1,7 @@
-use icydb::__internal::core::db::store::{DataKey, IndexEntry, IndexKey, RawIndexEntry, RawRow};
+use icydb::__internal::core::db::{
+    index::{IndexEntry, IndexKey, RawIndexEntry},
+    store::{DataKey, RawRow},
+};
 use icydb::{db::UniqueIndexHandle, design::prelude::*, serialize};
 use test_design::{e2e::db::Index, schema::TestIndexStore};
 

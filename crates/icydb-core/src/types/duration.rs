@@ -1,8 +1,7 @@
 use crate::{
-    db::primitives::{Nat64ListFilterKind, Nat64RangeFilterKind},
     traits::{
-        FieldValue, Filterable, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
 };
@@ -173,11 +172,6 @@ impl FieldValue for Duration {
     fn to_value(&self) -> Value {
         Value::Duration(*self)
     }
-}
-
-impl Filterable for Duration {
-    type Filter = Nat64RangeFilterKind;
-    type ListFilter = Nat64ListFilterKind;
 }
 
 impl From<i32> for Duration {

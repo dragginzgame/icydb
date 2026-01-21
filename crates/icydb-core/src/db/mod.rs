@@ -1,13 +1,17 @@
 pub mod executor;
+pub mod identity;
+pub mod index;
 pub mod primitives;
 pub mod query;
 pub mod response;
 pub mod store;
+pub mod types;
 
 use crate::{
     db::{
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor, UpsertExecutor},
-        store::{DataStoreRegistry, IndexStoreRegistry},
+        index::IndexStoreRegistry,
+        store::DataStoreRegistry,
     },
     error::InternalError,
     obs::sink::{self, MetricsSink},

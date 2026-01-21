@@ -1,8 +1,7 @@
 use crate::{
-    db::primitives::NoFilterKind,
     traits::{
-        FieldValue, Filterable, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
+        View, Visitable,
     },
     value::Value,
 };
@@ -58,11 +57,6 @@ impl FieldValue for Blob {
     fn to_value(&self) -> Value {
         Value::Blob(self.to_vec())
     }
-}
-
-impl Filterable for Blob {
-    type Filter = NoFilterKind;
-    type ListFilter = NoFilterKind;
 }
 
 impl From<Vec<u8>> for Blob {

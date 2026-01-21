@@ -19,7 +19,6 @@ pub struct Code {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::validate;
 
     #[test]
     fn test_code() {
@@ -38,11 +37,11 @@ mod tests {
         for (key, expected) in test_cases {
             let code = Code(key.into());
             assert!(
-                validate(&code).is_ok() == expected,
+                crate::validate(&code).is_ok() == expected,
                 "testing: '{}' - expected: {}, got: {}",
                 key,
                 expected,
-                validate(&code).is_ok()
+                crate::validate(&code).is_ok()
             );
         }
     }

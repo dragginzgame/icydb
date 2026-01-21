@@ -183,29 +183,28 @@ impl<T: HasLen + ?Sized> Validator<T> for Range {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::visitor::{Issue, PathSegment, VisitorContext, VisitorIssues};
 
     struct TestCtx {
-        issues: VisitorIssues,
+        issues: crate::visitor::VisitorIssues,
     }
 
     impl TestCtx {
         fn new() -> Self {
             Self {
-                issues: VisitorIssues::new(),
+                issues: crate::visitor::VisitorIssues::new(),
             }
         }
     }
 
-    impl VisitorContext for TestCtx {
-        fn add_issue(&mut self, issue: Issue) {
+    impl crate::visitor::VisitorContext for TestCtx {
+        fn add_issue(&mut self, issue: crate::visitor::Issue) {
             self.issues
                 .entry(String::new())
                 .or_default()
                 .push(issue.message);
         }
 
-        fn add_issue_at(&mut self, _: PathSegment, issue: Issue) {
+        fn add_issue_at(&mut self, _: crate::visitor::PathSegment, issue: crate::visitor::Issue) {
             self.add_issue(issue);
         }
     }

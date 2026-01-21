@@ -1,8 +1,7 @@
 use crate::{
-    db::primitives::{Int64ListFilterKind, Int64RangeFilterKind},
     traits::{
-        FieldValue, Filterable, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
 };
@@ -139,11 +138,6 @@ impl FieldValue for Date {
     }
 }
 
-impl Filterable for Date {
-    type Filter = Int64RangeFilterKind;
-    type ListFilter = Int64ListFilterKind;
-}
-
 impl Inner<Self> for Date {
     fn inner(&self) -> &Self {
         self
@@ -242,7 +236,6 @@ impl Visitable for Date {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
 
     #[test]
     fn from_ymd_and_to_naive_date_round_trip() {

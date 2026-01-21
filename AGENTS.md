@@ -42,6 +42,7 @@
 - Functions: keep small and focused, except at trust boundaries where single, centralized validation is preferred.
 - Borrowing: avoid unnecessary clones; prefer iterator adapters.
 - Imports: group per-crate, nest items (e.g., `use crate::{a, b};`); pull common std items into scope at top.
+- Imports: prefer a single `use crate::{...}` block per module for internal hierarchy; use `use super::*;` inside test modules only, and avoid `super::` elsewhere.
 - Counters: use saturating arithmetic for totals; avoid wrapping arithmetic.
 - Performance: only optimize on proven hot paths; consider pre-allocation when it clearly pays off.
 - Codegen (icydb_build): generate minimal glue and delegate to `icydb::interface::*`.
@@ -70,6 +71,7 @@
 - Framework: Rust test harness. Place unit tests near code; integration tests live in `crates/test` and `crates/test_design`.
 - Run all: `make test`. Single crate/test: `cargo test -p icydb <filter>` for the meta-crate; target other crates explicitly as needed.
 - Aim for meaningful coverage on entity macros, query paths, and index behavior. Add fixtures where helpful.
+- In `icydb-core` tests, do not create ad-hoc `DummyEntity` types; macro-driven entity/index tests belong in `crates/test_design`.
 
 ## Commit & Pull Request Guidelines
 - Commits: Imperative mood, concise scope (e.g., "Fix index serialization"; "Bump version to 0.15.1").

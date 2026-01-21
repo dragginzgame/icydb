@@ -1,10 +1,10 @@
 mod data;
-mod identity;
-mod index;
+mod key;
+mod row;
 
 pub use data::*;
-pub use identity::*;
-pub use index::*;
+pub use key::*;
+pub use row::*;
 
 use crate::error::{ErrorClass, ErrorOrigin, InternalError};
 use std::{cell::RefCell, collections::HashMap, thread::LocalKey};

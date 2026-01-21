@@ -1,4 +1,7 @@
-use icydb::__internal::core::db::store::{DataKey, IndexKey, RawIndexEntry};
+use icydb::__internal::core::db::{
+    index::{IndexKey, RawIndexEntry},
+    store::DataKey,
+};
 use icydb::prelude::*;
 use test_design::{
     e2e::db::{Index, IndexSanitized, IndexUniqueOpt, LowerIndexText},

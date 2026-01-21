@@ -1,9 +1,8 @@
 use crate::{
-    db::primitives::{TextFilterKind, TextListFilterKind},
     key::Key,
     traits::{
-        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
     types::{Principal, Subaccount},
     value::Value,
@@ -159,11 +158,6 @@ impl FieldValue for Account {
     fn to_value(&self) -> Value {
         Value::Account(*self)
     }
-}
-
-impl Filterable for Account {
-    type Filter = TextFilterKind;
-    type ListFilter = TextListFilterKind;
 }
 
 impl From<Account> for IcrcAccount {

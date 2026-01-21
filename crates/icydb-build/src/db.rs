@@ -40,9 +40,9 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
             // Index store
             index_defs.extend(quote! {
                 ::icydb::__reexports::canic_memory::eager_static! {
-                    static #cell_ident: ::std::cell::RefCell<::icydb::__internal::core::db::store::IndexStore> =
-                        ::std::cell::RefCell::new(::icydb::__internal::core::db::store::IndexStore::init(
-                            ::icydb::__reexports::canic_memory::ic_memory!(::icydb::__internal::core::db::store::IndexStore, #memory_id)
+                    static #cell_ident: ::std::cell::RefCell<::icydb::__internal::core::db::index::IndexStore> =
+                        ::std::cell::RefCell::new(::icydb::__internal::core::db::index::IndexStore::init(
+                            ::icydb::__reexports::canic_memory::ic_memory!(::icydb::__internal::core::db::index::IndexStore, #memory_id)
                         ));
                 }
             });
@@ -89,8 +89,8 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
 
             #[allow(unused_mut)]
             #[allow(clippy::let_and_return)]
-            static INDEX_REGISTRY: ::icydb::__internal::core::db::store::IndexStoreRegistry = {
-                let mut reg = ::icydb::__internal::core::db::store::IndexStoreRegistry::new();
+            static INDEX_REGISTRY: ::icydb::__internal::core::db::index::IndexStoreRegistry = {
+                let mut reg = ::icydb::__internal::core::db::index::IndexStoreRegistry::new();
                 #index_inits
                 reg
             };

@@ -1,9 +1,8 @@
 use crate::{
-    db::primitives::NoFilterKind,
     key::Key,
     traits::{
-        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
     value::Value,
 };
@@ -42,11 +41,6 @@ impl FieldValue for Unit {
     fn to_value(&self) -> Value {
         Value::Unit
     }
-}
-
-impl Filterable for Unit {
-    type Filter = NoFilterKind;
-    type ListFilter = NoFilterKind;
 }
 
 impl FromKey for Unit {

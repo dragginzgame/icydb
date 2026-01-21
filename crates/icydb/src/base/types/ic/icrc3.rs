@@ -24,7 +24,7 @@ impl Value {
 }
 
 pub mod value {
-    use super::*;
+    use crate::{base::types::ic::icrc3::Value, design::prelude::*};
 
     ///
     /// Icrc3 Value Map

@@ -1,9 +1,5 @@
 use crate::{
-    db::store::EntityName,
-    db::{
-        Db,
-        store::{DataKey, IndexKey},
-    },
+    db::{Db, identity::EntityName, index::IndexKey, store::DataKey},
     key::Key,
     traits::CanisterKind,
 };

@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{imp::*, prelude::*};
 
 ///
 /// List
@@ -68,8 +68,6 @@ impl HasTraits for List {
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
-        use crate::imp::*;
-
         match t {
             TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::Filterable => FilterableTrait::strategy(self),

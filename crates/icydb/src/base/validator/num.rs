@@ -65,9 +65,9 @@ cmp_validator!(Gte, >=, "{} must be >= {}");
 cmp_validator!(Equal, ==, "{} must be == {}");
 cmp_validator!(NotEqual, !=, "{} must be != {}");
 
-// ============================================================================
-// Range
-// ============================================================================
+///
+/// Range
+///
 
 #[validator]
 pub struct Range {
@@ -137,29 +137,28 @@ impl<N: NumCast + Clone> Validator<N> for MultipleOf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::visitor::{Issue, PathSegment, VisitorContext, VisitorIssues};
 
     struct TestCtx {
-        issues: VisitorIssues,
+        issues: crate::visitor::VisitorIssues,
     }
 
     impl TestCtx {
         fn new() -> Self {
             Self {
-                issues: VisitorIssues::new(),
+                issues: crate::visitor::VisitorIssues::new(),
             }
         }
     }
 
-    impl VisitorContext for TestCtx {
-        fn add_issue(&mut self, issue: Issue) {
+    impl crate::visitor::VisitorContext for TestCtx {
+        fn add_issue(&mut self, issue: crate::visitor::Issue) {
             self.issues
                 .entry(String::new())
                 .or_default()
                 .push(issue.message);
         }
 
-        fn add_issue_at(&mut self, _: PathSegment, issue: Issue) {
+        fn add_issue_at(&mut self, _: crate::visitor::PathSegment, issue: crate::visitor::Issue) {
             self.add_issue(issue);
         }
     }

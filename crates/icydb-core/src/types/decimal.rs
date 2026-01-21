@@ -1,8 +1,7 @@
 use crate::{
-    db::primitives::{DecimalListFilterKind, DecimalRangeFilterKind},
     traits::{
-        FieldValue, Filterable, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
 };
@@ -142,11 +141,6 @@ impl FieldValue for Decimal {
     fn to_value(&self) -> Value {
         Value::Decimal(*self)
     }
-}
-
-impl Filterable for Decimal {
-    type Filter = DecimalRangeFilterKind;
-    type ListFilter = DecimalListFilterKind;
 }
 
 impl Inner<Self> for Decimal {

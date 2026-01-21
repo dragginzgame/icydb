@@ -1,8 +1,7 @@
 use crate::{
-    db::primitives::{NatListFilterKind, NatRangeFilterKind},
     traits::{
-        FieldValue, Filterable, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -132,11 +131,6 @@ impl FieldValue for E18s {
     }
 }
 
-impl Filterable for E18s {
-    type Filter = NatRangeFilterKind;
-    type ListFilter = NatListFilterKind;
-}
-
 impl From<i32> for E18s {
     fn from(n: i32) -> Self {
         Self(u128::try_from(n).unwrap_or(0))
@@ -215,6 +209,10 @@ impl View for E18s {
 }
 
 impl Visitable for E18s {}
+
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {

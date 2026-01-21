@@ -1,9 +1,8 @@
 use crate::{
-    db::primitives::{DecimalListFilterKind, DecimalRangeFilterKind},
     prelude::*,
     traits::{
-        FieldValue, Filterable, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
 };
 use candid::CandidType;
@@ -87,11 +86,6 @@ impl FieldValue for Float32 {
     fn to_value(&self) -> Value {
         Value::Float32(*self)
     }
-}
-
-impl Filterable for Float32 {
-    type Filter = DecimalRangeFilterKind;
-    type ListFilter = DecimalListFilterKind;
 }
 
 #[allow(clippy::cast_precision_loss)]
@@ -235,6 +229,10 @@ impl<'de> Deserialize<'de> for Float32 {
             .ok_or_else(|| serde::de::Error::custom(format!("invalid Float32 value: {value}")))
     }
 }
+
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {

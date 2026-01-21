@@ -1,7 +1,7 @@
 use icydb::{db::primitives::*, design::prelude::*, view::Filter};
 use test_design::e2e::filter::{Filterable, FilterableEnum, FilterableEnumFake, FilterableOpt};
 
-use super::fixtures;
+use crate::filter::fixtures;
 
 ///
 /// LoadFilterSuite

@@ -1,9 +1,8 @@
 use crate::{
-    db::primitives::filter::{TextEqualityFilterKind, TextListFilterKind},
     key::Key,
     traits::{
-        FieldValue, Filterable, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValue, FromKey, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
     value::Value,
 };
@@ -123,11 +122,6 @@ impl FieldValue for WrappedPrincipal {
     fn to_value(&self) -> Value {
         Value::Principal(self.into())
     }
-}
-
-impl Filterable for Principal {
-    type Filter = TextEqualityFilterKind;
-    type ListFilter = TextListFilterKind;
 }
 
 impl From<WrappedPrincipal> for Principal {
