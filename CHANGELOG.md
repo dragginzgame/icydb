@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [0.4.5] - Atomicity, Part 1
+## [0.4.5] - 2026-01-21 - Atomicity, Part 1
 - Moved `FromKey` into `db::traits` and relocated `FromKey` impls into `db/types/*` to keep core types DB-agnostic.
 - Moved `Filterable` and `FilterView` into `db::traits` (still re-exported via `traits`).
 - Moved index fingerprint hashing out of `Value` into `db::index::fingerprint`.
