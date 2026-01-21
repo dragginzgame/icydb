@@ -351,19 +351,29 @@ impl<E: EntityKind> DeleteExecutor<E> {
                 };
                 let raw_key = key.to_raw();
 
-                let entry = entries.entry(raw_key).or_insert_with(|| {
-                    plan.store
-                        .with_borrow(|s| s.get(&raw_key))
-                        .map(|raw| raw.try_decode())
-                        .transpose()
-                        .map_err(|err| {
-                            ExecutorError::corruption(
-                                ErrorOrigin::Index,
-                                format!("index corrupted: {} ({}) -> {}", E::PATH, fields, err),
-                            )
-                        })
-                        .unwrap()
-                });
+                let entry = match entries.entry(raw_key) {
+                    std::collections::btree_map::Entry::Vacant(slot) => {
+                        let decoded = plan
+                            .store
+                            .with_borrow(|s| s.get(&raw_key))
+                            .map(|raw| {
+                                raw.try_decode().map_err(|err| {
+                                    ExecutorError::corruption(
+                                        ErrorOrigin::Index,
+                                        format!(
+                                            "index corrupted: {} ({}) -> {}",
+                                            E::PATH,
+                                            fields,
+                                            err
+                                        ),
+                                    )
+                                })
+                            })
+                            .transpose()?;
+                        slot.insert(decoded)
+                    }
+                    std::collections::btree_map::Entry::Occupied(slot) => slot.into_mut(),
+                };
 
                 if let Some(e) = entry.as_mut() {
                     e.remove_key(&entity.key());

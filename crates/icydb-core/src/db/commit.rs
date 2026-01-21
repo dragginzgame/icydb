@@ -358,6 +358,7 @@ fn with_commit_store<R>(
 ) -> Result<R, InternalError> {
     COMMIT_STORE.with(|cell| {
         if cell.borrow().is_none() {
+            // StableCell::init performs a benign stable write for the empty marker.
             let store = CommitStore::init(commit_memory()?);
             *cell.borrow_mut() = Some(store);
         }

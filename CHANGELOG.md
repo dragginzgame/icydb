@@ -7,11 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [Unreleased]
+## [0.4.5] - Atomicity, Part 1
 - Moved `FromKey` into `db::traits` and relocated `FromKey` impls into `db/types/*` to keep core types DB-agnostic.
 - Moved `Filterable` and `FilterView` into `db::traits` (still re-exported via `traits`).
 - Moved index fingerprint hashing out of `Value` into `db::index::fingerprint`.
-- Atomicity hardening: Stage 1 save/upsert pre-validation + infallible apply phase (Progress [*         ] 5%)
+- Atomicity - commit markers and recovery gating
 
 ## [0.4.4] - 2026-01-20 - Localized CBOR safety checks and panic containment
 - CBOR serialization is now internalized in `icydb-core`, with local decode bounds and structural validation.
