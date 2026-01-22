@@ -182,7 +182,9 @@ impl<E: EntityKind> SaveExecutor<E> {
                 })?)
             }
             (SaveMode::Insert, Some(_)) => return Err(ExecutorError::KeyExists(data_key).into()),
-            (SaveMode::Update, None) => return Err(ExecutorError::KeyNotFound(data_key).into()),
+            (SaveMode::Update, None) => {
+                return Err(InternalError::store_not_found(data_key.to_string()));
+            }
         };
 
         let bytes = serialize(&entity)?;

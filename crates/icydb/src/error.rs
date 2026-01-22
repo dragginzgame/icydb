@@ -49,6 +49,7 @@ impl From<InternalError> for Error {
 pub enum ErrorClass {
     Conflict,
     Corruption,
+    NotFound,
     Internal,
     InvariantViolation,
     Unsupported,
@@ -59,6 +60,7 @@ impl From<CoreErrorClass> for ErrorClass {
         match class {
             CoreErrorClass::Conflict => Self::Conflict,
             CoreErrorClass::Corruption => Self::Corruption,
+            CoreErrorClass::NotFound => Self::NotFound,
             CoreErrorClass::Internal => Self::Internal,
             CoreErrorClass::InvariantViolation => Self::InvariantViolation,
             CoreErrorClass::Unsupported => Self::Unsupported,

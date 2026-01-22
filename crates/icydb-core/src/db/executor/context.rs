@@ -46,6 +46,15 @@ where
             .with_data(|reg| reg.with_store_mut(E::Store::PATH, f))
     }
 
+    /// Read a row; missing rows return `NotFound`.
+    pub fn read(&self, key: &DataKey) -> Result<RawRow, InternalError> {
+        self.with_store(|s| {
+            let raw = key.to_raw();
+            s.get(&raw)
+                .ok_or_else(|| InternalError::store_not_found(key.to_string()))
+        })?
+    }
+
     /// Read a row strictly; missing rows surface as corruption.
     pub fn read_strict(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
@@ -266,11 +275,13 @@ where
     }
 
     fn load_many(&self, keys: &[DataKey]) -> Result<Vec<DataRow>, InternalError> {
-        self.with_store(|s| {
-            keys.iter()
-                .filter_map(|k| s.get(&k.to_raw()).map(|entry| (k.clone(), entry)))
-                .collect()
-        })
+        let mut out = Vec::with_capacity(keys.len());
+        for k in keys {
+            let row = self.read_strict(k)?;
+            out.push((k.clone(), row));
+        }
+
+        Ok(out)
     }
 
     fn load_range(&self, start: DataKey, end: DataKey) -> Result<Vec<DataRow>, InternalError> {

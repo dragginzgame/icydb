@@ -1,8 +1,10 @@
 mod data;
+mod error;
 mod key;
 mod row;
 
 pub use data::*;
+pub use error::StoreError;
 pub use key::*;
 pub use row::*;
 
@@ -11,16 +13,16 @@ use std::{cell::RefCell, collections::HashMap, thread::LocalKey};
 use thiserror::Error as ThisError;
 
 ///
-/// StoreError
+/// StoreRegistryError
 ///
 
 #[derive(Debug, ThisError)]
-pub enum StoreError {
+pub enum StoreRegistryError {
     #[error("store '{0}' not found")]
     StoreNotFound(String),
 }
 
-impl StoreError {
+impl StoreRegistryError {
     pub(crate) const fn class(&self) -> ErrorClass {
         match self {
             Self::StoreNotFound(_) => ErrorClass::Internal,
@@ -28,8 +30,8 @@ impl StoreError {
     }
 }
 
-impl From<StoreError> for InternalError {
-    fn from(err: StoreError) -> Self {
+impl From<StoreRegistryError> for InternalError {
+    fn from(err: StoreRegistryError) -> Self {
         Self::new(err.class(), ErrorOrigin::Store, err.to_string())
     }
 }
@@ -81,7 +83,7 @@ impl<T: 'static> StoreRegistry<T> {
         self.0
             .get(path)
             .copied()
-            .ok_or_else(|| StoreError::StoreNotFound(path.to_string()).into())
+            .ok_or_else(|| StoreRegistryError::StoreNotFound(path.to_string()).into())
     }
 
     // with_store

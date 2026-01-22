@@ -25,6 +25,14 @@ impl DbSuite {
             ("limit_query", Self::limit_query),
             ("load_one", Self::load_one),
             ("load_many", Self::load_many),
+            (
+                "exists_missing_rows_return_false",
+                Self::exists_missing_rows_return_false,
+            ),
+            (
+                "exists_scan_errors_on_malformed_row",
+                Self::exists_scan_errors_on_malformed_row,
+            ),
             ("unit_primary_key", Self::unit_primary_key),
             ("perf_options", Self::perf_options),
             ("perf_many_relations", Self::perf_many_relations),
@@ -36,6 +44,14 @@ impl DbSuite {
             (
                 "delete_strict_halts_on_corruption",
                 Self::delete_strict_halts_on_corruption,
+            ),
+            (
+                "delete_missing_rows_are_noops",
+                Self::delete_missing_rows_are_noops,
+            ),
+            (
+                "delete_one_errors_on_malformed_row",
+                Self::delete_one_errors_on_malformed_row,
             ),
         ];
 
@@ -368,6 +384,51 @@ impl DbSuite {
         }
     }
 
+    fn exists_missing_rows_return_false() {
+        use test_design::e2e::db::SimpleEntity;
+
+        let missing = Ulid::generate();
+
+        let exists = db!().load::<SimpleEntity>().exists_one(missing).unwrap();
+        assert!(!exists, "expected missing key to return false");
+
+        let exists = db!()
+            .load::<SimpleEntity>()
+            .exists_filter(|f| f.eq("id", missing))
+            .unwrap();
+        assert!(!exists, "expected missing filter to return false");
+
+        let exists = db!().load::<SimpleEntity>().exists_any().unwrap();
+        assert!(!exists, "expected exists_any to be false on empty store");
+
+        let existing = db!().insert(SimpleEntity::default()).unwrap().key();
+        let missing_key = Key::Ulid(missing);
+        let exists = db!()
+            .load::<SimpleEntity>()
+            .exists_filter(|f| f.in_iter("id", vec![existing, missing_key]))
+            .unwrap();
+        assert!(exists, "expected mixed keys to report true");
+    }
+
+    fn exists_scan_errors_on_malformed_row() {
+        use icydb::Error;
+        use test_design::e2e::db::SimpleEntity;
+
+        let bad = Ulid::generate();
+        Self::insert_malformed_simple_entity(bad);
+
+        let err: Error = db!()
+            .load::<SimpleEntity>()
+            .exists_any()
+            .expect_err("expected error when scanning malformed rows");
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains("serialize") || msg.contains("deserialize") || msg.contains("corrupt"),
+            "expected deserialization-related error, got: {msg}"
+        );
+    }
+
     fn load_malformed_row_errors() {
         use icydb::Error;
         use test_design::e2e::db::SimpleEntity;
@@ -393,6 +454,52 @@ impl DbSuite {
         // Targeted load for a valid key still works because it does not touch the malformed row.
         let single = db!().load::<SimpleEntity>().one(good).unwrap();
         assert_eq!(single.count(), 1);
+    }
+
+    fn delete_missing_rows_are_noops() {
+        use test_design::e2e::db::SimpleEntity;
+
+        let existing = db!().insert(SimpleEntity::default()).unwrap().key();
+        let missing = Ulid::generate();
+
+        let deleted = db!().delete::<SimpleEntity>().one(missing).unwrap();
+        assert_eq!(deleted.count(), 0, "expected missing delete to be a no-op");
+
+        let remaining = db!().load::<SimpleEntity>().one(existing).unwrap();
+        assert_eq!(
+            remaining.count(),
+            1,
+            "expected existing row to remain after missing delete"
+        );
+
+        let missing_key = Key::Ulid(missing);
+        let deleted = db!()
+            .delete::<SimpleEntity>()
+            .many(vec![existing, missing_key])
+            .unwrap();
+        assert_eq!(deleted.count(), 1, "expected only existing row to delete");
+
+        let exists = db!().load::<SimpleEntity>().exists_one(existing).unwrap();
+        assert!(!exists, "expected existing row to be removed");
+    }
+
+    fn delete_one_errors_on_malformed_row() {
+        use icydb::Error;
+        use test_design::e2e::db::SimpleEntity;
+
+        let bad = Ulid::generate();
+        Self::insert_malformed_simple_entity(bad);
+
+        let err: Error = db!()
+            .delete::<SimpleEntity>()
+            .one(bad)
+            .expect_err("expected error when deleting malformed row");
+
+        let msg = err.to_string();
+        assert!(
+            msg.contains("serialize") || msg.contains("deserialize") || msg.contains("corrupt"),
+            "expected deserialization-related error, got: {msg}"
+        );
     }
 
     fn delete_errors_on_malformed_rows() {

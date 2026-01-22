@@ -4,6 +4,10 @@ use crate::{
     types::E18s,
 };
 
+///
+/// E18s
+///
+
 impl Filterable for E18s {
     type Filter = NatRangeFilterKind;
     type ListFilter = NatListFilterKind;

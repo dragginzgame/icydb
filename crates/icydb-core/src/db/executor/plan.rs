@@ -42,6 +42,12 @@ pub enum ReadMode {
     /// Skip missing or malformed rows.
     BestEffort,
 
+    /// Skip missing rows, but treat decode failures as corruption.
+    ///
+    /// This keeps idempotent reads tolerant of absence while still surfacing
+    /// malformed persisted bytes as corruption.
+    MissingOk,
+
     /// Treat missing or malformed rows as corruption.
     Strict,
 }
@@ -55,7 +61,9 @@ pub const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: usize) {
 ///
 /// In `ReadMode::Strict`, missing rows or deserialization failures are treated as
 /// corruption and returned as errors. In `ReadMode::BestEffort`, such rows are
-/// silently skipped.
+/// silently skipped. In `ReadMode::MissingOk`, missing rows are skipped while
+/// decode failures still surface as corruption.
+#[allow(clippy::too_many_lines)]
 pub fn scan_plan<E, F>(
     db: &Db<E::Canister>,
     plan: QueryPlan,
@@ -69,58 +77,98 @@ where
     let ctx = db.context::<E>();
 
     match plan {
-        QueryPlan::Keys(keys) => {
-            ctx.with_store(|s| {
+        QueryPlan::Keys(keys) => match mode {
+            ReadMode::MissingOk => {
                 for dk in keys.into_iter().map(DataKey::new::<E>) {
-                    let raw = dk.to_raw();
-                    let Some(row) = s.get(&raw) else {
-                        if mode == ReadMode::Strict {
-                            return Err(missing_row(&dk));
-                        }
-                        continue;
+                    let row = match ctx.read(&dk) {
+                        Ok(row) => row,
+                        Err(err) if err.is_not_found() => continue,
+                        Err(err) => return Err(err),
                     };
 
-                    let entity = match row.try_decode::<E>() {
-                        Ok(entity) => entity,
-                        Err(_) if mode == ReadMode::BestEffort => continue,
-                        Err(_) => return Err(bad_row(&dk)),
+                    let Ok(entity) = row.try_decode::<E>() else {
+                        return Err(bad_row(&dk));
                     };
 
                     if on_row(dk, entity) == ControlFlow::Break(()) {
                         break;
                     }
                 }
+            }
+            _ => {
+                ctx.with_store(|s| {
+                    for dk in keys.into_iter().map(DataKey::new::<E>) {
+                        let raw = dk.to_raw();
+                        let Some(row) = s.get(&raw) else {
+                            if mode == ReadMode::Strict {
+                                return Err(missing_row(&dk));
+                            }
+                            continue;
+                        };
 
-                Ok::<_, InternalError>(())
-            })??;
-        }
+                        let entity = match row.try_decode::<E>() {
+                            Ok(entity) => entity,
+                            Err(_) if mode == ReadMode::BestEffort => continue,
+                            Err(_) => return Err(bad_row(&dk)),
+                        };
+
+                        if on_row(dk, entity) == ControlFlow::Break(()) {
+                            break;
+                        }
+                    }
+
+                    Ok::<_, InternalError>(())
+                })??;
+            }
+        },
 
         QueryPlan::Index(index_plan) => {
             let keys = ctx.candidates_from_plan(QueryPlan::Index(index_plan))?;
 
-            ctx.with_store(|s| {
-                for dk in keys {
-                    let raw = dk.to_raw();
-                    let Some(row) = s.get(&raw) else {
-                        if mode == ReadMode::Strict {
-                            return Err(missing_row(&dk));
+            match mode {
+                ReadMode::MissingOk => {
+                    for dk in keys {
+                        let row = match ctx.read(&dk) {
+                            Ok(row) => row,
+                            Err(err) if err.is_not_found() => continue,
+                            Err(err) => return Err(err),
+                        };
+
+                        let Ok(entity) = row.try_decode::<E>() else {
+                            return Err(bad_row(&dk));
+                        };
+
+                        if on_row(dk, entity) == ControlFlow::Break(()) {
+                            break;
                         }
-                        continue;
-                    };
-
-                    let entity = match row.try_decode::<E>() {
-                        Ok(entity) => entity,
-                        Err(_) if mode == ReadMode::BestEffort => continue,
-                        Err(_) => return Err(bad_row(&dk)),
-                    };
-
-                    if on_row(dk, entity) == ControlFlow::Break(()) {
-                        break;
                     }
                 }
+                _ => {
+                    ctx.with_store(|s| {
+                        for dk in keys {
+                            let raw = dk.to_raw();
+                            let Some(row) = s.get(&raw) else {
+                                if mode == ReadMode::Strict {
+                                    return Err(missing_row(&dk));
+                                }
+                                continue;
+                            };
 
-                Ok::<_, InternalError>(())
-            })??;
+                            let entity = match row.try_decode::<E>() {
+                                Ok(entity) => entity,
+                                Err(_) if mode == ReadMode::BestEffort => continue,
+                                Err(_) => return Err(bad_row(&dk)),
+                            };
+
+                            if on_row(dk, entity) == ControlFlow::Break(()) {
+                                break;
+                            }
+                        }
+
+                        Ok::<_, InternalError>(())
+                    })??;
+                }
+            }
         }
 
         QueryPlan::Range(start, end) => {
@@ -206,7 +254,21 @@ where
     scan_plan::<E, F>(db, plan, ReadMode::BestEffort, on_row)
 }
 
+/// Missing-ok scan that skips absent rows but treats decode failures as corruption.
+pub fn scan_missing_ok<E, F>(
+    db: &Db<E::Canister>,
+    plan: QueryPlan,
+    on_row: F,
+) -> Result<(), InternalError>
+where
+    E: EntityKind,
+    F: FnMut(DataKey, E) -> ControlFlow<()>,
+{
+    scan_plan::<E, F>(db, plan, ReadMode::MissingOk, on_row)
+}
+
 #[inline]
+/// Missing row in a strict scan is an invariant violation, not a benign NotFound.
 fn missing_row(dk: &DataKey) -> InternalError {
     ExecutorError::corruption(ErrorOrigin::Store, format!("missing row: {dk}")).into()
 }

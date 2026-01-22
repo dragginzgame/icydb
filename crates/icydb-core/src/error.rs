@@ -1,3 +1,4 @@
+use crate::db::store::StoreError;
 use std::fmt;
 use thiserror::Error as ThisError;
 
@@ -13,15 +14,44 @@ pub struct InternalError {
     pub class: ErrorClass,
     pub origin: ErrorOrigin,
     pub message: String,
+    pub store: Option<StoreError>,
 }
 
 impl InternalError {
     pub fn new(class: ErrorClass, origin: ErrorOrigin, message: impl Into<String>) -> Self {
+        let message = message.into();
+        let store = match (class, origin) {
+            (ErrorClass::Corruption, ErrorOrigin::Store) => Some(StoreError::Corrupt {
+                message: message.clone(),
+            }),
+            (ErrorClass::InvariantViolation, ErrorOrigin::Store) => {
+                Some(StoreError::InvariantViolation {
+                    message: message.clone(),
+                })
+            }
+            _ => None,
+        };
         Self {
             class,
             origin,
-            message: message.into(),
+            message,
+            store,
         }
+    }
+
+    pub fn store_not_found(key: impl Into<String>) -> Self {
+        let key = key.into();
+        Self {
+            class: ErrorClass::NotFound,
+            origin: ErrorOrigin::Store,
+            message: format!("data key not found: {key}"),
+            store: Some(StoreError::NotFound { key }),
+        }
+    }
+
+    #[must_use]
+    pub const fn is_not_found(&self) -> bool {
+        matches!(self.store, Some(StoreError::NotFound { .. }))
     }
 
     #[must_use]
@@ -39,6 +69,7 @@ impl InternalError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ErrorClass {
     Corruption,
+    NotFound,
     Internal,
     Conflict,
     Unsupported,
@@ -49,6 +80,7 @@ impl fmt::Display for ErrorClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let label = match self {
             Self::Corruption => "corruption",
+            Self::NotFound => "not_found",
             Self::Internal => "internal",
             Self::Conflict => "conflict",
             Self::Unsupported => "unsupported",

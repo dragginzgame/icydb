@@ -66,9 +66,6 @@ pub enum ExecutorError {
     #[error("data key exists: {0}")]
     KeyExists(DataKey),
 
-    #[error("data key not found: {0}")]
-    KeyNotFound(DataKey),
-
     #[error("primary key type mismatch: expected {0}, got {1}")]
     KeyTypeMismatch(String, String),
 
@@ -86,7 +83,6 @@ impl ExecutorError {
     pub(crate) const fn class(&self) -> ErrorClass {
         match self {
             Self::KeyExists(_) | Self::IndexViolation(_, _) => ErrorClass::Conflict,
-            Self::KeyNotFound(_) => ErrorClass::InvariantViolation,
             Self::IndexNotFound(_, _)
             | Self::IndexNotUnique(_, _)
             | Self::IndexKeyMissing(_, _)
@@ -98,7 +94,7 @@ impl ExecutorError {
 
     pub(crate) const fn origin(&self) -> ErrorOrigin {
         match self {
-            Self::KeyExists(_) | Self::KeyNotFound(_) => ErrorOrigin::Store,
+            Self::KeyExists(_) => ErrorOrigin::Store,
             Self::IndexViolation(_, _)
             | Self::IndexNotFound(_, _)
             | Self::IndexNotUnique(_, _)

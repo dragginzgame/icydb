@@ -7,17 +7,28 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [0.4.6] - 2026-01-22
+- 🧭 Existence checks now treat missing rows as normal and avoid false corruption on scans.
+- 🧹 Deletes by primary key are idempotent; missing rows are skipped during pre-scan.
+- 🧾 Store not-found is now typed (`StoreError::NotFound`) with `ErrorClass::NotFound`.
+
+---
+
 ## [0.4.5] - 2026-01-21 - Atomicity, Part 1
 - Moved `FromKey` into `db::traits` and relocated `FromKey` impls into `db/types/*` to keep core types DB-agnostic.
 - Moved `Filterable` and `FilterView` into `db::traits` (still re-exported via `traits`).
 - Moved index fingerprint hashing out of `Value` into `db::index::fingerprint`.
 - Atomicity - commit markers and recovery gating
 
+---
+
 ## [0.4.4] - 2026-01-20 - Localized CBOR safety checks and panic containment
 - CBOR serialization is now internalized in `icydb-core`, with local decode bounds and structural validation.
 - Deserialization rejects oversized payloads before decode and contains any decode panics as typed errors.
 - Added targeted CBOR tests for oversized, truncated, and malformed inputs.
 - Macro validation now reports invalid schema annotations as compile errors instead of panicking (including trait removal checks and item config validation).
+
+---
 
 ## [0.4.3] - 2026-01-20 - Explicit, classified, and localized error propagation at the Disco!
 - Storable encoding and decoding no longer panics
@@ -28,10 +39,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Storage snapshots now count corrupted index entries via value decode checks.
 - Fixed executor candidate scans to propagate decode errors from store range reads.
 
+---
+
 ## [0.4.2] - 2026-01-19
 - Increased `EntityName` and index field limits to 64 chars; `IndexName` length now uses a 2-byte prefix, widening `IndexKey` size.
 - `DataKey` now reuses canonical `EntityName` decoding, and `IndexKey` rejects non-zero fingerprint padding beyond `len`.
 - Standardized corruption error messages for strict decoders across keys and core types.
+
+---
 
 ## [0.4.0] – 2026-01-18 – ⚠️ Very Breaky Things ⚠️
 

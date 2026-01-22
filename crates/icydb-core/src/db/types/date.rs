@@ -4,6 +4,10 @@ use crate::{
     types::Date,
 };
 
+///
+/// Date
+///
+
 impl Filterable for Date {
     type Filter = Int64RangeFilterKind;
     type ListFilter = Int64ListFilterKind;

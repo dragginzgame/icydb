@@ -3,7 +3,9 @@ use crate::{
         CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, begin_commit, ensure_recovered,
         executor::{
             ExecutorError, FilterEvaluator, UniqueIndexHandle, WriteUnit,
-            plan::{plan_for, record_plan_metrics, scan_strict, set_rows_from_len},
+            plan::{
+                plan_for, record_plan_metrics, scan_missing_ok, scan_strict, set_rows_from_len,
+            },
             resolve_unique_pk,
         },
         finish_commit,
@@ -30,7 +32,7 @@ use std::{
 
 ///
 /// DeleteAccumulator
-/// Collects rows to delete during planner execution.
+/// Accumulates delete candidates while respecting filter/offset/limit semantics.
 ///
 
 struct DeleteAccumulator<'f, E> {
@@ -79,7 +81,7 @@ impl<'f, E: EntityKind> DeleteAccumulator<'f, E> {
 
 ///
 /// IndexPlan
-/// Prevalidated index store handle.
+/// Prevalidated handle to an index store used during commit planning.
 ///
 
 struct IndexPlan {
@@ -157,6 +159,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         let mut lookup = entity;
         sanitize(&mut lookup)?;
 
+        // Resolve PK via unique index; absence is a no-op.
         let Some(pk) = resolve_unique_pk::<E>(&self.db, index, &lookup)? else {
             set_rows_from_len(&mut span, 0);
             return Ok(Response(Vec::new()));
@@ -167,6 +170,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         let index_plans = self.build_index_plans()?;
         let index_ops = Self::build_index_removal_ops(&index_plans, &[&stored])?;
 
+        // Preflight: ensure stores are accessible before committing.
         ctx.with_store(|_| ())?;
 
         let marker = CommitMarker::new(
@@ -216,45 +220,71 @@ impl<E: EntityKind> DeleteExecutor<E> {
     }
 
     pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, InternalError> {
+        // Validate query shape and ensure no recovery is in progress.
         QueryValidate::<E>::validate(&query)?;
         ensure_recovered(&self.db)?;
 
         let mut span = Span::<E>::new(ExecKind::Delete);
+
+        // Plan the delete using the same planner as loads (side-effect free).
         let plan = plan_for::<E>(query.filter.as_ref());
         record_plan_metrics(&plan);
 
+        // Extract pagination controls for scan-time filtering.
         let (limit, offset) = match query.limit.as_ref() {
             Some(l) => (l.limit.map(|v| v as usize), l.offset as usize),
             None => (None, 0),
         };
 
+        // Prepare accumulator that enforces filter/offset/limit semantics.
         let filter = query.filter.as_ref().map(|f| f.clone().simplify());
         let mut acc = DeleteAccumulator::new(filter.as_ref(), offset, limit);
         let mut scanned = 0u64;
 
-        scan_strict::<E, _>(&self.db, plan, |dk, entity| {
-            scanned += 1;
-            if acc.should_stop(dk, entity) {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
+        // Scan phase: identify rows to delete without mutating storage.
+        match plan {
+            QueryPlan::Keys(keys) => {
+                // Key deletes are idempotent: missing rows are skipped.
+                scan_missing_ok::<E, _>(&self.db, QueryPlan::Keys(keys), |dk, entity| {
+                    scanned += 1;
+                    if acc.should_stop(dk, entity) {
+                        ControlFlow::Break(())
+                    } else {
+                        ControlFlow::Continue(())
+                    }
+                })?;
             }
-        })?;
+            plan => {
+                // Non-key plans are strict: missing or corrupt rows are errors.
+                scan_strict::<E, _>(&self.db, plan, |dk, entity| {
+                    scanned += 1;
+                    if acc.should_stop(dk, entity) {
+                        ControlFlow::Break(())
+                    } else {
+                        ControlFlow::Continue(())
+                    }
+                })?;
+            }
+        }
 
+        // Record how many rows were examined during planning.
         sink::record(MetricsEvent::RowsScanned {
             entity_path: E::PATH,
             rows_scanned: scanned,
         });
 
+        // Fast exit when no rows matched after filtering and pagination.
         if acc.matches.is_empty() {
             set_rows_from_len(&mut span, 0);
             return Ok(Response(Vec::new()));
         }
 
+        // Precompute index and data mutations before beginning the commit.
         let index_plans = self.build_index_plans()?;
         let entities: Vec<&E> = acc.matches.iter().map(|(_, e)| e).collect();
         let index_ops = Self::build_index_removal_ops(&index_plans, &entities)?;
 
+        // Preflight store access to ensure no fallible work remains post-commit.
         let ctx = self.db.context::<E>();
         ctx.with_store(|_| ())?;
 
@@ -271,6 +301,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         let marker = CommitMarker::new(CommitKind::Delete, index_ops, data_ops)?;
         let commit = begin_commit(marker)?;
 
+        // Commit phase: remove index entries first, then delete data rows.
         finish_commit(
             commit,
             || {
@@ -299,6 +330,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
             },
         );
 
+        // Return deleted entities to the caller.
         let res = acc
             .matches
             .into_iter()
@@ -341,16 +373,21 @@ impl<E: EntityKind> DeleteExecutor<E> {
     ) -> Result<Vec<CommitIndexOp>, InternalError> {
         let mut ops = Vec::new();
 
+        // Process each index independently to compute its resulting mutations.
         for plan in plans {
             let fields = plan.index.fields.join(", ");
+
+            // Map raw index keys → updated entry (or None if fully removed).
             let mut entries: BTreeMap<RawIndexKey, Option<IndexEntry>> = BTreeMap::new();
 
+            // Fold entity deletions into per-key index entry updates.
             for entity in entities {
                 let Some(key) = IndexKey::new(*entity, plan.index) else {
                     continue;
                 };
                 let raw_key = key.to_raw();
 
+                // Lazily load and decode the existing index entry once per key.
                 let entry = match entries.entry(raw_key) {
                     std::collections::btree_map::Entry::Vacant(slot) => {
                         let decoded = plan
@@ -375,6 +412,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                     std::collections::btree_map::Entry::Occupied(slot) => slot.into_mut(),
                 };
 
+                // Remove this entity’s key from the index entry.
                 if let Some(e) = entry.as_mut() {
                     e.remove_key(&entity.key());
                     if e.is_empty() {
@@ -383,6 +421,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                 }
             }
 
+            // Emit commit ops for each touched index key.
             for (raw_key, entry) in entries {
                 let value = if let Some(entry) = entry {
                     let raw = RawIndexEntry::try_from_entry(&entry).map_err(|err| {
@@ -398,6 +437,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                     })?;
                     Some(raw.into_bytes())
                 } else {
+                    // None means the index entry is fully removed.
                     None
                 };
 

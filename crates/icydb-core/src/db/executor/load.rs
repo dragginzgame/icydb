@@ -3,12 +3,12 @@ use crate::{
         Db,
         executor::{
             FilterEvaluator,
-            plan::{plan_for, record_plan_metrics, scan_strict, set_rows_from_len},
+            plan::{plan_for, record_plan_metrics, scan_missing_ok, set_rows_from_len},
         },
         primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr, Order, SortExpr},
         query::{LoadQuery, QueryPlan, QueryValidate},
         response::{Response, ResponseError},
-        store::DataRow,
+        store::{DataKey, DataRow},
     },
     error::InternalError,
     obs::sink::{self, ExecKind, MetricsEvent, Span},
@@ -115,8 +115,10 @@ impl<E: EntityKind> LoadExecutor<E> {
 
     /// Check whether at least one row matches the query.
     ///
-    /// Note: existence checks are strict. Missing or malformed rows surface
-    /// as corruption errors instead of returning false.
+    /// Note:
+    /// Existence checks are decode-strict but missing-row tolerant.
+    /// Typed NotFound errors are treated as absence, while malformed
+    /// rows or corruption surface as errors.
     ///
     /// Respects offset/limit when provided (limit=0 returns false).
     pub fn exists(&self, query: LoadQuery) -> Result<bool, InternalError> {
@@ -126,46 +128,105 @@ impl<E: EntityKind> LoadExecutor<E> {
         });
 
         let plan = plan_for::<E>(query.filter.as_ref());
-        let filter = query.filter.map(FilterExpr::simplify);
         let offset = query.limit.as_ref().map_or(0, |lim| lim.offset);
         let limit = query.limit.as_ref().and_then(|lim| lim.limit);
         if limit == Some(0) {
             return Ok(false);
         }
-        let mut seen = 0u32;
-        let mut scanned = 0u64;
-        let mut found = false;
 
-        scan_strict::<E, _>(&self.db, plan, |_, entity| {
-            scanned = scanned.saturating_add(1);
-            let matches = filter
-                .as_ref()
-                .is_none_or(|f| FilterEvaluator::new(&entity).eval(f));
-
-            if matches {
-                if seen < offset {
-                    seen += 1;
-                    ControlFlow::Continue(())
-                } else {
-                    found = true;
-                    ControlFlow::Break(())
+        #[allow(clippy::needless_continue)]
+        match plan {
+            QueryPlan::Keys(keys) => {
+                // For PK existence checks, missing rows are normal; no deserialization required.
+                let mut seen = 0u32;
+                for key in keys {
+                    let data_key = DataKey::new::<E>(key);
+                    match self.db.context::<E>().read(&data_key) {
+                        Ok(_) => {
+                            if seen < offset {
+                                seen += 1;
+                            } else {
+                                return Ok(true);
+                            }
+                        }
+                        Err(err) if err.is_not_found() => continue,
+                        Err(err) => return Err(err),
+                    }
                 }
-            } else {
-                ControlFlow::Continue(())
+                Ok(false)
             }
-        })?;
+            plan => {
+                let filter = query.filter.map(FilterExpr::simplify);
+                let mut seen = 0u32;
+                let mut scanned = 0u64;
+                let mut found = false;
 
-        sink::record(MetricsEvent::RowsScanned {
-            entity_path: E::PATH,
-            rows_scanned: scanned,
-        });
+                // Missing rows are skipped, but decode failures still surface as corruption.
+                scan_missing_ok::<E, _>(&self.db, plan, |_, entity| {
+                    scanned = scanned.saturating_add(1);
+                    let matches = filter
+                        .as_ref()
+                        .is_none_or(|f| FilterEvaluator::new(&entity).eval(f));
 
-        Ok(found)
+                    if matches {
+                        if seen < offset {
+                            seen += 1;
+                        } else {
+                            found = true;
+                            return ControlFlow::Break(());
+                        }
+                    }
+
+                    ControlFlow::Continue(())
+                })?;
+
+                sink::record(MetricsEvent::RowsScanned {
+                    entity_path: E::PATH,
+                    rows_scanned: scanned,
+                });
+
+                Ok(found)
+            }
+        }
     }
 
     /// Check existence by primary key.
+    ///
+    /// This performs a direct, non-strict key lookup:
+    /// - Missing rows return `false`
+    /// - No deserialization is performed
+    /// - No scan-based metrics are recorded
+    ///
+    /// This differs from `exists`, which executes a planned query.
     pub fn exists_one(&self, value: impl FieldValue) -> Result<bool, InternalError> {
-        self.exists(LoadQuery::new().one::<E>(value))
+        let value = value.to_value();
+        let query = LoadQuery::new().one::<E>(value.clone());
+        QueryValidate::<E>::validate(&query)?;
+        sink::record(MetricsEvent::ExistsCall {
+            entity_path: E::PATH,
+        });
+
+        let Some(key) = value.as_key_coerced() else {
+            sink::record(MetricsEvent::RowsScanned {
+                entity_path: E::PATH,
+                rows_scanned: 0,
+            });
+            return Ok(false);
+        };
+
+        let data_key = DataKey::new::<E>(key);
+        let found = match self.db.context::<E>().read(&data_key) {
+            Ok(_) => true,
+            Err(err) if err.is_not_found() => false,
+            Err(err) => return Err(err),
+        };
+
+        sink::record(MetricsEvent::RowsScanned {
+            entity_path: E::PATH,
+            rows_scanned: u64::from(found),
+        });
+
+        Ok(found)
     }
 
     /// Check existence with a filter.

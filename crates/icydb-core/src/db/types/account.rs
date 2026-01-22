@@ -8,6 +8,10 @@ use crate::{
     types::Account,
 };
 
+///
+/// Account
+///
+
 impl Filterable for Account {
     type Filter = TextFilterKind;
     type ListFilter = TextListFilterKind;

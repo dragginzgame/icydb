@@ -4,6 +4,10 @@ use crate::{
     types::Float32,
 };
 
+///
+/// Float32
+///
+
 impl Filterable for Float32 {
     type Filter = DecimalRangeFilterKind;
     type ListFilter = DecimalListFilterKind;
