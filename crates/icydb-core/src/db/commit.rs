@@ -1,3 +1,9 @@
+//! IcyDB commit protocol and atomicity guardrails.
+//!
+//! Contract: once `begin_commit` succeeds, no fallible work or async/yield is
+//! permitted until `finish_commit` completes. The commit marker must cover all
+//! mutations, and recovery replays index ops before data ops.
+
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
@@ -198,6 +204,10 @@ pub struct CommitGuard {
 
 impl CommitGuard {
     fn mark_index_written(&mut self) {
+        debug_assert!(
+            matches!(self.marker.phase, CommitPhase::Started),
+            "commit phase must transition from Started -> IndexWritten once"
+        );
         self.marker.phase = CommitPhase::IndexWritten;
         with_commit_store_infallible(|store| store.set_infallible(&self.marker));
     }
@@ -228,6 +238,9 @@ pub fn finish_commit(
     apply_indexes: impl FnOnce(),
     apply_data: impl FnOnce(),
 ) {
+    // COMMIT WINDOW:
+    // Do not introduce fallible work or async/yield after `begin_commit`.
+    // Apply is infallible or traps; recovery replays marker on next mutation.
     // Centralize commit phases so executors stay infallible after mutation begins,
     // preserving Stage-1's "no fallible work after first stable write" invariant.
     apply_indexes();

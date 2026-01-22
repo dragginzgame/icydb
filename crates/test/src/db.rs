@@ -33,6 +33,18 @@ impl DbSuite {
                 "exists_scan_errors_on_malformed_row",
                 Self::exists_scan_errors_on_malformed_row,
             ),
+            (
+                "strict_load_missing_is_corruption",
+                Self::strict_load_missing_is_corruption,
+            ),
+            (
+                "ensure_exists_reports_not_found",
+                Self::ensure_exists_reports_not_found,
+            ),
+            (
+                "update_missing_reports_not_found",
+                Self::update_missing_reports_not_found,
+            ),
             ("unit_primary_key", Self::unit_primary_key),
             ("perf_options", Self::perf_options),
             ("perf_many_relations", Self::perf_many_relations),
@@ -70,8 +82,23 @@ impl DbSuite {
     // TESTS
     //
 
-    const fn debug_session_smoke() {
-        let _ = db!().debug();
+    fn debug_session_smoke() {
+        use test_design::e2e::db::{Index, SimpleEntity};
+
+        crate::clear_test_data_store();
+
+        let db = db!().debug();
+
+        let saved = db.insert(SimpleEntity::default()).unwrap();
+        let key = saved.key();
+
+        let _ = db.load::<SimpleEntity>().one(key).unwrap();
+        let _ = db.delete::<SimpleEntity>().one(key).unwrap();
+
+        let _ = db
+            .upsert::<Index>()
+            .by_unique_fields(&["y"], Index::new(1, 77))
+            .unwrap();
     }
 
     fn query_fail_filter() {
@@ -427,6 +454,60 @@ impl DbSuite {
             msg.contains("serialize") || msg.contains("deserialize") || msg.contains("corrupt"),
             "expected deserialization-related error, got: {msg}"
         );
+    }
+
+    fn strict_load_missing_is_corruption() {
+        use icydb::{
+            Error,
+            error::{ErrorClass, ErrorOrigin},
+        };
+        use test_design::e2e::db::SimpleEntity;
+
+        let missing = Ulid::generate();
+        let err: Error = db!()
+            .load::<SimpleEntity>()
+            .one(missing)
+            .expect_err("expected strict load to error on missing row");
+
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message.contains("missing row"),
+            "expected missing row error, got: {}",
+            err.message
+        );
+    }
+
+    fn ensure_exists_reports_not_found() {
+        use icydb::{
+            Error,
+            error::{ErrorClass, ErrorOrigin},
+        };
+        use test_design::e2e::db::SimpleEntity;
+
+        let missing = Ulid::generate();
+        let err: Error = db!()
+            .load::<SimpleEntity>()
+            .ensure_exists_one(missing)
+            .expect_err("expected NotFound when requiring missing key");
+
+        assert_eq!(err.class, ErrorClass::NotFound);
+        assert_eq!(err.origin, ErrorOrigin::Response);
+    }
+
+    fn update_missing_reports_not_found() {
+        use icydb::{
+            Error,
+            error::{ErrorClass, ErrorOrigin},
+        };
+        use test_design::e2e::db::SimpleEntity;
+
+        let err: Error = db!()
+            .update(SimpleEntity::default())
+            .expect_err("expected NotFound when updating missing row");
+
+        assert_eq!(err.class, ErrorClass::NotFound);
+        assert_eq!(err.origin, ErrorOrigin::Store);
     }
 
     fn load_malformed_row_errors() {

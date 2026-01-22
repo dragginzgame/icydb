@@ -8,6 +8,10 @@ use crate::{
     types::Principal,
 };
 
+///
+/// Principal
+///
+
 impl Filterable for Principal {
     type Filter = TextEqualityFilterKind;
     type ListFilter = TextListFilterKind;

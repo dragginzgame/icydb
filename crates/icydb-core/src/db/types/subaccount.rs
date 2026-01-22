@@ -5,6 +5,10 @@ use crate::{
     types::Subaccount,
 };
 
+///
+/// Subaccount
+///
+
 impl Filterable for Subaccount {
     type Filter = NoFilterKind;
     type ListFilter = NoFilterKind;

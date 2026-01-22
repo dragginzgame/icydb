@@ -4,6 +4,10 @@ use crate::{
     types::Nat128,
 };
 
+///
+/// Nat128
+///
+
 impl Filterable for Nat128 {
     type Filter = NatRangeFilterKind;
     type ListFilter = NatListFilterKind;

@@ -128,7 +128,9 @@ impl<C: CanisterKind> DbSession<C> {
         map_runtime(self.inner.insert(entity))
     }
 
-    /// Insert multiple entities, returning stored values.
+    /// Insert multiple entities, returning stored values (best-effort, non-atomic).
+    ///
+    /// Individual inserts are atomic, but the batch may partially succeed.
     pub fn insert_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
     where
         E: EntityKind<Canister = C>,
@@ -144,7 +146,9 @@ impl<C: CanisterKind> DbSession<C> {
         map_runtime(self.inner.replace(entity))
     }
 
-    /// Replace multiple entities, inserting if missing.
+    /// Replace multiple entities, inserting if missing (best-effort, non-atomic).
+    ///
+    /// Individual replaces are atomic, but the batch may partially succeed.
     pub fn replace_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
     where
         E: EntityKind<Canister = C>,
@@ -160,7 +164,9 @@ impl<C: CanisterKind> DbSession<C> {
         map_runtime(self.inner.update(entity))
     }
 
-    /// Partially update multiple existing entities.
+    /// Partially update multiple existing entities (best-effort, non-atomic).
+    ///
+    /// Individual updates are atomic, but the batch may partially succeed.
     pub fn update_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
     where
         E: EntityKind<Canister = C>,

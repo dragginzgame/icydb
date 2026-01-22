@@ -8,6 +8,10 @@ use crate::{
     types::Ulid,
 };
 
+///
+/// Ulid
+///
+
 impl Filterable for Ulid {
     type Filter = TextFilterKind;
     type ListFilter = TextListFilterKind;

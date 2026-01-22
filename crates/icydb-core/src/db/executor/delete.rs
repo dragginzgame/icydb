@@ -120,6 +120,12 @@ impl<E: EntityKind> DeleteExecutor<E> {
         self
     }
 
+    fn debug_log(&self, s: impl Into<String>) {
+        if self.debug {
+            println!("{}", s.into());
+        }
+    }
+
     // ─────────────────────────────────────────────
     // PK helpers
     // ─────────────────────────────────────────────
@@ -152,6 +158,11 @@ impl<E: EntityKind> DeleteExecutor<E> {
     where
         E::PrimaryKey: FromKey,
     {
+        self.debug_log(format!(
+            "[debug] delete by unique index on {} ({})",
+            E::PATH,
+            index.index().fields.join(", ")
+        ));
         let mut span = Span::<E>::new(ExecKind::Delete);
         ensure_recovered(&self.db)?;
 
@@ -224,11 +235,15 @@ impl<E: EntityKind> DeleteExecutor<E> {
         QueryValidate::<E>::validate(&query)?;
         ensure_recovered(&self.db)?;
 
+        self.debug_log(format!("[debug] delete query {:?} on {}", query, E::PATH));
+
         let mut span = Span::<E>::new(ExecKind::Delete);
 
         // Plan the delete using the same planner as loads (side-effect free).
         let plan = plan_for::<E>(query.filter.as_ref());
         record_plan_metrics(&plan);
+
+        self.debug_log(format!("[debug] delete plan: {plan:?}"));
 
         // Extract pagination controls for scan-time filtering.
         let (limit, offset) = match query.limit.as_ref() {

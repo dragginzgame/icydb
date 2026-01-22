@@ -127,6 +127,8 @@ impl<E: EntityKind> LoadExecutor<E> {
             entity_path: E::PATH,
         });
 
+        self.debug_log(format!("[debug] exists query {:?} on {}", query, E::PATH));
+
         let plan = plan_for::<E>(query.filter.as_ref());
         let offset = query.limit.as_ref().map_or(0, |lim| lim.offset);
         let limit = query.limit.as_ref().and_then(|lim| lim.limit);
@@ -206,6 +208,12 @@ impl<E: EntityKind> LoadExecutor<E> {
             entity_path: E::PATH,
         });
 
+        self.debug_log(format!(
+            "[debug] exists_one on {} (value={:?})",
+            E::PATH,
+            value
+        ));
+
         let Some(key) = value.as_key_coerced() else {
             sink::record(MetricsEvent::RowsScanned {
                 entity_path: E::PATH,
@@ -249,6 +257,10 @@ impl<E: EntityKind> LoadExecutor<E> {
 
     /// Require at least one row by primary key.
     pub fn ensure_exists_one(&self, value: impl FieldValue) -> Result<(), InternalError> {
+        let value = value.to_value();
+        let query = LoadQuery::new().one::<E>(value.clone());
+        QueryValidate::<E>::validate(&query)?;
+
         if self.exists_one(value)? {
             Ok(())
         } else {
@@ -257,21 +269,36 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Require that all provided primary keys exist.
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn ensure_exists_many<I, V>(&self, values: I) -> Result<(), InternalError>
+    ///
+    /// This is an existence-only guard: missing keys return `NotFound`,
+    /// and no deserialization is performed.
+    pub fn ensure_exists_all<I, V>(&self, values: I) -> Result<(), InternalError>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
     {
-        let pks: Vec<_> = values.into_iter().collect();
+        let query = LoadQuery::new().many_by_field(E::PRIMARY_KEY, values);
+        QueryValidate::<E>::validate(&query)?;
 
-        let expected = pks.len() as u32;
-        if expected == 0 {
+        let QueryPlan::Keys(keys) = plan_for::<E>(query.filter.as_ref()) else {
+            return Ok(());
+        };
+
+        if keys.is_empty() {
             return Ok(());
         }
 
-        let res = self.many(pks)?;
-        res.require_len(expected)?;
+        let ctx = self.db.context::<E>();
+        for key in keys {
+            let data_key = DataKey::new::<E>(key);
+            match ctx.read(&data_key) {
+                Ok(_) => {}
+                Err(err) if err.is_not_found() => {
+                    return Err(ResponseError::NotFound { entity: E::PATH }.into());
+                }
+                Err(err) => return Err(err),
+            }
+        }
 
         Ok(())
     }
@@ -316,9 +343,9 @@ impl<E: EntityKind> LoadExecutor<E> {
 
     /// Execute a full query and return a collection of entities.
     ///
-    /// Note: index-backed loads are best-effort. If index entries point to missing
-    /// or malformed rows, those candidates are skipped. Use explicit strict APIs
-    /// when corruption must surface as an error.
+    /// Note: index- and key-backed loads are strict. If an index points to a
+    /// missing or malformed row, that is surfaced as corruption. Use existence
+    /// APIs when missing rows should be treated as normal absence.
     pub fn execute(&self, query: LoadQuery) -> Result<Response<E>, InternalError> {
         let mut span = Span::<E>::new(ExecKind::Load);
         QueryValidate::<E>::validate(&query)?;

@@ -48,14 +48,23 @@ impl<E: EntityKind> SaveExecutor<E> {
         map_runtime(self.inner.replace_view(view))
     }
 
+    /// Insert multiple entities (best-effort, non-atomic).
+    ///
+    /// Individual inserts are atomic, but the batch may partially succeed.
     pub fn insert_many(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error> {
         map_runtime(self.inner.insert_many(entities))
     }
 
+    /// Update multiple entities (best-effort, non-atomic).
+    ///
+    /// Individual updates are atomic, but the batch may partially succeed.
     pub fn update_many(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error> {
         map_runtime(self.inner.update_many(entities))
     }
 
+    /// Replace multiple entities (best-effort, non-atomic).
+    ///
+    /// Individual replaces are atomic, but the batch may partially succeed.
     pub fn replace_many(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error> {
         map_runtime(self.inner.replace_many(entities))
     }

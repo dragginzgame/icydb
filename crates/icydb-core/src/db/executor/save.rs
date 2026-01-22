@@ -50,6 +50,12 @@ impl<E: EntityKind> SaveExecutor<E> {
         self
     }
 
+    fn debug_log(&self, s: impl Into<String>) {
+        if self.debug {
+            println!("{}", s.into());
+        }
+    }
+
     // ======================================================================
     // Single-entity save operations
     // ======================================================================
@@ -169,11 +175,25 @@ impl<E: EntityKind> SaveExecutor<E> {
         let key = entity.key();
         let data_key = DataKey::new::<E>(key);
         let raw_key = data_key.to_raw();
-        let old_result = ctx.with_store(|store| store.get(&raw_key))?;
 
-        let old = match (mode, old_result) {
-            (SaveMode::Insert | SaveMode::Replace, None) => None,
-            (SaveMode::Update | SaveMode::Replace, Some(old_row)) => {
+        self.debug_log(format!(
+            "[debug] save {:?} on {} (key={})",
+            mode,
+            E::PATH,
+            data_key
+        ));
+        let old = match mode {
+            SaveMode::Insert => {
+                // Inserts must not load or decode existing rows; absence is expected.
+                if ctx.with_store(|store| store.contains_key(&raw_key))? {
+                    return Err(ExecutorError::KeyExists(data_key).into());
+                }
+                None
+            }
+            SaveMode::Update => {
+                let Some(old_row) = ctx.with_store(|store| store.get(&raw_key))? else {
+                    return Err(InternalError::store_not_found(data_key.to_string()));
+                };
                 Some(old_row.try_decode::<E>().map_err(|err| {
                     ExecutorError::corruption(
                         ErrorOrigin::Serialize,
@@ -181,9 +201,18 @@ impl<E: EntityKind> SaveExecutor<E> {
                     )
                 })?)
             }
-            (SaveMode::Insert, Some(_)) => return Err(ExecutorError::KeyExists(data_key).into()),
-            (SaveMode::Update, None) => {
-                return Err(InternalError::store_not_found(data_key.to_string()));
+            SaveMode::Replace => {
+                let old_row = ctx.with_store(|store| store.get(&raw_key))?;
+                old_row
+                    .map(|row| {
+                        row.try_decode::<E>().map_err(|err| {
+                            ExecutorError::corruption(
+                                ErrorOrigin::Serialize,
+                                format!("failed to deserialize row: {data_key} ({err})"),
+                            )
+                        })
+                    })
+                    .transpose()?
             }
         };
 

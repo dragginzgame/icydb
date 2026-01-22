@@ -102,6 +102,12 @@ where
         self
     }
 
+    fn debug_log(&self, s: impl Into<String>) {
+        if self.debug {
+            println!("{}", s.into());
+        }
+    }
+
     /// Upsert using a unique index specification.
     pub fn by_unique_index(&self, index: UniqueIndexHandle, entity: E) -> Result<E, InternalError> {
         self.upsert(index.index(), entity)
@@ -216,6 +222,11 @@ where
         index: &'static IndexModel,
         entity: E,
     ) -> Result<UpsertResult<E>, InternalError> {
+        self.debug_log(format!(
+            "[debug] upsert on {} (unique index: {})",
+            E::PATH,
+            index.fields.join(", ")
+        ));
         // Recovery is mutation-only to keep read paths side-effect free.
         ensure_recovered(&self.db)?;
         let existing_pk = self.resolve_existing_pk(index, &entity)?;
@@ -245,6 +256,11 @@ where
     where
         F: FnOnce(E, E) -> E,
     {
+        self.debug_log(format!(
+            "[debug] upsert merge on {} (unique index: {})",
+            E::PATH,
+            index.fields.join(", ")
+        ));
         // Recovery is mutation-only to keep read paths side-effect free.
         ensure_recovered(&self.db)?;
         let existing_pk = self.resolve_existing_pk(index, &entity)?;

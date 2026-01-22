@@ -9,6 +9,10 @@ pub struct IndexSuite;
 impl IndexSuite {
     pub fn test() {
         let tests: Vec<(&str, fn())> = vec![
+            (
+                "insert_indexed_empty_store",
+                Self::insert_indexed_empty_store,
+            ),
             ("index_on_principal", Self::index_on_principal),
             ("index_on_principal_ulid", Self::index_on_principal_ulid),
             ("index_uses_all_fields", Self::index_uses_all_fields),
@@ -22,6 +26,21 @@ impl IndexSuite {
             println!("Running test: {name}");
             test_fn();
         }
+    }
+
+    fn insert_indexed_empty_store() {
+        crate::clear_test_data_store();
+
+        let db = db!();
+        let res = db.insert(IndexableOptText {
+            username: Some("first".into()),
+            ..Default::default()
+        });
+
+        assert!(
+            res.is_ok(),
+            "expected insert into empty indexed table to succeed"
+        );
     }
 
     fn index_on_principal() {

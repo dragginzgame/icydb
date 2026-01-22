@@ -82,6 +82,13 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Check existence by primary key.
+    ///
+    /// This performs a direct, non-strict key lookup:
+    /// - Missing rows return `false`
+    /// - No deserialization is performed
+    /// - No scan-based metrics are recorded
+    ///
+    /// This differs from `exists`, which executes a planned query.
     pub fn exists_one(&self, value: impl FieldValue) -> Result<bool, Error> {
         map_runtime(self.inner.exists_one(value))
     }
@@ -106,12 +113,15 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Require that all provided primary keys exist.
-    pub fn ensure_exists_many<I, V>(&self, values: I) -> Result<(), Error>
+    ///
+    /// This is an existence-only guard: missing keys return `NotFound`,
+    /// and no deserialization is performed.
+    pub fn ensure_exists_all<I, V>(&self, values: I) -> Result<(), Error>
     where
         I: IntoIterator<Item = V>,
         V: FieldValue,
     {
-        map_runtime(self.inner.ensure_exists_many(values))
+        map_runtime(self.inner.ensure_exists_all(values))
     }
 
     /// Require at least one row from a filter.

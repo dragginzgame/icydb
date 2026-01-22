@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [0.4.7] - 2026-01-22
+- 🔁 Renamed `ensure_exists_many` to `ensure_exists_all` for clarity.
+- ✅ `ensure_exists_all` is now a true existence-only guard (no deserialization).
+- 🧭 Insert no longer loads existing rows during index planning; missing rows are treated as expected.
+- 🐛 Debug sessions now emit logs across load/exists, save, delete, and upsert executors.
+
+---
+
 ## [0.4.6] - 2026-01-22
 - 🧭 Existence checks now treat missing rows as normal and avoid false corruption on scans.
 - 🧹 Deletes by primary key are idempotent; missing rows are skipped during pre-scan.

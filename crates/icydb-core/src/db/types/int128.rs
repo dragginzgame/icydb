@@ -4,6 +4,10 @@ use crate::{
     types::Int128,
 };
 
+///
+/// Int128
+///
+
 impl Filterable for Int128 {
     type Filter = IntRangeFilterKind;
     type ListFilter = IntListFilterKind;

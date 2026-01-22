@@ -5,6 +5,10 @@ use crate::{
     types::Unit,
 };
 
+///
+/// Unit
+///
+
 impl Filterable for Unit {
     type Filter = NoFilterKind;
     type ListFilter = NoFilterKind;

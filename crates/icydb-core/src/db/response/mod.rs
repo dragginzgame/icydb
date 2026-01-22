@@ -52,7 +52,8 @@ pub enum ResponseError {
 impl ResponseError {
     pub(crate) const fn class(&self) -> ErrorClass {
         match self {
-            Self::NotFound { .. } | Self::NotUnique { .. } => ErrorClass::Unsupported,
+            Self::NotFound { .. } => ErrorClass::NotFound,
+            Self::NotUnique { .. } => ErrorClass::Unsupported,
         }
     }
 }
