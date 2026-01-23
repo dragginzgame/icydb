@@ -127,10 +127,6 @@ pub trait HasType: HasDef {
     fn update_ident(&self) -> Ident {
         format_ident!("{}Update", self.def().ident())
     }
-
-    fn filter_ident(&self) -> Ident {
-        format_ident!("{}Filter", self.def().ident())
-    }
 }
 
 ///

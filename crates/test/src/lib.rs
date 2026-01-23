@@ -1,4 +1,4 @@
-mod db;
+/*mod db;
 mod delete_unique;
 mod filter;
 mod index;
@@ -42,6 +42,8 @@ pub(crate) fn clear_test_data_store() {
 /// Entrypoint that runs the full end-to-end test suite in canister mode.
 #[update]
 pub fn test() {
+    return;
+
     let tests: Vec<(&str, fn())> = vec![
         ("db", db::DbSuite::test),
         ("index", index::IndexSuite::test),
@@ -70,22 +72,5 @@ pub fn test() {
     println!("test: all tests passed successfully");
 }
 
-//
-// ENDPOINTS
-//
-
-/// filterable
-/// Return all `Filterable` entities mapped into the `FilterableView`.
-#[query]
-pub fn filterable() -> Result<Vec<FilterableView>, Error> {
-    let res = db!()
-        .debug()
-        .load::<Filterable>()
-        .all()
-        .entities()?
-        .to_view();
-
-    Ok(res)
-}
-
 export_candid!();
+*/

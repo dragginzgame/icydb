@@ -1,6 +1,6 @@
 use crate::{
     prelude::*,
-    view::{ValueFilter, ValueUpdate, ValueView, traits::ViewExpr},
+    view::{ValueUpdate, ValueView, traits::ViewExpr},
 };
 
 ///
@@ -30,22 +30,6 @@ impl ViewExpr for FieldUpdate<'_> {
         let f = self.0;
         let ident = &f.ident;
         let ty = ValueUpdate(&f.value).expr()?;
-
-        quote!(pub #ident: Option<#ty>).into()
-    }
-}
-
-///
-/// FieldFilter
-///
-
-pub struct FieldFilter<'a>(pub &'a Field);
-
-impl ViewExpr for FieldFilter<'_> {
-    fn expr(&self) -> Option<TokenStream> {
-        let f = self.0;
-        let ident = &f.ident;
-        let ty = ValueFilter(&f.value).expr()?;
 
         quote!(pub #ident: Option<#ty>).into()
     }

@@ -16,10 +16,6 @@ use icydb_core::{
 ///
 /// Re-exports
 ///
-
-pub mod primitives {
-    pub use icydb_core::db::primitives::*;
-}
 pub mod executor;
 pub mod query;
 pub mod response;

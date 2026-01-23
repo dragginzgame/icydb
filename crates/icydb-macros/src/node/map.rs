@@ -73,7 +73,6 @@ impl HasTraits for Map {
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::Filterable => FilterableTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
             TraitKind::UpdateView => UpdateViewTrait::strategy(self),

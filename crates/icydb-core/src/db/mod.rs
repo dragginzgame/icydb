@@ -2,7 +2,6 @@ mod commit;
 pub mod executor;
 pub mod identity;
 pub mod index;
-pub mod primitives;
 pub mod query;
 pub mod response;
 pub mod store;

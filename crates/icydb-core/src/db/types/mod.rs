@@ -1,16 +1,4 @@
 pub mod account;
-pub mod blob;
-pub mod date;
-pub mod decimal;
-pub mod duration;
-pub mod e18s;
-pub mod e8s;
-pub mod float32;
-pub mod float64;
-pub mod int;
-pub mod int128;
-pub mod nat;
-pub mod nat128;
 pub mod principal;
 pub mod subaccount;
 pub mod timestamp;

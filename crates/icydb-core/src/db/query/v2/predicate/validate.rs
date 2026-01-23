@@ -178,6 +178,7 @@ pub struct SchemaInfo {
 
 impl SchemaInfo {
     #[must_use]
+    #[expect(dead_code)]
     pub(crate) fn new(fields: impl IntoIterator<Item = (String, FieldType)>) -> Self {
         Self {
             fields: fields.into_iter().collect(),
@@ -185,7 +186,7 @@ impl SchemaInfo {
     }
 
     #[must_use]
-    pub fn field(&self, name: &str) -> Option<&FieldType> {
+    pub(crate) fn field(&self, name: &str) -> Option<&FieldType> {
         self.fields.get(name)
     }
 

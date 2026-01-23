@@ -5,7 +5,7 @@ use quote::ToTokens;
 /// View
 ///
 /// A node that emits additional derived view representations
-/// (e.g., main View, Edit, Filter).
+/// (e.g., main View, Edit).
 ///
 
 pub trait View: ToTokens {

@@ -3,7 +3,6 @@ use crate::{
     prelude::*,
     view::{
         FieldUpdate, FieldView,
-        helper::generate_field_list_filter,
         traits::{View, ViewExpr},
     },
 };
@@ -118,29 +117,6 @@ impl View for EntityUpdate<'_> {
 }
 
 impl ToTokens for EntityUpdate<'_> {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.generate());
-    }
-}
-
-///
-/// EntityFilter
-///
-
-pub struct EntityFilter<'a>(pub &'a Entity);
-
-impl View for EntityFilter<'_> {
-    fn generate(&self) -> TokenStream {
-        let node = self.0;
-        let filter_ident = node.filter_ident();
-        let mut derives = self.traits();
-        derives.add(TraitKind::Default);
-
-        generate_field_list_filter(&filter_ident, &node.fields, &derives)
-    }
-}
-
-impl ToTokens for EntityFilter<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.extend(self.generate());
     }

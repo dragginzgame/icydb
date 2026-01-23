@@ -94,7 +94,7 @@ fn normalize_and(children: &[Predicate]) -> Predicate {
         return Predicate::True;
     }
 
-    out.sort_by_key(|node| sort_key(node));
+    out.sort_by_key(sort_key);
     Predicate::And(out)
 }
 
@@ -116,7 +116,7 @@ fn normalize_or(children: &[Predicate]) -> Predicate {
         return Predicate::False;
     }
 
-    out.sort_by_key(|node| sort_key(node));
+    out.sort_by_key(sort_key);
     Predicate::Or(out)
 }
 

@@ -2,7 +2,7 @@
 ///
 /// This module contains the *runtime representations* of schema-level concepts,
 /// as opposed to their declarative or macro-time forms. Types in `model` are
-/// instantiated and used directly by the query planner, executors, and storage
+/// instantiated and used directly by query planning, executors, and storage
 /// layers.
 ///
 /// Currently this includes index-related models, but the module is intended to

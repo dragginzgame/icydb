@@ -5,9 +5,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// Re-exports
 ///
-pub use core::db::query::{
-    DeleteQuery, IndexPlan, LoadQuery, QueryError, QueryPlan, QueryPlanner, QueryValidate, SaveMode,
-};
+pub use core::db::query::SaveMode;
+pub use core::db::query::v2;
 
 ///
 /// SaveQuery
@@ -59,16 +58,16 @@ impl From<SaveQuery> for icydb_core::db::query::SaveQuery {
     }
 }
 
-/// Start building a `LoadQuery`.
+/// Start building a full-scan v2 logical plan for load queries.
 #[must_use]
-pub fn load() -> LoadQuery {
-    icydb_core::db::query::load()
+pub const fn load() -> v2::plan::LogicalPlan {
+    v2::plan::LogicalPlan::new(v2::plan::AccessPath::FullScan)
 }
 
-/// Start building a `DeleteQuery`.
+/// Start building a full-scan v2 logical plan for delete queries.
 #[must_use]
-pub fn delete() -> DeleteQuery {
-    icydb_core::db::query::delete()
+pub const fn delete() -> v2::plan::LogicalPlan {
+    v2::plan::LogicalPlan::new(v2::plan::AccessPath::FullScan)
 }
 
 /// Build an insert `SaveQuery`.

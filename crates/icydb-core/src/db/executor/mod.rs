@@ -1,7 +1,5 @@
-mod coerce;
 mod context;
 mod delete;
-mod filter;
 mod load;
 mod plan;
 mod save;
@@ -10,7 +8,7 @@ mod upsert;
 
 pub(crate) use context::*;
 pub use delete::DeleteExecutor;
-pub use load::{LoadExecutor, ShadowLoadResult};
+pub use load::LoadExecutor;
 pub use save::SaveExecutor;
 pub(crate) use unique::resolve_unique_pk;
 pub use upsert::{UniqueIndexHandle, UpsertExecutor, UpsertResult};
@@ -19,7 +17,6 @@ use crate::{
     db::store::DataKey,
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
-use filter::*;
 use thiserror::Error as ThisError;
 
 ///

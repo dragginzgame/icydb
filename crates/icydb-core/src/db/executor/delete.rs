@@ -2,10 +2,8 @@ use crate::{
     db::{
         CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, begin_commit, ensure_recovered,
         executor::{
-            ExecutorError, FilterEvaluator, UniqueIndexHandle, WriteUnit,
-            plan::{
-                plan_for, record_plan_metrics, scan_missing_ok, scan_strict, set_rows_from_len,
-            },
+            ExecutorError, UniqueIndexHandle, WriteUnit,
+            plan::{record_plan_metrics, set_rows_from_len},
             resolve_unique_pk,
         },
         finish_commit,
@@ -13,71 +11,23 @@ use crate::{
             IndexEntry, IndexEntryCorruption, IndexKey, IndexRemoveOutcome, IndexStore,
             RawIndexEntry, RawIndexKey,
         },
-        primitives::FilterExpr,
-        query::{DeleteQuery, QueryPlan, QueryValidate},
+        query::v2::{
+            plan::{LogicalPlan, OrderDirection, OrderSpec, validate_plan},
+            predicate::{eval as eval_v2, normalize as normalize_v2},
+        },
         response::Response,
-        store::DataKey,
+        store::{DataKey, DataRow},
         traits::FromKey,
     },
-    error::{ErrorOrigin, InternalError},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     sanitize::sanitize,
-    traits::{EntityKind, FieldValue, Path},
+    traits::{EntityKind, Path},
 };
-use canic_cdk::structures::Storable;
 use std::{
-    cell::RefCell, collections::BTreeMap, marker::PhantomData, ops::ControlFlow, thread::LocalKey,
+    cell::RefCell, cmp::Ordering, collections::BTreeMap, marker::PhantomData, thread::LocalKey,
 };
-
-///
-/// DeleteAccumulator
-/// Accumulates delete candidates while respecting filter/offset/limit semantics.
-///
-
-struct DeleteAccumulator<'f, E> {
-    filter: Option<&'f FilterExpr>,
-    offset: usize,
-    skipped: usize,
-    limit: Option<usize>,
-    matches: Vec<(DataKey, E)>,
-}
-
-impl<'f, E: EntityKind> DeleteAccumulator<'f, E> {
-    fn new(filter: Option<&'f FilterExpr>, offset: usize, limit: Option<usize>) -> Self {
-        Self {
-            filter,
-            offset,
-            skipped: 0,
-            limit,
-            matches: Vec::with_capacity(limit.unwrap_or(0)),
-        }
-    }
-
-    fn limit_reached(&self) -> bool {
-        self.limit.is_some_and(|lim| self.matches.len() >= lim)
-    }
-
-    fn should_stop(&mut self, dk: DataKey, entity: E) -> bool {
-        if let Some(f) = self.filter
-            && !FilterEvaluator::new(&entity).eval(f)
-        {
-            return false;
-        }
-
-        if self.skipped < self.offset {
-            self.skipped += 1;
-            return false;
-        }
-
-        if self.limit_reached() {
-            return true;
-        }
-
-        self.matches.push((dk, entity));
-        false
-    }
-}
 
 ///
 /// IndexPlan
@@ -124,26 +74,6 @@ impl<E: EntityKind> DeleteExecutor<E> {
         if self.debug {
             println!("{}", s.into());
         }
-    }
-
-    // ─────────────────────────────────────────────
-    // PK helpers
-    // ─────────────────────────────────────────────
-
-    pub fn one(self, pk: impl FieldValue) -> Result<Response<E>, InternalError> {
-        self.execute(DeleteQuery::new().one::<E>(pk))
-    }
-
-    pub fn only(self) -> Result<Response<E>, InternalError> {
-        self.execute(DeleteQuery::new().one::<E>(()))
-    }
-
-    pub fn many<I, V>(self, values: I) -> Result<Response<E>, InternalError>
-    where
-        I: IntoIterator<Item = V>,
-        V: FieldValue,
-    {
-        self.execute(DeleteQuery::new().many_by_field(E::PRIMARY_KEY, values))
     }
 
     // ─────────────────────────────────────────────
@@ -222,89 +152,58 @@ impl<E: EntityKind> DeleteExecutor<E> {
     }
 
     // ─────────────────────────────────────────────
-    // Planner-based delete
+    // Plan-based delete
     // ─────────────────────────────────────────────
 
-    pub fn explain(self, query: DeleteQuery) -> Result<QueryPlan, InternalError> {
-        QueryValidate::<E>::validate(&query)?;
-        Ok(plan_for::<E>(query.filter.as_ref()))
-    }
-
-    pub fn execute(self, query: DeleteQuery) -> Result<Response<E>, InternalError> {
-        // Validate query shape and ensure no recovery is in progress.
-        QueryValidate::<E>::validate(&query)?;
+    pub fn execute(self, plan: LogicalPlan) -> Result<Response<E>, InternalError> {
+        validate_plan::<E>(&plan).map_err(|err| {
+            InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+        })?;
         ensure_recovered(&self.db)?;
 
-        self.debug_log(format!("[debug] delete query {:?} on {}", query, E::PATH));
+        self.debug_log(format!("[debug] delete plan on {}", E::PATH));
 
         let mut span = Span::<E>::new(ExecKind::Delete);
+        record_plan_metrics(&plan.access);
 
-        // Plan the delete using the same planner as loads (side-effect free).
-        let plan = plan_for::<E>(query.filter.as_ref());
-        record_plan_metrics(&plan);
-
-        self.debug_log(format!("[debug] delete plan: {plan:?}"));
-
-        // Extract pagination controls for scan-time filtering.
-        let (limit, offset) = match query.limit.as_ref() {
-            Some(l) => (l.limit.map(|v| v as usize), l.offset as usize),
-            None => (None, 0),
-        };
-
-        // Prepare accumulator that enforces filter/offset/limit semantics.
-        let filter = query.filter.as_ref().map(|f| f.clone().simplify());
-        let mut acc = DeleteAccumulator::new(filter.as_ref(), offset, limit);
-        let mut scanned = 0u64;
-
-        // Scan phase: identify rows to delete without mutating storage.
-        match plan {
-            QueryPlan::Keys(keys) => {
-                // Key deletes are idempotent: missing rows are skipped.
-                scan_missing_ok::<E, _>(&self.db, QueryPlan::Keys(keys), |dk, entity| {
-                    scanned += 1;
-                    if acc.should_stop(dk, entity) {
-                        ControlFlow::Break(())
-                    } else {
-                        ControlFlow::Continue(())
-                    }
-                })?;
-            }
-            plan => {
-                // Non-key plans are strict: missing or corrupt rows are errors.
-                scan_strict::<E, _>(&self.db, plan, |dk, entity| {
-                    scanned += 1;
-                    if acc.should_stop(dk, entity) {
-                        ControlFlow::Break(())
-                    } else {
-                        ControlFlow::Continue(())
-                    }
-                })?;
-            }
-        }
-
-        // Record how many rows were examined during planning.
+        let ctx = self.db.context::<E>();
+        let data_rows = ctx.rows_from_access(&plan.access)?;
         sink::record(MetricsEvent::RowsScanned {
             entity_path: E::PATH,
-            rows_scanned: scanned,
+            rows_scanned: data_rows.len() as u64,
         });
 
-        // Fast exit when no rows matched after filtering and pagination.
-        if acc.matches.is_empty() {
+        let mut rows = decode_rows::<E>(data_rows)?;
+
+        let normalized = plan.predicate.as_ref().map(normalize_v2);
+        if let Some(predicate) = normalized.as_ref() {
+            rows.retain(|(_, entity)| eval_v2(entity, predicate));
+        }
+
+        if let Some(order) = &plan.order
+            && rows.len() > 1
+            && !order.fields.is_empty()
+        {
+            apply_order_spec(&mut rows, order);
+        }
+
+        if let Some(page) = &plan.page {
+            apply_pagination(&mut rows, page.offset, page.limit);
+        }
+
+        if rows.is_empty() {
             set_rows_from_len(&mut span, 0);
             return Ok(Response(Vec::new()));
         }
 
-        // Precompute index and data mutations before beginning the commit.
         let index_plans = self.build_index_plans()?;
-        let entities: Vec<&E> = acc.matches.iter().map(|(_, e)| e).collect();
+        let entities: Vec<&E> = rows.iter().map(|(_, e)| e).collect();
         let index_ops = Self::build_index_removal_ops(&index_plans, &entities)?;
 
         // Preflight store access to ensure no fallible work remains post-commit.
-        let ctx = self.db.context::<E>();
         ctx.with_store(|_| ())?;
 
-        let data_ops = acc
-            .matches
+        let data_ops = rows
             .iter()
             .map(|(dk, _)| CommitDataOp {
                 store: E::Store::PATH.to_string(),
@@ -316,11 +215,10 @@ impl<E: EntityKind> DeleteExecutor<E> {
         let marker = CommitMarker::new(CommitKind::Delete, index_ops, data_ops)?;
         let commit = begin_commit(marker)?;
 
-        // Commit phase: remove index entries first, then delete data rows.
         finish_commit(
             commit,
             || {
-                for (_, entity) in &acc.matches {
+                for (_, entity) in &rows {
                     let _unit = WriteUnit::new("delete_row_stage1_atomic");
                     for plan in &index_plans {
                         let outcome = plan
@@ -337,7 +235,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
             },
             || {
                 ctx.with_store_mut(|s| {
-                    for (dk, _) in &acc.matches {
+                    for (dk, _) in &rows {
                         s.remove(&dk.to_raw());
                     }
                 })
@@ -345,9 +243,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
             },
         );
 
-        // Return deleted entities to the caller.
-        let res = acc
-            .matches
+        let res = rows
             .into_iter()
             .map(|(dk, e)| (dk.key(), e))
             .collect::<Vec<_>>();
@@ -450,7 +346,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                             ),
                         )
                     })?;
-                    Some(raw.into_bytes())
+                    Some(raw.as_bytes().to_vec())
                 } else {
                     // None means the index entry is fully removed.
                     None
@@ -465,5 +361,66 @@ impl<E: EntityKind> DeleteExecutor<E> {
         }
 
         Ok(ops)
+    }
+}
+
+fn decode_rows<E: EntityKind>(rows: Vec<DataRow>) -> Result<Vec<(DataKey, E)>, InternalError> {
+    rows.into_iter()
+        .map(|(dk, raw)| {
+            let dk_for_err = dk.clone();
+            raw.try_decode::<E>()
+                .map(|entity| (dk, entity))
+                .map_err(|err| {
+                    ExecutorError::corruption(
+                        ErrorOrigin::Serialize,
+                        format!("failed to deserialize row: {dk_for_err} ({err})"),
+                    )
+                    .into()
+                })
+        })
+        .collect()
+}
+
+fn apply_order_spec<E: EntityKind>(rows: &mut [(DataKey, E)], order: &OrderSpec) {
+    rows.sort_by(|(_, ea), (_, eb)| {
+        for (field, direction) in &order.fields {
+            let va = ea.get_value(field);
+            let vb = eb.get_value(field);
+
+            let ordering = match (va, vb) {
+                (None, None) => continue,
+                (None, Some(_)) => Ordering::Less,
+                (Some(_), None) => Ordering::Greater,
+                (Some(va), Some(vb)) => match va.partial_cmp(&vb) {
+                    Some(ord) => ord,
+                    None => continue,
+                },
+            };
+
+            let ordering = match direction {
+                OrderDirection::Asc => ordering,
+                OrderDirection::Desc => ordering.reverse(),
+            };
+
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+
+        Ordering::Equal
+    });
+}
+
+/// Apply offset/limit pagination to an in-memory vector, in-place.
+fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
+    let total = rows.len();
+    let start = usize::min(offset as usize, total);
+    let end = limit.map_or(total, |l| usize::min(start + l as usize, total));
+
+    if start >= end {
+        rows.clear();
+    } else {
+        rows.drain(..start);
+        rows.truncate(end - start);
     }
 }

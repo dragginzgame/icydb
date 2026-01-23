@@ -2,7 +2,7 @@ use crate::{
     db::{
         Db,
         executor::ExecutorError,
-        query::QueryPlan,
+        query::v2::plan::AccessPath,
         store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorOrigin, InternalError},
@@ -66,22 +66,25 @@ where
     }
 
     ///
-    /// Analyze Plan
+    /// Analyze Access Path
     ///
 
-    /// Compute candidate data keys for the given query plan.
+    /// Compute candidate data keys for the given access path.
     ///
     /// Note: index candidates are returned in deterministic key order.
     /// This ordering is for stability only and does not imply semantic ordering.
-    pub fn candidates_from_plan(&self, plan: QueryPlan) -> Result<Vec<DataKey>, InternalError> {
-        let is_index_plan = matches!(&plan, QueryPlan::Index(_));
+    pub fn candidates_from_access(
+        &self,
+        access: &AccessPath,
+    ) -> Result<Vec<DataKey>, InternalError> {
+        let is_index_path = matches!(access, AccessPath::IndexPrefix { .. });
 
-        let mut candidates = match plan {
-            QueryPlan::Keys(keys) => Self::to_data_keys(keys),
-
-            QueryPlan::Range(start, end) => self.with_store(|s| {
-                let start = Self::to_data_key(start);
-                let end = Self::to_data_key(end);
+        let mut candidates = match access {
+            AccessPath::ByKey(key) => Self::to_data_keys(vec![*key]),
+            AccessPath::ByKeys(keys) => Self::to_data_keys(keys.clone()),
+            AccessPath::KeyRange { start, end } => self.with_store(|s| {
+                let start = Self::to_data_key(*start);
+                let end = Self::to_data_key(*end);
                 let start_raw = start.to_raw();
                 let end_raw = end.to_raw();
 
@@ -89,8 +92,7 @@ where
                     .map(|e| Self::decode_data_key(e.key()))
                     .collect::<Result<Vec<_>, _>>()
             })??,
-
-            QueryPlan::FullScan => self.with_store(|s| {
+            AccessPath::FullScan => self.with_store(|s| {
                 let start = DataKey::lower_bound::<E>();
                 let end = DataKey::upper_bound::<E>();
                 let start_raw = start.to_raw();
@@ -100,40 +102,41 @@ where
                     .map(|entry| Self::decode_data_key(entry.key()))
                     .collect::<Result<Vec<_>, _>>()
             })??,
-
-            QueryPlan::Index(index_plan) => {
-                let index_store = self
-                    .db
-                    .with_index(|reg| reg.try_get_store(index_plan.index.store))?;
+            AccessPath::IndexPrefix { index, values } => {
+                let index_store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
 
                 index_store.with_borrow(|istore| {
                     istore
-                        .resolve_data_values::<E>(index_plan.index, &index_plan.values)
+                        .resolve_data_values::<E>(index, values)
                         .map_err(|msg| ExecutorError::corruption(ErrorOrigin::Index, msg))
                 })?
             }
         };
 
-        if is_index_plan {
+        if is_index_path {
             candidates.sort_unstable();
         }
 
         Ok(candidates)
     }
 
-    /// Load data rows for the given query plan.
-    pub fn rows_from_plan(&self, plan: QueryPlan) -> Result<Vec<DataRow>, InternalError> {
-        match plan {
-            QueryPlan::Keys(keys) => {
-                let data_keys = Self::to_data_keys(keys);
+    /// Load data rows for the given access path.
+    pub fn rows_from_access(&self, access: &AccessPath) -> Result<Vec<DataRow>, InternalError> {
+        match access {
+            AccessPath::ByKey(key) => {
+                let data_keys = Self::to_data_keys(vec![*key]);
                 self.load_many(&data_keys)
             }
-            QueryPlan::Range(start, end) => {
-                let start = Self::to_data_key(start);
-                let end = Self::to_data_key(end);
+            AccessPath::ByKeys(keys) => {
+                let data_keys = Self::to_data_keys(keys.clone());
+                self.load_many(&data_keys)
+            }
+            AccessPath::KeyRange { start, end } => {
+                let start = Self::to_data_key(*start);
+                let end = Self::to_data_key(*end);
                 self.load_range(start, end)
             }
-            QueryPlan::FullScan => self.with_store(|s| {
+            AccessPath::FullScan => self.with_store(|s| {
                 let start = DataKey::lower_bound::<E>();
                 let end = DataKey::upper_bound::<E>();
                 let start_raw = start.to_raw();
@@ -146,108 +149,9 @@ where
                     })
                     .collect::<Result<Vec<_>, InternalError>>()
             })?,
-            QueryPlan::Index(_) => {
-                let data_keys = self.candidates_from_plan(plan)?;
+            AccessPath::IndexPrefix { .. } => {
+                let data_keys = self.candidates_from_access(access)?;
                 self.load_many(&data_keys)
-            }
-        }
-    }
-
-    /// Fetch rows with pagination applied as early as possible (pre-deserialization),
-    /// only when no additional filtering or sorting is required by the executor.
-    pub fn rows_from_plan_with_pagination(
-        &self,
-        plan: QueryPlan,
-        offset: u32,
-        limit: Option<u32>,
-    ) -> Result<Vec<DataRow>, InternalError> {
-        let skip = offset as usize;
-        let take = limit.map(|l| l as usize);
-
-        match plan {
-            QueryPlan::Keys(keys) => {
-                // Apply pagination to keys before loading
-                let mut keys = keys;
-                let total = keys.len();
-                let (start, end) = Self::slice_bounds(total, offset, limit);
-
-                if start >= end {
-                    return Ok(Vec::new());
-                }
-
-                let paged = keys.drain(start..end).collect::<Vec<_>>();
-                let data_keys = Self::to_data_keys(paged);
-
-                self.load_many(&data_keys)
-            }
-
-            QueryPlan::Range(start, end) => {
-                let start = Self::to_data_key(start);
-                let end = Self::to_data_key(end);
-                let start_raw = start.to_raw();
-                let end_raw = end.to_raw();
-
-                self.with_store(|s| {
-                    let base = s.range((Bound::Included(start_raw), Bound::Included(end_raw)));
-                    let cap = take.unwrap_or(0);
-                    let mut out = Vec::with_capacity(cap);
-                    match take {
-                        Some(t) => {
-                            for entry in base.skip(skip).take(t) {
-                                let dk = Self::decode_data_key(entry.key())?;
-                                out.push((dk, entry.value()));
-                            }
-                        }
-                        None => {
-                            for entry in base.skip(skip) {
-                                let dk = Self::decode_data_key(entry.key())?;
-                                out.push((dk, entry.value()));
-                            }
-                        }
-                    }
-                    Ok::<_, InternalError>(out)
-                })?
-            }
-
-            QueryPlan::FullScan => self.with_store(|s| {
-                let start = DataKey::lower_bound::<E>();
-                let end = DataKey::upper_bound::<E>();
-                let start_raw = start.to_raw();
-                let end_raw = end.to_raw();
-
-                let base = s.range((Bound::Included(start_raw), Bound::Included(end_raw)));
-                let cap = take.unwrap_or(0);
-                let mut out = Vec::with_capacity(cap);
-                match take {
-                    Some(t) => {
-                        for entry in base.skip(skip).take(t) {
-                            let dk = Self::decode_data_key(entry.key())?;
-                            out.push((dk, entry.value()));
-                        }
-                    }
-                    None => {
-                        for entry in base.skip(skip) {
-                            let dk = Self::decode_data_key(entry.key())?;
-                            out.push((dk, entry.value()));
-                        }
-                    }
-                }
-                Ok::<_, InternalError>(out)
-            })?,
-
-            QueryPlan::Index(_) => {
-                // Resolve candidate keys from index, then paginate before loading
-                let mut data_keys = self.candidates_from_plan(plan)?;
-                let total = data_keys.len();
-                let (start, end) = Self::slice_bounds(total, offset, limit);
-
-                if start >= end {
-                    return Ok(Vec::new());
-                }
-
-                let paged = data_keys.drain(start..end).collect::<Vec<_>>();
-
-                self.load_many(&paged)
             }
         }
     }
@@ -262,16 +166,6 @@ where
 
     fn to_data_keys(keys: Vec<Key>) -> Vec<DataKey> {
         keys.into_iter().map(Self::to_data_key).collect()
-    }
-
-    fn slice_bounds(total: usize, offset: u32, limit: Option<u32>) -> (usize, usize) {
-        let start = (offset as usize).min(total);
-        let end = match limit {
-            Some(l) => start.saturating_add(l as usize).min(total),
-            None => total,
-        };
-
-        (start, end)
     }
 
     fn load_many(&self, keys: &[DataKey]) -> Result<Vec<DataRow>, InternalError> {

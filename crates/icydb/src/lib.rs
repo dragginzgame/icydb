@@ -109,21 +109,16 @@ pub mod prelude {
     pub use crate::{
         db,
         db::{
-            primitives::{
-                self, Cmp, FilterClause, FilterDsl, FilterExpr, FilterExt as _, LimitExpr,
-                LimitExt as _, SortExpr, SortExt as _,
-            },
             query,
             response::{Response, ResponseExt},
         },
         key::Key,
         traits::{
-            CreateView as _, EntityKind as _, FilterView as _, Inner as _, Path as _,
-            UpdateView as _, View as _,
+            CreateView as _, EntityKind as _, Inner as _, Path as _, UpdateView as _, View as _,
         },
         types::*,
         value::Value,
-        view::{Create, Filter, Update, View},
+        view::{Create, Update, View},
     };
     pub use candid::CandidType;
     pub use serde::{Deserialize, Serialize};
@@ -141,13 +136,7 @@ pub mod design {
 
         pub use crate::{
             base, db,
-            db::{
-                primitives::{
-                    self, Cmp, FilterClause, FilterDsl, FilterExpr, FilterExt as _, LimitExpr,
-                    LimitExt as _, SortExpr, SortExt as _,
-                },
-                response::ResponseExt as _,
-            },
+            db::response::ResponseExt as _,
             key::Key,
             macros::*,
             traits::{

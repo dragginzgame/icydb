@@ -29,28 +29,3 @@ impl ViewExpr for ItemUpdate<'_> {
         quote!(<#ty as ::icydb::traits::UpdateView>::UpdateViewType).into()
     }
 }
-
-///
-/// ItemFilter
-///
-
-pub struct ItemFilter<'a>(pub &'a Item);
-
-impl ViewExpr for ItemFilter<'_> {
-    fn expr(&self) -> Option<TokenStream> {
-        let item = self.0;
-
-        // The Rust type of the field's *value* type (String, i64, Decimal, Principal, etc.)
-        let ty = item.target().type_expr();
-
-        // Payload of the scalar filter kind:
-        // <T::Filter as FilterKind>::Payload
-        let payload = quote!(
-            <<#ty as ::icydb::traits::Filterable>::Filter
-                as ::icydb::db::primitives::FilterKind
-            >::Payload
-        );
-
-        Some(payload)
-    }
-}

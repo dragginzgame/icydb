@@ -114,7 +114,6 @@ impl HasTraits for Entity {
             TraitKind::CreateView,
             TraitKind::EntityKind,
             TraitKind::FieldValues,
-            TraitKind::FilterView,
         ]);
 
         traits.into_vec()
@@ -128,7 +127,6 @@ impl HasTraits for Entity {
             TraitKind::UpdateView => UpdateViewTrait::strategy(self),
             TraitKind::EntityKind => EntityKindTrait::strategy(self),
             TraitKind::FieldValues => FieldValuesTrait::strategy(self),
-            TraitKind::FilterView => FilterViewTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::View => ViewTrait::strategy(self),

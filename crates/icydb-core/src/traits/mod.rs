@@ -7,7 +7,7 @@ pub use view::*;
 pub use visitor::*;
 
 // db traits
-pub use crate::db::traits::{FilterView, Filterable};
+pub use crate::db::traits::FromKey;
 
 // re-exports of other traits
 // for the standard traits::X pattern

@@ -1,6 +1,6 @@
 use crate::{
     prelude::*,
-    view::{ItemFilter, ItemUpdate, ItemView, traits::ViewExpr},
+    view::{ItemUpdate, ItemView, traits::ViewExpr},
 };
 
 ///
@@ -40,43 +40,5 @@ impl ViewExpr for ValueUpdate<'_> {
             Cardinality::Many => quote!(Vec<::icydb::view::ListPatch<#item>>),
         }
         .into()
-    }
-}
-
-///
-/// ValueFilter
-///
-
-pub struct ValueFilter<'a>(pub &'a Value);
-
-impl ViewExpr for ValueFilter<'_> {
-    fn expr(&self) -> Option<TokenStream> {
-        let node = self.0;
-
-        // The Rust type of the field’s VALUE type (String, u64, Decimal, etc.)
-        let ty = node.item.target().type_expr();
-
-        // The scalar filter payload: <<T as Filterable>::Filter as FilterKind>::Payload
-        let scalar_payload = ItemFilter(&node.item).expr()?;
-
-        // quote
-        let q = match node.cardinality() {
-            Cardinality::One => {
-                // Just the scalar filter payload
-                quote!(#scalar_payload)
-            }
-            Cardinality::Opt => {
-                // Still scalar payload – NOT Option<T> !!
-                quote!(#scalar_payload)
-            }
-            Cardinality::Many => {
-                quote!(
-                    <<#ty as ::icydb::traits::Filterable>::ListFilter
-                        as ::icydb::db::primitives::filter::FilterKind>::Payload
-                )
-            }
-        };
-
-        Some(q)
     }
 }

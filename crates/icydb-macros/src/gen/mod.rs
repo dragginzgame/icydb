@@ -8,7 +8,7 @@ use crate::{prelude::*, view::*};
 /// Common interface for all node generators.
 ///
 /// Each generator emits both the base node and all its derived representations
-/// (views, filters, create/update types, etc.).
+/// (views, create/update types, etc.).
 ///
 
 pub trait NodeGen {
@@ -25,8 +25,7 @@ macro_rules! define_gen {
         $gen:ident, $node:ty,
         view = $view:tt,
         create = $create:tt,
-        update = $update:tt,
-        filter = $filter:tt $(,)?
+        update = $update:tt $(,)?
     ) => {
         pub struct $gen<'a>(pub &'a $node);
 
@@ -47,14 +46,12 @@ macro_rules! define_gen {
                 let view = expand!($view);
                 let create = expand!($create);
                 let update = expand!($update);
-                let filter = expand!($filter);
 
                 quote! {
                     #node
                     #view
                     #create
                     #update
-                    #filter
                 }
             }
         }
@@ -77,7 +74,6 @@ define_gen!(
     view = EntityView,
     create = EntityCreate,
     update = EntityUpdate,
-    filter = EntityFilter,
 );
 
 define_gen!(
@@ -86,7 +82,6 @@ define_gen!(
     view = EnumView,
     create = _,
     update = EnumUpdate,
-    filter = _,
 );
 
 define_gen!(
@@ -95,17 +90,9 @@ define_gen!(
     view = ListView,
     create = _,
     update = ListUpdate,
-    filter = _,
 );
 
-define_gen!(
-    MapGen,
-    Map,
-    view = MapView,
-    create = _,
-    update = MapUpdate,
-    filter = _,
-);
+define_gen!(MapGen, Map, view = MapView, create = _, update = MapUpdate,);
 
 define_gen!(
     NewtypeGen,
@@ -113,7 +100,6 @@ define_gen!(
     view = NewtypeView,
     create = _,
     update = NewtypeUpdate,
-    filter = _,
 );
 
 define_gen!(
@@ -122,17 +108,9 @@ define_gen!(
     view = RecordView,
     create = _,
     update = RecordUpdate,
-    filter = RecordFilter,
 );
 
-define_gen!(
-    SetGen,
-    Set,
-    view = SetView,
-    create = _,
-    update = SetUpdate,
-    filter = _,
-);
+define_gen!(SetGen, Set, view = SetView, create = _, update = SetUpdate,);
 
 define_gen!(
     TupleGen,
@@ -140,44 +118,15 @@ define_gen!(
     view = TupleView,
     create = _,
     update = TupleUpdate,
-    filter = _,
 );
 
 //
 // Infrastructure
 //
 
-define_gen!(
-    CanisterGen,
-    Canister,
-    view = _,
-    create = _,
-    update = _,
-    filter = _,
-);
+define_gen!(CanisterGen, Canister, view = _, create = _, update = _,);
 
-define_gen!(
-    SanitizerGen,
-    Sanitizer,
-    view = _,
-    create = _,
-    update = _,
-    filter = _,
-);
-define_gen!(
-    StoreGen,
-    Store,
-    view = _,
-    create = _,
-    update = _,
-    filter = _,
-);
+define_gen!(SanitizerGen, Sanitizer, view = _, create = _, update = _,);
+define_gen!(StoreGen, Store, view = _, create = _, update = _,);
 
-define_gen!(
-    ValidatorGen,
-    Validator,
-    view = _,
-    create = _,
-    update = _,
-    filter = _,
-);
+define_gen!(ValidatorGen, Validator, view = _, create = _, update = _,);

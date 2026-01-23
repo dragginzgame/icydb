@@ -1,4 +1,4 @@
-use crate::traits::{CreateView, FilterView, UpdateView, View as OtherView};
+use crate::traits::{CreateView, UpdateView, View as OtherView};
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 pub type View<T> = <T as OtherView>::ViewType;
 pub type Create<T> = <T as CreateView>::CreateViewType;
 pub type Update<T> = <T as UpdateView>::UpdateViewType;
-pub type Filter<T> = <T as FilterView>::FilterViewType;
 
 ///
 /// ListPatch

@@ -133,7 +133,6 @@ impl HasTraits for Newtype {
             TraitKind::AddAssign => AddAssignTrait::strategy(self),
             TraitKind::Default => DefaultTrait::strategy(self),
             TraitKind::FieldValue => FieldValueTrait::strategy(self),
-            TraitKind::Filterable => FilterableTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
             TraitKind::Inner => InnerTrait::strategy(self),
             TraitKind::NumCast => NumCastTrait::strategy(self),

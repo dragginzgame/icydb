@@ -26,6 +26,7 @@ impl<T: FieldValues> Row for T {
 }
 
 #[must_use]
+#[expect(clippy::match_like_matches_macro)]
 pub fn eval<R: Row + ?Sized>(row: &R, predicate: &Predicate) -> bool {
     match predicate {
         Predicate::True => true,
