@@ -40,7 +40,6 @@ pub enum PlanError {
     InvalidKeyRange,
 }
 
-#[must_use]
 pub fn validate_plan<E: EntityKind>(plan: &LogicalPlan) -> Result<(), PlanError> {
     let schema = SchemaInfo::from_entity::<E>()?;
 
@@ -131,7 +130,7 @@ fn validate_index_prefix<E: EntityKind>(
     index: &IndexModel,
     values: &[Value],
 ) -> Result<(), PlanError> {
-    if !E::INDEXES.iter().any(|idx| *idx == index) {
+    if !E::INDEXES.contains(&index) {
         return Err(PlanError::IndexNotFound { index: *index });
     }
 
@@ -172,7 +171,7 @@ enum KeyVariant {
     Unit,
 }
 
-fn key_variant(key: &Key) -> KeyVariant {
+const fn key_variant(key: &Key) -> KeyVariant {
     match key {
         Key::Account(_) => KeyVariant::Account,
         Key::Int(_) => KeyVariant::Int,
@@ -185,7 +184,7 @@ fn key_variant(key: &Key) -> KeyVariant {
     }
 }
 
-fn key_type_for_field(field_type: &FieldType) -> Option<KeyVariant> {
+const fn key_type_for_field(field_type: &FieldType) -> Option<KeyVariant> {
     match field_type {
         FieldType::Scalar(ScalarType::Account) => Some(KeyVariant::Account),
         FieldType::Scalar(ScalarType::Int) => Some(KeyVariant::Int),

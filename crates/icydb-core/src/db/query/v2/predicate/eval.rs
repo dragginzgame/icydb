@@ -4,8 +4,9 @@ use super::{
     ast::{CompareOp, ComparePredicate, Predicate},
     coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
 };
+use std::cmp::Ordering;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FieldPresence {
     Present(Value),
     Missing,
@@ -88,21 +89,11 @@ fn eval_compare<R: Row + ?Sized>(row: &R, cmp: &ComparePredicate) -> bool {
 
     match op {
         CompareOp::Eq => compare_eq(&actual, value, coercion).unwrap_or(false),
-        CompareOp::Ne => compare_eq(&actual, value, coercion)
-            .map(|v| !v)
-            .unwrap_or(false),
-        CompareOp::Lt => compare_order(&actual, value, coercion)
-            .map(|ord| ord.is_lt())
-            .unwrap_or(false),
-        CompareOp::Lte => compare_order(&actual, value, coercion)
-            .map(|ord| ord.is_le())
-            .unwrap_or(false),
-        CompareOp::Gt => compare_order(&actual, value, coercion)
-            .map(|ord| ord.is_gt())
-            .unwrap_or(false),
-        CompareOp::Gte => compare_order(&actual, value, coercion)
-            .map(|ord| ord.is_ge())
-            .unwrap_or(false),
+        CompareOp::Ne => compare_eq(&actual, value, coercion).is_some_and(|v| !v),
+        CompareOp::Lt => compare_order(&actual, value, coercion).is_some_and(Ordering::is_lt),
+        CompareOp::Lte => compare_order(&actual, value, coercion).is_some_and(Ordering::is_le),
+        CompareOp::Gt => compare_order(&actual, value, coercion).is_some_and(Ordering::is_gt),
+        CompareOp::Gte => compare_order(&actual, value, coercion).is_some_and(Ordering::is_ge),
         CompareOp::In => in_list(&actual, value, coercion),
         CompareOp::NotIn => !in_list(&actual, value, coercion),
         CompareOp::AnyIn => any_in(&actual, value, coercion),
@@ -117,7 +108,7 @@ fn eval_compare<R: Row + ?Sized>(row: &R, cmp: &ComparePredicate) -> bool {
     }
 }
 
-fn is_empty_value(value: &Value) -> bool {
+const fn is_empty_value(value: &Value) -> bool {
     match value {
         Value::Text(text) => text.is_empty(),
         Value::List(items) => items.is_empty(),

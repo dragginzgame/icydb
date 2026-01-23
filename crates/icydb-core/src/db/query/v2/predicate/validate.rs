@@ -78,94 +78,86 @@ impl ScalarType {
 
     #[must_use]
     pub const fn matches_value(&self, value: &Value) -> bool {
-        match (self, value) {
+        matches!(
+            (self, value),
             (Self::Account, Value::Account(_))
-            | (Self::Blob, Value::Blob(_))
-            | (Self::Bool, Value::Bool(_))
-            | (Self::Date, Value::Date(_))
-            | (Self::Decimal, Value::Decimal(_))
-            | (Self::Duration, Value::Duration(_))
-            | (Self::Enum, Value::Enum(_))
-            | (Self::E8s, Value::E8s(_))
-            | (Self::E18s, Value::E18s(_))
-            | (Self::Float32, Value::Float32(_))
-            | (Self::Float64, Value::Float64(_))
-            | (Self::Int, Value::Int(_))
-            | (Self::Int128, Value::Int128(_))
-            | (Self::IntBig, Value::IntBig(_))
-            | (Self::Principal, Value::Principal(_))
-            | (Self::Subaccount, Value::Subaccount(_))
-            | (Self::Text, Value::Text(_))
-            | (Self::Timestamp, Value::Timestamp(_))
-            | (Self::Uint, Value::Uint(_))
-            | (Self::Uint128, Value::Uint128(_))
-            | (Self::UintBig, Value::UintBig(_))
-            | (Self::Ulid, Value::Ulid(_))
-            | (Self::Unit, Value::Unit) => true,
-            _ => false,
-        }
+                | (Self::Blob, Value::Blob(_))
+                | (Self::Bool, Value::Bool(_))
+                | (Self::Date, Value::Date(_))
+                | (Self::Decimal, Value::Decimal(_))
+                | (Self::Duration, Value::Duration(_))
+                | (Self::Enum, Value::Enum(_))
+                | (Self::E8s, Value::E8s(_))
+                | (Self::E18s, Value::E18s(_))
+                | (Self::Float32, Value::Float32(_))
+                | (Self::Float64, Value::Float64(_))
+                | (Self::Int, Value::Int(_))
+                | (Self::Int128, Value::Int128(_))
+                | (Self::IntBig, Value::IntBig(_))
+                | (Self::Principal, Value::Principal(_))
+                | (Self::Subaccount, Value::Subaccount(_))
+                | (Self::Text, Value::Text(_))
+                | (Self::Timestamp, Value::Timestamp(_))
+                | (Self::Uint, Value::Uint(_))
+                | (Self::Uint128, Value::Uint128(_))
+                | (Self::UintBig, Value::UintBig(_))
+                | (Self::Ulid, Value::Ulid(_))
+                | (Self::Unit, Value::Unit)
+        )
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum FieldType {
     Scalar(ScalarType),
-    List(Box<FieldType>),
-    Set(Box<FieldType>),
-    Map {
-        key: Box<FieldType>,
-        value: Box<FieldType>,
-    },
+    List(Box<Self>),
+    Set(Box<Self>),
+    Map { key: Box<Self>, value: Box<Self> },
     Unsupported,
 }
 
 impl FieldType {
     #[must_use]
-    pub fn family(&self) -> Option<ValueFamily> {
+    pub const fn family(&self) -> Option<ValueFamily> {
         match self {
-            FieldType::Scalar(inner) => Some(inner.family()),
-            FieldType::List(_) | FieldType::Set(_) | FieldType::Map { .. } => {
-                Some(ValueFamily::Collection)
-            }
-            FieldType::Unsupported => None,
+            Self::Scalar(inner) => Some(inner.family()),
+            Self::List(_) | Self::Set(_) | Self::Map { .. } => Some(ValueFamily::Collection),
+            Self::Unsupported => None,
         }
     }
 
     #[must_use]
     pub const fn is_text(&self) -> bool {
-        matches!(self, FieldType::Scalar(ScalarType::Text))
+        matches!(self, Self::Scalar(ScalarType::Text))
     }
 
     #[must_use]
     pub const fn is_collection(&self) -> bool {
-        matches!(
-            self,
-            FieldType::List(_) | FieldType::Set(_) | FieldType::Map { .. }
-        )
+        matches!(self, Self::List(_) | Self::Set(_) | Self::Map { .. })
     }
 
     #[must_use]
     pub const fn is_list_like(&self) -> bool {
-        matches!(self, FieldType::List(_) | FieldType::Set(_))
+        matches!(self, Self::List(_) | Self::Set(_))
     }
 
     #[must_use]
     pub const fn is_map(&self) -> bool {
-        matches!(self, FieldType::Map { .. })
+        matches!(self, Self::Map { .. })
     }
 
     #[must_use]
-    pub fn element_type(&self) -> Option<&FieldType> {
+    pub fn element_type(&self) -> Option<&Self> {
         match self {
-            FieldType::List(inner) | FieldType::Set(inner) => Some(inner),
+            Self::List(inner) | Self::Set(inner) => Some(inner),
             _ => None,
         }
     }
 
     #[must_use]
-    pub fn map_types(&self) -> Option<(&FieldType, &FieldType)> {
+    pub fn map_types(&self) -> Option<(&Self, &Self)> {
         match self {
-            FieldType::Map { key, value } => Some((key.as_ref(), value.as_ref())),
+            Self::Map { key, value } => Some((key.as_ref(), value.as_ref())),
             _ => None,
         }
     }
@@ -173,7 +165,7 @@ impl FieldType {
     #[must_use]
     pub const fn is_orderable(&self) -> bool {
         match self {
-            FieldType::Scalar(inner) => inner.is_orderable(),
+            Self::Scalar(inner) => inner.is_orderable(),
             _ => false,
         }
     }
@@ -186,7 +178,7 @@ pub struct SchemaInfo {
 
 impl SchemaInfo {
     #[must_use]
-    pub fn new(fields: impl IntoIterator<Item = (String, FieldType)>) -> Self {
+    pub(crate) fn new(fields: impl IntoIterator<Item = (String, FieldType)>) -> Self {
         Self {
             fields: fields.into_iter().collect(),
         }
@@ -696,7 +688,7 @@ fn field_type_from_item(item: &Item, schema: &Schema) -> FieldType {
     }
 }
 
-fn scalar_from_primitive(prim: Primitive) -> ScalarType {
+const fn scalar_from_primitive(prim: Primitive) -> ScalarType {
     match prim {
         Primitive::Account => ScalarType::Account,
         Primitive::Blob => ScalarType::Blob,
@@ -728,11 +720,11 @@ fn scalar_from_primitive(prim: Primitive) -> ScalarType {
 impl fmt::Display for FieldType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FieldType::Scalar(inner) => write!(f, "{inner:?}"),
-            FieldType::List(inner) => write!(f, "List<{inner}>"),
-            FieldType::Set(inner) => write!(f, "Set<{inner}>"),
-            FieldType::Map { key, value } => write!(f, "Map<{key}, {value}>"),
-            FieldType::Unsupported => write!(f, "Unsupported"),
+            Self::Scalar(inner) => write!(f, "{inner:?}"),
+            Self::List(inner) => write!(f, "List<{inner}>"),
+            Self::Set(inner) => write!(f, "Set<{inner}>"),
+            Self::Map { key, value } => write!(f, "Map<{key}, {value}>"),
+            Self::Unsupported => write!(f, "Unsupported"),
         }
     }
 }

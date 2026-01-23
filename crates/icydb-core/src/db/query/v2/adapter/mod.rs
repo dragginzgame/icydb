@@ -119,7 +119,7 @@ fn map_sort(sort: &SortExpr) -> OrderSpec {
     OrderSpec { fields }
 }
 
-fn map_limit(limit: &LimitExpr) -> PageSpec {
+const fn map_limit(limit: &LimitExpr) -> PageSpec {
     PageSpec {
         limit: limit.limit,
         offset: limit.offset,
@@ -449,7 +449,7 @@ fn select_coercion(
     CoercionSpec::new(CoercionId::Strict)
 }
 
-fn map_coercion(
+const fn map_coercion(
     _schema: &SchemaInfo,
     _field: &str,
     _value: &Value,
@@ -480,7 +480,7 @@ const fn field_type_is_numeric(field_type: Option<&predicate::validate::FieldTyp
     )
 }
 
-fn field_type_is_text(field_type: Option<&predicate::validate::FieldType>) -> bool {
+const fn field_type_is_text(field_type: Option<&predicate::validate::FieldType>) -> bool {
     matches!(
         field_type,
         Some(predicate::validate::FieldType::Scalar(
@@ -499,7 +499,7 @@ fn field_type_is_text_element(field_type: Option<&predicate::validate::FieldType
     }
 }
 
-fn field_type_is_identifier(field_type: Option<&predicate::validate::FieldType>) -> bool {
+const fn field_type_is_identifier(field_type: Option<&predicate::validate::FieldType>) -> bool {
     matches!(
         field_type,
         Some(predicate::validate::FieldType::Scalar(
@@ -520,7 +520,7 @@ fn field_type_is_identifier_element(field_type: Option<&predicate::validate::Fie
     }
 }
 
-fn field_type_is_enum(field_type: Option<&predicate::validate::FieldType>) -> bool {
+const fn field_type_is_enum(field_type: Option<&predicate::validate::FieldType>) -> bool {
     matches!(
         field_type,
         Some(predicate::validate::FieldType::Scalar(

@@ -19,6 +19,20 @@ pub struct LoadExecutor<E: EntityKind> {
     inner: core::db::executor::LoadExecutor<E>,
 }
 
+#[derive(Debug)]
+pub struct ShadowLoadResult<E: EntityKind> {
+    pub v1: Response<E>,
+    pub v2: Response<E>,
+    pub warnings: Vec<core::db::query::v2::adapter::AdapterWarning>,
+}
+
+impl<E: EntityKind> ShadowLoadResult<E> {
+    #[must_use]
+    pub fn matches_keys(&self) -> bool {
+        self.v1.keys() == self.v2.keys()
+    }
+}
+
 impl<E: EntityKind> LoadExecutor<E> {
     pub(crate) const fn from_core(inner: core::db::executor::LoadExecutor<E>) -> Self {
         Self { inner }
@@ -141,6 +155,17 @@ impl<E: EntityKind> LoadExecutor<E> {
     /// Execute a full query and return a collection of entities.
     pub fn execute(&self, query: LoadQuery) -> Result<Response<E>, Error> {
         map_response(self.inner.execute(query))
+    }
+
+    /// Execute v1 and v2 in shadow mode, returning both results and adapter warnings.
+    pub fn execute_v2_shadow(&self, query: LoadQuery) -> Result<ShadowLoadResult<E>, Error> {
+        let shadow = map_runtime(self.inner.execute_v2_shadow(query))?;
+
+        Ok(ShadowLoadResult {
+            v1: Response::from(shadow.v1),
+            v2: Response::from(shadow.v2),
+            warnings: shadow.warnings,
+        })
     }
 
     /// Count rows matching a query.

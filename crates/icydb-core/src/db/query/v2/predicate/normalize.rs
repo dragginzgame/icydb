@@ -83,7 +83,7 @@ fn normalize_and(children: &[Predicate]) -> Predicate {
         let normalized = normalize(child);
 
         match normalized {
-            Predicate::True => continue,
+            Predicate::True => {}
             Predicate::False => return Predicate::False,
             Predicate::And(grandchildren) => out.extend(grandchildren),
             other => out.push(other),
@@ -94,7 +94,7 @@ fn normalize_and(children: &[Predicate]) -> Predicate {
         return Predicate::True;
     }
 
-    out.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
+    out.sort_by_key(|node| sort_key(node));
     Predicate::And(out)
 }
 
@@ -105,7 +105,7 @@ fn normalize_or(children: &[Predicate]) -> Predicate {
         let normalized = normalize(child);
 
         match normalized {
-            Predicate::False => continue,
+            Predicate::False => {}
             Predicate::True => return Predicate::True,
             Predicate::Or(grandchildren) => out.extend(grandchildren),
             other => out.push(other),
@@ -116,7 +116,7 @@ fn normalize_or(children: &[Predicate]) -> Predicate {
         return Predicate::False;
     }
 
-    out.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
+    out.sort_by_key(|node| sort_key(node));
     Predicate::Or(out)
 }
 

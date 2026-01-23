@@ -37,6 +37,7 @@ impl LoadExecutorSuite {
                 "index_load_returns_deterministic_key_order",
                 Self::index_load_returns_deterministic_key_order,
             ),
+            ("shadow_v2_matches_v1", Self::shadow_v2_matches_v1),
         ];
 
         for (name, test_fn) in tests {
@@ -215,6 +216,41 @@ impl LoadExecutorSuite {
             res.keys(),
             vec![Key::Ulid(id_one), Key::Ulid(id_two), Key::Ulid(id_three)]
         );
+    }
+
+    fn shadow_v2_matches_v1() {
+        Self::seed_index_rows_xy(&[(1, 10, 5), (2, 10, 8), (3, 20, 3), (4, 30, 7)]);
+
+        let load = db!().load::<Index>();
+
+        let shadow = load
+            .execute_v2_shadow(
+                db::query::load()
+                    .filter(|f| f.eq("x", 10))
+                    .sort(|s| s.desc("y")),
+            )
+            .unwrap();
+        assert!(shadow.matches_keys(), "shadow mismatch for eq + sort");
+
+        let shadow = load
+            .execute_v2_shadow(
+                db::query::load()
+                    .filter(|f| f.in_list("x", vec![10, 30]))
+                    .sort(|s| s.asc("x"))
+                    .sort(|s| s.desc("y"))
+                    .offset(1)
+                    .limit(2),
+            )
+            .unwrap();
+        assert!(
+            shadow.matches_keys(),
+            "shadow mismatch for in + order + page"
+        );
+
+        let shadow = load
+            .execute_v2_shadow(db::query::load().sort(|s| s.asc("x")).offset(1).limit(3))
+            .unwrap();
+        assert!(shadow.matches_keys(), "shadow mismatch for order + page");
     }
 
     fn seed_index_rows(rows: &[(u64, i32)]) -> Vec<Ulid> {
