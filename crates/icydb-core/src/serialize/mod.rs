@@ -12,6 +12,7 @@ use thiserror::Error as ThisError;
 pub enum SerializeError {
     #[error("serialize error: {0}")]
     Serialize(String),
+
     #[error("deserialize error: {0}")]
     Deserialize(String),
 }
