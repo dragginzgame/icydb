@@ -31,9 +31,9 @@ pub struct ComparePredicate {
 pub enum Predicate {
     True,
     False,
-    And(Vec<Predicate>),
-    Or(Vec<Predicate>),
-    Not(Box<Predicate>),
+    And(Vec<Self>),
+    Or(Vec<Self>),
+    Not(Box<Self>),
     Compare(ComparePredicate),
     IsNull {
         field: String,

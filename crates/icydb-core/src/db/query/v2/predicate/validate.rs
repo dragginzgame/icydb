@@ -18,7 +18,7 @@ use super::{
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ScalarType {
+pub(crate) enum ScalarType {
     Account,
     Blob,
     Bool,
@@ -77,7 +77,7 @@ impl ScalarType {
     }
 
     #[must_use]
-    pub fn matches_value(&self, value: &Value) -> bool {
+    pub const fn matches_value(&self, value: &Value) -> bool {
         match (self, value) {
             (Self::Account, Value::Account(_))
             | (Self::Blob, Value::Blob(_))
@@ -108,7 +108,7 @@ impl ScalarType {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum FieldType {
+pub(crate) enum FieldType {
     Scalar(ScalarType),
     List(Box<FieldType>),
     Set(Box<FieldType>),
@@ -248,7 +248,6 @@ pub enum ValidateError {
     SchemaUnavailable(String),
 }
 
-#[must_use]
 pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), ValidateError> {
     match predicate {
         Predicate::True | Predicate::False => Ok(()),
@@ -632,7 +631,7 @@ fn ensure_map_literal(
     Ok(())
 }
 
-fn literal_matches_type(literal: &Value, field_type: &FieldType) -> bool {
+pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> bool {
     match field_type {
         FieldType::Scalar(inner) => inner.matches_value(literal),
         FieldType::List(element) | FieldType::Set(element) => match literal {

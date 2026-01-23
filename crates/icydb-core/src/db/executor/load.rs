@@ -6,11 +6,16 @@ use crate::{
             plan::{plan_for, record_plan_metrics, scan_missing_ok, set_rows_from_len},
         },
         primitives::{FilterDsl, FilterExpr, FilterExt, IntoFilterExpr, Order, SortExpr},
-        query::{LoadQuery, QueryPlan, QueryValidate},
+        query::v2::{
+            adapter::{AdaptedLoadPlan, AdapterError, AdapterWarning, adapt_load_query},
+            plan::{AccessPath, LogicalPlan, OrderDirection, OrderSpec, validate_plan},
+            predicate::{eval as eval_v2, normalize as normalize_v2},
+        },
+        query::{IndexPlan, LoadQuery, QueryPlan, QueryValidate},
         response::{Response, ResponseError},
         store::{DataKey, DataRow},
     },
-    error::InternalError,
+    error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     traits::{EntityKind, FieldValue},
@@ -436,6 +441,86 @@ impl<E: EntityKind> LoadExecutor<E> {
         Ok(Response(rows))
     }
 
+    /// Execute a v2 logical plan directly (no planner inference).
+    pub fn execute_v2(&self, plan: LogicalPlan) -> Result<Response<E>, InternalError> {
+        let mut span = Span::<E>::new(ExecKind::Load);
+        validate_plan::<E>(&plan).map_err(|err| {
+            InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+        })?;
+
+        self.debug_log(format!("🧭 Executing v2 plan on {}", E::PATH));
+
+        let ctx = self.db.context::<E>();
+        let query_plan = access_to_query_plan::<E>(&plan.access)?;
+
+        record_plan_metrics(&query_plan);
+
+        let data_rows = ctx.rows_from_plan(query_plan)?;
+        sink::record(MetricsEvent::RowsScanned {
+            entity_path: E::PATH,
+            rows_scanned: data_rows.len() as u64,
+        });
+
+        self.debug_log(format!(
+            "📦 Scanned {} data rows before deserialization",
+            data_rows.len()
+        ));
+
+        let mut rows = ctx.deserialize_rows(data_rows)?;
+        self.debug_log(format!(
+            "🧩 Deserialized {} entities before filtering",
+            rows.len()
+        ));
+
+        // Predicate (always post-fetch for v2)
+        let normalized = plan.predicate.as_ref().map(normalize_v2);
+        if let Some(predicate) = normalized.as_ref() {
+            rows.retain(|(_, entity)| eval_v2(entity, predicate));
+            self.debug_log(format!(
+                "🔎 Applied v2 predicate -> {} entities remaining",
+                rows.len()
+            ));
+        }
+
+        // Ordering
+        if let Some(order) = &plan.order
+            && rows.len() > 1
+            && !order.fields.is_empty()
+        {
+            apply_order_spec(&mut rows, order);
+            self.debug_log("↕️ Applied v2 order spec");
+        }
+
+        // Pagination
+        if let Some(page) = &plan.page {
+            apply_pagination(&mut rows, page.offset, page.limit);
+            self.debug_log(format!(
+                "📏 Applied v2 pagination (offset={}, limit={:?}) -> {} entities",
+                page.offset,
+                page.limit,
+                rows.len()
+            ));
+        }
+
+        set_rows_from_len(&mut span, rows.len());
+        self.debug_log(format!("✅ v2 query complete -> {} final rows", rows.len()));
+
+        Ok(Response(rows))
+    }
+
+    /// Execute v1 and v2 in shadow mode, returning both results and adapter warnings.
+    pub fn execute_v2_shadow(
+        &self,
+        query: LoadQuery,
+    ) -> Result<ShadowLoadResult<E>, InternalError> {
+        let v1 = self.execute(query.clone())?;
+        let AdaptedLoadPlan { plan, warnings } =
+            adapt_load_query::<E>(&query).map_err(adapter_error)?;
+        let v2 = self.execute_v2(plan)?;
+
+        Ok(ShadowLoadResult { v1, v2, warnings })
+    }
+
     /// Count rows matching a query.
     pub fn count(&self, query: LoadQuery) -> Result<u32, InternalError> {
         Ok(self.execute(query)?.count())
@@ -514,6 +599,77 @@ impl<E: EntityKind> LoadExecutor<E> {
             Ordering::Equal
         });
     }
+}
+
+#[derive(Debug)]
+pub struct ShadowLoadResult<E: EntityKind> {
+    pub v1: Response<E>,
+    pub v2: Response<E>,
+    pub warnings: Vec<AdapterWarning>,
+}
+
+impl<E: EntityKind> ShadowLoadResult<E> {
+    #[must_use]
+    pub fn matches_keys(&self) -> bool {
+        self.v1.keys() == self.v2.keys()
+    }
+}
+
+fn adapter_error(err: AdapterError) -> InternalError {
+    InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+}
+
+fn access_to_query_plan<E: EntityKind>(access: &AccessPath) -> Result<QueryPlan, InternalError> {
+    match access {
+        AccessPath::ByKey(key) => Ok(QueryPlan::Keys(vec![*key])),
+        AccessPath::ByKeys(keys) => Ok(QueryPlan::Keys(keys.clone())),
+        AccessPath::KeyRange { start, end } => Ok(QueryPlan::Range(*start, *end)),
+        AccessPath::IndexPrefix { index, values } => {
+            let Some(index_ref) = E::INDEXES.iter().find(|cand| **cand == index) else {
+                return Err(InternalError::new(
+                    ErrorClass::Internal,
+                    ErrorOrigin::Executor,
+                    format!("v2 plan references missing index {index} on {}", E::PATH),
+                ));
+            };
+
+            Ok(QueryPlan::Index(IndexPlan {
+                index: index_ref,
+                values: values.clone(),
+            }))
+        }
+        AccessPath::FullScan => Ok(QueryPlan::FullScan),
+    }
+}
+
+fn apply_order_spec<E: EntityKind>(rows: &mut [(Key, E)], order: &OrderSpec) {
+    rows.sort_by(|(_, ea), (_, eb)| {
+        for (field, direction) in &order.fields {
+            let va = ea.get_value(field);
+            let vb = eb.get_value(field);
+
+            let ordering = match (va, vb) {
+                (None, None) => continue,
+                (None, Some(_)) => Ordering::Less,
+                (Some(_), None) => Ordering::Greater,
+                (Some(va), Some(vb)) => match va.partial_cmp(&vb) {
+                    Some(ord) => ord,
+                    None => continue,
+                },
+            };
+
+            let ordering = match direction {
+                OrderDirection::Asc => ordering,
+                OrderDirection::Desc => ordering.reverse(),
+            };
+
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+
+        Ordering::Equal
+    });
 }
 
 /// Apply offset/limit pagination to an in-memory vector, in-place.

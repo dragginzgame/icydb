@@ -1,0 +1,11 @@
+use crate::db::query::v2::predicate::Predicate;
+
+use super::{AccessPath, OrderSpec, PageSpec};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LogicalPlan {
+    pub access: AccessPath,
+    pub predicate: Option<Predicate>,
+    pub order: Option<OrderSpec>,
+    pub page: Option<PageSpec>,
+}

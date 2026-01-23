@@ -21,7 +21,7 @@ pub struct CoercionSpec {
 
 impl CoercionSpec {
     #[must_use]
-    pub fn new(id: CoercionId) -> Self {
+    pub const fn new(id: CoercionId) -> Self {
         Self {
             id,
             params: BTreeMap::new(),
@@ -194,15 +194,11 @@ fn strict_ordering(left: &Value, right: &Value) -> Option<Ordering> {
 
 fn coerce_identifier_text(left: &Value, right: &Value) -> Option<(Value, Value)> {
     match (left, right) {
-        (Value::Ulid(_), Value::Text(_))
-        | (Value::Principal(_), Value::Text(_))
-        | (Value::Account(_), Value::Text(_)) => {
+        (Value::Ulid(_) | Value::Principal(_) | Value::Account(_), Value::Text(_)) => {
             let parsed = parse_identifier_text(left, right)?;
             Some((left.clone(), parsed))
         }
-        (Value::Text(_), Value::Ulid(_))
-        | (Value::Text(_), Value::Principal(_))
-        | (Value::Text(_), Value::Account(_)) => {
+        (Value::Text(_), Value::Ulid(_) | Value::Principal(_) | Value::Account(_)) => {
             let parsed = parse_identifier_text(right, left)?;
             Some((parsed, right.clone()))
         }

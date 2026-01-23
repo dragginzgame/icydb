@@ -10,7 +10,7 @@ mod upsert;
 
 pub(crate) use context::*;
 pub use delete::DeleteExecutor;
-pub use load::LoadExecutor;
+pub use load::{LoadExecutor, ShadowLoadResult};
 pub use save::SaveExecutor;
 pub(crate) use unique::resolve_unique_pk;
 pub use upsert::{UniqueIndexHandle, UpsertExecutor, UpsertResult};

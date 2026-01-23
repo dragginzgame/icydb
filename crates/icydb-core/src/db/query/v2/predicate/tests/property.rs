@@ -38,7 +38,7 @@ fn arb_scalar_value() -> impl Strategy<Value = Value> {
         any::<i64>().prop_map(Value::Int),
         any::<u64>().prop_map(Value::Uint),
         any::<bool>().prop_map(Value::Bool),
-        "[a-zA-Z0-9_]{0,8}".prop_map(|s| Value::Text(s.to_string())),
+        "[a-zA-Z0-9_]{0,8}".prop_map(Value::Text),
         any::<u128>().prop_map(|n| Value::Ulid(Ulid::from_u128(n))),
         any::<u8>().prop_map(|b| Value::Account(Account::dummy(b))),
         any::<u8>().prop_map(|b| Value::Principal(Principal::from_slice(&[b]))),
@@ -236,8 +236,9 @@ proptest! {
 fn identifier_text_directional() {
     use crate::db::query::v2::predicate::coercion::compare_eq;
 
-    let id = Value::Ulid(Ulid::from_u128(42));
-    let text = Value::Text(id.to_string());
+    let ulid = Ulid::from_u128(42);
+    let id = Value::Ulid(ulid);
+    let text = Value::Text(ulid.to_string());
     let spec = CoercionSpec::new(CoercionId::IdentifierText);
 
     assert_eq!(compare_eq(&id, &text, &spec), Some(true));
