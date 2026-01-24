@@ -56,6 +56,7 @@ impl<E: EntityKind> LoadExecutor<E> {
         validate_plan::<E>(&plan).map_err(|err| {
             InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
         })?;
+        plan.debug_validate::<E>();
 
         self.debug_log(format!("🧭 Executing v2 plan on {}", E::PATH));
 
@@ -81,25 +82,39 @@ impl<E: EntityKind> LoadExecutor<E> {
 
         // Predicate (always post-fetch for v2)
         let normalized = plan.predicate.as_ref().map(normalize_v2);
-        if let Some(predicate) = normalized.as_ref() {
+        let filtered = if let Some(predicate) = normalized.as_ref() {
             rows.retain(|(_, entity)| eval_v2(entity, predicate));
             self.debug_log(format!(
                 "🔎 Applied v2 predicate -> {} entities remaining",
                 rows.len()
             ));
-        }
+            true
+        } else {
+            false
+        };
 
         // Ordering
-        if let Some(order) = &plan.order
+        let ordered = if let Some(order) = &plan.order
             && rows.len() > 1
             && !order.fields.is_empty()
         {
+            debug_assert!(
+                plan.predicate.is_none() || filtered,
+                "executor invariant violated: ordering must run after filtering"
+            );
             apply_order_spec(&mut rows, order);
             self.debug_log("↕️ Applied v2 order spec");
-        }
+            true
+        } else {
+            false
+        };
 
         // Pagination
         if let Some(page) = &plan.page {
+            debug_assert!(
+                plan.order.is_none() || ordered,
+                "executor invariant violated: pagination must run after ordering"
+            );
             apply_pagination(&mut rows, page.offset, page.limit);
             self.debug_log(format!(
                 "📏 Applied v2 pagination (offset={}, limit={:?}) -> {} entities",

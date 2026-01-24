@@ -56,6 +56,18 @@ pub fn validate_plan<E: EntityKind>(plan: &LogicalPlan) -> Result<(), PlanError>
     Ok(())
 }
 
+impl LogicalPlan {
+    pub(crate) fn debug_validate<E: EntityKind>(&self) {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+
+        if let Err(err) = validate_plan::<E>(self) {
+            panic!("logical plan invariant violated: {err}");
+        }
+    }
+}
+
 fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
     for (field, _) in &order.fields {
         let field_type = schema

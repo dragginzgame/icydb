@@ -36,17 +36,216 @@ impl AccessPlan {
             Self::Intersection(children) => normalize_intersection(children),
         }
     }
+
+    pub(crate) fn validate_invariants<E: EntityKind>(
+        &self,
+        schema: &SchemaInfo,
+        predicate: Option<&Predicate>,
+    ) {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+
+        if predicate.is_none() {
+            debug_assert!(
+                matches!(self, Self::Path(AccessPath::FullScan)),
+                "planner invariant violated: predicate-less plan must be FullScan"
+            );
+            return;
+        }
+
+        let info = StrictPredicateInfo::from_predicate::<E>(schema, predicate);
+        validate_access_plan::<E>(self, schema, &info);
+    }
 }
 
 pub fn plan_access<E: EntityKind>(predicate: Option<&Predicate>) -> Result<AccessPlan, PlanError> {
     let Some(predicate) = predicate else {
-        return Ok(AccessPlan::full_scan());
+        let plan = AccessPlan::full_scan();
+        debug_assert!(
+            matches!(plan, AccessPlan::Path(AccessPath::FullScan)),
+            "planner invariant violated: empty predicate must produce FullScan"
+        );
+        return Ok(plan);
     };
 
     let schema = SchemaInfo::from_entity::<E>()?;
     crate::db::query::v2::predicate::validate(&schema, predicate)?;
 
-    Ok(plan_predicate::<E>(&schema, predicate).normalize())
+    let plan = plan_predicate::<E>(&schema, predicate).normalize();
+    plan.validate_invariants::<E>(&schema, Some(predicate));
+    Ok(plan)
+}
+
+#[derive(Default)]
+struct StrictPredicateInfo {
+    pk_keys: std::collections::BTreeSet<Key>,
+    field_values: std::collections::BTreeMap<String, Vec<Value>>,
+}
+
+impl StrictPredicateInfo {
+    fn from_predicate<E: EntityKind>(schema: &SchemaInfo, predicate: Option<&Predicate>) -> Self {
+        let mut info = Self::default();
+        if let Some(predicate) = predicate {
+            collect_strict_predicate_info::<E>(schema, predicate, false, &mut info);
+        }
+        info
+    }
+
+    fn contains_field_value(&self, field: &str, value: &Value) -> bool {
+        self.field_values
+            .get(field)
+            .is_some_and(|values| values.contains(value))
+    }
+}
+
+fn collect_strict_predicate_info<E: EntityKind>(
+    schema: &SchemaInfo,
+    predicate: &Predicate,
+    negated: bool,
+    info: &mut StrictPredicateInfo,
+) {
+    match predicate {
+        Predicate::And(children) | Predicate::Or(children) => {
+            for child in children {
+                collect_strict_predicate_info::<E>(schema, child, negated, info);
+            }
+        }
+        Predicate::Not(inner) => {
+            collect_strict_predicate_info::<E>(schema, inner, !negated, info);
+        }
+        Predicate::Compare(cmp) => {
+            if negated || cmp.coercion.id != CoercionId::Strict {
+                return;
+            }
+
+            let mut push_value = |value: &Value| {
+                if is_primary_key::<E>(schema, &cmp.field) {
+                    if let Some(key) = value.as_key()
+                        && key_matches_pk::<E>(schema, &key)
+                    {
+                        info.pk_keys.insert(key);
+                    }
+                    return;
+                }
+
+                let Some(field_type) = schema.field(&cmp.field) else {
+                    return;
+                };
+                if !literal_matches_type(value, field_type) {
+                    return;
+                }
+
+                let values = info.field_values.entry(cmp.field.clone()).or_default();
+                values.retain(|existing| existing != value);
+                values.push(value.clone());
+            };
+
+            match cmp.op {
+                CompareOp::Eq => {
+                    push_value(&cmp.value);
+                }
+                CompareOp::In => {
+                    if let Value::List(items) = &cmp.value {
+                        for item in items {
+                            push_value(item);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+}
+
+fn validate_access_plan<E: EntityKind>(
+    plan: &AccessPlan,
+    schema: &SchemaInfo,
+    info: &StrictPredicateInfo,
+) {
+    match plan {
+        AccessPlan::Path(path) => validate_access_path::<E>(path, schema, info),
+        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
+            debug_assert!(
+                !children.is_empty(),
+                "planner invariant violated: composite plan must have children"
+            );
+            debug_assert!(
+                !children.iter().any(is_full_scan),
+                "planner invariant violated: FullScan cannot appear inside composite plans"
+            );
+            debug_assert!(
+                canonical::is_canonical_sorted(children),
+                "planner invariant violated: composite plan children must be canonicalized"
+            );
+            for child in children {
+                validate_access_plan::<E>(child, schema, info);
+            }
+        }
+    }
+}
+
+fn validate_access_path<E: EntityKind>(
+    path: &AccessPath,
+    schema: &SchemaInfo,
+    info: &StrictPredicateInfo,
+) {
+    match path {
+        AccessPath::FullScan => {}
+        AccessPath::ByKey(key) => {
+            debug_assert!(
+                key_matches_pk::<E>(schema, key),
+                "planner invariant violated: ByKey must target the primary key"
+            );
+            debug_assert!(
+                info.pk_keys.contains(key),
+                "planner invariant violated: ByKey requires strict primary key predicate"
+            );
+        }
+        AccessPath::ByKeys(keys) => {
+            debug_assert!(
+                !keys.is_empty(),
+                "planner invariant violated: ByKeys must be non-empty"
+            );
+            for key in keys {
+                debug_assert!(
+                    key_matches_pk::<E>(schema, key),
+                    "planner invariant violated: ByKeys must target the primary key"
+                );
+                debug_assert!(
+                    info.pk_keys.contains(key),
+                    "planner invariant violated: ByKeys requires strict primary key predicate"
+                );
+            }
+        }
+        AccessPath::KeyRange { start, end } => {
+            debug_assert!(
+                key_matches_pk::<E>(schema, start) && key_matches_pk::<E>(schema, end),
+                "planner invariant violated: KeyRange must target the primary key"
+            );
+            debug_assert!(
+                start <= end,
+                "planner invariant violated: KeyRange start must be <= end"
+            );
+        }
+        AccessPath::IndexPrefix { index, values } => {
+            debug_assert!(
+                !values.is_empty(),
+                "planner invariant violated: IndexPrefix must be non-empty"
+            );
+            debug_assert!(
+                values.len() <= index.fields.len(),
+                "planner invariant violated: index prefix exceeds field count"
+            );
+            for (field, value) in index.fields.iter().zip(values.iter()) {
+                debug_assert!(
+                    info.contains_field_value(field, value),
+                    "planner invariant violated: IndexPrefix requires strict predicate value"
+                );
+            }
+        }
+    }
 }
 
 fn plan_predicate<E: EntityKind>(schema: &SchemaInfo, predicate: &Predicate) -> AccessPlan {
@@ -286,6 +485,12 @@ mod canonical {
     /// Canonical ordering only exists to make planner output deterministic.
     pub(super) fn canonicalize_access_plans(plans: &mut [AccessPlan]) {
         plans.sort_by(canonical_cmp_access_plan);
+    }
+
+    pub(super) fn is_canonical_sorted(plans: &[AccessPlan]) -> bool {
+        plans
+            .windows(2)
+            .all(|pair| canonical_cmp_access_plan(&pair[0], &pair[1]) != Ordering::Greater)
     }
 
     fn canonical_cmp_access_plan(left: &AccessPlan, right: &AccessPlan) -> Ordering {
@@ -956,6 +1161,37 @@ mod tests {
     }
 
     #[test]
+    fn mixed_pk_non_strict_and_index_strict_does_not_plan_by_key() {
+        init_schema();
+        let id = Ulid::default();
+        let predicate = Predicate::And(vec![
+            eq("id", Value::Ulid(id), non_strict()),
+            eq("idx_a", v_text("alpha"), strict()),
+        ]);
+        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+
+        assert_eq!(
+            plan,
+            AccessPlan::Path(AccessPath::IndexPrefix {
+                index: INDEX_MODEL,
+                values: vec![v_text("alpha")],
+            })
+        );
+    }
+
+    #[test]
+    fn and_non_indexable_predicates_fall_back_to_full_scan() {
+        init_schema();
+        let predicate = Predicate::And(vec![
+            eq("idx_b", v_text("beta"), strict()),
+            eq("other", v_text("x"), strict()),
+        ]);
+        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+
+        assert_eq!(plan, AccessPlan::Path(AccessPath::FullScan));
+    }
+
+    #[test]
     fn composite_prefix_requires_strict_coercions() {
         init_schema();
         let predicate = Predicate::And(vec![
@@ -1025,6 +1261,19 @@ mod tests {
         let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
 
         assert_eq!(plan, AccessPlan::Path(AccessPath::FullScan));
+    }
+
+    #[test]
+    fn empty_and_or_normalize_to_full_scan() {
+        init_schema();
+        let empty_and = Predicate::And(Vec::new());
+        let empty_or = Predicate::Or(Vec::new());
+
+        let and_plan = plan_access::<PlannerEntity>(Some(&empty_and)).unwrap();
+        let or_plan = plan_access::<PlannerEntity>(Some(&empty_or)).unwrap();
+
+        assert_eq!(and_plan, AccessPlan::Path(AccessPath::FullScan));
+        assert_eq!(or_plan, AccessPlan::Path(AccessPath::FullScan));
     }
 
     #[test]

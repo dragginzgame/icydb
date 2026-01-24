@@ -762,3 +762,95 @@ fn load_paginates_after_ordering() {
             .is_none()
     );
 }
+
+#[test]
+fn ordering_does_not_break_ties_by_primary_key() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<OrderEntity>::new(DB, false);
+    let entities = vec![
+        OrderEntity {
+            id: Ulid::from_u128(3),
+            primary: Value::Text("same".to_string()),
+            secondary: 1,
+        },
+        OrderEntity {
+            id: Ulid::from_u128(1),
+            primary: Value::Text("same".to_string()),
+            secondary: 2,
+        },
+        OrderEntity {
+            id: Ulid::from_u128(4),
+            primary: Value::Text("same".to_string()),
+            secondary: 3,
+        },
+        OrderEntity {
+            id: Ulid::from_u128(2),
+            primary: Value::Text("same".to_string()),
+            secondary: 4,
+        },
+    ];
+
+    for entity in entities.clone() {
+        saver.insert(entity).unwrap();
+    }
+
+    let mut plan = LogicalPlan::new(AccessPath::FullScan);
+    plan.order = Some(OrderSpec {
+        fields: vec![("primary".to_string(), OrderDirection::Asc)],
+    });
+
+    let loader = LoadExecutor::<OrderEntity>::new(DB, false);
+    let ordered = loader.execute(plan).unwrap().entities();
+    let ordered_ids = ordered.iter().map(|entity| entity.id).collect::<Vec<_>>();
+    let inserted_ids = entities.iter().map(|entity| entity.id).collect::<Vec<_>>();
+
+    assert_eq!(ordered_ids, inserted_ids);
+}
+
+#[test]
+fn ordering_does_not_compare_incomparable_values() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<OrderEntity>::new(DB, false);
+    let entities = vec![
+        OrderEntity {
+            id: Ulid::from_u128(10),
+            primary: Value::Int(1),
+            secondary: 1,
+        },
+        OrderEntity {
+            id: Ulid::from_u128(11),
+            primary: Value::Text("a".to_string()),
+            secondary: 2,
+        },
+        OrderEntity {
+            id: Ulid::from_u128(12),
+            primary: Value::Int(2),
+            secondary: 3,
+        },
+        OrderEntity {
+            id: Ulid::from_u128(13),
+            primary: Value::Text("b".to_string()),
+            secondary: 4,
+        },
+    ];
+
+    for entity in entities.clone() {
+        saver.insert(entity).unwrap();
+    }
+
+    let mut plan = LogicalPlan::new(AccessPath::FullScan);
+    plan.order = Some(OrderSpec {
+        fields: vec![("primary".to_string(), OrderDirection::Asc)],
+    });
+
+    let loader = LoadExecutor::<OrderEntity>::new(DB, false);
+    let ordered = loader.execute(plan).unwrap().entities();
+    let ordered_ids = ordered.iter().map(|entity| entity.id).collect::<Vec<_>>();
+    let inserted_ids = entities.iter().map(|entity| entity.id).collect::<Vec<_>>();
+
+    assert_eq!(ordered_ids, inserted_ids);
+}

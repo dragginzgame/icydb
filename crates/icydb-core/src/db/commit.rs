@@ -180,6 +180,10 @@ impl CommitStore {
         self.cell.get().try_decode()
     }
 
+    fn is_empty(&self) -> bool {
+        self.cell.get().is_empty()
+    }
+
     fn set(&mut self, marker: &CommitMarker) -> Result<(), InternalError> {
         let raw = RawCommitMarker::try_from_marker(marker)?;
         self.cell.set(raw);
@@ -243,6 +247,10 @@ pub fn finish_commit(
     // not replay an already-rolled-back write.
     let result = apply(&mut guard);
     guard.clear();
+    debug_assert!(
+        with_commit_store_infallible(|store| store.is_empty()),
+        "commit marker must be cleared after finish_commit"
+    );
     result
 }
 

@@ -196,6 +196,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
         validate_plan::<E>(&plan).map_err(|err| {
             InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
         })?;
+        plan.debug_validate::<E>();
         ensure_recovered(&self.db)?;
 
         self.debug_log(format!("[debug] delete plan on {}", E::PATH));
@@ -213,18 +214,32 @@ impl<E: EntityKind> DeleteExecutor<E> {
         let mut rows = decode_rows::<E>(data_rows)?;
 
         let normalized = plan.predicate.as_ref().map(normalize_v2);
-        if let Some(predicate) = normalized.as_ref() {
+        let filtered = if let Some(predicate) = normalized.as_ref() {
             rows.retain(|row| eval_v2(&row.entity, predicate));
-        }
+            true
+        } else {
+            false
+        };
 
-        if let Some(order) = &plan.order
+        let ordered = if let Some(order) = &plan.order
             && rows.len() > 1
             && !order.fields.is_empty()
         {
+            debug_assert!(
+                plan.predicate.is_none() || filtered,
+                "executor invariant violated: ordering must run after filtering"
+            );
             apply_order_spec(&mut rows, order);
-        }
+            true
+        } else {
+            false
+        };
 
         if let Some(page) = &plan.page {
+            debug_assert!(
+                plan.order.is_none() || ordered,
+                "executor invariant violated: pagination must run after ordering"
+            );
             apply_pagination(&mut rows, page.offset, page.limit);
         }
 

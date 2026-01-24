@@ -46,11 +46,19 @@ impl WriteUnit {
     }
 
     pub(crate) fn commit(mut self) {
+        debug_assert!(
+            !self.applied,
+            "write unit invariant violated: commit called twice"
+        );
         self.applied = true;
         self.rollbacks.clear();
     }
 
     pub(crate) fn rollback(&mut self) {
+        debug_assert!(
+            !self.applied,
+            "write unit invariant violated: rollback called after commit"
+        );
         while let Some(rollback) = self.rollbacks.pop() {
             let _ = catch_unwind(AssertUnwindSafe(rollback));
         }
