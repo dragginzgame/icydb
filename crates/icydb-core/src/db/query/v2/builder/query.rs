@@ -2,14 +2,22 @@ use crate::{
     db::query::v2::{
         plan::{
             AccessPlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec, plan_access,
-            validate_plan,
+            validate_plan, validate_plan_invariants,
         },
-        predicate::{Predicate, SchemaInfo},
+        predicate::{Predicate, SchemaInfo, validate_model},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
+    model::{
+        entity::EntityModel,
+        field::{EntityFieldKind, EntityFieldModel},
+        index::IndexModel,
+    },
     traits::EntityKind,
 };
-use icydb_schema::node::{Entity, Schema};
+use icydb_schema::{
+    node::{Entity, Enum, Item, ItemTarget, List, Map, Newtype, Record, Schema, Set, Tuple},
+    types::{Cardinality, Primitive},
+};
 use std::marker::PhantomData;
 
 ///
@@ -178,12 +186,19 @@ impl QuerySpec {
                 format!("schema unavailable: {err}"),
             )
         })?;
-        let schema_info = SchemaInfo::from_entity_schema(entity, schema);
+        let model = entity_model_from_schema(entity, schema)?;
+        if let Some(predicate) = &self.predicate {
+            validate_model(&model, predicate).map_err(|err| {
+                InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+            })?;
+        }
+
+        let schema_info = SchemaInfo::from_entity_model(&model);
 
         let access_plan = plan_access::<E>(self.predicate.as_ref()).map_err(|err| {
             InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
         })?;
-        access_plan.validate_invariants::<E>(&schema_info, self.predicate.as_ref());
+        validate_plan_invariants::<E>(&access_plan, &schema_info, self.predicate.as_ref());
 
         let access = match access_plan {
             AccessPlan::Path(path) => path,
@@ -225,5 +240,126 @@ fn push_order(
         None => OrderSpec {
             fields: vec![(field.to_string(), direction)],
         },
+    }
+}
+
+fn entity_model_from_schema(
+    entity: &Entity,
+    schema: &Schema,
+) -> Result<EntityModel, InternalError> {
+    let mut fields = Vec::with_capacity(entity.fields.fields.len());
+    for field in entity.fields.fields {
+        let kind = model_kind_from_value(&field.value, schema);
+        fields.push(EntityFieldModel {
+            name: field.ident,
+            kind,
+        });
+    }
+
+    let pk_index = fields
+        .iter()
+        .position(|field| field.name == entity.primary_key)
+        .ok_or_else(|| {
+            InternalError::new(
+                ErrorClass::Internal,
+                ErrorOrigin::Query,
+                format!("primary key field '{}' not found", entity.primary_key),
+            )
+        })?;
+
+    let fields: &'static [EntityFieldModel] = Box::leak(fields.into_boxed_slice());
+    let primary_key = &fields[pk_index];
+
+    let mut index_models = Vec::with_capacity(entity.indexes.len());
+    for index in entity.indexes {
+        index_models.push(IndexModel::new(index.store, index.fields, index.unique));
+    }
+    let index_models: &'static [IndexModel] = Box::leak(index_models.into_boxed_slice());
+    let index_refs: Vec<&'static IndexModel> = index_models.iter().collect();
+    let indexes: &'static [&'static IndexModel] = Box::leak(index_refs.into_boxed_slice());
+
+    let path: &'static str = Box::leak(entity.def.path().into_boxed_str());
+
+    Ok(EntityModel {
+        path,
+        entity_name: entity.resolved_name(),
+        primary_key,
+        fields,
+        indexes,
+    })
+}
+
+fn model_kind_from_value(value: &icydb_schema::node::Value, schema: &Schema) -> EntityFieldKind {
+    let base = model_kind_from_item(&value.item, schema);
+    match value.cardinality {
+        Cardinality::Many => EntityFieldKind::List(Box::new(base)),
+        Cardinality::One | Cardinality::Opt => base,
+    }
+}
+
+fn model_kind_from_item(item: &Item, schema: &Schema) -> EntityFieldKind {
+    match &item.target {
+        ItemTarget::Primitive(prim) => model_kind_from_primitive(*prim),
+        ItemTarget::Is(path) => {
+            if schema.cast_node::<Enum>(path).is_ok() {
+                return EntityFieldKind::Enum;
+            }
+            if let Ok(node) = schema.cast_node::<Newtype>(path) {
+                return model_kind_from_item(&node.item, schema);
+            }
+            if let Ok(node) = schema.cast_node::<List>(path) {
+                return EntityFieldKind::List(Box::new(model_kind_from_item(&node.item, schema)));
+            }
+            if let Ok(node) = schema.cast_node::<Set>(path) {
+                return EntityFieldKind::Set(Box::new(model_kind_from_item(&node.item, schema)));
+            }
+            if let Ok(node) = schema.cast_node::<Map>(path) {
+                let key = model_kind_from_item(&node.key, schema);
+                let value = model_kind_from_value(&node.value, schema);
+                return EntityFieldKind::Map {
+                    key: Box::new(key),
+                    value: Box::new(value),
+                };
+            }
+            if schema.cast_node::<Record>(path).is_ok() {
+                return EntityFieldKind::Unsupported;
+            }
+            if schema.cast_node::<Tuple>(path).is_ok() {
+                return EntityFieldKind::Unsupported;
+            }
+
+            EntityFieldKind::Unsupported
+        }
+    }
+}
+
+const fn model_kind_from_primitive(prim: Primitive) -> EntityFieldKind {
+    match prim {
+        Primitive::Account => EntityFieldKind::Account,
+        Primitive::Blob => EntityFieldKind::Blob,
+        Primitive::Bool => EntityFieldKind::Bool,
+        Primitive::Date => EntityFieldKind::Date,
+        Primitive::Decimal => EntityFieldKind::Decimal,
+        Primitive::Duration => EntityFieldKind::Duration,
+        Primitive::E8s => EntityFieldKind::E8s,
+        Primitive::E18s => EntityFieldKind::E18s,
+        Primitive::Float32 => EntityFieldKind::Float32,
+        Primitive::Float64 => EntityFieldKind::Float64,
+        Primitive::Int => EntityFieldKind::IntBig,
+        Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64 => {
+            EntityFieldKind::Int
+        }
+        Primitive::Int128 => EntityFieldKind::Int128,
+        Primitive::Nat => EntityFieldKind::UintBig,
+        Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => {
+            EntityFieldKind::Uint
+        }
+        Primitive::Nat128 => EntityFieldKind::Uint128,
+        Primitive::Principal => EntityFieldKind::Principal,
+        Primitive::Subaccount => EntityFieldKind::Subaccount,
+        Primitive::Text => EntityFieldKind::Text,
+        Primitive::Timestamp => EntityFieldKind::Timestamp,
+        Primitive::Ulid => EntityFieldKind::Ulid,
+        Primitive::Unit => EntityFieldKind::Unit,
     }
 }

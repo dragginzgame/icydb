@@ -4,6 +4,25 @@ use crate::{
 };
 use std::{cmp::Ordering, collections::BTreeMap, mem::discriminant, str::FromStr};
 
+///
+/// Predicate coercion and comparison semantics
+///
+/// Defines which runtime value comparisons are permitted under
+/// explicit coercion policies, and how those comparisons behave.
+/// This module is schema-agnostic and planner-agnostic; it operates
+/// purely on runtime `Value`s and declared coercion intent.
+///
+
+///
+/// CoercionId
+///
+/// Identifier for an explicit coercion policy.
+///
+/// Coercions express *how* values may be compared, not whether
+/// a comparison is semantically valid for a given field.
+/// Validation and planning enforce legality separately.
+///
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CoercionId {
     Strict,
@@ -12,6 +31,16 @@ pub enum CoercionId {
     TextCasefold,
     CollectionElement,
 }
+
+///
+/// CoercionSpec
+///
+/// Fully-specified coercion policy.
+///
+/// Carries a coercion identifier plus optional parameters.
+/// Parameters are currently unused but reserved for future
+/// extensions without changing the predicate AST.
+///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CoercionSpec {
@@ -35,11 +64,25 @@ impl Default for CoercionSpec {
     }
 }
 
+///
+/// CoercionFamily
+///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CoercionFamily {
     Any,
     Family(ValueFamily),
 }
+
+///
+/// CoercionRule
+///
+/// Declarative table defining which coercions are supported
+/// between value families.
+///
+/// This table is intentionally conservative; absence of a rule
+/// means the coercion is not permitted.
+///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CoercionRule {
@@ -110,6 +153,10 @@ fn family_matches(rule: CoercionFamily, value: ValueFamily) -> bool {
     }
 }
 
+///
+/// TextOp
+///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextOp {
     Eq,
@@ -118,6 +165,10 @@ pub enum TextOp {
     EndsWith,
 }
 
+/// Perform equality comparison under an explicit coercion.
+///
+/// Returns `None` if the comparison is not defined for the
+/// given values and coercion.
 #[must_use]
 pub fn compare_eq(left: &Value, right: &Value, coercion: &CoercionSpec) -> Option<bool> {
     match coercion.id {
@@ -133,6 +184,10 @@ pub fn compare_eq(left: &Value, right: &Value, coercion: &CoercionSpec) -> Optio
     }
 }
 
+/// Perform ordering comparison under an explicit coercion.
+///
+/// Returns `None` if ordering is undefined for the given
+/// values or coercion.
 #[must_use]
 pub fn compare_order(left: &Value, right: &Value, coercion: &CoercionSpec) -> Option<Ordering> {
     match coercion.id {
@@ -155,6 +210,10 @@ pub fn compare_order(left: &Value, right: &Value, coercion: &CoercionSpec) -> Op
     }
 }
 
+/// Perform text-specific comparison operations.
+///
+/// Only strict and casefold coercions are supported.
+/// Other coercions return `None`.
 #[must_use]
 pub fn compare_text(
     left: &Value,
@@ -180,6 +239,10 @@ fn same_variant(left: &Value, right: &Value) -> bool {
     discriminant(left) == discriminant(right)
 }
 
+/// Strict ordering for identical value variants.
+///
+/// Returns `None` if values are of different variants
+/// or do not support ordering.
 fn strict_ordering(left: &Value, right: &Value) -> Option<Ordering> {
     match (left, right) {
         (Value::Account(a), Value::Account(b)) => Some(a.cmp(b)),
@@ -208,6 +271,8 @@ fn strict_ordering(left: &Value, right: &Value) -> Option<Ordering> {
     }
 }
 
+/// Normalize identifier/text comparisons by parsing textual
+/// representations into identifier values when possible.
 fn coerce_identifier_text(left: &Value, right: &Value) -> Option<(Value, Value)> {
     match (left, right) {
         (Value::Ulid(_) | Value::Principal(_) | Value::Account(_), Value::Text(_)) => {
@@ -241,6 +306,8 @@ fn compare_casefold(left: &Value, right: &Value) -> Option<bool> {
     Some(left == right)
 }
 
+/// Convert a value to its casefolded textual representation,
+/// if supported.
 fn casefold_value(value: &Value) -> Option<String> {
     match value {
         Value::Text(text) => Some(casefold(text)),

@@ -1,3 +1,5 @@
+pub mod entity;
+pub mod field;
 /// Runtime data model definitions.
 ///
 /// This module contains the *runtime representations* of schema-level concepts,

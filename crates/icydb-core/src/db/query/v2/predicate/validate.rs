@@ -1,4 +1,5 @@
 use crate::{
+    model::{entity::EntityModel, field::EntityFieldKind},
     traits::EntityKind,
     value::{Value, ValueFamily, ValueFamilyExt},
 };
@@ -16,6 +17,17 @@ use super::{
     ast::{CompareOp, ComparePredicate, Predicate},
     coercion::{CoercionId, CoercionSpec, supports_coercion},
 };
+
+///
+/// ScalarType
+///
+/// Internal scalar classification used by predicate validation.
+/// This is deliberately *smaller* than the full schema/type system
+/// and exists only to support:
+/// - coercion rules
+/// - literal compatibility checks
+/// - operator validity (ordering, equality)
+///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ScalarType {
@@ -107,6 +119,16 @@ impl ScalarType {
     }
 }
 
+///
+/// FieldType
+///
+/// Reduced runtime type representation used exclusively for predicate validation.
+/// This intentionally drops:
+/// - record structure
+/// - tuple structure
+/// - validator/sanitizer metadata
+///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum FieldType {
     Scalar(ScalarType),
@@ -171,6 +193,13 @@ impl FieldType {
     }
 }
 
+///
+/// SchemaInfo
+///
+/// Lightweight, runtime-usable field-type map for one entity.
+/// This is the *only* schema surface the predicate validator depends on.
+///
+
 #[derive(Clone, Debug)]
 pub struct SchemaInfo {
     fields: BTreeMap<String, FieldType>,
@@ -213,6 +242,20 @@ impl SchemaInfo {
             .map(|field| {
                 let ty = field_type_from_value(&field.value, schema);
                 (field.ident.to_string(), ty)
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        Self { fields }
+    }
+
+    #[must_use]
+    pub fn from_entity_model(model: &EntityModel) -> Self {
+        let fields = model
+            .fields
+            .iter()
+            .map(|field| {
+                let ty = field_type_from_model_kind(&field.kind);
+                (field.name.to_string(), ty)
             })
             .collect::<BTreeMap<_, _>>();
 
@@ -294,6 +337,11 @@ pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), Valida
             coercion,
         } => validate_map_entry(schema, field, key, value, coercion),
     }
+}
+
+pub fn validate_model(model: &EntityModel, predicate: &Predicate) -> Result<(), ValidateError> {
+    let schema = SchemaInfo::from_entity_model(model);
+    validate(&schema, predicate)
 }
 
 fn validate_compare(schema: &SchemaInfo, cmp: &ComparePredicate) -> Result<(), ValidateError> {
@@ -718,6 +766,43 @@ const fn scalar_from_primitive(prim: Primitive) -> ScalarType {
     }
 }
 
+fn field_type_from_model_kind(kind: &EntityFieldKind) -> FieldType {
+    match kind {
+        EntityFieldKind::Account => FieldType::Scalar(ScalarType::Account),
+        EntityFieldKind::Blob => FieldType::Scalar(ScalarType::Blob),
+        EntityFieldKind::Bool => FieldType::Scalar(ScalarType::Bool),
+        EntityFieldKind::Date => FieldType::Scalar(ScalarType::Date),
+        EntityFieldKind::Decimal => FieldType::Scalar(ScalarType::Decimal),
+        EntityFieldKind::Duration => FieldType::Scalar(ScalarType::Duration),
+        EntityFieldKind::Enum => FieldType::Scalar(ScalarType::Enum),
+        EntityFieldKind::E8s => FieldType::Scalar(ScalarType::E8s),
+        EntityFieldKind::E18s => FieldType::Scalar(ScalarType::E18s),
+        EntityFieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
+        EntityFieldKind::Float64 => FieldType::Scalar(ScalarType::Float64),
+        EntityFieldKind::Int => FieldType::Scalar(ScalarType::Int),
+        EntityFieldKind::Int128 => FieldType::Scalar(ScalarType::Int128),
+        EntityFieldKind::IntBig => FieldType::Scalar(ScalarType::IntBig),
+        EntityFieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
+        EntityFieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
+        EntityFieldKind::Text => FieldType::Scalar(ScalarType::Text),
+        EntityFieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
+        EntityFieldKind::Uint => FieldType::Scalar(ScalarType::Uint),
+        EntityFieldKind::Uint128 => FieldType::Scalar(ScalarType::Uint128),
+        EntityFieldKind::UintBig => FieldType::Scalar(ScalarType::UintBig),
+        EntityFieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
+        EntityFieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
+        EntityFieldKind::List(inner) => {
+            FieldType::List(Box::new(field_type_from_model_kind(inner)))
+        }
+        EntityFieldKind::Set(inner) => FieldType::Set(Box::new(field_type_from_model_kind(inner))),
+        EntityFieldKind::Map { key, value } => FieldType::Map {
+            key: Box::new(field_type_from_model_kind(key)),
+            value: Box::new(field_type_from_model_kind(value)),
+        },
+        EntityFieldKind::Unsupported => FieldType::Unsupported,
+    }
+}
+
 impl fmt::Display for FieldType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -727,5 +812,115 @@ impl fmt::Display for FieldType {
             Self::Map { key, value } => write!(f, "Map<{key}, {value}>"),
             Self::Unsupported => write!(f, "Unsupported"),
         }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{ValidateError, validate_model};
+    use crate::{
+        db::query::v2::{
+            builder::{eq, eq_ci, is_empty, is_not_empty, lt, map_contains_entry},
+            predicate::{CoercionId, Predicate},
+        },
+        model::{
+            entity::EntityModel,
+            field::{EntityFieldKind, EntityFieldModel},
+            index::IndexModel,
+        },
+        types::Ulid,
+    };
+
+    fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
+        EntityFieldModel { name, kind }
+    }
+
+    fn model_with_fields(fields: Vec<EntityFieldModel>, pk_index: usize) -> EntityModel {
+        let fields: &'static [EntityFieldModel] = Box::leak(fields.into_boxed_slice());
+        let primary_key = &fields[pk_index];
+        let indexes: &'static [&'static IndexModel] = &[];
+
+        EntityModel {
+            path: "test::Entity",
+            entity_name: "TestEntity",
+            primary_key,
+            fields,
+            indexes,
+        }
+    }
+
+    #[test]
+    fn validate_model_accepts_scalars_and_coercions() {
+        let model = model_with_fields(
+            vec![
+                field("id", EntityFieldKind::Ulid),
+                field("email", EntityFieldKind::Text),
+                field("age", EntityFieldKind::Uint),
+                field("created_at", EntityFieldKind::Timestamp),
+                field("active", EntityFieldKind::Bool),
+            ],
+            0,
+        );
+
+        let predicate = Predicate::And(vec![
+            eq("id", Ulid::nil()),
+            eq_ci("email", "User@example.com"),
+            lt("age", 30u32),
+        ]);
+
+        assert!(validate_model(&model, &predicate).is_ok());
+    }
+
+    #[test]
+    fn validate_model_accepts_collections_and_map_contains() {
+        let model = model_with_fields(
+            vec![
+                field(
+                    "tags",
+                    EntityFieldKind::List(Box::new(EntityFieldKind::Text)),
+                ),
+                field(
+                    "principals",
+                    EntityFieldKind::Set(Box::new(EntityFieldKind::Principal)),
+                ),
+                field(
+                    "attributes",
+                    EntityFieldKind::Map {
+                        key: Box::new(EntityFieldKind::Text),
+                        value: Box::new(EntityFieldKind::Uint),
+                    },
+                ),
+            ],
+            0,
+        );
+
+        let predicate = Predicate::And(vec![
+            is_empty("tags"),
+            is_not_empty("principals"),
+            map_contains_entry("attributes", "k", 1u64, CoercionId::Strict),
+        ]);
+
+        assert!(validate_model(&model, &predicate).is_ok());
+
+        let bad = map_contains_entry("attributes", "k", 1u64, CoercionId::TextCasefold);
+        assert!(matches!(
+            validate_model(&model, &bad),
+            Err(ValidateError::InvalidCoercion { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_model_rejects_unsupported_fields() {
+        let model = model_with_fields(vec![field("broken", EntityFieldKind::Unsupported)], 0);
+        let predicate = eq("broken", 1u64);
+
+        assert!(matches!(
+            validate_model(&model, &predicate),
+            Err(ValidateError::UnsupportedFieldType { field }) if field == "broken"
+        ));
     }
 }

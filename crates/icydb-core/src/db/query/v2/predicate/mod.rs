@@ -11,4 +11,4 @@ pub use ast::{CompareOp, ComparePredicate, Predicate};
 pub use coercion::{CoercionId, CoercionSpec};
 pub use eval::{FieldPresence, Row, eval};
 pub use normalize::normalize;
-pub use validate::{SchemaInfo, ValidateError, validate};
+pub use validate::{SchemaInfo, ValidateError, validate, validate_model};

@@ -1,3 +1,6 @@
+//! Semantic planning from predicates to access strategies; must not assert invariants.
+
+use super::{AccessPath, AccessPlan, PlanError, canonical, validate_plan_invariants};
 use crate::{
     db::{
         index::fingerprint,
@@ -11,43 +14,16 @@ use crate::{
     value::Value,
 };
 
-use super::{AccessPath, PlanError};
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AccessPlan {
-    Path(AccessPath),
-    Union(Vec<Self>),
-    Intersection(Vec<Self>),
-}
-
 #[cfg(test)]
 pub(crate) use tests::PlannerEntity;
 
 impl AccessPlan {
-    #[must_use]
-    pub const fn full_scan() -> Self {
-        Self::Path(AccessPath::FullScan)
-    }
-
     fn normalize(self) -> Self {
         match self {
             Self::Path(_) => self,
             Self::Union(children) => normalize_union(children),
             Self::Intersection(children) => normalize_intersection(children),
         }
-    }
-
-    pub(crate) fn validate_invariants<E: EntityKind>(
-        &self,
-        schema: &SchemaInfo,
-        predicate: Option<&Predicate>,
-    ) {
-        let Some(predicate) = predicate else {
-            return;
-        };
-
-        let info = StrictPredicateInfo::from_predicate::<E>(schema, Some(predicate));
-        validate_access_plan::<E>(self, schema, &info);
     }
 }
 
@@ -60,190 +36,8 @@ pub fn plan_access<E: EntityKind>(predicate: Option<&Predicate>) -> Result<Acces
     crate::db::query::v2::predicate::validate(&schema, predicate)?;
 
     let plan = plan_predicate::<E>(&schema, predicate).normalize();
-    plan.validate_invariants::<E>(&schema, Some(predicate));
+    validate_plan_invariants::<E>(&plan, &schema, Some(predicate));
     Ok(plan)
-}
-
-#[derive(Default)]
-struct StrictPredicateInfo {
-    pk_keys: std::collections::BTreeSet<Key>,
-    field_values: std::collections::BTreeMap<String, Vec<Value>>,
-}
-
-impl StrictPredicateInfo {
-    fn from_predicate<E: EntityKind>(schema: &SchemaInfo, predicate: Option<&Predicate>) -> Self {
-        let mut info = Self::default();
-        if let Some(predicate) = predicate {
-            collect_strict_predicate_info::<E>(schema, predicate, false, &mut info);
-        }
-        info
-    }
-
-    fn contains_field_value(&self, field: &str, value: &Value) -> bool {
-        self.field_values
-            .get(field)
-            .is_some_and(|values| values.contains(value))
-    }
-}
-
-fn collect_strict_predicate_info<E: EntityKind>(
-    schema: &SchemaInfo,
-    predicate: &Predicate,
-    negated: bool,
-    info: &mut StrictPredicateInfo,
-) {
-    match predicate {
-        Predicate::And(children) | Predicate::Or(children) => {
-            for child in children {
-                collect_strict_predicate_info::<E>(schema, child, negated, info);
-            }
-        }
-        Predicate::Not(inner) => {
-            collect_strict_predicate_info::<E>(schema, inner, !negated, info);
-        }
-        Predicate::Compare(cmp) => {
-            if negated || cmp.coercion.id != CoercionId::Strict {
-                return;
-            }
-
-            let mut push_value = |value: &Value| {
-                if is_primary_key::<E>(schema, &cmp.field) {
-                    if let Some(key) = value.as_key()
-                        && key_matches_pk::<E>(schema, &key)
-                    {
-                        info.pk_keys.insert(key);
-                    }
-                    return;
-                }
-
-                let Some(field_type) = schema.field(&cmp.field) else {
-                    return;
-                };
-                if !literal_matches_type(value, field_type) {
-                    return;
-                }
-
-                let values = info.field_values.entry(cmp.field.clone()).or_default();
-                values.retain(|existing| existing != value);
-                values.push(value.clone());
-            };
-
-            match cmp.op {
-                CompareOp::Eq => {
-                    push_value(&cmp.value);
-                }
-                CompareOp::In => {
-                    if let Value::List(items) = &cmp.value {
-                        for item in items {
-                            push_value(item);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        _ => {}
-    }
-}
-
-fn validate_access_plan<E: EntityKind>(
-    plan: &AccessPlan,
-    schema: &SchemaInfo,
-    info: &StrictPredicateInfo,
-) {
-    match plan {
-        AccessPlan::Path(path) => validate_access_path::<E>(path, schema, info),
-        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
-            // Internal invariant: composite plans must retain at least one child.
-            assert!(
-                !children.is_empty(),
-                "planner invariant violated: composite plan must have children"
-            );
-            // Internal invariant: FullScan cannot appear inside composite access plans.
-            assert!(
-                !children.iter().any(is_full_scan),
-                "planner invariant violated: FullScan cannot appear inside composite plans"
-            );
-            debug_assert!(
-                canonical::is_canonical_sorted(children),
-                "planner invariant violated: composite plan children must be canonicalized"
-            );
-            for child in children {
-                validate_access_plan::<E>(child, schema, info);
-            }
-        }
-    }
-}
-
-fn validate_access_path<E: EntityKind>(
-    path: &AccessPath,
-    schema: &SchemaInfo,
-    info: &StrictPredicateInfo,
-) {
-    match path {
-        AccessPath::FullScan => {}
-        AccessPath::ByKey(key) => {
-            // Internal invariant: ByKey only targets the primary key.
-            assert!(
-                key_matches_pk::<E>(schema, key),
-                "planner invariant violated: ByKey must target the primary key"
-            );
-            // Internal invariant: ByKey only arises from strict primary key predicates.
-            assert!(
-                info.pk_keys.contains(key),
-                "planner invariant violated: ByKey requires strict primary key predicate"
-            );
-        }
-        AccessPath::ByKeys(keys) => {
-            // Internal invariant: ByKeys must contain at least one key.
-            assert!(
-                !keys.is_empty(),
-                "planner invariant violated: ByKeys must be non-empty"
-            );
-            for key in keys {
-                // Internal invariant: ByKeys only targets the primary key.
-                assert!(
-                    key_matches_pk::<E>(schema, key),
-                    "planner invariant violated: ByKeys must target the primary key"
-                );
-                // Internal invariant: ByKeys only arises from strict primary key predicates.
-                assert!(
-                    info.pk_keys.contains(key),
-                    "planner invariant violated: ByKeys requires strict primary key predicate"
-                );
-            }
-        }
-        AccessPath::KeyRange { start, end } => {
-            // Internal invariant: KeyRange only targets the primary key.
-            assert!(
-                key_matches_pk::<E>(schema, start) && key_matches_pk::<E>(schema, end),
-                "planner invariant violated: KeyRange must target the primary key"
-            );
-            // Internal invariant: KeyRange ordering must be normalized.
-            assert!(
-                start <= end,
-                "planner invariant violated: KeyRange start must be <= end"
-            );
-        }
-        AccessPath::IndexPrefix { index, values } => {
-            debug_assert!(
-                !values.is_empty(),
-                "planner invariant violated: IndexPrefix must be non-empty"
-            );
-            // Internal invariant: index prefix cannot exceed indexed field count.
-            assert!(
-                values.len() <= index.fields.len(),
-                "planner invariant violated: index prefix exceeds field count"
-            );
-            for (field, value) in index.fields.iter().zip(values.iter()) {
-                // Internal invariant: IndexPrefix requires strict predicate values.
-                assert!(
-                    info.contains_field_value(field, value),
-                    "planner invariant violated: IndexPrefix requires strict predicate value"
-                );
-            }
-        }
-    }
 }
 
 fn plan_predicate<E: EntityKind>(schema: &SchemaInfo, predicate: &Predicate) -> AccessPlan {
@@ -472,232 +266,6 @@ fn normalize_intersection(children: Vec<AccessPlan>) -> AccessPlan {
     AccessPlan::Intersection(out)
 }
 
-mod canonical {
-    use super::{AccessPath, AccessPlan};
-    use crate::{
-        key::Key,
-        value::{Value, ValueEnum},
-    };
-    use std::cmp::Ordering;
-
-    /// Canonical ordering only exists to make planner output deterministic.
-    pub(super) fn canonicalize_access_plans(plans: &mut [AccessPlan]) {
-        plans.sort_by(canonical_cmp_access_plan);
-    }
-
-    pub(super) fn is_canonical_sorted(plans: &[AccessPlan]) -> bool {
-        plans
-            .windows(2)
-            .all(|pair| canonical_cmp_access_plan(&pair[0], &pair[1]) != Ordering::Greater)
-    }
-
-    fn canonical_cmp_access_plan(left: &AccessPlan, right: &AccessPlan) -> Ordering {
-        match (left, right) {
-            (AccessPlan::Path(left), AccessPlan::Path(right)) => {
-                canonical_cmp_access_path(left, right)
-            }
-            (AccessPlan::Intersection(left), AccessPlan::Intersection(right))
-            | (AccessPlan::Union(left), AccessPlan::Union(right)) => {
-                canonical_cmp_plan_list(left, right)
-            }
-            _ => canonical_access_plan_rank(left).cmp(&canonical_access_plan_rank(right)),
-        }
-    }
-
-    const fn canonical_access_plan_rank(plan: &AccessPlan) -> u8 {
-        match plan {
-            AccessPlan::Path(_) => 0,
-            AccessPlan::Intersection(_) => 1,
-            AccessPlan::Union(_) => 2,
-        }
-    }
-
-    fn canonical_cmp_plan_list(left: &[AccessPlan], right: &[AccessPlan]) -> Ordering {
-        let limit = left.len().min(right.len());
-        for (left, right) in left.iter().take(limit).zip(right.iter().take(limit)) {
-            let cmp = canonical_cmp_access_plan(left, right);
-            if cmp != Ordering::Equal {
-                return cmp;
-            }
-        }
-        left.len().cmp(&right.len())
-    }
-
-    fn canonical_cmp_access_path(left: &AccessPath, right: &AccessPath) -> Ordering {
-        let rank = canonical_access_path_rank(left).cmp(&canonical_access_path_rank(right));
-        if rank != Ordering::Equal {
-            return rank;
-        }
-
-        match (left, right) {
-            (AccessPath::ByKey(left), AccessPath::ByKey(right)) => left.cmp(right),
-            (AccessPath::ByKeys(left), AccessPath::ByKeys(right)) => {
-                canonical_cmp_key_list(left, right)
-            }
-            (
-                AccessPath::KeyRange {
-                    start: left_start,
-                    end: left_end,
-                },
-                AccessPath::KeyRange {
-                    start: right_start,
-                    end: right_end,
-                },
-            ) => left_start.cmp(right_start).then(left_end.cmp(right_end)),
-            (
-                AccessPath::IndexPrefix {
-                    index: left_index,
-                    values: left_values,
-                },
-                AccessPath::IndexPrefix {
-                    index: right_index,
-                    values: right_values,
-                },
-            ) => {
-                let cmp = left_index.store.cmp(right_index.store);
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-                let cmp = canonical_cmp_str_slice(left_index.fields, right_index.fields);
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-                let cmp = left_values.len().cmp(&right_values.len());
-                if cmp != Ordering::Equal {
-                    return cmp;
-                }
-                canonical_cmp_value_list(left_values, right_values)
-            }
-            _ => Ordering::Equal,
-        }
-    }
-
-    const fn canonical_access_path_rank(path: &AccessPath) -> u8 {
-        match path {
-            AccessPath::FullScan => 0,
-            AccessPath::IndexPrefix { .. } => 1,
-            AccessPath::ByKey(_) => 2,
-            AccessPath::ByKeys(_) => 3,
-            AccessPath::KeyRange { .. } => 4,
-        }
-    }
-
-    fn canonical_cmp_key_list(left: &[Key], right: &[Key]) -> Ordering {
-        let limit = left.len().min(right.len());
-        for (left, right) in left.iter().take(limit).zip(right.iter().take(limit)) {
-            let cmp = left.cmp(right);
-            if cmp != Ordering::Equal {
-                return cmp;
-            }
-        }
-        left.len().cmp(&right.len())
-    }
-
-    fn canonical_cmp_str_slice(left: &[&str], right: &[&str]) -> Ordering {
-        let limit = left.len().min(right.len());
-        for (left, right) in left.iter().take(limit).zip(right.iter().take(limit)) {
-            let cmp = left.cmp(right);
-            if cmp != Ordering::Equal {
-                return cmp;
-            }
-        }
-        left.len().cmp(&right.len())
-    }
-
-    fn canonical_cmp_value_list(left: &[Value], right: &[Value]) -> Ordering {
-        let limit = left.len().min(right.len());
-        for (left, right) in left.iter().take(limit).zip(right.iter().take(limit)) {
-            let cmp = canonical_cmp_value(left, right);
-            if cmp != Ordering::Equal {
-                return cmp;
-            }
-        }
-        left.len().cmp(&right.len())
-    }
-
-    fn canonical_cmp_value(left: &Value, right: &Value) -> Ordering {
-        let rank = canonical_value_rank(left).cmp(&canonical_value_rank(right));
-        if rank != Ordering::Equal {
-            return rank;
-        }
-
-        match (left, right) {
-            (Value::Account(left), Value::Account(right)) => left.cmp(right),
-            (Value::Blob(left), Value::Blob(right)) => left.cmp(right),
-            (Value::Bool(left), Value::Bool(right)) => left.cmp(right),
-            (Value::Date(left), Value::Date(right)) => left.cmp(right),
-            (Value::Decimal(left), Value::Decimal(right)) => left.cmp(right),
-            (Value::Duration(left), Value::Duration(right)) => left.cmp(right),
-            (Value::Enum(left), Value::Enum(right)) => canonical_cmp_value_enum(left, right),
-            (Value::E8s(left), Value::E8s(right)) => left.cmp(right),
-            (Value::E18s(left), Value::E18s(right)) => left.cmp(right),
-            (Value::Float32(left), Value::Float32(right)) => left.cmp(right),
-            (Value::Float64(left), Value::Float64(right)) => left.cmp(right),
-            (Value::Int(left), Value::Int(right)) => left.cmp(right),
-            (Value::Int128(left), Value::Int128(right)) => left.cmp(right),
-            (Value::IntBig(left), Value::IntBig(right)) => left.cmp(right),
-            (Value::List(left), Value::List(right)) => canonical_cmp_value_list(left, right),
-            (Value::Principal(left), Value::Principal(right)) => left.cmp(right),
-            (Value::Subaccount(left), Value::Subaccount(right)) => left.cmp(right),
-            (Value::Text(left), Value::Text(right)) => left.cmp(right),
-            (Value::Timestamp(left), Value::Timestamp(right)) => left.cmp(right),
-            (Value::Uint(left), Value::Uint(right)) => left.cmp(right),
-            (Value::Uint128(left), Value::Uint128(right)) => left.cmp(right),
-            (Value::UintBig(left), Value::UintBig(right)) => left.cmp(right),
-            (Value::Ulid(left), Value::Ulid(right)) => left.cmp(right),
-            _ => Ordering::Equal,
-        }
-    }
-
-    const fn canonical_value_rank(value: &Value) -> u8 {
-        match value {
-            Value::Account(_) => 0,
-            Value::Blob(_) => 1,
-            Value::Bool(_) => 2,
-            Value::Date(_) => 3,
-            Value::Decimal(_) => 4,
-            Value::Duration(_) => 5,
-            Value::Enum(_) => 6,
-            Value::E8s(_) => 7,
-            Value::E18s(_) => 8,
-            Value::Float32(_) => 9,
-            Value::Float64(_) => 10,
-            Value::Int(_) => 11,
-            Value::Int128(_) => 12,
-            Value::IntBig(_) => 13,
-            Value::List(_) => 14,
-            Value::None => 15,
-            Value::Principal(_) => 16,
-            Value::Subaccount(_) => 17,
-            Value::Text(_) => 18,
-            Value::Timestamp(_) => 19,
-            Value::Uint(_) => 20,
-            Value::Uint128(_) => 21,
-            Value::UintBig(_) => 22,
-            Value::Ulid(_) => 23,
-            Value::Unit => 24,
-            Value::Unsupported => 25,
-        }
-    }
-
-    fn canonical_cmp_value_enum(left: &ValueEnum, right: &ValueEnum) -> Ordering {
-        let cmp = left.variant.cmp(&right.variant);
-        if cmp != Ordering::Equal {
-            return cmp;
-        }
-        let cmp = left.path.cmp(&right.path);
-        if cmp != Ordering::Equal {
-            return cmp;
-        }
-        match (&left.payload, &right.payload) {
-            (None, None) => Ordering::Equal,
-            (None, Some(_)) => Ordering::Less,
-            (Some(_), None) => Ordering::Greater,
-            (Some(left), Some(right)) => canonical_cmp_value(left, right),
-        }
-    }
-}
-
 const fn is_full_scan(plan: &AccessPlan) -> bool {
     matches!(plan, AccessPlan::Path(AccessPath::FullScan))
 }
@@ -757,6 +325,10 @@ const fn key_type_for_field(field_type: &FieldType) -> Option<KeyVariant> {
         _ => None,
     }
 }
+
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {

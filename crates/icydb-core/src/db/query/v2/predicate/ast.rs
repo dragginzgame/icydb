@@ -2,6 +2,23 @@ use crate::value::Value;
 
 use super::coercion::CoercionSpec;
 
+///
+/// Predicate AST
+///
+/// Pure, schema-agnostic representation of query predicates.
+/// This layer contains no type validation, index logic, or execution
+/// semantics. All interpretation occurs in later passes:
+///
+/// - normalization
+/// - validation (schema-aware)
+/// - planning
+/// - execution
+///
+
+///
+/// CompareOp
+///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CompareOp {
     Eq,
@@ -19,6 +36,10 @@ pub enum CompareOp {
     EndsWith,
 }
 
+///
+/// ComparePredicate
+///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ComparePredicate {
     pub field: String,
@@ -26,6 +47,10 @@ pub struct ComparePredicate {
     pub value: Value,
     pub coercion: CoercionSpec,
 }
+
+///
+/// Predicate
+///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Predicate {
