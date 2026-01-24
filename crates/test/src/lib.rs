@@ -1,8 +1,8 @@
+use canic_cdk::export_candid;
 /*mod delete_unique;
 mod ops;
 mod view_into;
 
-use canic_cdk::{export_candid, query, update};
 use icydb::{Error, db::response::ResponseExt as _, design::prelude::*};
 use test_design::schema::{TestDataStore, TestIndexStore};
 
@@ -49,6 +49,6 @@ pub fn test() {
 
     println!("test: all tests passed successfully");
 }
+*/
 
 export_candid!();
-*/

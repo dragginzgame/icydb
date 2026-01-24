@@ -1,8 +1,9 @@
 use crate::{
     db::{
-        CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, begin_commit, ensure_recovered,
+        CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit,
+        ensure_recovered,
         executor::{
-            ExecutorError, UniqueIndexHandle, WriteUnit,
+            ExecutorError, UniqueIndexHandle,
             plan::{record_plan_metrics, set_rows_from_len},
             resolve_unique_pk,
         },
@@ -16,7 +17,7 @@ use crate::{
             predicate::{eval as eval_v2, normalize as normalize_v2},
         },
         response::Response,
-        store::{DataKey, DataRow},
+        store::{DataKey, DataRow, RawRow},
         traits::FromKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -39,13 +40,19 @@ struct IndexPlan {
     store: &'static LocalKey<RefCell<IndexStore>>,
 }
 
+struct DeleteRow<E> {
+    key: DataKey,
+    raw: Option<RawRow>,
+    entity: E,
+}
+
 ///
 /// DeleteExecutor
 ///
 /// Stage-1 atomicity invariant:
 /// All fallible validation completes before the first stable write.
-/// After mutation begins, only infallible operations or traps remain.
-/// IC rollback semantics guarantee atomicity within this update call.
+/// Mutations run inside a WriteUnit so mid-flight failures roll back
+/// before the commit marker is cleared.
 ///
 #[derive(Clone, Copy)]
 pub struct DeleteExecutor<E: EntityKind> {
@@ -106,7 +113,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
             return Ok(Response(Vec::new()));
         };
 
-        let (dk, stored) = self.load_existing(pk)?;
+        let (dk, stored_row, stored) = self.load_existing(pk)?;
         let ctx = self.db.context::<E>();
         let index_plans = self.build_index_plans()?;
         let index_ops = Self::build_index_removal_ops(&index_plans, &[&stored])?;
@@ -125,27 +132,56 @@ impl<E: EntityKind> DeleteExecutor<E> {
         )?;
         let commit = begin_commit(marker)?;
 
-        finish_commit(
-            commit,
-            || {
-                let _unit = WriteUnit::new("delete_unique_row_stage1_atomic");
-                for plan in &index_plans {
-                    let outcome = plan
-                        .store
-                        .with_borrow_mut(|s| s.remove_index_entry(&stored, plan.index))
-                        .expect("index remove failed after prevalidation");
-                    if outcome == IndexRemoveOutcome::Removed {
-                        sink::record(MetricsEvent::IndexRemove {
-                            entity_path: E::PATH,
-                        });
-                    }
+        finish_commit(commit, |guard| {
+            let mut unit = WriteUnit::new("delete_unique_row_atomic");
+            for plan in &index_plans {
+                let fields = plan.index.fields.join(", ");
+                let outcome = unit.run(|| {
+                    plan.store.with_borrow_mut(|s| {
+                        s.remove_index_entry(&stored, plan.index).map_err(|err| {
+                            ExecutorError::corruption(
+                                ErrorOrigin::Index,
+                                format!("index corrupted: {} ({fields}) -> {err}", E::PATH),
+                            )
+                            .into()
+                        })
+                    })
+                })?;
+
+                if outcome == IndexRemoveOutcome::Removed {
+                    let store = plan.store;
+                    let index = plan.index;
+                    let stored = stored.clone();
+                    unit.record_rollback(move || {
+                        let _ = store.with_borrow_mut(|s| s.insert_index_entry(&stored, index));
+                    });
+
+                    sink::record(MetricsEvent::IndexRemove {
+                        entity_path: E::PATH,
+                    });
                 }
-            },
-            || {
-                ctx.with_store_mut(|s| s.remove(&dk.to_raw()))
-                    .expect("data store missing after preflight");
-            },
-        );
+            }
+
+            unit.checkpoint("delete_unique_after_indexes")?;
+            guard.mark_index_written();
+
+            let raw_key = dk.to_raw();
+            let removed = unit.run(|| ctx.with_store_mut(|s| s.remove(&raw_key)))?;
+            if removed.is_some() {
+                let db = self.db;
+                let stored_row = stored_row;
+                unit.record_rollback(move || {
+                    let ctx = db.context::<E>();
+                    let _ = ctx.with_store_mut(|s| {
+                        s.insert(raw_key, stored_row);
+                    });
+                });
+            }
+
+            unit.checkpoint("delete_unique_after_data")?;
+            unit.commit();
+            Ok(())
+        })?;
 
         set_rows_from_len(&mut span, 1);
         Ok(Response(vec![(dk.key(), stored)]))
@@ -155,6 +191,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
     // Plan-based delete
     // ─────────────────────────────────────────────
 
+    #[allow(clippy::too_many_lines)]
     pub fn execute(self, plan: LogicalPlan) -> Result<Response<E>, InternalError> {
         validate_plan::<E>(&plan).map_err(|err| {
             InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
@@ -177,7 +214,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
         let normalized = plan.predicate.as_ref().map(normalize_v2);
         if let Some(predicate) = normalized.as_ref() {
-            rows.retain(|(_, entity)| eval_v2(entity, predicate));
+            rows.retain(|row| eval_v2(&row.entity, predicate));
         }
 
         if let Some(order) = &plan.order
@@ -197,17 +234,19 @@ impl<E: EntityKind> DeleteExecutor<E> {
         }
 
         let index_plans = self.build_index_plans()?;
-        let entities: Vec<&E> = rows.iter().map(|(_, e)| e).collect();
-        let index_ops = Self::build_index_removal_ops(&index_plans, &entities)?;
+        let index_ops = {
+            let entities: Vec<&E> = rows.iter().map(|row| &row.entity).collect();
+            Self::build_index_removal_ops(&index_plans, &entities)?
+        };
 
         // Preflight store access to ensure no fallible work remains post-commit.
         ctx.with_store(|_| ())?;
 
         let data_ops = rows
             .iter()
-            .map(|(dk, _)| CommitDataOp {
+            .map(|row| CommitDataOp {
                 store: E::Store::PATH.to_string(),
-                key: dk.to_raw().as_bytes().to_vec(),
+                key: row.key.to_raw().as_bytes().to_vec(),
                 value: None,
             })
             .collect();
@@ -215,37 +254,67 @@ impl<E: EntityKind> DeleteExecutor<E> {
         let marker = CommitMarker::new(CommitKind::Delete, index_ops, data_ops)?;
         let commit = begin_commit(marker)?;
 
-        finish_commit(
-            commit,
-            || {
-                for (_, entity) in &rows {
-                    let _unit = WriteUnit::new("delete_row_stage1_atomic");
-                    for plan in &index_plans {
-                        let outcome = plan
-                            .store
-                            .with_borrow_mut(|s| s.remove_index_entry(entity, plan.index))
-                            .expect("index remove failed after prevalidation");
-                        if outcome == IndexRemoveOutcome::Removed {
-                            sink::record(MetricsEvent::IndexRemove {
-                                entity_path: E::PATH,
-                            });
-                        }
+        finish_commit(commit, |guard| {
+            let mut unit = WriteUnit::new("delete_rows_atomic");
+            for row in &rows {
+                for plan in &index_plans {
+                    let fields = plan.index.fields.join(", ");
+                    let outcome = unit.run(|| {
+                        plan.store.with_borrow_mut(|s| {
+                            s.remove_index_entry(&row.entity, plan.index)
+                                .map_err(|err| {
+                                    ExecutorError::corruption(
+                                        ErrorOrigin::Index,
+                                        format!("index corrupted: {} ({fields}) -> {err}", E::PATH),
+                                    )
+                                    .into()
+                                })
+                        })
+                    })?;
+
+                    if outcome == IndexRemoveOutcome::Removed {
+                        let store = plan.store;
+                        let index = plan.index;
+                        let entity = row.entity.clone();
+                        unit.record_rollback(move || {
+                            let _ = store.with_borrow_mut(|s| s.insert_index_entry(&entity, index));
+                        });
+
+                        sink::record(MetricsEvent::IndexRemove {
+                            entity_path: E::PATH,
+                        });
                     }
                 }
-            },
-            || {
-                ctx.with_store_mut(|s| {
-                    for (dk, _) in &rows {
-                        s.remove(&dk.to_raw());
-                    }
-                })
-                .expect("data store missing after preflight");
-            },
-        );
+            }
+
+            unit.checkpoint("delete_after_indexes")?;
+            guard.mark_index_written();
+
+            for row in &mut rows {
+                let raw_key = row.key.to_raw();
+                let raw_row = row.raw.take();
+                let removed = unit.run(|| ctx.with_store_mut(|s| s.remove(&raw_key)))?;
+                if removed.is_some()
+                    && let Some(raw_row) = raw_row
+                {
+                    let db = self.db;
+                    unit.record_rollback(move || {
+                        let ctx = db.context::<E>();
+                        let _ = ctx.with_store_mut(|s| {
+                            s.insert(raw_key, raw_row);
+                        });
+                    });
+                }
+                unit.checkpoint("delete_after_data")?;
+            }
+
+            unit.commit();
+            Ok(())
+        })?;
 
         let res = rows
             .into_iter()
-            .map(|(dk, e)| (dk.key(), e))
+            .map(|row| (row.key.key(), row.entity))
             .collect::<Vec<_>>();
         set_rows_from_len(&mut span, res.len());
 
@@ -256,7 +325,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
     // Helpers
     // ─────────────────────────────────────────────
 
-    fn load_existing(&self, pk: E::PrimaryKey) -> Result<(DataKey, E), InternalError> {
+    fn load_existing(&self, pk: E::PrimaryKey) -> Result<(DataKey, RawRow, E), InternalError> {
         let dk = DataKey::new::<E>(pk.into());
         let row = self.db.context::<E>().read_strict(&dk)?;
         let entity = row.try_decode::<E>().map_err(|err| {
@@ -265,7 +334,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                 format!("failed to deserialize row: {dk} ({err})"),
             )
         })?;
-        Ok((dk, entity))
+        Ok((dk, row, entity))
     }
 
     fn build_index_plans(&self) -> Result<Vec<IndexPlan>, InternalError> {
@@ -364,12 +433,16 @@ impl<E: EntityKind> DeleteExecutor<E> {
     }
 }
 
-fn decode_rows<E: EntityKind>(rows: Vec<DataRow>) -> Result<Vec<(DataKey, E)>, InternalError> {
+fn decode_rows<E: EntityKind>(rows: Vec<DataRow>) -> Result<Vec<DeleteRow<E>>, InternalError> {
     rows.into_iter()
         .map(|(dk, raw)| {
             let dk_for_err = dk.clone();
             raw.try_decode::<E>()
-                .map(|entity| (dk, entity))
+                .map(|entity| DeleteRow {
+                    key: dk,
+                    raw: Some(raw),
+                    entity,
+                })
                 .map_err(|err| {
                     ExecutorError::corruption(
                         ErrorOrigin::Serialize,
@@ -381,8 +454,10 @@ fn decode_rows<E: EntityKind>(rows: Vec<DataRow>) -> Result<Vec<(DataKey, E)>, I
         .collect()
 }
 
-fn apply_order_spec<E: EntityKind>(rows: &mut [(DataKey, E)], order: &OrderSpec) {
-    rows.sort_by(|(_, ea), (_, eb)| {
+fn apply_order_spec<E: EntityKind>(rows: &mut [DeleteRow<E>], order: &OrderSpec) {
+    rows.sort_by(|ra, rb| {
+        let ea = &ra.entity;
+        let eb = &rb.entity;
         for (field, direction) in &order.fields {
             let va = ea.get_value(field);
             let vb = eb.get_value(field);

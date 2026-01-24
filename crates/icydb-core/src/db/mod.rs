@@ -7,8 +7,10 @@ pub mod response;
 pub mod store;
 pub mod traits;
 pub mod types;
+mod write;
 
 pub(crate) use commit::*;
+pub(crate) use write::WriteUnit;
 
 use crate::{
     db::{

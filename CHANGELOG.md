@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ---
 
 ## [Unreleased]
+- 🧩 Add write-unit rollback to avoid partial write state on failures.
+
+---
+
+## [0.5.0] - 2026-01-24 - Query Engine v2
 - 🧭 v2-only query contract; v1 DSL removed.
 - 🧰 Update Rust toolchain to 1.93.0.
 

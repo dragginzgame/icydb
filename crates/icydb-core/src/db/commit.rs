@@ -1,8 +1,8 @@
 //! IcyDB commit protocol and atomicity guardrails.
 //!
-//! Contract: once `begin_commit` succeeds, no fallible work or async/yield is
-//! permitted until `finish_commit` completes. The commit marker must cover all
-//! mutations, and recovery replays index ops before data ops.
+//! Contract: once `begin_commit` succeeds, mutations must either complete
+//! successfully or roll back before `finish_commit` returns. The commit marker
+//! must cover all mutations, and recovery replays index ops before data ops.
 
 use crate::{
     MAX_INDEX_FIELDS,
@@ -203,7 +203,7 @@ pub struct CommitGuard {
 }
 
 impl CommitGuard {
-    fn mark_index_written(&mut self) {
+    pub(crate) fn mark_index_written(&mut self) {
         debug_assert!(
             matches!(self.marker.phase, CommitPhase::Started),
             "commit phase must transition from Started -> IndexWritten once"
@@ -235,18 +235,15 @@ pub fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> 
 
 pub fn finish_commit(
     mut guard: CommitGuard,
-    apply_indexes: impl FnOnce(),
-    apply_data: impl FnOnce(),
-) {
+    apply: impl FnOnce(&mut CommitGuard) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
     // COMMIT WINDOW:
-    // Do not introduce fallible work or async/yield after `begin_commit`.
-    // Apply is infallible or traps; recovery replays marker on next mutation.
-    // Centralize commit phases so executors stay infallible after mutation begins,
-    // preserving Stage-1's "no fallible work after first stable write" invariant.
-    apply_indexes();
-    guard.mark_index_written();
-    apply_data();
+    // Apply must either complete successfully or roll back all mutations before
+    // returning an error. We clear the marker on any outcome so recovery does
+    // not replay an already-rolled-back write.
+    let result = apply(&mut guard);
     guard.clear();
+    result
 }
 
 // -----------------------------------------------------------------------------
@@ -256,10 +253,40 @@ pub fn finish_commit(
 static COMMIT_STORE_ID: OnceLock<u8> = OnceLock::new();
 static RECOVERED: OnceLock<()> = OnceLock::new();
 
+#[cfg(test)]
+thread_local! {
+    static FORCE_RECOVERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+pub fn force_recovery_for_tests() {
+    FORCE_RECOVERY.with(|flag| flag.set(true));
+}
+
+#[allow(clippy::missing_const_for_fn)]
+fn should_force_recovery() -> bool {
+    #[cfg(test)]
+    {
+        FORCE_RECOVERY.with(|flag| {
+            let force = flag.get();
+            if force {
+                flag.set(false);
+            }
+            force
+        })
+    }
+
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
 // Recovery is invoked only from mutation entrypoints; read paths must remain
 // side-effect free to avoid re-entrancy and performance risks.
 pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {
-    if RECOVERED.get().is_some() {
+    let force = should_force_recovery();
+    if !force && RECOVERED.get().is_some() {
         return Ok(());
     }
 
@@ -361,6 +388,11 @@ fn apply_recovery_ops(index_ops: Vec<DecodedIndexOp>, data_ops: Vec<DecodedDataO
 // -----------------------------------------------------------------------------
 // Commit store plumbing
 // -----------------------------------------------------------------------------
+
+#[cfg(test)]
+pub fn commit_marker_present() -> Result<bool, InternalError> {
+    with_commit_store(|store| Ok(store.load()?.is_some()))
+}
 
 thread_local! {
     static COMMIT_STORE: RefCell<Option<CommitStore>> = const { RefCell::new(None) };

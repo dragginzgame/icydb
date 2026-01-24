@@ -75,6 +75,21 @@ pub const COERCION_TABLE: &[CoercionRule] = &[
         id: CoercionId::TextCasefold,
     },
     CoercionRule {
+        left: CoercionFamily::Family(ValueFamily::Identifier),
+        right: CoercionFamily::Family(ValueFamily::Identifier),
+        id: CoercionId::TextCasefold,
+    },
+    CoercionRule {
+        left: CoercionFamily::Family(ValueFamily::Identifier),
+        right: CoercionFamily::Family(ValueFamily::Textual),
+        id: CoercionId::TextCasefold,
+    },
+    CoercionRule {
+        left: CoercionFamily::Family(ValueFamily::Textual),
+        right: CoercionFamily::Family(ValueFamily::Identifier),
+        id: CoercionId::TextCasefold,
+    },
+    CoercionRule {
         left: CoercionFamily::Any,
         right: CoercionFamily::Any,
         id: CoercionId::CollectionElement,
@@ -114,7 +129,7 @@ pub fn compare_eq(left: &Value, right: &Value, coercion: &CoercionSpec) -> Optio
             let (l, r) = coerce_identifier_text(left, right)?;
             Some(l == r)
         }
-        CoercionId::TextCasefold => left.text_eq(right, TextMode::Ci),
+        CoercionId::TextCasefold => compare_casefold(left, right),
     }
 }
 
@@ -133,8 +148,9 @@ pub fn compare_order(left: &Value, right: &Value, coercion: &CoercionSpec) -> Op
             strict_ordering(&l, &r)
         }
         CoercionId::TextCasefold => {
-            let (l, r) = coerce_text_casefold(left, right)?;
-            Some(l.cmp(&r))
+            let left = casefold_value(left)?;
+            let right = casefold_value(right)?;
+            Some(left.cmp(&right))
         }
     }
 }
@@ -219,9 +235,20 @@ fn parse_identifier_text(identifier: &Value, text: &Value) -> Option<Value> {
     }
 }
 
-fn coerce_text_casefold(left: &Value, right: &Value) -> Option<(String, String)> {
-    let (left, right) = (left.as_text()?, right.as_text()?);
-    Some((casefold(left), casefold(right)))
+fn compare_casefold(left: &Value, right: &Value) -> Option<bool> {
+    let left = casefold_value(left)?;
+    let right = casefold_value(right)?;
+    Some(left == right)
+}
+
+fn casefold_value(value: &Value) -> Option<String> {
+    match value {
+        Value::Text(text) => Some(casefold(text)),
+        Value::Ulid(ulid) => Some(casefold(&ulid.to_string())),
+        Value::Principal(principal) => Some(casefold(&principal.to_string())),
+        Value::Account(account) => Some(casefold(&account.to_string())),
+        _ => None,
+    }
 }
 
 fn casefold(input: &str) -> String {

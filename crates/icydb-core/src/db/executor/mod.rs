@@ -19,22 +19,8 @@ use crate::{
 };
 use thiserror::Error as ThisError;
 
-///
-/// WriteUnit
-///
-/// Conceptual write boundary for intended atomicity (no transactions, no rollback)
-/// NOTE: This is a marker only; atomicity is not enforced.
-///
-
-pub(crate) struct WriteUnit {
-    _label: &'static str,
-}
-
-impl WriteUnit {
-    pub(crate) const fn new(label: &'static str) -> Self {
-        Self { _label: label }
-    }
-}
+#[cfg(test)]
+mod tests;
 
 ///
 /// ExecutorError

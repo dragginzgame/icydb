@@ -1,16 +1,17 @@
 use crate::{
     db::{
-        CommitDataOp, CommitKind, CommitMarker, Db, begin_commit, ensure_recovered,
-        executor::{ExecutorError, WriteUnit},
+        CommitDataOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit, ensure_recovered,
+        executor::ExecutorError,
         finish_commit,
         index::{
-            IndexInsertOutcome, IndexRemoveOutcome,
+            IndexInsertError, IndexInsertOutcome, IndexRemoveOutcome,
             plan::{IndexApplyPlan, plan_index_mutation_for_entity},
         },
         query::{SaveMode, SaveQuery},
-        store::{DataKey, RawRow},
+        store::{DataKey, RawDataKey, RawRow},
     },
     error::{ErrorOrigin, InternalError},
+    model::index::IndexModel,
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::{deserialize, serialize},
@@ -163,7 +164,6 @@ impl<E: EntityKind> SaveExecutor<E> {
     fn save_entity(&self, mode: SaveMode, mut entity: E) -> Result<E, InternalError> {
         let mut span = Span::<E>::new(ExecKind::Save);
         let ctx = self.db.context::<E>();
-        let _unit = WriteUnit::new("save_entity_stage2_atomic");
 
         // Recovery is mutation-only to keep read paths side-effect free.
         ensure_recovered(&self.db)?;
@@ -182,28 +182,30 @@ impl<E: EntityKind> SaveExecutor<E> {
             E::PATH,
             data_key
         ));
-        let old = match mode {
+        let (old, old_raw) = match mode {
             SaveMode::Insert => {
                 // Inserts must not load or decode existing rows; absence is expected.
                 if ctx.with_store(|store| store.contains_key(&raw_key))? {
                     return Err(ExecutorError::KeyExists(data_key).into());
                 }
-                None
+                (None, None)
             }
             SaveMode::Update => {
                 let Some(old_row) = ctx.with_store(|store| store.get(&raw_key))? else {
                     return Err(InternalError::store_not_found(data_key.to_string()));
                 };
-                Some(old_row.try_decode::<E>().map_err(|err| {
+                let old = old_row.try_decode::<E>().map_err(|err| {
                     ExecutorError::corruption(
                         ErrorOrigin::Serialize,
                         format!("failed to deserialize row: {data_key} ({err})"),
                     )
-                })?)
+                })?;
+                (Some(old), Some(old_row))
             }
             SaveMode::Replace => {
                 let old_row = ctx.with_store(|store| store.get(&raw_key))?;
-                old_row
+                let old = old_row
+                    .as_ref()
                     .map(|row| {
                         row.try_decode::<E>().map_err(|err| {
                             ExecutorError::corruption(
@@ -212,7 +214,8 @@ impl<E: EntityKind> SaveExecutor<E> {
                             )
                         })
                     })
-                    .transpose()?
+                    .transpose()?;
+                (old, old_row)
             }
         };
 
@@ -224,7 +227,8 @@ impl<E: EntityKind> SaveExecutor<E> {
 
         // Stage-2 atomicity:
         // Prevalidate index/data mutations before the commit marker is written.
-        // After the marker is persisted, only infallible operations or traps remain.
+        // After the marker is persisted, mutations run inside a WriteUnit so
+        // failures roll back before the marker is cleared.
         let index_plan =
             plan_index_mutation_for_entity::<E>(&self.db, old.as_ref(), Some(&entity))?;
         let data_op = CommitDataOp {
@@ -235,16 +239,16 @@ impl<E: EntityKind> SaveExecutor<E> {
         let marker = CommitMarker::new(CommitKind::Save, index_plan.commit_ops, vec![data_op])?;
         let commit = begin_commit(marker)?;
 
-        // FIRST STABLE WRITE: commit marker is persisted; apply phase is infallible or traps.
-        finish_commit(
-            commit,
-            || Self::apply_indexes(&index_plan.apply, old.as_ref(), &entity),
-            || {
-                ctx.with_store_mut(|store| store.insert(raw_key, row))
-                    .expect("data store missing after preflight");
-                span.set_rows(1);
-            },
-        );
+        // FIRST STABLE WRITE: commit marker is persisted before any mutations.
+        finish_commit(commit, |guard| {
+            let mut unit = WriteUnit::new("save_entity_atomic");
+            Self::apply_indexes(&index_plan.apply, old.as_ref(), &entity, &mut unit)?;
+            unit.checkpoint("save_entity_after_indexes")?;
+            guard.mark_index_written();
+            Self::apply_data(self.db, raw_key, row, old_raw, &mut unit, &mut span)?;
+            unit.commit();
+            Ok(())
+        })?;
 
         Ok(entity)
     }
@@ -253,42 +257,131 @@ impl<E: EntityKind> SaveExecutor<E> {
     // Index maintenance
     // ======================================================================
 
-    /// Apply index mutations using an infallible (prevalidated) plan.
-    fn apply_indexes(plans: &[IndexApplyPlan], old: Option<&E>, new: &E) {
-        // Prevalidation guarantees these mutations cannot fail except by trap.
+    /// Apply index mutations from a prevalidated plan, registering rollbacks on change.
+    fn apply_indexes(
+        plans: &[IndexApplyPlan],
+        old: Option<&E>,
+        new: &E,
+        unit: &mut WriteUnit,
+    ) -> Result<(), InternalError> {
         for plan in plans {
-            let mut removed = false;
-            let mut inserted = false;
+            let fields = plan.index.fields.join(", ");
 
-            plan.store.with_borrow_mut(|s| {
-                if let Some(old) = old {
-                    let outcome = s
-                        .remove_index_entry(old, plan.index)
-                        .expect("index remove failed after prevalidation");
-                    if outcome == IndexRemoveOutcome::Removed {
-                        removed = true;
-                    }
-                }
+            let (removed, inserted) = unit.run(|| {
+                plan.store.with_borrow_mut(|s| {
+                    let removed = if let Some(old) = old {
+                        s.remove_index_entry(old, plan.index).map_err(|err| {
+                            ExecutorError::corruption(
+                                ErrorOrigin::Index,
+                                format!("index corrupted: {} ({fields}) -> {err}", E::PATH),
+                            )
+                        })? == IndexRemoveOutcome::Removed
+                    } else {
+                        false
+                    };
 
-                let outcome = s
-                    .insert_index_entry(new, plan.index)
-                    .expect("index insert failed after prevalidation");
-                if outcome == IndexInsertOutcome::Inserted {
-                    inserted = true;
-                }
-            });
+                    let inserted = matches!(
+                        s.insert_index_entry(new, plan.index).map_err(|err| {
+                            Self::map_index_insert_error(plan.index, &fields, err)
+                        })?,
+                        IndexInsertOutcome::Inserted
+                    );
+
+                    Ok((removed, inserted))
+                })
+            })?;
 
             if removed {
+                if let Some(old) = old.cloned() {
+                    let store = plan.store;
+                    let index = plan.index;
+                    unit.record_rollback(move || {
+                        let _ = store.with_borrow_mut(|s| s.insert_index_entry(&old, index));
+                    });
+                }
+
                 sink::record(MetricsEvent::IndexRemove {
                     entity_path: E::PATH,
                 });
             }
 
             if inserted {
+                let store = plan.store;
+                let index = plan.index;
+                let new = new.clone();
+                unit.record_rollback(move || {
+                    let _ = store.with_borrow_mut(|s| s.remove_index_entry(&new, index));
+                });
+
                 sink::record(MetricsEvent::IndexInsert {
                     entity_path: E::PATH,
                 });
             }
+        }
+
+        Ok(())
+    }
+
+    fn apply_data(
+        db: Db<E::Canister>,
+        raw_key: RawDataKey,
+        row: RawRow,
+        old_row: Option<RawRow>,
+        unit: &mut WriteUnit,
+        span: &mut Span<E>,
+    ) -> Result<(), InternalError> {
+        unit.run(|| {
+            db.context::<E>().with_store_mut(|store| {
+                store.insert(raw_key, row);
+            })
+        })?;
+
+        span.set_rows(1);
+
+        match old_row {
+            Some(old_row) => {
+                unit.record_rollback(move || {
+                    let ctx = db.context::<E>();
+                    let _ = ctx.with_store_mut(|store| {
+                        store.insert(raw_key, old_row);
+                    });
+                });
+            }
+            None => {
+                unit.record_rollback(move || {
+                    let ctx = db.context::<E>();
+                    let _ = ctx.with_store_mut(|store| {
+                        store.remove(&raw_key);
+                    });
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    fn map_index_insert_error(
+        index: &IndexModel,
+        fields: &str,
+        err: IndexInsertError,
+    ) -> InternalError {
+        match err {
+            IndexInsertError::UniqueViolation => {
+                ExecutorError::index_violation(E::PATH, index.fields).into()
+            }
+            IndexInsertError::CorruptedEntry(err) => ExecutorError::corruption(
+                ErrorOrigin::Index,
+                format!("index corrupted: {} ({fields}) -> {err}", E::PATH),
+            )
+            .into(),
+            IndexInsertError::EntryTooLarge { keys } => ExecutorError::corruption(
+                ErrorOrigin::Index,
+                format!(
+                    "index entry exceeds max keys: {} ({fields}) -> {keys}",
+                    E::PATH
+                ),
+            )
+            .into(),
         }
     }
 }
