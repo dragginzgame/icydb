@@ -4,11 +4,13 @@ use crate::{
     value::Value,
 };
 
+/// Strict equality comparison (no coercion).
 #[must_use]
 pub fn eq(field: &'static str, value: impl FieldValue) -> Predicate {
     compare(field, CompareOp::Eq, value.to_value(), CoercionId::Strict)
 }
 
+/// Case-insensitive text equality.
 #[must_use]
 pub fn eq_ci(field: &'static str, value: impl FieldValue) -> Predicate {
     compare(
@@ -19,11 +21,13 @@ pub fn eq_ci(field: &'static str, value: impl FieldValue) -> Predicate {
     )
 }
 
+/// Strict inequality comparison.
 #[must_use]
 pub fn ne(field: &'static str, value: impl FieldValue) -> Predicate {
     compare(field, CompareOp::Ne, value.to_value(), CoercionId::Strict)
 }
 
+/// Less-than comparison with numeric widening.
 #[must_use]
 pub fn lt(field: &'static str, value: impl FieldValue) -> Predicate {
     compare(
@@ -34,6 +38,7 @@ pub fn lt(field: &'static str, value: impl FieldValue) -> Predicate {
     )
 }
 
+/// Less-than-or-equal comparison with numeric widening.
 #[must_use]
 pub fn lte(field: &'static str, value: impl FieldValue) -> Predicate {
     compare(
@@ -44,6 +49,7 @@ pub fn lte(field: &'static str, value: impl FieldValue) -> Predicate {
     )
 }
 
+/// Greater-than comparison with numeric widening.
 #[must_use]
 pub fn gt(field: &'static str, value: impl FieldValue) -> Predicate {
     compare(
@@ -54,6 +60,7 @@ pub fn gt(field: &'static str, value: impl FieldValue) -> Predicate {
     )
 }
 
+/// Greater-than-or-equal comparison with numeric widening.
 #[must_use]
 pub fn gte(field: &'static str, value: impl FieldValue) -> Predicate {
     compare(
@@ -64,6 +71,7 @@ pub fn gte(field: &'static str, value: impl FieldValue) -> Predicate {
     )
 }
 
+/// Membership test against a fixed list (strict).
 #[must_use]
 pub fn in_list(field: &'static str, values: Vec<Value>) -> Predicate {
     compare(
@@ -74,6 +82,7 @@ pub fn in_list(field: &'static str, values: Vec<Value>) -> Predicate {
     )
 }
 
+/// Field is present and explicitly null.
 #[must_use]
 pub fn is_null(field: &'static str) -> Predicate {
     Predicate::IsNull {
@@ -81,6 +90,7 @@ pub fn is_null(field: &'static str) -> Predicate {
     }
 }
 
+/// Field is not present at all.
 #[must_use]
 pub fn is_missing(field: &'static str) -> Predicate {
     Predicate::IsMissing {
@@ -88,6 +98,7 @@ pub fn is_missing(field: &'static str) -> Predicate {
     }
 }
 
+/// Field is present but empty (collection- or string-specific).
 #[must_use]
 pub fn is_empty(field: &'static str) -> Predicate {
     Predicate::IsEmpty {
@@ -95,6 +106,7 @@ pub fn is_empty(field: &'static str) -> Predicate {
     }
 }
 
+/// Field is present and non-empty.
 #[must_use]
 pub fn is_not_empty(field: &'static str) -> Predicate {
     Predicate::IsNotEmpty {
@@ -102,6 +114,7 @@ pub fn is_not_empty(field: &'static str) -> Predicate {
     }
 }
 
+/// Map field contains the given key.
 #[must_use]
 pub fn map_contains_key(
     field: &'static str,
@@ -115,6 +128,7 @@ pub fn map_contains_key(
     }
 }
 
+/// Map field contains the given value.
 #[must_use]
 pub fn map_contains_value(
     field: &'static str,
@@ -128,6 +142,7 @@ pub fn map_contains_value(
     }
 }
 
+/// Map field contains the given key/value pair.
 #[must_use]
 pub fn map_contains_entry(
     field: &'static str,
@@ -143,6 +158,8 @@ pub fn map_contains_entry(
     }
 }
 
+/// Internal helper to construct comparison predicates.
+/// No validation or schema lookup occurs here.
 fn compare(field: &'static str, op: CompareOp, value: Value, coercion: CoercionId) -> Predicate {
     Predicate::Compare(ComparePredicate {
         field: field.to_string(),

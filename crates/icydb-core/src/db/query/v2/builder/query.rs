@@ -12,18 +12,30 @@ use crate::{
 use icydb_schema::node::{Entity, Schema};
 use std::marker::PhantomData;
 
+///
+/// QueryBuilder
+///
+/// Typed, declarative query builder for v2 queries.
+///
+/// This builder:
+/// - Collects predicate, ordering, and pagination into a `QuerySpec`
+/// - Is purely declarative (no schema access, planning, or execution)
+/// - Is parameterized by the entity type `E`
+///
+/// Important design notes:
+/// - No validation occurs here beyond structural composition
+/// - Field names are accepted as strings; validity is checked later
+/// - Schema is consulted only during `QuerySpec::plan`
+///
+/// This separation allows query construction to remain lightweight,
+/// testable, and independent of runtime context.
+///
+
 pub struct QueryBuilder<E: EntityKind> {
     predicate: Option<Predicate>,
     order: Option<OrderSpec>,
     page: Option<PageSpec>,
     _marker: PhantomData<E>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct QuerySpec {
-    pub predicate: Option<Predicate>,
-    pub order: Option<OrderSpec>,
-    pub page: Option<PageSpec>,
 }
 
 impl<E: EntityKind> Default for QueryBuilder<E> {
@@ -33,6 +45,7 @@ impl<E: EntityKind> Default for QueryBuilder<E> {
 }
 
 impl<E: EntityKind> QueryBuilder<E> {
+    /// Create a new empty query builder.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -43,6 +56,7 @@ impl<E: EntityKind> QueryBuilder<E> {
         }
     }
 
+    /// Add a predicate, implicitly AND-ing with any existing predicate.
     #[must_use]
     pub fn filter(mut self, predicate: Predicate) -> Self {
         self.predicate = match self.predicate.take() {
@@ -52,6 +66,7 @@ impl<E: EntityKind> QueryBuilder<E> {
         self
     }
 
+    /// Explicit AND combinator for predicates.
     #[must_use]
     pub fn and(mut self, predicate: Predicate) -> Self {
         self.predicate = match self.predicate.take() {
@@ -61,6 +76,7 @@ impl<E: EntityKind> QueryBuilder<E> {
         self
     }
 
+    /// Explicit OR combinator for predicates.
     #[must_use]
     pub fn or(mut self, predicate: Predicate) -> Self {
         self.predicate = match self.predicate.take() {
@@ -70,18 +86,21 @@ impl<E: EntityKind> QueryBuilder<E> {
         self
     }
 
+    /// Append an ascending sort key.
     #[must_use]
     pub fn order_by(mut self, field: &'static str) -> Self {
         self.order = Some(push_order(self.order, field, OrderDirection::Asc));
         self
     }
 
+    /// Append a descending sort key.
     #[must_use]
     pub fn order_by_desc(mut self, field: &'static str) -> Self {
         self.order = Some(push_order(self.order, field, OrderDirection::Desc));
         self
     }
 
+    /// Set or replace the result limit.
     #[must_use]
     pub const fn limit(mut self, n: u32) -> Self {
         self.page = Some(match self.page {
@@ -97,6 +116,7 @@ impl<E: EntityKind> QueryBuilder<E> {
         self
     }
 
+    /// Set or replace the result offset.
     #[must_use]
     pub const fn offset(mut self, n: u32) -> Self {
         self.page = Some(match self.page {
@@ -112,6 +132,7 @@ impl<E: EntityKind> QueryBuilder<E> {
         self
     }
 
+    /// Finalize the builder into an immutable `QuerySpec`.
     #[must_use]
     pub fn build(self) -> QuerySpec {
         QuerySpec {
@@ -122,7 +143,33 @@ impl<E: EntityKind> QueryBuilder<E> {
     }
 }
 
+///
+/// QuerySpec
+///
+/// Immutable specification produced by `QueryBuilder`.
+///
+/// `QuerySpec` represents a fully constructed query intent, but
+/// not yet a concrete execution plan. It is the handoff point
+/// between the builder layer and the planner/executor pipeline.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct QuerySpec {
+    pub predicate: Option<Predicate>,
+    pub order: Option<OrderSpec>,
+    pub page: Option<PageSpec>,
+}
+
 impl QuerySpec {
+    /// Convert this query specification into a validated `LogicalPlan`.
+    ///
+    /// This is the boundary where:
+    /// - Schema is consulted (via macro-generated metadata)
+    /// - Predicate validation and coercion checks occur
+    /// - Index eligibility is determined by the planner
+    ///
+    /// Composite access plans (union/intersection) are explicitly rejected
+    /// here, as executors currently require a single concrete access path.
     pub fn plan<E: EntityKind>(&self, schema: &Schema) -> Result<LogicalPlan, InternalError> {
         let entity = schema.cast_node::<Entity>(E::PATH).map_err(|err| {
             InternalError::new(
@@ -164,6 +211,7 @@ impl QuerySpec {
     }
 }
 
+/// Helper to append an ordering field while preserving existing order spec.
 fn push_order(
     order: Option<OrderSpec>,
     field: &'static str,
