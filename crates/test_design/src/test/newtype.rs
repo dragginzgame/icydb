@@ -183,22 +183,3 @@ pub struct TimestampDefault;
     default = "icydb::types::Ulid::generate"
 )]
 pub struct UlidDefault;
-
-///
-/// FilterableNewtype
-///
-
-#[entity(
-    store = "TestDataStore",
-    pk = "id",
-    fields(
-        field(ident = "id", value(item(prim = "Ulid"))),
-        field(ident = "n_text", value(item(is = "Text"))),
-        field(ident = "n_bool", value(item(is = "Bool"))),
-        field(ident = "n_decimal", value(item(is = "Decimal"))),
-        field(ident = "n_nat8", value(item(is = "Nat8"))),
-        field(ident = "n_int32", value(item(is = "Int32"))),
-        field(ident = "n_principal", value(item(is = "Principal"))),
-    )
-)]
-pub struct FilterableNewtype {}

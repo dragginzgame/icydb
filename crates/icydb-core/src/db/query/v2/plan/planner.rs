@@ -241,6 +241,7 @@ fn normalize_union(children: Vec<AccessPlan>) -> AccessPlan {
     }
 
     sort_access_plans(&mut out);
+    out.dedup();
     AccessPlan::Union(out)
 }
 
@@ -267,6 +268,7 @@ fn normalize_intersection(children: Vec<AccessPlan>) -> AccessPlan {
     }
 
     sort_access_plans(&mut out);
+    out.dedup();
     AccessPlan::Intersection(out)
 }
 
@@ -750,10 +752,6 @@ mod tests {
                     index: INDEX_MODEL,
                     values: vec![v_text("alpha")],
                 }),
-                AccessPlan::Path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
-                    values: vec![v_text("alpha")],
-                }),
                 AccessPlan::Path(AccessPath::ByKey(Key::Ulid(id))),
             ])
         );
@@ -803,16 +801,10 @@ mod tests {
 
         assert_eq!(
             non_strict_plan,
-            AccessPlan::Intersection(vec![
-                AccessPlan::Path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
-                    values: vec![v_text("a")],
-                }),
-                AccessPlan::Path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
-                    values: vec![v_text("a")],
-                }),
-            ])
+            AccessPlan::Intersection(vec![AccessPlan::Path(AccessPath::IndexPrefix {
+                index: INDEX_MODEL,
+                values: vec![v_text("a")],
+            }),])
         );
     }
 

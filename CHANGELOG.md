@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [Unreleased]
+- 🧭 v2-only query contract; v1 DSL removed.
+- 🧰 Update Rust toolchain to 1.93.0.
+
+---
+
 ## [0.4.7] - 2026-01-22
 - 🔁 Renamed `ensure_exists_many` to `ensure_exists_all` for clarity.
 - ✅ `ensure_exists_all` is now a true existence-only guard (no deserialization).

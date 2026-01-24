@@ -1,5 +1,5 @@
 
-![MSRV](https://img.shields.io/badge/rustc-1.92.0-blue.svg)
+![MSRV](https://img.shields.io/badge/rustc-1.93.0-blue.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
 [![Crate](https://img.shields.io/crates/v/icydb.svg)](https://crates.io/crates/icydb)
@@ -31,7 +31,7 @@
 
 ## ⚡ Quickstart
 
-1. **Install Rust 1.92.0** (workspace uses edition 2024).
+1. **Install Rust 1.93.0** (workspace uses edition 2024).
 2. **Add IcyDB** to your `Cargo.toml` using the latest tag:
    ```toml
    [dependencies]
@@ -143,7 +143,7 @@ Pre-commit hooks run `cargo fmt -- --check`, `cargo sort --check`, and `cargo so
 We welcome issues, discussions, and pull requests now that the repository is public. To contribute:
 
 1. Fork and clone the repo.
-2. Install the toolchain (`rustup toolchain install 1.92.0`).
+2. Install the toolchain (`rustup toolchain install 1.93.0`).
 3. Run `make fmt-check && make clippy && make check && make test` before opening a PR.
 4. Document user-visible changes in [CHANGELOG.md](CHANGELOG.md) under the latest heading.
 

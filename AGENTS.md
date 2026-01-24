@@ -8,7 +8,7 @@
 - `crates/icydb-build`: Build/codegen helpers and canister glue.
 - `crates/test` and `crates/test_design`: Integration and design tests.
 - `assets/`: Images and docs assets. `scripts/`: release/version helpers. `Makefile`: common tasks.
-- Workspace manifest: `Cargo.toml` (edition 2024, rust-version 1.92.0).
+- Workspace manifest: `Cargo.toml` (edition 2024, rust-version 1.93.0).
 
 ## Build, Test, and Development Commands
 - `make check`: Fast type-check for all crates.
@@ -60,7 +60,7 @@
 - `Internal`: logic bugs or invariant violations.
 
 ## CI Overview
-- Toolchain: Rust `1.92.0` with `rustfmt` and `clippy`.
+- Toolchain: Rust `1.93.0` with `rustfmt` and `clippy`.
 - Checks job (PRs/main): `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`.
 - Release job (tags): `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo build --release`.
 - Package cache: clears `~/.cargo/.package-cache` before running cargo to avoid stale lock issues.
@@ -82,4 +82,4 @@
 ## Security & Configuration Tips
 - Tag immutability: run `make security-check`; never modify pushed release tags.
 - Pin git dependencies by tag in downstream projects.
-- Toolchain: install Rust `1.92.0` (`rustup toolchain install 1.92.0`) and ensure CI matches.
+- Toolchain: install Rust `1.93.0` (`rustup toolchain install 1.93.0`) and ensure CI matches.
