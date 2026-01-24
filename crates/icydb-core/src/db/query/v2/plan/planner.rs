@@ -42,31 +42,18 @@ impl AccessPlan {
         schema: &SchemaInfo,
         predicate: Option<&Predicate>,
     ) {
-        if !cfg!(debug_assertions) {
+        let Some(predicate) = predicate else {
             return;
-        }
+        };
 
-        if predicate.is_none() {
-            debug_assert!(
-                matches!(self, Self::Path(AccessPath::FullScan)),
-                "planner invariant violated: predicate-less plan must be FullScan"
-            );
-            return;
-        }
-
-        let info = StrictPredicateInfo::from_predicate::<E>(schema, predicate);
+        let info = StrictPredicateInfo::from_predicate::<E>(schema, Some(predicate));
         validate_access_plan::<E>(self, schema, &info);
     }
 }
 
 pub fn plan_access<E: EntityKind>(predicate: Option<&Predicate>) -> Result<AccessPlan, PlanError> {
     let Some(predicate) = predicate else {
-        let plan = AccessPlan::full_scan();
-        debug_assert!(
-            matches!(plan, AccessPlan::Path(AccessPath::FullScan)),
-            "planner invariant violated: empty predicate must produce FullScan"
-        );
-        return Ok(plan);
+        return Ok(AccessPlan::full_scan());
     };
 
     let schema = SchemaInfo::from_entity::<E>()?;
@@ -167,11 +154,13 @@ fn validate_access_plan<E: EntityKind>(
     match plan {
         AccessPlan::Path(path) => validate_access_path::<E>(path, schema, info),
         AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
-            debug_assert!(
+            // Internal invariant: composite plans must retain at least one child.
+            assert!(
                 !children.is_empty(),
                 "planner invariant violated: composite plan must have children"
             );
-            debug_assert!(
+            // Internal invariant: FullScan cannot appear inside composite access plans.
+            assert!(
                 !children.iter().any(is_full_scan),
                 "planner invariant violated: FullScan cannot appear inside composite plans"
             );
@@ -194,37 +183,44 @@ fn validate_access_path<E: EntityKind>(
     match path {
         AccessPath::FullScan => {}
         AccessPath::ByKey(key) => {
-            debug_assert!(
+            // Internal invariant: ByKey only targets the primary key.
+            assert!(
                 key_matches_pk::<E>(schema, key),
                 "planner invariant violated: ByKey must target the primary key"
             );
-            debug_assert!(
+            // Internal invariant: ByKey only arises from strict primary key predicates.
+            assert!(
                 info.pk_keys.contains(key),
                 "planner invariant violated: ByKey requires strict primary key predicate"
             );
         }
         AccessPath::ByKeys(keys) => {
-            debug_assert!(
+            // Internal invariant: ByKeys must contain at least one key.
+            assert!(
                 !keys.is_empty(),
                 "planner invariant violated: ByKeys must be non-empty"
             );
             for key in keys {
-                debug_assert!(
+                // Internal invariant: ByKeys only targets the primary key.
+                assert!(
                     key_matches_pk::<E>(schema, key),
                     "planner invariant violated: ByKeys must target the primary key"
                 );
-                debug_assert!(
+                // Internal invariant: ByKeys only arises from strict primary key predicates.
+                assert!(
                     info.pk_keys.contains(key),
                     "planner invariant violated: ByKeys requires strict primary key predicate"
                 );
             }
         }
         AccessPath::KeyRange { start, end } => {
-            debug_assert!(
+            // Internal invariant: KeyRange only targets the primary key.
+            assert!(
                 key_matches_pk::<E>(schema, start) && key_matches_pk::<E>(schema, end),
                 "planner invariant violated: KeyRange must target the primary key"
             );
-            debug_assert!(
+            // Internal invariant: KeyRange ordering must be normalized.
+            assert!(
                 start <= end,
                 "planner invariant violated: KeyRange start must be <= end"
             );
@@ -234,12 +230,14 @@ fn validate_access_path<E: EntityKind>(
                 !values.is_empty(),
                 "planner invariant violated: IndexPrefix must be non-empty"
             );
-            debug_assert!(
+            // Internal invariant: index prefix cannot exceed indexed field count.
+            assert!(
                 values.len() <= index.fields.len(),
                 "planner invariant violated: index prefix exceeds field count"
             );
             for (field, value) in index.fields.iter().zip(values.iter()) {
-                debug_assert!(
+                // Internal invariant: IndexPrefix requires strict predicate values.
+                assert!(
                     info.contains_field_value(field, value),
                     "planner invariant violated: IndexPrefix requires strict predicate value"
                 );

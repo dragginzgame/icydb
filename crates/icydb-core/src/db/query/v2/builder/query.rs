@@ -1,10 +1,15 @@
 use crate::{
     db::query::v2::{
-        plan::{OrderDirection, OrderSpec, PageSpec},
-        predicate::Predicate,
+        plan::{
+            AccessPlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec, plan_access,
+            validate_plan,
+        },
+        predicate::{Predicate, SchemaInfo},
     },
+    error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
 };
+use icydb_schema::node::{Entity, Schema};
 use std::marker::PhantomData;
 
 pub struct QueryBuilder<E: EntityKind> {
@@ -114,6 +119,48 @@ impl<E: EntityKind> QueryBuilder<E> {
             order: self.order,
             page: self.page,
         }
+    }
+}
+
+impl QuerySpec {
+    pub fn plan<E: EntityKind>(&self, schema: &Schema) -> Result<LogicalPlan, InternalError> {
+        let entity = schema.cast_node::<Entity>(E::PATH).map_err(|err| {
+            InternalError::new(
+                ErrorClass::Internal,
+                ErrorOrigin::Query,
+                format!("schema unavailable: {err}"),
+            )
+        })?;
+        let schema_info = SchemaInfo::from_entity_schema(entity, schema);
+
+        let access_plan = plan_access::<E>(self.predicate.as_ref()).map_err(|err| {
+            InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+        })?;
+        access_plan.validate_invariants::<E>(&schema_info, self.predicate.as_ref());
+
+        let access = match access_plan {
+            AccessPlan::Path(path) => path,
+            AccessPlan::Union(_) | AccessPlan::Intersection(_) => {
+                return Err(InternalError::new(
+                    ErrorClass::Internal,
+                    ErrorOrigin::Query,
+                    "planner produced composite access plan; executor requires a single access path"
+                        .to_string(),
+                ));
+            }
+        };
+
+        let plan = LogicalPlan {
+            access,
+            predicate: self.predicate.clone(),
+            order: self.order.clone(),
+            page: self.page.clone(),
+        };
+        validate_plan::<E>(&plan).map_err(|err| {
+            InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+        })?;
+
+        Ok(plan)
     }
 }
 

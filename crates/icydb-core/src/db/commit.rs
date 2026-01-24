@@ -247,7 +247,8 @@ pub fn finish_commit(
     // not replay an already-rolled-back write.
     let result = apply(&mut guard);
     guard.clear();
-    debug_assert!(
+    // Internal invariant: commit markers must not persist after a finished mutation.
+    assert!(
         with_commit_store_infallible(|store| store.is_empty()),
         "commit marker must be cleared after finish_commit"
     );

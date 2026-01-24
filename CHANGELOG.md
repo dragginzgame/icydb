@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [Unreleased]
 - 🧩 Add write-unit rollback to avoid partial write state on failures.
+- "v2 query engine correctness and invariants are stabilized; subsequent changes should be additive or performance-motivated."
 
 ---
 

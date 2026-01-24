@@ -46,7 +46,8 @@ impl WriteUnit {
     }
 
     pub(crate) fn commit(mut self) {
-        debug_assert!(
+        // Internal invariant: a write unit can only be committed once.
+        assert!(
             !self.applied,
             "write unit invariant violated: commit called twice"
         );
@@ -55,7 +56,8 @@ impl WriteUnit {
     }
 
     pub(crate) fn rollback(&mut self) {
-        debug_assert!(
+        // Internal invariant: rollbacks must not run after commit.
+        assert!(
             !self.applied,
             "write unit invariant violated: rollback called after commit"
         );
