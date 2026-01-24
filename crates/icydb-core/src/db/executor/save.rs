@@ -1,7 +1,10 @@
 use crate::{
     db::{
         CommitDataOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit, ensure_recovered,
-        executor::ExecutorError,
+        executor::{
+            ExecutorError,
+            trace::{QueryTraceSink, TraceExecutorKind, start_exec_trace},
+        },
         finish_commit,
         index::{
             IndexInsertError, IndexInsertOutcome, IndexRemoveOutcome,
@@ -28,6 +31,7 @@ use std::marker::PhantomData;
 pub struct SaveExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
+    trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
@@ -41,8 +45,19 @@ impl<E: EntityKind> SaveExecutor<E> {
         Self {
             db,
             debug,
+            trace: None,
             _marker: PhantomData,
         }
+    }
+
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) const fn with_trace_sink(
+        mut self,
+        sink: Option<&'static dyn QueryTraceSink>,
+    ) -> Self {
+        self.trace = sink;
+        self
     }
 
     #[must_use]
@@ -162,95 +177,113 @@ impl<E: EntityKind> SaveExecutor<E> {
     }
 
     fn save_entity(&self, mode: SaveMode, mut entity: E) -> Result<E, InternalError> {
-        let mut span = Span::<E>::new(ExecKind::Save);
-        let ctx = self.db.context::<E>();
-
-        // Recovery is mutation-only to keep read paths side-effect free.
-        ensure_recovered(&self.db)?;
-
-        // Sanitize & validate before key extraction in case PK fields are normalized
-        sanitize(&mut entity)?;
-        validate(&entity)?;
-
-        let key = entity.key();
-        let data_key = DataKey::new::<E>(key);
-        let raw_key = data_key.to_raw();
-
-        self.debug_log(format!(
-            "[debug] save {:?} on {} (key={})",
-            mode,
+        let trace = start_exec_trace(
+            self.trace,
+            TraceExecutorKind::Save,
             E::PATH,
-            data_key
-        ));
-        let (old, old_raw) = match mode {
-            SaveMode::Insert => {
-                // Inserts must not load or decode existing rows; absence is expected.
-                if ctx.with_store(|store| store.contains_key(&raw_key))? {
-                    return Err(ExecutorError::KeyExists(data_key).into());
+            None,
+            Some(save_mode_tag(mode)),
+        );
+        let result = (|| {
+            let mut span = Span::<E>::new(ExecKind::Save);
+            let ctx = self.db.context::<E>();
+
+            // Recovery is mutation-only to keep read paths side-effect free.
+            ensure_recovered(&self.db)?;
+
+            // Sanitize & validate before key extraction in case PK fields are normalized
+            sanitize(&mut entity)?;
+            validate(&entity)?;
+
+            let key = entity.key();
+            let data_key = DataKey::new::<E>(key);
+            let raw_key = data_key.to_raw();
+
+            self.debug_log(format!(
+                "[debug] save {:?} on {} (key={})",
+                mode,
+                E::PATH,
+                data_key
+            ));
+            let (old, old_raw) = match mode {
+                SaveMode::Insert => {
+                    // Inserts must not load or decode existing rows; absence is expected.
+                    if ctx.with_store(|store| store.contains_key(&raw_key))? {
+                        return Err(ExecutorError::KeyExists(data_key).into());
+                    }
+                    (None, None)
                 }
-                (None, None)
-            }
-            SaveMode::Update => {
-                let Some(old_row) = ctx.with_store(|store| store.get(&raw_key))? else {
-                    return Err(InternalError::store_not_found(data_key.to_string()));
-                };
-                let old = old_row.try_decode::<E>().map_err(|err| {
-                    ExecutorError::corruption(
-                        ErrorOrigin::Serialize,
-                        format!("failed to deserialize row: {data_key} ({err})"),
-                    )
-                })?;
-                (Some(old), Some(old_row))
-            }
-            SaveMode::Replace => {
-                let old_row = ctx.with_store(|store| store.get(&raw_key))?;
-                let old = old_row
-                    .as_ref()
-                    .map(|row| {
-                        row.try_decode::<E>().map_err(|err| {
-                            ExecutorError::corruption(
-                                ErrorOrigin::Serialize,
-                                format!("failed to deserialize row: {data_key} ({err})"),
-                            )
+                SaveMode::Update => {
+                    let Some(old_row) = ctx.with_store(|store| store.get(&raw_key))? else {
+                        return Err(InternalError::store_not_found(data_key.to_string()));
+                    };
+                    let old = old_row.try_decode::<E>().map_err(|err| {
+                        ExecutorError::corruption(
+                            ErrorOrigin::Serialize,
+                            format!("failed to deserialize row: {data_key} ({err})"),
+                        )
+                    })?;
+                    (Some(old), Some(old_row))
+                }
+                SaveMode::Replace => {
+                    let old_row = ctx.with_store(|store| store.get(&raw_key))?;
+                    let old = old_row
+                        .as_ref()
+                        .map(|row| {
+                            row.try_decode::<E>().map_err(|err| {
+                                ExecutorError::corruption(
+                                    ErrorOrigin::Serialize,
+                                    format!("failed to deserialize row: {data_key} ({err})"),
+                                )
+                            })
                         })
-                    })
-                    .transpose()?;
-                (old, old_row)
+                        .transpose()?;
+                    (old, old_row)
+                }
+            };
+
+            let bytes = serialize(&entity)?;
+            let row = RawRow::try_new(bytes)?;
+
+            // Preflight data store availability before index mutations.
+            ctx.with_store(|_| ())?;
+
+            // Stage-2 atomicity:
+            // Prevalidate index/data mutations before the commit marker is written.
+            // After the marker is persisted, mutations run inside a WriteUnit so
+            // failures roll back before the marker is cleared.
+            let index_plan =
+                plan_index_mutation_for_entity::<E>(&self.db, old.as_ref(), Some(&entity))?;
+            let data_op = CommitDataOp {
+                store: E::Store::PATH.to_string(),
+                key: raw_key.as_bytes().to_vec(),
+                value: Some(row.as_bytes().to_vec()),
+            };
+            let marker = CommitMarker::new(CommitKind::Save, index_plan.commit_ops, vec![data_op])?;
+            let commit = begin_commit(marker)?;
+
+            // FIRST STABLE WRITE: commit marker is persisted before any mutations.
+            finish_commit(commit, |guard| {
+                let mut unit = WriteUnit::new("save_entity_atomic");
+                Self::apply_indexes(&index_plan.apply, old.as_ref(), &entity, &mut unit)?;
+                unit.checkpoint("save_entity_after_indexes")?;
+                guard.mark_index_written();
+                Self::apply_data(self.db, raw_key, row, old_raw, &mut unit, &mut span)?;
+                unit.commit();
+                Ok(())
+            })?;
+
+            Ok(entity)
+        })();
+
+        if let Some(trace) = trace {
+            match &result {
+                Ok(_) => trace.finish(1),
+                Err(err) => trace.error(err),
             }
-        };
+        }
 
-        let bytes = serialize(&entity)?;
-        let row = RawRow::try_new(bytes)?;
-
-        // Preflight data store availability before index mutations.
-        ctx.with_store(|_| ())?;
-
-        // Stage-2 atomicity:
-        // Prevalidate index/data mutations before the commit marker is written.
-        // After the marker is persisted, mutations run inside a WriteUnit so
-        // failures roll back before the marker is cleared.
-        let index_plan =
-            plan_index_mutation_for_entity::<E>(&self.db, old.as_ref(), Some(&entity))?;
-        let data_op = CommitDataOp {
-            store: E::Store::PATH.to_string(),
-            key: raw_key.as_bytes().to_vec(),
-            value: Some(row.as_bytes().to_vec()),
-        };
-        let marker = CommitMarker::new(CommitKind::Save, index_plan.commit_ops, vec![data_op])?;
-        let commit = begin_commit(marker)?;
-
-        // FIRST STABLE WRITE: commit marker is persisted before any mutations.
-        finish_commit(commit, |guard| {
-            let mut unit = WriteUnit::new("save_entity_atomic");
-            Self::apply_indexes(&index_plan.apply, old.as_ref(), &entity, &mut unit)?;
-            unit.checkpoint("save_entity_after_indexes")?;
-            guard.mark_index_written();
-            Self::apply_data(self.db, raw_key, row, old_raw, &mut unit, &mut span)?;
-            unit.commit();
-            Ok(())
-        })?;
-
-        Ok(entity)
+        result
     }
 
     // ======================================================================
@@ -383,5 +416,13 @@ impl<E: EntityKind> SaveExecutor<E> {
             )
             .into(),
         }
+    }
+}
+
+const fn save_mode_tag(mode: SaveMode) -> &'static str {
+    match mode {
+        SaveMode::Insert => "insert",
+        SaveMode::Update => "update",
+        SaveMode::Replace => "replace",
     }
 }

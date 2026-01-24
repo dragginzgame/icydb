@@ -1,5 +1,5 @@
 use crate::{
-    db::query::v2::predicate::{
+    db::query::predicate::{
         CoercionId, CoercionSpec, CompareOp, FieldPresence, Predicate, Row, eval, normalize,
     },
     types::{Account, Principal, Ulid},
@@ -109,7 +109,7 @@ fn arb_predicate() -> impl Strategy<Value = Predicate> {
             arb_coercion_spec()
         )
             .prop_map(|(field, op, value, coercion)| {
-                Predicate::Compare(crate::db::query::v2::predicate::ast::ComparePredicate {
+                Predicate::Compare(crate::db::query::predicate::ast::ComparePredicate {
                     field,
                     op,
                     value,
@@ -197,7 +197,7 @@ proptest! {
 proptest! {
     #[test]
     fn coercion_deterministic(lhs in arb_value(), rhs in arb_value(), id in arb_coercion_spec()) {
-        use crate::db::query::v2::predicate::coercion::{compare_eq, compare_order};
+        use crate::db::query::predicate::coercion::{compare_eq, compare_order};
 
         let a_eq = compare_eq(&lhs, &rhs, &id);
         let b_eq = compare_eq(&lhs, &rhs, &id);
@@ -210,7 +210,7 @@ proptest! {
 
     #[test]
     fn symmetric_coercions(lhs in arb_value(), rhs in arb_value()) {
-        use crate::db::query::v2::predicate::coercion::{compare_eq, compare_order};
+        use crate::db::query::predicate::coercion::{compare_eq, compare_order};
 
         let symmetric = [
             CoercionId::Strict,
@@ -234,7 +234,7 @@ proptest! {
 
 #[test]
 fn identifier_text_directional() {
-    use crate::db::query::v2::predicate::coercion::compare_eq;
+    use crate::db::query::predicate::coercion::compare_eq;
 
     let ulid = Ulid::from_u128(42);
     let id = Value::Ulid(ulid);

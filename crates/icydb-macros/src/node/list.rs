@@ -58,6 +58,7 @@ impl HasTraits for List {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
 
+        traits.add(TraitKind::Inherent);
         traits.extend(vec![
             TraitKind::Deref,
             TraitKind::DerefMut,
@@ -69,6 +70,7 @@ impl HasTraits for List {
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
+            TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),

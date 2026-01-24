@@ -15,6 +15,10 @@ use super::{
 /// - Double negation is eliminated
 /// - Child predicates are deterministically ordered
 ///
+/// Note: this pass does not normalize literal values (numeric width, collation).
+/// Ordering uses the structural `Value` representation.
+/// TODO: value-level normalization/fingerprinting belongs in the value/executor layer.
+///
 /// This is used to ensure:
 /// - stable planner output
 /// - consistent caching / equality checks

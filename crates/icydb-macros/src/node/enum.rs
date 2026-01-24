@@ -80,6 +80,7 @@ impl HasSchemaPart for Enum {
 impl HasTraits for Enum {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
+        traits.add(TraitKind::Inherent);
 
         // extra traits
         if self.is_unit_enum() {
@@ -95,6 +96,7 @@ impl HasTraits for Enum {
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
+            TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::Default => DefaultTrait::strategy(self),
             TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),

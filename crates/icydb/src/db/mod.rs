@@ -1,11 +1,6 @@
 use crate::{
     Error,
-    db::{
-        executor::{
-            delete::DeleteExecutor, load::LoadExecutor, save::SaveExecutor, upsert::UpsertExecutor,
-        },
-        response::Response,
-    },
+    db::executor::{save::SaveExecutor, upsert::UpsertExecutor},
     traits::{CanisterKind, EntityKind},
 };
 use core::obs::sink::MetricsSink;
@@ -26,12 +21,6 @@ pub mod response;
 
 fn map_runtime<T>(res: Result<T, InternalError>) -> Result<T, Error> {
     res.map_err(Error::from)
-}
-
-fn map_response<E: EntityKind>(
-    res: Result<core::db::response::Response<E>, InternalError>,
-) -> Result<Response<E>, Error> {
-    map_runtime(res).map(Response::from)
 }
 
 ///
@@ -71,16 +60,6 @@ impl<C: CanisterKind> DbSession<C> {
     // Low-level executors
     //
 
-    /// Get a [`LoadExecutor`] for building and executing queries that read entities.
-    /// Note: executor methods do not apply the session metrics override.
-    #[must_use]
-    pub const fn load<E>(&self) -> LoadExecutor<E>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        LoadExecutor::from_core(self.inner.load::<E>())
-    }
-
     /// Get a [`SaveExecutor`] for inserting or updating entities.
     /// Note: executor methods do not apply the session metrics override.
     #[must_use]
@@ -100,16 +79,6 @@ impl<C: CanisterKind> DbSession<C> {
         E::PrimaryKey: FromKey,
     {
         UpsertExecutor::from_core(self.inner.upsert::<E>())
-    }
-
-    /// Get a [`DeleteExecutor`] for deleting entities by key or query.
-    /// Note: executor methods do not apply the session metrics override.
-    #[must_use]
-    pub const fn delete<E>(&self) -> DeleteExecutor<E>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        DeleteExecutor::from_core(self.inner.delete::<E>())
     }
 
     //

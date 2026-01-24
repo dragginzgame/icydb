@@ -16,6 +16,14 @@ use crate::{
     db::{
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor, UpsertExecutor},
         index::IndexStoreRegistry,
+        query::{
+            builder::{QueryError, QuerySpec},
+            diagnostics::{
+                QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceExecutorKind, finish_event,
+                start_event, trace_access_from_path,
+            },
+        },
+        response::Response,
         store::DataStoreRegistry,
         traits::FromKey,
     },
@@ -23,6 +31,7 @@ use crate::{
     obs::sink::{self, MetricsSink},
     traits::{CanisterKind, EntityKind},
 };
+use icydb_schema::node::Schema;
 use std::{marker::PhantomData, thread::LocalKey};
 
 ///
@@ -174,6 +183,46 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         DeleteExecutor::new(self.db, self.debug)
+    }
+
+    //
+    // Query diagnostics
+    //
+
+    /// Plan and return diagnostics for a query without executing it.
+    pub fn diagnose_query<E: EntityKind<Canister = C>>(
+        &self,
+        spec: &QuerySpec,
+        schema: &Schema,
+    ) -> Result<QueryDiagnostics, QueryError> {
+        let explain = spec.explain::<E>(schema)?;
+        Ok(QueryDiagnostics::from(explain))
+    }
+
+    /// Execute a query and return per-execution diagnostics.
+    pub fn execute_with_diagnostics<E: EntityKind<Canister = C>>(
+        &self,
+        spec: &QuerySpec,
+        _schema: &Schema,
+    ) -> Result<(Response<E>, QueryExecutionDiagnostics), QueryError> {
+        let plan = spec.build_plan::<E>()?;
+        let fingerprint = plan.fingerprint();
+        let access = trace_access_from_path(&plan.access);
+        let start = start_event(fingerprint, access, QueryTraceExecutorKind::Load);
+
+        let result = self.with_metrics(|| self.load::<E>().execute(plan));
+        match result {
+            Ok(response) => {
+                let rows = u64::try_from(response.0.len()).unwrap_or(u64::MAX);
+                let finish = finish_event(fingerprint, access, QueryTraceExecutorKind::Load, rows);
+                let diagnostics = QueryExecutionDiagnostics {
+                    fingerprint,
+                    events: vec![start, finish],
+                };
+                Ok((response, diagnostics))
+            }
+            Err(err) => Err(QueryError::Execute(err)),
+        }
     }
 
     //

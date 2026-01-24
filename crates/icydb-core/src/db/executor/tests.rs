@@ -1,15 +1,26 @@
-use super::{DeleteExecutor, LoadExecutor, SaveExecutor, UniqueIndexHandle};
+use super::trace::{QueryTraceEvent, QueryTraceSink, TraceAccess, TraceExecutorKind};
+use super::{DeleteExecutor, LoadExecutor, SaveExecutor, UniqueIndexHandle, resolve_unique_pk};
 use crate::{
     db::{
-        CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, begin_commit,
+        CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, DbSession, begin_commit,
         commit::commit_marker_present,
         force_recovery_for_tests,
         index::{IndexEntry, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
-        query::v2::plan::{AccessPath, LogicalPlan, OrderDirection, OrderSpec, PageSpec},
+        query::{
+            builder::{QueryBuilder, QueryError},
+            plan::{AccessPath, LogicalPlan, OrderDirection, OrderSpec, PageSpec, PlanError},
+            predicate::validate::{reset_schema_lookup_called, schema_lookup_called},
+        },
         store::{DataKey, DataStore, DataStoreRegistry, RawRow},
         write::{fail_checkpoint_label, fail_next_checkpoint},
     },
-    model::index::IndexModel,
+    error::{ErrorClass, ErrorOrigin},
+    key::Key,
+    model::{
+        entity::EntityModel,
+        field::{EntityFieldKind, EntityFieldModel},
+        index::IndexModel,
+    },
     serialize::serialize,
     traits::{
         CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
@@ -21,13 +32,17 @@ use crate::{
 use icydb_schema::{
     build::schema_write,
     node::{
-        Canister, Def, Entity, Field, FieldList, Index, Item, ItemTarget, SchemaNode, Store, Type,
-        Value as SchemaValue,
+        Canister, Def, Entity, Field, FieldList, Index, Item, ItemTarget, Schema, SchemaNode,
+        Store, Type, Value as SchemaValue,
     },
     types::{Cardinality, Primitive, StoreType},
 };
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, sync::Once};
+use std::{
+    cell::RefCell,
+    mem,
+    sync::{Mutex, Once},
+};
 
 const CANISTER_PATH: &str = "write_unit_test::TestCanister";
 const DATA_STORE_PATH: &str = "write_unit_test::TestDataStore";
@@ -35,11 +50,50 @@ const INDEX_STORE_PATH: &str = "write_unit_test::TestIndexStore";
 const ENTITY_PATH: &str = "write_unit_test::TestEntity";
 
 const INDEX_FIELDS: [&str; 1] = ["name"];
-const INDEX_MODEL: IndexModel = IndexModel::new(INDEX_STORE_PATH, &INDEX_FIELDS, true);
+const INDEX_MODEL: IndexModel =
+    IndexModel::new("test::index_name", INDEX_STORE_PATH, &INDEX_FIELDS, true);
 const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
+const TEST_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "name",
+        kind: EntityFieldKind::Text,
+    },
+];
+const TEST_MODEL: EntityModel = EntityModel {
+    path: ENTITY_PATH,
+    entity_name: "TestEntity",
+    primary_key: &TEST_FIELDS[0],
+    fields: &TEST_FIELDS,
+    indexes: &INDEXES,
+};
 
 const ORDER_ENTITY_PATH: &str = "write_unit_test::OrderEntity";
 const ORDER_FIELDS: [&str; 3] = ["id", "primary", "secondary"];
+const ORDER_FIELD_MODELS: [EntityFieldModel; 3] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "primary",
+        kind: EntityFieldKind::Unsupported,
+    },
+    EntityFieldModel {
+        name: "secondary",
+        kind: EntityFieldKind::Int,
+    },
+];
+const ORDER_MODEL: EntityModel = EntityModel {
+    path: ORDER_ENTITY_PATH,
+    entity_name: "OrderEntity",
+    primary_key: &ORDER_FIELD_MODELS[0],
+    fields: &ORDER_FIELD_MODELS,
+    indexes: &[],
+};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct TestEntity {
@@ -107,6 +161,7 @@ impl EntityKind for TestEntity {
     const PRIMARY_KEY: &'static str = "id";
     const FIELDS: &'static [&'static str] = &["id", "name"];
     const INDEXES: &'static [&'static IndexModel] = &INDEXES;
+    const MODEL: &'static EntityModel = &TEST_MODEL;
 
     fn key(&self) -> crate::key::Key {
         self.id.into()
@@ -180,6 +235,7 @@ impl EntityKind for OrderEntity {
     const PRIMARY_KEY: &'static str = "id";
     const FIELDS: &'static [&'static str] = &ORDER_FIELDS;
     const INDEXES: &'static [&'static IndexModel] = &[];
+    const MODEL: &'static EntityModel = &ORDER_MODEL;
 
     fn key(&self) -> crate::key::Key {
         self.id.into()
@@ -396,6 +452,32 @@ fn init_schema() {
 fn reset_stores() {
     TEST_DATA_STORE.with_borrow_mut(|store| store.clear());
     TEST_INDEX_STORE.with_borrow_mut(|store| store.clear());
+}
+
+struct TestTraceSink {
+    events: Mutex<Vec<QueryTraceEvent>>,
+}
+
+impl QueryTraceSink for TestTraceSink {
+    fn on_event(&self, event: QueryTraceEvent) {
+        self.events.lock().unwrap().push(event);
+    }
+}
+
+static TRACE_SINK: TestTraceSink = TestTraceSink {
+    events: Mutex::new(Vec::new()),
+};
+static TRACE_GUARD: Mutex<()> = Mutex::new(());
+
+fn with_trace_events<F, R>(f: F) -> (R, Vec<QueryTraceEvent>)
+where
+    F: FnOnce() -> R,
+{
+    let _guard = TRACE_GUARD.lock().unwrap();
+    TRACE_SINK.events.lock().unwrap().clear();
+    let result = f();
+    let events = mem::take(&mut *TRACE_SINK.events.lock().unwrap());
+    (result, events)
 }
 
 fn assert_commit_marker_clear() {
@@ -622,6 +704,324 @@ fn commit_marker_recovery_replays_ops() {
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     saver.insert(entity).unwrap();
     assert_commit_marker_clear();
+}
+
+#[test]
+fn load_by_key_missing_is_ok() {
+    reset_stores();
+    init_schema();
+
+    let plan = LogicalPlan::new(AccessPath::ByKey(Key::Ulid(Ulid::from_u128(1))));
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+    let response = loader.execute(plan).unwrap();
+
+    assert!(response.is_empty());
+}
+
+#[test]
+fn load_by_keys_dedups_duplicates() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(7),
+        name: "alpha".to_string(),
+    };
+    saver.insert(entity.clone()).unwrap();
+
+    let plan = LogicalPlan::new(AccessPath::ByKeys(vec![
+        Key::Ulid(entity.id),
+        Key::Ulid(entity.id),
+        Key::Ulid(entity.id),
+    ]));
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+    let rows = loader.execute(plan).unwrap().entities();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, entity.id);
+}
+
+#[test]
+fn load_by_keys_skips_missing_after_dedup() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(1),
+        name: "alpha".to_string(),
+    };
+    saver.insert(entity.clone()).unwrap();
+
+    let plan = LogicalPlan::new(AccessPath::ByKeys(vec![
+        Key::Ulid(Ulid::from_u128(1)),
+        Key::Ulid(Ulid::from_u128(2)),
+        Key::Ulid(Ulid::from_u128(1)),
+        Key::Ulid(Ulid::from_u128(3)),
+    ]));
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+    let rows = loader.execute(plan).unwrap().entities();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, entity.id);
+}
+
+#[test]
+fn trace_emits_start_and_finish_for_load() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(55),
+        name: "alpha".to_string(),
+    };
+    saver.insert(entity).unwrap();
+
+    let plan = LogicalPlan::new(AccessPath::FullScan);
+    let fingerprint = plan.fingerprint();
+    let loader = LoadExecutor::<TestEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
+
+    let (result, events) = with_trace_events(|| loader.execute(plan));
+    let response = result.unwrap();
+
+    assert_eq!(response.0.len(), 1);
+    assert_eq!(
+        events,
+        vec![
+            QueryTraceEvent::Start {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access: Some(TraceAccess::FullScan),
+            },
+            QueryTraceEvent::Finish {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access: Some(TraceAccess::FullScan),
+                rows: 1,
+            },
+        ]
+    );
+}
+
+#[test]
+fn trace_emits_error_for_invalid_plan() {
+    reset_stores();
+    init_schema();
+
+    let mut plan = LogicalPlan::new(AccessPath::FullScan);
+    plan.order = Some(OrderSpec {
+        fields: vec![("primary".to_string(), OrderDirection::Asc)],
+    });
+    let fingerprint = plan.fingerprint();
+    let loader = LoadExecutor::<OrderEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
+
+    let (result, events) = with_trace_events(|| loader.execute(plan));
+
+    assert!(result.is_err());
+    assert_eq!(events.len(), 2);
+    assert_eq!(
+        events[0],
+        QueryTraceEvent::Start {
+            fingerprint,
+            executor: TraceExecutorKind::Load,
+            access: Some(TraceAccess::FullScan),
+        }
+    );
+    assert_eq!(
+        events[1],
+        QueryTraceEvent::Error {
+            fingerprint,
+            executor: TraceExecutorKind::Load,
+            access: Some(TraceAccess::FullScan),
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+        }
+    );
+}
+
+#[test]
+fn trace_disabled_emits_no_events() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(99),
+        name: "alpha".to_string(),
+    };
+    saver.insert(entity).unwrap();
+
+    let plan = LogicalPlan::new(AccessPath::FullScan);
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+
+    let (result, events) = with_trace_events(|| loader.execute(plan));
+
+    assert!(result.is_ok());
+    assert!(events.is_empty());
+}
+
+#[test]
+fn diagnose_query_matches_queryspec_explain() {
+    reset_stores();
+    init_schema();
+
+    let schema = Schema::new();
+    let spec = QueryBuilder::<TestEntity>::new().build();
+    let session = DbSession::new(DB);
+
+    let expected = spec.explain::<TestEntity>(&schema).expect("explain");
+    let diagnostics = session
+        .diagnose_query::<TestEntity>(&spec, &schema)
+        .expect("diagnose");
+
+    assert_eq!(diagnostics.explain, expected.explain);
+    assert_eq!(diagnostics.fingerprint, expected.fingerprint);
+}
+
+#[test]
+fn diagnose_query_fingerprint_matches_plan() {
+    reset_stores();
+    init_schema();
+
+    let schema = Schema::new();
+    let spec = QueryBuilder::<TestEntity>::new().build();
+    let session = DbSession::new(DB);
+
+    let plan = spec.plan::<TestEntity>(&schema).expect("plan");
+    let diagnostics = session
+        .diagnose_query::<TestEntity>(&spec, &schema)
+        .expect("diagnose");
+
+    assert_eq!(diagnostics.fingerprint, plan.fingerprint());
+}
+
+#[test]
+fn diagnose_query_does_not_execute() {
+    reset_stores();
+    init_schema();
+
+    let data_key = DataKey::new::<TestEntity>(Ulid::from_u128(1));
+    let raw_key = data_key.to_raw();
+    let corrupted = RawRow::try_new(vec![0x00, 0x01]).expect("raw row");
+    DB.context::<TestEntity>()
+        .with_store_mut(|store| store.insert(raw_key, corrupted))
+        .unwrap();
+
+    let schema = Schema::new();
+    let spec = QueryBuilder::<TestEntity>::new().build();
+    let session = DbSession::new(DB);
+
+    let result = session.diagnose_query::<TestEntity>(&spec, &schema);
+    assert!(result.is_ok());
+
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+    let load_result = loader.execute(LogicalPlan::new(AccessPath::FullScan));
+    assert!(load_result.is_err());
+}
+
+#[test]
+fn diagnose_query_invalid_matches_explain() {
+    reset_stores();
+    init_schema();
+
+    let schema = Schema::new();
+    let spec = QueryBuilder::<TestEntity>::new()
+        .order_by("missing")
+        .build();
+    let session = DbSession::new(DB);
+
+    let expected = spec
+        .explain::<TestEntity>(&schema)
+        .expect_err("invalid order");
+    let err = session
+        .diagnose_query::<TestEntity>(&spec, &schema)
+        .expect_err("invalid order");
+
+    assert!(matches!(
+        expected,
+        QueryError::Plan(PlanError::UnknownOrderField { .. })
+    ));
+    assert!(matches!(
+        err,
+        QueryError::Plan(PlanError::UnknownOrderField { .. })
+    ));
+}
+
+#[test]
+fn execute_with_diagnostics_returns_events() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(123),
+        name: "alpha".to_string(),
+    };
+    saver.insert(entity).unwrap();
+
+    let schema = Schema::new();
+    let spec = QueryBuilder::<TestEntity>::new().build();
+    let session = DbSession::new(DB);
+
+    let (response, diagnostics) = session
+        .execute_with_diagnostics::<TestEntity>(&spec, &schema)
+        .expect("execute");
+
+    let plan = spec.plan::<TestEntity>(&schema).expect("plan");
+    assert_eq!(diagnostics.fingerprint, plan.fingerprint());
+    assert_eq!(response.0.len(), 1);
+    assert_eq!(
+        diagnostics.events,
+        vec![
+            QueryTraceEvent::Start {
+                fingerprint: diagnostics.fingerprint,
+                executor: TraceExecutorKind::Load,
+                access: Some(TraceAccess::FullScan),
+            },
+            QueryTraceEvent::Finish {
+                fingerprint: diagnostics.fingerprint,
+                executor: TraceExecutorKind::Load,
+                access: Some(TraceAccess::FullScan),
+                rows: 1,
+            },
+        ]
+    );
+}
+
+#[test]
+fn unique_index_key_type_mismatch_is_corruption() {
+    reset_stores();
+    init_schema();
+
+    let lookup = TestEntity {
+        id: Ulid::from_u128(1),
+        name: "alpha".to_string(),
+    };
+    let index_key = IndexKey::new(&lookup, &INDEX_MODEL).expect("index key");
+    let raw_index_key = index_key.to_raw();
+
+    let entry = IndexEntry::new(Key::Int(9));
+    let raw_index_entry = RawIndexEntry::try_from_entry(&entry).expect("index entry");
+    TEST_INDEX_STORE.with_borrow_mut(|store| {
+        store.insert(raw_index_key, raw_index_entry);
+    });
+
+    let stored = TestEntity {
+        id: Ulid::from_u128(2),
+        name: "alpha".to_string(),
+    };
+    let data_key = DataKey::new::<TestEntity>(Key::Int(9));
+    let raw_data_key = data_key.to_raw();
+    let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
+    TEST_DATA_STORE.with_borrow_mut(|store| {
+        store.insert(raw_data_key, raw_row);
+    });
+
+    let err = resolve_unique_pk::<TestEntity>(&DB, &INDEX_MODEL, &lookup)
+        .expect_err("expected corruption");
+    assert_eq!(err.class, ErrorClass::Corruption);
 }
 
 #[test]
@@ -853,4 +1253,17 @@ fn ordering_does_not_compare_incomparable_values() {
     let inserted_ids = entities.iter().map(|entity| entity.id).collect::<Vec<_>>();
 
     assert_eq!(ordered_ids, inserted_ids);
+}
+
+#[test]
+fn load_execute_does_not_touch_global_schema() {
+    reset_schema_lookup_called();
+    reset_stores();
+
+    let plan = LogicalPlan::new(AccessPath::FullScan);
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+
+    let _ = loader.execute(plan).expect("load executes");
+
+    assert!(!schema_lookup_called());
 }

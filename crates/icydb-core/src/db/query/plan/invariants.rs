@@ -1,7 +1,7 @@
 //! Planner invariants and assertions; must not surface user-facing errors.
 
 use crate::{
-    db::query::v2::predicate::{
+    db::query::predicate::{
         CoercionId, CompareOp, Predicate, SchemaInfo,
         validate::{FieldType, ScalarType, literal_matches_type},
     },

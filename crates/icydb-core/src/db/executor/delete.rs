@@ -6,15 +6,18 @@ use crate::{
             ExecutorError, UniqueIndexHandle,
             plan::{record_plan_metrics, set_rows_from_len},
             resolve_unique_pk,
+            trace::{
+                QueryTraceSink, TraceAccess, TraceExecutorKind, start_exec_trace, start_plan_trace,
+            },
         },
         finish_commit,
         index::{
             IndexEntry, IndexEntryCorruption, IndexKey, IndexRemoveOutcome, IndexStore,
             RawIndexEntry, RawIndexKey,
         },
-        query::v2::{
-            plan::{LogicalPlan, OrderDirection, OrderSpec, validate_plan},
-            predicate::{eval as eval_v2, normalize as normalize_v2},
+        query::{
+            plan::{LogicalPlan, OrderDirection, OrderSpec, validate_plan_with_model},
+            predicate::{eval as eval_predicate, normalize as normalize_predicate},
         },
         response::Response,
         store::{DataKey, DataRow, RawRow},
@@ -58,6 +61,7 @@ struct DeleteRow<E> {
 pub struct DeleteExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
+    trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
@@ -67,8 +71,19 @@ impl<E: EntityKind> DeleteExecutor<E> {
         Self {
             db,
             debug,
+            trace: None,
             _marker: PhantomData,
         }
+    }
+
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) const fn with_trace_sink(
+        mut self,
+        sink: Option<&'static dyn QueryTraceSink>,
+    ) -> Self {
+        self.trace = sink;
+        self
     }
 
     #[must_use]
@@ -95,96 +110,116 @@ impl<E: EntityKind> DeleteExecutor<E> {
     where
         E::PrimaryKey: FromKey,
     {
-        self.debug_log(format!(
-            "[debug] delete by unique index on {} ({})",
+        let trace = start_exec_trace(
+            self.trace,
+            TraceExecutorKind::Delete,
             E::PATH,
-            index.index().fields.join(", ")
-        ));
-        let mut span = Span::<E>::new(ExecKind::Delete);
-        ensure_recovered(&self.db)?;
+            Some(TraceAccess::UniqueIndex {
+                name: index.index().name,
+            }),
+            Some(index.index().name),
+        );
+        let result = (|| {
+            self.debug_log(format!(
+                "[debug] delete by unique index on {} ({})",
+                E::PATH,
+                index.index().fields.join(", ")
+            ));
+            let mut span = Span::<E>::new(ExecKind::Delete);
+            ensure_recovered(&self.db)?;
 
-        let index = index.index();
-        let mut lookup = entity;
-        sanitize(&mut lookup)?;
+            let index = index.index();
+            let mut lookup = entity;
+            sanitize(&mut lookup)?;
 
-        // Resolve PK via unique index; absence is a no-op.
-        let Some(pk) = resolve_unique_pk::<E>(&self.db, index, &lookup)? else {
-            set_rows_from_len(&mut span, 0);
-            return Ok(Response(Vec::new()));
-        };
+            // Resolve PK via unique index; absence is a no-op.
+            let Some(pk) = resolve_unique_pk::<E>(&self.db, index, &lookup)? else {
+                set_rows_from_len(&mut span, 0);
+                return Ok(Response(Vec::new()));
+            };
 
-        let (dk, stored_row, stored) = self.load_existing(pk)?;
-        let ctx = self.db.context::<E>();
-        let index_plans = self.build_index_plans()?;
-        let index_ops = Self::build_index_removal_ops(&index_plans, &[&stored])?;
+            let (dk, stored_row, stored) = self.load_existing(pk)?;
+            let ctx = self.db.context::<E>();
+            let index_plans = self.build_index_plans()?;
+            let index_ops = Self::build_index_removal_ops(&index_plans, &[&stored])?;
 
-        // Preflight: ensure stores are accessible before committing.
-        ctx.with_store(|_| ())?;
+            // Preflight: ensure stores are accessible before committing.
+            ctx.with_store(|_| ())?;
 
-        let marker = CommitMarker::new(
-            CommitKind::Delete,
-            index_ops,
-            vec![CommitDataOp {
-                store: E::Store::PATH.to_string(),
-                key: dk.to_raw().as_bytes().to_vec(),
-                value: None,
-            }],
-        )?;
-        let commit = begin_commit(marker)?;
+            let marker = CommitMarker::new(
+                CommitKind::Delete,
+                index_ops,
+                vec![CommitDataOp {
+                    store: E::Store::PATH.to_string(),
+                    key: dk.to_raw().as_bytes().to_vec(),
+                    value: None,
+                }],
+            )?;
+            let commit = begin_commit(marker)?;
 
-        finish_commit(commit, |guard| {
-            let mut unit = WriteUnit::new("delete_unique_row_atomic");
-            for plan in &index_plans {
-                let fields = plan.index.fields.join(", ");
-                let outcome = unit.run(|| {
-                    plan.store.with_borrow_mut(|s| {
-                        s.remove_index_entry(&stored, plan.index).map_err(|err| {
-                            ExecutorError::corruption(
-                                ErrorOrigin::Index,
-                                format!("index corrupted: {} ({fields}) -> {err}", E::PATH),
-                            )
-                            .into()
+            finish_commit(commit, |guard| {
+                let mut unit = WriteUnit::new("delete_unique_row_atomic");
+                for plan in &index_plans {
+                    let fields = plan.index.fields.join(", ");
+                    let outcome = unit.run(|| {
+                        plan.store.with_borrow_mut(|s| {
+                            s.remove_index_entry(&stored, plan.index).map_err(|err| {
+                                ExecutorError::corruption(
+                                    ErrorOrigin::Index,
+                                    format!("index corrupted: {} ({fields}) -> {err}", E::PATH),
+                                )
+                                .into()
+                            })
                         })
-                    })
-                })?;
+                    })?;
 
-                if outcome == IndexRemoveOutcome::Removed {
-                    let store = plan.store;
-                    let index = plan.index;
-                    let stored = stored.clone();
+                    if outcome == IndexRemoveOutcome::Removed {
+                        let store = plan.store;
+                        let index = plan.index;
+                        let stored = stored.clone();
+                        unit.record_rollback(move || {
+                            let _ = store.with_borrow_mut(|s| s.insert_index_entry(&stored, index));
+                        });
+
+                        sink::record(MetricsEvent::IndexRemove {
+                            entity_path: E::PATH,
+                        });
+                    }
+                }
+
+                unit.checkpoint("delete_unique_after_indexes")?;
+                guard.mark_index_written();
+
+                let raw_key = dk.to_raw();
+                let removed = unit.run(|| ctx.with_store_mut(|s| s.remove(&raw_key)))?;
+                if removed.is_some() {
+                    let db = self.db;
+                    let stored_row = stored_row;
                     unit.record_rollback(move || {
-                        let _ = store.with_borrow_mut(|s| s.insert_index_entry(&stored, index));
-                    });
-
-                    sink::record(MetricsEvent::IndexRemove {
-                        entity_path: E::PATH,
+                        let ctx = db.context::<E>();
+                        let _ = ctx.with_store_mut(|s| {
+                            s.insert(raw_key, stored_row);
+                        });
                     });
                 }
+
+                unit.checkpoint("delete_unique_after_data")?;
+                unit.commit();
+                Ok(())
+            })?;
+
+            set_rows_from_len(&mut span, 1);
+            Ok(Response(vec![(dk.key(), stored)]))
+        })();
+
+        if let Some(trace) = trace {
+            match &result {
+                Ok(resp) => trace.finish(u64::try_from(resp.0.len()).unwrap_or(u64::MAX)),
+                Err(err) => trace.error(err),
             }
+        }
 
-            unit.checkpoint("delete_unique_after_indexes")?;
-            guard.mark_index_written();
-
-            let raw_key = dk.to_raw();
-            let removed = unit.run(|| ctx.with_store_mut(|s| s.remove(&raw_key)))?;
-            if removed.is_some() {
-                let db = self.db;
-                let stored_row = stored_row;
-                unit.record_rollback(move || {
-                    let ctx = db.context::<E>();
-                    let _ = ctx.with_store_mut(|s| {
-                        s.insert(raw_key, stored_row);
-                    });
-                });
-            }
-
-            unit.checkpoint("delete_unique_after_data")?;
-            unit.commit();
-            Ok(())
-        })?;
-
-        set_rows_from_len(&mut span, 1);
-        Ok(Response(vec![(dk.key(), stored)]))
+        result
     }
 
     // ─────────────────────────────────────────────
@@ -193,147 +228,163 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
     #[allow(clippy::too_many_lines)]
     pub fn execute(self, plan: LogicalPlan) -> Result<Response<E>, InternalError> {
-        validate_plan::<E>(&plan).map_err(|err| {
-            InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
-        })?;
-        plan.debug_validate::<E>();
-        ensure_recovered(&self.db)?;
+        let trace = start_plan_trace(self.trace, TraceExecutorKind::Delete, &plan);
+        let result = (|| {
+            validate_plan_with_model(&plan, E::MODEL).map_err(|err| {
+                InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+            })?;
+            plan.debug_validate_with_model(E::MODEL);
+            ensure_recovered(&self.db)?;
 
-        self.debug_log(format!("[debug] delete plan on {}", E::PATH));
+            self.debug_log(format!("[debug] delete plan on {}", E::PATH));
 
-        let mut span = Span::<E>::new(ExecKind::Delete);
-        record_plan_metrics(&plan.access);
+            let mut span = Span::<E>::new(ExecKind::Delete);
+            record_plan_metrics(&plan.access);
 
-        let ctx = self.db.context::<E>();
-        let data_rows = ctx.rows_from_access(&plan.access)?;
-        sink::record(MetricsEvent::RowsScanned {
-            entity_path: E::PATH,
-            rows_scanned: data_rows.len() as u64,
-        });
+            let ctx = self.db.context::<E>();
+            let data_rows = ctx.rows_from_access(&plan.access)?;
+            sink::record(MetricsEvent::RowsScanned {
+                entity_path: E::PATH,
+                rows_scanned: data_rows.len() as u64,
+            });
 
-        let mut rows = decode_rows::<E>(data_rows)?;
+            let mut rows = decode_rows::<E>(data_rows)?;
 
-        let normalized = plan.predicate.as_ref().map(normalize_v2);
-        let filtered = if let Some(predicate) = normalized.as_ref() {
-            rows.retain(|row| eval_v2(&row.entity, predicate));
-            true
-        } else {
-            false
-        };
+            let normalized = plan.predicate.as_ref().map(normalize_predicate);
+            let filtered = if let Some(predicate) = normalized.as_ref() {
+                rows.retain(|row| eval_predicate(&row.entity, predicate));
+                true
+            } else {
+                false
+            };
 
-        let ordered = if let Some(order) = &plan.order
-            && rows.len() > 1
-            && !order.fields.is_empty()
-        {
-            debug_assert!(
-                plan.predicate.is_none() || filtered,
-                "executor invariant violated: ordering must run after filtering"
-            );
-            apply_order_spec(&mut rows, order);
-            true
-        } else {
-            false
-        };
+            let ordered = if let Some(order) = &plan.order
+                && rows.len() > 1
+                && !order.fields.is_empty()
+            {
+                debug_assert!(
+                    plan.predicate.is_none() || filtered,
+                    "executor invariant violated: ordering must run after filtering"
+                );
+                apply_order_spec(&mut rows, order);
+                true
+            } else {
+                false
+            };
 
-        if let Some(page) = &plan.page {
-            debug_assert!(
-                plan.order.is_none() || ordered,
-                "executor invariant violated: pagination must run after ordering"
-            );
-            apply_pagination(&mut rows, page.offset, page.limit);
-        }
+            if let Some(page) = &plan.page {
+                debug_assert!(
+                    plan.order.is_none() || ordered,
+                    "executor invariant violated: pagination must run after ordering"
+                );
+                apply_pagination(&mut rows, page.offset, page.limit);
+            }
 
-        if rows.is_empty() {
-            set_rows_from_len(&mut span, 0);
-            return Ok(Response(Vec::new()));
-        }
+            if rows.is_empty() {
+                set_rows_from_len(&mut span, 0);
+                return Ok(Response(Vec::new()));
+            }
 
-        let index_plans = self.build_index_plans()?;
-        let index_ops = {
-            let entities: Vec<&E> = rows.iter().map(|row| &row.entity).collect();
-            Self::build_index_removal_ops(&index_plans, &entities)?
-        };
+            let index_plans = self.build_index_plans()?;
+            let index_ops = {
+                let entities: Vec<&E> = rows.iter().map(|row| &row.entity).collect();
+                Self::build_index_removal_ops(&index_plans, &entities)?
+            };
 
-        // Preflight store access to ensure no fallible work remains post-commit.
-        ctx.with_store(|_| ())?;
+            // Preflight store access to ensure no fallible work remains post-commit.
+            ctx.with_store(|_| ())?;
 
-        let data_ops = rows
-            .iter()
-            .map(|row| CommitDataOp {
-                store: E::Store::PATH.to_string(),
-                key: row.key.to_raw().as_bytes().to_vec(),
-                value: None,
-            })
-            .collect();
+            let data_ops = rows
+                .iter()
+                .map(|row| CommitDataOp {
+                    store: E::Store::PATH.to_string(),
+                    key: row.key.to_raw().as_bytes().to_vec(),
+                    value: None,
+                })
+                .collect();
 
-        let marker = CommitMarker::new(CommitKind::Delete, index_ops, data_ops)?;
-        let commit = begin_commit(marker)?;
+            let marker = CommitMarker::new(CommitKind::Delete, index_ops, data_ops)?;
+            let commit = begin_commit(marker)?;
 
-        finish_commit(commit, |guard| {
-            let mut unit = WriteUnit::new("delete_rows_atomic");
-            for row in &rows {
-                for plan in &index_plans {
-                    let fields = plan.index.fields.join(", ");
-                    let outcome = unit.run(|| {
-                        plan.store.with_borrow_mut(|s| {
-                            s.remove_index_entry(&row.entity, plan.index)
-                                .map_err(|err| {
-                                    ExecutorError::corruption(
-                                        ErrorOrigin::Index,
-                                        format!("index corrupted: {} ({fields}) -> {err}", E::PATH),
-                                    )
-                                    .into()
-                                })
-                        })
-                    })?;
+            finish_commit(commit, |guard| {
+                let mut unit = WriteUnit::new("delete_rows_atomic");
+                for row in &rows {
+                    for plan in &index_plans {
+                        let fields = plan.index.fields.join(", ");
+                        let outcome = unit.run(|| {
+                            plan.store.with_borrow_mut(|s| {
+                                s.remove_index_entry(&row.entity, plan.index)
+                                    .map_err(|err| {
+                                        ExecutorError::corruption(
+                                            ErrorOrigin::Index,
+                                            format!(
+                                                "index corrupted: {} ({fields}) -> {err}",
+                                                E::PATH
+                                            ),
+                                        )
+                                        .into()
+                                    })
+                            })
+                        })?;
 
-                    if outcome == IndexRemoveOutcome::Removed {
-                        let store = plan.store;
-                        let index = plan.index;
-                        let entity = row.entity.clone();
-                        unit.record_rollback(move || {
-                            let _ = store.with_borrow_mut(|s| s.insert_index_entry(&entity, index));
-                        });
+                        if outcome == IndexRemoveOutcome::Removed {
+                            let store = plan.store;
+                            let index = plan.index;
+                            let entity = row.entity.clone();
+                            unit.record_rollback(move || {
+                                let _ =
+                                    store.with_borrow_mut(|s| s.insert_index_entry(&entity, index));
+                            });
 
-                        sink::record(MetricsEvent::IndexRemove {
-                            entity_path: E::PATH,
-                        });
+                            sink::record(MetricsEvent::IndexRemove {
+                                entity_path: E::PATH,
+                            });
+                        }
                     }
                 }
-            }
 
-            unit.checkpoint("delete_after_indexes")?;
-            guard.mark_index_written();
+                unit.checkpoint("delete_after_indexes")?;
+                guard.mark_index_written();
 
-            for row in &mut rows {
-                let raw_key = row.key.to_raw();
-                let raw_row = row.raw.take();
-                let removed = unit.run(|| ctx.with_store_mut(|s| s.remove(&raw_key)))?;
-                if removed.is_some()
-                    && let Some(raw_row) = raw_row
-                {
-                    let db = self.db;
-                    unit.record_rollback(move || {
-                        let ctx = db.context::<E>();
-                        let _ = ctx.with_store_mut(|s| {
-                            s.insert(raw_key, raw_row);
+                for row in &mut rows {
+                    let raw_key = row.key.to_raw();
+                    let raw_row = row.raw.take();
+                    let removed = unit.run(|| ctx.with_store_mut(|s| s.remove(&raw_key)))?;
+                    if removed.is_some()
+                        && let Some(raw_row) = raw_row
+                    {
+                        let db = self.db;
+                        unit.record_rollback(move || {
+                            let ctx = db.context::<E>();
+                            let _ = ctx.with_store_mut(|s| {
+                                s.insert(raw_key, raw_row);
+                            });
                         });
-                    });
+                    }
+                    unit.checkpoint("delete_after_data")?;
                 }
-                unit.checkpoint("delete_after_data")?;
+
+                unit.commit();
+                Ok(())
+            })?;
+
+            let res = rows
+                .into_iter()
+                .map(|row| (row.key.key(), row.entity))
+                .collect::<Vec<_>>();
+            set_rows_from_len(&mut span, res.len());
+
+            Ok(Response(res))
+        })();
+
+        if let Some(trace) = trace {
+            match &result {
+                Ok(resp) => trace.finish(u64::try_from(resp.0.len()).unwrap_or(u64::MAX)),
+                Err(err) => trace.error(err),
             }
+        }
 
-            unit.commit();
-            Ok(())
-        })?;
-
-        let res = rows
-            .into_iter()
-            .map(|row| (row.key.key(), row.entity))
-            .collect::<Vec<_>>();
-        set_rows_from_len(&mut span, res.len());
-
-        Ok(Response(res))
+        result
     }
 
     // ─────────────────────────────────────────────

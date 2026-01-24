@@ -2,14 +2,14 @@ use crate::{
     db::{
         Db,
         executor::ExecutorError,
-        query::v2::plan::AccessPath,
+        query::plan::AccessPath,
         store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorOrigin, InternalError},
     key::Key,
     traits::{EntityKind, Path},
 };
-use std::{marker::PhantomData, ops::Bound};
+use std::{collections::HashSet, marker::PhantomData, ops::Bound};
 
 ///
 /// Context
@@ -125,11 +125,12 @@ where
         match access {
             AccessPath::ByKey(key) => {
                 let data_keys = Self::to_data_keys(vec![*key]);
-                self.load_many(&data_keys)
+                self.load_many_lenient(&data_keys)
             }
             AccessPath::ByKeys(keys) => {
-                let data_keys = Self::to_data_keys(keys.clone());
-                self.load_many(&data_keys)
+                let keys = Self::dedup_keys(keys.clone());
+                let data_keys = Self::to_data_keys(keys);
+                self.load_many_lenient(&data_keys)
             }
             AccessPath::KeyRange { start, end } => {
                 let start = Self::to_data_key(*start);
@@ -168,11 +169,39 @@ where
         keys.into_iter().map(Self::to_data_key).collect()
     }
 
+    fn dedup_keys(keys: Vec<Key>) -> Vec<Key> {
+        let mut seen = HashSet::with_capacity(keys.len());
+        let mut out = Vec::with_capacity(keys.len());
+        for key in keys {
+            if seen.insert(key) {
+                out.push(key);
+            }
+        }
+        out
+    }
+
     fn load_many(&self, keys: &[DataKey]) -> Result<Vec<DataRow>, InternalError> {
         let mut out = Vec::with_capacity(keys.len());
         for k in keys {
             let row = self.read_strict(k)?;
             out.push((k.clone(), row));
+        }
+
+        Ok(out)
+    }
+
+    fn load_many_lenient(&self, keys: &[DataKey]) -> Result<Vec<DataRow>, InternalError> {
+        let mut out = Vec::with_capacity(keys.len());
+        for k in keys {
+            match self.read(k) {
+                Ok(row) => out.push((k.clone(), row)),
+                Err(err) => {
+                    if err.is_not_found() {
+                        continue;
+                    }
+                    return Err(err);
+                }
+            }
         }
 
         Ok(out)

@@ -1,5 +1,5 @@
 use crate::{
-    db::query::v2::predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
+    db::query::predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
     traits::FieldValue,
     value::Value,
 };

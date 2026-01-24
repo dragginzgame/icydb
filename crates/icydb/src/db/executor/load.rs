@@ -1,6 +1,6 @@
 use crate::{
     Error,
-    db::{map_response, map_runtime, query::v2::plan::LogicalPlan, response::Response},
+    db::{map_response, map_runtime, query::plan::LogicalPlan, response::Response},
     traits::EntityKind,
 };
 use icydb_core as core;
@@ -10,7 +10,7 @@ use std::{collections::HashMap, hash::Hash};
 /// LoadExecutor
 ///
 
-pub struct LoadExecutor<E: EntityKind> {
+pub(crate) struct LoadExecutor<E: EntityKind> {
     inner: core::db::executor::LoadExecutor<E>,
 }
 
@@ -19,23 +19,23 @@ impl<E: EntityKind> LoadExecutor<E> {
         Self { inner }
     }
 
-    /// Execute a v2 logical plan.
-    pub fn execute(&self, plan: LogicalPlan) -> Result<Response<E>, Error> {
+    /// Execute a logical plan.
+    pub(crate) fn execute(&self, plan: LogicalPlan) -> Result<Response<E>, Error> {
         map_response(self.inner.execute(plan))
     }
 
     /// Execute a plan and require exactly one row.
-    pub fn require_one(&self, plan: LogicalPlan) -> Result<(), Error> {
+    pub(crate) fn require_one(&self, plan: LogicalPlan) -> Result<(), Error> {
         map_runtime(self.inner.require_one(plan))
     }
 
     /// Count rows matching a plan.
-    pub fn count(&self, plan: LogicalPlan) -> Result<u32, Error> {
+    pub(crate) fn count(&self, plan: LogicalPlan) -> Result<u32, Error> {
         map_runtime(self.inner.count(plan))
     }
 
     /// Group rows matching a plan and count them by a derived key.
-    pub fn group_count_by<K, F>(
+    pub(crate) fn group_count_by<K, F>(
         &self,
         plan: LogicalPlan,
         key_fn: F,

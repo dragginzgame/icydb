@@ -8,6 +8,8 @@ use std::fmt::{self, Display};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IndexModel {
+    /// Stable index name used for diagnostics and planner identity.
+    pub name: &'static str,
     pub store: &'static str,
     pub fields: &'static [&'static str],
     pub unique: bool,
@@ -15,8 +17,14 @@ pub struct IndexModel {
 
 impl IndexModel {
     #[must_use]
-    pub const fn new(store: &'static str, fields: &'static [&'static str], unique: bool) -> Self {
+    pub const fn new(
+        name: &'static str,
+        store: &'static str,
+        fields: &'static [&'static str],
+        unique: bool,
+    ) -> Self {
         Self {
+            name,
             store,
             fields,
             unique,
@@ -35,9 +43,9 @@ impl Display for IndexModel {
         let fields = self.fields.join(", ");
 
         if self.unique {
-            write!(f, "UNIQUE {}({})", self.store, fields)
+            write!(f, "{}: UNIQUE {}({})", self.name, self.store, fields)
         } else {
-            write!(f, "{}({})", self.store, fields)
+            write!(f, "{}: {}({})", self.name, self.store, fields)
         }
     }
 }

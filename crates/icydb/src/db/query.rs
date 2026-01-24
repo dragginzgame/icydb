@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 /// Re-exports
 ///
 pub use core::db::query::SaveMode;
-pub use core::db::query::v2;
+/// Query planning types are exposed for diagnostics and introspection.
+/// Plans are not executable through the public API.
+pub use core::db::query::plan;
+pub use core::db::query::{builder, diagnostics, predicate};
 
 ///
 /// SaveQuery
@@ -56,18 +59,6 @@ impl From<SaveQuery> for icydb_core::db::query::SaveQuery {
     fn from(query: SaveQuery) -> Self {
         query.into_inner()
     }
-}
-
-/// Start building a full-scan v2 logical plan for load queries.
-#[must_use]
-pub const fn load() -> v2::plan::LogicalPlan {
-    v2::plan::LogicalPlan::new(v2::plan::AccessPath::FullScan)
-}
-
-/// Start building a full-scan v2 logical plan for delete queries.
-#[must_use]
-pub const fn delete() -> v2::plan::LogicalPlan {
-    v2::plan::LogicalPlan::new(v2::plan::AccessPath::FullScan)
 }
 
 /// Build an insert `SaveQuery`.

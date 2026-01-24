@@ -80,6 +80,7 @@ impl HasTraits for Newtype {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
 
+        traits.add(TraitKind::Inherent);
         traits.extend(vec![
             TraitKind::Deref,
             TraitKind::DerefMut,
@@ -126,6 +127,7 @@ impl HasTraits for Newtype {
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
+            TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::PartialEq => PartialEqTrait::strategy(self).map(|s| s.with_derive(t)),
             TraitKind::PartialOrd => PartialOrdTrait::strategy(self).map(|s| s.with_derive(t)),
 

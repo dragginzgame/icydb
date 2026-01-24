@@ -1,15 +1,19 @@
 //! Semantic planning from predicates to access strategies; must not assert invariants.
+//!
+//! Determinism: the planner canonicalizes output so the same model and
+//! predicate shape always produce identical access plans.
 
 use super::{AccessPath, AccessPlan, PlanError, canonical, validate_plan_invariants};
 use crate::{
     db::{
         index::fingerprint,
-        query::v2::predicate::{
-            CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo,
+        query::predicate::{
+            CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, normalize,
             validate::{FieldType, ScalarType, literal_matches_type},
         },
     },
     key::Key,
+    model::index::IndexModel,
     traits::EntityKind,
     value::Value,
 };
@@ -27,16 +31,29 @@ impl AccessPlan {
     }
 }
 
-pub fn plan_access<E: EntityKind>(predicate: Option<&Predicate>) -> Result<AccessPlan, PlanError> {
+/// Planner entrypoint that operates on a prebuilt schema surface.
+pub(crate) fn plan_access<E: EntityKind>(
+    schema: &SchemaInfo,
+    predicate: Option<&Predicate>,
+) -> Result<AccessPlan, PlanError> {
     let Some(predicate) = predicate else {
         return Ok(AccessPlan::full_scan());
     };
 
-    let schema = SchemaInfo::from_entity::<E>()?;
-    crate::db::query::v2::predicate::validate(&schema, predicate)?;
+    // Planner determinism guarantee:
+    // Given a validated EntityModel and normalized predicate, planning is pure and deterministic.
+    //
+    // Planner determinism rules:
+    // - Predicate normalization sorts AND/OR children by (field, operator, value, coercion).
+    // - Index candidates are considered in lexicographic IndexModel.name order.
+    // - Access paths are ranked: primary key lookups, exact index matches, prefix matches, full scans.
+    // - Order specs preserve user order after validation (planner does not reorder).
+    // - Field resolution uses SchemaInfo's name map (sorted by field name).
+    crate::db::query::predicate::validate(schema, predicate)?;
 
-    let plan = plan_predicate::<E>(&schema, predicate).normalize();
-    validate_plan_invariants::<E>(&plan, &schema, Some(predicate));
+    let normalized = normalize(predicate);
+    let plan = plan_predicate::<E>(schema, &normalized).normalize();
+    validate_plan_invariants::<E>(&plan, schema, Some(&normalized));
     Ok(plan)
 }
 
@@ -137,6 +154,12 @@ fn plan_pk_compare<E: EntityKind>(
     }
 }
 
+fn sorted_indexes<E: EntityKind>() -> Vec<&'static IndexModel> {
+    let mut indexes = E::INDEXES.to_vec();
+    indexes.sort_by(|left, right| left.name.cmp(right.name));
+    indexes
+}
+
 fn index_prefix_for_eq<E: EntityKind>(
     schema: &SchemaInfo,
     field: &str,
@@ -151,12 +174,12 @@ fn index_prefix_for_eq<E: EntityKind>(
     fingerprint::to_index_fingerprint(value)?;
 
     let mut out = Vec::new();
-    for index in E::INDEXES {
+    for index in sorted_indexes::<E>() {
         if index.fields.first() != Some(&field) {
             continue;
         }
         out.push(AccessPlan::Path(AccessPath::IndexPrefix {
-            index: **index,
+            index: *index,
             values: vec![value.clone()],
         }));
     }
@@ -183,7 +206,8 @@ fn index_prefix_from_and<E: EntityKind>(
         field_values.push((cmp.field.as_str(), &cmp.value));
     }
 
-    for index in E::INDEXES {
+    let mut best: Option<(usize, bool, &IndexModel, Vec<Value>)> = None;
+    for index in sorted_indexes::<E>() {
         let mut prefix = Vec::new();
         for field in index.fields {
             let Some((_, value)) = field_values.iter().find(|(name, _)| *name == *field) else {
@@ -201,15 +225,40 @@ fn index_prefix_from_and<E: EntityKind>(
             prefix.push((*value).clone());
         }
 
-        if !prefix.is_empty() {
-            return Some(AccessPath::IndexPrefix {
-                index: **index,
-                values: prefix,
-            });
+        if prefix.is_empty() {
+            continue;
+        }
+
+        let exact = prefix.len() == index.fields.len();
+        match &best {
+            None => best = Some((prefix.len(), exact, index, prefix)),
+            Some((best_len, best_exact, best_index, _)) => {
+                if better_index(
+                    (prefix.len(), exact, index),
+                    (*best_len, *best_exact, best_index),
+                ) {
+                    best = Some((prefix.len(), exact, index, prefix));
+                }
+            }
         }
     }
 
-    None
+    best.map(|(_, _, index, values)| AccessPath::IndexPrefix {
+        index: *index,
+        values,
+    })
+}
+
+fn better_index(
+    candidate: (usize, bool, &IndexModel),
+    current: (usize, bool, &IndexModel),
+) -> bool {
+    let (cand_len, cand_exact, cand_index) = candidate;
+    let (best_len, best_exact, best_index) = current;
+
+    cand_len > best_len
+        || (cand_len == best_len && cand_exact && !best_exact)
+        || (cand_len == best_len && cand_exact == best_exact && cand_index.name < best_index.name)
 }
 
 fn normalize_union(children: Vec<AccessPlan>) -> AccessPlan {
@@ -334,7 +383,12 @@ const fn key_type_for_field(field_type: &FieldType) -> Option<KeyVariant> {
 mod tests {
     use super::*;
     use crate::{
-        db::query::v2::predicate::coercion::CoercionSpec,
+        db::query::predicate::SchemaInfo,
+        db::query::predicate::coercion::CoercionSpec,
+        model::{
+            entity::EntityModel,
+            field::{EntityFieldKind, EntityFieldModel},
+        },
         prelude::IndexModel,
         traits::{
             CanisterKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind, ValidateAuto,
@@ -343,26 +397,46 @@ mod tests {
         types::Ulid,
         value::Value,
     };
-    use icydb_schema::{
-        build::schema_write,
-        node::{
-            Canister, Def, Entity, Field, FieldList, Index, Item, ItemTarget, SchemaNode, Store,
-            Type, Value as SchemaValue,
-        },
-        types::{Cardinality, Primitive, StoreType},
-    };
     use serde::{Deserialize, Serialize};
-    use std::sync::Once;
 
-    const TEST_MODULE: &str = "planner_test";
     const CANISTER_PATH: &str = "planner_test::PlannerCanister";
     const DATA_STORE_PATH: &str = "planner_test::PlannerData";
     const INDEX_STORE_PATH: &str = "planner_test::PlannerIndex";
     const ENTITY_PATH: &str = "planner_test::PlannerEntity";
 
     const INDEX_FIELDS: [&str; 2] = ["idx_a", "idx_b"];
-    const INDEX_MODEL: IndexModel = IndexModel::new(INDEX_STORE_PATH, &INDEX_FIELDS, false);
+    const INDEX_MODEL: IndexModel = IndexModel::new(
+        "planner_test::idx_a_idx_b",
+        INDEX_STORE_PATH,
+        &INDEX_FIELDS,
+        false,
+    );
     const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
+    const PLANNER_FIELDS: [EntityFieldModel; 4] = [
+        EntityFieldModel {
+            name: "id",
+            kind: EntityFieldKind::Ulid,
+        },
+        EntityFieldModel {
+            name: "idx_a",
+            kind: EntityFieldKind::Text,
+        },
+        EntityFieldModel {
+            name: "idx_b",
+            kind: EntityFieldKind::Text,
+        },
+        EntityFieldModel {
+            name: "other",
+            kind: EntityFieldKind::Text,
+        },
+    ];
+    const PLANNER_MODEL: EntityModel = EntityModel {
+        path: ENTITY_PATH,
+        entity_name: "PlannerEntity",
+        primary_key: &PLANNER_FIELDS[0],
+        fields: &PLANNER_FIELDS,
+        indexes: &INDEXES,
+    };
 
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     pub struct PlannerEntity {
@@ -433,6 +507,7 @@ mod tests {
         const PRIMARY_KEY: &'static str = "id";
         const FIELDS: &'static [&'static str] = &["id", "idx_a", "idx_b", "other"];
         const INDEXES: &'static [&'static IndexModel] = &INDEXES;
+        const MODEL: &'static EntityModel = &PLANNER_MODEL;
 
         fn key(&self) -> Key {
             self.id.into()
@@ -447,134 +522,119 @@ mod tests {
         }
     }
 
-    static INIT_SCHEMA: Once = Once::new();
+    const MULTI_ENTITY_PATH: &str = "planner_test::MultiIndexEntity";
 
-    #[allow(clippy::too_many_lines)]
-    fn init_schema() {
-        INIT_SCHEMA.call_once(|| {
-            static INDEXES: [Index; 1] = [Index {
-                store: INDEX_STORE_PATH,
-                fields: &INDEX_FIELDS,
-                unique: false,
-            }];
+    const MULTI_INDEX_FIELDS_A: [&str; 1] = ["idx_a"];
+    const MULTI_INDEX_FIELDS_AB: [&str; 2] = ["idx_a", "idx_b"];
 
-            static FIELDS: [Field; 4] = [
-                Field {
-                    ident: "id",
-                    value: SchemaValue {
-                        cardinality: Cardinality::One,
-                        item: Item {
-                            target: ItemTarget::Primitive(Primitive::Ulid),
-                            relation: None,
-                            validators: &[],
-                            sanitizers: &[],
-                            indirect: false,
-                        },
-                    },
-                    default: None,
-                },
-                Field {
-                    ident: "idx_a",
-                    value: SchemaValue {
-                        cardinality: Cardinality::One,
-                        item: Item {
-                            target: ItemTarget::Primitive(Primitive::Text),
-                            relation: None,
-                            validators: &[],
-                            sanitizers: &[],
-                            indirect: false,
-                        },
-                    },
-                    default: None,
-                },
-                Field {
-                    ident: "idx_b",
-                    value: SchemaValue {
-                        cardinality: Cardinality::One,
-                        item: Item {
-                            target: ItemTarget::Primitive(Primitive::Text),
-                            relation: None,
-                            validators: &[],
-                            sanitizers: &[],
-                            indirect: false,
-                        },
-                    },
-                    default: None,
-                },
-                Field {
-                    ident: "other",
-                    value: SchemaValue {
-                        cardinality: Cardinality::One,
-                        item: Item {
-                            target: ItemTarget::Primitive(Primitive::Text),
-                            relation: None,
-                            validators: &[],
-                            sanitizers: &[],
-                            indirect: false,
-                        },
-                    },
-                    default: None,
-                },
-            ];
+    const MULTI_INDEX_A: IndexModel = IndexModel::new(
+        "planner_test::idx_a",
+        INDEX_STORE_PATH,
+        &MULTI_INDEX_FIELDS_A,
+        false,
+    );
+    const MULTI_INDEX_A_ALT: IndexModel = IndexModel::new(
+        "planner_test::idx_a_alt",
+        INDEX_STORE_PATH,
+        &MULTI_INDEX_FIELDS_A,
+        false,
+    );
+    const MULTI_INDEX_AB: IndexModel = IndexModel::new(
+        "planner_test::idx_a_b",
+        INDEX_STORE_PATH,
+        &MULTI_INDEX_FIELDS_AB,
+        false,
+    );
+    const MULTI_INDEXES: [&IndexModel; 3] = [&MULTI_INDEX_AB, &MULTI_INDEX_A_ALT, &MULTI_INDEX_A];
 
-            let mut schema = schema_write();
+    const MULTI_FIELDS: [EntityFieldModel; 3] = [
+        EntityFieldModel {
+            name: "id",
+            kind: EntityFieldKind::Ulid,
+        },
+        EntityFieldModel {
+            name: "idx_a",
+            kind: EntityFieldKind::Text,
+        },
+        EntityFieldModel {
+            name: "idx_b",
+            kind: EntityFieldKind::Text,
+        },
+    ];
+    const MULTI_MODEL: EntityModel = EntityModel {
+        path: MULTI_ENTITY_PATH,
+        entity_name: "MultiIndexEntity",
+        primary_key: &MULTI_FIELDS[0],
+        fields: &MULTI_FIELDS,
+        indexes: &MULTI_INDEXES,
+    };
 
-            let canister = Canister {
-                def: Def {
-                    module_path: TEST_MODULE,
-                    ident: "PlannerCanister",
-                    comments: None,
-                },
-                memory_min: 0,
-                memory_max: 1,
-            };
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    struct MultiIndexEntity {
+        id: Ulid,
+        idx_a: String,
+        idx_b: String,
+    }
 
-            let data_store = Store {
-                def: Def {
-                    module_path: TEST_MODULE,
-                    ident: "PlannerData",
-                    comments: None,
-                },
-                ident: "PLANNER_DATA",
-                ty: StoreType::Data,
-                canister: CANISTER_PATH,
-                memory_id: 0,
-            };
+    impl Path for MultiIndexEntity {
+        const PATH: &'static str = MULTI_ENTITY_PATH;
+    }
 
-            let index_store = Store {
-                def: Def {
-                    module_path: TEST_MODULE,
-                    ident: "PlannerIndex",
-                    comments: None,
-                },
-                ident: "PLANNER_INDEX",
-                ty: StoreType::Index,
-                canister: CANISTER_PATH,
-                memory_id: 1,
-            };
+    impl View for MultiIndexEntity {
+        type ViewType = Self;
 
-            let entity = Entity {
-                def: Def {
-                    module_path: TEST_MODULE,
-                    ident: "PlannerEntity",
-                    comments: None,
-                },
-                store: DATA_STORE_PATH,
-                primary_key: "id",
-                name: None,
-                indexes: &INDEXES,
-                fields: FieldList { fields: &FIELDS },
-                ty: Type {
-                    sanitizers: &[],
-                    validators: &[],
-                },
-            };
+        fn to_view(&self) -> Self::ViewType {
+            self.clone()
+        }
 
-            schema.insert_node(SchemaNode::Canister(canister));
-            schema.insert_node(SchemaNode::Store(data_store));
-            schema.insert_node(SchemaNode::Store(index_store));
-            schema.insert_node(SchemaNode::Entity(entity));
-        });
+        fn from_view(view: Self::ViewType) -> Self {
+            view
+        }
+    }
+
+    impl SanitizeAuto for MultiIndexEntity {}
+    impl SanitizeCustom for MultiIndexEntity {}
+    impl ValidateAuto for MultiIndexEntity {}
+    impl ValidateCustom for MultiIndexEntity {}
+    impl Visitable for MultiIndexEntity {}
+
+    impl FieldValues for MultiIndexEntity {
+        fn get_value(&self, field: &str) -> Option<Value> {
+            match field {
+                "id" => Some(Value::Ulid(self.id)),
+                "idx_a" => Some(Value::Text(self.idx_a.clone())),
+                "idx_b" => Some(Value::Text(self.idx_b.clone())),
+                _ => None,
+            }
+        }
+    }
+
+    impl EntityKind for MultiIndexEntity {
+        type PrimaryKey = Ulid;
+        type Store = PlannerStore;
+        type Canister = PlannerCanister;
+
+        const ENTITY_NAME: &'static str = "MultiIndexEntity";
+        const PRIMARY_KEY: &'static str = "id";
+        const FIELDS: &'static [&'static str] = &["id", "idx_a", "idx_b"];
+        const INDEXES: &'static [&'static IndexModel] = &MULTI_INDEXES;
+        const MODEL: &'static EntityModel = &MULTI_MODEL;
+
+        fn key(&self) -> Key {
+            self.id.into()
+        }
+
+        fn primary_key(&self) -> Self::PrimaryKey {
+            self.id
+        }
+
+        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+            self.id = key;
+        }
+    }
+
+    fn model_schema() -> SchemaInfo {
+        SchemaInfo::from_entity_model(PlannerEntity::MODEL).expect("valid model")
     }
 
     fn strict() -> CoercionSpec {
@@ -609,21 +669,21 @@ mod tests {
 
     #[test]
     fn pk_eq_strict_plans_by_key() {
-        init_schema();
+        let schema = model_schema();
         let id = Ulid::default();
         let predicate = eq("id", Value::Ulid(id), strict());
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(plan, AccessPlan::Path(AccessPath::ByKey(Key::Ulid(id))));
     }
 
     #[test]
     fn pk_in_strict_plans_by_keys() {
-        init_schema();
+        let schema = model_schema();
         let a = Ulid::default();
         let b = Ulid::from_bytes([1u8; 16]);
         let predicate = in_list("id", vec![Value::Ulid(a), Value::Ulid(b)], strict());
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(
             plan,
@@ -633,19 +693,19 @@ mod tests {
 
     #[test]
     fn pk_eq_non_strict_falls_back_to_full_scan() {
-        init_schema();
+        let schema = model_schema();
         let id = Ulid::default();
         let predicate = eq("id", Value::Ulid(id), non_strict());
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(plan, AccessPlan::Path(AccessPath::FullScan));
     }
 
     #[test]
     fn index_eq_strict_plans_prefix() {
-        init_schema();
+        let schema = model_schema();
         let predicate = eq("idx_a", v_text("alpha"), strict());
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(
             plan,
@@ -658,9 +718,9 @@ mod tests {
 
     #[test]
     fn index_in_strict_plans_union_of_prefixes() {
-        init_schema();
+        let schema = model_schema();
         let predicate = in_list("idx_a", vec![v_text("a"), v_text("b")], strict());
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(
             plan,
@@ -679,66 +739,66 @@ mod tests {
 
     #[test]
     fn index_non_first_field_falls_back_to_full_scan() {
-        init_schema();
+        let schema = model_schema();
         let predicate = eq("idx_b", v_text("beta"), strict());
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(plan, AccessPlan::Path(AccessPath::FullScan));
     }
 
     #[test]
     fn index_non_strict_falls_back_to_full_scan() {
-        init_schema();
+        let schema = model_schema();
         let predicate = eq("idx_a", v_text("alpha"), non_strict());
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(plan, AccessPlan::Path(AccessPath::FullScan));
     }
 
     #[test]
     fn and_two_indexable_predicates_intersect() {
-        init_schema();
+        let schema = model_schema();
         let id = Ulid::default();
         let predicate = Predicate::And(vec![
             eq("id", Value::Ulid(id), strict()),
             eq("idx_a", v_text("alpha"), strict()),
         ]);
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(
             plan,
             AccessPlan::Intersection(vec![
+                AccessPlan::Path(AccessPath::ByKey(Key::Ulid(id))),
                 AccessPlan::Path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
                     values: vec![v_text("alpha")],
                 }),
-                AccessPlan::Path(AccessPath::ByKey(Key::Ulid(id))),
             ])
         );
     }
 
     #[test]
     fn and_indexable_with_non_indexable_normalizes_to_indexable() {
-        init_schema();
+        let schema = model_schema();
         let id = Ulid::default();
         let predicate = Predicate::And(vec![
             eq("id", Value::Ulid(id), strict()),
             eq("other", v_text("x"), strict()),
         ]);
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(plan, AccessPlan::Path(AccessPath::ByKey(Key::Ulid(id))));
     }
 
     #[test]
     fn mixed_pk_non_strict_and_index_strict_does_not_plan_by_key() {
-        init_schema();
+        let schema = model_schema();
         let id = Ulid::default();
         let predicate = Predicate::And(vec![
             eq("id", Value::Ulid(id), non_strict()),
             eq("idx_a", v_text("alpha"), strict()),
         ]);
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(
             plan,
@@ -751,35 +811,35 @@ mod tests {
 
     #[test]
     fn and_non_indexable_predicates_fall_back_to_full_scan() {
-        init_schema();
+        let schema = model_schema();
         let predicate = Predicate::And(vec![
             eq("idx_b", v_text("beta"), strict()),
             eq("other", v_text("x"), strict()),
         ]);
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(plan, AccessPlan::Path(AccessPath::FullScan));
     }
 
     #[test]
     fn composite_prefix_requires_strict_coercions() {
-        init_schema();
+        let schema = model_schema();
         let predicate = Predicate::And(vec![
             eq("idx_a", v_text("a"), strict()),
             eq("idx_b", v_text("b"), strict()),
         ]);
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(
             plan,
             AccessPlan::Intersection(vec![
                 AccessPlan::Path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
-                    values: vec![v_text("a")],
+                    values: vec![v_text("a"), v_text("b")],
                 }),
                 AccessPlan::Path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
-                    values: vec![v_text("a"), v_text("b")],
+                    values: vec![v_text("a")],
                 }),
             ])
         );
@@ -788,7 +848,8 @@ mod tests {
             eq("idx_a", v_text("a"), strict()),
             eq("idx_b", v_text("b"), non_strict()),
         ]);
-        let non_strict_plan = plan_access::<PlannerEntity>(Some(&non_strict_predicate)).unwrap();
+        let non_strict_plan =
+            plan_access::<PlannerEntity>(&schema, Some(&non_strict_predicate)).unwrap();
 
         assert_eq!(
             non_strict_plan,
@@ -800,47 +861,76 @@ mod tests {
     }
 
     #[test]
+    fn index_prefix_from_and_prefers_longest_prefix_then_name() {
+        let schema = SchemaInfo::from_entity_model(MultiIndexEntity::MODEL).expect("valid model");
+
+        let children = vec![
+            eq("idx_a", v_text("alpha"), strict()),
+            eq("idx_b", v_text("beta"), strict()),
+        ];
+        let first =
+            index_prefix_from_and::<MultiIndexEntity>(&schema, &children).expect("index prefix");
+        let second =
+            index_prefix_from_and::<MultiIndexEntity>(&schema, &children).expect("index prefix");
+        assert_eq!(first, second);
+
+        let AccessPath::IndexPrefix { index, values } = first else {
+            panic!("expected index prefix path");
+        };
+        assert_eq!(index.name, "planner_test::idx_a_b");
+        assert_eq!(values, vec![v_text("alpha"), v_text("beta")]);
+
+        let children = vec![eq("idx_a", v_text("alpha"), strict())];
+        let AccessPath::IndexPrefix { index, .. } =
+            index_prefix_from_and::<MultiIndexEntity>(&schema, &children).expect("index prefix")
+        else {
+            panic!("expected index prefix path");
+        };
+        assert_eq!(index.name, "planner_test::idx_a");
+    }
+
+    #[test]
     fn or_two_indexable_predicates_union() {
-        init_schema();
+        let schema = model_schema();
         let id = Ulid::default();
         let predicate = Predicate::Or(vec![
             eq("id", Value::Ulid(id), strict()),
             eq("idx_a", v_text("alpha"), strict()),
         ]);
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(
             plan,
             AccessPlan::Union(vec![
+                AccessPlan::Path(AccessPath::ByKey(Key::Ulid(id))),
                 AccessPlan::Path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
                     values: vec![v_text("alpha")],
                 }),
-                AccessPlan::Path(AccessPath::ByKey(Key::Ulid(id))),
             ])
         );
     }
 
     #[test]
     fn or_indexable_with_non_indexable_normalizes_to_full_scan() {
-        init_schema();
+        let schema = model_schema();
         let predicate = Predicate::Or(vec![
             eq("idx_a", v_text("alpha"), strict()),
             eq("other", v_text("x"), strict()),
         ]);
-        let plan = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(plan, AccessPlan::Path(AccessPath::FullScan));
     }
 
     #[test]
     fn empty_and_or_normalize_to_full_scan() {
-        init_schema();
+        let schema = model_schema();
         let empty_and = Predicate::And(Vec::new());
         let empty_or = Predicate::Or(Vec::new());
 
-        let and_plan = plan_access::<PlannerEntity>(Some(&empty_and)).unwrap();
-        let or_plan = plan_access::<PlannerEntity>(Some(&empty_or)).unwrap();
+        let and_plan = plan_access::<PlannerEntity>(&schema, Some(&empty_and)).unwrap();
+        let or_plan = plan_access::<PlannerEntity>(&schema, Some(&empty_or)).unwrap();
 
         assert_eq!(and_plan, AccessPlan::Path(AccessPath::FullScan));
         assert_eq!(or_plan, AccessPlan::Path(AccessPath::FullScan));
@@ -848,7 +938,7 @@ mod tests {
 
     #[test]
     fn nested_or_and_flatten_deterministically() {
-        init_schema();
+        let schema = model_schema();
         let id = Ulid::default();
         let nested = Predicate::Or(vec![
             Predicate::Or(vec![eq("idx_a", v_text("alpha"), strict())]),
@@ -859,15 +949,15 @@ mod tests {
             eq("idx_a", v_text("alpha"), strict()),
         ]);
 
-        let nested_plan = plan_access::<PlannerEntity>(Some(&nested)).unwrap();
-        let direct_plan = plan_access::<PlannerEntity>(Some(&direct)).unwrap();
+        let nested_plan = plan_access::<PlannerEntity>(&schema, Some(&nested)).unwrap();
+        let direct_plan = plan_access::<PlannerEntity>(&schema, Some(&direct)).unwrap();
 
         assert_eq!(nested_plan, direct_plan);
     }
 
     #[test]
     fn predicate_order_does_not_change_access_plan() {
-        init_schema();
+        let schema = model_schema();
         let a = Predicate::And(vec![
             eq("id", Value::Ulid(Ulid::default()), strict()),
             eq("idx_a", v_text("alpha"), strict()),
@@ -877,19 +967,19 @@ mod tests {
             eq("id", Value::Ulid(Ulid::default()), strict()),
         ]);
 
-        let plan_a = plan_access::<PlannerEntity>(Some(&a)).unwrap();
-        let plan_b = plan_access::<PlannerEntity>(Some(&b)).unwrap();
+        let plan_a = plan_access::<PlannerEntity>(&schema, Some(&a)).unwrap();
+        let plan_b = plan_access::<PlannerEntity>(&schema, Some(&b)).unwrap();
 
         assert_eq!(plan_a, plan_b);
     }
 
     #[test]
     fn deterministic_output_across_runs() {
-        init_schema();
+        let schema = model_schema();
         let predicate = eq("idx_a", v_text("alpha"), strict());
 
-        let plan_a = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
-        let plan_b = plan_access::<PlannerEntity>(Some(&predicate)).unwrap();
+        let plan_a = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
+        let plan_b = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
         assert_eq!(plan_a, plan_b);
     }

@@ -1,5 +1,5 @@
 use crate::{
-    model::{entity::EntityModel, field::EntityFieldKind},
+    model::{entity::EntityModel, field::EntityFieldKind, index::IndexModel},
     traits::EntityKind,
     value::{Value, ValueFamily, ValueFamilyExt},
 };
@@ -11,12 +11,33 @@ use icydb_schema::{
     },
     types::{Cardinality, Primitive},
 };
-use std::{collections::BTreeMap, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use super::{
     ast::{CompareOp, ComparePredicate, Predicate},
     coercion::{CoercionId, CoercionSpec, supports_coercion},
 };
+
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+thread_local! {
+    static SCHEMA_LOOKUP_CALLED: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_schema_lookup_called() {
+    SCHEMA_LOOKUP_CALLED.with(|flag| flag.set(false));
+}
+
+#[cfg(test)]
+pub(crate) fn schema_lookup_called() -> bool {
+    SCHEMA_LOOKUP_CALLED.with(Cell::get)
+}
 
 ///
 /// ScalarType
@@ -191,6 +212,67 @@ impl FieldType {
             _ => false,
         }
     }
+
+    #[must_use]
+    pub const fn is_keyable(&self) -> bool {
+        matches!(
+            self,
+            Self::Scalar(
+                ScalarType::Account
+                    | ScalarType::Int
+                    | ScalarType::Principal
+                    | ScalarType::Subaccount
+                    | ScalarType::Timestamp
+                    | ScalarType::Uint
+                    | ScalarType::Ulid
+                    | ScalarType::Unit
+            )
+        )
+    }
+}
+
+fn validate_index_fields(
+    fields: &BTreeMap<String, FieldType>,
+    indexes: &[&IndexModel],
+) -> Result<(), ValidateError> {
+    let mut seen_names = BTreeSet::new();
+    for index in indexes {
+        if seen_names.contains(index.name) {
+            return Err(ValidateError::DuplicateIndexName {
+                name: index.name.to_string(),
+            });
+        }
+        seen_names.insert(index.name);
+
+        let mut seen = BTreeSet::new();
+        for field in index.fields {
+            if !fields.contains_key(*field) {
+                return Err(ValidateError::IndexFieldUnknown {
+                    index: **index,
+                    field: (*field).to_string(),
+                });
+            }
+            if seen.contains(*field) {
+                return Err(ValidateError::IndexFieldDuplicate {
+                    index: **index,
+                    field: (*field).to_string(),
+                });
+            }
+            seen.insert(*field);
+
+            let field_type = fields
+                .get(*field)
+                .expect("index field existence checked above");
+            if matches!(field_type, FieldType::Unsupported) {
+                return Err(ValidateError::IndexFieldUnsupported {
+                    index: **index,
+                    field: (*field).to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(())
 }
 
 ///
@@ -219,7 +301,12 @@ impl SchemaInfo {
         self.fields.get(name)
     }
 
-    pub fn from_entity_path(path: &str) -> Result<Self, ValidateError> {
+    /// Legacy schema lookup for schema-based callers.
+    /// Model-based paths should prefer `from_entity_model`.
+    pub(crate) fn from_entity_path(path: &str) -> Result<Self, ValidateError> {
+        #[cfg(test)]
+        SCHEMA_LOOKUP_CALLED.with(|flag| flag.set(true));
+
         let schema =
             get_schema().map_err(|err| ValidateError::SchemaUnavailable(err.to_string()))?;
         let entity = schema
@@ -229,7 +316,7 @@ impl SchemaInfo {
         Ok(Self::from_entity_schema(entity, &schema))
     }
 
-    pub fn from_entity<E: EntityKind>() -> Result<Self, ValidateError> {
+    pub(crate) fn from_entity<E: EntityKind>() -> Result<Self, ValidateError> {
         Self::from_entity_path(E::PATH)
     }
 
@@ -248,21 +335,44 @@ impl SchemaInfo {
         Self { fields }
     }
 
-    #[must_use]
-    pub fn from_entity_model(model: &EntityModel) -> Self {
-        let fields = model
+    pub fn from_entity_model(model: &EntityModel) -> Result<Self, ValidateError> {
+        if !model
             .fields
             .iter()
-            .map(|field| {
-                let ty = field_type_from_model_kind(&field.kind);
-                (field.name.to_string(), ty)
-            })
-            .collect::<BTreeMap<_, _>>();
+            .any(|field| std::ptr::eq(field, model.primary_key))
+        {
+            return Err(ValidateError::InvalidPrimaryKey {
+                field: model.primary_key.name.to_string(),
+            });
+        }
 
-        Self { fields }
+        let mut fields = BTreeMap::new();
+        for field in model.fields {
+            if fields.contains_key(field.name) {
+                return Err(ValidateError::DuplicateField {
+                    field: field.name.to_string(),
+                });
+            }
+            let ty = field_type_from_model_kind(&field.kind);
+            fields.insert(field.name.to_string(), ty);
+        }
+
+        let pk_field_type = fields
+            .get(model.primary_key.name)
+            .expect("primary key verified above");
+        if !pk_field_type.is_keyable() {
+            return Err(ValidateError::InvalidPrimaryKeyType {
+                field: model.primary_key.name.to_string(),
+            });
+        }
+
+        validate_index_fields(&fields, model.indexes)?;
+
+        Ok(Self { fields })
     }
 }
 
+/// Predicate/schema validation failures, including invalid model contracts.
 #[derive(Debug, thiserror::Error)]
 pub enum ValidateError {
     #[error("unknown field '{field}'")]
@@ -270,6 +380,27 @@ pub enum ValidateError {
 
     #[error("unsupported field type for '{field}'")]
     UnsupportedFieldType { field: String },
+
+    #[error("duplicate field '{field}'")]
+    DuplicateField { field: String },
+
+    #[error("primary key '{field}' not present in entity fields")]
+    InvalidPrimaryKey { field: String },
+
+    #[error("primary key '{field}' has an unsupported type")]
+    InvalidPrimaryKeyType { field: String },
+
+    #[error("index '{index}' references unknown field '{field}'")]
+    IndexFieldUnknown { index: IndexModel, field: String },
+
+    #[error("index '{index}' references unsupported field '{field}'")]
+    IndexFieldUnsupported { index: IndexModel, field: String },
+
+    #[error("index '{index}' repeats field '{field}'")]
+    IndexFieldDuplicate { index: IndexModel, field: String },
+
+    #[error("duplicate index name '{name}'")]
+    DuplicateIndexName { name: String },
 
     #[error("operator {op} is not valid for field '{field}'")]
     InvalidOperator { field: String, op: String },
@@ -340,7 +471,7 @@ pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), Valida
 }
 
 pub fn validate_model(model: &EntityModel, predicate: &Predicate) -> Result<(), ValidateError> {
-    let schema = SchemaInfo::from_entity_model(model);
+    let schema = SchemaInfo::from_entity_model(model)?;
     validate(&schema, predicate)
 }
 
@@ -823,7 +954,7 @@ impl fmt::Display for FieldType {
 mod tests {
     use super::{ValidateError, validate_model};
     use crate::{
-        db::query::v2::{
+        db::query::{
             builder::{eq, eq_ci, is_empty, is_not_empty, lt, map_contains_entry},
             predicate::{CoercionId, Predicate},
         },
@@ -879,19 +1010,16 @@ mod tests {
     fn validate_model_accepts_collections_and_map_contains() {
         let model = model_with_fields(
             vec![
-                field(
-                    "tags",
-                    EntityFieldKind::List(Box::new(EntityFieldKind::Text)),
-                ),
+                field("tags", EntityFieldKind::List(&EntityFieldKind::Text)),
                 field(
                     "principals",
-                    EntityFieldKind::Set(Box::new(EntityFieldKind::Principal)),
+                    EntityFieldKind::Set(&EntityFieldKind::Principal),
                 ),
                 field(
                     "attributes",
                     EntityFieldKind::Map {
-                        key: Box::new(EntityFieldKind::Text),
-                        value: Box::new(EntityFieldKind::Uint),
+                        key: &EntityFieldKind::Text,
+                        value: &EntityFieldKind::Uint,
                     },
                 ),
             ],

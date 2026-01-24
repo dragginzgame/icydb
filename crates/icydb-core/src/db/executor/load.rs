@@ -1,10 +1,13 @@
 use crate::{
     db::{
         Db,
-        executor::plan::{record_plan_metrics, set_rows_from_len},
-        query::v2::{
-            plan::{LogicalPlan, OrderDirection, OrderSpec, validate_plan},
-            predicate::{eval as eval_v2, normalize as normalize_v2},
+        executor::{
+            plan::{record_plan_metrics, set_rows_from_len},
+            trace::{QueryTraceSink, TraceExecutorKind, start_plan_trace},
+        },
+        query::{
+            plan::{LogicalPlan, OrderDirection, OrderSpec, validate_plan_with_model},
+            predicate::{eval as eval_predicate, normalize as normalize_predicate},
         },
         response::Response,
     },
@@ -23,6 +26,7 @@ use std::{cmp::Ordering, collections::HashMap, hash::Hash, marker::PhantomData};
 pub struct LoadExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
+    trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
@@ -36,8 +40,19 @@ impl<E: EntityKind> LoadExecutor<E> {
         Self {
             db,
             debug,
+            trace: None,
             _marker: PhantomData,
         }
+    }
+
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) const fn with_trace_sink(
+        mut self,
+        sink: Option<&'static dyn QueryTraceSink>,
+    ) -> Self {
+        self.trace = sink;
+        self
     }
 
     fn debug_log(&self, s: impl Into<String>) {
@@ -50,84 +65,96 @@ impl<E: EntityKind> LoadExecutor<E> {
     // Execution
     // ======================================================================
 
-    /// Execute a v2 logical plan directly (no planner inference).
+    /// Execute a logical plan directly (no planner inference).
     pub fn execute(&self, plan: LogicalPlan) -> Result<Response<E>, InternalError> {
-        let mut span = Span::<E>::new(ExecKind::Load);
-        validate_plan::<E>(&plan).map_err(|err| {
-            InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
-        })?;
-        plan.debug_validate::<E>();
+        let trace = start_plan_trace(self.trace, TraceExecutorKind::Load, &plan);
+        let result = (|| {
+            let mut span = Span::<E>::new(ExecKind::Load);
+            validate_plan_with_model(&plan, E::MODEL).map_err(|err| {
+                InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+            })?;
+            plan.debug_validate_with_model(E::MODEL);
 
-        self.debug_log(format!("🧭 Executing v2 plan on {}", E::PATH));
+            self.debug_log(format!("🧭 Executing plan on {}", E::PATH));
 
-        let ctx = self.db.context::<E>();
-        record_plan_metrics(&plan.access);
+            let ctx = self.db.context::<E>();
+            record_plan_metrics(&plan.access);
 
-        let data_rows = ctx.rows_from_access(&plan.access)?;
-        sink::record(MetricsEvent::RowsScanned {
-            entity_path: E::PATH,
-            rows_scanned: data_rows.len() as u64,
-        });
+            let data_rows = ctx.rows_from_access(&plan.access)?;
+            sink::record(MetricsEvent::RowsScanned {
+                entity_path: E::PATH,
+                rows_scanned: data_rows.len() as u64,
+            });
 
-        self.debug_log(format!(
-            "📦 Scanned {} data rows before deserialization",
-            data_rows.len()
-        ));
-
-        let mut rows = ctx.deserialize_rows(data_rows)?;
-        self.debug_log(format!(
-            "🧩 Deserialized {} entities before filtering",
-            rows.len()
-        ));
-
-        // Predicate (always post-fetch for v2)
-        let normalized = plan.predicate.as_ref().map(normalize_v2);
-        let filtered = if let Some(predicate) = normalized.as_ref() {
-            rows.retain(|(_, entity)| eval_v2(entity, predicate));
             self.debug_log(format!(
-                "🔎 Applied v2 predicate -> {} entities remaining",
+                "📦 Scanned {} data rows before deserialization",
+                data_rows.len()
+            ));
+
+            let mut rows = ctx.deserialize_rows(data_rows)?;
+            self.debug_log(format!(
+                "🧩 Deserialized {} entities before filtering",
                 rows.len()
             ));
-            true
-        } else {
-            false
-        };
 
-        // Ordering
-        let ordered = if let Some(order) = &plan.order
-            && rows.len() > 1
-            && !order.fields.is_empty()
-        {
-            debug_assert!(
-                plan.predicate.is_none() || filtered,
-                "executor invariant violated: ordering must run after filtering"
-            );
-            apply_order_spec(&mut rows, order);
-            self.debug_log("↕️ Applied v2 order spec");
-            true
-        } else {
-            false
-        };
+            // Predicate (always post-fetch for this planner)
+            let normalized = plan.predicate.as_ref().map(normalize_predicate);
+            let filtered = if let Some(predicate) = normalized.as_ref() {
+                rows.retain(|(_, entity)| eval_predicate(entity, predicate));
+                self.debug_log(format!(
+                    "🔎 Applied predicate -> {} entities remaining",
+                    rows.len()
+                ));
+                true
+            } else {
+                false
+            };
 
-        // Pagination
-        if let Some(page) = &plan.page {
-            debug_assert!(
-                plan.order.is_none() || ordered,
-                "executor invariant violated: pagination must run after ordering"
-            );
-            apply_pagination(&mut rows, page.offset, page.limit);
-            self.debug_log(format!(
-                "📏 Applied v2 pagination (offset={}, limit={:?}) -> {} entities",
-                page.offset,
-                page.limit,
-                rows.len()
-            ));
+            // Ordering
+            let ordered = if let Some(order) = &plan.order
+                && rows.len() > 1
+                && !order.fields.is_empty()
+            {
+                debug_assert!(
+                    plan.predicate.is_none() || filtered,
+                    "executor invariant violated: ordering must run after filtering"
+                );
+                apply_order_spec(&mut rows, order);
+                self.debug_log("↕️ Applied order spec");
+                true
+            } else {
+                false
+            };
+
+            // Pagination
+            if let Some(page) = &plan.page {
+                debug_assert!(
+                    plan.order.is_none() || ordered,
+                    "executor invariant violated: pagination must run after ordering"
+                );
+                apply_pagination(&mut rows, page.offset, page.limit);
+                self.debug_log(format!(
+                    "📏 Applied pagination (offset={}, limit={:?}) -> {} entities",
+                    page.offset,
+                    page.limit,
+                    rows.len()
+                ));
+            }
+
+            set_rows_from_len(&mut span, rows.len());
+            self.debug_log(format!("✅ query complete -> {} final rows", rows.len()));
+
+            Ok(Response(rows))
+        })();
+
+        if let Some(trace) = trace {
+            match &result {
+                Ok(resp) => trace.finish(u64::try_from(resp.0.len()).unwrap_or(u64::MAX)),
+                Err(err) => trace.error(err),
+            }
         }
 
-        set_rows_from_len(&mut span, rows.len());
-        self.debug_log(format!("✅ v2 query complete -> {} final rows", rows.len()));
-
-        Ok(Response(rows))
+        result
     }
 
     /// Execute a plan and require exactly one row.

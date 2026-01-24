@@ -1,6 +1,6 @@
 //! Executor contract for a fully resolved logical plan; must not plan or validate.
 
-use crate::db::query::v2::{
+use crate::db::query::{
     plan::{AccessPath, OrderSpec, PageSpec},
     predicate::Predicate,
 };
@@ -8,7 +8,7 @@ use crate::db::query::v2::{
 ///
 /// LogicalPlan
 ///
-/// Executor-ready query plan produced by the v2 planner.
+/// Executor-ready query plan produced by the planner.
 ///
 /// A `LogicalPlan` represents the *complete, linearized execution intent*
 /// for a query. All schema validation, predicate normalization, coercion

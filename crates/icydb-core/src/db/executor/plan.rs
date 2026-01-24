@@ -1,5 +1,5 @@
 use crate::{
-    db::query::v2::plan::AccessPath,
+    db::query::plan::AccessPath,
     obs::sink::{self, MetricsEvent, PlanKind, Span},
     traits::EntityKind,
 };

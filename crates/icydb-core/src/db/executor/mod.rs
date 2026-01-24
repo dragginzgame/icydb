@@ -3,6 +3,7 @@ mod delete;
 mod load;
 mod plan;
 mod save;
+pub(crate) mod trace;
 mod unique;
 mod upsert;
 

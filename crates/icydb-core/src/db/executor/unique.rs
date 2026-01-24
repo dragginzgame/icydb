@@ -112,9 +112,13 @@ where
     }
 
     let pk = E::PrimaryKey::try_from_key(key).ok_or_else(|| {
-        ExecutorError::KeyTypeMismatch(
-            std::any::type_name::<E::PrimaryKey>().to_string(),
-            key.to_string(),
+        ExecutorError::corruption(
+            ErrorOrigin::Index,
+            format!(
+                "index key type mismatch: expected {}, got {}",
+                std::any::type_name::<E::PrimaryKey>(),
+                key
+            ),
         )
     })?;
 

@@ -48,14 +48,40 @@ impl Imp<Entity> for EntityKindTrait {
             const PRIMARY_KEY: &'static str = #pk_field;
             const FIELDS: &'static [&'static str]  = &[ #( Self::#field_refs ),* ];
             const INDEXES: &'static [&'static ::icydb::model::index::IndexModel]  = &[#(&#indexes),*];
+            const MODEL: &'static ::icydb::model::entity::EntityModel = &Self::__ENTITY_MODEL;
         };
 
         // impls
         q.extend(key(node));
 
-        let tokens = Implementor::new(&node.def, TraitKind::EntityKind)
+        let mut tokens = Implementor::new(&node.def, TraitKind::EntityKind)
             .set_tokens(q)
             .to_token_stream();
+
+        let ident = node.def.ident();
+        let test_mod = format_ident!("__entity_model_test_{ident}");
+        tokens.extend(quote! {
+            #[cfg(test)]
+            mod #test_mod {
+                use super::*;
+
+                #[test]
+                fn model_consistency() {
+                    let model = <#ident as ::icydb::traits::EntityKind>::MODEL;
+                    let names = <#ident as ::icydb::traits::EntityKind>::FIELDS;
+
+                    assert_eq!(model.fields.len(), names.len());
+                    for (field, name) in model.fields.iter().zip(names.iter()) {
+                        assert_eq!(field.name, *name);
+                    }
+
+                    assert!(model
+                        .fields
+                        .iter()
+                        .any(|field| ::core::ptr::eq(field, model.primary_key)));
+                }
+            }
+        });
 
         Some(TraitStrategy::from_impl(tokens))
     }

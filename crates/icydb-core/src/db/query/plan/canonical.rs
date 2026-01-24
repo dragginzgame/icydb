@@ -79,7 +79,7 @@ fn canonical_cmp_plan_list(left: &[AccessPlan], right: &[AccessPlan]) -> Orderin
 /// Comparison for concrete access paths.
 ///
 /// Ordering rules:
-/// 1. Path kind rank
+/// 1. Path rank (primary key > exact index > prefix index > full scan)
 /// 2. Path-specific fields
 fn canonical_cmp_access_path(left: &AccessPath, right: &AccessPath) -> Ordering {
     let rank = canonical_access_path_rank(left).cmp(&canonical_access_path_rank(right));
@@ -115,14 +115,8 @@ fn canonical_cmp_access_path(left: &AccessPath, right: &AccessPath) -> Ordering 
                 values: right_values,
             },
         ) => {
-            // Index store path first
-            let cmp = left_index.store.cmp(right_index.store);
-            if cmp != Ordering::Equal {
-                return cmp;
-            }
-
-            // Then indexed field list
-            let cmp = canonical_cmp_str_slice(left_index.fields, right_index.fields);
+            // Index name first
+            let cmp = left_index.name.cmp(right_index.name);
             if cmp != Ordering::Equal {
                 return cmp;
             }
@@ -143,32 +137,31 @@ fn canonical_cmp_access_path(left: &AccessPath, right: &AccessPath) -> Ordering 
 /// Assigns a total ordering across access path variants.
 ///
 /// Lower values sort first.
-const fn canonical_access_path_rank(path: &AccessPath) -> u8 {
+const fn canonical_access_path_rank(path: &AccessPath) -> AccessPathRank {
     match path {
-        AccessPath::FullScan => 0,
-        AccessPath::IndexPrefix { .. } => 1,
-        AccessPath::ByKey(_) => 2,
-        AccessPath::ByKeys(_) => 3,
-        AccessPath::KeyRange { .. } => 4,
+        AccessPath::ByKey(_) => AccessPathRank { tier: 0, detail: 0 },
+        AccessPath::ByKeys(_) => AccessPathRank { tier: 0, detail: 1 },
+        AccessPath::KeyRange { .. } => AccessPathRank { tier: 0, detail: 2 },
+        AccessPath::IndexPrefix { index, values } => AccessPathRank {
+            tier: 1,
+            detail: if values.len() == index.fields.len() {
+                0
+            } else {
+                1
+            },
+        },
+        AccessPath::FullScan => AccessPathRank { tier: 2, detail: 0 },
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct AccessPathRank {
+    tier: u8,
+    detail: u8,
 }
 
 /// Lexicographic comparison of key lists.
 fn canonical_cmp_key_list(left: &[Key], right: &[Key]) -> Ordering {
-    let limit = left.len().min(right.len());
-    for (left, right) in left.iter().take(limit).zip(right.iter().take(limit)) {
-        let cmp = left.cmp(right);
-        if cmp != Ordering::Equal {
-            return cmp;
-        }
-    }
-    left.len().cmp(&right.len())
-}
-
-/// Lexicographic comparison of string slices.
-///
-/// Used for index field lists.
-fn canonical_cmp_str_slice(left: &[&str], right: &[&str]) -> Ordering {
     let limit = left.len().min(right.len());
     for (left, right) in left.iter().take(limit).zip(right.iter().take(limit)) {
         let cmp = left.cmp(right);

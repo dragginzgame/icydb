@@ -24,6 +24,7 @@ rust_decimal = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
 serde_cbor = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 ulid = { workspace = true }
 
@@ -31,6 +32,10 @@ ulid = { workspace = true }
 bencher = "0.1"
 proptest = "1.6"
 serde_json = "1.0"
+
+[features]
+default = ["plan-cache"]
+plan-cache = []
 
 [lints]
 workspace = true

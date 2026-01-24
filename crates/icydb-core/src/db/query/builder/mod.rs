@@ -5,4 +5,4 @@ pub mod query;
 mod tests;
 
 pub use field::*;
-pub use query::{QueryBuilder, QuerySpec};
+pub use query::{QueryBuilder, QueryError, QueryExplain, QuerySpec};

@@ -1,6 +1,18 @@
-mod save;
-pub mod v2;
+//! Query Builder modules.
+//!
+//! Predicate semantics are defined in `docs/QUERY_BUILDER.md` and are the
+//! canonical contract for evaluation, coercion, and normalization.
 
+pub mod builder;
+pub mod diagnostics;
+pub mod plan;
+pub mod predicate;
+mod save;
+
+pub use diagnostics::{
+    QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceAccess, QueryTraceEvent,
+    QueryTraceExecutorKind,
+};
 pub use save::*;
 
 // create
