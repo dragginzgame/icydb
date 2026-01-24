@@ -2,12 +2,13 @@ use icydb::__internal::core::db::{
     index::{IndexEntry, IndexKey, RawIndexEntry},
     store::{DataKey, RawRow},
 };
-use icydb::{db::UniqueIndexHandle, design::prelude::*, serialize};
+use icydb::{
+    db::{UniqueIndexHandle, query::builder::QueryBuilder},
+    design::prelude::*,
+    error::ErrorClass,
+    serialize,
+};
 use test_design::{e2e::db::Index, schema::TestIndexStore};
-
-///
-/// DeleteUniqueSuite
-///
 
 pub struct DeleteUniqueSuite;
 
@@ -49,27 +50,22 @@ impl DeleteUniqueSuite {
             .with(|reg| {
                 reg.with_store_mut(<Index as EntityKind>::Store::PATH, |store| {
                     let data_key = DataKey::new::<Index>(saved.key());
-                    let raw = data_key.to_raw();
-                    store.remove(&raw);
+                    store.remove(&data_key.to_raw());
                 })
             })
             .unwrap();
 
-        let err = db!()
-            .delete::<Index>()
-            .by_unique_index(Self::unique_handle(), Index::new(2, 55))
+        let err = QueryBuilder::<Index>::new()
+            .filter(eq("y", Index::new(2, 55)))
+            .build()
+            .delete(&db!())
             .unwrap_err();
 
-        let msg = err.to_string();
-        assert!(
-            msg.contains("index corrupted") || msg.contains("corruption"),
-            "expected corruption error, got: {msg}"
-        );
+        assert_eq!(err.class, ErrorClass::Corruption);
 
         let _ = crate::INDEX_REGISTRY.with(|reg| {
             reg.with_store_mut(TestIndexStore::PATH, |store| {
-                let raw = index_key.to_raw();
-                store.remove(&raw)
+                store.remove(&index_key.to_raw())
             })
         });
     }
@@ -97,16 +93,12 @@ impl DeleteUniqueSuite {
             })
             .unwrap();
 
-        let err = db!()
-            .delete::<Index>()
-            .by_unique_index(Self::unique_handle(), Index::new(3, 88))
+        let err = QueryBuilder::<Index>::new()
+            .filter(eq("y", Index::new(3, 88)))
+            .delete(&db!())
             .unwrap_err();
 
-        let msg = err.to_string();
-        assert!(
-            msg.contains("index corrupted") || msg.contains("corruption"),
-            "expected corruption error, got: {msg}"
-        );
+        assert_eq!(err.class, ErrorClass::Corruption);
     }
 
     fn delete_unique_key_type_mismatch_errors() {
@@ -119,9 +111,8 @@ impl DeleteUniqueSuite {
             .with(|reg| {
                 reg.with_store_mut(TestIndexStore::PATH, |store| {
                     let entry = IndexEntry::new(bad_key);
-                    let raw = index_key.to_raw();
                     let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
-                    store.insert(raw, raw_entry);
+                    store.insert(index_key.to_raw(), raw_entry);
                 })
             })
             .unwrap();
@@ -131,18 +122,17 @@ impl DeleteUniqueSuite {
             .with(|reg| {
                 reg.with_store_mut(<Index as EntityKind>::Store::PATH, |store| {
                     let data_key = DataKey::new::<Index>(bad_key);
-                    let raw = data_key.to_raw();
-                    store.insert(raw, RawRow::try_new(bytes).unwrap());
+                    store.insert(data_key.to_raw(), RawRow::try_new(bytes).unwrap());
                 })
             })
             .unwrap();
 
-        let err = db!()
-            .delete::<Index>()
-            .by_unique_index(Self::unique_handle(), Index::new(2, 777))
+        let err = QueryBuilder::<Index>::new()
+            .filter(eq("y", Index::new(2, 777)))
+            .delete(&db!())
             .unwrap_err();
 
-        assert!(err.to_string().contains("primary key type mismatch"));
+        assert_eq!(err.class, ErrorClass::Corruption);
     }
 
     fn delete_unique_missing_primary_row_errors() {
@@ -155,23 +145,18 @@ impl DeleteUniqueSuite {
             .with(|reg| {
                 reg.with_store_mut(TestIndexStore::PATH, |store| {
                     let entry = IndexEntry::new(missing_key);
-                    let raw = index_key.to_raw();
                     let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
-                    store.insert(raw, raw_entry);
+                    store.insert(index_key.to_raw(), raw_entry);
                 })
             })
             .unwrap();
 
-        let err = db!()
-            .delete::<Index>()
-            .by_unique_index(Self::unique_handle(), Index::new(2, 444))
+        let err = QueryBuilder::<Index>::new()
+            .filter(eq("y", Index::new(2, 444)))
+            .delete(&db!())
             .unwrap_err();
 
-        let msg = err.to_string();
-        assert!(
-            msg.contains("index corrupted") || msg.contains("corruption"),
-            "expected corruption error, got: {msg}"
-        );
+        assert_eq!(err.class, ErrorClass::Corruption);
     }
 
     fn unique_handle() -> UniqueIndexHandle {

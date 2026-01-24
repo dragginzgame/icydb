@@ -249,9 +249,7 @@ mod tests {
     #[test]
     fn deserialize_rejects_non_finite() {
         for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            let err =
-                Float32::deserialize(F32Deserializer::<DeError>::new(value)).expect_err("invalid");
-            assert!(err.to_string().contains("invalid Float32 value"));
+            assert!(Float32::deserialize(F32Deserializer::<DeError>::new(value)).is_err());
         }
     }
 }

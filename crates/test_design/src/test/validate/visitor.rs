@@ -151,7 +151,7 @@ pub struct VisitorLengthOuter {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::{Error, validate};
+    use icydb::__internal::core::validate::validate;
 
     #[test]
     fn validate_tracks_paths_for_nested_structures() {
@@ -167,20 +167,16 @@ mod tests {
             map: VisitorLowerTextMap::from(vec![("KeyOne".to_string(), "MiXeD".to_string())]),
         };
 
-        let err: Error = validate(&node).expect_err("expected validation error");
-
-        let msg = err.to_string();
+        let err = validate(&node).expect_err("expected validation error");
+        let issues = err.issues();
 
         for key in ["list[1]", "tup.0", "map[0]", "rec.leaf"] {
             assert!(
-                msg.contains(key),
-                "expected error message to mention `{key}`"
-            );
-            assert!(
-                msg.contains("not lower case"),
-                "expected validation message for `{key}`"
+                issues.contains_key(key),
+                "expected error issues to include `{key}`"
             );
         }
+        assert_eq!(issues.len(), 4);
     }
 
     #[test]
@@ -189,19 +185,15 @@ mod tests {
             set: VisitorLowerTextSetValidated::from(vec!["MiXeD".to_string()]),
         };
 
-        let err: Error = validate(&node).expect_err("expected validation error");
-
-        let msg = err.to_string();
+        let err = validate(&node).expect_err("expected validation error");
+        let issues = err.issues();
 
         let key = "set[0]";
         assert!(
-            msg.contains(key),
-            "expected error message to mention `{key}`"
+            issues.contains_key(key),
+            "expected error issues to include `{key}`"
         );
-        assert!(
-            msg.contains("not lower case"),
-            "expected validation message for `{key}`"
-        );
+        assert_eq!(issues.len(), 1);
     }
 
     #[test]
@@ -213,19 +205,15 @@ mod tests {
             )]),
         };
 
-        let err: Error = validate(&node).expect_err("expected validation error");
-
-        let msg = err.to_string();
+        let err = validate(&node).expect_err("expected validation error");
+        let issues = err.issues();
 
         let key = "map[0]";
         assert!(
-            msg.contains(key),
-            "expected error message to mention `{key}`"
+            issues.contains_key(key),
+            "expected error issues to include `{key}`"
         );
-        assert!(
-            msg.contains("not lower case"),
-            "expected validation message for `{key}`"
-        );
+        assert_eq!(issues.len(), 1);
     }
 
     #[test]
@@ -237,19 +225,15 @@ mod tests {
             )]),
         };
 
-        let err: Error = validate(&node).expect_err("expected validation error");
-
-        let msg = err.to_string();
+        let err = validate(&node).expect_err("expected validation error");
+        let issues = err.issues();
 
         let key = "map[0]";
         assert!(
-            msg.contains(key),
-            "expected error message to mention `{key}`"
+            issues.contains_key(key),
+            "expected error issues to include `{key}`"
         );
-        assert!(
-            msg.contains("not lower case"),
-            "expected validation message for `{key}`"
-        );
+        assert_eq!(issues.len(), 1);
     }
 
     #[test]
@@ -263,15 +247,15 @@ mod tests {
             ]),
         };
 
-        let err: Error = validate(&node).expect_err("expected validation error");
-
-        let msg = err.to_string();
+        let err = validate(&node).expect_err("expected validation error");
+        let issues = err.issues();
 
         for key in ["list", "set", "map"] {
             assert!(
-                msg.contains(key),
-                "expected error message to mention `{key}`"
+                issues.contains_key(key),
+                "expected error issues to include `{key}`"
             );
         }
+        assert_eq!(issues.len(), 3);
     }
 }

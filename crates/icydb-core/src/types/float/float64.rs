@@ -245,9 +245,7 @@ mod tests {
     #[test]
     fn deserialize_rejects_non_finite() {
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            let err =
-                Float64::deserialize(F64Deserializer::<DeError>::new(value)).expect_err("invalid");
-            assert!(err.to_string().contains("invalid Float64 value"));
+            assert!(Float64::deserialize(F64Deserializer::<DeError>::new(value)).is_err());
         }
     }
 }

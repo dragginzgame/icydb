@@ -39,6 +39,7 @@
 ### Additional Style Guidance
 - Docs: rustdoc triple-slash `/// ` with a space; include brief examples when practical.
 - Errors: prefer typed errors (thiserror); avoid panics in library code.
+- Errors: do not match error strings in code or tests; assert on error variants/kinds instead.
 - Functions: keep small and focused, except at trust boundaries where single, centralized validation is preferred.
 - Borrowing: avoid unnecessary clones; prefer iterator adapters.
 - Imports: group per-crate, nest items (e.g., `use crate::{a, b};`); pull common std items into scope at top.

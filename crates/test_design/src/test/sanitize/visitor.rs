@@ -114,7 +114,7 @@ pub struct VisitorRejectMapOuter {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::{Error, sanitize};
+    use icydb::__internal::core::sanitize::sanitize;
     use std::collections::HashMap;
 
     #[test]
@@ -160,18 +160,16 @@ mod tests {
         };
 
         let err = sanitize(&mut node).expect_err("expected sanitization error");
-        let msg = err.to_string();
+        let issues = err.issues();
 
         for key in ["field", "list[0]", "list[1]"] {
             assert!(
-                msg.contains(key),
-                "expected error message to mention path `{key}`"
-            );
-            assert!(
-                msg.contains("rejected"),
-                "expected rejection message for `{key}`"
+                issues.contains_key(key),
+                "expected error issues to include path `{key}`"
             );
         }
+
+        assert_eq!(issues.len(), 3);
     }
 
     #[test]
@@ -180,18 +178,14 @@ mod tests {
             map: VisitorRejectTextMap::from(vec![("key".to_string(), "bad".to_string())]),
         };
 
-        let err: Error = sanitize(&mut node).expect_err("expected sanitization error");
-
-        let msg = err.to_string();
+        let err = sanitize(&mut node).expect_err("expected sanitization error");
+        let issues = err.issues();
 
         let key = "map[0]";
         assert!(
-            msg.contains(key),
-            "expected error message to mention path `{key}`"
+            issues.contains_key(key),
+            "expected error issues to include path `{key}`"
         );
-        assert!(
-            msg.contains("rejected"),
-            "expected rejection message for `{key}`"
-        );
+        assert_eq!(issues.len(), 1);
     }
 }

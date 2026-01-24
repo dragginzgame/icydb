@@ -1,9 +1,9 @@
-use canic_cdk::export_candid;
-/*mod delete_unique;
+mod delete_unique;
 mod ops;
 mod view_into;
 
-use icydb::{Error, db::response::ResponseExt as _, design::prelude::*};
+use canic_cdk::{export_candid, update};
+use icydb::design::prelude::*;
 use test_design::schema::{TestDataStore, TestIndexStore};
 
 //
@@ -31,8 +31,6 @@ pub(crate) fn clear_test_data_store() {
 /// Entrypoint that runs the full end-to-end test suite in canister mode.
 #[update]
 pub fn test() {
-    return;
-
     let tests: Vec<(&str, fn())> = vec![
         ("ops", ops::OpsSuite::test),
         ("view_into", view_into::ViewIntoSuite::test),
@@ -49,6 +47,5 @@ pub fn test() {
 
     println!("test: all tests passed successfully");
 }
-*/
 
 export_candid!();
