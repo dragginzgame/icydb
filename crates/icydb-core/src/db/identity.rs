@@ -1,5 +1,4 @@
 #![allow(clippy::cast_possible_truncation)]
-
 use crate::MAX_INDEX_FIELDS;
 use std::{
     cmp::Ordering,

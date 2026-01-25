@@ -38,11 +38,16 @@ pub type SaveHandler = fn(SaveQuery) -> Result<Key, InternalError>;
 /// Function pointer that executes a delete query for a specific entity type.
 pub type DeleteHandler = fn(LogicalPlan) -> Result<Vec<Key>, InternalError>;
 
+///
+/// EntityDispatch
+///
 /// Metadata and typed handlers for a single entity path.
 ///
 /// Generated actor code exposes a `dispatch_entity(path)` function that returns this,
 /// letting you authorize per-entity before invoking the handlers. No canister
 /// endpoints are generated automatically.
+///
+
 #[derive(Clone, Copy)]
 pub struct EntityDispatch {
     pub entity_name: &'static str,

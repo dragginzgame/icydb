@@ -1,7 +1,11 @@
+///
+/// EntityFieldModel
+///
 /// Runtime field metadata surfaced by macro-generated `EntityModel` values.
 ///
 /// This is the smallest unit consumed by predicate validation, planning,
 /// and executor-side plan checks.
+///
 
 pub struct EntityFieldModel {
     /// Field name as used in predicates and indexing.
@@ -10,6 +14,9 @@ pub struct EntityFieldModel {
     pub kind: EntityFieldKind,
 }
 
+///
+/// EntityFieldKind
+///
 /// Minimal runtime type surface needed by planning, validation, and execution.
 ///
 /// This is aligned with `Value` variants and intentionally lossy: it encodes

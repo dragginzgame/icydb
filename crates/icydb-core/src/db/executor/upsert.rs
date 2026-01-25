@@ -66,8 +66,9 @@ impl UniqueIndexHandle {
 ///
 /// UpsertResult
 ///
-
 /// Result of an upsert that reports whether the entity was inserted.
+///
+
 pub struct UpsertResult<E> {
     pub entity: E,
     pub inserted: bool,

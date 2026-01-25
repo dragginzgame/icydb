@@ -32,6 +32,7 @@ impl From<SerializeError> for InternalError {
         )
     }
 }
+
 /// Serialize a value using the default `canic` serializer.
 ///
 /// This helper keeps the error type aligned with the rest of `icydb`.

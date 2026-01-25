@@ -2,6 +2,7 @@ use std::fmt::{self, Display};
 
 ///
 /// IndexModel
+///
 /// Runtime-only descriptor for an index used by the executor and stores.
 /// Keeps core decoupled from the schema `Index` shape.
 ///

@@ -20,18 +20,26 @@
 
 use crate::model::{field::EntityFieldModel, index::IndexModel};
 
-/// Macro-generated runtime schema snapshot for a single entity.
 ///
+/// EntityModel
+///
+/// Macro-generated runtime schema snapshot for a single entity.
 /// The planner and predicate validator consume this model directly.
+///
+
 pub struct EntityModel {
     /// Fully-qualified Rust type path (for dispatch and diagnostics).
     pub path: &'static str,
+
     /// Stable external name used in keys and routing.
     pub entity_name: &'static str,
+
     /// Primary key field (points at an entry in `fields`).
     pub primary_key: &'static EntityFieldModel,
+
     /// Ordered field list (authoritative for runtime planning).
     pub fields: &'static [EntityFieldModel],
+
     /// Index definitions (field order is significant).
     pub indexes: &'static [&'static IndexModel],
 }
