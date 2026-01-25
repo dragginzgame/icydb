@@ -1,10 +1,12 @@
 //! Deterministic, read-only explanation of logical plans; must not execute or validate.
 
-use super::{AccessPath, LogicalPlan, OrderDirection, OrderSpec, PageSpec};
+use super::{
+    AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec, ProjectionSpec,
+};
 use crate::db::query::predicate::{
     CompareOp, ComparePredicate, Predicate, coercion::CoercionSpec, normalize,
 };
-use crate::{key::Key, value::Value};
+use crate::{db::query::ReadConsistency, key::Key, value::Value};
 
 ///
 /// ExplainPlan
@@ -18,6 +20,8 @@ pub struct ExplainPlan {
     pub predicate: ExplainPredicate,
     pub order_by: ExplainOrderBy,
     pub page: ExplainPagination,
+    pub projection: ExplainProjection,
+    pub consistency: ReadConsistency,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,6 +43,8 @@ pub enum ExplainAccessPath {
         values: Vec<Value>,
     },
     FullScan,
+    Union(Vec<Self>),
+    Intersection(Vec<Self>),
 }
 
 ///
@@ -119,6 +125,15 @@ pub enum ExplainPagination {
     Page { limit: Option<u32>, offset: u32 },
 }
 
+///
+/// ExplainProjection
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExplainProjection {
+    All,
+}
+
 impl LogicalPlan {
     /// Produce a stable, deterministic explanation of this logical plan.
     #[must_use]
@@ -130,19 +145,34 @@ impl LogicalPlan {
 
         let order_by = explain_order(self.order.as_ref());
         let page = explain_page(self.page.as_ref());
+        let projection = ExplainProjection::from_spec(&self.projection);
 
         ExplainPlan {
-            access: ExplainAccessPath::from_access(&self.access),
+            access: ExplainAccessPath::from_access_plan(&self.access),
             predicate,
             order_by,
             page,
+            projection,
+            consistency: self.consistency,
         }
     }
 }
 
 impl ExplainAccessPath {
-    fn from_access(access: &AccessPath) -> Self {
+    fn from_access_plan(access: &AccessPlan) -> Self {
         match access {
+            AccessPlan::Path(path) => Self::from_path(path),
+            AccessPlan::Union(children) => {
+                Self::Union(children.iter().map(Self::from_access_plan).collect())
+            }
+            AccessPlan::Intersection(children) => {
+                Self::Intersection(children.iter().map(Self::from_access_plan).collect())
+            }
+        }
+    }
+
+    fn from_path(path: &AccessPath) -> Self {
+        match path {
             AccessPath::ByKey(key) => Self::ByKey { key: *key },
             AccessPath::ByKeys(keys) => Self::ByKeys { keys: keys.clone() },
             AccessPath::KeyRange { start, end } => Self::KeyRange {
@@ -258,6 +288,14 @@ const fn explain_page(page: Option<&PageSpec>) -> ExplainPagination {
     }
 }
 
+impl ExplainProjection {
+    const fn from_spec(spec: &ProjectionSpec) -> Self {
+        match spec {
+            ProjectionSpec::All => Self::All,
+        }
+    }
+}
+
 ///
 /// TESTS
 ///
@@ -265,24 +303,21 @@ const fn explain_page(page: Option<&PageSpec>) -> ExplainPagination {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::query::builder::{QueryBuilder, eq};
     use crate::db::query::plan::planner::PlannerEntity;
     use crate::db::query::plan::{AccessPath, LogicalPlan};
+    use crate::db::query::{Query, ReadConsistency, eq};
     use crate::key::Key;
     use crate::model::index::IndexModel;
     use crate::types::Ulid;
     use crate::value::Value;
-    use icydb_schema::node::Schema;
 
     #[test]
     fn explain_is_deterministic_for_same_query() {
-        let spec = QueryBuilder::<PlannerEntity>::new()
-            .filter(eq("id", Ulid::default()))
-            .build();
-        let schema = Schema::new();
+        let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
+            .filter(eq("id", Ulid::default()));
 
-        let plan_a = spec.plan::<PlannerEntity>(&schema).expect("plan a");
-        let plan_b = spec.plan::<PlannerEntity>(&schema).expect("plan b");
+        let plan_a = query.plan().expect("plan a");
+        let plan_b = query.plan().expect("plan b");
 
         assert_eq!(plan_a.explain(), plan_b.explain());
     }
@@ -290,18 +325,15 @@ mod tests {
     #[test]
     fn explain_is_deterministic_for_equivalent_predicates() {
         let id = Ulid::default();
-        let spec_a = QueryBuilder::<PlannerEntity>::new()
+        let query_a = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
             .filter(eq("id", id))
-            .and(eq("other", "x"))
-            .build();
-        let spec_b = QueryBuilder::<PlannerEntity>::new()
+            .filter(eq("other", "x"));
+        let query_b = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
             .filter(eq("other", "x"))
-            .and(eq("id", id))
-            .build();
+            .filter(eq("id", id));
 
-        let schema = Schema::new();
-        let plan_a = spec_a.plan::<PlannerEntity>(&schema).expect("plan a");
-        let plan_b = spec_b.plan::<PlannerEntity>(&schema).expect("plan b");
+        let plan_a = query_a.plan().expect("plan a");
+        let plan_b = query_b.plan().expect("plan b");
 
         assert_eq!(plan_a.explain(), plan_b.explain());
     }
@@ -318,10 +350,13 @@ mod tests {
         indexes.sort_by(|left, right| left.name.cmp(right.name));
         let chosen = indexes[0];
 
-        let plan = LogicalPlan::new(AccessPath::IndexPrefix {
-            index: chosen,
-            values: vec![Value::Text("alpha".to_string())],
-        });
+        let plan = LogicalPlan::new(
+            AccessPath::IndexPrefix {
+                index: chosen,
+                values: vec![Value::Text("alpha".to_string())],
+            },
+            crate::db::query::ReadConsistency::MissingOk,
+        );
 
         let explain = plan.explain();
         match explain.access {
@@ -341,8 +376,14 @@ mod tests {
 
     #[test]
     fn explain_differs_for_semantic_changes() {
-        let plan_a = LogicalPlan::new(AccessPath::ByKey(Key::Ulid(Ulid::from_u128(1))));
-        let plan_b = LogicalPlan::new(AccessPath::FullScan);
+        let plan_a = LogicalPlan::new(
+            AccessPath::ByKey(Key::Ulid(Ulid::from_u128(1))),
+            crate::db::query::ReadConsistency::MissingOk,
+        );
+        let plan_b = LogicalPlan::new(
+            AccessPath::FullScan,
+            crate::db::query::ReadConsistency::MissingOk,
+        );
 
         assert_ne!(plan_a.explain(), plan_b.explain());
     }

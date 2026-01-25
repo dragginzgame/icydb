@@ -1,17 +1,20 @@
 use crate::{
-    db::query::plan::AccessPath,
+    db::query::plan::{AccessPath, AccessPlan},
     obs::sink::{self, MetricsEvent, PlanKind, Span},
     traits::EntityKind,
 };
 
 /// Records metrics for the chosen execution plan.
 /// Must be called exactly once per execution.
-pub fn record_plan_metrics(access: &AccessPath) {
+pub fn record_plan_metrics(access: &AccessPlan) {
     let kind = match access {
-        AccessPath::ByKey(_) | AccessPath::ByKeys(_) => PlanKind::Keys,
-        AccessPath::IndexPrefix { .. } => PlanKind::Index,
-        AccessPath::KeyRange { .. } => PlanKind::Range,
-        AccessPath::FullScan => PlanKind::FullScan,
+        AccessPlan::Path(path) => match path {
+            AccessPath::ByKey(_) | AccessPath::ByKeys(_) => PlanKind::Keys,
+            AccessPath::IndexPrefix { .. } => PlanKind::Index,
+            AccessPath::KeyRange { .. } => PlanKind::Range,
+            AccessPath::FullScan => PlanKind::FullScan,
+        },
+        AccessPlan::Union(_) | AccessPlan::Intersection(_) => PlanKind::FullScan,
     };
 
     sink::record(MetricsEvent::Plan { kind });

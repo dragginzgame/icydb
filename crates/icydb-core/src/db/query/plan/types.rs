@@ -4,7 +4,7 @@ use crate::{key::Key, model::index::IndexModel, value::Value};
 
 ///
 /// AccessPlan
-/// Planner-facing access structure; may include unions/intersections and is not executor-ready.
+/// Composite access structure; may include unions/intersections and is executor-resolvable.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -71,6 +71,17 @@ pub enum OrderDirection {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OrderSpec {
     pub fields: Vec<(String, OrderDirection)>,
+}
+
+///
+/// ProjectionSpec
+/// Executor-facing projection specification.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProjectionSpec {
+    /// Return all fields (default).
+    All,
 }
 
 ///

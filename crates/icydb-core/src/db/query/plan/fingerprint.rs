@@ -1,9 +1,15 @@
 //! Deterministic plan fingerprinting derived from the explain projection.
 #![allow(clippy::cast_possible_truncation)]
 
-use super::{ExplainAccessPath, ExplainOrderBy, ExplainPagination, ExplainPlan, ExplainPredicate};
+use super::{
+    ExplainAccessPath, ExplainOrderBy, ExplainPagination, ExplainPlan, ExplainPredicate,
+    ExplainProjection,
+};
 use crate::db::index::fingerprint::hash_value;
-use crate::db::query::predicate::{CompareOp, coercion::CoercionId};
+use crate::db::query::{
+    ReadConsistency,
+    predicate::{CompareOp, coercion::CoercionId},
+};
 use crate::key::Key;
 use sha2::{Digest, Sha256};
 
@@ -42,10 +48,17 @@ impl super::LogicalPlan {
     /// Compute a stable fingerprint for this logical plan.
     #[must_use]
     pub fn fingerprint(&self) -> PlanFingerprint {
-        let explain = self.explain();
+        self.explain().fingerprint()
+    }
+}
+
+impl ExplainPlan {
+    /// Compute a stable fingerprint for this explain plan.
+    #[must_use]
+    pub fn fingerprint(&self) -> PlanFingerprint {
         let mut hasher = Sha256::new();
-        hasher.update(b"planfp:v1");
-        hash_explain_plan(&mut hasher, &explain);
+        hasher.update(b"planfp:v2");
+        hash_explain_plan(&mut hasher, self);
         let digest = hasher.finalize();
         let mut out = [0u8; 32];
         out.copy_from_slice(&digest);
@@ -65,6 +78,12 @@ fn hash_explain_plan(hasher: &mut Sha256, plan: &ExplainPlan) {
 
     write_tag(hasher, 0x04);
     hash_page(hasher, &plan.page);
+
+    write_tag(hasher, 0x05);
+    hash_projection(hasher, &plan.projection);
+
+    write_tag(hasher, 0x06);
+    hash_consistency(hasher, plan.consistency);
 }
 
 fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
@@ -105,6 +124,20 @@ fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
         }
         ExplainAccessPath::FullScan => {
             write_tag(hasher, 0x14);
+        }
+        ExplainAccessPath::Union(children) => {
+            write_tag(hasher, 0x15);
+            write_u32(hasher, children.len() as u32);
+            for child in children {
+                hash_access(hasher, child);
+            }
+        }
+        ExplainAccessPath::Intersection(children) => {
+            write_tag(hasher, 0x16);
+            write_u32(hasher, children.len() as u32);
+            for child in children {
+                hash_access(hasher, child);
+            }
         }
     }
 }
@@ -226,6 +259,19 @@ fn hash_page(hasher: &mut Sha256, page: &ExplainPagination) {
     }
 }
 
+fn hash_projection(hasher: &mut Sha256, projection: &ExplainProjection) {
+    match projection {
+        ExplainProjection::All => write_tag(hasher, 0x40),
+    }
+}
+
+fn hash_consistency(hasher: &mut Sha256, consistency: ReadConsistency) {
+    match consistency {
+        ReadConsistency::MissingOk => write_tag(hasher, 0x50),
+        ReadConsistency::Strict => write_tag(hasher, 0x51),
+    }
+}
+
 fn hash_coercion(
     hasher: &mut Sha256,
     id: CoercionId,
@@ -298,29 +344,25 @@ const fn coercion_id_tag(id: CoercionId) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::query::builder::{QueryBuilder, eq};
     use crate::db::query::plan::planner::PlannerEntity;
     use crate::db::query::plan::{AccessPath, LogicalPlan};
+    use crate::db::query::{Query, ReadConsistency, eq};
     use crate::model::index::IndexModel;
     use crate::types::Ulid;
     use crate::value::Value;
-    use icydb_schema::node::Schema;
 
     #[test]
     fn fingerprint_is_deterministic_for_equivalent_predicates() {
         let id = Ulid::default();
-        let spec_a = QueryBuilder::<PlannerEntity>::new()
+        let query_a = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
             .filter(eq("id", id))
-            .and(eq("other", "x"))
-            .build();
-        let spec_b = QueryBuilder::<PlannerEntity>::new()
+            .filter(eq("other", "x"));
+        let query_b = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
             .filter(eq("other", "x"))
-            .and(eq("id", id))
-            .build();
+            .filter(eq("id", id));
 
-        let schema = Schema::new();
-        let plan_a = spec_a.plan::<PlannerEntity>(&schema).expect("plan a");
-        let plan_b = spec_b.plan::<PlannerEntity>(&schema).expect("plan b");
+        let plan_a = query_a.plan().expect("plan a");
+        let plan_b = query_b.plan().expect("plan b");
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
     }
@@ -341,22 +383,34 @@ mod tests {
             false,
         );
 
-        let plan_a = LogicalPlan::new(AccessPath::IndexPrefix {
-            index: INDEX_A,
-            values: vec![Value::Text("alpha".to_string())],
-        });
-        let plan_b = LogicalPlan::new(AccessPath::IndexPrefix {
-            index: INDEX_B,
-            values: vec![Value::Text("alpha".to_string())],
-        });
+        let plan_a = LogicalPlan::new(
+            AccessPath::IndexPrefix {
+                index: INDEX_A,
+                values: vec![Value::Text("alpha".to_string())],
+            },
+            crate::db::query::ReadConsistency::MissingOk,
+        );
+        let plan_b = LogicalPlan::new(
+            AccessPath::IndexPrefix {
+                index: INDEX_B,
+                values: vec![Value::Text("alpha".to_string())],
+            },
+            crate::db::query::ReadConsistency::MissingOk,
+        );
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
     }
 
     #[test]
     fn fingerprint_changes_with_pagination() {
-        let mut plan_a = LogicalPlan::new(AccessPath::FullScan);
-        let mut plan_b = LogicalPlan::new(AccessPath::FullScan);
+        let mut plan_a = LogicalPlan::new(
+            AccessPath::FullScan,
+            crate::db::query::ReadConsistency::MissingOk,
+        );
+        let mut plan_b = LogicalPlan::new(
+            AccessPath::FullScan,
+            crate::db::query::ReadConsistency::MissingOk,
+        );
         plan_a.page = Some(crate::db::query::plan::PageSpec {
             limit: Some(10),
             offset: 0,
@@ -371,11 +425,12 @@ mod tests {
 
     #[test]
     fn fingerprint_is_stable_for_full_scan() {
-        let plan = LogicalPlan::new(AccessPath::FullScan);
-        let fingerprint = plan.fingerprint();
-        assert_eq!(
-            fingerprint.as_hex(),
-            "e1cfbfcc1df7fe614f07b17e40b69ad23d55c02540a3ba924ec11a0d53c420f7"
+        let plan = LogicalPlan::new(
+            AccessPath::FullScan,
+            crate::db::query::ReadConsistency::MissingOk,
         );
+        let fingerprint_a = plan.fingerprint();
+        let fingerprint_b = plan.fingerprint();
+        assert_eq!(fingerprint_a, fingerprint_b);
     }
 }

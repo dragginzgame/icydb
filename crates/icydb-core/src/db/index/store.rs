@@ -186,6 +186,9 @@ impl IndexStore {
         for entry in self.range(start_raw..=end_raw) {
             let _ = IndexKey::try_from_raw(entry.key())?;
             let decoded = entry.value().try_decode().map_err(|err| err.message())?;
+            if index.unique && decoded.len() != 1 {
+                return Err("unique index entry contains an unexpected number of keys");
+            }
             out.extend(decoded.iter_keys().map(|k| DataKey::new::<E>(k)));
         }
 

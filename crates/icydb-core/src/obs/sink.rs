@@ -6,7 +6,6 @@
 //! This module is the only allowed bridge between execution logic
 //! and the global metrics state.
 use crate::{obs::metrics, traits::EntityKind};
-use canic_cdk::api::performance_counter;
 use std::{cell::RefCell, marker::PhantomData};
 
 thread_local! {
@@ -294,6 +293,18 @@ pub(crate) struct Span<E: EntityKind> {
     _marker: PhantomData<E>,
 }
 
+#[allow(clippy::missing_const_for_fn)]
+fn read_perf_counter() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        canic_cdk::api::performance_counter(1)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        0
+    }
+}
+
 impl<E: EntityKind> Span<E> {
     #[must_use]
     /// Start a metrics span for a specific entity and executor kind.
@@ -305,7 +316,7 @@ impl<E: EntityKind> Span<E> {
 
         Self {
             kind,
-            start: performance_counter(1),
+            start: read_perf_counter(),
             rows: 0,
             finished: false,
             _marker: PhantomData,
@@ -332,7 +343,7 @@ impl<E: EntityKind> Span<E> {
     }
 
     fn finish_inner(&self) {
-        let now = performance_counter(1);
+        let now = read_perf_counter();
         let delta = now.saturating_sub(self.start);
 
         record(MetricsEvent::ExecFinish {

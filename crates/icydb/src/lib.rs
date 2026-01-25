@@ -110,6 +110,7 @@ pub mod prelude {
         db,
         db::{
             query,
+            query::builder::*,
             response::{Response, ResponseExt},
         },
         key::Key,
@@ -136,6 +137,7 @@ pub mod design {
 
         pub use crate::{
             base, db,
+            db::query::builder::*,
             db::response::ResponseExt as _,
             key::Key,
             macros::*,

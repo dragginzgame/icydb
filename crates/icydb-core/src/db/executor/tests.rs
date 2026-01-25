@@ -7,9 +7,12 @@ use crate::{
         force_recovery_for_tests,
         index::{IndexEntry, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
         query::{
-            builder::{QueryBuilder, QueryError},
-            plan::{AccessPath, LogicalPlan, OrderDirection, OrderSpec, PageSpec, PlanError},
-            predicate::validate::{reset_schema_lookup_called, schema_lookup_called},
+            Query, QueryError, ReadConsistency, eq, in_list,
+            plan::{AccessPath, ExecutablePlan, OrderDirection, OrderSpec, PageSpec, PlanError},
+            predicate::{
+                Predicate,
+                validate::{reset_schema_lookup_called, schema_lookup_called},
+            },
         },
         store::{DataKey, DataStore, DataStoreRegistry, RawRow},
         write::{fail_checkpoint_label, fail_next_checkpoint},
@@ -29,15 +32,18 @@ use crate::{
     types::Ulid,
     value::Value,
 };
+use canic_memory::runtime::registry::MemoryRegistryRuntime;
 use icydb_schema::{
     build::schema_write,
     node::{
-        Canister, Def, Entity, Field, FieldList, Index, Item, ItemTarget, Schema, SchemaNode,
-        Store, Type, Value as SchemaValue,
+        Canister, Def, Entity, Field, FieldList, Index, Item, ItemTarget, SchemaNode, Store, Type,
+        Value as SchemaValue,
     },
     types::{Cardinality, Primitive, StoreType},
 };
 use serde::{Deserialize, Serialize};
+
+use crate::db::query::plan::logical::LogicalPlan;
 use std::{
     cell::RefCell,
     mem,
@@ -277,10 +283,22 @@ thread_local! {
 static DB: Db<TestCanister> = Db::new(&DATA_REGISTRY, &INDEX_REGISTRY);
 
 canic_memory::eager_init!({
-    canic_memory::ic_memory_range!(0, 32);
+    canic_memory::ic_memory_range!(0, 40);
 });
 
 static INIT_SCHEMA: Once = Once::new();
+thread_local! {
+    static INIT_REGISTRY: Once = const { Once::new() };
+}
+
+fn init_memory_registry() {
+    INIT_REGISTRY.with(|once| {
+        once.call_once(|| {
+            MemoryRegistryRuntime::init(Some((env!("CARGO_PKG_NAME"), 0, 40)))
+                .expect("memory registry init");
+        });
+    });
+}
 
 #[expect(clippy::too_many_lines)]
 fn init_schema() {
@@ -452,6 +470,7 @@ fn init_schema() {
 fn reset_stores() {
     TEST_DATA_STORE.with_borrow_mut(|store| store.clear());
     TEST_INDEX_STORE.with_borrow_mut(|store| store.clear());
+    init_memory_registry();
 }
 
 struct TestTraceSink {
@@ -613,7 +632,10 @@ fn delete_scan_rolls_back_after_data_removal() {
     assert_entity_present(&entity_b);
 
     let deleter = DeleteExecutor::<TestEntity>::new(DB, false);
-    let plan = LogicalPlan::new(AccessPath::FullScan);
+    let plan = ExecutablePlan::new(LogicalPlan::new(
+        AccessPath::FullScan,
+        ReadConsistency::MissingOk,
+    ));
 
     fail_checkpoint_label("delete_after_data");
     let result = deleter.clone().execute(plan);
@@ -624,7 +646,10 @@ fn delete_scan_rolls_back_after_data_removal() {
 
     let response = deleter
         .clone()
-        .execute(LogicalPlan::new(AccessPath::FullScan))
+        .execute(ExecutablePlan::new(LogicalPlan::new(
+            AccessPath::FullScan,
+            ReadConsistency::MissingOk,
+        )))
         .unwrap();
     assert_eq!(response.0.len(), 2);
     assert_entity_missing(&entity_a);
@@ -632,7 +657,10 @@ fn delete_scan_rolls_back_after_data_removal() {
     assert_commit_marker_clear();
 
     let response = deleter
-        .execute(LogicalPlan::new(AccessPath::FullScan))
+        .execute(ExecutablePlan::new(LogicalPlan::new(
+            AccessPath::FullScan,
+            ReadConsistency::MissingOk,
+        )))
         .unwrap();
     assert!(response.0.is_empty());
     assert_commit_marker_clear();
@@ -711,7 +739,10 @@ fn load_by_key_missing_is_ok() {
     reset_stores();
     init_schema();
 
-    let plan = LogicalPlan::new(AccessPath::ByKey(Key::Ulid(Ulid::from_u128(1))));
+    let plan = ExecutablePlan::new(LogicalPlan::new(
+        AccessPath::ByKey(Key::Ulid(Ulid::from_u128(1))),
+        ReadConsistency::MissingOk,
+    ));
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
     let response = loader.execute(plan).unwrap();
 
@@ -730,11 +761,14 @@ fn load_by_keys_dedups_duplicates() {
     };
     saver.insert(entity.clone()).unwrap();
 
-    let plan = LogicalPlan::new(AccessPath::ByKeys(vec![
-        Key::Ulid(entity.id),
-        Key::Ulid(entity.id),
-        Key::Ulid(entity.id),
-    ]));
+    let plan = ExecutablePlan::new(LogicalPlan::new(
+        AccessPath::ByKeys(vec![
+            Key::Ulid(entity.id),
+            Key::Ulid(entity.id),
+            Key::Ulid(entity.id),
+        ]),
+        ReadConsistency::MissingOk,
+    ));
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
     let rows = loader.execute(plan).unwrap().entities();
 
@@ -754,17 +788,106 @@ fn load_by_keys_skips_missing_after_dedup() {
     };
     saver.insert(entity.clone()).unwrap();
 
-    let plan = LogicalPlan::new(AccessPath::ByKeys(vec![
-        Key::Ulid(Ulid::from_u128(1)),
-        Key::Ulid(Ulid::from_u128(2)),
-        Key::Ulid(Ulid::from_u128(1)),
-        Key::Ulid(Ulid::from_u128(3)),
-    ]));
+    let plan = ExecutablePlan::new(LogicalPlan::new(
+        AccessPath::ByKeys(vec![
+            Key::Ulid(Ulid::from_u128(1)),
+            Key::Ulid(Ulid::from_u128(2)),
+            Key::Ulid(Ulid::from_u128(1)),
+            Key::Ulid(Ulid::from_u128(3)),
+        ]),
+        ReadConsistency::MissingOk,
+    ));
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
     let rows = loader.execute(plan).unwrap().entities();
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].id, entity.id);
+}
+
+#[test]
+fn load_or_predicate_executes_union() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let a = TestEntity {
+        id: Ulid::from_u128(1),
+        name: "alpha".to_string(),
+    };
+    let b = TestEntity {
+        id: Ulid::from_u128(2),
+        name: "beta".to_string(),
+    };
+    saver.insert(a.clone()).unwrap();
+    saver.insert(b.clone()).unwrap();
+
+    let predicate = Predicate::Or(vec![eq("id", a.id), eq("id", b.id)]);
+    let plan = Query::<TestEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .plan()
+        .expect("plan");
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+    let rows = loader.execute(plan).unwrap().entities();
+
+    assert_eq!(rows.len(), 2);
+}
+
+#[test]
+fn load_in_predicate_executes_union() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let a = TestEntity {
+        id: Ulid::from_u128(10),
+        name: "alpha".to_string(),
+    };
+    let b = TestEntity {
+        id: Ulid::from_u128(11),
+        name: "beta".to_string(),
+    };
+    saver.insert(a).unwrap();
+    saver.insert(b).unwrap();
+
+    let predicate = in_list(
+        "name",
+        vec![
+            Value::Text("alpha".to_string()),
+            Value::Text("beta".to_string()),
+        ],
+    );
+    let plan = Query::<TestEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .plan()
+        .expect("plan");
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+    let rows = loader.execute(plan).unwrap().entities();
+
+    assert_eq!(rows.len(), 2);
+}
+
+#[test]
+fn load_or_strict_missing_errors() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(42),
+        name: "alpha".to_string(),
+    };
+    saver.insert(entity.clone()).unwrap();
+
+    let predicate = Predicate::Or(vec![eq("id", entity.id), eq("id", Ulid::from_u128(43))]);
+    let plan = Query::<TestEntity>::new(ReadConsistency::Strict)
+        .filter(predicate)
+        .plan()
+        .expect("plan");
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+    let err = loader.execute(plan).unwrap_err();
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
 }
 
 #[test]
@@ -779,11 +902,11 @@ fn trace_emits_start_and_finish_for_load() {
     };
     saver.insert(entity).unwrap();
 
-    let plan = LogicalPlan::new(AccessPath::FullScan);
+    let plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
     let fingerprint = plan.fingerprint();
     let loader = LoadExecutor::<TestEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
 
-    let (result, events) = with_trace_events(|| loader.execute(plan));
+    let (result, events) = with_trace_events(|| loader.execute(ExecutablePlan::new(plan)));
     let response = result.unwrap();
 
     assert_eq!(response.0.len(), 1);
@@ -806,18 +929,18 @@ fn trace_emits_start_and_finish_for_load() {
 }
 
 #[test]
-fn trace_emits_error_for_invalid_plan() {
+fn trace_emits_error_for_strict_missing_row() {
     reset_stores();
     init_schema();
 
-    let mut plan = LogicalPlan::new(AccessPath::FullScan);
-    plan.order = Some(OrderSpec {
-        fields: vec![("primary".to_string(), OrderDirection::Asc)],
-    });
+    let plan = LogicalPlan::new(
+        AccessPath::ByKey(Key::Ulid(Ulid::from_u128(1))),
+        ReadConsistency::Strict,
+    );
     let fingerprint = plan.fingerprint();
-    let loader = LoadExecutor::<OrderEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
+    let loader = LoadExecutor::<TestEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
 
-    let (result, events) = with_trace_events(|| loader.execute(plan));
+    let (result, events) = with_trace_events(|| loader.execute(ExecutablePlan::new(plan)));
 
     assert!(result.is_err());
     assert_eq!(events.len(), 2);
@@ -826,7 +949,7 @@ fn trace_emits_error_for_invalid_plan() {
         QueryTraceEvent::Start {
             fingerprint,
             executor: TraceExecutorKind::Load,
-            access: Some(TraceAccess::FullScan),
+            access: Some(TraceAccess::ByKey),
         }
     );
     assert_eq!(
@@ -834,9 +957,9 @@ fn trace_emits_error_for_invalid_plan() {
         QueryTraceEvent::Error {
             fingerprint,
             executor: TraceExecutorKind::Load,
-            access: Some(TraceAccess::FullScan),
-            class: ErrorClass::Unsupported,
-            origin: ErrorOrigin::Query,
+            access: Some(TraceAccess::ByKey),
+            class: ErrorClass::Corruption,
+            origin: ErrorOrigin::Store,
         }
     );
 }
@@ -853,7 +976,10 @@ fn trace_disabled_emits_no_events() {
     };
     saver.insert(entity).unwrap();
 
-    let plan = LogicalPlan::new(AccessPath::FullScan);
+    let plan = ExecutablePlan::new(LogicalPlan::new(
+        AccessPath::FullScan,
+        ReadConsistency::MissingOk,
+    ));
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
 
     let (result, events) = with_trace_events(|| loader.execute(plan));
@@ -867,17 +993,16 @@ fn diagnose_query_matches_queryspec_explain() {
     reset_stores();
     init_schema();
 
-    let schema = Schema::new();
-    let spec = QueryBuilder::<TestEntity>::new().build();
+    let query = Query::<TestEntity>::new(ReadConsistency::MissingOk);
     let session = DbSession::new(DB);
 
-    let expected = spec.explain::<TestEntity>(&schema).expect("explain");
+    let expected = query.explain().expect("explain");
     let diagnostics = session
-        .diagnose_query::<TestEntity>(&spec, &schema)
+        .diagnose_query::<TestEntity>(&query)
         .expect("diagnose");
 
-    assert_eq!(diagnostics.explain, expected.explain);
-    assert_eq!(diagnostics.fingerprint, expected.fingerprint);
+    assert_eq!(diagnostics.explain, expected);
+    assert_eq!(diagnostics.fingerprint, expected.fingerprint());
 }
 
 #[test]
@@ -885,13 +1010,12 @@ fn diagnose_query_fingerprint_matches_plan() {
     reset_stores();
     init_schema();
 
-    let schema = Schema::new();
-    let spec = QueryBuilder::<TestEntity>::new().build();
+    let query = Query::<TestEntity>::new(ReadConsistency::MissingOk);
     let session = DbSession::new(DB);
 
-    let plan = spec.plan::<TestEntity>(&schema).expect("plan");
+    let plan = query.plan().expect("plan");
     let diagnostics = session
-        .diagnose_query::<TestEntity>(&spec, &schema)
+        .diagnose_query::<TestEntity>(&query)
         .expect("diagnose");
 
     assert_eq!(diagnostics.fingerprint, plan.fingerprint());
@@ -909,15 +1033,17 @@ fn diagnose_query_does_not_execute() {
         .with_store_mut(|store| store.insert(raw_key, corrupted))
         .unwrap();
 
-    let schema = Schema::new();
-    let spec = QueryBuilder::<TestEntity>::new().build();
+    let query = Query::<TestEntity>::new(ReadConsistency::MissingOk);
     let session = DbSession::new(DB);
 
-    let result = session.diagnose_query::<TestEntity>(&spec, &schema);
+    let result = session.diagnose_query::<TestEntity>(&query);
     assert!(result.is_ok());
 
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
-    let load_result = loader.execute(LogicalPlan::new(AccessPath::FullScan));
+    let load_result = loader.execute(ExecutablePlan::new(LogicalPlan::new(
+        AccessPath::FullScan,
+        ReadConsistency::MissingOk,
+    )));
     assert!(load_result.is_err());
 }
 
@@ -926,17 +1052,12 @@ fn diagnose_query_invalid_matches_explain() {
     reset_stores();
     init_schema();
 
-    let schema = Schema::new();
-    let spec = QueryBuilder::<TestEntity>::new()
-        .order_by("missing")
-        .build();
+    let query = Query::<TestEntity>::new(ReadConsistency::MissingOk).order_by("missing");
     let session = DbSession::new(DB);
 
-    let expected = spec
-        .explain::<TestEntity>(&schema)
-        .expect_err("invalid order");
+    let expected = query.explain().expect_err("invalid order");
     let err = session
-        .diagnose_query::<TestEntity>(&spec, &schema)
+        .diagnose_query::<TestEntity>(&query)
         .expect_err("invalid order");
 
     assert!(matches!(
@@ -961,15 +1082,14 @@ fn execute_with_diagnostics_returns_events() {
     };
     saver.insert(entity).unwrap();
 
-    let schema = Schema::new();
-    let spec = QueryBuilder::<TestEntity>::new().build();
+    let query = Query::<TestEntity>::new(ReadConsistency::MissingOk);
     let session = DbSession::new(DB);
 
     let (response, diagnostics) = session
-        .execute_with_diagnostics::<TestEntity>(&spec, &schema)
+        .execute_with_diagnostics::<TestEntity>(&query)
         .expect("execute");
 
-    let plan = spec.plan::<TestEntity>(&schema).expect("plan");
+    let plan = query.plan().expect("plan");
     assert_eq!(diagnostics.fingerprint, plan.fingerprint());
     assert_eq!(response.0.len(), 1);
     assert_eq!(
@@ -1057,7 +1177,7 @@ fn load_orders_with_incomparable_primary_uses_secondary() {
         saver.insert(entity).unwrap();
     }
 
-    let mut plan = LogicalPlan::new(AccessPath::FullScan);
+    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![
             ("primary".to_string(), OrderDirection::Asc),
@@ -1066,7 +1186,10 @@ fn load_orders_with_incomparable_primary_uses_secondary() {
     });
 
     let loader = LoadExecutor::<OrderEntity>::new(DB, false);
-    let ordered = loader.execute(plan).unwrap().entities();
+    let ordered = loader
+        .execute(ExecutablePlan::new(plan))
+        .unwrap()
+        .entities();
     let ordered_ids = ordered.iter().map(|entity| entity.id).collect::<Vec<_>>();
 
     assert_eq!(
@@ -1109,7 +1232,7 @@ fn load_paginates_after_ordering() {
         saver.insert(entity).unwrap();
     }
 
-    let mut plan = LogicalPlan::new(AccessPath::FullScan);
+    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("name".to_string(), OrderDirection::Asc)],
     });
@@ -1119,14 +1242,17 @@ fn load_paginates_after_ordering() {
     });
 
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
-    let page = loader.execute(plan).unwrap().entities();
+    let page = loader
+        .execute(ExecutablePlan::new(plan))
+        .unwrap()
+        .entities();
     let names = page
         .iter()
         .map(|entity| entity.name.as_str())
         .collect::<Vec<_>>();
     assert_eq!(names, vec!["bravo", "charlie"]);
 
-    let mut plan = LogicalPlan::new(AccessPath::FullScan);
+    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("name".to_string(), OrderDirection::Asc)],
     });
@@ -1135,7 +1261,7 @@ fn load_paginates_after_ordering() {
         offset: 0,
     });
     let names = loader
-        .execute(plan)
+        .execute(ExecutablePlan::new(plan))
         .unwrap()
         .entities()
         .into_iter()
@@ -1143,7 +1269,7 @@ fn load_paginates_after_ordering() {
         .collect::<Vec<_>>();
     assert_eq!(names, vec!["alpha", "bravo", "charlie", "delta"]);
 
-    let mut plan = LogicalPlan::new(AccessPath::FullScan);
+    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("name".to_string(), OrderDirection::Asc)],
     });
@@ -1153,7 +1279,7 @@ fn load_paginates_after_ordering() {
     });
     assert!(
         loader
-            .execute(plan)
+            .execute(ExecutablePlan::new(plan))
             .unwrap()
             .entities()
             .into_iter()
@@ -1192,21 +1318,34 @@ fn ordering_does_not_break_ties_by_primary_key() {
         },
     ];
 
-    for entity in entities.clone() {
+    for entity in entities {
         saver.insert(entity).unwrap();
     }
 
-    let mut plan = LogicalPlan::new(AccessPath::FullScan);
+    let loader = LoadExecutor::<OrderEntity>::new(DB, false);
+    let base_ids = loader
+        .execute(ExecutablePlan::new(LogicalPlan::new(
+            AccessPath::FullScan,
+            ReadConsistency::MissingOk,
+        )))
+        .unwrap()
+        .entities()
+        .iter()
+        .map(|entity| entity.id)
+        .collect::<Vec<_>>();
+
+    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("primary".to_string(), OrderDirection::Asc)],
     });
 
-    let loader = LoadExecutor::<OrderEntity>::new(DB, false);
-    let ordered = loader.execute(plan).unwrap().entities();
+    let ordered = loader
+        .execute(ExecutablePlan::new(plan))
+        .unwrap()
+        .entities();
     let ordered_ids = ordered.iter().map(|entity| entity.id).collect::<Vec<_>>();
-    let inserted_ids = entities.iter().map(|entity| entity.id).collect::<Vec<_>>();
 
-    assert_eq!(ordered_ids, inserted_ids);
+    assert_eq!(ordered_ids, base_ids);
 }
 
 #[test]
@@ -1242,13 +1381,16 @@ fn ordering_does_not_compare_incomparable_values() {
         saver.insert(entity).unwrap();
     }
 
-    let mut plan = LogicalPlan::new(AccessPath::FullScan);
+    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("primary".to_string(), OrderDirection::Asc)],
     });
 
     let loader = LoadExecutor::<OrderEntity>::new(DB, false);
-    let ordered = loader.execute(plan).unwrap().entities();
+    let ordered = loader
+        .execute(ExecutablePlan::new(plan))
+        .unwrap()
+        .entities();
     let ordered_ids = ordered.iter().map(|entity| entity.id).collect::<Vec<_>>();
     let inserted_ids = entities.iter().map(|entity| entity.id).collect::<Vec<_>>();
 
@@ -1260,10 +1402,12 @@ fn load_execute_does_not_touch_global_schema() {
     reset_schema_lookup_called();
     reset_stores();
 
-    let plan = LogicalPlan::new(AccessPath::FullScan);
+    let plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
 
-    let _ = loader.execute(plan).expect("load executes");
+    let _ = loader
+        .execute(ExecutablePlan::new(plan))
+        .expect("load executes");
 
     assert!(!schema_lookup_called());
 }

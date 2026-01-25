@@ -2,7 +2,10 @@ use crate::{
     db::{
         Db,
         executor::ExecutorError,
-        query::plan::AccessPath,
+        query::{
+            ReadConsistency,
+            plan::{AccessPath, AccessPlan},
+        },
         store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorOrigin, InternalError},
@@ -73,7 +76,7 @@ where
     ///
     /// Note: index candidates are returned in deterministic key order.
     /// This ordering is for stability only and does not imply semantic ordering.
-    pub fn candidates_from_access(
+    pub(crate) fn candidates_from_access(
         &self,
         access: &AccessPath,
     ) -> Result<Vec<DataKey>, InternalError> {
@@ -121,16 +124,20 @@ where
     }
 
     /// Load data rows for the given access path.
-    pub fn rows_from_access(&self, access: &AccessPath) -> Result<Vec<DataRow>, InternalError> {
+    pub(crate) fn rows_from_access(
+        &self,
+        access: &AccessPath,
+        consistency: ReadConsistency,
+    ) -> Result<Vec<DataRow>, InternalError> {
         match access {
             AccessPath::ByKey(key) => {
                 let data_keys = Self::to_data_keys(vec![*key]);
-                self.load_many_lenient(&data_keys)
+                self.load_many_with_consistency(&data_keys, consistency)
             }
             AccessPath::ByKeys(keys) => {
                 let keys = Self::dedup_keys(keys.clone());
                 let data_keys = Self::to_data_keys(keys);
-                self.load_many_lenient(&data_keys)
+                self.load_many_with_consistency(&data_keys, consistency)
             }
             AccessPath::KeyRange { start, end } => {
                 let start = Self::to_data_key(*start);
@@ -152,7 +159,23 @@ where
             })?,
             AccessPath::IndexPrefix { .. } => {
                 let data_keys = self.candidates_from_access(access)?;
-                self.load_many(&data_keys)
+                self.load_many_with_consistency(&data_keys, consistency)
+            }
+        }
+    }
+
+    /// Load data rows for a composite access plan.
+    pub(crate) fn rows_from_access_plan(
+        &self,
+        access: &AccessPlan,
+        consistency: ReadConsistency,
+    ) -> Result<Vec<DataRow>, InternalError> {
+        match access {
+            AccessPlan::Path(path) => self.rows_from_access(path, consistency),
+            AccessPlan::Union(_) | AccessPlan::Intersection(_) => {
+                let keys = self.candidate_keys_for_plan(access)?;
+                let keys = keys.into_iter().collect::<Vec<_>>();
+                self.load_many_with_consistency(&keys, consistency)
             }
         }
     }
@@ -180,20 +203,19 @@ where
         out
     }
 
-    fn load_many(&self, keys: &[DataKey]) -> Result<Vec<DataRow>, InternalError> {
+    fn load_many_with_consistency(
+        &self,
+        keys: &[DataKey],
+        consistency: ReadConsistency,
+    ) -> Result<Vec<DataRow>, InternalError> {
         let mut out = Vec::with_capacity(keys.len());
         for k in keys {
-            let row = self.read_strict(k)?;
-            out.push((k.clone(), row));
-        }
+            let row = match consistency {
+                ReadConsistency::Strict => self.read_strict(k),
+                ReadConsistency::MissingOk => self.read(k),
+            };
 
-        Ok(out)
-    }
-
-    fn load_many_lenient(&self, keys: &[DataKey]) -> Result<Vec<DataRow>, InternalError> {
-        let mut out = Vec::with_capacity(keys.len());
-        for k in keys {
-            match self.read(k) {
+            match row {
                 Ok(row) => out.push((k.clone(), row)),
                 Err(err) => {
                     if err.is_not_found() {
@@ -220,22 +242,65 @@ where
         })?
     }
 
+    fn candidate_keys_for_plan(
+        &self,
+        plan: &AccessPlan,
+    ) -> Result<std::collections::BTreeSet<DataKey>, InternalError> {
+        match plan {
+            AccessPlan::Path(path) => {
+                let keys = self.candidates_from_access(path)?;
+                Ok(keys.into_iter().collect())
+            }
+            AccessPlan::Union(children) => {
+                let mut keys = std::collections::BTreeSet::new();
+                for child in children {
+                    keys.extend(self.candidate_keys_for_plan(child)?);
+                }
+                Ok(keys)
+            }
+            AccessPlan::Intersection(children) => {
+                let mut iter = children.iter();
+                let Some(first) = iter.next() else {
+                    return Ok(std::collections::BTreeSet::new());
+                };
+                let mut keys = self.candidate_keys_for_plan(first)?;
+                for child in iter {
+                    let child_keys = self.candidate_keys_for_plan(child)?;
+                    keys.retain(|key| child_keys.contains(key));
+                    if keys.is_empty() {
+                        break;
+                    }
+                }
+                Ok(keys)
+            }
+        }
+    }
+
     /// Deserialize raw data rows into typed entity rows, mapping `DataKey` → `(Key, E)`.
     #[allow(clippy::unused_self)]
     pub fn deserialize_rows(&self, rows: Vec<DataRow>) -> Result<Vec<(Key, E)>, InternalError> {
         rows.into_iter()
             .map(|(k, v)| {
-                v.try_decode::<E>()
-                    .map(|entry| (k.key(), entry))
-                    .map_err(|err| {
-                        ExecutorError::corruption(
-                            ErrorOrigin::Serialize,
-                            format!("failed to deserialize row: {k} ({err})"),
-                        )
-                        .into()
-                    })
+                let entry = v.try_decode::<E>().map_err(|err| {
+                    ExecutorError::corruption(
+                        ErrorOrigin::Serialize,
+                        format!("failed to deserialize row: {k} ({err})"),
+                    )
+                })?;
+
+                let key = k.key();
+                let entity_key = entry.key();
+                if key != entity_key {
+                    return Err(ExecutorError::corruption(
+                        ErrorOrigin::Store,
+                        format!("row key mismatch: expected {key}, found {entity_key}"),
+                    )
+                    .into());
+                }
+
+                Ok((key, entry))
             })
-            .collect()
+            .collect::<_>()
     }
 
     fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {

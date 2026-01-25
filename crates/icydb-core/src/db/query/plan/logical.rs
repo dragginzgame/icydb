@@ -1,7 +1,8 @@
 //! Executor contract for a fully resolved logical plan; must not plan or validate.
 
 use crate::db::query::{
-    plan::{AccessPath, OrderSpec, PageSpec},
+    ReadConsistency,
+    plan::{AccessPath, AccessPlan, OrderSpec, PageSpec, ProjectionSpec},
     predicate::Predicate,
 };
 
@@ -16,10 +17,12 @@ use crate::db::query::{
 /// `LogicalPlan` is constructed.
 ///
 /// Design notes:
-/// - Exactly one `AccessPath` is present (no unions or intersections)
+/// - Access may be a single path or a composite (union/intersection) of paths
 /// - Predicates are applied *after* data access
 /// - Ordering is applied after filtering
 /// - Pagination is applied last
+/// - Projection is applied to the final materialized rows
+/// - Missing-row policy is explicit and must not depend on access path
 ///
 /// This struct is the explicit contract between the planner and executors.
 /// Executors must be able to execute any valid `LogicalPlan` without
@@ -28,17 +31,23 @@ use crate::db::query::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LogicalPlan {
-    /// Concrete storage access strategy.
-    pub access: AccessPath,
+    /// Storage access strategy (single path or composite).
+    pub(crate) access: AccessPlan,
 
     /// Optional residual predicate applied after access.
-    pub predicate: Option<Predicate>,
+    pub(crate) predicate: Option<Predicate>,
 
     /// Optional ordering specification.
-    pub order: Option<OrderSpec>,
+    pub(crate) order: Option<OrderSpec>,
 
     /// Optional pagination specification.
-    pub page: Option<PageSpec>,
+    pub(crate) page: Option<PageSpec>,
+
+    /// Projection specification.
+    pub(crate) projection: ProjectionSpec,
+
+    /// Missing-row policy for execution.
+    pub(crate) consistency: ReadConsistency,
 }
 
 impl LogicalPlan {
@@ -46,12 +55,14 @@ impl LogicalPlan {
     ///
     /// Predicates, ordering, and pagination may be attached later.
     #[must_use]
-    pub const fn new(access: AccessPath) -> Self {
+    pub const fn new(access: AccessPath, consistency: ReadConsistency) -> Self {
         Self {
-            access,
+            access: AccessPlan::Path(access),
             predicate: None,
             order: None,
             page: None,
+            projection: ProjectionSpec::All,
+            consistency,
         }
     }
 }

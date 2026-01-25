@@ -9,7 +9,7 @@
 //! Planner correctness is enforced elsewhere. This layer exists solely to
 //! protect the executor from malformed or schema-incompatible plans.
 
-use super::{AccessPath, LogicalPlan, OrderSpec};
+use super::{AccessPath, AccessPlan, LogicalPlan, OrderSpec};
 use crate::{
     db::query::predicate::{
         self, SchemaInfo,
@@ -18,7 +18,6 @@ use crate::{
     key::Key,
     model::entity::EntityModel,
     model::index::IndexModel,
-    traits::EntityKind,
     value::Value,
 };
 use thiserror::Error as ThisError;
@@ -74,17 +73,6 @@ pub fn validate_plan_with_model(plan: &LogicalPlan, model: &EntityModel) -> Resu
     validate_plan_with_schema_info(&schema, model, plan)
 }
 
-/// Validate a logical plan against the concrete entity schema.
-///
-/// This legacy entrypoint consults the global schema and should not be used
-/// on executor paths.
-pub(crate) fn validate_plan_with_schema<E: EntityKind>(
-    plan: &LogicalPlan,
-) -> Result<(), PlanError> {
-    let schema = SchemaInfo::from_entity::<E>()?;
-    validate_plan_with_schema_info(&schema, E::MODEL, plan)
-}
-
 /// Validate a logical plan using a prebuilt schema surface.
 pub(crate) fn validate_plan_with_schema_info(
     schema: &SchemaInfo,
@@ -99,41 +87,15 @@ pub(crate) fn validate_plan_with_schema_info(
         validate_order(schema, order)?;
     }
 
-    validate_access(schema, model, &plan.access)?;
+    validate_access_plan(schema, model, &plan.access)?;
 
     Ok(())
 }
 
-impl LogicalPlan {
-    /// Debug-only validation hook.
-    ///
-    /// Panics if the plan is executor-invalid. This must never run in release
-    /// builds and must not attempt recovery or normalization.
-    pub(crate) fn debug_validate_with_model(&self, model: &EntityModel) {
-        if !cfg!(debug_assertions) {
-            return;
-        }
-
-        if let Err(err) = validate_plan_with_model(self, model) {
-            panic!("logical plan invariant violated: {err}");
-        }
-    }
-
-    /// Debug-only legacy validation hook that consults global schema.
-    #[allow(dead_code)]
-    pub(crate) fn debug_validate_with_schema<E: EntityKind>(&self) {
-        if !cfg!(debug_assertions) {
-            return;
-        }
-
-        if let Err(err) = validate_plan_with_schema::<E>(self) {
-            panic!("logical plan invariant violated: {err}");
-        }
-    }
-}
+impl LogicalPlan {}
 
 /// Validate ORDER BY fields against the schema.
-fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
+pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
     for (field, _) in &order.fields {
         let field_type = schema
             .field(field)
@@ -154,7 +116,23 @@ fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanErro
 /// Validate executor-visible access paths.
 ///
 /// This ensures keys, ranges, and index prefixes are schema-compatible.
-fn validate_access(
+pub(crate) fn validate_access_plan(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    access: &AccessPlan,
+) -> Result<(), PlanError> {
+    match access {
+        AccessPlan::Path(path) => validate_access_path(schema, model, path),
+        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
+            for child in children {
+                validate_access_plan(schema, model, child)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_access_path(
     schema: &SchemaInfo,
     model: &EntityModel,
     access: &AccessPath,
@@ -191,7 +169,10 @@ mod tests {
     use super::{PlanError, validate_plan_with_model, validate_plan_with_schema_info};
     use crate::{
         db::query::{
-            plan::{AccessPath, LogicalPlan, OrderDirection, OrderSpec, planner::PlannerEntity},
+            plan::{
+                AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec,
+                planner::PlannerEntity,
+            },
             predicate::{SchemaInfo, ValidateError},
         },
         key::Key,
@@ -369,18 +350,23 @@ mod tests {
     #[test]
     fn plan_rejects_unorderable_field() {
         let model = model_with_fields(
-            vec![field("tags", EntityFieldKind::List(&EntityFieldKind::Text))],
+            vec![
+                field("id", EntityFieldKind::Ulid),
+                field("tags", EntityFieldKind::List(&EntityFieldKind::Text)),
+            ],
             0,
         );
 
         let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
         let plan = LogicalPlan {
-            access: AccessPath::FullScan,
+            access: AccessPlan::Path(AccessPath::FullScan),
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![("tags".to_string(), OrderDirection::Asc)],
             }),
             page: None,
+            projection: crate::db::query::plan::ProjectionSpec::All,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
         };
 
         let err =
@@ -392,17 +378,19 @@ mod tests {
     fn plan_rejects_index_prefix_too_long() {
         let schema = SchemaInfo::from_entity_model(PlannerEntity::MODEL).expect("valid model");
         let plan = LogicalPlan {
-            access: AccessPath::IndexPrefix {
+            access: AccessPlan::Path(AccessPath::IndexPrefix {
                 index: *PlannerEntity::INDEXES[0],
                 values: vec![
                     Value::Text("a".to_string()),
                     Value::Text("b".to_string()),
                     Value::Text("c".to_string()),
                 ],
-            },
+            }),
             predicate: None,
             order: None,
             page: None,
+            projection: crate::db::query::plan::ProjectionSpec::All,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
         };
 
         let err = validate_plan_with_schema_info(&schema, PlannerEntity::MODEL, &plan)
@@ -414,10 +402,12 @@ mod tests {
     fn plan_accepts_model_based_validation() {
         let model = model_with_fields(vec![field("id", EntityFieldKind::Ulid)], 0);
         let plan = LogicalPlan {
-            access: AccessPath::ByKey(Key::Ulid(Ulid::nil())),
+            access: AccessPlan::Path(AccessPath::ByKey(Key::Ulid(Ulid::nil()))),
             predicate: None,
             order: None,
             page: None,
+            projection: crate::db::query::plan::ProjectionSpec::All,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
         };
 
         validate_plan_with_model(&plan, &model).expect("valid plan");

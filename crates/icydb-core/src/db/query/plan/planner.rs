@@ -285,6 +285,9 @@ fn normalize_union(children: Vec<AccessPlan>) -> AccessPlan {
 
     canonical::canonicalize_access_plans(&mut out);
     out.dedup();
+    if out.len() == 1 {
+        return out.pop().expect("single union child");
+    }
     AccessPlan::Union(out)
 }
 
@@ -312,6 +315,9 @@ fn normalize_intersection(children: Vec<AccessPlan>) -> AccessPlan {
 
     canonical::canonicalize_access_plans(&mut out);
     out.dedup();
+    if out.len() == 1 {
+        return out.pop().expect("single intersection child");
+    }
     AccessPlan::Intersection(out)
 }
 
@@ -853,10 +859,10 @@ mod tests {
 
         assert_eq!(
             non_strict_plan,
-            AccessPlan::Intersection(vec![AccessPlan::Path(AccessPath::IndexPrefix {
+            AccessPlan::Path(AccessPath::IndexPrefix {
                 index: INDEX_MODEL,
                 values: vec![v_text("a")],
-            }),])
+            })
         );
     }
 

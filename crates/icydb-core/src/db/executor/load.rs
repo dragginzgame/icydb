@@ -6,12 +6,12 @@ use crate::{
             trace::{QueryTraceSink, TraceExecutorKind, start_plan_trace},
         },
         query::{
-            plan::{LogicalPlan, OrderDirection, OrderSpec, validate_plan_with_model},
+            plan::{ExecutablePlan, OrderDirection, OrderSpec},
             predicate::{eval as eval_predicate, normalize as normalize_predicate},
         },
         response::Response,
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     traits::EntityKind,
@@ -65,22 +65,19 @@ impl<E: EntityKind> LoadExecutor<E> {
     // Execution
     // ======================================================================
 
-    /// Execute a logical plan directly (no planner inference).
-    pub fn execute(&self, plan: LogicalPlan) -> Result<Response<E>, InternalError> {
+    /// Execute an executor-ready plan directly (no planner inference).
+    pub fn execute(&self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
         let trace = start_plan_trace(self.trace, TraceExecutorKind::Load, &plan);
         let result = (|| {
             let mut span = Span::<E>::new(ExecKind::Load);
-            validate_plan_with_model(&plan, E::MODEL).map_err(|err| {
-                InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
-            })?;
-            plan.debug_validate_with_model(E::MODEL);
+            let plan = plan.into_inner();
 
             self.debug_log(format!("🧭 Executing plan on {}", E::PATH));
 
             let ctx = self.db.context::<E>();
             record_plan_metrics(&plan.access);
 
-            let data_rows = ctx.rows_from_access(&plan.access)?;
+            let data_rows = ctx.rows_from_access_plan(&plan.access, plan.consistency)?;
             sink::record(MetricsEvent::RowsScanned {
                 entity_path: E::PATH,
                 rows_scanned: data_rows.len() as u64,
@@ -158,12 +155,12 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Execute a plan and require exactly one row.
-    pub fn require_one(&self, plan: LogicalPlan) -> Result<(), InternalError> {
+    pub fn require_one(&self, plan: ExecutablePlan<E>) -> Result<(), InternalError> {
         self.execute(plan)?.require_one()
     }
 
     /// Count rows matching a plan.
-    pub fn count(&self, plan: LogicalPlan) -> Result<u32, InternalError> {
+    pub fn count(&self, plan: ExecutablePlan<E>) -> Result<u32, InternalError> {
         Ok(self.execute(plan)?.count())
     }
 
@@ -177,7 +174,7 @@ impl<E: EntityKind> LoadExecutor<E> {
     /// so it can later avoid full deserialization.
     pub fn group_count_by<K, F>(
         &self,
-        plan: LogicalPlan,
+        plan: ExecutablePlan<E>,
         key_fn: F,
     ) -> Result<HashMap<K, u32>, InternalError>
     where

@@ -3,7 +3,7 @@ use icydb::__internal::core::db::{
     store::{DataKey, RawRow},
 };
 use icydb::{
-    db::{UniqueIndexHandle, query::builder::QueryBuilder},
+    db::query::{Query, ReadConsistency},
     design::prelude::*,
     error::ErrorClass,
     serialize,
@@ -55,10 +55,14 @@ impl DeleteUniqueSuite {
             })
             .unwrap();
 
-        let err = QueryBuilder::<Index>::new()
-            .filter(eq("y", Index::new(2, 55)))
-            .build()
-            .delete(&db!())
+        let plan = Query::<Index>::new(ReadConsistency::Strict)
+            .filter(eq("y", 55))
+            .plan()
+            .expect("plan");
+        let err = crate::db_core()
+            .delete::<Index>()
+            .execute(plan)
+            .map_err(icydb::Error::from)
             .unwrap_err();
 
         assert_eq!(err.class, ErrorClass::Corruption);
@@ -93,9 +97,14 @@ impl DeleteUniqueSuite {
             })
             .unwrap();
 
-        let err = QueryBuilder::<Index>::new()
-            .filter(eq("y", Index::new(3, 88)))
-            .delete(&db!())
+        let plan = Query::<Index>::new(ReadConsistency::MissingOk)
+            .filter(eq("y", 88))
+            .plan()
+            .expect("plan");
+        let err = crate::db_core()
+            .delete::<Index>()
+            .execute(plan)
+            .map_err(icydb::Error::from)
             .unwrap_err();
 
         assert_eq!(err.class, ErrorClass::Corruption);
@@ -127,9 +136,14 @@ impl DeleteUniqueSuite {
             })
             .unwrap();
 
-        let err = QueryBuilder::<Index>::new()
-            .filter(eq("y", Index::new(2, 777)))
-            .delete(&db!())
+        let plan = Query::<Index>::new(ReadConsistency::MissingOk)
+            .filter(eq("y", 777))
+            .plan()
+            .expect("plan");
+        let err = crate::db_core()
+            .delete::<Index>()
+            .execute(plan)
+            .map_err(icydb::Error::from)
             .unwrap_err();
 
         assert_eq!(err.class, ErrorClass::Corruption);
@@ -151,16 +165,17 @@ impl DeleteUniqueSuite {
             })
             .unwrap();
 
-        let err = QueryBuilder::<Index>::new()
-            .filter(eq("y", Index::new(2, 444)))
-            .delete(&db!())
+        let plan = Query::<Index>::new(ReadConsistency::Strict)
+            .filter(eq("y", 444))
+            .plan()
+            .expect("plan");
+        let err = crate::db_core()
+            .delete::<Index>()
+            .execute(plan)
+            .map_err(icydb::Error::from)
             .unwrap_err();
 
         assert_eq!(err.class, ErrorClass::Corruption);
-    }
-
-    fn unique_handle() -> UniqueIndexHandle {
-        UniqueIndexHandle::for_fields::<Index>(&["y"]).expect("expected unique index on y")
     }
 
     fn unique_index() -> &'static icydb::model::index::IndexModel {

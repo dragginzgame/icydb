@@ -1,11 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::prelude::*;
-    use icydb::db::query::{
-        builder::{QueryBuilder, eq},
-        plan::AccessPath,
-    };
-    use icydb::schema::node::Schema;
+    use icydb::db::query::{Query, ReadConsistency, eq, plan::ExplainAccessPath};
 
     #[entity(
         store = "TestDataStore",
@@ -19,15 +15,13 @@ mod tests {
 
     #[test]
     fn plan_uses_model_without_schema_init() {
-        let spec = QueryBuilder::<QueryModelEntity>::new()
-            .filter(eq("id", Ulid::default()))
-            .build();
+        let query = Query::<QueryModelEntity>::new(ReadConsistency::MissingOk)
+            .filter(eq("id", Ulid::default()));
+        let plan = query.plan().expect("plan should not require schema init");
 
-        let schema = Schema::new();
-        let plan = spec
-            .plan::<QueryModelEntity>(&schema)
-            .expect("plan should not require schema init");
-
-        assert!(matches!(plan.access, AccessPath::ByKey(_)));
+        assert!(matches!(
+            plan.explain().access,
+            ExplainAccessPath::ByKey { .. }
+        ));
     }
 }

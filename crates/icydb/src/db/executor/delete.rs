@@ -1,6 +1,6 @@
 use crate::{
     Error,
-    db::{UniqueIndexHandle, map_response, query::plan::LogicalPlan, response::Response},
+    db::{UniqueIndexHandle, map_response, query::plan::ExecutablePlan, response::Response},
     traits::EntityKind,
 };
 use icydb_core::{self as core, db::traits::FromKey};
@@ -38,7 +38,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
     }
 
     /// Execute a logical plan.
-    pub(crate) fn execute(self, plan: LogicalPlan) -> Result<Response<E>, Error> {
+    pub(crate) fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, Error> {
         map_response(self.inner.execute(plan))
     }
 }

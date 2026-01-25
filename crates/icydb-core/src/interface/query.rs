@@ -1,5 +1,5 @@
 use crate::{
-    db::query::{SaveQuery, plan::LogicalPlan},
+    db::query::{SaveQuery, plan::ExecutablePlanErased},
     error::{ErrorClass, ErrorOrigin, InternalError},
     prelude::*,
 };
@@ -30,13 +30,13 @@ impl QueryError {
 }
 
 /// Function pointer that executes a load query for a specific entity type.
-pub type LoadHandler = fn(LogicalPlan) -> Result<Vec<Key>, InternalError>;
+pub type LoadHandler = fn(ExecutablePlanErased) -> Result<Vec<Key>, InternalError>;
 
 /// Function pointer that executes a save query for a specific entity type.
 pub type SaveHandler = fn(SaveQuery) -> Result<Key, InternalError>;
 
 /// Function pointer that executes a delete query for a specific entity type.
-pub type DeleteHandler = fn(LogicalPlan) -> Result<Vec<Key>, InternalError>;
+pub type DeleteHandler = fn(ExecutablePlanErased) -> Result<Vec<Key>, InternalError>;
 
 ///
 /// EntityDispatch

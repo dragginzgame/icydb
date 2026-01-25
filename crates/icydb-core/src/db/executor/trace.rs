@@ -3,7 +3,7 @@
 //! Tracing is optional, injected by the caller, and must not affect execution semantics.
 
 use crate::{
-    db::query::plan::{AccessPath, LogicalPlan, PlanFingerprint},
+    db::query::plan::{AccessPath, AccessPlan, ExecutablePlan, PlanFingerprint},
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
 use sha2::{Digest, Sha256};
@@ -119,13 +119,13 @@ impl TraceScope {
     }
 }
 
-pub fn start_plan_trace(
+pub fn start_plan_trace<E: crate::traits::EntityKind>(
     sink: Option<&'static dyn QueryTraceSink>,
     executor: TraceExecutorKind,
-    plan: &LogicalPlan,
+    plan: &ExecutablePlan<E>,
 ) -> Option<TraceScope> {
     let sink = sink?;
-    let access = Some(trace_access_from_path(&plan.access));
+    let access = trace_access_from_plan(plan.access());
     let fingerprint = plan.fingerprint();
     Some(TraceScope::new(sink, fingerprint, executor, access))
 }
@@ -140,6 +140,13 @@ pub fn start_exec_trace(
     let sink = sink?;
     let fingerprint = exec_fingerprint(executor, entity_path, detail);
     Some(TraceScope::new(sink, fingerprint, executor, access))
+}
+
+fn trace_access_from_plan(plan: &AccessPlan) -> Option<TraceAccess> {
+    match plan {
+        AccessPlan::Path(path) => Some(trace_access_from_path(path)),
+        AccessPlan::Union(_) | AccessPlan::Intersection(_) => None,
+    }
 }
 
 fn trace_access_from_path(path: &AccessPath) -> TraceAccess {

@@ -32,6 +32,7 @@ ulid = { workspace = true }
 bencher = "0.1"
 proptest = "1.6"
 serde_json = "1.0"
+trybuild = "1.0"
 
 [features]
 default = ["plan-cache"]

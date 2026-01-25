@@ -1,26 +1,27 @@
 //! Plan module wiring; must not implement planning or validation logic.
 
-pub mod access;
 pub(crate) mod cache;
 pub mod canonical;
+pub mod executable;
 pub mod explain;
 pub mod fingerprint;
 mod invariants;
-pub mod logical;
+pub(crate) mod logical;
 pub mod planner;
-pub mod types;
+mod types;
 pub mod validate;
 
+pub use executable::{ExecutablePlan, ExecutablePlanErased};
 pub use explain::{
     ExplainAccessPath, ExplainOrder, ExplainOrderBy, ExplainPagination, ExplainPlan,
-    ExplainPredicate,
+    ExplainPredicate, ExplainProjection,
 };
 pub use fingerprint::PlanFingerprint;
 pub(crate) use invariants::validate_plan_invariants;
-pub use logical::LogicalPlan;
-pub use types::{AccessPath, AccessPlan, OrderDirection, OrderSpec, PageSpec};
+pub(crate) use logical::LogicalPlan;
+pub use types::OrderDirection;
+pub(crate) use types::{AccessPath, AccessPlan, OrderSpec, PageSpec, ProjectionSpec};
 pub use validate::PlanError;
-pub(crate) use validate::validate_plan_with_model;
 
 #[cfg(debug_assertions)]
 #[must_use]

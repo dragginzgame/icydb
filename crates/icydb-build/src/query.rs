@@ -38,8 +38,9 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
                 path: #ty::PATH,
 
                 // Load closure: executes the logical plan on this entity type.
-                load_keys: |query: ::icydb::__internal::core::db::query::plan::LogicalPlan| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
-                    crate::db_core().load::<#ty>().execute(query).map(|res| res.keys())
+                load_keys: |query: ::icydb::__internal::core::db::query::plan::ExecutablePlanErased| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
+                    let plan = query.into_typed::<#ty>()?;
+                    crate::db_core().load::<#ty>().execute(plan).map(|res| res.keys())
                 },
 
                 // Save closure: executes a SaveQuery and returns the resulting key.
@@ -48,8 +49,9 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
                 },
 
                 // Delete closure: executes the logical plan and returns all removed keys.
-                delete_keys: |query: ::icydb::__internal::core::db::query::plan::LogicalPlan| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
-                    crate::db_core().delete::<#ty>().execute(query).map(|res| res.keys())
+                delete_keys: |query: ::icydb::__internal::core::db::query::plan::ExecutablePlanErased| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
+                    let plan = query.into_typed::<#ty>()?;
+                    crate::db_core().delete::<#ty>().execute(plan).map(|res| res.keys())
                 },
             }),
         }
@@ -75,7 +77,7 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
         #[allow(dead_code)]
         pub(crate) fn dispatch_load(
             path: &str,
-            query: ::icydb::db::query::plan::LogicalPlan,
+            query: ::icydb::db::query::plan::ExecutablePlanErased,
         ) -> Result<Vec<::icydb::key::Key>, ::icydb::Error> {
             let dispatch = dispatch_entity(path)
                 .map_err(|err| ::icydb::Error::from(::icydb::__internal::core::error::InternalError::from(err)))?;
@@ -99,7 +101,7 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
         #[allow(dead_code)]
         pub(crate) fn dispatch_delete(
             path: &str,
-            query: ::icydb::db::query::plan::LogicalPlan,
+            query: ::icydb::db::query::plan::ExecutablePlanErased,
         ) -> Result<Vec<::icydb::key::Key>, ::icydb::Error> {
             let dispatch = dispatch_entity(path)
                 .map_err(|err| ::icydb::Error::from(::icydb::__internal::core::error::InternalError::from(err)))?;

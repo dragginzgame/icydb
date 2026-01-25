@@ -7,15 +7,12 @@
 //! - Diagnostics never execute queries unless explicitly requested.
 //! - Diagnostics are observational only; they are not correctness proofs.
 
-use crate::db::query::{
-    builder::QueryExplain,
-    plan::{AccessPath, ExplainPlan, PlanFingerprint},
-};
+use crate::db::query::plan::{AccessPath, AccessPlan, ExplainPlan, PlanFingerprint};
 
 ///
 /// QueryDiagnostics
 ///
-/// Read-only planning diagnostics derived from a `QuerySpec`.
+/// Read-only planning diagnostics derived from a `Query`.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,11 +21,12 @@ pub struct QueryDiagnostics {
     pub fingerprint: PlanFingerprint,
 }
 
-impl From<QueryExplain> for QueryDiagnostics {
-    fn from(explain: QueryExplain) -> Self {
+impl From<ExplainPlan> for QueryDiagnostics {
+    fn from(explain: ExplainPlan) -> Self {
+        let fingerprint = explain.fingerprint();
         Self {
-            explain: explain.explain,
-            fingerprint: explain.fingerprint,
+            explain,
+            fingerprint,
         }
     }
 }
@@ -53,7 +51,14 @@ pub type QueryTraceAccess = TraceAccess;
 /// Public alias for trace executor kinds in query diagnostics.
 pub type QueryTraceExecutorKind = TraceExecutorKind;
 
-pub(crate) fn trace_access_from_path(path: &AccessPath) -> TraceAccess {
+pub(crate) fn trace_access_from_plan(plan: &AccessPlan) -> Option<TraceAccess> {
+    match plan {
+        AccessPlan::Path(path) => Some(trace_access_from_path(path)),
+        AccessPlan::Union(_) | AccessPlan::Intersection(_) => None,
+    }
+}
+
+fn trace_access_from_path(path: &AccessPath) -> TraceAccess {
     match path {
         AccessPath::ByKey(_) => TraceAccess::ByKey,
         AccessPath::ByKeys(keys) => TraceAccess::ByKeys {
@@ -71,27 +76,27 @@ pub(crate) fn trace_access_from_path(path: &AccessPath) -> TraceAccess {
 #[must_use]
 pub const fn start_event(
     fingerprint: PlanFingerprint,
-    access: TraceAccess,
+    access: Option<TraceAccess>,
     executor: TraceExecutorKind,
 ) -> QueryTraceEvent {
     QueryTraceEvent::Start {
         fingerprint,
         executor,
-        access: Some(access),
+        access,
     }
 }
 
 #[must_use]
 pub const fn finish_event(
     fingerprint: PlanFingerprint,
-    access: TraceAccess,
+    access: Option<TraceAccess>,
     executor: TraceExecutorKind,
     rows: u64,
 ) -> QueryTraceEvent {
     QueryTraceEvent::Finish {
         fingerprint,
         executor,
-        access: Some(access),
+        access,
         rows,
     }
 }

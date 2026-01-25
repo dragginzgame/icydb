@@ -17,10 +17,10 @@ use crate::{
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor, UpsertExecutor},
         index::IndexStoreRegistry,
         query::{
-            builder::{QueryError, QuerySpec},
+            Query, QueryError,
             diagnostics::{
                 QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceExecutorKind, finish_event,
-                start_event, trace_access_from_path,
+                start_event, trace_access_from_plan,
             },
         },
         response::Response,
@@ -31,7 +31,6 @@ use crate::{
     obs::sink::{self, MetricsSink},
     traits::{CanisterKind, EntityKind},
 };
-use icydb_schema::node::Schema;
 use std::{marker::PhantomData, thread::LocalKey};
 
 ///
@@ -192,22 +191,20 @@ impl<C: CanisterKind> DbSession<C> {
     /// Plan and return diagnostics for a query without executing it.
     pub fn diagnose_query<E: EntityKind<Canister = C>>(
         &self,
-        spec: &QuerySpec,
-        schema: &Schema,
+        query: &Query<E>,
     ) -> Result<QueryDiagnostics, QueryError> {
-        let explain = spec.explain::<E>(schema)?;
+        let explain = query.explain()?;
         Ok(QueryDiagnostics::from(explain))
     }
 
     /// Execute a query and return per-execution diagnostics.
     pub fn execute_with_diagnostics<E: EntityKind<Canister = C>>(
         &self,
-        spec: &QuerySpec,
-        _schema: &Schema,
+        query: &Query<E>,
     ) -> Result<(Response<E>, QueryExecutionDiagnostics), QueryError> {
-        let plan = spec.build_plan::<E>()?;
+        let plan = query.plan()?;
         let fingerprint = plan.fingerprint();
-        let access = trace_access_from_path(&plan.access);
+        let access = trace_access_from_plan(plan.access());
         let start = start_event(fingerprint, access, QueryTraceExecutorKind::Load);
 
         let result = self.with_metrics(|| self.load::<E>().execute(plan));

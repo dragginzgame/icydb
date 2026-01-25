@@ -1,6 +1,6 @@
 use crate::{
     Error,
-    db::{map_response, map_runtime, query::plan::LogicalPlan, response::Response},
+    db::{map_response, map_runtime, query::plan::ExecutablePlan, response::Response},
     traits::EntityKind,
 };
 use icydb_core as core;
@@ -20,24 +20,24 @@ impl<E: EntityKind> LoadExecutor<E> {
     }
 
     /// Execute a logical plan.
-    pub(crate) fn execute(&self, plan: LogicalPlan) -> Result<Response<E>, Error> {
+    pub(crate) fn execute(&self, plan: ExecutablePlan<E>) -> Result<Response<E>, Error> {
         map_response(self.inner.execute(plan))
     }
 
     /// Execute a plan and require exactly one row.
-    pub(crate) fn require_one(&self, plan: LogicalPlan) -> Result<(), Error> {
+    pub(crate) fn require_one(&self, plan: ExecutablePlan<E>) -> Result<(), Error> {
         map_runtime(self.inner.require_one(plan))
     }
 
     /// Count rows matching a plan.
-    pub(crate) fn count(&self, plan: LogicalPlan) -> Result<u32, Error> {
+    pub(crate) fn count(&self, plan: ExecutablePlan<E>) -> Result<u32, Error> {
         map_runtime(self.inner.count(plan))
     }
 
     /// Group rows matching a plan and count them by a derived key.
     pub(crate) fn group_count_by<K, F>(
         &self,
-        plan: LogicalPlan,
+        plan: ExecutablePlan<E>,
         key_fn: F,
     ) -> Result<HashMap<K, u32>, Error>
     where

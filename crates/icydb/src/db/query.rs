@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 /// Re-exports
 ///
 pub use core::db::query::SaveMode;
-/// Query planning types are exposed for diagnostics and introspection.
-/// Plans are not executable through the public API.
+pub use core::db::query::builder::*;
+/// Query planning types are exposed for diagnostics and execution.
 pub use core::db::query::plan;
-pub use core::db::query::{builder, diagnostics, predicate};
+pub use core::db::query::{Query, QueryError, ReadConsistency, builder, diagnostics, predicate};
 
 ///
 /// SaveQuery

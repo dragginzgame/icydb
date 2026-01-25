@@ -5,15 +5,27 @@
 
 pub mod builder;
 pub mod diagnostics;
+pub mod intent;
 pub mod plan;
 pub mod predicate;
 mod save;
 
+pub use builder::*;
 pub use diagnostics::{
     QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceAccess, QueryTraceEvent,
     QueryTraceExecutorKind,
 };
+pub use intent::{Query, QueryError};
 pub use save::*;
+
+/// Missing-row handling policy for query execution.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReadConsistency {
+    /// Missing rows are ignored (no error).
+    MissingOk,
+    /// Missing rows are treated as corruption.
+    Strict,
+}
 
 // create
 #[must_use]

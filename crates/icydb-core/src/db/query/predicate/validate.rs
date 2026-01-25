@@ -1,10 +1,8 @@
 use crate::{
     model::{entity::EntityModel, field::EntityFieldKind, index::IndexModel},
-    traits::EntityKind,
     value::{Value, ValueFamily, ValueFamilyExt},
 };
 use icydb_schema::{
-    build::get_schema,
     node::{
         Entity, Enum, Item, ItemTarget, List, Map, Newtype, Record, Schema, Set, Tuple,
         Value as SValue,
@@ -299,25 +297,6 @@ impl SchemaInfo {
     #[must_use]
     pub(crate) fn field(&self, name: &str) -> Option<&FieldType> {
         self.fields.get(name)
-    }
-
-    /// Legacy schema lookup for schema-based callers.
-    /// Model-based paths should prefer `from_entity_model`.
-    pub(crate) fn from_entity_path(path: &str) -> Result<Self, ValidateError> {
-        #[cfg(test)]
-        SCHEMA_LOOKUP_CALLED.with(|flag| flag.set(true));
-
-        let schema =
-            get_schema().map_err(|err| ValidateError::SchemaUnavailable(err.to_string()))?;
-        let entity = schema
-            .cast_node::<Entity>(path)
-            .map_err(|err| ValidateError::SchemaUnavailable(err.to_string()))?;
-
-        Ok(Self::from_entity_schema(entity, &schema))
-    }
-
-    pub(crate) fn from_entity<E: EntityKind>() -> Result<Self, ValidateError> {
-        Self::from_entity_path(E::PATH)
     }
 
     #[must_use]
@@ -1010,6 +989,7 @@ mod tests {
     fn validate_model_accepts_collections_and_map_contains() {
         let model = model_with_fields(
             vec![
+                field("id", EntityFieldKind::Ulid),
                 field("tags", EntityFieldKind::List(&EntityFieldKind::Text)),
                 field(
                     "principals",
@@ -1043,7 +1023,13 @@ mod tests {
 
     #[test]
     fn validate_model_rejects_unsupported_fields() {
-        let model = model_with_fields(vec![field("broken", EntityFieldKind::Unsupported)], 0);
+        let model = model_with_fields(
+            vec![
+                field("id", EntityFieldKind::Ulid),
+                field("broken", EntityFieldKind::Unsupported),
+            ],
+            0,
+        );
         let predicate = eq("broken", 1u64);
 
         assert!(matches!(

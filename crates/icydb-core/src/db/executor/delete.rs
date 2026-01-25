@@ -16,14 +16,14 @@ use crate::{
             RawIndexEntry, RawIndexKey,
         },
         query::{
-            plan::{LogicalPlan, OrderDirection, OrderSpec, validate_plan_with_model},
+            plan::{ExecutablePlan, OrderDirection, OrderSpec},
             predicate::{eval as eval_predicate, normalize as normalize_predicate},
         },
         response::Response,
         store::{DataKey, DataRow, RawRow},
         traits::FromKey,
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::{ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     sanitize::sanitize,
@@ -227,13 +227,10 @@ impl<E: EntityKind> DeleteExecutor<E> {
     // ─────────────────────────────────────────────
 
     #[allow(clippy::too_many_lines)]
-    pub fn execute(self, plan: LogicalPlan) -> Result<Response<E>, InternalError> {
+    pub fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
         let trace = start_plan_trace(self.trace, TraceExecutorKind::Delete, &plan);
         let result = (|| {
-            validate_plan_with_model(&plan, E::MODEL).map_err(|err| {
-                InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
-            })?;
-            plan.debug_validate_with_model(E::MODEL);
+            let plan = plan.into_inner();
             ensure_recovered(&self.db)?;
 
             self.debug_log(format!("[debug] delete plan on {}", E::PATH));
@@ -242,7 +239,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
             record_plan_metrics(&plan.access);
 
             let ctx = self.db.context::<E>();
-            let data_rows = ctx.rows_from_access(&plan.access)?;
+            let data_rows = ctx.rows_from_access_plan(&plan.access, plan.consistency)?;
             sink::record(MetricsEvent::RowsScanned {
                 entity_path: E::PATH,
                 rows_scanned: data_rows.len() as u64,
@@ -503,19 +500,28 @@ fn decode_rows<E: EntityKind>(rows: Vec<DataRow>) -> Result<Vec<DeleteRow<E>>, I
     rows.into_iter()
         .map(|(dk, raw)| {
             let dk_for_err = dk.clone();
-            raw.try_decode::<E>()
-                .map(|entity| DeleteRow {
-                    key: dk,
-                    raw: Some(raw),
-                    entity,
-                })
-                .map_err(|err| {
-                    ExecutorError::corruption(
-                        ErrorOrigin::Serialize,
-                        format!("failed to deserialize row: {dk_for_err} ({err})"),
-                    )
-                    .into()
-                })
+            let entity = raw.try_decode::<E>().map_err(|err| {
+                ExecutorError::corruption(
+                    ErrorOrigin::Serialize,
+                    format!("failed to deserialize row: {dk_for_err} ({err})"),
+                )
+            })?;
+
+            let expected = dk.key();
+            let actual = entity.key();
+            if expected != actual {
+                return Err(ExecutorError::corruption(
+                    ErrorOrigin::Store,
+                    format!("row key mismatch: expected {expected}, found {actual}"),
+                )
+                .into());
+            }
+
+            Ok(DeleteRow {
+                key: dk,
+                raw: Some(raw),
+                entity,
+            })
         })
         .collect()
 }
