@@ -41,19 +41,19 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
                 load_keys: |query: ::icydb::__internal::core::db::query::plan::__internal::ExecutablePlanErased| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
                     let plan = query.into_typed::<#ty>()?;
 
-                    crate::db_core().load::<#ty>().execute(plan).map(|res| res.keys())
+                    crate::db().load::<#ty>().execute(plan).map(|res| res.keys())
                 },
 
                 // Save closure: executes a SaveQuery and returns the resulting key.
                 save_key: |query: ::icydb::__internal::core::db::query::SaveQuery| -> Result<::icydb::key::Key, ::icydb::__internal::core::error::InternalError> {
-                    crate::db_core().save::<#ty>().execute(query).map(|res| res.key())
+                    crate::db().save::<#ty>().execute(query).map(|res| res.key())
                 },
 
                 // Delete closure: executes the logical plan and returns all removed keys.
                 delete_keys: |query: ::icydb::__internal::core::db::query::plan::__internal::ExecutablePlanErased| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
                     let plan = query.into_typed::<#ty>()?;
 
-                    crate::db_core().delete::<#ty>().execute(plan).map(|res| res.keys())
+                    crate::db().delete::<#ty>().execute(plan).map(|res| res.keys())
                 },
             }),
         }

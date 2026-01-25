@@ -75,14 +75,6 @@ pub use error::Error;
 #[doc(hidden)]
 pub mod __internal {
     pub use icydb_core as core;
-
-    use crate::db::DbSession;
-    use core::traits::CanisterKind;
-
-    #[must_use]
-    pub const fn db_session<C: CanisterKind>(db: core::db::Db<C>) -> DbSession<C> {
-        DbSession::from_core(db)
-    }
 }
 
 /// re-exports

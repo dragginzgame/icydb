@@ -108,23 +108,7 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         /// This is the **only** API applications should use.
         #[must_use]
         pub const fn db() -> ::icydb::db::DbSession<#canister_path> {
-            ::icydb::__internal::db_session(DB)
-        }
-
-        /// Internal raw DB access for tests and invariant-breaking tooling.
-        /// Not part of the public API.
-        #[doc(hidden)]
-        #[allow(dead_code)]
-        pub(crate) const fn db_core() -> ::icydb::__internal::core::db::DbSession<#canister_path> {
-            ::icydb::__internal::core::db::DbSession::new(DB)
-        }
-
-        /// Internal raw DB handle for tests and invariant-breaking tooling.
-        /// Not part of the public API.
-        #[doc(hidden)]
-        #[expect(dead_code)]
-        pub(crate) const fn db_raw() -> ::icydb::__internal::core::db::Db<#canister_path> {
-            DB
+            ::icydb::db::DbSession::new(DB)
         }
     }
 }
