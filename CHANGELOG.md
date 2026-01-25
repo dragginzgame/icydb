@@ -7,38 +7,40 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [Unreleased]
-
-### 🧯 Added
-
-* Added intent-level pagination via `Page` and `Query::page(limit, offset)`.
-* Added explicit delete intent (`QueryMode::Delete`) and `Query::delete_limit(max_rows)` for bounded deletes.
-
-### 🧦 Removed
-
-* Removed `Query::page(PageSpec)` from the public query intent API.
-* Hid `ExecutablePlanErased` behind `db::query::plan::__internal`.
-* Removed response-level pagination helpers (`Page`, `into_page`, `has_more`).
-* Removed internal plan re-exports from the public facade.
-
 ## [0.5.0] – 2026-01-24 – Query Engine v2 (Stabilization Release)
 
-This release completes the **Query Engine v2 stabilization** effort. It introduces a typed, intent-driven query facade, seals executor boundaries, and formalizes correctness, atomicity, and testing contracts. The focus is **correctness, determinism, and architectural hardening**, not new end-user features.
+This release completes the **Query Engine v2 stabilization** effort. It introduces a typed, intent-driven query facade, seals executor boundaries, and formalizes correctness, atomicity, and testing contracts.
+
+The focus is **correctness, determinism, and architectural hardening**, not new end-user features.
+
+---
 
 ### 🧯 Added
 
 * **Typed query intent (`Query<E>`)**
   Queries are now expressed as entity-typed intent, making it impossible to plan or execute a query against the wrong entity.
+
+* **Intent-level pagination**
+  Added explicit pagination intent via `Page` and `Query::page(limit, offset)`, ensuring pagination semantics are defined at intent time rather than response time.
+
+* **Explicit delete intent**
+  Introduced `QueryMode::Delete` and `Query::delete_limit(max_rows)` to support bounded, deterministic deletes with clear execution semantics.
+
 * **Explicit read consistency (missing-row policy)**
   All queries must now specify read consistency (`MissingOk` vs `Strict`), eliminating access-path-dependent correctness.
-* **ExecutablePlan boundary**
-  Introduced `ExecutablePlan<E>` as the sole executor input; executor-invalid plans are now mechanically unrepresentable.
-* **Compile-fail (trybuild) tests for facade invariants**
-  Added compile-time tests proving that internal plan types cannot be constructed or executed by user code.
-* **Query facade testing guide**
-  Documented invariant-driven testing strategy for the query facade, including when to use compile-fail vs runtime tests.
+
+* **Executable plan boundary**
+  Introduced `ExecutablePlan<E>` as the *sole* executor input; executor-invalid plans are now mechanically unrepresentable.
+
 * **Formal query facade contract**
   Added an explicit intent-level contract defining responsibilities of intent construction, planning, and execution.
+
+* **Compile-fail (trybuild) tests for facade invariants**
+  Added compile-time tests proving that internal plan types cannot be constructed or executed by user code.
+
+* **Query facade testing guide**
+  Documented invariant-driven testing strategy for the query facade, including when to use compile-fail vs runtime tests.
+
 * **Write-unit rollback discipline**
   Strengthened single-message atomicity guarantees by enforcing “no fallible work after commit window” across mutation paths.
 
@@ -48,14 +50,18 @@ This release completes the **Query Engine v2 stabilization** effort. It introduc
 
 * **Access-path-dependent correctness bugs**
   Missing-row behavior no longer varies based on index vs scan access paths.
+
 * **Executor / planner contract mismatches**
   Planners no longer emit plans that executors cannot legally execute.
+
 * **Validation drift across layers**
   Removed duplicated predicate and schema validation between builder, planner, and executor layers.
-* **Entity/schema mismatch risks**
+
+* **Entity / schema mismatch risks**
   Queries can no longer be planned against arbitrary schemas or entities.
+
 * **Incorrect or misleading documentation**
-  Updated README and internal docs to reflect the actual query execution model.
+  Updated README and internal docs to reflect the actual query execution and atomicity model.
 
 ---
 
@@ -63,16 +69,25 @@ This release completes the **Query Engine v2 stabilization** effort. It introduc
 
 * **Query API redesign**
   Replaced untyped `QuerySpec` / v1-style DSL with a typed, intent-only `Query<E>` → `ExecutablePlan<E>` flow.
+
+* **Pagination semantics**
+  Pagination is now an intent-level concern; response-level pagination helpers have been removed to avoid ambiguity and post-hoc slicing.
+
 * **Executor APIs**
   Executors now accept only `ExecutablePlan<E>` and no longer perform planner-style validation.
-* **LogicalPlan visibility**
+
+* **Logical plan visibility**
   `LogicalPlan` is now sealed/internal and cannot be constructed or executed outside the planner.
+
 * **Planning semantics**
   Planning is deterministic, entity-bound, and side-effect free; repeated planning of the same intent yields equivalent plans.
+
 * **Error classification**
   Clarified and enforced separation between `Unsupported`, `Corruption`, and `Internal` error classes.
+
 * **Documentation structure**
   Removed legacy integration docs and consolidated guidance into README and contract-level documents.
+
 * **Rust toolchain**
   Updated minimum supported Rust version to **1.93.0** (edition 2024).
 
@@ -81,12 +96,14 @@ This release completes the **Query Engine v2 stabilization** effort. It introduc
 ### 🧦 Removed
 
 * **v1 query DSL and legacy builder APIs**
-* **Public execution of logical plans**
+* **Public execution or construction of logical plans**
 * **Implicit read semantics**
 * **Executor-side validation and planning logic**
 * **Schema-parameterized planning APIs**
-* **Unenforced or undocumented query contracts**
-* **Plan cache** (premature optimization; planning is deterministic without reuse)
+* **Response-level pagination helpers** (`Page`, `into_page`, `has_more`)
+* **Internal plan re-exports from the public facade**
+* **Plan cache**
+  Removed as a premature optimization; planning is deterministic and cheap.
 
 ---
 
@@ -97,8 +114,9 @@ This release contains **intentional breaking changes**:
 * All queries must be rewritten using `Query<E>` and explicitly planned before execution.
 * Direct use of `LogicalPlan` or untyped query builders is no longer supported.
 * Code relying on implicit missing-row behavior must now choose a consistency policy.
+* Pagination must be expressed at intent time, not derived from execution results.
 
-These changes are foundational; future releases are expected to be **additive or performance-focused**, not corrective.
+These changes are foundational. Future releases are expected to be **additive or performance-focused**, not corrective.
 
 ---
 
