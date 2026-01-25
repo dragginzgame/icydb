@@ -1,17 +1,13 @@
 use crate::{
     Error,
-    db::executor::{save::SaveExecutor, upsert::UpsertExecutor},
     traits::{CanisterKind, EntityKind},
 };
 use core::obs::sink::MetricsSink;
-use icydb_core::{
-    self as core, db::traits::FromKey, error::InternalError, model::index::IndexModel,
-};
+use icydb_core::{self as core, error::InternalError};
 
 ///
 /// Re-exports
 ///
-pub mod executor;
 pub mod query;
 pub mod response;
 
@@ -25,7 +21,7 @@ fn map_runtime<T>(res: Result<T, InternalError>) -> Result<T, Error> {
 
 ///
 /// DbSession
-/// Database handle plus a debug flag that controls executor verbosity.
+/// Database handle plus a debug flag that controls query verbosity.
 ///
 
 pub struct DbSession<C: CanisterKind> {
@@ -54,31 +50,6 @@ impl<C: CanisterKind> DbSession<C> {
         Self {
             inner: self.inner.metrics_sink(sink),
         }
-    }
-
-    //
-    // Low-level executors
-    //
-
-    /// Get a [`SaveExecutor`] for inserting or updating entities.
-    /// Note: executor methods do not apply the session metrics override.
-    #[must_use]
-    pub const fn save<E>(&self) -> SaveExecutor<E>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        SaveExecutor::from_core(self.inner.save::<E>())
-    }
-
-    /// Get an [`UpsertExecutor`] for inserting or updating by a unique index.
-    /// Note: executor methods do not apply the session metrics override.
-    #[must_use]
-    pub const fn upsert<E>(&self) -> UpsertExecutor<E>
-    where
-        E: EntityKind<Canister = C>,
-        E::PrimaryKey: FromKey,
-    {
-        UpsertExecutor::from_core(self.inner.upsert::<E>())
     }
 
     //
@@ -161,41 +132,5 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         map_runtime(self.inner.update_view::<E>(view))
-    }
-}
-
-///
-/// UniqueIndexHandle
-/// Validated handle to a unique index for an entity type.
-///
-
-#[derive(Clone, Copy)]
-pub struct UniqueIndexHandle {
-    inner: core::db::executor::UniqueIndexHandle,
-}
-
-impl UniqueIndexHandle {
-    #[must_use]
-    /// Return the underlying index specification.
-    pub const fn index(&self) -> &'static IndexModel {
-        self.inner.index()
-    }
-
-    /// Wrap a unique index for the given entity type.
-    pub fn new<E: EntityKind>(index: &'static IndexModel) -> Result<Self, Error> {
-        core::db::executor::UniqueIndexHandle::new::<E>(index)
-            .map(|inner| Self { inner })
-            .map_err(Error::from)
-    }
-
-    /// Resolve a unique index by its field list for the given entity type.
-    pub fn for_fields<E: EntityKind>(fields: &[&str]) -> Result<Self, Error> {
-        core::db::executor::UniqueIndexHandle::for_fields::<E>(fields)
-            .map(|inner| Self { inner })
-            .map_err(Error::from)
-    }
-
-    pub(crate) const fn as_core(self) -> core::db::executor::UniqueIndexHandle {
-        self.inner
     }
 }

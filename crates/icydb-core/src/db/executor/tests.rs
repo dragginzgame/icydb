@@ -7,8 +7,8 @@ use crate::{
         force_recovery_for_tests,
         index::{IndexEntry, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
         query::{
-            Query, QueryError, ReadConsistency, eq, in_list,
-            plan::{AccessPath, ExecutablePlan, OrderDirection, OrderSpec, PageSpec, PlanError},
+            Query, QueryError, ReadConsistency, eq, gt, in_list,
+            plan::{AccessPath, ExecutablePlan, OrderDirection, OrderSpec, PlanError},
             predicate::{
                 Predicate,
                 validate::{reset_schema_lookup_called, schema_lookup_called},
@@ -667,6 +667,66 @@ fn delete_scan_rolls_back_after_data_removal() {
 }
 
 #[test]
+fn delete_limit_deletes_oldest_rows() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entities = vec![
+        TestEntity {
+            id: Ulid::from_u128(1),
+            name: "delta".to_string(),
+        },
+        TestEntity {
+            id: Ulid::from_u128(2),
+            name: "alpha".to_string(),
+        },
+        TestEntity {
+            id: Ulid::from_u128(3),
+            name: "charlie".to_string(),
+        },
+        TestEntity {
+            id: Ulid::from_u128(4),
+            name: "bravo".to_string(),
+        },
+    ];
+
+    for entity in entities {
+        saver.insert(entity).unwrap();
+    }
+
+    let deleter = DeleteExecutor::<TestEntity>::new(DB, false);
+    let plan = Query::<TestEntity>::new(ReadConsistency::MissingOk)
+        .order_by("name")
+        .delete_limit(2)
+        .delete()
+        .plan()
+        .unwrap();
+    let deleted_entities = deleter.execute(plan).unwrap().entities();
+    let deleted_names = deleted_entities
+        .iter()
+        .map(|entity| entity.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(deleted_names, vec!["alpha", "bravo"]);
+
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+    let remaining = loader
+        .execute(
+            Query::<TestEntity>::new(ReadConsistency::MissingOk)
+                .order_by("name")
+                .plan()
+                .unwrap(),
+        )
+        .unwrap()
+        .entities();
+    let remaining_names = remaining
+        .iter()
+        .map(|entity| entity.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(remaining_names, vec!["charlie", "delta"]);
+}
+
+#[test]
 fn commit_marker_recovery_replays_ops() {
     reset_stores();
     init_schema();
@@ -1232,18 +1292,15 @@ fn load_paginates_after_ordering() {
         saver.insert(entity).unwrap();
     }
 
-    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
-    plan.order = Some(OrderSpec {
-        fields: vec![("name".to_string(), OrderDirection::Asc)],
-    });
-    plan.page = Some(PageSpec {
-        limit: Some(2),
-        offset: 1,
-    });
-
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
     let page = loader
-        .execute(ExecutablePlan::new(plan))
+        .execute(
+            Query::<TestEntity>::new(ReadConsistency::MissingOk)
+                .order_by("name")
+                .page(2, 1)
+                .plan()
+                .unwrap(),
+        )
         .unwrap()
         .entities();
     let names = page
@@ -1252,16 +1309,14 @@ fn load_paginates_after_ordering() {
         .collect::<Vec<_>>();
     assert_eq!(names, vec!["bravo", "charlie"]);
 
-    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
-    plan.order = Some(OrderSpec {
-        fields: vec![("name".to_string(), OrderDirection::Asc)],
-    });
-    plan.page = Some(PageSpec {
-        limit: Some(10),
-        offset: 0,
-    });
     let names = loader
-        .execute(ExecutablePlan::new(plan))
+        .execute(
+            Query::<TestEntity>::new(ReadConsistency::MissingOk)
+                .order_by("name")
+                .page(10, 0)
+                .plan()
+                .unwrap(),
+        )
         .unwrap()
         .entities()
         .into_iter()
@@ -1269,17 +1324,15 @@ fn load_paginates_after_ordering() {
         .collect::<Vec<_>>();
     assert_eq!(names, vec!["alpha", "bravo", "charlie", "delta"]);
 
-    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
-    plan.order = Some(OrderSpec {
-        fields: vec![("name".to_string(), OrderDirection::Asc)],
-    });
-    plan.page = Some(PageSpec {
-        limit: Some(2),
-        offset: 10,
-    });
     assert!(
         loader
-            .execute(ExecutablePlan::new(plan))
+            .execute(
+                Query::<TestEntity>::new(ReadConsistency::MissingOk)
+                    .order_by("name")
+                    .page(2, 10)
+                    .plan()
+                    .unwrap(),
+            )
             .unwrap()
             .entities()
             .into_iter()
@@ -1287,6 +1340,87 @@ fn load_paginates_after_ordering() {
             .next()
             .is_none()
     );
+}
+
+#[test]
+fn load_paginates_after_filtering_and_ordering() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<OrderEntity>::new(DB, false);
+    let entities = vec![
+        OrderEntity {
+            id: Ulid::from_u128(1),
+            primary: Value::Text("a".to_string()),
+            secondary: 0,
+        },
+        OrderEntity {
+            id: Ulid::from_u128(2),
+            primary: Value::Text("b".to_string()),
+            secondary: 1,
+        },
+        OrderEntity {
+            id: Ulid::from_u128(3),
+            primary: Value::Text("c".to_string()),
+            secondary: 2,
+        },
+        OrderEntity {
+            id: Ulid::from_u128(4),
+            primary: Value::Text("d".to_string()),
+            secondary: 3,
+        },
+    ];
+
+    for entity in entities {
+        saver.insert(entity).unwrap();
+    }
+
+    let loader = LoadExecutor::<OrderEntity>::new(DB, false);
+    let rows = loader
+        .execute(
+            Query::<OrderEntity>::new(ReadConsistency::MissingOk)
+                .filter(gt("secondary", 0))
+                .order_by("secondary")
+                .page(2, 0)
+                .plan()
+                .unwrap(),
+        )
+        .unwrap()
+        .entities();
+    let secondaries = rows
+        .iter()
+        .map(|entity| entity.secondary)
+        .collect::<Vec<_>>();
+
+    assert_eq!(secondaries, vec![1, 2]);
+}
+
+#[test]
+fn load_pagination_handles_large_offset() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    saver
+        .insert(TestEntity {
+            id: Ulid::from_u128(1),
+            name: "alpha".to_string(),
+        })
+        .unwrap();
+
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+    let rows = loader
+        .execute(
+            Query::<TestEntity>::new(ReadConsistency::MissingOk)
+                .order_by("name")
+                .page(1, u64::MAX)
+                .plan()
+                .unwrap(),
+        )
+        .unwrap()
+        .entities();
+
+    assert!(rows.is_empty());
 }
 
 #[test]

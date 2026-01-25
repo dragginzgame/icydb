@@ -35,7 +35,7 @@
 //!
 //! - `db`
 //!   The public database façade: session handles, query builders,
-//!   executors, and typed responses.
+//!   and typed responses.
 //!
 //! ## Preludes
 //!

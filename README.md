@@ -92,7 +92,7 @@ pub fn users_named_ann() -> Result<Vec<UserView>, icydb::Error> {
     let query = Query::<User>::new(ReadConsistency::MissingOk)
         .filter(eq("name", "ann"))
         .order_by("name")
-        .page(PageSpec { limit: Some(50), offset: 0 });
+        .page(50, 100);
 
     let plan = query.plan()?;
     let rows = db!().load::<User>().execute(plan)?;
@@ -200,4 +200,3 @@ Licensed under either of:
 * MIT License (`LICENSE-MIT`)
 
 at your option.
-

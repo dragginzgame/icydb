@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### 🧯 Added
+
+* Added intent-level pagination via `Page` and `Query::page(limit, offset)`.
+* Added explicit delete intent (`QueryMode::Delete`) and `Query::delete_limit(max_rows)` for bounded deletes.
+
+### 🧦 Removed
+
+* Removed `Query::page(PageSpec)` from the public query intent API.
+* Hid `ExecutablePlanErased` behind `db::query::plan::__internal`.
+* Removed response-level pagination helpers (`Page`, `into_page`, `has_more`).
+* Removed internal plan re-exports from the public facade.
+
 ## [0.5.0] – 2026-01-24 – Query Engine v2 (Stabilization Release)
 
 This release completes the **Query Engine v2 stabilization** effort. It introduces a typed, intent-driven query facade, seals executor boundaries, and formalizes correctness, atomicity, and testing contracts. The focus is **correctness, determinism, and architectural hardening**, not new end-user features.
@@ -72,6 +86,7 @@ This release completes the **Query Engine v2 stabilization** effort. It introduc
 * **Executor-side validation and planning logic**
 * **Schema-parameterized planning APIs**
 * **Unenforced or undocumented query contracts**
+* **Plan cache** (premature optimization; planning is deterministic without reuse)
 
 ---
 

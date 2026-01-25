@@ -1,5 +1,5 @@
 use crate::{
-    db::query::{SaveQuery, plan::ExecutablePlanErased},
+    db::query::{SaveQuery, plan::__internal::ExecutablePlanErased},
     error::{ErrorClass, ErrorOrigin, InternalError},
     prelude::*,
 };

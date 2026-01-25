@@ -1,8 +1,10 @@
 //! Deterministic, read-only explanation of logical plans; must not execute or validate.
 
 use super::{
-    AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec, ProjectionSpec,
+    AccessPath, AccessPlan, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+    ProjectionSpec,
 };
+use crate::db::query::QueryMode;
 use crate::db::query::predicate::{
     CompareOp, ComparePredicate, Predicate, coercion::CoercionSpec, normalize,
 };
@@ -16,10 +18,12 @@ use crate::{db::query::ReadConsistency, key::Key, value::Value};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainPlan {
+    pub mode: QueryMode,
     pub access: ExplainAccessPath,
     pub predicate: ExplainPredicate,
     pub order_by: ExplainOrderBy,
     pub page: ExplainPagination,
+    pub delete_limit: ExplainDeleteLimit,
     pub projection: ExplainProjection,
     pub consistency: ReadConsistency,
 }
@@ -122,7 +126,17 @@ pub struct ExplainOrder {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainPagination {
     None,
-    Page { limit: Option<u32>, offset: u32 },
+    Page { limit: Option<u32>, offset: u64 },
+}
+
+///
+/// ExplainDeleteLimit
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExplainDeleteLimit {
+    None,
+    Limit { max_rows: u32 },
 }
 
 ///
@@ -145,13 +159,16 @@ impl LogicalPlan {
 
         let order_by = explain_order(self.order.as_ref());
         let page = explain_page(self.page.as_ref());
+        let delete_limit = explain_delete_limit(self.delete_limit.as_ref());
         let projection = ExplainProjection::from_spec(&self.projection);
 
         ExplainPlan {
+            mode: self.mode,
             access: ExplainAccessPath::from_access_plan(&self.access),
             predicate,
             order_by,
             page,
+            delete_limit,
             projection,
             consistency: self.consistency,
         }
@@ -285,6 +302,15 @@ const fn explain_page(page: Option<&PageSpec>) -> ExplainPagination {
             offset: page.offset,
         },
         None => ExplainPagination::None,
+    }
+}
+
+const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteLimit {
+    match limit {
+        Some(limit) => ExplainDeleteLimit::Limit {
+            max_rows: limit.max_rows,
+        },
+        None => ExplainDeleteLimit::None,
     }
 }
 

@@ -74,6 +74,9 @@ where
 
     /// Compute candidate data keys for the given access path.
     ///
+    /// NOTE: This helper is used for key analysis and set operations. It does
+    /// not uniformly deduplicate keys across all access paths; row-loading
+    /// helpers are responsible for enforcing deduplication where required.
     /// Note: index candidates are returned in deterministic key order.
     /// This ordering is for stability only and does not imply semantic ordering.
     pub(crate) fn candidates_from_access(
@@ -83,11 +86,11 @@ where
         let is_index_path = matches!(access, AccessPath::IndexPrefix { .. });
 
         let mut candidates = match access {
-            AccessPath::ByKey(key) => Self::to_data_keys(vec![*key]),
-            AccessPath::ByKeys(keys) => Self::to_data_keys(keys.clone()),
+            AccessPath::ByKey(key) => Self::data_keys(vec![*key]),
+            AccessPath::ByKeys(keys) => Self::data_keys(keys.clone()),
             AccessPath::KeyRange { start, end } => self.with_store(|s| {
-                let start = Self::to_data_key(*start);
-                let end = Self::to_data_key(*end);
+                let start = Self::data_key(*start);
+                let end = Self::data_key(*end);
                 let start_raw = start.to_raw();
                 let end_raw = end.to_raw();
 
@@ -124,6 +127,10 @@ where
     }
 
     /// Load data rows for the given access path.
+    ///
+    /// NOTE: This is where access-path semantics are enforced (including
+    /// deduplication). Do not assume `candidates_from_access` can substitute
+    /// for this behavior.
     pub(crate) fn rows_from_access(
         &self,
         access: &AccessPath,
@@ -131,17 +138,17 @@ where
     ) -> Result<Vec<DataRow>, InternalError> {
         match access {
             AccessPath::ByKey(key) => {
-                let data_keys = Self::to_data_keys(vec![*key]);
+                let data_keys = Self::data_keys(vec![*key]);
                 self.load_many_with_consistency(&data_keys, consistency)
             }
             AccessPath::ByKeys(keys) => {
                 let keys = Self::dedup_keys(keys.clone());
-                let data_keys = Self::to_data_keys(keys);
+                let data_keys = Self::data_keys(keys);
                 self.load_many_with_consistency(&data_keys, consistency)
             }
             AccessPath::KeyRange { start, end } => {
-                let start = Self::to_data_key(*start);
-                let end = Self::to_data_key(*end);
+                let start = Self::data_key(*start);
+                let end = Self::data_key(*end);
                 self.load_range(start, end)
             }
             AccessPath::FullScan => self.with_store(|s| {
@@ -184,12 +191,12 @@ where
     /// Load Helpers
     ///
 
-    fn to_data_key(key: Key) -> DataKey {
+    fn data_key(key: Key) -> DataKey {
         DataKey::new::<E>(key)
     }
 
-    fn to_data_keys(keys: Vec<Key>) -> Vec<DataKey> {
-        keys.into_iter().map(Self::to_data_key).collect()
+    fn data_keys(keys: Vec<Key>) -> Vec<DataKey> {
+        keys.into_iter().map(Self::data_key).collect()
     }
 
     fn dedup_keys(keys: Vec<Key>) -> Vec<Key> {
@@ -229,6 +236,8 @@ where
         Ok(out)
     }
 
+    /// Load a contiguous key range directly from the store.
+    /// Range scans implicitly tolerate missing rows by construction.
     fn load_range(&self, start: DataKey, end: DataKey) -> Result<Vec<DataRow>, InternalError> {
         self.with_store(|s| {
             let start_raw = start.to_raw();

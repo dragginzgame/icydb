@@ -1,5 +1,3 @@
-pub use core::db::response::Page;
-
 use crate::Error;
 use icydb_core::{self as core, key::Key, traits::EntityKind};
 
@@ -9,6 +7,7 @@ pub type Row<E> = (Key, E);
 ///
 /// Response
 /// Materialized query result: ordered `(Key, Entity)` pairs.
+/// Pagination is expressed at the intent layer, not here.
 ///
 
 #[derive(Debug)]
@@ -68,12 +67,6 @@ impl<E: EntityKind> Response<E> {
     /// Require at most one row and return it.
     pub fn one_opt(self) -> Result<Option<Row<E>>, Error> {
         self.0.one_opt().map_err(Error::from)
-    }
-
-    /// Convert the response into a page of entities with a `has_more` indicator.
-    #[must_use]
-    pub fn into_page(self, limit: usize) -> Page<E> {
-        self.0.into_page(limit)
     }
 
     // ======================================================================

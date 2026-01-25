@@ -9,27 +9,6 @@ use crate::{
 use thiserror::Error as ThisError;
 
 ///
-/// Page
-///
-
-pub struct Page<T> {
-    pub items: Vec<T>,
-    pub has_more: bool,
-}
-
-impl<T> Page<T> {
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
-
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        self.items.len()
-    }
-}
-
-///
 /// Row
 ///
 
@@ -67,6 +46,7 @@ impl From<ResponseError> for InternalError {
 ///
 /// Response
 /// Materialized query result: ordered `(Key, Entity)` pairs.
+/// Pagination is expressed at the intent layer, not here.
 ///
 
 #[derive(Debug)]
@@ -152,36 +132,6 @@ impl<E: EntityKind> Response<E> {
                 count: n as u32,
             }
             .into()),
-        }
-    }
-
-    /// Convert the response into a page of entities with a `has_more` indicator.
-    ///
-    /// This consumes at most `limit + 1` rows to determine whether more results
-    /// exist. Ordering is preserved.
-    ///
-    /// NOTE:
-    /// - `has_more` only indicates the existence of additional rows
-    /// - Page boundaries are not stable unless the underlying query ordering is stable
-    #[must_use]
-    pub fn into_page(self, limit: usize) -> Page<E> {
-        let mut iter = self.0.into_iter();
-
-        let mut items = Vec::with_capacity(limit);
-        for _ in 0..limit {
-            if let Some((_, entity)) = iter.next() {
-                items.push(entity);
-            } else {
-                return Page {
-                    items,
-                    has_more: false,
-                };
-            }
-        }
-
-        Page {
-            items,
-            has_more: iter.next().is_some(),
         }
     }
 

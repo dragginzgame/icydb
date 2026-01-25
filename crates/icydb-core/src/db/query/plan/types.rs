@@ -28,6 +28,7 @@ impl AccessPlan {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[expect(dead_code)]
 pub enum AccessPath {
     /// Direct lookup by a single primary key.
     ByKey(Key),
@@ -85,6 +86,16 @@ pub enum ProjectionSpec {
 }
 
 ///
+/// DeleteLimitSpec
+/// Executor-facing delete bound with no offsets.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeleteLimitSpec {
+    pub max_rows: u32,
+}
+
+///
 /// PageSpec
 /// Executor-facing pagination specification.
 ///
@@ -92,5 +103,5 @@ pub enum ProjectionSpec {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PageSpec {
     pub limit: Option<u32>,
-    pub offset: u32,
+    pub offset: u64,
 }

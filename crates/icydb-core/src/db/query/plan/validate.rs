@@ -68,12 +68,17 @@ pub enum PlanError {
 /// Validate a logical plan against the runtime entity model.
 ///
 /// This is the executor-safe entrypoint and must not consult global schema.
-pub fn validate_plan_with_model(plan: &LogicalPlan, model: &EntityModel) -> Result<(), PlanError> {
+#[cfg(test)]
+pub(crate) fn validate_plan_with_model(
+    plan: &LogicalPlan,
+    model: &EntityModel,
+) -> Result<(), PlanError> {
     let schema = SchemaInfo::from_entity_model(model)?;
     validate_plan_with_schema_info(&schema, model, plan)
 }
 
 /// Validate a logical plan using a prebuilt schema surface.
+#[cfg(test)]
 pub(crate) fn validate_plan_with_schema_info(
     schema: &SchemaInfo,
     model: &EntityModel,
@@ -359,11 +364,13 @@ mod tests {
 
         let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
         let plan = LogicalPlan {
+            mode: crate::db::query::QueryMode::Load,
             access: AccessPlan::Path(AccessPath::FullScan),
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![("tags".to_string(), OrderDirection::Asc)],
             }),
+            delete_limit: None,
             page: None,
             projection: crate::db::query::plan::ProjectionSpec::All,
             consistency: crate::db::query::ReadConsistency::MissingOk,
@@ -378,6 +385,7 @@ mod tests {
     fn plan_rejects_index_prefix_too_long() {
         let schema = SchemaInfo::from_entity_model(PlannerEntity::MODEL).expect("valid model");
         let plan = LogicalPlan {
+            mode: crate::db::query::QueryMode::Load,
             access: AccessPlan::Path(AccessPath::IndexPrefix {
                 index: *PlannerEntity::INDEXES[0],
                 values: vec![
@@ -388,6 +396,7 @@ mod tests {
             }),
             predicate: None,
             order: None,
+            delete_limit: None,
             page: None,
             projection: crate::db::query::plan::ProjectionSpec::All,
             consistency: crate::db::query::ReadConsistency::MissingOk,
@@ -402,9 +411,11 @@ mod tests {
     fn plan_accepts_model_based_validation() {
         let model = model_with_fields(vec![field("id", EntityFieldKind::Ulid)], 0);
         let plan = LogicalPlan {
+            mode: crate::db::query::QueryMode::Load,
             access: AccessPlan::Path(AccessPath::ByKey(Key::Ulid(Ulid::nil()))),
             predicate: None,
             order: None,
+            delete_limit: None,
             page: None,
             projection: crate::db::query::plan::ProjectionSpec::All,
             consistency: crate::db::query::ReadConsistency::MissingOk,

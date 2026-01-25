@@ -1,10 +1,7 @@
 use super::*;
 use crate::db::query::{
     ReadConsistency, eq, eq_ci, gt,
-    plan::{
-        ExplainAccessPath, OrderDirection, OrderSpec, PageSpec, PlanError, cache,
-        planner::PlannerEntity,
-    },
+    plan::{ExplainAccessPath, OrderDirection, OrderSpec, PlanError, planner::PlannerEntity},
     predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
 };
 use crate::{
@@ -21,14 +18,6 @@ use crate::{
     value::Value,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
-
-static CACHE_GUARD: Mutex<()> = Mutex::new(());
-
-fn with_cache_lock<R>(f: impl FnOnce() -> R) -> R {
-    let _guard = CACHE_GUARD.lock().expect("cache guard poisoned");
-    f()
-}
 
 #[test]
 fn fluent_chain_builds_predicate_tree() {
@@ -107,14 +96,10 @@ fn filter_chains_are_nested() {
 }
 
 #[test]
-fn order_and_pagination_accumulate() {
+fn order_accumulates() {
     let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
         .order_by("a")
-        .order_by_desc("b")
-        .page(PageSpec {
-            limit: Some(25),
-            offset: 10,
-        });
+        .order_by_desc("b");
 
     assert_eq!(
         query.order,
@@ -125,13 +110,55 @@ fn order_and_pagination_accumulate() {
             ],
         })
     );
-    assert_eq!(
-        query.page,
-        Some(PageSpec {
-            limit: Some(25),
-            offset: 10,
-        })
-    );
+}
+
+#[test]
+fn page_sets_window() {
+    let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk).page(25, 10);
+
+    assert_eq!(query.page, Some(Page::new(25, 10)));
+}
+
+#[test]
+fn delete_limit_requires_order() {
+    let err = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
+        .delete_limit(5)
+        .delete()
+        .plan();
+
+    assert!(matches!(
+        err,
+        Err(QueryError::Intent(IntentError::DeleteLimitRequiresOrder))
+    ));
+}
+
+#[test]
+fn delete_rejects_pagination() {
+    let err = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
+        .page(10, 0)
+        .delete()
+        .plan();
+
+    assert!(matches!(
+        err,
+        Err(QueryError::Intent(
+            IntentError::DeletePaginationNotSupported
+        ))
+    ));
+}
+
+#[test]
+fn delete_rejects_limit_with_pagination() {
+    let err = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
+        .page(10, 0)
+        .delete_limit(5)
+        .delete()
+        .plan();
+
+    assert!(matches!(
+        err,
+        Err(QueryError::Intent(IntentError::DeleteLimitWithPagination))
+    ));
 }
 
 #[test]
@@ -206,67 +233,6 @@ fn query_explain_rejects_invalid_order() {
 }
 
 #[test]
-fn plan_cache_hits_for_same_query() {
-    with_cache_lock(|| {
-        cache::with_cache_enabled(|| {
-            cache::reset();
-
-            let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-                .filter(eq("id", Ulid::default()));
-
-            let plan_a = query.plan().expect("plan a");
-            let plan_b = query.plan().expect("plan b");
-
-            let stats = cache::stats();
-            assert_eq!(stats.size, 1);
-            assert_eq!(stats.hits, 1);
-            assert_eq!(stats.misses, 1);
-            assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
-        });
-    });
-}
-
-#[test]
-fn plan_cache_misses_for_different_queries() {
-    with_cache_lock(|| {
-        cache::with_cache_enabled(|| {
-            cache::reset();
-
-            let query_a = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-                .filter(eq("id", Ulid::default()));
-            let query_b =
-                Query::<PlannerEntity>::new(ReadConsistency::MissingOk).filter(eq("other", "x"));
-
-            let _ = query_a.plan().expect("plan a");
-            let _ = query_b.plan().expect("plan b");
-
-            let stats = cache::stats();
-            assert_eq!(stats.size, 2);
-            assert_eq!(stats.hits, 0);
-            assert_eq!(stats.misses, 2);
-        });
-    });
-}
-
-#[test]
-fn invalid_queries_do_not_populate_cache() {
-    with_cache_lock(|| {
-        cache::with_cache_enabled(|| {
-            cache::reset();
-
-            let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk).order_by("missing");
-
-            let _ = query.explain().expect_err("invalid");
-
-            let stats = cache::stats();
-            assert_eq!(stats.size, 0);
-            assert_eq!(stats.hits, 0);
-            assert_eq!(stats.misses, 0);
-        });
-    });
-}
-
-#[test]
 fn broken_model_rejected_without_panic() {
     let query =
         Query::<BrokenEntity>::new(ReadConsistency::MissingOk).filter(eq("id", Ulid::default()));
@@ -276,7 +242,7 @@ fn broken_model_rejected_without_panic() {
     };
 
     match err {
-        QueryError::Validate(_) | QueryError::Plan(_) => {}
+        QueryError::Validate(_) | QueryError::Plan(_) | QueryError::Intent(_) => {}
         QueryError::Execute(err) => panic!("unexpected execute error: {err}"),
     }
 }

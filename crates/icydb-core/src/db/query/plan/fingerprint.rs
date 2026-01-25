@@ -2,10 +2,11 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use super::{
-    ExplainAccessPath, ExplainOrderBy, ExplainPagination, ExplainPlan, ExplainPredicate,
-    ExplainProjection,
+    ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination, ExplainPlan,
+    ExplainPredicate, ExplainProjection,
 };
 use crate::db::index::fingerprint::hash_value;
+use crate::db::query::QueryMode;
 use crate::db::query::{
     ReadConsistency,
     predicate::{CompareOp, coercion::CoercionId},
@@ -80,10 +81,16 @@ fn hash_explain_plan(hasher: &mut Sha256, plan: &ExplainPlan) {
     hash_page(hasher, &plan.page);
 
     write_tag(hasher, 0x05);
-    hash_projection(hasher, &plan.projection);
+    hash_delete_limit(hasher, &plan.delete_limit);
 
     write_tag(hasher, 0x06);
+    hash_projection(hasher, &plan.projection);
+
+    write_tag(hasher, 0x07);
     hash_consistency(hasher, plan.consistency);
+
+    write_tag(hasher, 0x08);
+    hash_mode(hasher, plan.mode);
 }
 
 fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
@@ -254,7 +261,17 @@ fn hash_page(hasher: &mut Sha256, page: &ExplainPagination) {
                 }
                 None => write_tag(hasher, 0x00),
             }
-            write_u32(hasher, *offset);
+            write_u64(hasher, *offset);
+        }
+    }
+}
+
+fn hash_delete_limit(hasher: &mut Sha256, limit: &ExplainDeleteLimit) {
+    match limit {
+        ExplainDeleteLimit::None => write_tag(hasher, 0x42),
+        ExplainDeleteLimit::Limit { max_rows } => {
+            write_tag(hasher, 0x43);
+            write_u32(hasher, *max_rows);
         }
     }
 }
@@ -269,6 +286,13 @@ fn hash_consistency(hasher: &mut Sha256, consistency: ReadConsistency) {
     match consistency {
         ReadConsistency::MissingOk => write_tag(hasher, 0x50),
         ReadConsistency::Strict => write_tag(hasher, 0x51),
+    }
+}
+
+fn hash_mode(hasher: &mut Sha256, mode: QueryMode) {
+    match mode {
+        QueryMode::Load => write_tag(hasher, 0x60),
+        QueryMode::Delete => write_tag(hasher, 0x61),
     }
 }
 
@@ -300,6 +324,10 @@ fn write_str(hasher: &mut Sha256, value: &str) {
 }
 
 fn write_u32(hasher: &mut Sha256, value: u32) {
+    hasher.update(value.to_be_bytes());
+}
+
+fn write_u64(hasher: &mut Sha256, value: u64) {
     hasher.update(value.to_be_bytes());
 }
 
@@ -345,8 +373,8 @@ const fn coercion_id_tag(id: CoercionId) -> u8 {
 #[cfg(test)]
 mod tests {
     use crate::db::query::plan::planner::PlannerEntity;
-    use crate::db::query::plan::{AccessPath, LogicalPlan};
-    use crate::db::query::{Query, ReadConsistency, eq};
+    use crate::db::query::plan::{AccessPath, DeleteLimitSpec, LogicalPlan};
+    use crate::db::query::{Query, QueryMode, ReadConsistency, eq};
     use crate::model::index::IndexModel;
     use crate::types::Ulid;
     use crate::value::Value;
@@ -419,6 +447,24 @@ mod tests {
             limit: Some(10),
             offset: 1,
         });
+
+        assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
+    }
+
+    #[test]
+    fn fingerprint_changes_with_delete_limit() {
+        let mut plan_a = LogicalPlan::new(
+            AccessPath::FullScan,
+            crate::db::query::ReadConsistency::MissingOk,
+        );
+        let mut plan_b = LogicalPlan::new(
+            AccessPath::FullScan,
+            crate::db::query::ReadConsistency::MissingOk,
+        );
+        plan_a.mode = QueryMode::Delete;
+        plan_b.mode = QueryMode::Delete;
+        plan_a.delete_limit = Some(DeleteLimitSpec { max_rows: 2 });
+        plan_b.delete_limit = Some(DeleteLimitSpec { max_rows: 3 });
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
     }

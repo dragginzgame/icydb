@@ -15,7 +15,7 @@ pub use diagnostics::{
     QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceAccess, QueryTraceEvent,
     QueryTraceExecutorKind,
 };
-pub use intent::{Query, QueryError};
+pub use intent::{DeleteLimit, IntentError, Page, Query, QueryError, QueryMode};
 pub use save::*;
 
 /// Missing-row handling policy for query execution.

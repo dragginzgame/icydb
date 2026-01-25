@@ -15,10 +15,7 @@ use crate::{
             IndexEntry, IndexEntryCorruption, IndexKey, IndexRemoveOutcome, IndexStore,
             RawIndexEntry, RawIndexKey,
         },
-        query::{
-            plan::{ExecutablePlan, OrderDirection, OrderSpec},
-            predicate::{eval as eval_predicate, normalize as normalize_predicate},
-        },
+        query::plan::ExecutablePlan,
         response::Response,
         store::{DataKey, DataRow, RawRow},
         traits::FromKey,
@@ -29,9 +26,7 @@ use crate::{
     sanitize::sanitize,
     traits::{EntityKind, Path},
 };
-use std::{
-    cell::RefCell, cmp::Ordering, collections::BTreeMap, marker::PhantomData, thread::LocalKey,
-};
+use std::{cell::RefCell, collections::BTreeMap, marker::PhantomData, thread::LocalKey};
 
 ///
 /// IndexPlan
@@ -43,10 +38,17 @@ struct IndexPlan {
     store: &'static LocalKey<RefCell<IndexStore>>,
 }
 
+// Row wrapper used during delete planning and execution.
 struct DeleteRow<E> {
     key: DataKey,
     raw: Option<RawRow>,
     entity: E,
+}
+
+impl<E: EntityKind> crate::db::query::plan::logical::PlanRow<E> for DeleteRow<E> {
+    fn entity(&self) -> &E {
+        &self.entity
+    }
 }
 
 ///
@@ -247,34 +249,12 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
             let mut rows = decode_rows::<E>(data_rows)?;
 
-            let normalized = plan.predicate.as_ref().map(normalize_predicate);
-            let filtered = if let Some(predicate) = normalized.as_ref() {
-                rows.retain(|row| eval_predicate(&row.entity, predicate));
-                true
-            } else {
-                false
-            };
-
-            let ordered = if let Some(order) = &plan.order
-                && rows.len() > 1
-                && !order.fields.is_empty()
-            {
-                debug_assert!(
-                    plan.predicate.is_none() || filtered,
-                    "executor invariant violated: ordering must run after filtering"
-                );
-                apply_order_spec(&mut rows, order);
-                true
-            } else {
-                false
-            };
-
-            if let Some(page) = &plan.page {
-                debug_assert!(
-                    plan.order.is_none() || ordered,
-                    "executor invariant violated: pagination must run after ordering"
-                );
-                apply_pagination(&mut rows, page.offset, page.limit);
+            let stats = plan.apply_post_access::<E, _>(&mut rows);
+            if stats.delete_limited {
+                self.debug_log(format!(
+                    "🧹 Applied delete limit -> {} entities selected",
+                    rows.len()
+                ));
             }
 
             if rows.is_empty() {
@@ -524,50 +504,4 @@ fn decode_rows<E: EntityKind>(rows: Vec<DataRow>) -> Result<Vec<DeleteRow<E>>, I
             })
         })
         .collect()
-}
-
-fn apply_order_spec<E: EntityKind>(rows: &mut [DeleteRow<E>], order: &OrderSpec) {
-    rows.sort_by(|ra, rb| {
-        let ea = &ra.entity;
-        let eb = &rb.entity;
-        for (field, direction) in &order.fields {
-            let va = ea.get_value(field);
-            let vb = eb.get_value(field);
-
-            let ordering = match (va, vb) {
-                (None, None) => continue,
-                (None, Some(_)) => Ordering::Less,
-                (Some(_), None) => Ordering::Greater,
-                (Some(va), Some(vb)) => match va.partial_cmp(&vb) {
-                    Some(ord) => ord,
-                    None => continue,
-                },
-            };
-
-            let ordering = match direction {
-                OrderDirection::Asc => ordering,
-                OrderDirection::Desc => ordering.reverse(),
-            };
-
-            if ordering != Ordering::Equal {
-                return ordering;
-            }
-        }
-
-        Ordering::Equal
-    });
-}
-
-/// Apply offset/limit pagination to an in-memory vector, in-place.
-fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
-    let total = rows.len();
-    let start = usize::min(offset as usize, total);
-    let end = limit.map_or(total, |l| usize::min(start + l as usize, total));
-
-    if start >= end {
-        rows.clear();
-    } else {
-        rows.drain(..start);
-        rows.truncate(end - start);
-    }
 }

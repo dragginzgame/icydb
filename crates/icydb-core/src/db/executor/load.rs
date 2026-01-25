@@ -5,18 +5,14 @@ use crate::{
             plan::{record_plan_metrics, set_rows_from_len},
             trace::{QueryTraceSink, TraceExecutorKind, start_plan_trace},
         },
-        query::{
-            plan::{ExecutablePlan, OrderDirection, OrderSpec},
-            predicate::{eval as eval_predicate, normalize as normalize_predicate},
-        },
+        query::plan::ExecutablePlan,
         response::Response,
     },
     error::InternalError,
     obs::sink::{self, ExecKind, MetricsEvent, Span},
-    prelude::*,
     traits::EntityKind,
 };
-use std::{cmp::Ordering, collections::HashMap, hash::Hash, marker::PhantomData};
+use std::{collections::HashMap, hash::Hash, marker::PhantomData};
 
 ///
 /// LoadExecutor
@@ -94,48 +90,18 @@ impl<E: EntityKind> LoadExecutor<E> {
                 rows.len()
             ));
 
-            // Predicate (always post-fetch for this planner)
-            let normalized = plan.predicate.as_ref().map(normalize_predicate);
-            let filtered = if let Some(predicate) = normalized.as_ref() {
-                rows.retain(|(_, entity)| eval_predicate(entity, predicate));
+            let stats = plan.apply_post_access::<E, _>(&mut rows);
+            if stats.filtered {
                 self.debug_log(format!(
                     "🔎 Applied predicate -> {} entities remaining",
                     rows.len()
                 ));
-                true
-            } else {
-                false
-            };
-
-            // Ordering
-            let ordered = if let Some(order) = &plan.order
-                && rows.len() > 1
-                && !order.fields.is_empty()
-            {
-                debug_assert!(
-                    plan.predicate.is_none() || filtered,
-                    "executor invariant violated: ordering must run after filtering"
-                );
-                apply_order_spec(&mut rows, order);
+            }
+            if stats.ordered {
                 self.debug_log("↕️ Applied order spec");
-                true
-            } else {
-                false
-            };
-
-            // Pagination
-            if let Some(page) = &plan.page {
-                debug_assert!(
-                    plan.order.is_none() || ordered,
-                    "executor invariant violated: pagination must run after ordering"
-                );
-                apply_pagination(&mut rows, page.offset, page.limit);
-                self.debug_log(format!(
-                    "📏 Applied pagination (offset={}, limit={:?}) -> {} entities",
-                    page.offset,
-                    page.limit,
-                    rows.len()
-                ));
+            }
+            if stats.paged {
+                self.debug_log(format!("📏 Applied pagination -> {} entities", rows.len()));
             }
 
             set_rows_from_len(&mut span, rows.len());
@@ -189,49 +155,5 @@ impl<E: EntityKind> LoadExecutor<E> {
         }
 
         Ok(counts)
-    }
-}
-
-fn apply_order_spec<E: EntityKind>(rows: &mut [(Key, E)], order: &OrderSpec) {
-    rows.sort_by(|(_, ea), (_, eb)| {
-        for (field, direction) in &order.fields {
-            let va = ea.get_value(field);
-            let vb = eb.get_value(field);
-
-            let ordering = match (va, vb) {
-                (None, None) => continue,
-                (None, Some(_)) => Ordering::Less,
-                (Some(_), None) => Ordering::Greater,
-                (Some(va), Some(vb)) => match va.partial_cmp(&vb) {
-                    Some(ord) => ord,
-                    None => continue,
-                },
-            };
-
-            let ordering = match direction {
-                OrderDirection::Asc => ordering,
-                OrderDirection::Desc => ordering.reverse(),
-            };
-
-            if ordering != Ordering::Equal {
-                return ordering;
-            }
-        }
-
-        Ordering::Equal
-    });
-}
-
-/// Apply offset/limit pagination to an in-memory vector, in-place.
-fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
-    let total = rows.len();
-    let start = usize::min(offset as usize, total);
-    let end = limit.map_or(total, |l| usize::min(start + l as usize, total));
-
-    if start >= end {
-        rows.clear();
-    } else {
-        rows.drain(..start);
-        rows.truncate(end - start);
     }
 }
