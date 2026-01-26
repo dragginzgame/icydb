@@ -3,8 +3,10 @@ use crate::{
         ReadConsistency,
         plan::{
             DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan, OrderDirection, OrderSpec,
-            PageSpec, PlanError, ProjectionSpec, planner::plan_access,
-            validate::validate_access_plan, validate::validate_order,
+            PageSpec, PlanError, ProjectionSpec,
+            planner::{PlannerError, plan_access},
+            validate::validate_access_plan,
+            validate::validate_order,
         },
         predicate::{Predicate, SchemaInfo, ValidateError, normalize},
     },
@@ -102,6 +104,8 @@ impl Page {
 
 impl<E: EntityKind> Query<E> {
     /// Create a new intent with an explicit missing-row policy.
+    /// MissingOk favors idempotency and may mask index/data divergence on deletes.
+    /// Use Strict to surface missing rows during scan/delete execution.
     #[must_use]
     pub const fn new(consistency: ReadConsistency) -> Self {
         Self {
@@ -187,11 +191,6 @@ impl<E: EntityKind> Query<E> {
         // Phase 2: predicate normalization and access planning.
         let normalized_predicate = self.predicate.as_ref().map(normalize);
         let access_plan = plan_access::<T>(&schema_info, normalized_predicate.as_ref())?;
-        crate::db::query::plan::validate_plan_invariants::<T>(
-            &access_plan,
-            &schema_info,
-            normalized_predicate.as_ref(),
-        );
 
         validate_access_plan(&schema_info, model, &access_plan)?;
 
@@ -248,6 +247,15 @@ pub enum QueryError {
     Intent(#[from] IntentError),
     #[error("{0}")]
     Execute(#[from] InternalError),
+}
+
+impl From<PlannerError> for QueryError {
+    fn from(err: PlannerError) -> Self {
+        match err {
+            PlannerError::Plan(err) => Self::Plan(err),
+            PlannerError::Internal(err) => Self::Execute(err),
+        }
+    }
 }
 
 ///

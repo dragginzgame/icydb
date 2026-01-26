@@ -60,7 +60,9 @@ impl Imp<Enum> for ViewTrait {
 
             if variant.value.is_some() {
                 quote! {
-                    Self::ViewType::#variant_ident(v) => Self::#variant_ident(::icydb::traits::View::from_view(v))
+                    Self::ViewType::#variant_ident(v) => {
+                        Self::#variant_ident(::icydb::traits::View::from_view(v)?)
+                    }
                 }
             } else {
                 quote! {
@@ -78,10 +80,12 @@ impl Imp<Enum> for ViewTrait {
                     }
                 }
 
-                fn from_view(view: Self::ViewType) -> Self {
-                    match view {
+                fn from_view(
+                    view: Self::ViewType,
+                ) -> Result<Self, ::icydb::traits::ViewError> {
+                    Ok(match view {
                         #(#from_view_arms),*
-                    }
+                    })
                 }
         };
 
@@ -209,7 +213,7 @@ impl Imp<Tuple> for ViewTrait {
         let from_view_fields = indices.iter().map(|i| {
             let index = syn::Index::from(*i);
             quote! {
-                ::icydb::traits::View::from_view(view.#index)
+                ::icydb::traits::View::from_view(view.#index)?
             }
         });
 
@@ -222,10 +226,12 @@ impl Imp<Tuple> for ViewTrait {
                 )
             }
 
-            fn from_view(view: Self::ViewType) -> Self {
-                Self(
+            fn from_view(
+                view: Self::ViewType,
+            ) -> Result<Self, ::icydb::traits::ViewError> {
+                Ok(Self(
                     #(#from_view_fields),*
-                )
+                ))
             }
         };
 
@@ -258,7 +264,7 @@ fn field_list(view_ident: &Ident, fields: &FieldList) -> TokenStream {
         .map(|field| {
             let ident = &field.ident;
             quote! {
-                #ident: ::icydb::traits::View::from_view(view.#ident)
+                #ident: ::icydb::traits::View::from_view(view.#ident)?
             }
         })
         .collect();
@@ -272,10 +278,12 @@ fn field_list(view_ident: &Ident, fields: &FieldList) -> TokenStream {
             }
         }
 
-        fn from_view(view: Self::ViewType) -> Self {
-            Self {
+        fn from_view(
+            view: Self::ViewType,
+        ) -> Result<Self, ::icydb::traits::ViewError> {
+            Ok(Self {
                 #(#from_pairs),*
-            }
+            })
         }
     }
 }
@@ -294,8 +302,10 @@ fn owned_view_conversions(ident: &Ident, view_ident: &Ident) -> TokenStream {
             }
         }
 
-        impl From<#view_ident> for #ident {
-            fn from(view: #view_ident) -> Self {
+        impl ::core::convert::TryFrom<#view_ident> for #ident {
+            type Error = ::icydb::traits::ViewError;
+
+            fn try_from(view: #view_ident) -> Result<Self, Self::Error> {
                 ::icydb::traits::View::from_view(view)
             }
         }
@@ -310,8 +320,10 @@ fn quote_view_delegate(view_ident: &Ident) -> TokenStream {
             ::icydb::traits::View::to_view(&self.0)
         }
 
-        fn from_view(view: Self::ViewType) -> Self {
-            Self(::icydb::traits::View::from_view(view))
+        fn from_view(
+            view: Self::ViewType,
+        ) -> Result<Self, ::icydb::traits::ViewError> {
+            Ok(Self(::icydb::traits::View::from_view(view)?))
         }
     }
 }

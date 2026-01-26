@@ -1,15 +1,17 @@
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
-        identity::{EntityName, IndexName},
+        identity::{EntityName, EntityNameError, IndexName, IndexNameError},
         index::fingerprint,
     },
+    error::{ErrorClass, ErrorOrigin, InternalError},
     prelude::{EntityKind, IndexModel},
     traits::Storable,
 };
 use canic_cdk::structures::storable::Bound;
 use derive_more::Display;
 use std::borrow::Cow;
+use thiserror::Error as ThisError;
 
 ///
 /// IndexId
@@ -23,10 +25,20 @@ use std::borrow::Cow;
 pub struct IndexId(pub IndexName);
 
 impl IndexId {
+    /// Build an index id from static entity metadata.
+    pub fn try_new<E: EntityKind>(index: &IndexModel) -> Result<Self, IndexIdError> {
+        let entity = EntityName::try_from_static(E::ENTITY_NAME)?;
+        let name = IndexName::try_from_parts(&entity, index.fields)?;
+        Ok(Self(name))
+    }
+
+    /// Build an index id from validated static metadata.
+    ///
+    /// Caller must uphold identity invariants; intended for generated code.
     #[must_use]
-    pub fn new<E: EntityKind>(index: &IndexModel) -> Self {
-        let entity = EntityName::from_static(E::ENTITY_NAME);
-        Self(IndexName::from_parts(&entity, index.fields))
+    pub(crate) fn new_unchecked<E: EntityKind>(index: &IndexModel) -> Self {
+        let entity = EntityName::from_static_unchecked(E::ENTITY_NAME);
+        Self(IndexName::from_parts_unchecked(&entity, index.fields))
     }
 
     /// Maximum sentinel value for stable-memory bounds.
@@ -35,6 +47,20 @@ impl IndexId {
     pub const fn max_storable() -> Self {
         Self(IndexName::max_storable())
     }
+}
+
+///
+/// IndexIdError
+/// Errors returned when constructing an [`IndexId`].
+/// This surfaces identity validation failures.
+///
+
+#[derive(Debug, ThisError)]
+pub enum IndexIdError {
+    #[error("entity name invalid: {0}")]
+    EntityName(#[from] EntityNameError),
+    #[error("index name invalid: {0}")]
+    IndexName(#[from] IndexNameError),
 }
 
 ///
@@ -56,27 +82,45 @@ impl IndexKey {
     #[allow(clippy::cast_possible_truncation)]
     pub const STORED_SIZE: u32 = IndexName::STORED_SIZE + 1 + (MAX_INDEX_FIELDS as u32 * 16);
 
-    pub fn new<E: EntityKind>(entity: &E, index: &IndexModel) -> Option<Self> {
+    /// Build an index key; returns `Ok(None)` if any indexed field is missing or non-indexable.
+    /// `Value::None` and `Value::Unsupported` are treated as non-indexable.
+    pub fn new<E: EntityKind>(
+        entity: &E,
+        index: &IndexModel,
+    ) -> Result<Option<Self>, InternalError> {
         if index.fields.len() > MAX_INDEX_FIELDS {
-            return None;
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Index,
+                format!(
+                    "index '{}' has {} fields (max {})",
+                    index.name,
+                    index.fields.len(),
+                    MAX_INDEX_FIELDS
+                ),
+            ));
         }
 
         let mut values = [[0u8; 16]; MAX_INDEX_FIELDS];
         let mut len = 0usize;
 
         for field in index.fields {
-            let value = entity.get_value(field)?;
-            let fp = fingerprint::to_index_fingerprint(&value)?;
+            let Some(value) = entity.get_value(field) else {
+                return Ok(None);
+            };
+            let Some(fp) = fingerprint::to_index_fingerprint(&value)? else {
+                return Ok(None);
+            };
             values[len] = fp;
             len += 1;
         }
 
         #[allow(clippy::cast_possible_truncation)]
-        Some(Self {
-            index_id: IndexId::new::<E>(index),
+        Ok(Some(Self {
+            index_id: IndexId::new_unchecked::<E>(index),
             len: len as u8,
             values,
-        })
+        }))
     }
 
     #[must_use]

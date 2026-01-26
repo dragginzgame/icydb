@@ -113,7 +113,7 @@ Key properties:
 
 * `icydb/` — meta crate re-exporting the public API.
 * `crates/icydb-core` — runtime (entities, traits, query engine, stores).
-* `crates/icydb-macros` — proc-macros for schema, traits, and views.
+* `crates/icydb-schema-derive` — proc-macros for schema, traits, and views.
 * `crates/icydb-schema` — schema AST, builder, and validation.
 * `crates/icydb-build` — build-time codegen for actors, queries, metrics.
 * `crates/test`, `crates/test_design` — integration and design tests.

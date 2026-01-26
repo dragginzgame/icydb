@@ -52,7 +52,7 @@ where
     /// Read a row; missing rows return `NotFound`.
     pub fn read(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
-            let raw = key.to_raw();
+            let raw = key.to_raw()?;
             s.get(&raw)
                 .ok_or_else(|| InternalError::store_not_found(key.to_string()))
         })?
@@ -61,7 +61,7 @@ where
     /// Read a row strictly; missing rows surface as corruption.
     pub fn read_strict(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
-            let raw = key.to_raw();
+            let raw = key.to_raw()?;
             s.get(&raw).ok_or_else(|| {
                 ExecutorError::corruption(ErrorOrigin::Store, format!("missing row: {key}")).into()
             })
@@ -91,8 +91,8 @@ where
             AccessPath::KeyRange { start, end } => self.with_store(|s| {
                 let start = Self::data_key(*start);
                 let end = Self::data_key(*end);
-                let start_raw = start.to_raw();
-                let end_raw = end.to_raw();
+                let start_raw = start.to_raw()?;
+                let end_raw = end.to_raw()?;
 
                 s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
                     .map(|e| Self::decode_data_key(e.key()))
@@ -101,8 +101,8 @@ where
             AccessPath::FullScan => self.with_store(|s| {
                 let start = DataKey::lower_bound::<E>();
                 let end = DataKey::upper_bound::<E>();
-                let start_raw = start.to_raw();
-                let end_raw = end.to_raw();
+                let start_raw = start.to_raw()?;
+                let end_raw = end.to_raw()?;
 
                 s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
                     .map(|entry| Self::decode_data_key(entry.key()))
@@ -111,11 +111,7 @@ where
             AccessPath::IndexPrefix { index, values } => {
                 let index_store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
 
-                index_store.with_borrow(|istore| {
-                    istore
-                        .resolve_data_values::<E>(index, values)
-                        .map_err(|msg| ExecutorError::corruption(ErrorOrigin::Index, msg))
-                })?
+                index_store.with_borrow(|istore| istore.resolve_data_values::<E>(index, values))?
             }
         };
 
@@ -154,8 +150,8 @@ where
             AccessPath::FullScan => self.with_store(|s| {
                 let start = DataKey::lower_bound::<E>();
                 let end = DataKey::upper_bound::<E>();
-                let start_raw = start.to_raw();
-                let end_raw = end.to_raw();
+                let start_raw = start.to_raw()?;
+                let end_raw = end.to_raw()?;
 
                 s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
                     .map(|entry| {
@@ -215,6 +211,7 @@ where
         keys: &[DataKey],
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError> {
+        // MissingOk favors idempotency; it may mask index/data divergence during deletes.
         let mut out = Vec::with_capacity(keys.len());
         for k in keys {
             let row = match consistency {
@@ -240,8 +237,8 @@ where
     /// Range scans implicitly tolerate missing rows by construction.
     fn load_range(&self, start: DataKey, end: DataKey) -> Result<Vec<DataRow>, InternalError> {
         self.with_store(|s| {
-            let start_raw = start.to_raw();
-            let end_raw = end.to_raw();
+            let start_raw = start.to_raw()?;
+            let end_raw = end.to_raw()?;
             s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
                 .map(|e| {
                     let dk = Self::decode_data_key(e.key())?;

@@ -11,16 +11,6 @@ use crate::design::prelude::*;
 ))]
 pub struct Rgb {}
 
-impl From<&RgbHex> for Rgb {
-    fn from(hex: &RgbHex) -> Self {
-        let r = u8::from_str_radix(&hex.0[0..2], 16).unwrap_or(0);
-        let g = u8::from_str_radix(&hex.0[2..4], 16).unwrap_or(0);
-        let b = u8::from_str_radix(&hex.0[4..6], 16).unwrap_or(0);
-
-        Self { r, g, b }
-    }
-}
-
 ///
 /// Rgba
 ///
@@ -32,25 +22,6 @@ impl From<&RgbHex> for Rgb {
     field(ident = "a", value(item(prim = "Nat8"))),
 ))]
 pub struct Rgba {}
-
-impl Rgba {
-    #[must_use]
-    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self { r, g, b, a }
-    }
-}
-
-#[allow(clippy::many_single_char_names)]
-impl From<&RgbaHex> for Rgba {
-    fn from(hex: &RgbaHex) -> Self {
-        let r = u8::from_str_radix(&hex.0[0..2], 16).unwrap_or(0);
-        let g = u8::from_str_radix(&hex.0[2..4], 16).unwrap_or(0);
-        let b = u8::from_str_radix(&hex.0[4..6], 16).unwrap_or(0);
-        let a = u8::from_str_radix(&hex.0[6..8], 16).unwrap_or(0);
-
-        Self { r, g, b, a }
-    }
-}
 
 ///
 /// RgbHex
@@ -67,12 +38,6 @@ impl From<&RgbaHex> for Rgba {
 )]
 pub struct RgbHex {}
 
-impl From<Rgb> for RgbHex {
-    fn from(rgb: Rgb) -> Self {
-        Self(format!("{:02X}{:02X}{:02X}", rgb.r, rgb.g, rgb.b))
-    }
-}
-
 ///
 /// RgbaHex
 ///
@@ -88,12 +53,3 @@ impl From<Rgb> for RgbHex {
     traits(remove(From))
 )]
 pub struct RgbaHex {}
-
-impl From<Rgba> for RgbaHex {
-    fn from(rgba: Rgba) -> Self {
-        Self(format!(
-            "{:02X}{:02X}{:02X}{:02X}",
-            rgba.r, rgba.g, rgba.b, rgba.a
-        ))
-    }
-}

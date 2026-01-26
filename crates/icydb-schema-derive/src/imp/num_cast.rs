@@ -14,7 +14,10 @@ impl Imp<Newtype> for NumCastTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
         let primitive = node.primitive.as_ref()?; // bail early if no primitive
 
-        let num_fn = primitive.num_cast_fn();
+        let num_fn = match primitive.num_cast_fn() {
+            Ok(num_fn) => num_fn,
+            Err(err) => return Some(TraitStrategy::from_impl(err.write_errors())),
+        };
         let to_method = format_ident!("to_{}", num_fn);
         let from_method = format_ident!("from_{}", num_fn);
 

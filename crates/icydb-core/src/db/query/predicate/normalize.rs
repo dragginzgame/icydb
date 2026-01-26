@@ -1,8 +1,9 @@
-use crate::value::Value;
-
-use super::{
-    ast::{ComparePredicate, Predicate},
-    coercion::CoercionSpec,
+use crate::{
+    db::query::predicate::{
+        ast::{CompareOp, ComparePredicate, Predicate},
+        coercion::{CoercionId, CoercionSpec},
+    },
+    value::{Value, ValueEnum},
 };
 
 ///
@@ -17,7 +18,6 @@ use super::{
 ///
 /// Note: this pass does not normalize literal values (numeric width, collation).
 /// Ordering uses the structural `Value` representation.
-/// TODO: value-level normalization/fingerprinting belongs in the value/executor layer.
 ///
 /// This is used to ensure:
 /// - stable planner output
@@ -143,7 +143,7 @@ fn normalize_and(children: &[Predicate]) -> Predicate {
         return Predicate::True;
     }
 
-    out.sort_by_key(sort_key);
+    out.sort_by_cached_key(sort_key);
     Predicate::And(out)
 }
 
@@ -176,12 +176,12 @@ fn normalize_or(children: &[Predicate]) -> Predicate {
         return Predicate::False;
     }
 
-    out.sort_by_key(sort_key);
+    out.sort_by_cached_key(sort_key);
     Predicate::Or(out)
 }
 
 ///
-/// Generate a deterministic string key for a predicate.
+/// Generate a deterministic, length-prefixed key for a predicate.
 ///
 /// This key is used **only for sorting**, not for display.
 /// Ordering ensures:
@@ -189,185 +189,354 @@ fn normalize_or(children: &[Predicate]) -> Predicate {
 /// - stable normalization
 /// - predictable equality
 ///
-fn sort_key(predicate: &Predicate) -> String {
+fn sort_key(predicate: &Predicate) -> Vec<u8> {
+    let mut out = Vec::new();
+    encode_predicate_key(&mut out, predicate);
+    out
+}
+
+const PRED_TRUE: u8 = 0x00;
+const PRED_FALSE: u8 = 0x01;
+const PRED_AND: u8 = 0x02;
+const PRED_OR: u8 = 0x03;
+const PRED_NOT: u8 = 0x04;
+const PRED_COMPARE: u8 = 0x05;
+const PRED_IS_NULL: u8 = 0x06;
+const PRED_IS_MISSING: u8 = 0x07;
+const PRED_IS_EMPTY: u8 = 0x08;
+const PRED_IS_NOT_EMPTY: u8 = 0x09;
+const PRED_MAP_CONTAINS_KEY: u8 = 0x0A;
+const PRED_MAP_CONTAINS_VALUE: u8 = 0x0B;
+const PRED_MAP_CONTAINS_ENTRY: u8 = 0x0C;
+
+// Encode predicate keys with length-prefixed segments to avoid collisions.
+fn encode_predicate_key(out: &mut Vec<u8>, predicate: &Predicate) {
     match predicate {
-        Predicate::True => "00:true".to_string(),
-        Predicate::False => "01:false".to_string(),
-
+        Predicate::True => out.push(PRED_TRUE),
+        Predicate::False => out.push(PRED_FALSE),
         Predicate::And(children) => {
-            let mut key = String::from("02:and[");
+            out.push(PRED_AND);
+            push_len(out, children.len());
             for child in children {
-                key.push_str(&sort_key(child));
-                key.push(';');
+                push_predicate(out, child);
             }
-            key.push(']');
-            key
         }
-
         Predicate::Or(children) => {
-            let mut key = String::from("03:or[");
+            out.push(PRED_OR);
+            push_len(out, children.len());
             for child in children {
-                key.push_str(&sort_key(child));
-                key.push(';');
+                push_predicate(out, child);
             }
-            key.push(']');
-            key
         }
-
-        Predicate::Not(inner) => format!("04:not({})", sort_key(inner)),
-
+        Predicate::Not(inner) => {
+            out.push(PRED_NOT);
+            push_predicate(out, inner);
+        }
         Predicate::Compare(cmp) => {
-            let ComparePredicate {
-                field,
-                op,
-                value,
-                coercion,
-            } = cmp;
-            format!(
-                "05:cmp:{field}:{op:?}:{}:{}",
-                value_key(value),
-                coercion_key(coercion)
-            )
+            out.push(PRED_COMPARE);
+            push_str(out, &cmp.field);
+            out.push(compare_op_tag(cmp.op));
+            push_value(out, &cmp.value);
+            push_coercion(out, &cmp.coercion);
         }
-
-        Predicate::IsNull { field } => format!("06:is_null:{field}"),
-        Predicate::IsMissing { field } => format!("07:is_missing:{field}"),
-        Predicate::IsEmpty { field } => format!("08:is_empty:{field}"),
-        Predicate::IsNotEmpty { field } => format!("09:is_not_empty:{field}"),
-
+        Predicate::IsNull { field } => {
+            out.push(PRED_IS_NULL);
+            push_str(out, field);
+        }
+        Predicate::IsMissing { field } => {
+            out.push(PRED_IS_MISSING);
+            push_str(out, field);
+        }
+        Predicate::IsEmpty { field } => {
+            out.push(PRED_IS_EMPTY);
+            push_str(out, field);
+        }
+        Predicate::IsNotEmpty { field } => {
+            out.push(PRED_IS_NOT_EMPTY);
+            push_str(out, field);
+        }
         Predicate::MapContainsKey {
             field,
             key,
             coercion,
-        } => format!(
-            "10:map_contains_key:{field}:{}:{}",
-            value_key(key),
-            coercion_key(coercion)
-        ),
-
+        } => {
+            out.push(PRED_MAP_CONTAINS_KEY);
+            push_str(out, field);
+            push_value(out, key);
+            push_coercion(out, coercion);
+        }
         Predicate::MapContainsValue {
             field,
             value,
             coercion,
-        } => format!(
-            "11:map_contains_value:{field}:{}:{}",
-            value_key(value),
-            coercion_key(coercion)
-        ),
-
+        } => {
+            out.push(PRED_MAP_CONTAINS_VALUE);
+            push_str(out, field);
+            push_value(out, value);
+            push_coercion(out, coercion);
+        }
         Predicate::MapContainsEntry {
             field,
             key,
             value,
             coercion,
-        } => format!(
-            "12:map_contains_entry:{field}:{}:{}:{}",
-            value_key(key),
-            value_key(value),
-            coercion_key(coercion)
-        ),
-    }
-}
-
-///
-/// Generate a deterministic key for a coercion specification.
-///
-/// Includes coercion id and any parameters.
-///
-fn coercion_key(spec: &CoercionSpec) -> String {
-    let mut out = format!("{:?}", spec.id);
-
-    if !spec.params.is_empty() {
-        out.push('{');
-        for (key, value) in &spec.params {
-            out.push_str(key);
-            out.push('=');
-            out.push_str(value);
-            out.push(';');
+        } => {
+            out.push(PRED_MAP_CONTAINS_ENTRY);
+            push_str(out, field);
+            push_value(out, key);
+            push_value(out, value);
+            push_coercion(out, coercion);
         }
-        out.push('}');
     }
-
-    out
 }
 
-///
-/// Generate a deterministic string key for a value.
-///
-/// This is used only for predicate sorting, not serialization.
-///
-fn value_key(value: &Value) -> String {
+const VALUE_ACCOUNT: u8 = 1;
+const VALUE_BLOB: u8 = 2;
+const VALUE_BOOL: u8 = 3;
+const VALUE_DATE: u8 = 4;
+const VALUE_DECIMAL: u8 = 5;
+const VALUE_DURATION: u8 = 6;
+const VALUE_ENUM: u8 = 7;
+const VALUE_E8S: u8 = 8;
+const VALUE_E18S: u8 = 9;
+const VALUE_FLOAT32: u8 = 10;
+const VALUE_FLOAT64: u8 = 11;
+const VALUE_INT: u8 = 12;
+const VALUE_INT128: u8 = 13;
+const VALUE_INT_BIG: u8 = 14;
+const VALUE_LIST: u8 = 15;
+const VALUE_NONE: u8 = 16;
+const VALUE_PRINCIPAL: u8 = 17;
+const VALUE_SUBACCOUNT: u8 = 18;
+const VALUE_TEXT: u8 = 19;
+const VALUE_TIMESTAMP: u8 = 20;
+const VALUE_UINT: u8 = 21;
+const VALUE_UINT128: u8 = 22;
+const VALUE_UINT_BIG: u8 = 23;
+const VALUE_ULID: u8 = 24;
+const VALUE_UNIT: u8 = 25;
+const VALUE_UNSUPPORTED: u8 = 26;
+
+#[expect(clippy::too_many_lines)]
+fn encode_value_key(out: &mut Vec<u8>, value: &Value) {
     match value {
-        Value::Account(v) => format!("account:{v}"),
-        Value::Blob(v) => format!("blob:{}", hex_bytes(v)),
-        Value::Bool(v) => format!("bool:{v}"),
-        Value::Date(v) => format!("date:{v}"),
-        Value::Decimal(v) => format!("decimal:{v}"),
-        Value::Duration(v) => format!("duration:{v}"),
-        Value::Enum(v) => enum_key(v),
-        Value::E8s(v) => format!("e8s:{v}"),
-        Value::E18s(v) => format!("e18s:{v}"),
-        Value::Float32(v) => format!("float32:{v}"),
-        Value::Float64(v) => format!("float64:{v}"),
-        Value::Int(v) => format!("int:{v}"),
-        Value::Int128(v) => format!("int128:{v}"),
-        Value::IntBig(v) => format!("int_big:{v}"),
-        Value::List(items) => {
-            let mut out = String::from("list[");
-            for item in items {
-                out.push_str(&value_key(item));
-                out.push(',');
+        Value::Account(v) => {
+            out.push(VALUE_ACCOUNT);
+            push_bytes(out, v.owner.as_slice());
+            match v.subaccount {
+                Some(sub) => {
+                    out.push(1);
+                    push_bytes(out, &sub.to_bytes());
+                }
+                None => out.push(0),
             }
-            out.push(']');
-            out
         }
-        Value::None => "null".to_string(),
-        Value::Principal(v) => format!("principal:{v}"),
-        Value::Subaccount(v) => format!("subaccount:{v}"),
-        Value::Text(v) => format!("text:{v}"),
-        Value::Timestamp(v) => format!("timestamp:{v}"),
-        Value::Uint(v) => format!("uint:{v}"),
-        Value::Uint128(v) => format!("uint128:{v}"),
-        Value::UintBig(v) => format!("uint_big:{v}"),
-        Value::Ulid(v) => format!("ulid:{v}"),
-        Value::Unit => "unit".to_string(),
-        Value::Unsupported => "unsupported".to_string(),
+        Value::Blob(v) => {
+            out.push(VALUE_BLOB);
+            push_bytes(out, v);
+        }
+        Value::Bool(v) => {
+            out.push(VALUE_BOOL);
+            out.push(u8::from(*v));
+        }
+        Value::Date(v) => {
+            out.push(VALUE_DATE);
+            out.extend_from_slice(&v.get().to_be_bytes());
+        }
+        Value::Decimal(v) => {
+            out.push(VALUE_DECIMAL);
+            out.push(u8::from(v.is_sign_negative()));
+            out.extend_from_slice(&v.scale().to_be_bytes());
+            out.extend_from_slice(&v.mantissa().to_be_bytes());
+        }
+        Value::Duration(v) => {
+            out.push(VALUE_DURATION);
+            out.extend_from_slice(&v.get().to_be_bytes());
+        }
+        Value::Enum(v) => {
+            out.push(VALUE_ENUM);
+            push_enum(out, v);
+        }
+        Value::E8s(v) => {
+            out.push(VALUE_E8S);
+            out.extend_from_slice(&v.get().to_be_bytes());
+        }
+        Value::E18s(v) => {
+            out.push(VALUE_E18S);
+            out.extend_from_slice(&v.get().to_be_bytes());
+        }
+        Value::Float32(v) => {
+            out.push(VALUE_FLOAT32);
+            out.extend_from_slice(&v.to_be_bytes());
+        }
+        Value::Float64(v) => {
+            out.push(VALUE_FLOAT64);
+            out.extend_from_slice(&v.to_be_bytes());
+        }
+        Value::Int(v) => {
+            out.push(VALUE_INT);
+            out.extend_from_slice(&v.to_be_bytes());
+        }
+        Value::Int128(v) => {
+            out.push(VALUE_INT128);
+            out.extend_from_slice(&v.get().to_be_bytes());
+        }
+        Value::IntBig(v) => {
+            out.push(VALUE_INT_BIG);
+            push_bytes(out, &v.to_leb128());
+        }
+        Value::List(items) => {
+            out.push(VALUE_LIST);
+            push_len(out, items.len());
+            for item in items {
+                push_value(out, item);
+            }
+        }
+        Value::None => out.push(VALUE_NONE),
+        Value::Principal(v) => {
+            out.push(VALUE_PRINCIPAL);
+            push_bytes(out, v.as_slice());
+        }
+        Value::Subaccount(v) => {
+            out.push(VALUE_SUBACCOUNT);
+            push_bytes(out, &v.to_bytes());
+        }
+        Value::Text(v) => {
+            out.push(VALUE_TEXT);
+            push_str(out, v);
+        }
+        Value::Timestamp(v) => {
+            out.push(VALUE_TIMESTAMP);
+            out.extend_from_slice(&v.get().to_be_bytes());
+        }
+        Value::Uint(v) => {
+            out.push(VALUE_UINT);
+            out.extend_from_slice(&v.to_be_bytes());
+        }
+        Value::Uint128(v) => {
+            out.push(VALUE_UINT128);
+            out.extend_from_slice(&v.get().to_be_bytes());
+        }
+        Value::UintBig(v) => {
+            out.push(VALUE_UINT_BIG);
+            push_bytes(out, &v.to_leb128());
+        }
+        Value::Ulid(v) => {
+            out.push(VALUE_ULID);
+            out.extend_from_slice(&v.to_bytes());
+        }
+        Value::Unit => out.push(VALUE_UNIT),
+        Value::Unsupported => out.push(VALUE_UNSUPPORTED),
     }
 }
 
-///
-/// Deterministic key for enum values, including optional payload.
-///
-fn enum_key(value: &crate::value::ValueEnum) -> String {
-    let mut out = String::from("enum:");
+fn push_predicate(out: &mut Vec<u8>, predicate: &Predicate) {
+    let mut buf = Vec::new();
+    encode_predicate_key(&mut buf, predicate);
+    push_bytes(out, &buf);
+}
 
-    if let Some(path) = &value.path {
-        out.push_str(path);
-        out.push(':');
+fn push_value(out: &mut Vec<u8>, value: &Value) {
+    let mut buf = Vec::new();
+    encode_value_key(&mut buf, value);
+    push_bytes(out, &buf);
+}
+
+fn push_enum(out: &mut Vec<u8>, value: &ValueEnum) {
+    match &value.path {
+        Some(path) => {
+            out.push(1);
+            push_str(out, path);
+        }
+        None => out.push(0),
     }
-
-    out.push_str(&value.variant);
-
-    if let Some(payload) = &value.payload {
-        out.push(':');
-        out.push_str(&value_key(payload));
+    push_str(out, &value.variant);
+    match &value.payload {
+        Some(payload) => {
+            out.push(1);
+            push_value(out, payload);
+        }
+        None => out.push(0),
     }
+}
 
-    out
+fn push_coercion(out: &mut Vec<u8>, spec: &CoercionSpec) {
+    out.push(coercion_id_tag(spec.id));
+    push_len(out, spec.params.len());
+    for (key, value) in &spec.params {
+        push_str(out, key);
+        push_str(out, value);
+    }
+}
+
+const fn compare_op_tag(op: CompareOp) -> u8 {
+    match op {
+        CompareOp::Eq => 0,
+        CompareOp::Ne => 1,
+        CompareOp::Lt => 2,
+        CompareOp::Lte => 3,
+        CompareOp::Gt => 4,
+        CompareOp::Gte => 5,
+        CompareOp::In => 6,
+        CompareOp::NotIn => 7,
+        CompareOp::AnyIn => 8,
+        CompareOp::AllIn => 9,
+        CompareOp::Contains => 10,
+        CompareOp::StartsWith => 11,
+        CompareOp::EndsWith => 12,
+    }
+}
+
+const fn coercion_id_tag(id: CoercionId) -> u8 {
+    match id {
+        CoercionId::Strict => 0,
+        CoercionId::NumericWiden => 1,
+        CoercionId::IdentifierText => 2,
+        CoercionId::TextCasefold => 3,
+        CoercionId::CollectionElement => 4,
+    }
+}
+
+fn push_len(out: &mut Vec<u8>, len: usize) {
+    let len = u64::try_from(len).unwrap_or(u64::MAX);
+    out.extend_from_slice(&len.to_be_bytes());
+}
+
+fn push_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
+    push_len(out, bytes.len());
+    out.extend_from_slice(bytes);
+}
+
+fn push_str(out: &mut Vec<u8>, s: &str) {
+    push_bytes(out, s.as_bytes());
 }
 
 ///
-/// Render a byte slice as lowercase hex.
+/// TESTS
 ///
-/// Used for stable blob ordering.
-///
-fn hex_bytes(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
 
-    for byte in bytes {
-        use std::fmt::Write as _;
-        let _ = write!(out, "{byte:02x}");
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sort_key_distinguishes_list_text_with_delimiters() {
+        let left = Predicate::Compare(ComparePredicate {
+            field: "field".to_string(),
+            op: CompareOp::Eq,
+            value: Value::List(vec![Value::Text("a,b".to_string())]),
+            coercion: CoercionSpec::default(),
+        });
+        let right = Predicate::Compare(ComparePredicate {
+            field: "field".to_string(),
+            op: CompareOp::Eq,
+            value: Value::List(vec![
+                Value::Text("a".to_string()),
+                Value::Text("b".to_string()),
+            ]),
+            coercion: CoercionSpec::default(),
+        });
+
+        assert_ne!(sort_key(&left), sort_key(&right));
     }
-
-    out
 }

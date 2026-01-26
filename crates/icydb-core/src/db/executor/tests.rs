@@ -5,10 +5,15 @@ use crate::{
         CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, DbSession, begin_commit,
         commit::commit_marker_present,
         force_recovery_for_tests,
-        index::{IndexEntry, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
+        index::{
+            IndexEntry, IndexEntryCorruption, IndexKey, IndexStore, IndexStoreRegistry,
+            RawIndexEntry, store::IndexRemoveError,
+        },
         query::{
             Query, QueryError, ReadConsistency, eq, gt, in_list,
-            plan::{AccessPath, ExecutablePlan, OrderDirection, OrderSpec, PlanError},
+            plan::{
+                AccessPath, ExecutablePlan, ExplainAccessPath, OrderDirection, OrderSpec, PlanError,
+            },
             predicate::{
                 Predicate,
                 validate::{reset_schema_lookup_called, schema_lookup_called},
@@ -27,9 +32,9 @@ use crate::{
     serialize::serialize,
     traits::{
         CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        ValidateAuto, ValidateCustom, View, ViewError, Visitable,
     },
-    types::Ulid,
+    types::{Timestamp, Ulid},
     value::Value,
 };
 use canic_memory::runtime::registry::MemoryRegistryRuntime;
@@ -101,6 +106,20 @@ const ORDER_MODEL: EntityModel = EntityModel {
     indexes: &[],
 };
 
+const TIMESTAMP_ENTITY_PATH: &str = "write_unit_test::TimestampEntity";
+const TIMESTAMP_FIELDS: [&str; 1] = ["id"];
+const TIMESTAMP_FIELD_MODELS: [EntityFieldModel; 1] = [EntityFieldModel {
+    name: "id",
+    kind: EntityFieldKind::Timestamp,
+}];
+const TIMESTAMP_MODEL: EntityModel = EntityModel {
+    path: TIMESTAMP_ENTITY_PATH,
+    entity_name: "TimestampEntity",
+    primary_key: &TIMESTAMP_FIELD_MODELS[0],
+    fields: &TIMESTAMP_FIELD_MODELS,
+    indexes: &[],
+};
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct TestEntity {
     id: Ulid,
@@ -118,8 +137,8 @@ impl View for TestEntity {
         self.clone()
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        view
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
     }
 }
 
@@ -210,8 +229,8 @@ impl View for OrderEntity {
         self.clone()
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        view
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
     }
 }
 
@@ -242,6 +261,67 @@ impl EntityKind for OrderEntity {
     const FIELDS: &'static [&'static str] = &ORDER_FIELDS;
     const INDEXES: &'static [&'static IndexModel] = &[];
     const MODEL: &'static EntityModel = &ORDER_MODEL;
+
+    fn key(&self) -> crate::key::Key {
+        self.id.into()
+    }
+
+    fn primary_key(&self) -> Self::PrimaryKey {
+        self.id
+    }
+
+    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+        self.id = key;
+    }
+}
+
+// Timestamp-typed entity used to verify ByKey planning and strict consistency behavior.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct TimestampEntity {
+    id: Timestamp,
+}
+
+impl Path for TimestampEntity {
+    const PATH: &'static str = TIMESTAMP_ENTITY_PATH;
+}
+
+impl View for TimestampEntity {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
+    }
+}
+
+impl SanitizeAuto for TimestampEntity {}
+impl SanitizeCustom for TimestampEntity {}
+impl ValidateAuto for TimestampEntity {}
+impl ValidateCustom for TimestampEntity {}
+impl Visitable for TimestampEntity {}
+
+impl FieldValues for TimestampEntity {
+    fn get_value(&self, field: &str) -> Option<Value> {
+        match field {
+            "id" => Some(Value::Timestamp(self.id)),
+            _ => None,
+        }
+    }
+}
+
+impl EntityKind for TimestampEntity {
+    type PrimaryKey = Timestamp;
+    type Store = TestStore;
+    type Canister = TestCanister;
+
+    const ENTITY_NAME: &'static str = "TimestampEntity";
+    const PRIMARY_KEY: &'static str = "id";
+    const FIELDS: &'static [&'static str] = &TIMESTAMP_FIELDS;
+    const INDEXES: &'static [&'static IndexModel] = &[];
+    const MODEL: &'static EntityModel = &TIMESTAMP_MODEL;
 
     fn key(&self) -> crate::key::Key {
         self.id.into()
@@ -384,6 +464,20 @@ fn init_schema() {
                 default: None,
             },
         ];
+        static TIMESTAMP_FIELDS_DEF: [Field; 1] = [Field {
+            ident: "id",
+            value: SchemaValue {
+                cardinality: Cardinality::One,
+                item: Item {
+                    target: ItemTarget::Primitive(Primitive::Timestamp),
+                    relation: None,
+                    validators: &[],
+                    sanitizers: &[],
+                    indirect: false,
+                },
+            },
+            default: None,
+        }];
 
         let mut schema = schema_write();
 
@@ -458,12 +552,31 @@ fn init_schema() {
                 validators: &[],
             },
         };
+        let timestamp_entity = Entity {
+            def: Def {
+                module_path: "write_unit_test",
+                ident: "TimestampEntity",
+                comments: None,
+            },
+            store: DATA_STORE_PATH,
+            primary_key: "id",
+            name: None,
+            indexes: &[],
+            fields: FieldList {
+                fields: &TIMESTAMP_FIELDS_DEF,
+            },
+            ty: Type {
+                sanitizers: &[],
+                validators: &[],
+            },
+        };
 
         schema.insert_node(SchemaNode::Canister(canister));
         schema.insert_node(SchemaNode::Store(data_store));
         schema.insert_node(SchemaNode::Store(index_store));
         schema.insert_node(SchemaNode::Entity(test_entity));
         schema.insert_node(SchemaNode::Entity(order_entity));
+        schema.insert_node(SchemaNode::Entity(timestamp_entity));
     });
 }
 
@@ -505,14 +618,16 @@ fn assert_commit_marker_clear() {
 
 fn assert_entity_present(entity: &TestEntity) {
     let data_key = DataKey::new::<TestEntity>(entity.id);
-    let raw_key = data_key.to_raw();
+    let raw_key = data_key.to_raw().expect("data key encode");
     let data_present = DB
         .context::<TestEntity>()
         .with_store(|s| s.get(&raw_key))
         .unwrap();
     assert!(data_present.is_some());
 
-    let index_key = IndexKey::new(entity, &INDEX_MODEL).expect("index key");
+    let index_key = IndexKey::new(entity, &INDEX_MODEL)
+        .expect("index key")
+        .expect("index key missing");
     let raw_index_key = index_key.to_raw();
     let index_present = TEST_INDEX_STORE.with_borrow(|s| s.get(&raw_index_key));
     assert!(index_present.is_some());
@@ -520,14 +635,16 @@ fn assert_entity_present(entity: &TestEntity) {
 
 fn assert_entity_missing(entity: &TestEntity) {
     let data_key = DataKey::new::<TestEntity>(entity.id);
-    let raw_key = data_key.to_raw();
+    let raw_key = data_key.to_raw().expect("data key encode");
     let data_present = DB
         .context::<TestEntity>()
         .with_store(|s| s.get(&raw_key))
         .unwrap();
     assert!(data_present.is_none());
 
-    let index_key = IndexKey::new(entity, &INDEX_MODEL).expect("index key");
+    let index_key = IndexKey::new(entity, &INDEX_MODEL)
+        .expect("index key")
+        .expect("index key missing");
     let raw_index_key = index_key.to_raw();
     let index_present = TEST_INDEX_STORE.with_borrow(|s| s.get(&raw_index_key));
     assert!(index_present.is_none());
@@ -548,14 +665,16 @@ fn save_rolls_back_on_forced_failure() {
     assert!(result.is_err());
 
     let data_key = DataKey::new::<TestEntity>(entity.id);
-    let raw_key = data_key.to_raw();
+    let raw_key = data_key.to_raw().expect("data key encode");
     let data_present = DB
         .context::<TestEntity>()
         .with_store(|s| s.get(&raw_key))
         .unwrap();
     assert!(data_present.is_none());
 
-    let index_key = IndexKey::new(&entity, &INDEX_MODEL).expect("index key");
+    let index_key = IndexKey::new(&entity, &INDEX_MODEL)
+        .expect("index key")
+        .expect("index key missing");
     let raw_index_key = index_key.to_raw();
     let index_present = TEST_INDEX_STORE.with_borrow(|s| s.get(&raw_index_key));
     assert!(index_present.is_none());
@@ -736,10 +855,12 @@ fn commit_marker_recovery_replays_ops() {
         name: "alpha".to_string(),
     };
     let data_key = DataKey::new::<TestEntity>(entity.id);
-    let raw_data_key = data_key.to_raw();
+    let raw_data_key = data_key.to_raw().expect("data key encode");
     let raw_row = RawRow::try_new(serialize(&entity).unwrap()).unwrap();
 
-    let index_key = IndexKey::new(&entity, &INDEX_MODEL).unwrap();
+    let index_key = IndexKey::new(&entity, &INDEX_MODEL)
+        .expect("index key")
+        .expect("index key missing");
     let raw_index_key = index_key.to_raw();
     let entry = IndexEntry::new(entity.key());
     let raw_index_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
@@ -759,14 +880,12 @@ fn commit_marker_recovery_replays_ops() {
     )
     .unwrap();
 
-    let mut guard = begin_commit(marker).unwrap();
+    let _guard = begin_commit(marker).unwrap();
     assert!(commit_marker_present().unwrap());
 
     TEST_INDEX_STORE.with_borrow_mut(|store| {
         store.insert(raw_index_key, raw_index_entry);
     });
-    guard.mark_index_written();
-
     force_recovery_for_tests();
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let result = saver.insert(entity.clone());
@@ -951,6 +1070,50 @@ fn load_or_strict_missing_errors() {
 }
 
 #[test]
+fn timestamp_pk_plans_by_key_and_strict_missing_is_corruption() {
+    reset_stores();
+    init_schema();
+
+    let ts = Timestamp::from_seconds(123);
+    let plan = Query::<TimestampEntity>::new(ReadConsistency::Strict)
+        .filter(eq("id", ts))
+        .plan()
+        .expect("plan");
+    let fingerprint = plan.fingerprint();
+
+    assert_eq!(
+        plan.explain().access,
+        ExplainAccessPath::ByKey {
+            key: Key::Timestamp(ts),
+        }
+    );
+
+    let loader = LoadExecutor::<TimestampEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
+    let (result, events) = with_trace_events(|| loader.execute(plan));
+    let err = result.unwrap_err();
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert_eq!(
+        events,
+        vec![
+            QueryTraceEvent::Start {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access: Some(TraceAccess::ByKey),
+            },
+            QueryTraceEvent::Error {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access: Some(TraceAccess::ByKey),
+                class: ErrorClass::Corruption,
+                origin: ErrorOrigin::Store,
+            },
+        ]
+    );
+}
+
+#[test]
 fn trace_emits_start_and_finish_for_load() {
     reset_stores();
     init_schema();
@@ -1087,7 +1250,7 @@ fn diagnose_query_does_not_execute() {
     init_schema();
 
     let data_key = DataKey::new::<TestEntity>(Ulid::from_u128(1));
-    let raw_key = data_key.to_raw();
+    let raw_key = data_key.to_raw().expect("data key encode");
     let corrupted = RawRow::try_new(vec![0x00, 0x01]).expect("raw row");
     DB.context::<TestEntity>()
         .with_store_mut(|store| store.insert(raw_key, corrupted))
@@ -1179,7 +1342,9 @@ fn unique_index_key_type_mismatch_is_corruption() {
         id: Ulid::from_u128(1),
         name: "alpha".to_string(),
     };
-    let index_key = IndexKey::new(&lookup, &INDEX_MODEL).expect("index key");
+    let index_key = IndexKey::new(&lookup, &INDEX_MODEL)
+        .expect("index key")
+        .expect("index key missing");
     let raw_index_key = index_key.to_raw();
 
     let entry = IndexEntry::new(Key::Int(9));
@@ -1193,7 +1358,7 @@ fn unique_index_key_type_mismatch_is_corruption() {
         name: "alpha".to_string(),
     };
     let data_key = DataKey::new::<TestEntity>(Key::Int(9));
-    let raw_data_key = data_key.to_raw();
+    let raw_data_key = data_key.to_raw().expect("data key encode");
     let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
     TEST_DATA_STORE.with_borrow_mut(|store| {
         store.insert(raw_data_key, raw_row);
@@ -1202,6 +1367,64 @@ fn unique_index_key_type_mismatch_is_corruption() {
     let err = resolve_unique_pk::<TestEntity>(&DB, &INDEX_MODEL, &lookup)
         .expect_err("expected corruption");
     assert_eq!(err.class, ErrorClass::Corruption);
+}
+
+#[test]
+fn remove_index_entry_missing_key_is_corruption() {
+    reset_stores();
+    init_schema();
+
+    // Setup: index entry exists but does not include the entity key.
+    let stored = TestEntity {
+        id: Ulid::from_u128(1),
+        name: "alpha".to_string(),
+    };
+    let missing = TestEntity {
+        id: Ulid::from_u128(2),
+        name: "alpha".to_string(),
+    };
+
+    TEST_INDEX_STORE.with_borrow_mut(|store| {
+        store
+            .insert_index_entry(&stored, &INDEX_MODEL)
+            .expect("insert index entry");
+    });
+
+    let err = TEST_INDEX_STORE
+        .with_borrow_mut(|store| store.remove_index_entry(&missing, &INDEX_MODEL))
+        .expect_err("expected corruption");
+    assert!(matches!(
+        err,
+        IndexRemoveError::Corruption(IndexEntryCorruption::MissingKey { .. })
+    ));
+
+    let raw_key = IndexKey::new(&stored, &INDEX_MODEL)
+        .expect("index key")
+        .expect("index key missing")
+        .to_raw();
+    let decoded = TEST_INDEX_STORE
+        .with_borrow(|store| store.get(&raw_key))
+        .expect("index entry present")
+        .try_decode()
+        .expect("decode index entry");
+    assert!(decoded.contains(&stored.key()));
+}
+
+#[test]
+fn resolve_data_values_rejects_prefix_too_long() {
+    reset_stores();
+    init_schema();
+
+    let values = vec![
+        Value::Text("alpha".to_string()),
+        Value::Text("beta".to_string()),
+    ];
+
+    let err = TEST_INDEX_STORE
+        .with_borrow(|store| store.resolve_data_values::<TestEntity>(&INDEX_MODEL, &values))
+        .expect_err("expected error");
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Index);
 }
 
 #[test]

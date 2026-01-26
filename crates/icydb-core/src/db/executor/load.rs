@@ -90,7 +90,7 @@ impl<E: EntityKind> LoadExecutor<E> {
                 rows.len()
             ));
 
-            let stats = plan.apply_post_access::<E, _>(&mut rows);
+            let stats = plan.apply_post_access::<E, _>(&mut rows)?;
             if stats.filtered {
                 self.debug_log(format!(
                     "🔎 Applied predicate -> {} entities remaining",

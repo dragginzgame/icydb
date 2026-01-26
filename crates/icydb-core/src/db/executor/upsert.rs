@@ -348,7 +348,7 @@ where
         pk: E::PrimaryKey,
     ) -> Result<E, InternalError> {
         let data_key = DataKey::new::<E>(pk.into());
-        let raw_data_key = data_key.to_raw();
+        let raw_data_key = data_key.to_raw()?;
         let row = self
             .db
             .context::<E>()

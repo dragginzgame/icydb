@@ -2,11 +2,17 @@ mod convert;
 #[cfg(test)]
 mod tests;
 
-use crate::types::{Account, Principal, Subaccount, Timestamp, Ulid};
+use crate::{
+    error::{ErrorClass, ErrorOrigin, InternalError},
+    types::{
+        Account, AccountEncodeError, Principal, PrincipalEncodeError, Subaccount, Timestamp, Ulid,
+    },
+};
 use candid::CandidType;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use thiserror::Error as ThisError;
 
 ///
 /// Key
@@ -26,6 +32,32 @@ pub enum Key {
     Uint(u64),
     Ulid(Ulid),
     Unit,
+}
+
+///
+/// KeyEncodeError
+///
+/// Errors returned when encoding a key for persistence.
+///
+
+#[derive(Debug, ThisError)]
+pub enum KeyEncodeError {
+    #[error("account encoding failed: {0}")]
+    Account(#[from] AccountEncodeError),
+    #[error("account payload length mismatch: {len} bytes (expected {expected})")]
+    AccountLengthMismatch { len: usize, expected: usize },
+    #[error("principal encoding failed: {0}")]
+    Principal(#[from] PrincipalEncodeError),
+}
+
+impl From<KeyEncodeError> for InternalError {
+    fn from(err: KeyEncodeError) -> Self {
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Serialize,
+            err.to_string(),
+        )
+    }
 }
 
 impl Key {
@@ -76,9 +108,15 @@ impl Key {
         Self::Account(Account::max_storable())
     }
 
+    /// Global minimum key for scan bounds and key range construction.
+    pub const MIN: Self = Self::Account(Account {
+        owner: Principal::from_slice(&[]),
+        subaccount: None,
+    });
+
     #[must_use]
     pub const fn lower_bound() -> Self {
-        Self::Int(i64::MIN)
+        Self::MIN
     }
 
     #[must_use]
@@ -90,22 +128,25 @@ impl Key {
         self.tag()
     }
 
-    #[must_use]
-    pub fn to_bytes(&self) -> [u8; Self::STORED_SIZE] {
+    /// Encode this key into its fixed-size storage representation.
+    pub fn to_bytes(&self) -> Result<[u8; Self::STORED_SIZE], KeyEncodeError> {
         let mut buf = [0u8; Self::STORED_SIZE];
 
         // ── Tag ─────────────────────────────────────
         buf[Self::TAG_OFFSET] = self.tag();
-        let payload = &mut buf[Self::PAYLOAD_OFFSET..];
-
-        debug_assert_eq!(payload.len(), Self::PAYLOAD_SIZE);
+        let payload = &mut buf[Self::PAYLOAD_OFFSET..=Self::PAYLOAD_SIZE];
 
         // ── Payload ─────────────────────────────────
         #[allow(clippy::cast_possible_truncation)]
         match self {
             Self::Account(v) => {
-                let bytes = v.to_bytes();
-                debug_assert_eq!(bytes.len(), Self::ACCOUNT_MAX_SIZE);
+                let bytes = v.to_bytes()?;
+                if bytes.len() != Self::ACCOUNT_MAX_SIZE {
+                    return Err(KeyEncodeError::AccountLengthMismatch {
+                        len: bytes.len(),
+                        expected: Self::ACCOUNT_MAX_SIZE,
+                    });
+                }
                 payload[..bytes.len()].copy_from_slice(&bytes);
             }
 
@@ -124,13 +165,14 @@ impl Key {
             }
 
             Self::Principal(v) => {
-                let bytes = v.to_bytes();
+                let bytes = v.to_bytes()?;
                 let len = bytes.len();
-                assert!(
-                    (1..=Principal::MAX_LENGTH_IN_BYTES as usize).contains(&len),
-                    "invalid Key principal length"
-                );
-                payload[0] = len as u8;
+                payload[0] = u8::try_from(len).map_err(|_| {
+                    KeyEncodeError::Principal(PrincipalEncodeError::TooLarge {
+                        len,
+                        max: Principal::MAX_LENGTH_IN_BYTES as usize,
+                    })
+                })?;
                 if len > 0 {
                     payload[1..=len].copy_from_slice(&bytes[..len]);
                 }
@@ -138,7 +180,6 @@ impl Key {
 
             Self::Subaccount(v) => {
                 let bytes = v.to_array();
-                debug_assert_eq!(bytes.len(), Self::SUBACCOUNT_SIZE);
                 payload[..Self::SUBACCOUNT_SIZE].copy_from_slice(&bytes);
             }
 
@@ -149,7 +190,7 @@ impl Key {
             Self::Unit => {}
         }
 
-        buf
+        Ok(buf)
     }
 
     pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
@@ -158,7 +199,7 @@ impl Key {
         }
 
         let tag = bytes[Self::TAG_OFFSET];
-        let payload = &bytes[Self::PAYLOAD_OFFSET..];
+        let payload = &bytes[Self::PAYLOAD_OFFSET..=Self::PAYLOAD_SIZE];
 
         let ensure_zero_padding = |used: usize, context: &str| {
             if payload[used..].iter().all(|&b| b == 0) {
@@ -196,7 +237,7 @@ impl Key {
 
             Self::TAG_PRINCIPAL => {
                 let len = payload[0] as usize;
-                if !(1..=Principal::MAX_LENGTH_IN_BYTES as usize).contains(&len) {
+                if len > Principal::MAX_LENGTH_IN_BYTES as usize {
                     return Err("corrupted Key: invalid principal length");
                 }
                 let end = 1 + len;
@@ -239,6 +280,14 @@ impl Key {
 
             _ => Err("corrupted Key: invalid tag"),
         }
+    }
+}
+
+impl TryFrom<&[u8]> for Key {
+    type Error = &'static str;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
     }
 }
 

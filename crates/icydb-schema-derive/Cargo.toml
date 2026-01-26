@@ -1,5 +1,5 @@
 [package]
-name = "icydb-macros"
+name = "icydb-schema-derive"
 edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }

@@ -44,13 +44,15 @@ impl DeleteUniqueSuite {
         let saved = db!().insert(Index::new(1, 55)).unwrap();
 
         let index = Self::unique_index();
-        let index_key = IndexKey::new(&saved, index).expect("index key should be present");
+        let index_key = IndexKey::new(&saved, index)
+            .expect("index key")
+            .expect("index key missing");
 
         crate::DATA_REGISTRY
             .with(|reg| {
                 reg.with_store_mut(<Index as EntityKind>::Store::PATH, |store| {
                     let data_key = DataKey::new::<Index>(saved.key());
-                    store.remove(&data_key.to_raw());
+                    store.remove(&data_key.to_raw().expect("data key encode"));
                 })
             })
             .unwrap();
@@ -79,7 +81,9 @@ impl DeleteUniqueSuite {
         let other = db!().insert(Index::new(2, 99)).unwrap();
 
         let index = Self::unique_index();
-        let index_key = IndexKey::new(&saved, index).expect("index key should be present");
+        let index_key = IndexKey::new(&saved, index)
+            .expect("index key")
+            .expect("index key missing");
 
         crate::INDEX_REGISTRY
             .with(|reg| {
@@ -112,8 +116,9 @@ impl DeleteUniqueSuite {
 
     fn delete_unique_key_type_mismatch_errors() {
         let index = Self::unique_index();
-        let index_key =
-            IndexKey::new(&Index::new(1, 777), index).expect("index key should be present");
+        let index_key = IndexKey::new(&Index::new(1, 777), index)
+            .expect("index key")
+            .expect("index key missing");
         let bad_key = Key::Uint(123);
 
         crate::INDEX_REGISTRY
@@ -131,7 +136,10 @@ impl DeleteUniqueSuite {
             .with(|reg| {
                 reg.with_store_mut(<Index as EntityKind>::Store::PATH, |store| {
                     let data_key = DataKey::new::<Index>(bad_key);
-                    store.insert(data_key.to_raw(), RawRow::try_new(bytes).unwrap());
+                    store.insert(
+                        data_key.to_raw().expect("data key encode"),
+                        RawRow::try_new(bytes).unwrap(),
+                    );
                 })
             })
             .unwrap();
@@ -151,8 +159,9 @@ impl DeleteUniqueSuite {
 
     fn delete_unique_missing_primary_row_errors() {
         let index = Self::unique_index();
-        let index_key =
-            IndexKey::new(&Index::new(1, 444), index).expect("index key should be present");
+        let index_key = IndexKey::new(&Index::new(1, 444), index)
+            .expect("index key")
+            .expect("index key missing");
         let missing_key = Key::Ulid(Ulid::generate());
 
         crate::INDEX_REGISTRY

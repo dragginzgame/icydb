@@ -1,4 +1,4 @@
-# IcyDB Macros
+# IcyDB Schema Derive Macros
 
 Proc-macros that generate schemas, traits, and views for IcyDB entities and canisters.
 

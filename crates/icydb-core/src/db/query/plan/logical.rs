@@ -3,9 +3,13 @@
 use crate::db::query::{
     QueryMode, ReadConsistency,
     plan::{AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec, ProjectionSpec},
-    predicate::{Predicate, eval as eval_predicate, normalize as normalize_predicate},
+    predicate::{Predicate, eval as eval_predicate},
 };
-use crate::{key::Key, traits::EntityKind};
+use crate::{
+    error::{ErrorClass, ErrorOrigin, InternalError},
+    key::Key,
+    traits::EntityKind,
+};
 use std::cmp::Ordering;
 
 ///
@@ -102,23 +106,31 @@ impl LogicalPlan {
     }
 
     /// Apply predicate, ordering, and pagination in plan order.
-    pub(crate) fn apply_post_access<E, R>(&self, rows: &mut Vec<R>) -> PostAccessStats
+    pub(crate) fn apply_post_access<E, R>(
+        &self,
+        rows: &mut Vec<R>,
+    ) -> Result<PostAccessStats, InternalError>
     where
         E: EntityKind,
         R: PlanRow<E>,
     {
-        debug_assert!(
-            !(self.mode == QueryMode::Delete && self.page.is_some()),
-            "executor invariant violated: delete plans must not carry pagination"
-        );
-        debug_assert!(
-            !(self.mode == QueryMode::Load && self.delete_limit.is_some()),
-            "executor invariant violated: load plans must not carry delete limits"
-        );
+        if self.mode == QueryMode::Delete && self.page.is_some() {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                "invalid logical plan: delete plans must not carry pagination".to_string(),
+            ));
+        }
+        if self.mode == QueryMode::Load && self.delete_limit.is_some() {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                "invalid logical plan: load plans must not carry delete limits".to_string(),
+            ));
+        }
 
-        // Predicate (always post-fetch for this planner).
-        let normalized = self.predicate.as_ref().map(normalize_predicate);
-        let filtered = if let Some(predicate) = normalized.as_ref() {
+        // Predicate (already normalized during planning).
+        let filtered = if let Some(predicate) = self.predicate.as_ref() {
             rows.retain(|row| eval_predicate(row.entity(), predicate));
             true
         } else {
@@ -168,12 +180,12 @@ impl LogicalPlan {
             false
         };
 
-        PostAccessStats {
+        Ok(PostAccessStats {
             filtered,
             ordered,
             paged,
             delete_limited,
-        }
+        })
     }
 }
 
@@ -198,7 +210,8 @@ fn compare_entities<E: EntityKind>(left: &E, right: &E, order: &OrderSpec) -> Or
             (Some(_), None) => Ordering::Greater,
             (Some(left_value), Some(right_value)) => match left_value.partial_cmp(&right_value) {
                 Some(ordering) => ordering,
-                None => continue,
+                // Preserve relative order for incomparable values.
+                None => Ordering::Equal,
             },
         };
 

@@ -41,7 +41,7 @@ mod tests {
     #[test]
     fn raw_data_key_roundtrip_via_bytes() {
         let data_key = DataKey::new::<StoreTestEntity>(Key::Uint(42));
-        let raw = data_key.to_raw();
+        let raw = data_key.to_raw().expect("data key encode");
         let bytes = raw.to_bytes();
 
         let decoded = RawDataKey::from_bytes(Cow::Borrowed(&bytes));

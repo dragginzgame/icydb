@@ -59,8 +59,8 @@ extern crate self as icydb;
 // crates
 pub use icydb_build as build;
 pub use icydb_build::build;
-pub use icydb_macros as macros;
 pub use icydb_schema as schema;
+pub use icydb_schema_derive as macros;
 
 // core modules
 pub use icydb_core::{key, model, obs, traits, types, value, view, visitor};

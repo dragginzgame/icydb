@@ -2,8 +2,9 @@ use crate::{
     prelude::*,
     traits::{
         FieldValue, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        UpdateView, ValidateAuto, ValidateCustom, View, ViewError, Visitable,
     },
+    visitor::VisitorContext,
 };
 use candid::CandidType;
 use derive_more::Display;
@@ -188,14 +189,21 @@ impl SanitizeCustom for Float32 {}
 impl UpdateView for Float32 {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
         *self = v;
+        Ok(())
     }
 }
 
 impl ValidateAuto for Float32 {}
 
-impl ValidateCustom for Float32 {}
+impl ValidateCustom for Float32 {
+    fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
+        if !self.0.is_finite() {
+            ctx.issue("Float32 must be finite");
+        }
+    }
+}
 
 impl View for Float32 {
     type ViewType = f32;
@@ -204,16 +212,9 @@ impl View for Float32 {
         self.0
     }
 
-    // SAFETY CONTRACT:
-    // `from_view` MUST only be called on values produced by `to_view` or
-    // equivalent validated sources. Violations are programmer errors and panic.
-    fn from_view(view: f32) -> Self {
-        assert!(
-            view.is_finite(),
-            "Float32::from_view called with non-finite value: {view}"
-        );
-
-        Self(if view == 0.0 { 0.0 } else { view })
+    // NOTE: Non-finite view inputs are rejected during view conversion to avoid panics.
+    fn from_view(view: f32) -> Result<Self, ViewError> {
+        Self::try_new(view).ok_or(ViewError::Float32NonFinite { value: view })
     }
 }
 
@@ -250,6 +251,13 @@ mod tests {
     fn deserialize_rejects_non_finite() {
         for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             assert!(Float32::deserialize(F32Deserializer::<DeError>::new(value)).is_err());
+        }
+    }
+
+    #[test]
+    fn from_view_rejects_non_finite() {
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(Float32::from_view(value).is_err());
         }
     }
 }

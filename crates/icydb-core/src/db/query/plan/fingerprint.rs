@@ -310,12 +310,23 @@ fn hash_coercion(
 }
 
 fn write_key(hasher: &mut Sha256, key: &Key) {
-    hasher.update(key.to_bytes());
+    match key.to_bytes() {
+        Ok(bytes) => hasher.update(bytes),
+        Err(err) => {
+            write_tag(hasher, 0xED);
+            write_str(hasher, &err.to_string());
+        }
+    }
 }
 
 fn write_value(hasher: &mut Sha256, value: &crate::value::Value) {
-    let digest = hash_value(value);
-    hasher.update(digest);
+    match hash_value(value) {
+        Ok(digest) => hasher.update(digest),
+        Err(err) => {
+            write_tag(hasher, 0xEE);
+            write_str(hasher, &err.display_with_class());
+        }
+    }
 }
 
 fn write_str(hasher: &mut Sha256, value: &str) {

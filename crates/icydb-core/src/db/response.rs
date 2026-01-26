@@ -28,7 +28,7 @@ impl ResponseError {
     pub(crate) const fn class(&self) -> ErrorClass {
         match self {
             Self::NotFound { .. } => ErrorClass::NotFound,
-            Self::NotUnique { .. } => ErrorClass::Unsupported,
+            Self::NotUnique { .. } => ErrorClass::Conflict,
         }
     }
 }

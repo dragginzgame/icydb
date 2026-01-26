@@ -1,9 +1,15 @@
-use crate::{db::identity::EntityName, key::Key, traits::Storable};
+use crate::{
+    db::identity::EntityName,
+    error::{ErrorClass, ErrorOrigin, InternalError},
+    key::{Key, KeyEncodeError},
+    traits::Storable,
+};
 use canic_cdk::structures::storable::Bound;
 use std::{
     borrow::Cow,
     fmt::{self, Display},
 };
+use thiserror::Error as ThisError;
 
 ///
 /// DataKey
@@ -15,6 +21,31 @@ pub struct DataKey {
     key: Key,
 }
 
+///
+/// DataKeyEncodeError
+///
+/// Errors returned when encoding a data key for persistence.
+///
+
+#[derive(Debug, ThisError)]
+pub enum DataKeyEncodeError {
+    #[error("data key encoding failed for {key}: {source}")]
+    KeyEncoding {
+        key: DataKey,
+        source: KeyEncodeError,
+    },
+}
+
+impl From<DataKeyEncodeError> for InternalError {
+    fn from(err: DataKeyEncodeError) -> Self {
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Serialize,
+            err.to_string(),
+        )
+    }
+}
+
 impl DataKey {
     #[allow(clippy::cast_possible_truncation)]
     pub const STORED_SIZE: u32 = EntityName::STORED_SIZE + Key::STORED_SIZE as u32;
@@ -23,7 +54,7 @@ impl DataKey {
     /// Build a data key for the given entity type and primary key.
     pub fn new<E: crate::traits::EntityKind>(key: impl Into<Key>) -> Self {
         Self {
-            entity: EntityName::from_static(E::ENTITY_NAME),
+            entity: EntityName::from_static_unchecked(E::ENTITY_NAME),
             key: key.into(),
         }
     }
@@ -31,15 +62,15 @@ impl DataKey {
     #[must_use]
     pub const fn lower_bound<E: crate::traits::EntityKind>() -> Self {
         Self {
-            entity: EntityName::from_static(E::ENTITY_NAME),
-            key: Key::lower_bound(),
+            entity: EntityName::from_static_unchecked(E::ENTITY_NAME),
+            key: Key::MIN,
         }
     }
 
     #[must_use]
     pub const fn upper_bound<E: crate::traits::EntityKind>() -> Self {
         Self {
-            entity: EntityName::from_static(E::ENTITY_NAME),
+            entity: EntityName::from_static_unchecked(E::ENTITY_NAME),
             key: Key::upper_bound(),
         }
     }
@@ -72,24 +103,25 @@ impl DataKey {
         }
     }
 
-    #[must_use]
-    pub fn to_raw(&self) -> RawDataKey {
+    /// Encode this data key into the fixed-size on-disk representation.
+    pub fn to_raw(&self) -> Result<RawDataKey, InternalError> {
         let mut buf = [0u8; Self::STORED_SIZE as usize];
 
         buf[0] = self.entity.len;
         let entity_end = EntityName::STORED_SIZE_USIZE;
         buf[1..entity_end].copy_from_slice(&self.entity.bytes);
 
-        let key_bytes = self.key.to_bytes();
-        debug_assert_eq!(
-            key_bytes.len(),
-            Key::STORED_SIZE,
-            "Key serialization must be exactly fixed-size"
-        );
+        let key_bytes = self
+            .key
+            .to_bytes()
+            .map_err(|err| DataKeyEncodeError::KeyEncoding {
+                key: self.clone(),
+                source: err,
+            })?;
         let key_offset = EntityName::STORED_SIZE_USIZE;
         buf[key_offset..key_offset + Key::STORED_SIZE].copy_from_slice(&key_bytes);
 
-        RawDataKey(buf)
+        Ok(RawDataKey(buf))
     }
 
     pub fn try_from_raw(raw: &RawDataKey) -> Result<Self, &'static str> {
@@ -168,7 +200,7 @@ mod tests {
     #[test]
     fn data_key_is_exactly_fixed_size() {
         let data_key = DataKey::max_storable();
-        let size = data_key.to_raw().as_bytes().len();
+        let size = data_key.to_raw().expect("data key encode").as_bytes().len();
 
         assert_eq!(
             size,
@@ -181,19 +213,19 @@ mod tests {
     fn data_key_ordering_matches_bytes() {
         let keys = vec![
             DataKey {
-                entity: EntityName::from_static("a"),
+                entity: EntityName::from_static_unchecked("a"),
                 key: Key::Int(0),
             },
             DataKey {
-                entity: EntityName::from_static("aa"),
+                entity: EntityName::from_static_unchecked("aa"),
                 key: Key::Int(0),
             },
             DataKey {
-                entity: EntityName::from_static("b"),
+                entity: EntityName::from_static_unchecked("b"),
                 key: Key::Int(0),
             },
             DataKey {
-                entity: EntityName::from_static("a"),
+                entity: EntityName::from_static_unchecked("a"),
                 key: Key::Uint(1),
             },
         ];
@@ -202,7 +234,12 @@ mod tests {
         sorted_by_ord.sort();
 
         let mut sorted_by_bytes = keys;
-        sorted_by_bytes.sort_by(|a, b| a.to_raw().as_bytes().cmp(b.to_raw().as_bytes()));
+        sorted_by_bytes.sort_by(|a, b| {
+            a.to_raw()
+                .expect("data key encode")
+                .as_bytes()
+                .cmp(b.to_raw().expect("data key encode").as_bytes())
+        });
 
         assert_eq!(
             sorted_by_ord, sorted_by_bytes,
@@ -234,7 +271,7 @@ mod tests {
 
     #[test]
     fn data_key_rejects_invalid_entity_len() {
-        let mut raw = DataKey::max_storable().to_raw();
+        let mut raw = DataKey::max_storable().to_raw().expect("data key encode");
         raw.0[0] = 0;
         assert!(DataKey::try_from_raw(&raw).is_err());
     }
@@ -242,10 +279,10 @@ mod tests {
     #[test]
     fn data_key_rejects_non_ascii_entity_bytes() {
         let data_key = DataKey {
-            entity: EntityName::from_static("a"),
+            entity: EntityName::from_static_unchecked("a"),
             key: Key::Int(1),
         };
-        let mut raw = data_key.to_raw();
+        let mut raw = data_key.to_raw().expect("data key encode");
         raw.0[1] = 0xFF;
         assert!(DataKey::try_from_raw(&raw).is_err());
     }
@@ -253,10 +290,10 @@ mod tests {
     #[test]
     fn data_key_rejects_entity_padding() {
         let data_key = DataKey {
-            entity: EntityName::from_static("user"),
+            entity: EntityName::from_static_unchecked("user"),
             key: Key::Int(1),
         };
-        let mut raw = data_key.to_raw();
+        let mut raw = data_key.to_raw().expect("data key encode");
         let padding_offset = 1 + data_key.entity.len();
         raw.0[padding_offset] = b'x';
         assert!(DataKey::try_from_raw(&raw).is_err());
@@ -277,7 +314,7 @@ mod tests {
 
             let raw = RawDataKey(bytes);
             if let Ok(decoded) = DataKey::try_from_raw(&raw) {
-                let re = decoded.to_raw();
+                let re = decoded.to_raw().expect("data key encode");
                 assert_eq!(
                     raw.as_bytes(),
                     re.as_bytes(),

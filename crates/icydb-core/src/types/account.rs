@@ -1,9 +1,9 @@
 use crate::{
     traits::{
         FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        View, ViewError, Visitable,
     },
-    types::{Principal, Subaccount},
+    types::{Principal, PrincipalEncodeError, Subaccount},
     value::Value,
 };
 use candid::CandidType;
@@ -13,6 +13,7 @@ use std::{
     fmt::{self, Display},
     str::FromStr,
 };
+use thiserror::Error as ThisError;
 
 ///
 /// Account
@@ -22,6 +23,21 @@ use std::{
 pub struct Account {
     pub owner: Principal,
     pub subaccount: Option<Subaccount>,
+}
+
+///
+/// AccountEncodeError
+///
+/// Errors returned when encoding an account for persistence.
+///
+
+#[derive(Debug, ThisError)]
+pub enum AccountEncodeError {
+    #[error("account owner principal encoding failed: {0}")]
+    OwnerEncode(#[from] PrincipalEncodeError),
+
+    #[error("account owner principal exceeds max length: {len} bytes (limit {max})")]
+    OwnerTooLarge { len: usize, max: usize },
 }
 
 impl Account {
@@ -58,21 +74,24 @@ impl Account {
     }
 
     /// Convert the account into a deterministic, fixed-size byte representation.
-    #[must_use]
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let principal_bytes = self.owner.as_slice();
+    pub fn to_bytes(&self) -> Result<Vec<u8>, AccountEncodeError> {
+        let principal_bytes = self.owner.to_bytes()?;
         let len = principal_bytes.len();
-        debug_assert!(len <= Self::PRINCIPAL_MAX_LEN);
-        debug_assert_eq!(
-            Self::STORED_SIZE as usize,
-            1 + Self::PRINCIPAL_MAX_LEN + Self::SUBACCOUNT_LEN
-        );
+        if len > Self::PRINCIPAL_MAX_LEN {
+            return Err(AccountEncodeError::OwnerTooLarge {
+                len,
+                max: Self::PRINCIPAL_MAX_LEN,
+            });
+        }
 
         let mut out = vec![0u8; Self::STORED_SIZE as usize];
 
         // Encode principal length and subaccount presence in the tag byte.
         #[allow(clippy::cast_possible_truncation)]
-        let mut tag = len as u8;
+        let mut tag = u8::try_from(len).map_err(|_| AccountEncodeError::OwnerTooLarge {
+            len,
+            max: Self::PRINCIPAL_MAX_LEN,
+        })?;
         if self.subaccount.is_some() {
             tag |= Self::TAG_SUBACCOUNT;
         }
@@ -80,7 +99,7 @@ impl Account {
 
         // Principal bytes (padded to fixed length).
         if len > 0 {
-            out[1..=len].copy_from_slice(principal_bytes);
+            out[1..=len].copy_from_slice(&principal_bytes);
         }
 
         // Subaccount bytes (fixed length).
@@ -88,7 +107,7 @@ impl Account {
         let sub_offset = 1 + Self::PRINCIPAL_MAX_LEN;
         out[sub_offset..sub_offset + Self::SUBACCOUNT_LEN].copy_from_slice(&subaccount_bytes);
 
-        out
+        Ok(out)
     }
 
     /// Construct the maximum possible account for storage sizing tests.
@@ -98,9 +117,11 @@ impl Account {
     }
 
     #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     fn ordering_tag(&self) -> u8 {
         let len = self.owner.as_slice().len();
-        let mut tag = u8::try_from(len).expect("principal length fits in u8");
+        let len = len.min(u8::MAX as usize);
+        let mut tag = len as u8;
         if self.subaccount.is_some() {
             tag |= Self::TAG_SUBACCOUNT;
         }
@@ -142,6 +163,14 @@ impl Account {
         };
 
         Ok(Self { owner, subaccount })
+    }
+}
+
+impl TryFrom<&[u8]> for Account {
+    type Error = &'static str;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
     }
 }
 
@@ -245,8 +274,9 @@ impl SanitizeCustom for Account {}
 impl UpdateView for Account {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
         *self = v;
+        Ok(())
     }
 }
 
@@ -261,8 +291,8 @@ impl View for Account {
         *self
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        view
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
     }
 }
 
@@ -283,7 +313,7 @@ mod tests {
     #[test]
     fn storable_bytes_are_exact_size() {
         let account = Account::max_storable();
-        let bytes = account.to_bytes();
+        let bytes = account.to_bytes().expect("account encode");
         let size = bytes.len();
 
         assert!(
@@ -298,8 +328,8 @@ mod tests {
         let acc1 = Account::new(principal(), None::<Subaccount>);
         let acc2 = Account::new(principal(), None::<Subaccount>);
         assert_eq!(
-            acc1.to_bytes(),
-            acc2.to_bytes(),
+            acc1.to_bytes().expect("account encode"),
+            acc2.to_bytes().expect("account encode"),
             "encoding not deterministic"
         );
     }
@@ -307,7 +337,7 @@ mod tests {
     #[test]
     fn to_bytes_length_is_consistent() {
         let acc = Account::new(principal(), Some([1u8; 32]));
-        let bytes = acc.to_bytes();
+        let bytes = acc.to_bytes().expect("account encode");
         assert_eq!(
             bytes.len(),
             Account::STORED_SIZE as usize,
@@ -342,7 +372,7 @@ mod tests {
     fn to_bytes_produces_expected_layout() {
         let p = principal();
         let acc = Account::new(p, Some([0xAAu8; 32]));
-        let bytes = acc.to_bytes();
+        let bytes = acc.to_bytes().expect("account encode");
 
         let tag = bytes[0];
         let len = (tag & Account::LEN_MASK) as usize;
@@ -374,7 +404,7 @@ mod tests {
     fn to_bytes_with_none_subaccount_encodes_zero_bytes() {
         let p = principal();
         let acc = Account::new(p, None::<Subaccount>);
-        let bytes = acc.to_bytes();
+        let bytes = acc.to_bytes().expect("account encode");
         let tag = bytes[0];
         let sub_offset = 1 + Account::PRINCIPAL_MAX_LEN;
         let subaccount_part = &bytes[sub_offset..sub_offset + Account::SUBACCOUNT_LEN];
@@ -392,8 +422,8 @@ mod tests {
         let zero = Account::new(p, Some([0u8; 32]));
 
         assert_ne!(
-            none.to_bytes(),
-            zero.to_bytes(),
+            none.to_bytes().expect("account encode"),
+            zero.to_bytes().expect("account encode"),
             "None and zero subaccount must serialize differently"
         );
     }
@@ -412,7 +442,7 @@ mod tests {
         sorted_by_ord.sort();
 
         let mut sorted_by_bytes = accounts;
-        sorted_by_bytes.sort_by_key(Account::to_bytes);
+        sorted_by_bytes.sort_by_key(|account| account.to_bytes().expect("account encode"));
 
         assert_eq!(
             sorted_by_ord, sorted_by_bytes,
@@ -424,7 +454,7 @@ mod tests {
     fn round_trip_via_storable_preserves_data() {
         let original = Account::new(principal(), Some([0xABu8; 32]));
 
-        let bytes = original.to_bytes();
+        let bytes = original.to_bytes().expect("account encode");
         let decoded = Account::try_from_bytes(&bytes).expect("decode should succeed");
 
         assert_eq!(original, decoded, "Account did not round-trip correctly");
@@ -433,7 +463,7 @@ mod tests {
     #[test]
     fn round_trip_custom_bytes_preserves_data() {
         let original = Account::new(principal(), Some([0xCDu8; 32]));
-        let bytes = original.to_bytes();
+        let bytes = original.to_bytes().expect("account encode");
 
         let tag = bytes[0];
         let len = (tag & Account::LEN_MASK) as usize;
@@ -480,7 +510,7 @@ mod tests {
     #[test]
     fn from_bytes_rejects_principal_padding() {
         let acc = Account::new(Principal::from_slice(&[1]), None::<Subaccount>);
-        let mut bytes = acc.to_bytes();
+        let mut bytes = acc.to_bytes().expect("account encode");
         bytes[1 + acc.owner.as_slice().len()] = 1;
         assert!(Account::try_from_bytes(&bytes).is_err());
     }
@@ -488,7 +518,7 @@ mod tests {
     #[test]
     fn from_bytes_rejects_subaccount_without_flag() {
         let acc = Account::new(Principal::from_slice(&[1]), None::<Subaccount>);
-        let mut bytes = acc.to_bytes();
+        let mut bytes = acc.to_bytes().expect("account encode");
         let sub_offset = 1 + Account::PRINCIPAL_MAX_LEN;
         bytes[sub_offset] = 1;
         assert!(Account::try_from_bytes(&bytes).is_err());

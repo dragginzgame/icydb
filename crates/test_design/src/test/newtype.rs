@@ -124,13 +124,13 @@ pub struct DateDefault {}
 #[newtype(primitive = "Decimal", item(prim = "Decimal"), default = 0.0)]
 pub struct DecimalDefault {}
 
-#[newtype(primitive = "Duration", item(prim = "Duration"), default = 0)]
+#[newtype(primitive = "Duration", item(prim = "Duration"), default = 0u64)]
 pub struct DurationDefault {}
 
-#[newtype(primitive = "E8s", item(prim = "E8s"), default = 0)]
+#[newtype(primitive = "E8s", item(prim = "E8s"), default = 0u64)]
 pub struct E8sDefault {}
 
-#[newtype(primitive = "E18s", item(prim = "E18s"), default = 0)]
+#[newtype(primitive = "E18s", item(prim = "E18s"), default = 0u128)]
 pub struct E18sDefault {}
 
 #[newtype(primitive = "Float32", item(prim = "Float32"), default = 0)]
@@ -145,7 +145,7 @@ pub struct IntDefault {}
 #[newtype(primitive = "Int128", item(prim = "Int128"), default = 0)]
 pub struct Int128Default {}
 
-#[newtype(primitive = "Nat", item(prim = "Nat"), default = 0)]
+#[newtype(primitive = "Nat", item(prim = "Nat"), default = 0u64)]
 pub struct NatDefault {}
 
 #[newtype(primitive = "Nat32", item(prim = "Nat32"), default = 0u32)]

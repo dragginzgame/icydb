@@ -23,13 +23,13 @@ pub struct Entity {
 
 impl Entity {
     #[must_use]
-    pub fn get_pk_field(&self) -> &Field {
-        self.fields
-            .get(self.primary_key)
-            .unwrap_or_else(|| panic!("missing primary key field '{}'", self.primary_key))
+    /// Return the primary key field if it exists on the entity.
+    pub fn get_pk_field(&self) -> Option<&Field> {
+        self.fields.get(self.primary_key)
     }
 
     #[must_use]
+    /// Resolve the entity name used for schema identity.
     pub fn resolved_name(&self) -> &'static str {
         self.name.unwrap_or(self.def.ident)
     }
@@ -87,6 +87,7 @@ impl ValidateNode for Entity {
 
         // check indexes have proper fields
         for index in self.indexes {
+            // Indexing is hash-based over Value equality for all variants; collisions surface as corruption.
             // index store
             match schema.cast_node::<Store>(index.store) {
                 Ok(store) if !matches!(store.ty, StoreType::Index) => {

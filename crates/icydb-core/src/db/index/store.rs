@@ -1,12 +1,17 @@
 use crate::{
     db::{
         index::{
-            entry::{IndexEntry, IndexEntryCorruption, MAX_INDEX_ENTRY_KEYS, RawIndexEntry},
+            entry::{
+                IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_KEYS,
+                RawIndexEntry,
+            },
             fingerprint,
             key::{IndexId, IndexKey, RawIndexKey},
         },
         store::{DataKey, StoreRegistry},
     },
+    error::{ErrorClass, ErrorOrigin, InternalError},
+    key::KeyEncodeError,
     prelude::{EntityKind, IndexModel, Value},
 };
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
@@ -62,6 +67,22 @@ pub enum IndexRemoveOutcome {
 }
 
 ///
+/// IndexRemoveError
+///
+/// Errors returned when removing an entry from an index.
+///
+
+#[derive(Debug, ThisError)]
+pub enum IndexRemoveError {
+    #[error("index entry corrupted: {0}")]
+    Corruption(#[from] IndexEntryCorruption),
+    #[error("index entry key encoding failed: {0}")]
+    KeyEncoding(#[from] KeyEncodeError),
+    #[error("index key construction failed: {0}")]
+    KeyConstruction(#[from] InternalError),
+}
+
+///
 /// IndexInsertError
 ///
 /// Errors that may occur while inserting into an index.
@@ -76,6 +97,10 @@ pub enum IndexInsertError {
     CorruptedEntry(#[from] IndexEntryCorruption),
     #[error("index entry exceeds max keys: {keys} (limit {MAX_INDEX_ENTRY_KEYS})")]
     EntryTooLarge { keys: usize },
+    #[error("index entry key encoding failed: {0}")]
+    KeyEncoding(#[from] KeyEncodeError),
+    #[error("index key construction failed: {0}")]
+    KeyConstruction(#[from] InternalError),
 }
 
 ///
@@ -99,7 +124,7 @@ impl IndexStore {
         entity: &E,
         index: &IndexModel,
     ) -> Result<IndexInsertOutcome, IndexInsertError> {
-        let Some(index_key) = IndexKey::new(entity, index) else {
+        let Some(index_key) = IndexKey::new(entity, index)? else {
             return Ok(IndexInsertOutcome::Skipped);
         };
         let raw_key = index_key.to_raw();
@@ -118,19 +143,31 @@ impl IndexStore {
                     return Err(IndexInsertError::UniqueViolation);
                 }
                 let entry = IndexEntry::new(key);
-                let raw_entry = RawIndexEntry::try_from_entry(&entry)
-                    .map_err(|err| IndexInsertError::EntryTooLarge { keys: err.keys() })?;
+                let raw_entry = RawIndexEntry::try_from_entry(&entry).map_err(|err| match err {
+                    IndexEntryEncodeError::TooManyKeys { keys } => {
+                        IndexInsertError::EntryTooLarge { keys }
+                    }
+                    IndexEntryEncodeError::KeyEncoding(err) => IndexInsertError::KeyEncoding(err),
+                })?;
                 self.insert(raw_key, raw_entry);
             } else {
                 entry.insert_key(key);
-                let raw_entry = RawIndexEntry::try_from_entry(&entry)
-                    .map_err(|err| IndexInsertError::EntryTooLarge { keys: err.keys() })?;
+                let raw_entry = RawIndexEntry::try_from_entry(&entry).map_err(|err| match err {
+                    IndexEntryEncodeError::TooManyKeys { keys } => {
+                        IndexInsertError::EntryTooLarge { keys }
+                    }
+                    IndexEntryEncodeError::KeyEncoding(err) => IndexInsertError::KeyEncoding(err),
+                })?;
                 self.insert(raw_key, raw_entry);
             }
         } else {
             let entry = IndexEntry::new(key);
-            let raw_entry = RawIndexEntry::try_from_entry(&entry)
-                .map_err(|err| IndexInsertError::EntryTooLarge { keys: err.keys() })?;
+            let raw_entry = RawIndexEntry::try_from_entry(&entry).map_err(|err| match err {
+                IndexEntryEncodeError::TooManyKeys { keys } => {
+                    IndexInsertError::EntryTooLarge { keys }
+                }
+                IndexEntryEncodeError::KeyEncoding(err) => IndexInsertError::KeyEncoding(err),
+            })?;
             self.insert(raw_key, raw_entry);
         }
 
@@ -141,20 +178,31 @@ impl IndexStore {
         &mut self,
         entity: &E,
         index: &IndexModel,
-    ) -> Result<IndexRemoveOutcome, IndexEntryCorruption> {
-        let Some(index_key) = IndexKey::new(entity, index) else {
+    ) -> Result<IndexRemoveOutcome, IndexRemoveError> {
+        let Some(index_key) = IndexKey::new(entity, index)? else {
             return Ok(IndexRemoveOutcome::Skipped);
         };
         let raw_key = index_key.to_raw();
 
         if let Some(raw_entry) = self.get(&raw_key) {
             let mut entry = raw_entry.try_decode()?;
-            entry.remove_key(&entity.key());
+            let entity_key = entity.key();
+            // Treat missing membership as index/data divergence.
+            if !entry.contains(&entity_key) {
+                return Err(IndexRemoveError::Corruption(
+                    IndexEntryCorruption::missing_key(raw_key, entity_key),
+                ));
+            }
+            entry.remove_key(&entity_key);
             if entry.is_empty() {
                 self.remove(&raw_key);
             } else {
-                let raw_entry = RawIndexEntry::try_from_entry(&entry)
-                    .map_err(|err| IndexEntryCorruption::TooManyKeys { count: err.keys() })?;
+                let raw_entry = RawIndexEntry::try_from_entry(&entry).map_err(|err| match err {
+                    IndexEntryEncodeError::TooManyKeys { keys } => {
+                        IndexEntryCorruption::TooManyKeys { count: keys }.into()
+                    }
+                    IndexEntryEncodeError::KeyEncoding(err) => IndexRemoveError::KeyEncoding(err),
+                })?;
                 self.insert(raw_key, raw_entry);
             }
             return Ok(IndexRemoveOutcome::Removed);
@@ -167,27 +215,54 @@ impl IndexStore {
         &self,
         index: &IndexModel,
         prefix: &[Value],
-    ) -> Result<Vec<DataKey>, &'static str> {
+    ) -> Result<Vec<DataKey>, InternalError> {
         let mut out = Vec::new();
-        let index_id = IndexId::new::<E>(index);
+        if prefix.len() > index.fields.len() {
+            return Err(InternalError::new(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Index,
+                format!(
+                    "index prefix length {} exceeds field count {}",
+                    prefix.len(),
+                    index.fields.len()
+                ),
+            ));
+        }
+        let index_id = IndexId::new_unchecked::<E>(index);
 
-        let Some(fps) = prefix
-            .iter()
-            .map(fingerprint::to_index_fingerprint)
-            .collect::<Option<Vec<_>>>()
-        else {
-            return Ok(out);
-        };
+        let mut fps = Vec::with_capacity(prefix.len());
+        for value in prefix {
+            let Some(fp) = fingerprint::to_index_fingerprint(value)? else {
+                return Err(InternalError::new(
+                    ErrorClass::Unsupported,
+                    ErrorOrigin::Index,
+                    "index prefix value is not indexable",
+                ));
+            };
+            fps.push(fp);
+        }
 
         let (start, end) = IndexKey::bounds_for_prefix(index_id, index.fields.len(), &fps);
         let start_raw = start.to_raw();
         let end_raw = end.to_raw();
 
         for entry in self.range(start_raw..=end_raw) {
-            let _ = IndexKey::try_from_raw(entry.key())?;
-            let decoded = entry.value().try_decode().map_err(|err| err.message())?;
+            let _ = IndexKey::try_from_raw(entry.key()).map_err(|err| {
+                InternalError::new(
+                    ErrorClass::Corruption,
+                    ErrorOrigin::Index,
+                    format!("index key corrupted during resolve: {err}"),
+                )
+            })?;
+            let decoded = entry.value().try_decode().map_err(|err| {
+                InternalError::new(ErrorClass::Corruption, ErrorOrigin::Index, err.to_string())
+            })?;
             if index.unique && decoded.len() != 1 {
-                return Err("unique index entry contains an unexpected number of keys");
+                return Err(InternalError::new(
+                    ErrorClass::Corruption,
+                    ErrorOrigin::Index,
+                    "unique index entry contains an unexpected number of keys",
+                ));
             }
             out.extend(decoded.iter_keys().map(|k| DataKey::new::<E>(k)));
         }

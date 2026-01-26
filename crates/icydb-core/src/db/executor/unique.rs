@@ -1,6 +1,6 @@
 use crate::{
     db::{Db, executor::ExecutorError, index::IndexKey, store::DataKey, traits::FromKey},
-    error::{ErrorOrigin, InternalError},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,
     traits::EntityKind,
 };
@@ -21,7 +21,7 @@ where
     E::PrimaryKey: FromKey,
 {
     let fields = || index.fields.join(", ");
-    let Some(index_key) = IndexKey::new(entity, index) else {
+    let Some(index_key) = IndexKey::new(entity, index)? else {
         return Err(ExecutorError::IndexKeyMissing(E::PATH.to_string(), fields()).into());
     };
     let raw_index_key = index_key.to_raw();
@@ -59,7 +59,7 @@ where
 
     // Ensure the index doesn't point to a missing primary record.
     let data_key = DataKey::new::<E>(key);
-    let raw_data_key = data_key.to_raw();
+    let raw_data_key = data_key.to_raw()?;
     let row = db
         .context::<E>()
         .with_store(|store| store.get(&raw_data_key))?;
@@ -82,8 +82,9 @@ where
     // Re-validate indexed field values to guard against hash collisions.
     for field in index.fields {
         let expected = entity.get_value(field).ok_or_else(|| {
-            ExecutorError::corruption(
-                ErrorOrigin::Index,
+            InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
                 format!(
                     "index field missing on lookup entity: {} ({})",
                     E::PATH,
@@ -92,8 +93,9 @@ where
             )
         })?;
         let actual = stored.get_value(field).ok_or_else(|| {
-            ExecutorError::corruption(
-                ErrorOrigin::Index,
+            InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
                 format!(
                     "index field missing on stored entity: {} ({})",
                     E::PATH,

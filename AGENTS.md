@@ -4,7 +4,7 @@
 
 * `crates/icydb`: Public meta-crate re-exporting the workspace API.
 * `crates/icydb-core`: Runtime, storage, executors, and core types.
-* `crates/icydb-macros`: Derive and codegen macros.
+* `crates/icydb-schema-derive`: Derive and codegen macros.
 * `crates/icydb-schema`: Schema AST/builders and validation.
 * `crates/icydb-build`: Build/codegen helpers and canister glue.
 * `crates/test` and `crates/test_design`: Integration and design tests.

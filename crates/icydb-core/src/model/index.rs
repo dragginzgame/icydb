@@ -5,6 +5,8 @@ use std::fmt::{self, Display};
 ///
 /// Runtime-only descriptor for an index used by the executor and stores.
 /// Keeps core decoupled from the schema `Index` shape.
+/// Indexing is hash-based over `Value` equality for all variants.
+/// Unique indexes enforce value equality; hash collisions surface as corruption.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

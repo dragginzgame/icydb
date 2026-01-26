@@ -57,8 +57,12 @@ impl Imp<Enum> for UpdateViewTrait {
         let q = quote! {
             type UpdateViewType = #update_ident;
 
-            fn merge(&mut self, update: Self::UpdateViewType) {
-                *self = update.into();
+            fn merge(
+                &mut self,
+                update: Self::UpdateViewType,
+            ) -> Result<(), ::icydb::traits::ViewError> {
+                *self = update.try_into()?;
+                Ok(())
             }
         };
 
@@ -84,7 +88,7 @@ impl Imp<Tuple> for UpdateViewTrait {
             let idx = syn::Index::from(i);
             quote! {
                 if let Some(v) = update.#idx {
-                    ::icydb::traits::UpdateView::merge(&mut self.#idx, v);
+                    ::icydb::traits::UpdateView::merge(&mut next.#idx, v)?;
                 }
             }
         });
@@ -93,8 +97,14 @@ impl Imp<Tuple> for UpdateViewTrait {
         let q = quote! {
             type UpdateViewType = #update_ident;
 
-            fn merge(&mut self, update: Self::UpdateViewType) {
+            fn merge(
+                &mut self,
+                update: Self::UpdateViewType,
+            ) -> Result<(), ::icydb::traits::ViewError> {
+                let mut next = self.clone();
                 #(#merge_parts)*
+                *self = next;
+                Ok(())
             }
         };
 
@@ -124,7 +134,7 @@ where
         .map(|ident| {
             quote! {
                 if let Some(v) = update.#ident {
-                    ::icydb::traits::UpdateView::merge(&mut self.#ident, v);
+                    ::icydb::traits::UpdateView::merge(&mut next.#ident, v)?;
                 }
             }
         })
@@ -133,8 +143,14 @@ where
     let q = quote! {
         type UpdateViewType = #update_ident;
 
-        fn merge(&mut self, update: Self::UpdateViewType) {
+        fn merge(
+            &mut self,
+            update: Self::UpdateViewType,
+        ) -> Result<(), ::icydb::traits::ViewError> {
+            let mut next = self.clone();
             #(#merge_pairs)*
+            *self = next;
+            Ok(())
         }
     };
 
@@ -156,9 +172,15 @@ fn update_impl_delegate(node: &impl HasType) -> TraitStrategy {
     let q = quote! {
         type UpdateViewType = #update_ident;
 
-        fn merge(&mut self, update: Self::UpdateViewType) {
+        fn merge(
+            &mut self,
+            update: Self::UpdateViewType,
+        ) -> Result<(), ::icydb::traits::ViewError> {
             // Forward to the inner collection (Vec, HashSet, HashMap)
-            ::icydb::traits::UpdateView::merge(&mut self.0, update);
+            let mut next = self.clone();
+            ::icydb::traits::UpdateView::merge(&mut next.0, update)?;
+            *self = next;
+            Ok(())
         }
     };
 

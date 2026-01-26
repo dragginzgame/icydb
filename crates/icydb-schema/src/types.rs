@@ -178,23 +178,27 @@ impl Primitive {
         quote!(::icydb::types::#ident)
     }
 
-    #[must_use]
-    pub fn num_cast_fn(self) -> String {
+    ///
+    /// Returns the numeric cast function suffix for supported primitives.
+    /// Emits a structured error for non-numeric primitives.
+    ///
+    pub fn num_cast_fn(self) -> Result<&'static str, darling::Error> {
         match self {
-            Self::E18s => "u128",
-            Self::Float32 => "f32",
-            Self::Float64 | Self::Decimal => "f64",
-            Self::Int8 => "i8",
-            Self::Int16 => "i16",
-            Self::Int32 | Self::Date => "i32",
-            Self::Int64 => "i64",
-            Self::Nat8 => "u8",
-            Self::Nat16 => "u16",
-            Self::Nat32 => "u32",
-            Self::Nat64 | Self::Duration | Self::E8s | Self::Timestamp => "u64",
-            _ => panic!("unexpected primitive type"),
+            Self::E18s => Ok("u128"),
+            Self::Float32 => Ok("f32"),
+            Self::Float64 | Self::Decimal => Ok("f64"),
+            Self::Int8 => Ok("i8"),
+            Self::Int16 => Ok("i16"),
+            Self::Int32 | Self::Date => Ok("i32"),
+            Self::Int64 => Ok("i64"),
+            Self::Nat8 => Ok("u8"),
+            Self::Nat16 => Ok("u16"),
+            Self::Nat32 => Ok("u32"),
+            Self::Nat64 | Self::Duration | Self::E8s | Self::Timestamp => Ok("u64"),
+            _ => Err(darling::Error::custom(format!(
+                "numeric cast is unsupported for primitive {self}"
+            ))),
         }
-        .into()
     }
 }
 

@@ -12,11 +12,13 @@ use crate::{
             validate::{FieldType, ScalarType, literal_matches_type},
         },
     },
+    error::InternalError,
     key::Key,
     model::index::IndexModel,
     traits::EntityKind,
     value::Value,
 };
+use thiserror::Error as ThisError;
 
 #[cfg(test)]
 pub(crate) use tests::PlannerEntity;
@@ -31,11 +33,19 @@ impl AccessPlan {
     }
 }
 
+#[derive(Debug, ThisError)]
+pub(crate) enum PlannerError {
+    #[error("{0}")]
+    Plan(#[from] PlanError),
+    #[error("{0}")]
+    Internal(#[from] InternalError),
+}
+
 /// Planner entrypoint that operates on a prebuilt schema surface.
 pub(crate) fn plan_access<E: EntityKind>(
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
-) -> Result<AccessPlan, PlanError> {
+) -> Result<AccessPlan, PlannerError> {
     let Some(predicate) = predicate else {
         return Ok(AccessPlan::full_scan());
     };
@@ -49,16 +59,19 @@ pub(crate) fn plan_access<E: EntityKind>(
     // - Access paths are ranked: primary key lookups, exact index matches, prefix matches, full scans.
     // - Order specs preserve user order after validation (planner does not reorder).
     // - Field resolution uses SchemaInfo's name map (sorted by field name).
-    crate::db::query::predicate::validate(schema, predicate)?;
+    crate::db::query::predicate::validate(schema, predicate).map_err(PlanError::from)?;
 
     let normalized = normalize(predicate);
-    let plan = plan_predicate::<E>(schema, &normalized).normalize();
-    validate_plan_invariants::<E>(&plan, schema, Some(&normalized));
+    let plan = plan_predicate::<E>(schema, &normalized)?.normalize();
+    validate_plan_invariants::<E>(&plan, schema, Some(&normalized))?;
     Ok(plan)
 }
 
-fn plan_predicate<E: EntityKind>(schema: &SchemaInfo, predicate: &Predicate) -> AccessPlan {
-    match predicate {
+fn plan_predicate<E: EntityKind>(
+    schema: &SchemaInfo,
+    predicate: &Predicate,
+) -> Result<AccessPlan, InternalError> {
+    let plan = match predicate {
         Predicate::True
         | Predicate::False
         | Predicate::Not(_)
@@ -73,9 +86,9 @@ fn plan_predicate<E: EntityKind>(schema: &SchemaInfo, predicate: &Predicate) -> 
             let mut plans = children
                 .iter()
                 .map(|child| plan_predicate::<E>(schema, child))
-                .collect::<Vec<_>>();
+                .collect::<Result<Vec<_>, _>>()?;
 
-            if let Some(prefix) = index_prefix_from_and::<E>(schema, children) {
+            if let Some(prefix) = index_prefix_from_and::<E>(schema, children)? {
                 plans.push(AccessPlan::Path(prefix));
             }
 
@@ -85,46 +98,51 @@ fn plan_predicate<E: EntityKind>(schema: &SchemaInfo, predicate: &Predicate) -> 
             children
                 .iter()
                 .map(|child| plan_predicate::<E>(schema, child))
-                .collect::<Vec<_>>(),
+                .collect::<Result<Vec<_>, _>>()?,
         ),
-        Predicate::Compare(cmp) => plan_compare::<E>(schema, cmp),
-    }
+        Predicate::Compare(cmp) => plan_compare::<E>(schema, cmp)?,
+    };
+
+    Ok(plan)
 }
 
-fn plan_compare<E: EntityKind>(schema: &SchemaInfo, cmp: &ComparePredicate) -> AccessPlan {
+fn plan_compare<E: EntityKind>(
+    schema: &SchemaInfo,
+    cmp: &ComparePredicate,
+) -> Result<AccessPlan, InternalError> {
     if cmp.coercion.id != CoercionId::Strict {
-        return AccessPlan::full_scan();
+        return Ok(AccessPlan::full_scan());
     }
 
     if is_primary_key::<E>(schema, &cmp.field)
         && let Some(path) = plan_pk_compare::<E>(schema, cmp)
     {
-        return AccessPlan::Path(path);
+        return Ok(AccessPlan::Path(path));
     }
 
     match cmp.op {
         CompareOp::Eq => {
-            if let Some(paths) = index_prefix_for_eq::<E>(schema, &cmp.field, &cmp.value) {
-                return AccessPlan::Union(paths);
+            if let Some(paths) = index_prefix_for_eq::<E>(schema, &cmp.field, &cmp.value)? {
+                return Ok(AccessPlan::Union(paths));
             }
         }
         CompareOp::In => {
             if let Value::List(items) = &cmp.value {
                 let mut plans = Vec::new();
                 for item in items {
-                    if let Some(paths) = index_prefix_for_eq::<E>(schema, &cmp.field, item) {
+                    if let Some(paths) = index_prefix_for_eq::<E>(schema, &cmp.field, item)? {
                         plans.extend(paths);
                     }
                 }
                 if !plans.is_empty() {
-                    return AccessPlan::Union(plans);
+                    return Ok(AccessPlan::Union(plans));
                 }
             }
         }
         _ => {}
     }
 
-    AccessPlan::full_scan()
+    Ok(AccessPlan::full_scan())
 }
 
 fn plan_pk_compare<E: EntityKind>(
@@ -164,14 +182,18 @@ fn index_prefix_for_eq<E: EntityKind>(
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
-) -> Option<Vec<AccessPlan>> {
-    let field_type = schema.field(field)?;
+) -> Result<Option<Vec<AccessPlan>>, InternalError> {
+    let Some(field_type) = schema.field(field) else {
+        return Ok(None);
+    };
 
     if !literal_matches_type(value, field_type) {
-        return None;
+        return Ok(None);
     }
 
-    fingerprint::to_index_fingerprint(value)?;
+    if fingerprint::to_index_fingerprint(value)?.is_none() {
+        return Ok(None);
+    }
 
     let mut out = Vec::new();
     for index in sorted_indexes::<E>() {
@@ -184,13 +206,17 @@ fn index_prefix_for_eq<E: EntityKind>(
         }));
     }
 
-    if out.is_empty() { None } else { Some(out) }
+    if out.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(out))
+    }
 }
 
 fn index_prefix_from_and<E: EntityKind>(
     schema: &SchemaInfo,
     children: &[Predicate],
-) -> Option<AccessPath> {
+) -> Result<Option<AccessPath>, InternalError> {
     let mut field_values = Vec::new();
 
     for child in children {
@@ -213,12 +239,15 @@ fn index_prefix_from_and<E: EntityKind>(
             let Some((_, value)) = field_values.iter().find(|(name, _)| *name == *field) else {
                 break;
             };
-            let field_type = schema.field(field)?;
+            let Some(field_type) = schema.field(field) else {
+                prefix.clear();
+                break;
+            };
             if !literal_matches_type(value, field_type) {
                 prefix.clear();
                 break;
             }
-            if fingerprint::to_index_fingerprint(value).is_none() {
+            if fingerprint::to_index_fingerprint(value)?.is_none() {
                 prefix.clear();
                 break;
             }
@@ -243,10 +272,10 @@ fn index_prefix_from_and<E: EntityKind>(
         }
     }
 
-    best.map(|(_, _, index, values)| AccessPath::IndexPrefix {
+    Ok(best.map(|(_, _, index, values)| AccessPath::IndexPrefix {
         index: *index,
         values,
-    })
+    }))
 }
 
 fn better_index(
@@ -398,7 +427,7 @@ mod tests {
         prelude::IndexModel,
         traits::{
             CanisterKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind, ValidateAuto,
-            ValidateCustom, View, Visitable,
+            ValidateCustom, View, ViewError, Visitable,
         },
         types::Ulid,
         value::Value,
@@ -463,8 +492,8 @@ mod tests {
             self.clone()
         }
 
-        fn from_view(view: Self::ViewType) -> Self {
-            view
+        fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+            Ok(view)
         }
     }
 
@@ -593,8 +622,8 @@ mod tests {
             self.clone()
         }
 
-        fn from_view(view: Self::ViewType) -> Self {
-            view
+        fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+            Ok(view)
         }
     }
 
@@ -874,10 +903,12 @@ mod tests {
             eq("idx_a", v_text("alpha"), strict()),
             eq("idx_b", v_text("beta"), strict()),
         ];
-        let first =
-            index_prefix_from_and::<MultiIndexEntity>(&schema, &children).expect("index prefix");
-        let second =
-            index_prefix_from_and::<MultiIndexEntity>(&schema, &children).expect("index prefix");
+        let first = index_prefix_from_and::<MultiIndexEntity>(&schema, &children)
+            .expect("index prefix")
+            .expect("index prefix missing");
+        let second = index_prefix_from_and::<MultiIndexEntity>(&schema, &children)
+            .expect("index prefix")
+            .expect("index prefix missing");
         assert_eq!(first, second);
 
         let AccessPath::IndexPrefix { index, values } = first else {
@@ -888,7 +919,9 @@ mod tests {
 
         let children = vec![eq("idx_a", v_text("alpha"), strict())];
         let AccessPath::IndexPrefix { index, .. } =
-            index_prefix_from_and::<MultiIndexEntity>(&schema, &children).expect("index prefix")
+            index_prefix_from_and::<MultiIndexEntity>(&schema, &children)
+                .expect("index prefix")
+                .expect("index prefix missing")
         else {
             panic!("expected index prefix path");
         };

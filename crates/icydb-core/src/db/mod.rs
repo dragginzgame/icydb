@@ -43,6 +43,10 @@ use std::{marker::PhantomData, thread::LocalKey};
 /// The `Db` acts as the entry point for querying, saving, and deleting entities
 /// within a single canister's store registry.
 ///
+/// Schema/model identity must be validated before use. Derive-generated models
+/// uphold identity invariants; manual models should validate once (e.g. via
+/// `SchemaInfo::from_entity_model`) prior to executor use.
+///
 
 pub struct Db<C: CanisterKind> {
     data: &'static LocalKey<DataStoreRegistry>,

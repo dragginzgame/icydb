@@ -1,7 +1,7 @@
 use crate::{
     traits::{
         FieldValue, Inner, NumCast, NumToPrimitive, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        ValidateAuto, ValidateCustom, View, ViewError, Visitable,
     },
     value::Value,
 };
@@ -147,8 +147,9 @@ impl<'de> Deserialize<'de> for Nat128 {
 impl UpdateView for Nat128 {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
         *self = v;
+        Ok(())
     }
 }
 
@@ -163,8 +164,8 @@ impl View for Nat128 {
         *self
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        view
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::{
     traits::{
         FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        UpdateView, ValidateAuto, ValidateCustom, View, ViewError, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -131,9 +131,11 @@ impl FieldValue for E18s {
     }
 }
 
-impl From<i32> for E18s {
-    fn from(n: i32) -> Self {
-        Self(u128::try_from(n).unwrap_or(0))
+impl TryFrom<i32> for E18s {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(n: i32) -> Result<Self, Self::Error> {
+        Ok(Self(u128::try_from(n)?))
     }
 }
 
@@ -187,8 +189,9 @@ impl SanitizeCustom for E18s {}
 impl UpdateView for E18s {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
         *self = v;
+        Ok(())
     }
 }
 
@@ -203,8 +206,8 @@ impl View for E18s {
         self.0
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        Self(view)
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(Self(view))
     }
 }
 

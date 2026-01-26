@@ -12,7 +12,7 @@ use crate::{
     },
     traits::{
         CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        ValidateAuto, ValidateCustom, View, ViewError, Visitable,
     },
     types::Ulid,
     value::Value,
@@ -265,8 +265,8 @@ impl View for BrokenEntity {
         self.clone()
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        view
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
     }
 }
 

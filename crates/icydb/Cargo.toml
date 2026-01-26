@@ -20,7 +20,7 @@ ctor = { workspace = true }
 derive_more = { workspace = true }
 icydb-build = { workspace = true }
 icydb-core = { workspace = true }
-icydb-macros = { workspace = true }
+icydb-schema-derive = { workspace = true }
 icydb-schema = { workspace = true }
 num-traits = { workspace = true }
 remain = { workspace = true }

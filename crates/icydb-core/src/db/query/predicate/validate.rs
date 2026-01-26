@@ -1,4 +1,5 @@
 use crate::{
+    db::identity::{EntityName, EntityNameError, IndexName, IndexNameError},
     model::{entity::EntityModel, field::EntityFieldKind, index::IndexModel},
     value::{Value, ValueFamily, ValueFamilyExt},
 };
@@ -261,6 +262,8 @@ fn validate_index_fields(
             let field_type = fields
                 .get(*field)
                 .expect("index field existence checked above");
+            // Indexing is hash-based across all Value variants; only Unsupported is rejected here.
+            // Collisions are detected during unique enforcement and lookups.
             if matches!(field_type, FieldType::Unsupported) {
                 return Err(ValidateError::IndexFieldUnsupported {
                     index: **index,
@@ -315,6 +318,14 @@ impl SchemaInfo {
     }
 
     pub fn from_entity_model(model: &EntityModel) -> Result<Self, ValidateError> {
+        // Validate identity constraints before building schema maps.
+        let entity_name = EntityName::try_from_str(model.entity_name).map_err(|err| {
+            ValidateError::InvalidEntityName {
+                name: model.entity_name.to_string(),
+                source: err,
+            }
+        })?;
+
         if !model
             .fields
             .iter()
@@ -346,6 +357,14 @@ impl SchemaInfo {
         }
 
         validate_index_fields(&fields, model.indexes)?;
+        for index in model.indexes {
+            IndexName::try_from_parts(&entity_name, index.fields).map_err(|err| {
+                ValidateError::InvalidIndexName {
+                    index: **index,
+                    source: err,
+                }
+            })?;
+        }
 
         Ok(Self { fields })
     }
@@ -354,6 +373,20 @@ impl SchemaInfo {
 /// Predicate/schema validation failures, including invalid model contracts.
 #[derive(Debug, thiserror::Error)]
 pub enum ValidateError {
+    #[error("invalid entity name '{name}': {source}")]
+    InvalidEntityName {
+        name: String,
+        #[source]
+        source: EntityNameError,
+    },
+
+    #[error("invalid index name for '{index}': {source}")]
+    InvalidIndexName {
+        index: IndexModel,
+        #[source]
+        source: IndexNameError,
+    },
+
     #[error("unknown field '{field}'")]
     UnknownField { field: String },
 

@@ -5,7 +5,7 @@ pub use nat128::*;
 use crate::{
     traits::{
         FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        View, ViewError, Visitable,
     },
     value::Value,
 };
@@ -58,9 +58,17 @@ impl FieldValue for Nat {
     }
 }
 
-impl From<i32> for Nat {
-    fn from(n: i32) -> Self {
-        Self(WrappedNat::from(u32::try_from(n).unwrap_or(0)))
+impl TryFrom<i32> for Nat {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(n: i32) -> Result<Self, Self::Error> {
+        Ok(Self(WrappedNat::from(u32::try_from(n)?)))
+    }
+}
+
+impl From<u64> for Nat {
+    fn from(n: u64) -> Self {
+        Self(WrappedNat::from(n))
     }
 }
 
@@ -93,8 +101,9 @@ impl Sum for Nat {
 impl UpdateView for Nat {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
         *self = v;
+        Ok(())
     }
 }
 
@@ -109,8 +118,8 @@ impl View for Nat {
         self.clone()
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        view
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
     }
 }
 
