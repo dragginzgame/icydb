@@ -11,6 +11,10 @@ authors = { workspace = true }
 [lib]
 doctest = false
 
+[features]
+default = ["plan-cache"]
+plan-cache = []
+
 [dependencies]
 candid = { workspace = true }
 canic-cdk = { workspace = true }
@@ -33,10 +37,6 @@ bencher = "0.1"
 proptest = "1.6"
 serde_json = "1.0"
 trybuild = "1.0"
-
-[features]
-default = ["plan-cache"]
-plan-cache = []
 
 [lints]
 workspace = true
