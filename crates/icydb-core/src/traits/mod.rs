@@ -7,7 +7,7 @@ pub use view::*;
 pub use visitor::*;
 
 // db traits
-pub use crate::db::traits::{FilterView, Filterable};
+pub use crate::db::traits::FromKey;
 
 // re-exports of other traits
 // for the standard traits::X pattern
@@ -59,6 +59,7 @@ pub trait EntityKind: Kind + TypeKind + FieldValues {
     const PRIMARY_KEY: &'static str;
     const FIELDS: &'static [&'static str];
     const INDEXES: &'static [&'static IndexModel];
+    const MODEL: &'static crate::model::entity::EntityModel;
 
     fn key(&self) -> Key;
     fn primary_key(&self) -> Self::PrimaryKey;

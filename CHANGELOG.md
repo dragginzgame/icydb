@@ -7,6 +7,114 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### 🦴 Fixed
+
+### 🧃 Changed
+
+---
+
+## [0.5.0] – 2026-01-24 – Query Engine v2 (Stabilization Release)
+
+This release completes the **Query Engine v2 stabilization** effort. It introduces a typed, intent-driven query facade, seals executor boundaries, and formalizes correctness, atomicity, and testing contracts.
+
+The focus is **correctness, determinism, and architectural hardening**, not new end-user features.
+
+---
+
+### 🧯 Added
+
+**Query Facade**
+* Typed query intent (`Query<E>`), making it impossible to plan or execute a query against the wrong entity.
+* Executable plan boundary: `ExecutablePlan<E>` is the sole executor input; executor-invalid plans are mechanically unrepresentable.
+* Formal query facade contract defining responsibilities of intent construction, planning, and execution.
+
+**Query Semantics**
+* Intent-level pagination via `Page` and `Query::page(limit, offset)`.
+* Explicit delete intent with `QueryMode::Delete` and `Query::delete_limit(max_rows)`.
+* Explicit read consistency (`MissingOk` vs `Strict`) required for all queries.
+
+**Testing & Guarantees**
+* Compile-fail (trybuild) tests for facade invariants, preventing construction or execution of internal plan types by user code.
+* Query facade testing guide for invariant-driven strategy and when to use compile-fail vs runtime tests.
+* Write-unit rollback discipline enforcing “no fallible work after commit window” across mutation paths.
+
+---
+
+### 🦴 Fixed
+
+**Planner / Executor Correctness**
+* Missing-row behavior no longer varies based on index vs scan access paths.
+* Planners no longer emit plans that executors cannot legally execute.
+* Removed duplicated predicate and schema validation between builder, planner, and executor layers.
+* Queries can no longer be planned against arbitrary schemas or entities.
+* Replaced release assert!-based planner invariant checks with non-panicking error paths to avoid production traps.
+
+**Storage & Indexing**
+* Fixed full-scan lower-bound ordering for non-integer primary keys (e.g., Account PK), preventing empty result sets on scans and set operations.
+* Eliminated executor panic on empty principals by aligning Key::Principal encoding with IC principal semantics (anonymous/empty principal).
+* Index store now surfaces corruption when index entries diverge from entity keys, rather than silently reporting removal.
+* Increased commit marker size cap to avoid rejecting valid commits with large index entries.
+
+**Identity & Documentation**
+* Removed panicking public identity constructors in favor of fallible APIs; unchecked constructors are crate-private for generated models.
+* Updated README and internal docs to reflect the actual query execution and atomicity model.
+
+---
+
+### 🧃 Changed
+
+**API & Planning**
+* Query API redesign: replaced untyped `QuerySpec` / v1-style DSL with a typed, intent-only `Query<E>` → `ExecutablePlan<E>` flow.
+* Pagination is now an intent-level concern; response-level pagination helpers are removed to avoid ambiguity and post-hoc slicing.
+* Executors now accept only `ExecutablePlan<E>` and no longer perform planner-style validation.
+* `LogicalPlan` is sealed/internal and cannot be constructed or executed outside the planner.
+* Planning is deterministic, entity-bound, and side-effect free; repeated planning of the same intent yields equivalent plans.
+
+**Errors, Docs, Tooling**
+* Clarified and enforced separation between `Unsupported`, `Corruption`, and `Internal` error classes.
+* Improved index store error typing and auditing by preserving error class/origin for index resolution failures.
+* Documented unique index NULL/Unsupported semantics: non-indexable values skip indexing and do not participate in uniqueness.
+* Removed legacy integration docs and consolidated guidance into README and contract-level documents.
+* Updated minimum supported Rust version to **1.93.0** (edition 2024).
+
+---
+
+### 🧦 Removed
+
+* v1 query DSL and legacy builder APIs.
+* Public execution or construction of logical plans.
+* Implicit read semantics.
+* Executor-side validation and planning logic.
+* Schema-parameterized planning APIs.
+* Response-level pagination helpers (`Page`, `into_page`, `has_more`).
+* Internal plan re-exports from the public facade.
+* Plan cache, removed as a premature optimization; planning is deterministic and cheap.
+
+---
+
+### ⚠️ Migration Notes
+
+This release contains **intentional breaking changes**:
+
+* All queries must be rewritten using `Query<E>` and explicitly planned before execution.
+* Direct use of `LogicalPlan` or untyped query builders is no longer supported.
+* Code relying on implicit missing-row behavior must now choose a consistency policy.
+* Pagination must be expressed at intent time, not derived from execution results.
+
+These changes are foundational. Future releases are expected to be **additive or performance-focused**, not corrective.
+
+---
+
+### 📌 Summary
+
+0.5.0 marks the point where the query engine is considered *correct by construction*.
+Subsequent releases should not re-litigate query correctness, atomicity, or executor safety.
+
+
+---
+
 ## [0.4.7] - 2026-01-22
 - 🔁 Renamed `ensure_exists_many` to `ensure_exists_all` for clarity.
 - ✅ `ensure_exists_all` is now a true existence-only guard (no deserialization).

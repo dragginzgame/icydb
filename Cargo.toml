@@ -3,8 +3,8 @@ members = [
     "crates/icydb",
     "crates/icydb-build",
     "crates/icydb-core",
-    "crates/icydb-macros",
     "crates/icydb-schema",
+    "crates/icydb-schema-derive",
     # Test-only crates
     "crates/test",
     "crates/test_design",
@@ -12,9 +12,9 @@ members = [
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.92.0"
+rust-version = "1.93.0"
 edition = "2024"
-version = "0.4.7"
+version = "0.5.0"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A type-safe, embedded ORM and schema system for the Internet Computer"
 categories = ["database", "web-programming", "wasm"]
@@ -31,11 +31,11 @@ ctor = "0.6"
 darling = "0.23"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
 ic-cdk = "0.19.0"
-icydb = { path = "crates/icydb", version = "0.4.7" }
-icydb-build = { path = "crates/icydb-build", version = "0.4.7" }
-icydb-core = { path = "crates/icydb-core", version = "0.4.7" }
-icydb-macros = { path = "crates/icydb-macros", version = "0.4.7" }
-icydb-schema = { path = "crates/icydb-schema", version = "0.4.7" }
+icydb = { path = "crates/icydb", version = "0.5.0" }
+icydb-build = { path = "crates/icydb-build", version = "0.5.0" }
+icydb-core = { path = "crates/icydb-core", version = "0.5.0" }
+icydb-schema = { path = "crates/icydb-schema", version = "0.5.0" }
+icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.5.0" }
 num-traits = { version = "0.2", default-features = false }
 proc-macro2 = "1.0"
 quote = "1.0"
@@ -47,6 +47,7 @@ rust_decimal = { version = "1.37", default-features = false, features = [
 serde = { version = "1.0", default-features = false }
 serde_bytes = "0.11"
 serde_cbor = "0.11"
+sha2 = "0.10"
 syn = "2.0"
 # Test harnesses
 test = { path = "crates/test" }
@@ -89,7 +90,7 @@ wildcard_imports = "allow"
 [patch.crates-io]
 icydb = { path = "crates/icydb" }
 icydb-core = { path = "crates/icydb-core" }
-icydb-macros = { path = "crates/icydb-macros" }
+icydb-schema-derive = { path = "crates/icydb-schema-derive" }
 icydb-schema = { path = "crates/icydb-schema" }
 icydb-build = { path = "crates/icydb-build" }
 

@@ -3,6 +3,7 @@ pub mod entity;
 pub mod enum_payload;
 pub mod merge;
 pub mod newtype;
+pub mod query_model;
 pub mod relation;
 pub mod sanitize;
 pub mod store;

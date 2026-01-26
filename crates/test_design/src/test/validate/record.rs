@@ -36,7 +36,7 @@ pub struct Record {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::validate;
+    use icydb::__internal::core::validate::validate;
 
     #[test]
     fn base_record_validation_fields_fail_as_expected() {
@@ -57,15 +57,15 @@ mod tests {
             bytes: vec![0u8; 600].into(),
         };
 
-        // Convert at the boundary, exactly like a real API would
         let err = validate(&r).expect_err("expected validation error");
-        let msg = err.to_string();
+        let issues = err.issues();
 
         for key in ["duration_ms", "attempts", "bytes"] {
             assert!(
-                msg.contains(key),
-                "expected error message to mention field `{key}`"
+                issues.contains_key(key),
+                "expected error issues to include field `{key}`"
             );
         }
+        assert_eq!(issues.len(), 3);
     }
 }

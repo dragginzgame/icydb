@@ -1,85 +1,233 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `crates/icydb`: Public meta-crate re-exporting the workspace API.
-- `crates/icydb-core`: Runtime, storage, executors, and core types.
-- `crates/icydb-macros`: Derive and codegen macros.
-- `crates/icydb-schema`: Schema AST/builders and validation.
-- `crates/icydb-build`: Build/codegen helpers and canister glue.
-- `crates/test` and `crates/test_design`: Integration and design tests.
-- `assets/`: Images and docs assets. `scripts/`: release/version helpers. `Makefile`: common tasks.
-- Workspace manifest: `Cargo.toml` (edition 2024, rust-version 1.92.0).
+
+* `crates/icydb`: Public meta-crate re-exporting the workspace API.
+* `crates/icydb-core`: Runtime, storage, executors, and core types.
+* `crates/icydb-schema-derive`: Derive and codegen macros.
+* `crates/icydb-schema`: Schema AST/builders and validation.
+* `crates/icydb-build`: Build/codegen helpers and canister glue.
+* `crates/test` and `crates/test_design`: Integration and design tests.
+* `assets/`: Images and docs assets. `scripts/`: release/version helpers. `Makefile`: common tasks.
+* Workspace manifest: `Cargo.toml` (edition 2024, rust-version 1.93.0).
+
+---
 
 ## Build, Test, and Development Commands
-- `make check`: Fast type-check for all crates.
-- `make test`: Run all unit/integration tests (`cargo test --workspace`).
-- `make build`: Release build for the workspace.
-- `make clippy`: Lints with warnings denied.
-- `make fmt` / `make fmt-check`: Format or verify formatting.
-- Versioning: `make version|tags|patch|minor|major|release` (see `VERSIONING.md`).
+
+* `make check`: Fast type-check for all crates.
+* `make test`: Run all unit/integration tests (`cargo test --workspace`).
+* `make build`: Release build for the workspace.
+* `make clippy`: Lints with warnings denied.
+* `make fmt` / `make fmt-check`: Format or verify formatting.
+* Versioning: `make version|tags|patch|minor|major|release` (see `VERSIONING.md`).
+
+---
 
 ## Common Workflows
-- Pre-commit gate (local): `make fmt-check && make clippy && make check && make test`.
-- Fast CI gate (local): `make check && make clippy`.
-- Release (local): `make security-check && make release`.
+
+* Pre-commit gate (local): `make fmt-check && make clippy && make check && make test`.
+* Fast CI gate (local): `make check && make clippy`.
+* Release (local): `make security-check && make release`.
+
+---
 
 ## Git Hooks
-- Hooks path: `.githooks` (auto-configured via `core.hooksPath`).
-- Pre-commit runs: `cargo fmt --all -- --check`, `cargo sort --check`, `cargo sort-derives --check`.
-- Auto-setup: running common Make targets (`fmt`, `fmt-check`, `clippy`, `check`, `test`, `build`, `install-dev`) ensures hooks are enabled.
-- Tools: install with `make install-dev` (installs `cargo-sort` and `cargo-sort-derives`).
+
+* Hooks path: `.githooks` (auto-configured via `core.hooksPath`).
+* Pre-commit runs: `cargo fmt --all -- --check`, `cargo sort --check`, `cargo sort-derives --check`.
+* Auto-setup: running common Make targets (`fmt`, `fmt-check`, `clippy`, `check`, `test`, `build`, `install-dev`) ensures hooks are enabled.
+* Tools: install with `make install-dev` (installs `cargo-sort` and `cargo-sort-derives`).
+
+---
+
+## Imports & Module Boundaries
+
+Imports are considered part of a module’s public shape and architectural contract.
+
+### Required
+
+* All non-test modules MUST declare imports at the top of the file.
+* Prefer a single top-level `use crate::{ ... };` block per module.
+* Use nested paths to reflect hierarchy and ownership.
+
+### Prohibited (by default)
+
+* `use super::...`
+* `use self::...`
+* Scattered or inline imports
+* Relative imports that obscure module boundaries
+
+### Allowed Exceptions
+
+* Test modules may use `use super::*;`.
+* Macro-generated code or narrowly scoped helper modules may use `super::` **only** when:
+
+  * It materially improves readability, and
+  * A brief comment explains why `crate::{...}` is not appropriate.
+
+### Rationale
+
+`crate::{...}` imports make dependencies explicit, grep-friendly, and resilient to refactors.
+Relative imports hide coupling and complicate auditing and large-scale reorganization.
+
+---
 
 ## Coding Style & Naming Conventions
-- Rustfmt: 4-space indent, edition 2024; run `cargo fmt --all` before committing.
-- Naming: `snake_case` for modules/functions/files, `CamelCase` types/traits, `SCREAMING_SNAKE_CASE` consts.
-- Linting: Code must pass `make clippy`; prefer `?` over `unwrap()`, handle errors explicitly.
-- Keep public APIs documented; co-locate small unit tests in the same file under `mod tests`.
-- Don't worry about backwards compatibility. Prefer breaking changes for the time being.
 
-### Additional Style Guidance
-- Docs: rustdoc triple-slash `/// ` with a space; include brief examples when practical.
-- Errors: prefer typed errors (thiserror); avoid panics in library code.
-- Functions: keep small and focused, except at trust boundaries where single, centralized validation is preferred.
-- Borrowing: avoid unnecessary clones; prefer iterator adapters.
-- Imports: group per-crate, nest items (e.g., `use crate::{a, b};`); pull common std items into scope at top.
-- Imports: prefer a single `use crate::{...}` block per module for internal hierarchy; use `use super::*;` inside test modules only, and avoid `super::` elsewhere.
-- Counters: use saturating arithmetic for totals; avoid wrapping arithmetic.
-- Performance: only optimize on proven hot paths; consider pre-allocation when it clearly pays off.
-- Codegen (icydb_build): generate minimal glue and delegate to `icydb::interface::*`.
+* Rustfmt: 4-space indent, edition 2024; run `cargo fmt --all` before committing.
+* Naming:
+
+  * `snake_case` for modules, functions, and files
+  * `CamelCase` for types and traits
+  * `SCREAMING_SNAKE_CASE` for constants
+* Linting: Code must pass `make clippy`; prefer `?` over `unwrap()`, handle errors explicitly.
+* Keep public APIs documented; co-locate small unit tests in the same file under `mod tests`.
+* Backwards compatibility is **not** a goal; prefer breaking changes when they simplify the model.
+
+---
+
+## Commenting & Code Narration
+
+Code must be readable top-down without reverse-engineering intent.
+
+### Required
+
+* Every public `struct`, `enum`, `trait`, and `fn` MUST have a doc comment (`///`).
+* Public `struct` definitions MUST be preceded by **at least three consecutive doc comment lines**.
+* After the doc comment block for a `struct`, there MUST be a blank line before the `struct` definition.
+* Every non-trivial private function or struct MUST have at least a brief explanatory comment.
+* Functions with multiple logical phases MUST include inline comments separating those phases.
+
+### Inline Comment Guidance
+
+* Large blocks of logic MUST be visually segmented.
+* As a rule of thumb, no uninterrupted block of complex logic should exceed ~8–12 lines without an explanatory comment.
+* Comments should explain intent, invariants, and risk — not restate syntax.
+
+### Section Banners
+
+Section banners are a **heavyweight tool** and should be used sparingly.
+
+### When to Use
+
+* Only in large files with multiple distinct responsibilities or phases.
+* Only when they materially improve scanability for reviewers.
+* Do **not** use banners for small helpers or obvious groupings.
+
+### Required Style
+
+* Banners MUST be visually prominent and occupy **three lines**.
+* Use wide dashed separators and a centered or clearly labeled title.
+* Example:
+
+```rust
+// -----------------------------------------------------------------------------
+// Access Path Analysis
+// -----------------------------------------------------------------------------
+```
+
+### Guidance
+
+* Prefer fewer, clearer banners over many subtle ones.
+* If banners visually disappear into surrounding comments, remove them.
+* Normal inline comments are preferred for most structure.
+
+### Prohibited
+
+* Single-line or low-contrast banners that blend into surrounding code.
+
+* Overuse of banners that fragment otherwise readable code.
+
+* “Wall-of-code” functions where intent is only inferable from control flow.
+
+* Long helpers with no high-level summary comment.
+
+### Definition: Non-Trivial Code
+
+Code is considered non-trivial if it:
+
+* Enforces invariants or safety properties
+* Handles persistence, decoding, or external input
+* Contains branching logic beyond simple error propagation
+* Performs indexing, validation, normalization, or planning
+* Would be difficult to reconstruct correctly from types alone
+
+---
+
+## Error Handling & Classification
+
+* Prefer typed errors (`thiserror`); avoid panics in library code.
+* Do not match error strings in code or tests; assert on variants or kinds instead.
+
+### Error Classes
+
+* `Unsupported`: user-supplied values rejected before persistence.
+* `Corruption`: malformed or hostile persisted bytes.
+* `Internal`: logic bugs or invariant violations.
+
+---
 
 ## Persistence Safety Invariants
-- Persisted bytes must never panic the system.
-- Persisted decoding must be locally bounded and fallible.
-- No domain type may decode directly from stable memory.
-- Safety must not rely on undocumented behavior of third-party crates.
-- Thin wrappers are fine until a helper becomes a trust boundary; enforce invariants locally at that boundary.
 
-## Error Classification Guidance
-- `Unsupported`: user-supplied values rejected before persistence.
-- `Corruption`: malformed or hostile persisted bytes.
-- `Internal`: logic bugs or invariant violations.
+* Persisted bytes must never panic the system.
+* Persisted decoding must be locally bounded and fallible.
+* No domain type may decode directly from stable memory.
+* Safety must not rely on undocumented behavior of third-party crates.
+* Thin wrappers are acceptable until a helper becomes a trust boundary; enforce invariants at that boundary.
 
-## CI Overview
-- Toolchain: Rust `1.92.0` with `rustfmt` and `clippy`.
-- Checks job (PRs/main): `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`.
-- Release job (tags): `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo build --release`.
-- Package cache: clears `~/.cargo/.package-cache` before running cargo to avoid stale lock issues.
- - Versioning: separate job runs `scripts/app/check-versioning.sh` for repository/tag hygiene checks.
-- Canisters: release job builds `test_canister` to WASM, extracts `.did` via `candid-extractor`, and uploads artifacts.
+---
+
+## Performance & Correctness
+
+* Avoid unnecessary clones; prefer borrowing and iterator adapters.
+* Use saturating arithmetic for counters and totals; avoid wrapping arithmetic.
+* Only optimize proven hot paths; consider pre-allocation when it clearly pays off.
+
+---
 
 ## Testing Guidelines
-- Framework: Rust test harness. Place unit tests near code; integration tests live in `crates/test` and `crates/test_design`.
-- Run all: `make test`. Single crate/test: `cargo test -p icydb <filter>` for the meta-crate; target other crates explicitly as needed.
-- Aim for meaningful coverage on entity macros, query paths, and index behavior. Add fixtures where helpful.
-- In `icydb-core` tests, do not create ad-hoc `DummyEntity` types; macro-driven entity/index tests belong in `crates/test_design`.
+
+* Framework: Rust test harness.
+* Unit tests live near code (`mod tests`); integration tests live in `crates/test` and `crates/test_design`.
+* Run all tests with `make test`.
+* In `icydb-core` tests, do not create ad-hoc `DummyEntity` types; macro-driven entity and index tests belong in `crates/test_design`.
+
+---
+
+## CI Overview
+
+* Toolchain: Rust `1.93.0` with `rustfmt` and `clippy`.
+* Checks job (PRs/main): `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`.
+* Release job (tags): `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, `cargo build --release`.
+* Package cache: clears `~/.cargo/.package-cache` before running cargo.
+* Versioning: separate job runs `scripts/app/check-versioning.sh`.
+* Canisters: release job builds `test_canister` to WASM, extracts `.did` via `candid-extractor`, and uploads artifacts.
+
+---
 
 ## Commit & Pull Request Guidelines
-- Commits: Imperative mood, concise scope (e.g., "Fix index serialization"; "Bump version to 0.15.1").
-- PRs: Clear description, linked issues, rationale, before/after notes; include tests and docs updates.
-- Changelog: Update `CHANGELOG.md` under `[Unreleased]` for user-visible changes.
-- Releases: Use `make patch|minor|major` and push with tags; do not hand-edit tags.
 
-## Security & Configuration Tips
-- Tag immutability: run `make security-check`; never modify pushed release tags.
-- Pin git dependencies by tag in downstream projects.
-- Toolchain: install Rust `1.92.0` (`rustup toolchain install 1.92.0`) and ensure CI matches.
+* Commits: imperative mood, concise scope (e.g., "Fix index serialization").
+* PRs: clear description, rationale, before/after notes; include tests and docs updates.
+* Changelog: update `CHANGELOG.md` under `[Unreleased]` for user-visible changes.
+* Releases: use `make patch|minor|major`; never hand-edit tags.
+
+---
+
+## Review Checklist (Non-Exhaustive)
+
+* [ ] Imports declared once at top using `crate::{...}`
+* [ ] No `super::` usage outside tests without justification
+* [ ] No large unexplained blocks of logic
+* [ ] Complex functions are commented in phases
+* [ ] Public APIs document invariants and intent
+
+---
+
+## Security & Configuration
+
+* Run `make security-check` before release.
+* Never modify pushed release tags.
+* Pin git dependencies by tag in downstream projects.
+* Ensure local toolchain matches CI (`rustup toolchain install 1.93.0`).

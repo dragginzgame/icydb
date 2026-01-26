@@ -2,12 +2,13 @@ use icydb::__internal::core::db::{
     index::{IndexEntry, IndexKey, RawIndexEntry},
     store::{DataKey, RawRow},
 };
-use icydb::{db::UniqueIndexHandle, design::prelude::*, serialize};
+use icydb::{
+    db::query::{Query, ReadConsistency},
+    design::prelude::*,
+    error::ErrorClass,
+    serialize,
+};
 use test_design::{e2e::db::Index, schema::TestIndexStore};
-
-///
-/// DeleteUniqueSuite
-///
 
 pub struct DeleteUniqueSuite;
 
@@ -43,33 +44,34 @@ impl DeleteUniqueSuite {
         let saved = db!().insert(Index::new(1, 55)).unwrap();
 
         let index = Self::unique_index();
-        let index_key = IndexKey::new(&saved, index).expect("index key should be present");
+        let index_key = IndexKey::new(&saved, index)
+            .expect("index key")
+            .expect("index key missing");
 
         crate::DATA_REGISTRY
             .with(|reg| {
                 reg.with_store_mut(<Index as EntityKind>::Store::PATH, |store| {
                     let data_key = DataKey::new::<Index>(saved.key());
-                    let raw = data_key.to_raw();
-                    store.remove(&raw);
+                    store.remove(&data_key.to_raw().expect("data key encode"));
                 })
             })
             .unwrap();
 
-        let err = db!()
+        let plan = Query::<Index>::new(ReadConsistency::Strict)
+            .filter(eq("y", 55))
+            .plan()
+            .expect("plan");
+        let err = crate::db()
             .delete::<Index>()
-            .by_unique_index(Self::unique_handle(), Index::new(2, 55))
+            .execute(plan)
+            .map_err(icydb::Error::from)
             .unwrap_err();
 
-        let msg = err.to_string();
-        assert!(
-            msg.contains("index corrupted") || msg.contains("corruption"),
-            "expected corruption error, got: {msg}"
-        );
+        assert_eq!(err.class, ErrorClass::Corruption);
 
         let _ = crate::INDEX_REGISTRY.with(|reg| {
             reg.with_store_mut(TestIndexStore::PATH, |store| {
-                let raw = index_key.to_raw();
-                store.remove(&raw)
+                store.remove(&index_key.to_raw())
             })
         });
     }
@@ -79,7 +81,9 @@ impl DeleteUniqueSuite {
         let other = db!().insert(Index::new(2, 99)).unwrap();
 
         let index = Self::unique_index();
-        let index_key = IndexKey::new(&saved, index).expect("index key should be present");
+        let index_key = IndexKey::new(&saved, index)
+            .expect("index key")
+            .expect("index key missing");
 
         crate::INDEX_REGISTRY
             .with(|reg| {
@@ -97,31 +101,32 @@ impl DeleteUniqueSuite {
             })
             .unwrap();
 
-        let err = db!()
+        let plan = Query::<Index>::new(ReadConsistency::MissingOk)
+            .filter(eq("y", 88))
+            .plan()
+            .expect("plan");
+        let err = crate::db()
             .delete::<Index>()
-            .by_unique_index(Self::unique_handle(), Index::new(3, 88))
+            .execute(plan)
+            .map_err(icydb::Error::from)
             .unwrap_err();
 
-        let msg = err.to_string();
-        assert!(
-            msg.contains("index corrupted") || msg.contains("corruption"),
-            "expected corruption error, got: {msg}"
-        );
+        assert_eq!(err.class, ErrorClass::Corruption);
     }
 
     fn delete_unique_key_type_mismatch_errors() {
         let index = Self::unique_index();
-        let index_key =
-            IndexKey::new(&Index::new(1, 777), index).expect("index key should be present");
+        let index_key = IndexKey::new(&Index::new(1, 777), index)
+            .expect("index key")
+            .expect("index key missing");
         let bad_key = Key::Uint(123);
 
         crate::INDEX_REGISTRY
             .with(|reg| {
                 reg.with_store_mut(TestIndexStore::PATH, |store| {
                     let entry = IndexEntry::new(bad_key);
-                    let raw = index_key.to_raw();
                     let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
-                    store.insert(raw, raw_entry);
+                    store.insert(index_key.to_raw(), raw_entry);
                 })
             })
             .unwrap();
@@ -131,51 +136,55 @@ impl DeleteUniqueSuite {
             .with(|reg| {
                 reg.with_store_mut(<Index as EntityKind>::Store::PATH, |store| {
                     let data_key = DataKey::new::<Index>(bad_key);
-                    let raw = data_key.to_raw();
-                    store.insert(raw, RawRow::try_new(bytes).unwrap());
+                    store.insert(
+                        data_key.to_raw().expect("data key encode"),
+                        RawRow::try_new(bytes).unwrap(),
+                    );
                 })
             })
             .unwrap();
 
-        let err = db!()
+        let plan = Query::<Index>::new(ReadConsistency::MissingOk)
+            .filter(eq("y", 777))
+            .plan()
+            .expect("plan");
+        let err = crate::db()
             .delete::<Index>()
-            .by_unique_index(Self::unique_handle(), Index::new(2, 777))
+            .execute(plan)
+            .map_err(icydb::Error::from)
             .unwrap_err();
 
-        assert!(err.to_string().contains("primary key type mismatch"));
+        assert_eq!(err.class, ErrorClass::Corruption);
     }
 
     fn delete_unique_missing_primary_row_errors() {
         let index = Self::unique_index();
-        let index_key =
-            IndexKey::new(&Index::new(1, 444), index).expect("index key should be present");
+        let index_key = IndexKey::new(&Index::new(1, 444), index)
+            .expect("index key")
+            .expect("index key missing");
         let missing_key = Key::Ulid(Ulid::generate());
 
         crate::INDEX_REGISTRY
             .with(|reg| {
                 reg.with_store_mut(TestIndexStore::PATH, |store| {
                     let entry = IndexEntry::new(missing_key);
-                    let raw = index_key.to_raw();
                     let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
-                    store.insert(raw, raw_entry);
+                    store.insert(index_key.to_raw(), raw_entry);
                 })
             })
             .unwrap();
 
-        let err = db!()
+        let plan = Query::<Index>::new(ReadConsistency::Strict)
+            .filter(eq("y", 444))
+            .plan()
+            .expect("plan");
+        let err = crate::db()
             .delete::<Index>()
-            .by_unique_index(Self::unique_handle(), Index::new(2, 444))
+            .execute(plan)
+            .map_err(icydb::Error::from)
             .unwrap_err();
 
-        let msg = err.to_string();
-        assert!(
-            msg.contains("index corrupted") || msg.contains("corruption"),
-            "expected corruption error, got: {msg}"
-        );
-    }
-
-    fn unique_handle() -> UniqueIndexHandle {
-        UniqueIndexHandle::for_fields::<Index>(&["y"]).expect("expected unique index on y")
+        assert_eq!(err.class, ErrorClass::Corruption);
     }
 
     fn unique_index() -> &'static icydb::model::index::IndexModel {

@@ -1,4 +1,4 @@
-use crate::traits::{CreateView, FilterView, UpdateView, View as OtherView};
+use crate::traits::{CreateView, UpdateView, View as OtherView};
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 pub type View<T> = <T as OtherView>::ViewType;
 pub type Create<T> = <T as CreateView>::CreateViewType;
 pub type Update<T> = <T as UpdateView>::UpdateViewType;
-pub type Filter<T> = <T as FilterView>::FilterViewType;
 
 ///
 /// ListPatch
@@ -87,7 +86,7 @@ mod test {
             ListPatch::Remove { index: 0 },
         ];
 
-        values.merge(patches);
+        values.merge(patches).expect("vec merge should succeed");
         assert_eq!(values, vec![11, 99, 30]);
     }
 
@@ -98,7 +97,9 @@ mod test {
             values: vec![9u8, 8],
         }];
 
-        values.merge(patches);
+        values
+            .merge(patches)
+            .expect("vec overwrite merge should succeed");
         assert_eq!(values, vec![9, 8]);
     }
 
@@ -107,7 +108,7 @@ mod test {
         let mut set: HashSet<u8> = [1, 2, 3].into_iter().collect();
         let patches = vec![SetPatch::Remove(2), SetPatch::Insert(4)];
 
-        set.merge(patches);
+        set.merge(patches).expect("set merge should succeed");
         let expected: HashSet<u8> = [1, 3, 4].into_iter().collect();
         assert_eq!(set, expected);
     }
@@ -119,7 +120,8 @@ mod test {
             values: vec![3u8, 4, 5],
         }];
 
-        set.merge(patches);
+        set.merge(patches)
+            .expect("set overwrite merge should succeed");
         let expected: HashSet<u8> = [3, 4, 5].into_iter().collect();
         assert_eq!(set, expected);
     }
@@ -144,7 +146,7 @@ mod test {
             },
         ];
 
-        map.merge(patches);
+        map.merge(patches).expect("map merge should succeed");
 
         assert_eq!(map.get("a"), Some(&5));
         assert_eq!(map.get("insert"), Some(&7));
@@ -165,7 +167,8 @@ mod test {
             ],
         }];
 
-        map.merge(patches);
+        map.merge(patches)
+            .expect("map overwrite merge should succeed");
 
         assert_eq!(map.get("first"), Some(&1));
         assert_eq!(map.get("second"), Some(&5));

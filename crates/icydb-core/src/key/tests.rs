@@ -4,7 +4,7 @@ use crate::types::{Account, Principal, Subaccount, Timestamp, Ulid};
 #[test]
 fn key_max_size_is_bounded() {
     let key = Key::max_storable();
-    let size = key.to_bytes().len();
+    let size = key.to_bytes().expect("key encode").len();
 
     assert!(
         size <= Key::STORED_SIZE,
@@ -18,6 +18,7 @@ fn key_storable_round_trip() {
     let keys = [
         Key::Account(Account::dummy(1)),
         Key::Int(-42),
+        Key::Principal(Principal::anonymous()),
         Key::Principal(Principal::from_slice(&[1, 2, 3])),
         Key::Subaccount(Subaccount::from_array([7; 32])),
         Key::Timestamp(Timestamp::from_seconds(42)),
@@ -27,7 +28,7 @@ fn key_storable_round_trip() {
     ];
 
     for key in keys {
-        let bytes = key.to_bytes();
+        let bytes = key.to_bytes().expect("key encode");
         let decoded = Key::try_from_bytes(&bytes).unwrap();
 
         assert_eq!(decoded, key, "Key round trip failed for {key:?}");
@@ -48,7 +49,7 @@ fn key_is_exactly_fixed_size() {
     ];
 
     for key in keys {
-        let len = key.to_bytes().len();
+        let len = key.to_bytes().expect("key encode").len();
         assert_eq!(
             len,
             Key::STORED_SIZE,
@@ -81,12 +82,37 @@ fn key_ordering_is_total_and_stable() {
     sorted_by_ord.sort();
 
     let mut sorted_by_bytes = keys;
-    sorted_by_bytes.sort_by_key(Key::to_bytes);
+    sorted_by_bytes.sort_by_key(|key| key.to_bytes().expect("key encode"));
 
     assert_eq!(
         sorted_by_ord, sorted_by_bytes,
         "Key Ord and byte ordering diverged"
     );
+}
+
+#[test]
+fn key_lower_bound_is_global_min() {
+    let min = Key::lower_bound();
+    assert_eq!(min, Key::MIN, "lower_bound must match Key::MIN");
+
+    let mut keys = vec![
+        Key::Account(Account::dummy(0)),
+        Key::Int(i64::MIN),
+        Key::Principal(Principal::from_slice(&[1])),
+        Key::Subaccount(Subaccount::from_array([0; 32])),
+        Key::Timestamp(Timestamp::from_seconds(0)),
+        Key::Uint(0),
+        Key::Ulid(Ulid::from_bytes([0; 16])),
+        Key::Unit,
+        min,
+    ];
+
+    for key in &keys {
+        assert!(min <= *key, "lower_bound must be <= {key:?}");
+    }
+
+    keys.sort_by_key(|key| key.to_bytes().expect("key encode"));
+    assert_eq!(keys[0], min, "lower_bound must be the byte-order minimum");
 }
 
 #[test]
@@ -102,17 +128,19 @@ fn key_from_bytes_rejects_oversized() {
 }
 
 #[test]
-fn key_from_bytes_rejects_zero_principal_len() {
-    let mut bytes = Key::Principal(Principal::from_slice(&[1])).to_bytes();
-    bytes[Key::TAG_OFFSET] = Key::TAG_PRINCIPAL;
-    bytes[Key::PAYLOAD_OFFSET] = 0;
-    assert!(Key::try_from_bytes(&bytes).is_err());
+fn key_from_bytes_accepts_zero_principal_len() {
+    let key = Key::Principal(Principal::anonymous());
+    let bytes = key.to_bytes().expect("key encode");
+    let decoded = Key::try_from_bytes(&bytes).unwrap();
+    assert_eq!(decoded, key);
 }
 
 #[test]
 #[allow(clippy::cast_possible_truncation)]
 fn key_from_bytes_rejects_oversized_principal_len() {
-    let mut bytes = Key::Principal(Principal::from_slice(&[1])).to_bytes();
+    let mut bytes = Key::Principal(Principal::from_slice(&[1]))
+        .to_bytes()
+        .expect("key encode");
     bytes[Key::TAG_OFFSET] = Key::TAG_PRINCIPAL;
     bytes[Key::PAYLOAD_OFFSET] = (Principal::MAX_LENGTH_IN_BYTES as u8) + 1;
     assert!(Key::try_from_bytes(&bytes).is_err());
@@ -120,7 +148,9 @@ fn key_from_bytes_rejects_oversized_principal_len() {
 
 #[test]
 fn key_from_bytes_rejects_principal_padding() {
-    let mut bytes = Key::Principal(Principal::from_slice(&[1])).to_bytes();
+    let mut bytes = Key::Principal(Principal::from_slice(&[1]))
+        .to_bytes()
+        .expect("key encode");
     bytes[Key::TAG_OFFSET] = Key::TAG_PRINCIPAL;
     bytes[Key::PAYLOAD_OFFSET] = 1;
     bytes[Key::PAYLOAD_OFFSET + 2] = 1;
@@ -133,7 +163,8 @@ fn key_from_bytes_rejects_account_padding() {
         Principal::from_slice(&[1]),
         None::<Subaccount>,
     ))
-    .to_bytes();
+    .to_bytes()
+    .expect("key encode");
     bytes[Key::TAG_OFFSET] = Key::TAG_ACCOUNT;
     bytes[Key::PAYLOAD_OFFSET + Account::STORED_SIZE as usize] = 1;
     assert!(Key::try_from_bytes(&bytes).is_err());
@@ -141,7 +172,7 @@ fn key_from_bytes_rejects_account_padding() {
 
 #[test]
 fn key_from_bytes_rejects_int_padding() {
-    let mut bytes = Key::Int(0).to_bytes();
+    let mut bytes = Key::Int(0).to_bytes().expect("key encode");
     bytes[Key::TAG_OFFSET] = Key::TAG_INT;
     bytes[Key::PAYLOAD_OFFSET + Key::INT_SIZE] = 1;
     assert!(Key::try_from_bytes(&bytes).is_err());
@@ -149,7 +180,7 @@ fn key_from_bytes_rejects_int_padding() {
 
 #[test]
 fn key_from_bytes_rejects_uint_padding() {
-    let mut bytes = Key::Uint(0).to_bytes();
+    let mut bytes = Key::Uint(0).to_bytes().expect("key encode");
     bytes[Key::TAG_OFFSET] = Key::TAG_UINT;
     bytes[Key::PAYLOAD_OFFSET + Key::UINT_SIZE] = 1;
     assert!(Key::try_from_bytes(&bytes).is_err());
@@ -157,7 +188,9 @@ fn key_from_bytes_rejects_uint_padding() {
 
 #[test]
 fn key_from_bytes_rejects_timestamp_padding() {
-    let mut bytes = Key::Timestamp(Timestamp::from_seconds(0)).to_bytes();
+    let mut bytes = Key::Timestamp(Timestamp::from_seconds(0))
+        .to_bytes()
+        .expect("key encode");
     bytes[Key::TAG_OFFSET] = Key::TAG_TIMESTAMP;
     bytes[Key::PAYLOAD_OFFSET + Key::TIMESTAMP_SIZE] = 1;
     assert!(Key::try_from_bytes(&bytes).is_err());
@@ -165,7 +198,9 @@ fn key_from_bytes_rejects_timestamp_padding() {
 
 #[test]
 fn key_from_bytes_rejects_subaccount_padding() {
-    let mut bytes = Key::Subaccount(Subaccount::from_array([0; 32])).to_bytes();
+    let mut bytes = Key::Subaccount(Subaccount::from_array([0; 32]))
+        .to_bytes()
+        .expect("key encode");
     bytes[Key::TAG_OFFSET] = Key::TAG_SUBACCOUNT;
     bytes[Key::PAYLOAD_OFFSET + Key::SUBACCOUNT_SIZE] = 1;
     assert!(Key::try_from_bytes(&bytes).is_err());
@@ -173,7 +208,9 @@ fn key_from_bytes_rejects_subaccount_padding() {
 
 #[test]
 fn key_from_bytes_rejects_ulid_padding() {
-    let mut bytes = Key::Ulid(Ulid::from_bytes([0; 16])).to_bytes();
+    let mut bytes = Key::Ulid(Ulid::from_bytes([0; 16]))
+        .to_bytes()
+        .expect("key encode");
     bytes[Key::TAG_OFFSET] = Key::TAG_ULID;
     bytes[Key::PAYLOAD_OFFSET + Key::ULID_SIZE] = 1;
     assert!(Key::try_from_bytes(&bytes).is_err());
@@ -181,7 +218,7 @@ fn key_from_bytes_rejects_ulid_padding() {
 
 #[test]
 fn key_from_bytes_rejects_unit_padding() {
-    let mut bytes = Key::Unit.to_bytes();
+    let mut bytes = Key::Unit.to_bytes().expect("key encode");
     bytes[Key::TAG_OFFSET] = Key::TAG_UNIT;
     bytes[Key::PAYLOAD_OFFSET] = 1;
     assert!(Key::try_from_bytes(&bytes).is_err());
@@ -192,7 +229,7 @@ fn principal_encoding_respects_max_size() {
     let max = Principal::from_slice(&[0xFF; 29]);
     let key = Key::Principal(max);
 
-    let bytes = key.to_bytes();
+    let bytes = key.to_bytes().expect("key encode");
     assert_eq!(bytes.len(), Key::STORED_SIZE);
 }
 
@@ -210,7 +247,7 @@ fn key_decode_fuzz_roundtrip_is_canonical() {
         }
 
         if let Ok(decoded) = Key::try_from_bytes(&bytes) {
-            let re = decoded.to_bytes();
+            let re = decoded.to_bytes().expect("key encode");
             assert_eq!(bytes, re, "decoded key must be canonical");
         }
     }

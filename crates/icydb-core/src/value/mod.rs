@@ -11,8 +11,9 @@ use crate::{
 use candid::CandidType;
 use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, str::FromStr};
+use std::cmp::Ordering;
 
+// re-exports
 pub use family::{ValueFamily, ValueFamilyExt};
 
 ///
@@ -163,28 +164,11 @@ impl Value {
             Self::Uint(v) => Some(Key::Uint(*v)),
             Self::Principal(v) => Some(Key::Principal(*v)),
             Self::Subaccount(v) => Some(Key::Subaccount(*v)),
+            Self::Timestamp(v) => Some(Key::Timestamp(*v)),
             Self::Ulid(v) => Some(Key::Ulid(*v)),
             Self::Unit => Some(Key::Unit),
             _ => None,
         }
-    }
-
-    #[must_use]
-    /// Lossy key conversion that accepts identifier strings (ULID/Principal/Account).
-    pub(crate) fn as_key_coerced(&self) -> Option<Key> {
-        if let Some(key) = self.as_key() {
-            return Some(key);
-        }
-
-        let Self::Text(s) = self else {
-            return None;
-        };
-
-        Ulid::from_str(s)
-            .ok()
-            .map(Key::Ulid)
-            .or_else(|| Principal::from_str(s).ok().map(Key::Principal))
-            .or_else(|| Account::from_str(s).ok().map(Key::Account))
     }
 
     #[must_use]
@@ -582,6 +566,7 @@ impl PartialOrd for Value {
             (Self::Duration(a), Self::Duration(b)) => a.partial_cmp(b),
             (Self::E8s(a), Self::E8s(b)) => a.partial_cmp(b),
             (Self::E18s(a), Self::E18s(b)) => a.partial_cmp(b),
+            (Self::Enum(a), Self::Enum(b)) => a.partial_cmp(b),
             (Self::Float32(a), Self::Float32(b)) => a.partial_cmp(b),
             (Self::Float64(a), Self::Float64(b)) => a.partial_cmp(b),
             (Self::Int(a), Self::Int(b)) => a.partial_cmp(b),

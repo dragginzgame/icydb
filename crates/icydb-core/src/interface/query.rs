@@ -1,5 +1,5 @@
 use crate::{
-    db::query::{DeleteQuery, LoadQuery, SaveQuery},
+    db::query::{SaveQuery, plan::__internal::ExecutablePlanErased},
     error::{ErrorClass, ErrorOrigin, InternalError},
     prelude::*,
 };
@@ -30,19 +30,24 @@ impl QueryError {
 }
 
 /// Function pointer that executes a load query for a specific entity type.
-pub type LoadHandler = fn(LoadQuery) -> Result<Vec<Key>, InternalError>;
+pub type LoadHandler = fn(ExecutablePlanErased) -> Result<Vec<Key>, InternalError>;
 
 /// Function pointer that executes a save query for a specific entity type.
 pub type SaveHandler = fn(SaveQuery) -> Result<Key, InternalError>;
 
 /// Function pointer that executes a delete query for a specific entity type.
-pub type DeleteHandler = fn(DeleteQuery) -> Result<Vec<Key>, InternalError>;
+pub type DeleteHandler = fn(ExecutablePlanErased) -> Result<Vec<Key>, InternalError>;
 
+///
+/// EntityDispatch
+///
 /// Metadata and typed handlers for a single entity path.
 ///
 /// Generated actor code exposes a `dispatch_entity(path)` function that returns this,
 /// letting you authorize per-entity before invoking the handlers. No canister
 /// endpoints are generated automatically.
+///
+
 #[derive(Clone, Copy)]
 pub struct EntityDispatch {
     pub entity_name: &'static str,

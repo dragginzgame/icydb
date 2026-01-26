@@ -1,7 +1,10 @@
 use crate::{
     db::{
         Db, ensure_recovered,
-        executor::{ExecutorError, SaveExecutor, resolve_unique_pk},
+        executor::{
+            ExecutorError, SaveExecutor, resolve_unique_pk,
+            trace::{QueryTraceSink, TraceAccess, TraceExecutorKind, start_exec_trace},
+        },
         store::DataKey,
         traits::FromKey,
     },
@@ -63,8 +66,9 @@ impl UniqueIndexHandle {
 ///
 /// UpsertResult
 ///
-
 /// Result of an upsert that reports whether the entity was inserted.
+///
+
 pub struct UpsertResult<E> {
     pub entity: E,
     pub inserted: bool,
@@ -78,6 +82,7 @@ pub struct UpsertResult<E> {
 pub struct UpsertExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
+    trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
@@ -91,8 +96,19 @@ where
         Self {
             db,
             debug,
+            trace: None,
             _marker: PhantomData,
         }
+    }
+
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) const fn with_trace_sink(
+        mut self,
+        sink: Option<&'static dyn QueryTraceSink>,
+    ) -> Self {
+        self.trace = sink;
+        self
     }
 
     /// Enable debug logging for subsequent upsert operations.
@@ -222,29 +238,47 @@ where
         index: &'static IndexModel,
         entity: E,
     ) -> Result<UpsertResult<E>, InternalError> {
-        self.debug_log(format!(
-            "[debug] upsert on {} (unique index: {})",
+        let trace = start_exec_trace(
+            self.trace,
+            TraceExecutorKind::Upsert,
             E::PATH,
-            index.fields.join(", ")
-        ));
-        // Recovery is mutation-only to keep read paths side-effect free.
-        ensure_recovered(&self.db)?;
-        let existing_pk = self.resolve_existing_pk(index, &entity)?;
-        let inserted = existing_pk.is_none();
+            Some(TraceAccess::UniqueIndex { name: index.name }),
+            Some(index.name),
+        );
+        let result = (|| {
+            self.debug_log(format!(
+                "[debug] upsert on {} (unique index: {})",
+                E::PATH,
+                index.fields.join(", ")
+            ));
+            // Recovery is mutation-only to keep read paths side-effect free.
+            ensure_recovered(&self.db)?;
+            let existing_pk = self.resolve_existing_pk(index, &entity)?;
+            let inserted = existing_pk.is_none();
 
-        // Keep saver construction local to avoid type/lifetime issues in helpers.
-        let saver = SaveExecutor::new(self.db, self.debug);
+            // Keep saver construction local to avoid type/lifetime issues in helpers.
+            let saver = SaveExecutor::new(self.db, self.debug);
 
-        let entity = match existing_pk {
-            Some(pk) => {
-                let mut entity = entity;
-                entity.set_primary_key(pk);
-                saver.update(entity)?
+            let entity = match existing_pk {
+                Some(pk) => {
+                    let mut entity = entity;
+                    entity.set_primary_key(pk);
+                    saver.update(entity)?
+                }
+                None => saver.insert(entity)?,
+            };
+
+            Ok(UpsertResult { entity, inserted })
+        })();
+
+        if let Some(trace) = trace {
+            match &result {
+                Ok(_) => trace.finish(1),
+                Err(err) => trace.error(err),
             }
-            None => saver.insert(entity)?,
-        };
+        }
 
-        Ok(UpsertResult { entity, inserted })
+        result
     }
 
     fn upsert_merge_result<F>(
@@ -256,38 +290,56 @@ where
     where
         F: FnOnce(E, E) -> E,
     {
-        self.debug_log(format!(
-            "[debug] upsert merge on {} (unique index: {})",
+        let trace = start_exec_trace(
+            self.trace,
+            TraceExecutorKind::Upsert,
             E::PATH,
-            index.fields.join(", ")
-        ));
-        // Recovery is mutation-only to keep read paths side-effect free.
-        ensure_recovered(&self.db)?;
-        let existing_pk = self.resolve_existing_pk(index, &entity)?;
+            Some(TraceAccess::UniqueIndex { name: index.name }),
+            Some(index.name),
+        );
+        let result = (|| {
+            self.debug_log(format!(
+                "[debug] upsert merge on {} (unique index: {})",
+                E::PATH,
+                index.fields.join(", ")
+            ));
+            // Recovery is mutation-only to keep read paths side-effect free.
+            ensure_recovered(&self.db)?;
+            let existing_pk = self.resolve_existing_pk(index, &entity)?;
 
-        // Keep saver construction local to avoid type/lifetime issues in helpers.
-        let saver = SaveExecutor::new(self.db, self.debug);
+            // Keep saver construction local to avoid type/lifetime issues in helpers.
+            let saver = SaveExecutor::new(self.db, self.debug);
 
-        let result = if let Some(pk) = existing_pk {
-            // Load existing entity by pk and merge caller's entity into it.
-            let existing = self.load_existing(index, pk)?;
-            let mut merged = merge(existing, entity);
-            merged.set_primary_key(pk);
+            let result = if let Some(pk) = existing_pk {
+                // Load existing entity by pk and merge caller's entity into it.
+                let existing = self.load_existing(index, pk)?;
+                let mut merged = merge(existing, entity);
+                merged.set_primary_key(pk);
 
-            let entity = saver.update(merged)?;
-            UpsertResult {
-                entity,
-                inserted: false,
+                let entity = saver.update(merged)?;
+                UpsertResult {
+                    entity,
+                    inserted: false,
+                }
+            } else {
+                let entity = saver.insert(entity)?;
+                UpsertResult {
+                    entity,
+                    inserted: true,
+                }
+            };
+
+            Ok(result)
+        })();
+
+        if let Some(trace) = trace {
+            match &result {
+                Ok(_) => trace.finish(1),
+                Err(err) => trace.error(err),
             }
-        } else {
-            let entity = saver.insert(entity)?;
-            UpsertResult {
-                entity,
-                inserted: true,
-            }
-        };
+        }
 
-        Ok(result)
+        result
     }
 
     fn load_existing(
@@ -296,7 +348,7 @@ where
         pk: E::PrimaryKey,
     ) -> Result<E, InternalError> {
         let data_key = DataKey::new::<E>(pk.into());
-        let raw_data_key = data_key.to_raw();
+        let raw_data_key = data_key.to_raw()?;
         let row = self
             .db
             .context::<E>()

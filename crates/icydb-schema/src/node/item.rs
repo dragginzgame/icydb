@@ -55,16 +55,23 @@ impl ValidateNode for Item {
             match schema.cast_node::<Entity>(relation) {
                 Ok(entity) => {
                     // Step 2: Get target of the relation entity (usually from its primary key field)
-                    let primary_field = entity.get_pk_field();
-                    let relation_target = &primary_field.value.item.target;
+                    if let Some(primary_field) = entity.get_pk_field() {
+                        let relation_target = &primary_field.value.item.target;
 
-                    // Step 3: Compare to self.target()
-                    if &self.target != relation_target {
+                        // Step 3: Compare to self.target()
+                        if &self.target != relation_target {
+                            err!(
+                                errs,
+                                "relation target type mismatch: expected {:?}, found {:?}",
+                                relation_target,
+                                self.target
+                            );
+                        }
+                    } else {
                         err!(
                             errs,
-                            "relation target type mismatch: expected {:?}, found {:?}",
-                            relation_target,
-                            self.target
+                            "relation entity '{relation}' missing primary key field '{0}'",
+                            entity.primary_key
                         );
                     }
                 }

@@ -1,7 +1,7 @@
 use crate::{
     traits::{
         FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        View, ViewError, Visitable,
     },
     value::Value,
 };
@@ -67,9 +67,17 @@ impl Principal {
         Self(WrappedPrincipal::from_slice(slice))
     }
 
-    #[must_use]
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.as_slice().to_vec()
+    /// Encode this principal into bytes, enforcing the max-length invariant.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, PrincipalEncodeError> {
+        let len = self.as_slice().len();
+        if len > Self::MAX_LENGTH_IN_BYTES as usize {
+            return Err(PrincipalEncodeError::TooLarge {
+                len,
+                max: Self::MAX_LENGTH_IN_BYTES as usize,
+            });
+        }
+
+        Ok(self.as_slice().to_vec())
     }
 
     pub const fn try_from_bytes(bytes: &[u8]) -> Result<Self, PrincipalDecodeError> {
@@ -91,10 +99,28 @@ impl Principal {
     }
 }
 
+///
+/// PrincipalDecodeError
+///
+/// Errors returned when decoding a principal from bytes.
+///
+
 #[derive(Debug, ThisError)]
 pub enum PrincipalDecodeError {
     #[error("principal exceeds max length: {len} bytes")]
     TooLarge { len: usize },
+}
+
+///
+/// PrincipalEncodeError
+///
+/// Error returned when encoding a principal for persistence.
+///
+
+#[derive(Debug, ThisError)]
+pub enum PrincipalEncodeError {
+    #[error("principal exceeds max length: {len} bytes (limit {max})")]
+    TooLarge { len: usize, max: usize },
 }
 
 impl TryFrom<&[u8]> for Principal {
@@ -183,8 +209,9 @@ impl SanitizeCustom for Principal {}
 impl UpdateView for Principal {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
         *self = v;
+        Ok(())
     }
 }
 
@@ -201,8 +228,8 @@ impl View for Principal {
         *self
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        view
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
     }
 }
 
@@ -237,7 +264,7 @@ mod tests {
         ];
 
         for original in inputs {
-            let bytes = original.to_bytes();
+            let bytes = original.to_bytes().expect("principal encode");
             let decoded = Principal::try_from_bytes(&bytes).expect("decode should succeed");
             assert_eq!(decoded, original, "Roundtrip failed for {original:?}");
         }
@@ -248,7 +275,7 @@ mod tests {
         for len in 0..=Principal::MAX_LENGTH_IN_BYTES {
             let bytes: Vec<u8> = (0..len).map(u8::try_from).map(Result::unwrap).collect();
             let principal = Principal::from_slice(&bytes);
-            let encoded = principal.to_bytes();
+            let encoded = principal.to_bytes().expect("principal encode");
             assert!(
                 encoded.len() <= Principal::MAX_LENGTH_IN_BYTES as usize,
                 "Encoded size {} exceeded max {}",

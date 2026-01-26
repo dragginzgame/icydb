@@ -2,19 +2,28 @@ mod commit;
 pub mod executor;
 pub mod identity;
 pub mod index;
-pub mod primitives;
 pub mod query;
 pub mod response;
 pub mod store;
 pub mod traits;
 pub mod types;
+mod write;
 
 pub(crate) use commit::*;
+pub(crate) use write::WriteUnit;
 
 use crate::{
     db::{
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor, UpsertExecutor},
         index::IndexStoreRegistry,
+        query::{
+            Query, QueryError,
+            diagnostics::{
+                QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceExecutorKind, finish_event,
+                start_event, trace_access_from_plan,
+            },
+        },
+        response::Response,
         store::DataStoreRegistry,
         traits::FromKey,
     },
@@ -33,6 +42,10 @@ use std::{marker::PhantomData, thread::LocalKey};
 ///
 /// The `Db` acts as the entry point for querying, saving, and deleting entities
 /// within a single canister's store registry.
+///
+/// Schema/model identity must be validated before use. Derive-generated models
+/// uphold identity invariants; manual models should validate once (e.g. via
+/// `SchemaInfo::from_entity_model`) prior to executor use.
 ///
 
 pub struct Db<C: CanisterKind> {
@@ -173,6 +186,44 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         DeleteExecutor::new(self.db, self.debug)
+    }
+
+    //
+    // Query diagnostics
+    //
+
+    /// Plan and return diagnostics for a query without executing it.
+    pub fn diagnose_query<E: EntityKind<Canister = C>>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<QueryDiagnostics, QueryError> {
+        let explain = query.explain()?;
+        Ok(QueryDiagnostics::from(explain))
+    }
+
+    /// Execute a query and return per-execution diagnostics.
+    pub fn execute_with_diagnostics<E: EntityKind<Canister = C>>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<(Response<E>, QueryExecutionDiagnostics), QueryError> {
+        let plan = query.plan()?;
+        let fingerprint = plan.fingerprint();
+        let access = trace_access_from_plan(plan.access());
+        let start = start_event(fingerprint, access, QueryTraceExecutorKind::Load);
+
+        let result = self.with_metrics(|| self.load::<E>().execute(plan));
+        match result {
+            Ok(response) => {
+                let rows = u64::try_from(response.0.len()).unwrap_or(u64::MAX);
+                let finish = finish_event(fingerprint, access, QueryTraceExecutorKind::Load, rows);
+                let diagnostics = QueryExecutionDiagnostics {
+                    fingerprint,
+                    events: vec![start, finish],
+                };
+                Ok((response, diagnostics))
+            }
+            Err(err) => Err(QueryError::Execute(err)),
+        }
     }
 
     //

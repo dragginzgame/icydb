@@ -1,51 +1,82 @@
 use candid::CandidType;
+use core::db::query::SaveQuery;
 use icydb_core as core;
 use serde::{Deserialize, Serialize};
 
 ///
 /// Re-exports
+/// Query planning types are exposed for diagnostics and intent composition.
 ///
 pub use core::db::query::{
-    DeleteQuery, IndexPlan, LoadQuery, QueryError, QueryPlan, QueryPlanner, QueryValidate, SaveMode,
+    DeleteLimit, IntentError, Page, Query, QueryError, QueryMode, ReadConsistency, SaveMode,
+    builder, builder::*, diagnostics, predicate,
 };
 
+pub mod plan {
+    pub use icydb_core::db::query::plan::{
+        ExplainAccessPath, ExplainDeleteLimit, ExplainOrder, ExplainOrderBy, ExplainPagination,
+        ExplainPlan, ExplainPredicate, ExplainProjection, OrderDirection, PlanError,
+        PlanFingerprint,
+    };
+}
+
 ///
-/// SaveQuery
+/// SaveCommand
+///
+/// Serialized save command intended for transport across canister or process
+/// boundaries. This is a low-level wire format, not a fluent API.
+///
+/// Prefer `DbSession::{insert, update, replace}` for ergonomic, typed saves.
 ///
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
-pub struct SaveQuery {
+pub struct SaveCommand {
     pub mode: SaveMode,
     pub bytes: Vec<u8>,
 }
 
-impl SaveQuery {
-    /// Create a new save query for the given mode.
+impl SaveCommand {
+    /// Create a new save command for the given mode.
     #[must_use]
     pub const fn new(mode: SaveMode) -> Self {
         Self {
             mode,
-            bytes: vec![],
+            bytes: Vec::new(),
         }
     }
 
-    /// Use an already-serialized entity payload.
+    /// Attach an already-serialized entity payload.
     #[must_use]
-    pub fn from_bytes(mut self, bytes: &[u8]) -> Self {
+    pub fn with_bytes(mut self, bytes: &[u8]) -> Self {
         self.bytes = bytes.to_vec();
         self
     }
 
-    pub(crate) fn into_inner(self) -> core::db::query::SaveQuery {
-        core::db::query::SaveQuery {
+    pub(crate) fn into_inner(self) -> SaveQuery {
+        SaveQuery {
             mode: self.mode,
             bytes: self.bytes,
         }
     }
+
+    #[must_use]
+    pub const fn insert() -> Self {
+        Self::new(SaveMode::Insert)
+    }
+
+    #[must_use]
+    pub const fn update() -> Self {
+        Self::new(SaveMode::Update)
+    }
+
+    #[must_use]
+    pub const fn replace() -> Self {
+        Self::new(SaveMode::Replace)
+    }
 }
 
-impl From<icydb_core::db::query::SaveQuery> for SaveQuery {
-    fn from(query: icydb_core::db::query::SaveQuery) -> Self {
+impl From<SaveQuery> for SaveCommand {
+    fn from(query: SaveQuery) -> Self {
         Self {
             mode: query.mode,
             bytes: query.bytes,
@@ -53,38 +84,8 @@ impl From<icydb_core::db::query::SaveQuery> for SaveQuery {
     }
 }
 
-impl From<SaveQuery> for icydb_core::db::query::SaveQuery {
-    fn from(query: SaveQuery) -> Self {
+impl From<SaveCommand> for icydb_core::db::query::SaveQuery {
+    fn from(query: SaveCommand) -> Self {
         query.into_inner()
     }
-}
-
-/// Start building a `LoadQuery`.
-#[must_use]
-pub fn load() -> LoadQuery {
-    icydb_core::db::query::load()
-}
-
-/// Start building a `DeleteQuery`.
-#[must_use]
-pub fn delete() -> DeleteQuery {
-    icydb_core::db::query::delete()
-}
-
-/// Build an insert `SaveQuery`.
-#[must_use]
-pub const fn insert() -> SaveQuery {
-    SaveQuery::new(SaveMode::Insert)
-}
-
-/// Build an update `SaveQuery`.
-#[must_use]
-pub const fn update() -> SaveQuery {
-    SaveQuery::new(SaveMode::Update)
-}
-
-/// Build a replace `SaveQuery`.
-#[must_use]
-pub const fn replace() -> SaveQuery {
-    SaveQuery::new(SaveMode::Replace)
 }

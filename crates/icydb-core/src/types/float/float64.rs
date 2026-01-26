@@ -2,8 +2,9 @@ use crate::{
     prelude::*,
     traits::{
         FieldValue, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        UpdateView, ValidateAuto, ValidateCustom, View, ViewError, Visitable,
     },
+    visitor::VisitorContext,
 };
 use candid::CandidType;
 use derive_more::Display;
@@ -184,14 +185,21 @@ impl SanitizeCustom for Float64 {}
 impl UpdateView for Float64 {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
         *self = v;
+        Ok(())
     }
 }
 
 impl ValidateAuto for Float64 {}
 
-impl ValidateCustom for Float64 {}
+impl ValidateCustom for Float64 {
+    fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
+        if !self.0.is_finite() {
+            ctx.issue("Float64 must be finite");
+        }
+    }
+}
 
 impl View for Float64 {
     type ViewType = f64;
@@ -200,16 +208,9 @@ impl View for Float64 {
         self.0
     }
 
-    // SAFETY CONTRACT:
-    // `from_view` MUST only be called on values produced by `to_view` or
-    // equivalent validated sources. Violations are programmer errors and panic.
-    fn from_view(view: f64) -> Self {
-        assert!(
-            view.is_finite(),
-            "Float64::from_view called with non-finite value: {view}"
-        );
-
-        Self(if view == 0.0 { 0.0 } else { view })
+    // NOTE: Non-finite view inputs are rejected during view conversion to avoid panics.
+    fn from_view(view: f64) -> Result<Self, ViewError> {
+        Self::try_new(view).ok_or(ViewError::Float64NonFinite { value: view })
     }
 }
 
@@ -245,9 +246,14 @@ mod tests {
     #[test]
     fn deserialize_rejects_non_finite() {
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            let err =
-                Float64::deserialize(F64Deserializer::<DeError>::new(value)).expect_err("invalid");
-            assert!(err.to_string().contains("invalid Float64 value"));
+            assert!(Float64::deserialize(F64Deserializer::<DeError>::new(value)).is_err());
+        }
+    }
+
+    #[test]
+    fn from_view_rejects_non_finite() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert!(Float64::from_view(value).is_err());
         }
     }
 }

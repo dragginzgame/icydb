@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+ --> tests/ui/executor_requires_executable_plan.rs:7:30
+  |
+7 |     let _ = executor.execute(query);
+  |                      ------- ^^^^^ expected `ExecutablePlan<E>`, found `Query<E>`
+  |                      |
+  |                      arguments to this method are incorrect
+  |
+  = note: expected struct `ExecutablePlan<E>`
+             found struct `icydb_core::db::query::Query<E>`
+note: method defined here
+ --> src/db/executor/load.rs
+  |
+  |     pub fn execute(&self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
+  |            ^^^^^^^

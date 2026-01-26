@@ -1,7 +1,7 @@
 use crate::{
     traits::{
         FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        View, ViewError, Visitable,
     },
     value::Value,
 };
@@ -94,8 +94,9 @@ impl SanitizeCustom for Blob {}
 impl UpdateView for Blob {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
         *self = v;
+        Ok(())
     }
 }
 
@@ -110,8 +111,8 @@ impl View for Blob {
         self.clone()
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        view
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
     }
 }
 

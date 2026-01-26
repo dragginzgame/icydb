@@ -1,4 +1,8 @@
-use crate::{key::Key, traits::Storable};
+use crate::{
+    db::index::RawIndexKey,
+    key::{Key, KeyEncodeError},
+    traits::Storable,
+};
 use candid::CandidType;
 use canic_cdk::structures::storable::Bound;
 use serde::{Deserialize, Serialize};
@@ -44,20 +48,21 @@ pub enum IndexEntryCorruption {
 
     #[error("unique index entry contains {keys} keys")]
     NonUniqueEntry { keys: usize },
+
+    #[error("index entry missing expected entity key: {entity_key} (index {index_key:?})")]
+    MissingKey {
+        index_key: Box<RawIndexKey>,
+        entity_key: Key,
+    },
 }
 
 impl IndexEntryCorruption {
+    // Helper used only for variants with large or representation-sensitive payloads.
     #[must_use]
-    pub const fn message(&self) -> &'static str {
-        match self {
-            Self::TooLarge { .. } => "corrupted index entry: exceeds max size",
-            Self::MissingLength => "corrupted index entry: missing key count",
-            Self::TooManyKeys { .. } => "corrupted index entry: key count exceeds limit",
-            Self::LengthMismatch => "corrupted index entry: length mismatch",
-            Self::InvalidKey => "corrupted index entry: invalid key bytes",
-            Self::DuplicateKey => "corrupted index entry: duplicate key",
-            Self::EmptyEntry => "corrupted index entry: empty entry",
-            Self::NonUniqueEntry { .. } => "corrupted index entry: non-unique entry",
+    pub fn missing_key(index_key: RawIndexKey, entity_key: Key) -> Self {
+        Self::MissingKey {
+            index_key: Box::new(index_key),
+            entity_key,
         }
     }
 }
@@ -70,6 +75,8 @@ impl IndexEntryCorruption {
 pub enum IndexEntryEncodeError {
     #[error("index entry exceeds max keys: {keys} (limit {MAX_INDEX_ENTRY_KEYS})")]
     TooManyKeys { keys: usize },
+    #[error("index entry key encoding failed: {0}")]
+    KeyEncoding(#[from] KeyEncodeError),
 }
 
 impl IndexEntryEncodeError {
@@ -77,6 +84,7 @@ impl IndexEntryEncodeError {
     pub const fn keys(&self) -> usize {
         match self {
             Self::TooManyKeys { keys } => *keys,
+            Self::KeyEncoding(_) => 0,
         }
     }
 }
@@ -154,7 +162,8 @@ impl RawIndexEntry {
         let count = u32::try_from(keys).map_err(|_| IndexEntryEncodeError::TooManyKeys { keys })?;
         out.extend_from_slice(&count.to_be_bytes());
         for key in entry.iter_keys() {
-            out.extend_from_slice(&key.to_bytes());
+            let bytes = key.to_bytes()?;
+            out.extend_from_slice(&bytes);
         }
 
         Ok(Self(out))

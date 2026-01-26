@@ -1,10 +1,9 @@
-mod coerce;
 mod context;
 mod delete;
-mod filter;
 mod load;
 mod plan;
 mod save;
+pub(crate) mod trace;
 mod unique;
 mod upsert;
 
@@ -19,25 +18,10 @@ use crate::{
     db::store::DataKey,
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
-use filter::*;
 use thiserror::Error as ThisError;
 
-///
-/// WriteUnit
-///
-/// Conceptual write boundary for intended atomicity (no transactions, no rollback)
-/// NOTE: This is a marker only; atomicity is not enforced.
-///
-
-pub(crate) struct WriteUnit {
-    _label: &'static str,
-}
-
-impl WriteUnit {
-    pub(crate) const fn new(label: &'static str) -> Self {
-        Self { _label: label }
-    }
-}
+#[cfg(test)]
+mod tests;
 
 ///
 /// ExecutorError

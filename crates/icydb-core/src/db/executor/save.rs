@@ -1,23 +1,29 @@
 use crate::{
     db::{
-        CommitDataOp, CommitKind, CommitMarker, Db, begin_commit, ensure_recovered,
-        executor::{ExecutorError, WriteUnit},
+        CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit,
+        ensure_recovered,
+        executor::{
+            ExecutorError,
+            trace::{QueryTraceSink, TraceExecutorKind, start_exec_trace},
+        },
         finish_commit,
         index::{
-            IndexInsertOutcome, IndexRemoveOutcome,
+            IndexKey, IndexStore, MAX_INDEX_ENTRY_BYTES, RawIndexEntry, RawIndexKey,
             plan::{IndexApplyPlan, plan_index_mutation_for_entity},
         },
         query::{SaveMode, SaveQuery},
-        store::{DataKey, RawRow},
+        store::{DataKey, RawDataKey, RawRow},
     },
-    error::{ErrorOrigin, InternalError},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::{deserialize, serialize},
-    traits::{EntityKind, Path},
+    traits::{EntityKind, Path, Storable},
     validate::validate,
 };
-use std::marker::PhantomData;
+use std::{
+    borrow::Cow, cell::RefCell, collections::BTreeMap, marker::PhantomData, thread::LocalKey,
+};
 
 ///
 /// SaveExecutor
@@ -27,6 +33,7 @@ use std::marker::PhantomData;
 pub struct SaveExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
+    trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
@@ -40,8 +47,19 @@ impl<E: EntityKind> SaveExecutor<E> {
         Self {
             db,
             debug,
+            trace: None,
             _marker: PhantomData,
         }
+    }
+
+    #[must_use]
+    #[allow(dead_code)]
+    pub(crate) const fn with_trace_sink(
+        mut self,
+        sink: Option<&'static dyn QueryTraceSink>,
+    ) -> Self {
+        self.trace = sink;
+        self
     }
 
     #[must_use]
@@ -67,7 +85,7 @@ impl<E: EntityKind> SaveExecutor<E> {
 
     /// Insert a new view, returning the stored view.
     pub fn insert_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        let entity = E::from_view(view);
+        let entity = E::from_view(view)?;
         Ok(self.insert(entity)?.to_view())
     }
 
@@ -78,7 +96,7 @@ impl<E: EntityKind> SaveExecutor<E> {
 
     /// Update an existing view (errors if it does not exist).
     pub fn update_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        let entity = E::from_view(view);
+        let entity = E::from_view(view)?;
 
         Ok(self.update(entity)?.to_view())
     }
@@ -90,7 +108,7 @@ impl<E: EntityKind> SaveExecutor<E> {
 
     /// Replace a view, inserting if missing.
     pub fn replace_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        let entity = E::from_view(view);
+        let entity = E::from_view(view)?;
 
         Ok(self.replace(entity)?.to_view())
     }
@@ -156,139 +174,417 @@ impl<E: EntityKind> SaveExecutor<E> {
     /// NOTE: Deserialization here is over user-supplied bytes. Failures are
     /// considered invalid input rather than storage corruption.
     pub fn execute(&self, query: SaveQuery) -> Result<E, InternalError> {
-        let entity: E = deserialize(&query.bytes)?;
+        let entity: E = deserialize(&query.bytes).map_err(|err| {
+            InternalError::new(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Serialize,
+                format!("save query decode failed: {err}"),
+            )
+        })?;
         self.save_entity(query.mode, entity)
     }
 
+    #[expect(clippy::too_many_lines)]
     fn save_entity(&self, mode: SaveMode, mut entity: E) -> Result<E, InternalError> {
-        let mut span = Span::<E>::new(ExecKind::Save);
-        let ctx = self.db.context::<E>();
-        let _unit = WriteUnit::new("save_entity_stage2_atomic");
-
-        // Recovery is mutation-only to keep read paths side-effect free.
-        ensure_recovered(&self.db)?;
-
-        // Sanitize & validate before key extraction in case PK fields are normalized
-        sanitize(&mut entity)?;
-        validate(&entity)?;
-
-        let key = entity.key();
-        let data_key = DataKey::new::<E>(key);
-        let raw_key = data_key.to_raw();
-
-        self.debug_log(format!(
-            "[debug] save {:?} on {} (key={})",
-            mode,
+        let trace = start_exec_trace(
+            self.trace,
+            TraceExecutorKind::Save,
             E::PATH,
-            data_key
-        ));
-        let old = match mode {
-            SaveMode::Insert => {
-                // Inserts must not load or decode existing rows; absence is expected.
-                if ctx.with_store(|store| store.contains_key(&raw_key))? {
-                    return Err(ExecutorError::KeyExists(data_key).into());
-                }
-                None
-            }
-            SaveMode::Update => {
-                let Some(old_row) = ctx.with_store(|store| store.get(&raw_key))? else {
-                    return Err(InternalError::store_not_found(data_key.to_string()));
-                };
-                Some(old_row.try_decode::<E>().map_err(|err| {
-                    ExecutorError::corruption(
-                        ErrorOrigin::Serialize,
-                        format!("failed to deserialize row: {data_key} ({err})"),
-                    )
-                })?)
-            }
-            SaveMode::Replace => {
-                let old_row = ctx.with_store(|store| store.get(&raw_key))?;
-                old_row
-                    .map(|row| {
-                        row.try_decode::<E>().map_err(|err| {
-                            ExecutorError::corruption(
-                                ErrorOrigin::Serialize,
-                                format!("failed to deserialize row: {data_key} ({err})"),
-                            )
-                        })
-                    })
-                    .transpose()?
-            }
-        };
-
-        let bytes = serialize(&entity)?;
-        let row = RawRow::try_new(bytes)?;
-
-        // Preflight data store availability before index mutations.
-        ctx.with_store(|_| ())?;
-
-        // Stage-2 atomicity:
-        // Prevalidate index/data mutations before the commit marker is written.
-        // After the marker is persisted, only infallible operations or traps remain.
-        let index_plan =
-            plan_index_mutation_for_entity::<E>(&self.db, old.as_ref(), Some(&entity))?;
-        let data_op = CommitDataOp {
-            store: E::Store::PATH.to_string(),
-            key: raw_key.as_bytes().to_vec(),
-            value: Some(row.as_bytes().to_vec()),
-        };
-        let marker = CommitMarker::new(CommitKind::Save, index_plan.commit_ops, vec![data_op])?;
-        let commit = begin_commit(marker)?;
-
-        // FIRST STABLE WRITE: commit marker is persisted; apply phase is infallible or traps.
-        finish_commit(
-            commit,
-            || Self::apply_indexes(&index_plan.apply, old.as_ref(), &entity),
-            || {
-                ctx.with_store_mut(|store| store.insert(raw_key, row))
-                    .expect("data store missing after preflight");
-                span.set_rows(1);
-            },
+            None,
+            Some(save_mode_tag(mode)),
         );
+        let result = (|| {
+            let mut span = Span::<E>::new(ExecKind::Save);
+            let ctx = self.db.context::<E>();
 
-        Ok(entity)
-    }
+            // Recovery is mutation-only to keep read paths side-effect free.
+            ensure_recovered(&self.db)?;
 
-    // ======================================================================
-    // Index maintenance
-    // ======================================================================
+            // Sanitize & validate before key extraction in case PK fields are normalized
+            sanitize(&mut entity)?;
+            validate(&entity)?;
 
-    /// Apply index mutations using an infallible (prevalidated) plan.
-    fn apply_indexes(plans: &[IndexApplyPlan], old: Option<&E>, new: &E) {
-        // Prevalidation guarantees these mutations cannot fail except by trap.
-        for plan in plans {
-            let mut removed = false;
-            let mut inserted = false;
+            let key = entity.key();
+            let data_key = DataKey::new::<E>(key);
+            let raw_key = data_key.to_raw()?;
 
-            plan.store.with_borrow_mut(|s| {
-                if let Some(old) = old {
-                    let outcome = s
-                        .remove_index_entry(old, plan.index)
-                        .expect("index remove failed after prevalidation");
-                    if outcome == IndexRemoveOutcome::Removed {
-                        removed = true;
+            self.debug_log(format!(
+                "[debug] save {:?} on {} (key={})",
+                mode,
+                E::PATH,
+                data_key
+            ));
+            let (old, old_raw) = match mode {
+                SaveMode::Insert => {
+                    // Inserts must not load or decode existing rows; absence is expected.
+                    if ctx.with_store(|store| store.contains_key(&raw_key))? {
+                        return Err(ExecutorError::KeyExists(data_key).into());
                     }
+                    (None, None)
+                }
+                SaveMode::Update => {
+                    let Some(old_row) = ctx.with_store(|store| store.get(&raw_key))? else {
+                        return Err(InternalError::store_not_found(data_key.to_string()));
+                    };
+                    let old = old_row.try_decode::<E>().map_err(|err| {
+                        ExecutorError::corruption(
+                            ErrorOrigin::Serialize,
+                            format!("failed to deserialize row: {data_key} ({err})"),
+                        )
+                    })?;
+                    (Some(old), Some(old_row))
+                }
+                SaveMode::Replace => {
+                    let old_row = ctx.with_store(|store| store.get(&raw_key))?;
+                    let old = old_row
+                        .as_ref()
+                        .map(|row| {
+                            row.try_decode::<E>().map_err(|err| {
+                                ExecutorError::corruption(
+                                    ErrorOrigin::Serialize,
+                                    format!("failed to deserialize row: {data_key} ({err})"),
+                                )
+                            })
+                        })
+                        .transpose()?;
+                    (old, old_row)
+                }
+            };
+
+            let bytes = serialize(&entity)?;
+            let row = RawRow::try_new(bytes)?;
+
+            // Preflight data store availability before index mutations.
+            ctx.with_store(|_| ())?;
+
+            // Stage-2 atomicity:
+            // Prevalidate index/data mutations before the commit marker is written.
+            // After the marker is persisted, mutations run inside a WriteUnit so
+            // failures roll back before the marker is cleared.
+            let index_plan =
+                plan_index_mutation_for_entity::<E>(&self.db, old.as_ref(), Some(&entity))?;
+            let data_op = CommitDataOp {
+                store: E::Store::PATH.to_string(),
+                key: raw_key.as_bytes().to_vec(),
+                value: Some(row.as_bytes().to_vec()),
+            };
+            let marker = CommitMarker::new(CommitKind::Save, index_plan.commit_ops, vec![data_op])?;
+            let (index_apply_stores, index_rollback_ops) =
+                Self::prepare_index_save_ops(&index_plan.apply, &marker.index_ops)?;
+            let (index_removes, index_inserts) = Self::plan_index_metrics(old.as_ref(), &entity)?;
+            let data_rollback_ops = Self::prepare_data_save_ops(&marker.data_ops, old_raw)?;
+            let commit = begin_commit(marker)?;
+
+            // FIRST STABLE WRITE: commit marker is persisted before any mutations.
+            finish_commit(commit, |guard| {
+                let mut unit = WriteUnit::new("save_entity_atomic");
+                let index_rollback_ops = index_rollback_ops;
+                unit.record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
+                Self::apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores);
+                for _ in 0..index_removes {
+                    sink::record(MetricsEvent::IndexRemove {
+                        entity_path: E::PATH,
+                    });
+                }
+                for _ in 0..index_inserts {
+                    sink::record(MetricsEvent::IndexInsert {
+                        entity_path: E::PATH,
+                    });
                 }
 
-                let outcome = s
-                    .insert_index_entry(new, plan.index)
-                    .expect("index insert failed after prevalidation");
-                if outcome == IndexInsertOutcome::Inserted {
-                    inserted = true;
-                }
-            });
+                unit.checkpoint("save_entity_after_indexes")?;
 
-            if removed {
-                sink::record(MetricsEvent::IndexRemove {
-                    entity_path: E::PATH,
-                });
-            }
+                let data_rollback_ops = data_rollback_ops;
+                let db = self.db;
+                unit.record_rollback(move || Self::apply_data_rollbacks(db, data_rollback_ops));
+                unit.run(|| Self::apply_marker_data_ops(&guard.marker.data_ops, &ctx))?;
 
-            if inserted {
-                sink::record(MetricsEvent::IndexInsert {
-                    entity_path: E::PATH,
-                });
+                span.set_rows(1);
+                unit.commit();
+                Ok(())
+            })?;
+
+            Ok(entity)
+        })();
+
+        if let Some(trace) = trace {
+            match &result {
+                Ok(_) => trace.finish(1),
+                Err(err) => trace.error(err),
             }
         }
+
+        result
     }
+
+    // ======================================================================
+    // Commit-marker apply (mechanical)
+    // ======================================================================
+
+    /// Precompute index mutation metrics before the commit marker is persisted.
+    fn plan_index_metrics(old: Option<&E>, new: &E) -> Result<(usize, usize), InternalError> {
+        let mut removes = 0usize;
+        let mut inserts = 0usize;
+
+        for index in E::INDEXES {
+            if let Some(old) = old
+                && IndexKey::new(old, index)?.is_some()
+            {
+                removes = removes.saturating_add(1);
+            }
+            if IndexKey::new(new, index)?.is_some() {
+                inserts = inserts.saturating_add(1);
+            }
+        }
+
+        Ok((removes, inserts))
+    }
+
+    /// Resolve commit index ops into stores and capture rollback entries.
+    #[allow(clippy::type_complexity)]
+    fn prepare_index_save_ops(
+        plans: &[IndexApplyPlan],
+        ops: &[CommitIndexOp],
+    ) -> Result<
+        (
+            Vec<&'static LocalKey<RefCell<IndexStore>>>,
+            Vec<PreparedIndexRollback>,
+        ),
+        InternalError,
+    > {
+        // Phase 1: map index store paths to store handles.
+        let mut stores = BTreeMap::new();
+        for plan in plans {
+            stores.insert(plan.index.store, plan.store);
+        }
+
+        let mut apply_stores = Vec::with_capacity(ops.len());
+        let mut rollbacks = Vec::with_capacity(ops.len());
+
+        // Phase 2: validate marker ops and snapshot current entries for rollback.
+        for op in ops {
+            let store = stores.get(op.store.as_str()).ok_or_else(|| {
+                InternalError::new(
+                    ErrorClass::Internal,
+                    ErrorOrigin::Index,
+                    format!(
+                        "commit marker references unknown index store '{}' ({})",
+                        op.store,
+                        E::PATH
+                    ),
+                )
+            })?;
+            if op.key.len() != IndexKey::STORED_SIZE as usize {
+                return Err(InternalError::new(
+                    ErrorClass::Internal,
+                    ErrorOrigin::Index,
+                    format!(
+                        "commit marker index key length {} does not match {} ({})",
+                        op.key.len(),
+                        IndexKey::STORED_SIZE,
+                        E::PATH
+                    ),
+                ));
+            }
+            if let Some(value) = &op.value
+                && value.len() > MAX_INDEX_ENTRY_BYTES as usize
+            {
+                return Err(InternalError::new(
+                    ErrorClass::Internal,
+                    ErrorOrigin::Index,
+                    format!(
+                        "commit marker index entry exceeds max size: {} bytes ({})",
+                        value.len(),
+                        E::PATH
+                    ),
+                ));
+            }
+
+            let raw_key = RawIndexKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
+            let existing = store.with_borrow(|s| s.get(&raw_key));
+            if op.value.is_none() && existing.is_none() {
+                return Err(InternalError::new(
+                    ErrorClass::Internal,
+                    ErrorOrigin::Index,
+                    format!(
+                        "commit marker index op missing entry before save: {} ({})",
+                        op.store,
+                        E::PATH
+                    ),
+                ));
+            }
+
+            apply_stores.push(*store);
+            rollbacks.push(PreparedIndexRollback {
+                store,
+                key: raw_key,
+                value: existing,
+            });
+        }
+
+        Ok((apply_stores, rollbacks))
+    }
+
+    /// Validate commit data ops and prepare rollback rows for the save.
+    fn prepare_data_save_ops(
+        ops: &[CommitDataOp],
+        old_row: Option<RawRow>,
+    ) -> Result<Vec<PreparedDataRollback>, InternalError> {
+        if ops.len() != 1 {
+            return Err(InternalError::new(
+                ErrorClass::Internal,
+                ErrorOrigin::Store,
+                format!(
+                    "commit marker save expects 1 data op, found {} ({})",
+                    ops.len(),
+                    E::PATH
+                ),
+            ));
+        }
+
+        let op = &ops[0];
+        if op.store != E::Store::PATH {
+            return Err(InternalError::new(
+                ErrorClass::Internal,
+                ErrorOrigin::Store,
+                format!(
+                    "commit marker references unexpected data store '{}' ({})",
+                    op.store,
+                    E::PATH
+                ),
+            ));
+        }
+        if op.key.len() != DataKey::STORED_SIZE as usize {
+            return Err(InternalError::new(
+                ErrorClass::Internal,
+                ErrorOrigin::Store,
+                format!(
+                    "commit marker data key length {} does not match {} ({})",
+                    op.key.len(),
+                    DataKey::STORED_SIZE,
+                    E::PATH
+                ),
+            ));
+        }
+        let Some(value) = &op.value else {
+            return Err(InternalError::new(
+                ErrorClass::Internal,
+                ErrorOrigin::Store,
+                format!("commit marker save missing data payload ({})", E::PATH),
+            ));
+        };
+        if value.len() > crate::db::store::MAX_ROW_BYTES as usize {
+            return Err(InternalError::new(
+                ErrorClass::Internal,
+                ErrorOrigin::Store,
+                format!(
+                    "commit marker data payload exceeds max size: {} bytes ({})",
+                    value.len(),
+                    E::PATH
+                ),
+            ));
+        }
+
+        let raw_key = RawDataKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
+        Ok(vec![PreparedDataRollback {
+            key: raw_key,
+            value: old_row,
+        }])
+    }
+
+    /// Apply commit marker index ops using pre-resolved stores.
+    fn apply_marker_index_ops(
+        ops: &[CommitIndexOp],
+        stores: Vec<&'static LocalKey<RefCell<IndexStore>>>,
+    ) {
+        debug_assert_eq!(
+            ops.len(),
+            stores.len(),
+            "commit marker index ops length mismatch"
+        );
+
+        for (op, store) in ops.iter().zip(stores.into_iter()) {
+            debug_assert_eq!(op.key.len(), IndexKey::STORED_SIZE as usize);
+            let raw_key = RawIndexKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
+
+            store.with_borrow_mut(|s| {
+                if let Some(value) = &op.value {
+                    debug_assert!(value.len() <= MAX_INDEX_ENTRY_BYTES as usize);
+                    let raw_entry = RawIndexEntry::from_bytes(Cow::Borrowed(value.as_slice()));
+                    s.insert(raw_key, raw_entry);
+                } else {
+                    s.remove(&raw_key);
+                }
+            });
+        }
+    }
+
+    /// Apply rollback mutations for index entries using raw bytes.
+    fn apply_index_rollbacks(ops: Vec<PreparedIndexRollback>) {
+        for op in ops {
+            op.store.with_borrow_mut(|s| {
+                if let Some(value) = op.value {
+                    s.insert(op.key, value);
+                } else {
+                    s.remove(&op.key);
+                }
+            });
+        }
+    }
+
+    /// Apply commit marker data ops to the data store.
+    fn apply_marker_data_ops(
+        ops: &[CommitDataOp],
+        ctx: &crate::db::executor::Context<'_, E>,
+    ) -> Result<(), InternalError> {
+        for op in ops {
+            debug_assert!(op.value.is_some());
+            let Some(value) = op.value.as_ref() else {
+                return Err(InternalError::new(
+                    ErrorClass::Internal,
+                    ErrorOrigin::Store,
+                    format!("commit marker save missing data payload ({})", E::PATH),
+                ));
+            };
+            let raw_key = RawDataKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
+            let raw_value = RawRow::from_bytes(Cow::Borrowed(value.as_slice()));
+            ctx.with_store_mut(|s| s.insert(raw_key, raw_value))?;
+        }
+        Ok(())
+    }
+
+    /// Apply rollback mutations for saved rows.
+    fn apply_data_rollbacks(db: Db<E::Canister>, ops: Vec<PreparedDataRollback>) {
+        let ctx = db.context::<E>();
+        for op in ops {
+            let _ = ctx.with_store_mut(|s| {
+                if let Some(value) = op.value {
+                    s.insert(op.key, value);
+                } else {
+                    s.remove(&op.key);
+                }
+            });
+        }
+    }
+}
+
+const fn save_mode_tag(mode: SaveMode) -> &'static str {
+    match mode {
+        SaveMode::Insert => "insert",
+        SaveMode::Update => "update",
+        SaveMode::Replace => "replace",
+    }
+}
+
+/// Rollback descriptor for index mutations recorded in a commit marker.
+struct PreparedIndexRollback {
+    store: &'static LocalKey<RefCell<IndexStore>>,
+    key: RawIndexKey,
+    value: Option<RawIndexEntry>,
+}
+
+/// Rollback descriptor for data mutations recorded in a commit marker.
+struct PreparedDataRollback {
+    key: RawDataKey,
+    value: Option<RawRow>,
 }

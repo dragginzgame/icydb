@@ -35,7 +35,7 @@
 //!
 //! - `db`
 //!   The public database façade: session handles, query builders,
-//!   executors, and typed responses.
+//!   and typed responses.
 //!
 //! ## Preludes
 //!
@@ -59,8 +59,8 @@ extern crate self as icydb;
 // crates
 pub use icydb_build as build;
 pub use icydb_build::build;
-pub use icydb_macros as macros;
 pub use icydb_schema as schema;
+pub use icydb_schema_derive as macros;
 
 // core modules
 pub use icydb_core::{key, model, obs, traits, types, value, view, visitor};
@@ -75,14 +75,6 @@ pub use error::Error;
 #[doc(hidden)]
 pub mod __internal {
     pub use icydb_core as core;
-
-    use crate::db::DbSession;
-    use core::traits::CanisterKind;
-
-    #[must_use]
-    pub const fn db_session<C: CanisterKind>(db: core::db::Db<C>) -> DbSession<C> {
-        DbSession::from_core(db)
-    }
 }
 
 /// re-exports
@@ -109,21 +101,17 @@ pub mod prelude {
     pub use crate::{
         db,
         db::{
-            primitives::{
-                self, Cmp, FilterClause, FilterDsl, FilterExpr, FilterExt as _, LimitExpr,
-                LimitExt as _, SortExpr, SortExt as _,
-            },
             query,
+            query::builder::*,
             response::{Response, ResponseExt},
         },
         key::Key,
         traits::{
-            CreateView as _, EntityKind as _, FilterView as _, Inner as _, Path as _,
-            UpdateView as _, View as _,
+            CreateView as _, EntityKind as _, Inner as _, Path as _, UpdateView as _, View as _,
         },
         types::*,
         value::Value,
-        view::{Create, Filter, Update, View},
+        view::{Create, Update, View},
     };
     pub use candid::CandidType;
     pub use serde::{Deserialize, Serialize};
@@ -141,13 +129,8 @@ pub mod design {
 
         pub use crate::{
             base, db,
-            db::{
-                primitives::{
-                    self, Cmp, FilterClause, FilterDsl, FilterExpr, FilterExt as _, LimitExpr,
-                    LimitExt as _, SortExpr, SortExt as _,
-                },
-                response::ResponseExt as _,
-            },
+            db::query::builder::*,
+            db::response::ResponseExt as _,
             key::Key,
             macros::*,
             traits::{

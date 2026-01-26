@@ -1,92 +1,30 @@
-mod delete;
-mod load;
-mod planner;
+//! Query Builder modules.
+//!
+//! Predicate semantics are defined in `docs/QUERY_BUILDER.md` and are the
+//! canonical contract for evaluation, coercion, and normalization.
+
+pub mod builder;
+pub mod diagnostics;
+pub mod intent;
+pub mod plan;
+pub mod predicate;
 mod save;
 
-pub use delete::*;
-pub use load::*;
-pub use planner::*;
+pub use builder::*;
+pub use diagnostics::{
+    QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceAccess, QueryTraceEvent,
+    QueryTraceExecutorKind,
+};
+pub use intent::{DeleteLimit, IntentError, Page, Query, QueryError, QueryMode};
 pub use save::*;
 
-///
-/// Query Prelude
-///
-
-pub mod prelude {
-    pub use crate::db::{
-        primitives::{
-            filter::{FilterDsl, FilterExt as _},
-            limit::LimitExt as _,
-            sort::SortExt as _,
-        },
-        query,
-    };
-}
-
-use crate::{
-    error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::EntityKind,
-};
-use thiserror::Error as ThisError;
-
-///
-/// QueryError
-///
-
-#[derive(Debug, ThisError)]
-pub enum QueryError {
-    #[error("invalid filter field '{0}'")]
-    InvalidFilterField(String),
-
-    #[error("invalid filter value: {0}")]
-    InvalidFilterValue(String),
-
-    #[error("invalid sort field '{0}'")]
-    InvalidSortField(String),
-}
-
-impl QueryError {
-    pub(crate) const fn class(&self) -> ErrorClass {
-        match self {
-            Self::InvalidFilterField(_)
-            | Self::InvalidFilterValue(_)
-            | Self::InvalidSortField(_) => ErrorClass::Unsupported,
-        }
-    }
-}
-
-impl From<QueryError> for InternalError {
-    fn from(err: QueryError) -> Self {
-        Self::new(err.class(), ErrorOrigin::Query, err.to_string())
-    }
-}
-
-///
-/// QueryValidate Trait
-///
-
-pub trait QueryValidate<E: EntityKind> {
-    fn validate(&self) -> Result<(), QueryError>;
-}
-
-impl<E: EntityKind, T: QueryValidate<E>> QueryValidate<E> for Box<T> {
-    fn validate(&self) -> Result<(), QueryError> {
-        (**self).validate()
-    }
-}
-
-// load
-#[must_use]
-/// Start building a `LoadQuery`.
-pub fn load() -> LoadQuery {
-    LoadQuery::new()
-}
-
-// delete
-#[must_use]
-/// Start building a `DeleteQuery`.
-pub fn delete() -> DeleteQuery {
-    DeleteQuery::new()
+/// Missing-row handling policy for query execution.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReadConsistency {
+    /// Missing rows are ignored (no error).
+    MissingOk,
+    /// Missing rows are treated as corruption.
+    Strict,
 }
 
 // create

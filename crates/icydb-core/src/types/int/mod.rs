@@ -6,7 +6,7 @@ use crate::{
     prelude::*,
     traits::{
         FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        View, ViewError, Visitable,
     },
 };
 use candid::{CandidType, Int as WrappedInt};
@@ -93,8 +93,9 @@ impl Sum for Int {
 impl UpdateView for Int {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
         *self = v;
+        Ok(())
     }
 }
 
@@ -109,8 +110,8 @@ impl View for Int {
         self.clone()
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        view
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
     }
 }
 

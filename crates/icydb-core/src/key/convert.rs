@@ -1,5 +1,5 @@
 use crate::{
-    key::core::Key,
+    key::Key,
     traits::FieldValue,
     types::{Account, Principal, Subaccount, Timestamp, Ulid, Unit},
     value::Value,

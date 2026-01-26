@@ -1,7 +1,7 @@
 use crate::{
     traits::{
         FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        UpdateView, ValidateAuto, ValidateCustom, View, ViewError, Visitable,
     },
     value::Value,
 };
@@ -160,8 +160,9 @@ impl SanitizeCustom for Timestamp {}
 impl UpdateView for Timestamp {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
         *self = v;
+        Ok(())
     }
 }
 
@@ -176,8 +177,8 @@ impl View for Timestamp {
         self.0
     }
 
-    fn from_view(view: Self::ViewType) -> Self {
-        Self(view)
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(Self(view))
     }
 }
 

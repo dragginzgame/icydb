@@ -2,14 +2,17 @@ use crate::{
     db::{
         Db,
         executor::ExecutorError,
-        query::QueryPlan,
+        query::{
+            ReadConsistency,
+            plan::{AccessPath, AccessPlan},
+        },
         store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorOrigin, InternalError},
     key::Key,
     traits::{EntityKind, Path},
 };
-use std::{marker::PhantomData, ops::Bound};
+use std::{collections::HashSet, marker::PhantomData, ops::Bound};
 
 ///
 /// Context
@@ -49,7 +52,7 @@ where
     /// Read a row; missing rows return `NotFound`.
     pub fn read(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
-            let raw = key.to_raw();
+            let raw = key.to_raw()?;
             s.get(&raw)
                 .ok_or_else(|| InternalError::store_not_found(key.to_string()))
         })?
@@ -58,7 +61,7 @@ where
     /// Read a row strictly; missing rows surface as corruption.
     pub fn read_strict(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
-            let raw = key.to_raw();
+            let raw = key.to_raw()?;
             s.get(&raw).ok_or_else(|| {
                 ExecutorError::corruption(ErrorOrigin::Store, format!("missing row: {key}")).into()
             })
@@ -66,78 +69,89 @@ where
     }
 
     ///
-    /// Analyze Plan
+    /// Analyze Access Path
     ///
 
-    /// Compute candidate data keys for the given query plan.
+    /// Compute candidate data keys for the given access path.
     ///
+    /// NOTE: This helper is used for key analysis and set operations. It does
+    /// not uniformly deduplicate keys across all access paths; row-loading
+    /// helpers are responsible for enforcing deduplication where required.
     /// Note: index candidates are returned in deterministic key order.
     /// This ordering is for stability only and does not imply semantic ordering.
-    pub fn candidates_from_plan(&self, plan: QueryPlan) -> Result<Vec<DataKey>, InternalError> {
-        let is_index_plan = matches!(&plan, QueryPlan::Index(_));
+    pub(crate) fn candidates_from_access(
+        &self,
+        access: &AccessPath,
+    ) -> Result<Vec<DataKey>, InternalError> {
+        let is_index_path = matches!(access, AccessPath::IndexPrefix { .. });
 
-        let mut candidates = match plan {
-            QueryPlan::Keys(keys) => Self::to_data_keys(keys),
-
-            QueryPlan::Range(start, end) => self.with_store(|s| {
-                let start = Self::to_data_key(start);
-                let end = Self::to_data_key(end);
-                let start_raw = start.to_raw();
-                let end_raw = end.to_raw();
+        let mut candidates = match access {
+            AccessPath::ByKey(key) => Self::data_keys(vec![*key]),
+            AccessPath::ByKeys(keys) => Self::data_keys(keys.clone()),
+            AccessPath::KeyRange { start, end } => self.with_store(|s| {
+                let start = Self::data_key(*start);
+                let end = Self::data_key(*end);
+                let start_raw = start.to_raw()?;
+                let end_raw = end.to_raw()?;
 
                 s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
                     .map(|e| Self::decode_data_key(e.key()))
                     .collect::<Result<Vec<_>, _>>()
             })??,
-
-            QueryPlan::FullScan => self.with_store(|s| {
+            AccessPath::FullScan => self.with_store(|s| {
                 let start = DataKey::lower_bound::<E>();
                 let end = DataKey::upper_bound::<E>();
-                let start_raw = start.to_raw();
-                let end_raw = end.to_raw();
+                let start_raw = start.to_raw()?;
+                let end_raw = end.to_raw()?;
 
                 s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
                     .map(|entry| Self::decode_data_key(entry.key()))
                     .collect::<Result<Vec<_>, _>>()
             })??,
+            AccessPath::IndexPrefix { index, values } => {
+                let index_store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
 
-            QueryPlan::Index(index_plan) => {
-                let index_store = self
-                    .db
-                    .with_index(|reg| reg.try_get_store(index_plan.index.store))?;
-
-                index_store.with_borrow(|istore| {
-                    istore
-                        .resolve_data_values::<E>(index_plan.index, &index_plan.values)
-                        .map_err(|msg| ExecutorError::corruption(ErrorOrigin::Index, msg))
-                })?
+                index_store.with_borrow(|istore| istore.resolve_data_values::<E>(index, values))?
             }
         };
 
-        if is_index_plan {
+        if is_index_path {
             candidates.sort_unstable();
         }
 
         Ok(candidates)
     }
 
-    /// Load data rows for the given query plan.
-    pub fn rows_from_plan(&self, plan: QueryPlan) -> Result<Vec<DataRow>, InternalError> {
-        match plan {
-            QueryPlan::Keys(keys) => {
-                let data_keys = Self::to_data_keys(keys);
-                self.load_many(&data_keys)
+    /// Load data rows for the given access path.
+    ///
+    /// NOTE: This is where access-path semantics are enforced (including
+    /// deduplication). Do not assume `candidates_from_access` can substitute
+    /// for this behavior.
+    pub(crate) fn rows_from_access(
+        &self,
+        access: &AccessPath,
+        consistency: ReadConsistency,
+    ) -> Result<Vec<DataRow>, InternalError> {
+        match access {
+            AccessPath::ByKey(key) => {
+                let data_keys = Self::data_keys(vec![*key]);
+                self.load_many_with_consistency(&data_keys, consistency)
             }
-            QueryPlan::Range(start, end) => {
-                let start = Self::to_data_key(start);
-                let end = Self::to_data_key(end);
+            AccessPath::ByKeys(keys) => {
+                let keys = Self::dedup_keys(keys.clone());
+                let data_keys = Self::data_keys(keys);
+                self.load_many_with_consistency(&data_keys, consistency)
+            }
+            AccessPath::KeyRange { start, end } => {
+                let start = Self::data_key(*start);
+                let end = Self::data_key(*end);
                 self.load_range(start, end)
             }
-            QueryPlan::FullScan => self.with_store(|s| {
+            AccessPath::FullScan => self.with_store(|s| {
                 let start = DataKey::lower_bound::<E>();
                 let end = DataKey::upper_bound::<E>();
-                let start_raw = start.to_raw();
-                let end_raw = end.to_raw();
+                let start_raw = start.to_raw()?;
+                let end_raw = end.to_raw()?;
 
                 s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
                     .map(|entry| {
@@ -146,108 +160,25 @@ where
                     })
                     .collect::<Result<Vec<_>, InternalError>>()
             })?,
-            QueryPlan::Index(_) => {
-                let data_keys = self.candidates_from_plan(plan)?;
-                self.load_many(&data_keys)
+            AccessPath::IndexPrefix { .. } => {
+                let data_keys = self.candidates_from_access(access)?;
+                self.load_many_with_consistency(&data_keys, consistency)
             }
         }
     }
 
-    /// Fetch rows with pagination applied as early as possible (pre-deserialization),
-    /// only when no additional filtering or sorting is required by the executor.
-    pub fn rows_from_plan_with_pagination(
+    /// Load data rows for a composite access plan.
+    pub(crate) fn rows_from_access_plan(
         &self,
-        plan: QueryPlan,
-        offset: u32,
-        limit: Option<u32>,
+        access: &AccessPlan,
+        consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError> {
-        let skip = offset as usize;
-        let take = limit.map(|l| l as usize);
-
-        match plan {
-            QueryPlan::Keys(keys) => {
-                // Apply pagination to keys before loading
-                let mut keys = keys;
-                let total = keys.len();
-                let (start, end) = Self::slice_bounds(total, offset, limit);
-
-                if start >= end {
-                    return Ok(Vec::new());
-                }
-
-                let paged = keys.drain(start..end).collect::<Vec<_>>();
-                let data_keys = Self::to_data_keys(paged);
-
-                self.load_many(&data_keys)
-            }
-
-            QueryPlan::Range(start, end) => {
-                let start = Self::to_data_key(start);
-                let end = Self::to_data_key(end);
-                let start_raw = start.to_raw();
-                let end_raw = end.to_raw();
-
-                self.with_store(|s| {
-                    let base = s.range((Bound::Included(start_raw), Bound::Included(end_raw)));
-                    let cap = take.unwrap_or(0);
-                    let mut out = Vec::with_capacity(cap);
-                    match take {
-                        Some(t) => {
-                            for entry in base.skip(skip).take(t) {
-                                let dk = Self::decode_data_key(entry.key())?;
-                                out.push((dk, entry.value()));
-                            }
-                        }
-                        None => {
-                            for entry in base.skip(skip) {
-                                let dk = Self::decode_data_key(entry.key())?;
-                                out.push((dk, entry.value()));
-                            }
-                        }
-                    }
-                    Ok::<_, InternalError>(out)
-                })?
-            }
-
-            QueryPlan::FullScan => self.with_store(|s| {
-                let start = DataKey::lower_bound::<E>();
-                let end = DataKey::upper_bound::<E>();
-                let start_raw = start.to_raw();
-                let end_raw = end.to_raw();
-
-                let base = s.range((Bound::Included(start_raw), Bound::Included(end_raw)));
-                let cap = take.unwrap_or(0);
-                let mut out = Vec::with_capacity(cap);
-                match take {
-                    Some(t) => {
-                        for entry in base.skip(skip).take(t) {
-                            let dk = Self::decode_data_key(entry.key())?;
-                            out.push((dk, entry.value()));
-                        }
-                    }
-                    None => {
-                        for entry in base.skip(skip) {
-                            let dk = Self::decode_data_key(entry.key())?;
-                            out.push((dk, entry.value()));
-                        }
-                    }
-                }
-                Ok::<_, InternalError>(out)
-            })?,
-
-            QueryPlan::Index(_) => {
-                // Resolve candidate keys from index, then paginate before loading
-                let mut data_keys = self.candidates_from_plan(plan)?;
-                let total = data_keys.len();
-                let (start, end) = Self::slice_bounds(total, offset, limit);
-
-                if start >= end {
-                    return Ok(Vec::new());
-                }
-
-                let paged = data_keys.drain(start..end).collect::<Vec<_>>();
-
-                self.load_many(&paged)
+        match access {
+            AccessPlan::Path(path) => self.rows_from_access(path, consistency),
+            AccessPlan::Union(_) | AccessPlan::Intersection(_) => {
+                let keys = self.candidate_keys_for_plan(access)?;
+                let keys = keys.into_iter().collect::<Vec<_>>();
+                self.load_many_with_consistency(&keys, consistency)
             }
         }
     }
@@ -256,38 +187,58 @@ where
     /// Load Helpers
     ///
 
-    fn to_data_key(key: Key) -> DataKey {
+    fn data_key(key: Key) -> DataKey {
         DataKey::new::<E>(key)
     }
 
-    fn to_data_keys(keys: Vec<Key>) -> Vec<DataKey> {
-        keys.into_iter().map(Self::to_data_key).collect()
+    fn data_keys(keys: Vec<Key>) -> Vec<DataKey> {
+        keys.into_iter().map(Self::data_key).collect()
     }
 
-    fn slice_bounds(total: usize, offset: u32, limit: Option<u32>) -> (usize, usize) {
-        let start = (offset as usize).min(total);
-        let end = match limit {
-            Some(l) => start.saturating_add(l as usize).min(total),
-            None => total,
-        };
-
-        (start, end)
+    fn dedup_keys(keys: Vec<Key>) -> Vec<Key> {
+        let mut seen = HashSet::with_capacity(keys.len());
+        let mut out = Vec::with_capacity(keys.len());
+        for key in keys {
+            if seen.insert(key) {
+                out.push(key);
+            }
+        }
+        out
     }
 
-    fn load_many(&self, keys: &[DataKey]) -> Result<Vec<DataRow>, InternalError> {
+    fn load_many_with_consistency(
+        &self,
+        keys: &[DataKey],
+        consistency: ReadConsistency,
+    ) -> Result<Vec<DataRow>, InternalError> {
+        // MissingOk favors idempotency; it may mask index/data divergence during deletes.
         let mut out = Vec::with_capacity(keys.len());
         for k in keys {
-            let row = self.read_strict(k)?;
-            out.push((k.clone(), row));
+            let row = match consistency {
+                ReadConsistency::Strict => self.read_strict(k),
+                ReadConsistency::MissingOk => self.read(k),
+            };
+
+            match row {
+                Ok(row) => out.push((k.clone(), row)),
+                Err(err) => {
+                    if err.is_not_found() {
+                        continue;
+                    }
+                    return Err(err);
+                }
+            }
         }
 
         Ok(out)
     }
 
+    /// Load a contiguous key range directly from the store.
+    /// Range scans implicitly tolerate missing rows by construction.
     fn load_range(&self, start: DataKey, end: DataKey) -> Result<Vec<DataRow>, InternalError> {
         self.with_store(|s| {
-            let start_raw = start.to_raw();
-            let end_raw = end.to_raw();
+            let start_raw = start.to_raw()?;
+            let end_raw = end.to_raw()?;
             s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
                 .map(|e| {
                     let dk = Self::decode_data_key(e.key())?;
@@ -297,22 +248,65 @@ where
         })?
     }
 
+    fn candidate_keys_for_plan(
+        &self,
+        plan: &AccessPlan,
+    ) -> Result<std::collections::BTreeSet<DataKey>, InternalError> {
+        match plan {
+            AccessPlan::Path(path) => {
+                let keys = self.candidates_from_access(path)?;
+                Ok(keys.into_iter().collect())
+            }
+            AccessPlan::Union(children) => {
+                let mut keys = std::collections::BTreeSet::new();
+                for child in children {
+                    keys.extend(self.candidate_keys_for_plan(child)?);
+                }
+                Ok(keys)
+            }
+            AccessPlan::Intersection(children) => {
+                let mut iter = children.iter();
+                let Some(first) = iter.next() else {
+                    return Ok(std::collections::BTreeSet::new());
+                };
+                let mut keys = self.candidate_keys_for_plan(first)?;
+                for child in iter {
+                    let child_keys = self.candidate_keys_for_plan(child)?;
+                    keys.retain(|key| child_keys.contains(key));
+                    if keys.is_empty() {
+                        break;
+                    }
+                }
+                Ok(keys)
+            }
+        }
+    }
+
     /// Deserialize raw data rows into typed entity rows, mapping `DataKey` → `(Key, E)`.
     #[allow(clippy::unused_self)]
     pub fn deserialize_rows(&self, rows: Vec<DataRow>) -> Result<Vec<(Key, E)>, InternalError> {
         rows.into_iter()
             .map(|(k, v)| {
-                v.try_decode::<E>()
-                    .map(|entry| (k.key(), entry))
-                    .map_err(|err| {
-                        ExecutorError::corruption(
-                            ErrorOrigin::Serialize,
-                            format!("failed to deserialize row: {k} ({err})"),
-                        )
-                        .into()
-                    })
+                let entry = v.try_decode::<E>().map_err(|err| {
+                    ExecutorError::corruption(
+                        ErrorOrigin::Serialize,
+                        format!("failed to deserialize row: {k} ({err})"),
+                    )
+                })?;
+
+                let key = k.key();
+                let entity_key = entry.key();
+                if key != entity_key {
+                    return Err(ExecutorError::corruption(
+                        ErrorOrigin::Store,
+                        format!("row key mismatch: expected {key}, found {entity_key}"),
+                    )
+                    .into());
+                }
+
+                Ok((key, entry))
             })
-            .collect()
+            .collect::<_>()
     }
 
     fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
