@@ -204,6 +204,8 @@ fn compare_entities<E: EntityKind>(left: &E, right: &E, order: &OrderSpec) -> Or
         let left_value = left.get_value(field);
         let right_value = right.get_value(field);
 
+        // NOTE: Incomparable values are treated as equal so that stable sorting
+        // preserves input order. This matches SQL-style ORDER BY semantics.
         let ordering = match (left_value, right_value) {
             (None, None) => continue,
             (None, Some(_)) => Ordering::Less,
