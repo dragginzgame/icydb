@@ -7,6 +7,7 @@
 //! - Diagnostics never execute queries unless explicitly requested.
 //! - Diagnostics are observational only; they are not correctness proofs.
 
+pub use crate::db::executor::trace::{QueryTraceEvent, TraceAccess, TraceExecutorKind, TracePhase};
 use crate::db::query::plan::{AccessPath, AccessPlan, ExplainPlan, PlanFingerprint};
 
 ///
@@ -43,18 +44,24 @@ pub struct QueryExecutionDiagnostics {
     pub events: Vec<QueryTraceEvent>,
 }
 
-pub use crate::db::executor::trace::{QueryTraceEvent, TraceAccess, TraceExecutorKind};
-
 /// Public alias for trace access kinds in query diagnostics.
 pub type QueryTraceAccess = TraceAccess;
 
 /// Public alias for trace executor kinds in query diagnostics.
 pub type QueryTraceExecutorKind = TraceExecutorKind;
 
-pub(crate) fn trace_access_from_plan(plan: &AccessPlan) -> Option<TraceAccess> {
+/// Public alias for trace phase kinds in query diagnostics.
+pub type QueryTracePhase = TracePhase;
+
+pub(crate) fn trace_access_from_plan(plan: &AccessPlan) -> TraceAccess {
     match plan {
-        AccessPlan::Path(path) => Some(trace_access_from_path(path)),
-        AccessPlan::Union(_) | AccessPlan::Intersection(_) => None,
+        AccessPlan::Path(path) => trace_access_from_path(path),
+        AccessPlan::Union(children) => TraceAccess::Union {
+            branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
+        },
+        AccessPlan::Intersection(children) => TraceAccess::Intersection {
+            branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
+        },
     }
 }
 

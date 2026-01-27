@@ -291,8 +291,8 @@ fn hash_consistency(hasher: &mut Sha256, consistency: ReadConsistency) {
 
 fn hash_mode(hasher: &mut Sha256, mode: QueryMode) {
     match mode {
-        QueryMode::Load => write_tag(hasher, 0x60),
-        QueryMode::Delete => write_tag(hasher, 0x61),
+        QueryMode::Load(_) => write_tag(hasher, 0x60),
+        QueryMode::Delete(_) => write_tag(hasher, 0x61),
     }
 }
 
@@ -472,8 +472,8 @@ mod tests {
             AccessPath::FullScan,
             crate::db::query::ReadConsistency::MissingOk,
         );
-        plan_a.mode = QueryMode::Delete;
-        plan_b.mode = QueryMode::Delete;
+        plan_a.mode = QueryMode::Delete(crate::db::query::DeleteSpec::new());
+        plan_b.mode = QueryMode::Delete(crate::db::query::DeleteSpec::new());
         plan_a.delete_limit = Some(DeleteLimitSpec { max_rows: 2 });
         plan_b.delete_limit = Some(DeleteLimitSpec { max_rows: 3 });
 

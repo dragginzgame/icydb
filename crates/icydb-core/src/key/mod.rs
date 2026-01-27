@@ -44,8 +44,10 @@ pub enum Key {
 pub enum KeyEncodeError {
     #[error("account encoding failed: {0}")]
     Account(#[from] AccountEncodeError),
+
     #[error("account payload length mismatch: {len} bytes (expected {expected})")]
     AccountLengthMismatch { len: usize, expected: usize },
+
     #[error("principal encoding failed: {0}")]
     Principal(#[from] PrincipalEncodeError),
 }

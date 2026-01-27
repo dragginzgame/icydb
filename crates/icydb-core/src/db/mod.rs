@@ -17,7 +17,7 @@ use crate::{
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor, UpsertExecutor},
         index::IndexStoreRegistry,
         query::{
-            Query, QueryError,
+            Query, QueryError, QueryMode, ReadConsistency, SessionQuery,
             diagnostics::{
                 QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceExecutorKind, finish_event,
                 start_event, trace_access_from_plan,
@@ -142,13 +142,71 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     //
+    // Query entry points
+    //
+
+    ///
+    /// Load Query
+    /// Create a fluent, session-bound load query with default consistency.
+    ///
+    #[must_use]
+    pub const fn load<E>(&self) -> SessionQuery<'_, C, E>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        SessionQuery::new(self, Query::new(ReadConsistency::MissingOk))
+    }
+
+    ///
+    /// Load Query With Consistency
+    /// Create a fluent, session-bound load query with explicit consistency.
+    ///
+    #[must_use]
+    pub const fn load_with_consistency<E>(
+        &self,
+        consistency: ReadConsistency,
+    ) -> SessionQuery<'_, C, E>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        SessionQuery::new(self, Query::new(consistency))
+    }
+
+    ///
+    /// Delete Query
+    /// Create a fluent, session-bound delete query with default consistency.
+    ///
+    #[must_use]
+    pub const fn delete<E>(&self) -> SessionQuery<'_, C, E>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        SessionQuery::new(self, Query::new(ReadConsistency::MissingOk).delete())
+    }
+
+    ///
+    /// Delete Query With Consistency
+    /// Create a fluent, session-bound delete query with explicit consistency.
+    ///
+    #[must_use]
+    pub const fn delete_with_consistency<E>(
+        &self,
+        consistency: ReadConsistency,
+    ) -> SessionQuery<'_, C, E>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        SessionQuery::new(self, Query::new(consistency).delete())
+    }
+
+    //
     // Low-level executors
     //
 
     /// Get a [`LoadExecutor`] for building and executing queries that read entities.
     /// Note: executor methods do not apply the session metrics override.
     #[must_use]
-    pub const fn load<E>(&self) -> LoadExecutor<E>
+    pub const fn load_executor<E>(&self) -> LoadExecutor<E>
     where
         E: EntityKind<Canister = C>,
     {
@@ -181,7 +239,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Get a [`DeleteExecutor`] for deleting entities by key or query.
     /// Note: executor methods do not apply the session metrics override.
     #[must_use]
-    pub const fn delete<E>(&self) -> DeleteExecutor<E>
+    pub const fn delete_executor<E>(&self) -> DeleteExecutor<E>
     where
         E: EntityKind<Canister = C>,
     {
@@ -201,6 +259,20 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(QueryDiagnostics::from(explain))
     }
 
+    /// Execute a query intent using session policy and executor routing.
+    pub fn execute_query<E: EntityKind<Canister = C>>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<Response<E>, QueryError> {
+        let plan = query.plan()?;
+        let result = match query.mode() {
+            QueryMode::Load(_) => self.with_metrics(|| self.load_executor::<E>().execute(plan)),
+            QueryMode::Delete(_) => self.with_metrics(|| self.delete_executor::<E>().execute(plan)),
+        };
+
+        result.map_err(QueryError::Execute)
+    }
+
     /// Execute a query and return per-execution diagnostics.
     pub fn execute_with_diagnostics<E: EntityKind<Canister = C>>(
         &self,
@@ -208,20 +280,29 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(Response<E>, QueryExecutionDiagnostics), QueryError> {
         let plan = query.plan()?;
         let fingerprint = plan.fingerprint();
-        let access = trace_access_from_plan(plan.access());
-        let start = start_event(fingerprint, access, QueryTraceExecutorKind::Load);
+        let access = Some(trace_access_from_plan(plan.access()));
+        let executor = match query.mode() {
+            QueryMode::Load(_) => QueryTraceExecutorKind::Load,
+            QueryMode::Delete(_) => QueryTraceExecutorKind::Delete,
+        };
+        let start = start_event(fingerprint, access, executor);
 
-        let result = self.with_metrics(|| self.load::<E>().execute(plan));
+        let result = match query.mode() {
+            QueryMode::Load(_) => self.with_metrics(|| self.load_executor::<E>().execute(plan)),
+            QueryMode::Delete(_) => self.with_metrics(|| self.delete_executor::<E>().execute(plan)),
+        };
         match result {
             Ok(response) => {
                 let rows = u64::try_from(response.0.len()).unwrap_or(u64::MAX);
-                let finish = finish_event(fingerprint, access, QueryTraceExecutorKind::Load, rows);
+                let finish = finish_event(fingerprint, access, executor, rows);
                 let diagnostics = QueryExecutionDiagnostics {
                     fingerprint,
                     events: vec![start, finish],
                 };
+
                 Ok((response, diagnostics))
             }
+
             Err(err) => Err(QueryError::Execute(err)),
         }
     }

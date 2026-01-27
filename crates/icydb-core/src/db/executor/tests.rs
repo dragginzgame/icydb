@@ -1,4 +1,4 @@
-use super::trace::{QueryTraceEvent, QueryTraceSink, TraceAccess, TraceExecutorKind};
+use super::trace::{QueryTraceEvent, QueryTraceSink, TraceAccess, TraceExecutorKind, TracePhase};
 use super::{DeleteExecutor, LoadExecutor, SaveExecutor, UniqueIndexHandle, resolve_unique_pk};
 use crate::{
     db::{
@@ -10,9 +10,10 @@ use crate::{
             RawIndexEntry, store::IndexRemoveError,
         },
         query::{
-            Query, QueryError, ReadConsistency, eq, gt, in_list,
+            LoadSpec, Query, QueryError, QueryMode, ReadConsistency, eq, gt, in_list,
             plan::{
-                AccessPath, ExecutablePlan, ExplainAccessPath, OrderDirection, OrderSpec, PlanError,
+                AccessPath, AccessPlan, ExecutablePlan, ExplainAccessPath, OrderDirection,
+                OrderSpec, PageSpec, PlanError, ProjectionSpec, logical::LogicalPlan,
             },
             predicate::{
                 Predicate,
@@ -47,8 +48,6 @@ use icydb_schema::{
     types::{Cardinality, Primitive, StoreType},
 };
 use serde::{Deserialize, Serialize};
-
-use crate::db::query::plan::logical::LogicalPlan;
 use std::{
     cell::RefCell,
     mem,
@@ -817,8 +816,8 @@ fn delete_limit_deletes_oldest_rows() {
     let deleter = DeleteExecutor::<TestEntity>::new(DB, false);
     let plan = Query::<TestEntity>::new(ReadConsistency::MissingOk)
         .order_by("name")
-        .delete_limit(2)
         .delete()
+        .limit(2)
         .plan()
         .unwrap();
     let deleted_entities = deleter.execute(plan).unwrap().entities();
@@ -1128,6 +1127,7 @@ fn trace_emits_start_and_finish_for_load() {
     let plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
     let fingerprint = plan.fingerprint();
     let loader = LoadExecutor::<TestEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
+    let access = Some(TraceAccess::FullScan);
 
     let (result, events) = with_trace_events(|| loader.execute(ExecutablePlan::new(plan)));
     let response = result.unwrap();
@@ -1139,12 +1139,223 @@ fn trace_emits_start_and_finish_for_load() {
             QueryTraceEvent::Start {
                 fingerprint,
                 executor: TraceExecutorKind::Load,
-                access: Some(TraceAccess::FullScan),
+                access,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Access,
+                rows: 1,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Filter,
+                rows: 1,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Order,
+                rows: 1,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Page,
+                rows: 1,
             },
             QueryTraceEvent::Finish {
                 fingerprint,
                 executor: TraceExecutorKind::Load,
-                access: Some(TraceAccess::FullScan),
+                access,
+                rows: 1,
+            },
+        ]
+    );
+}
+
+#[test]
+fn trace_access_includes_composite_plan() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity_a = TestEntity {
+        id: Ulid::from_u128(1),
+        name: "alpha".to_string(),
+    };
+    let entity_b = TestEntity {
+        id: Ulid::from_u128(2),
+        name: "beta".to_string(),
+    };
+    saver.insert(entity_a).unwrap();
+    saver.insert(entity_b).unwrap();
+
+    let plan = LogicalPlan {
+        mode: QueryMode::Load(LoadSpec::new()),
+        access: AccessPlan::Union(vec![
+            AccessPlan::Path(AccessPath::ByKey(Key::Ulid(Ulid::from_u128(1)))),
+            AccessPlan::Path(AccessPath::ByKey(Key::Ulid(Ulid::from_u128(2)))),
+        ]),
+        predicate: None,
+        order: None,
+        delete_limit: None,
+        page: None,
+        projection: ProjectionSpec::All,
+        consistency: ReadConsistency::MissingOk,
+    };
+    let fingerprint = plan.fingerprint();
+    let access = Some(TraceAccess::Union { branches: 2 });
+    let loader = LoadExecutor::<TestEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
+
+    let (result, events) = with_trace_events(|| loader.execute(ExecutablePlan::new(plan)));
+    let response = result.unwrap();
+
+    assert_eq!(response.0.len(), 2);
+    assert_eq!(
+        events,
+        vec![
+            QueryTraceEvent::Start {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Access,
+                rows: 2,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Filter,
+                rows: 2,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Order,
+                rows: 2,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Page,
+                rows: 2,
+            },
+            QueryTraceEvent::Finish {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                rows: 2,
+            },
+        ]
+    );
+}
+
+#[test]
+fn trace_emits_phase_counts_for_filter_order_page() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entities = [
+        (Ulid::from_u128(10), "alpha"),
+        (Ulid::from_u128(11), "beta"),
+        (Ulid::from_u128(12), "gamma"),
+        (Ulid::from_u128(13), "delta"),
+        (Ulid::from_u128(14), "epsilon"),
+    ];
+    for (id, name) in entities {
+        saver
+            .insert(TestEntity {
+                id,
+                name: name.to_string(),
+            })
+            .unwrap();
+    }
+
+    let predicate = in_list(
+        "name",
+        vec![
+            Value::Text("beta".to_string()),
+            Value::Text("delta".to_string()),
+            Value::Text("epsilon".to_string()),
+        ],
+    );
+    let plan = LogicalPlan {
+        mode: QueryMode::Load(LoadSpec::new()),
+        access: AccessPlan::Path(AccessPath::FullScan),
+        predicate: Some(predicate),
+        order: Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        }),
+        delete_limit: None,
+        page: Some(PageSpec {
+            limit: Some(1),
+            offset: 1,
+        }),
+        projection: ProjectionSpec::All,
+        consistency: ReadConsistency::MissingOk,
+    };
+    let fingerprint = plan.fingerprint();
+    let access = Some(TraceAccess::FullScan);
+    let loader = LoadExecutor::<TestEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
+
+    let (result, events) = with_trace_events(|| loader.execute(ExecutablePlan::new(plan)));
+    let response = result.unwrap();
+
+    assert_eq!(response.0.len(), 1);
+    assert_eq!(
+        events,
+        vec![
+            QueryTraceEvent::Start {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Access,
+                rows: 5,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Filter,
+                rows: 3,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Order,
+                rows: 3,
+            },
+            QueryTraceEvent::Phase {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
+                phase: TracePhase::Page,
+                rows: 1,
+            },
+            QueryTraceEvent::Finish {
+                fingerprint,
+                executor: TraceExecutorKind::Load,
+                access,
                 rows: 1,
             },
         ]
@@ -1520,7 +1731,8 @@ fn load_paginates_after_ordering() {
         .execute(
             Query::<TestEntity>::new(ReadConsistency::MissingOk)
                 .order_by("name")
-                .page(2, 1)
+                .offset(1)
+                .limit(2)
                 .plan()
                 .unwrap(),
         )
@@ -1536,7 +1748,7 @@ fn load_paginates_after_ordering() {
         .execute(
             Query::<TestEntity>::new(ReadConsistency::MissingOk)
                 .order_by("name")
-                .page(10, 0)
+                .limit(10)
                 .plan()
                 .unwrap(),
         )
@@ -1552,7 +1764,8 @@ fn load_paginates_after_ordering() {
             .execute(
                 Query::<TestEntity>::new(ReadConsistency::MissingOk)
                     .order_by("name")
-                    .page(2, 10)
+                    .offset(10)
+                    .limit(2)
                     .plan()
                     .unwrap(),
             )
@@ -1604,7 +1817,7 @@ fn load_paginates_after_filtering_and_ordering() {
             Query::<OrderEntity>::new(ReadConsistency::MissingOk)
                 .filter(gt("secondary", 0))
                 .order_by("secondary")
-                .page(2, 0)
+                .limit(2)
                 .plan()
                 .unwrap(),
         )
@@ -1636,7 +1849,8 @@ fn load_pagination_handles_large_offset() {
         .execute(
             Query::<TestEntity>::new(ReadConsistency::MissingOk)
                 .order_by("name")
-                .page(1, u64::MAX)
+                .offset(u64::MAX)
+                .limit(1)
                 .plan()
                 .unwrap(),
         )

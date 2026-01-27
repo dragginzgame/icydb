@@ -113,17 +113,25 @@ fn order_accumulates() {
 }
 
 #[test]
-fn page_sets_window() {
-    let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk).page(25, 10);
+fn limit_and_offset_set_window() {
+    let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
+        .offset(10)
+        .limit(25);
 
-    assert_eq!(query.page, Some(Page::new(25, 10)));
+    assert!(matches!(
+        query.mode,
+        QueryMode::Load(LoadSpec {
+            limit: Some(25),
+            offset: 10,
+        })
+    ));
 }
 
 #[test]
 fn delete_limit_requires_order() {
     let err = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .delete_limit(5)
         .delete()
+        .limit(5)
         .plan();
 
     assert!(matches!(
@@ -133,31 +141,27 @@ fn delete_limit_requires_order() {
 }
 
 #[test]
-fn delete_rejects_pagination() {
-    let err = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .page(10, 0)
-        .delete()
-        .plan();
+fn delete_clears_load_bounds() {
+    let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
+        .offset(10)
+        .limit(5)
+        .delete();
 
     assert!(matches!(
-        err,
-        Err(QueryError::Intent(
-            IntentError::DeletePaginationNotSupported
-        ))
+        query.mode,
+        QueryMode::Delete(DeleteSpec { limit: None })
     ));
 }
 
 #[test]
-fn delete_rejects_limit_with_pagination() {
-    let err = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .page(10, 0)
-        .delete_limit(5)
+fn delete_limit_sets_spec() {
+    let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
         .delete()
-        .plan();
+        .limit(5);
 
     assert!(matches!(
-        err,
-        Err(QueryError::Intent(IntentError::DeleteLimitWithPagination))
+        query.mode,
+        QueryMode::Delete(DeleteSpec { limit: Some(5) })
     ));
 }
 

@@ -25,7 +25,7 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
     //
     //   "my.entity.Path" => Ok(EntityDispatch { ... }),
     //
-    // Each arm embeds typed closures that call db!().load::<Ty>(), etc.
+    // Each arm embeds typed closures that call db!().load_executor::<Ty>(), etc.
     let arms = entities.iter().map(|(entity_path, _)| {
         // Parse the fully-qualified Rust type (e.g. "my_canister::types::User")
         let ty: Path =
@@ -41,7 +41,10 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
                 load_keys: |query: ::icydb::__internal::core::db::query::plan::__internal::ExecutablePlanErased| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
                     let plan = query.into_typed::<#ty>()?;
 
-                    crate::db().load::<#ty>().execute(plan).map(|res| res.keys())
+                    crate::db()
+                        .load_executor::<#ty>()
+                        .execute(plan)
+                        .map(|res| res.keys())
                 },
 
                 // Save closure: executes a SaveQuery and returns the resulting key.
@@ -53,7 +56,10 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
                 delete_keys: |query: ::icydb::__internal::core::db::query::plan::__internal::ExecutablePlanErased| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
                     let plan = query.into_typed::<#ty>()?;
 
-                    crate::db().delete::<#ty>().execute(plan).map(|res| res.keys())
+                    crate::db()
+                        .delete_executor::<#ty>()
+                        .execute(plan)
+                        .map(|res| res.keys())
                 },
             }),
         }

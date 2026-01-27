@@ -1,7 +1,7 @@
 //! Executor contract for a fully resolved logical plan; must not plan or validate.
 #[cfg_attr(not(test), expect(unused_imports))]
 use crate::db::query::{
-    QueryMode, ReadConsistency,
+    LoadSpec, QueryMode, ReadConsistency,
     plan::{AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec, ProjectionSpec},
     predicate::{Predicate, eval as eval_predicate},
 };
@@ -76,7 +76,7 @@ impl<E: EntityKind> PlanRow<E> for (Key, E) {
 
 ///
 /// PostAccessStats
-/// Result flags for post-access plan application.
+/// Result flags and row counts for post-access plan application.
 ///
 
 #[allow(clippy::struct_excessive_bools)]
@@ -85,6 +85,10 @@ pub struct PostAccessStats {
     pub(crate) ordered: bool,
     pub(crate) paged: bool,
     pub(crate) delete_limited: bool,
+    pub(crate) rows_after_filter: usize,
+    pub(crate) rows_after_order: usize,
+    pub(crate) rows_after_page: usize,
+    pub(crate) rows_after_delete_limit: usize,
 }
 
 impl LogicalPlan {
@@ -94,7 +98,7 @@ impl LogicalPlan {
     #[cfg(test)]
     pub const fn new(access: AccessPath, consistency: ReadConsistency) -> Self {
         Self {
-            mode: QueryMode::Load,
+            mode: QueryMode::Load(LoadSpec::new()),
             access: AccessPlan::Path(access),
             predicate: None,
             order: None,
@@ -114,14 +118,14 @@ impl LogicalPlan {
         E: EntityKind,
         R: PlanRow<E>,
     {
-        if self.mode == QueryMode::Delete && self.page.is_some() {
+        if self.mode.is_delete() && self.page.is_some() {
             return Err(InternalError::new(
                 ErrorClass::InvariantViolation,
                 ErrorOrigin::Query,
                 "invalid logical plan: delete plans must not carry pagination".to_string(),
             ));
         }
-        if self.mode == QueryMode::Load && self.delete_limit.is_some() {
+        if self.mode.is_load() && self.delete_limit.is_some() {
             return Err(InternalError::new(
                 ErrorClass::InvariantViolation,
                 ErrorOrigin::Query,
@@ -136,6 +140,7 @@ impl LogicalPlan {
         } else {
             false
         };
+        let rows_after_filter = rows.len();
 
         // Ordering.
         let ordered = if let Some(order) = &self.order
@@ -152,8 +157,9 @@ impl LogicalPlan {
         } else {
             false
         };
+        let rows_after_order = rows.len();
 
-        let paged = if self.mode == QueryMode::Load
+        let paged = if self.mode.is_load()
             && let Some(page) = &self.page
         {
             debug_assert!(
@@ -165,9 +171,10 @@ impl LogicalPlan {
         } else {
             false
         };
+        let rows_after_page = rows.len();
 
         // Delete limit (applied after ordering and before projection).
-        let delete_limited = if self.mode == QueryMode::Delete
+        let delete_limited = if self.mode.is_delete()
             && let Some(limit) = &self.delete_limit
         {
             debug_assert!(
@@ -179,12 +186,17 @@ impl LogicalPlan {
         } else {
             false
         };
+        let rows_after_delete_limit = rows.len();
 
         Ok(PostAccessStats {
             filtered,
             ordered,
             paged,
             delete_limited,
+            rows_after_filter,
+            rows_after_order,
+            rows_after_page,
+            rows_after_delete_limit,
         })
     }
 }

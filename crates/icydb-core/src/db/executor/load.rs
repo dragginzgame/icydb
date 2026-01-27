@@ -3,7 +3,7 @@ use crate::{
         Db,
         executor::{
             plan::{record_plan_metrics, set_rows_from_len},
-            trace::{QueryTraceSink, TraceExecutorKind, start_plan_trace},
+            trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
         },
         query::plan::ExecutablePlan,
         response::Response,
@@ -73,6 +73,7 @@ impl<E: EntityKind> LoadExecutor<E> {
             let ctx = self.db.context::<E>();
             record_plan_metrics(&plan.access);
 
+            // Access phase: resolve candidate rows from the store.
             let data_rows = ctx.rows_from_access_plan(&plan.access, plan.consistency)?;
             sink::record(MetricsEvent::RowsScanned {
                 entity_path: E::PATH,
@@ -84,12 +85,15 @@ impl<E: EntityKind> LoadExecutor<E> {
                 data_rows.len()
             ));
 
+            // Decode rows into entities before post-access filtering.
             let mut rows = ctx.deserialize_rows(data_rows)?;
+            let access_rows = rows.len();
             self.debug_log(format!(
                 "🧩 Deserialized {} entities before filtering",
                 rows.len()
             ));
 
+            // Post-access phase: filter, order, and paginate.
             let stats = plan.apply_post_access::<E, _>(&mut rows)?;
             if stats.filtered {
                 self.debug_log(format!(
@@ -102,6 +106,15 @@ impl<E: EntityKind> LoadExecutor<E> {
             }
             if stats.paged {
                 self.debug_log(format!("📏 Applied pagination -> {} entities", rows.len()));
+            }
+
+            // Emit per-phase counts after the pipeline completes successfully.
+            if let Some(trace) = trace.as_ref() {
+                let to_u64 = |len| u64::try_from(len).unwrap_or(u64::MAX);
+                trace.phase(TracePhase::Access, to_u64(access_rows));
+                trace.phase(TracePhase::Filter, to_u64(stats.rows_after_filter));
+                trace.phase(TracePhase::Order, to_u64(stats.rows_after_order));
+                trace.phase(TracePhase::Page, to_u64(stats.rows_after_page));
             }
 
             set_rows_from_len(&mut span, rows.len());

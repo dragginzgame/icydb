@@ -7,7 +7,8 @@ use crate::{
             plan::{record_plan_metrics, set_rows_from_len},
             resolve_unique_pk,
             trace::{
-                QueryTraceSink, TraceAccess, TraceExecutorKind, start_exec_trace, start_plan_trace,
+                QueryTraceSink, TraceAccess, TraceExecutorKind, TracePhase, start_exec_trace,
+                start_plan_trace,
             },
         },
         finish_commit,
@@ -240,14 +241,18 @@ impl<E: EntityKind> DeleteExecutor<E> {
             record_plan_metrics(&plan.access);
 
             let ctx = self.db.context::<E>();
+            // Access phase: resolve candidate rows before delete filtering.
             let data_rows = ctx.rows_from_access_plan(&plan.access, plan.consistency)?;
             sink::record(MetricsEvent::RowsScanned {
                 entity_path: E::PATH,
                 rows_scanned: data_rows.len() as u64,
             });
 
+            // Decode rows into entities before post-access filtering.
             let mut rows = decode_rows::<E>(data_rows)?;
+            let access_rows = rows.len();
 
+            // Post-access phase: filter, order, and apply delete limits.
             let stats = plan.apply_post_access::<E, _>(&mut rows)?;
             if stats.delete_limited {
                 self.debug_log(format!(
@@ -257,6 +262,16 @@ impl<E: EntityKind> DeleteExecutor<E> {
             }
 
             if rows.is_empty() {
+                if let Some(trace) = trace.as_ref() {
+                    let to_u64 = |len| u64::try_from(len).unwrap_or(u64::MAX);
+                    trace.phase(TracePhase::Access, to_u64(access_rows));
+                    trace.phase(TracePhase::Filter, to_u64(stats.rows_after_filter));
+                    trace.phase(TracePhase::Order, to_u64(stats.rows_after_order));
+                    trace.phase(
+                        TracePhase::DeleteLimit,
+                        to_u64(stats.rows_after_delete_limit),
+                    );
+                }
                 set_rows_from_len(&mut span, 0);
                 return Ok(Response(Vec::new()));
             }
@@ -324,6 +339,18 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
                 Ok(())
             })?;
+
+            // Emit per-phase counts after the delete succeeds.
+            if let Some(trace) = trace.as_ref() {
+                let to_u64 = |len| u64::try_from(len).unwrap_or(u64::MAX);
+                trace.phase(TracePhase::Access, to_u64(access_rows));
+                trace.phase(TracePhase::Filter, to_u64(stats.rows_after_filter));
+                trace.phase(TracePhase::Order, to_u64(stats.rows_after_order));
+                trace.phase(
+                    TracePhase::DeleteLimit,
+                    to_u64(stats.rows_after_delete_limit),
+                );
+            }
 
             let res = rows
                 .into_iter()

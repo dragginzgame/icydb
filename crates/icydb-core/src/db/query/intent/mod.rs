@@ -19,36 +19,75 @@ use thiserror::Error as ThisError;
 ///
 /// QueryMode
 /// Discriminates load vs delete intent at planning time.
+/// Encodes mode-specific fields so invalid states are unrepresentable.
+/// Mode checks are explicit and stable at execution time.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QueryMode {
-    Load,
-    Delete,
+    Load(LoadSpec),
+    Delete(DeleteSpec),
 }
 
-///
-/// DeleteLimit
-/// Declarative deletion bound for a query window.
-/// Expressed as a max row count; no offsets.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DeleteLimit {
-    pub max_rows: u32,
-}
-
-impl DeleteLimit {
-    /// Create a new delete limit bound.
+impl QueryMode {
+    /// True if this mode represents a load intent.
     #[must_use]
-    pub const fn new(max_rows: u32) -> Self {
-        Self { max_rows }
+    pub const fn is_load(&self) -> bool {
+        match self {
+            Self::Load(_) => true,
+            Self::Delete(_) => false,
+        }
     }
 
-    pub(crate) const fn to_spec(self) -> DeleteLimitSpec {
-        DeleteLimitSpec {
-            max_rows: self.max_rows,
+    /// True if this mode represents a delete intent.
+    #[must_use]
+    pub const fn is_delete(&self) -> bool {
+        match self {
+            Self::Delete(_) => true,
+            Self::Load(_) => false,
         }
+    }
+}
+
+///
+/// LoadSpec
+/// Mode-specific fields for load intents.
+/// Encodes pagination without leaking into delete intents.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LoadSpec {
+    pub limit: Option<u32>,
+    pub offset: u64,
+}
+
+impl LoadSpec {
+    /// Create an empty load spec.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            limit: None,
+            offset: 0,
+        }
+    }
+}
+
+///
+/// DeleteSpec
+/// Mode-specific fields for delete intents.
+/// Encodes delete limits without leaking into load intents.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DeleteSpec {
+    pub limit: Option<u32>,
+}
+
+impl DeleteSpec {
+    /// Create an empty delete spec.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { limit: None }
     }
 }
 
@@ -68,38 +107,9 @@ pub struct Query<E: EntityKind> {
     mode: QueryMode,
     predicate: Option<Predicate>,
     order: Option<OrderSpec>,
-    delete_limit: Option<DeleteLimit>,
-    page: Option<Page>,
     projection: ProjectionSpec,
     consistency: ReadConsistency,
     _marker: PhantomData<E>,
-}
-
-///
-/// Page
-/// Declarative pagination intent for a query window.
-/// Expressed as limit/offset only; no response semantics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Page {
-    pub limit: u32,
-    pub offset: u64,
-}
-
-impl Page {
-    /// Create a new pagination intent with a limit and offset.
-    #[must_use]
-    pub const fn new(limit: u32, offset: u64) -> Self {
-        Self { limit, offset }
-    }
-
-    pub(crate) const fn to_spec(self) -> PageSpec {
-        PageSpec {
-            limit: Some(self.limit),
-            offset: self.offset,
-        }
-    }
 }
 
 impl<E: EntityKind> Query<E> {
@@ -109,15 +119,19 @@ impl<E: EntityKind> Query<E> {
     #[must_use]
     pub const fn new(consistency: ReadConsistency) -> Self {
         Self {
-            mode: QueryMode::Load,
+            mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: None,
-            delete_limit: None,
-            page: None,
             projection: ProjectionSpec::All,
             consistency,
             _marker: PhantomData,
         }
+    }
+
+    /// Return the intent mode (load vs delete).
+    #[must_use]
+    pub const fn mode(&self) -> QueryMode {
+        self.mode
     }
 
     /// Add a predicate, implicitly AND-ing with any existing predicate.
@@ -147,34 +161,53 @@ impl<E: EntityKind> Query<E> {
     /// Mark this intent as a delete query.
     #[must_use]
     pub const fn delete(mut self) -> Self {
-        self.mode = QueryMode::Delete;
+        if self.mode.is_load() {
+            self.mode = QueryMode::Delete(DeleteSpec::new());
+        }
         self
     }
 
-    /// Bound a delete query to at most `max_rows` rows.
+    /// Apply a limit to the current mode.
+    ///
+    /// Load limits bound result size; delete limits bound mutation size.
     #[must_use]
-    pub const fn delete_limit(mut self, max_rows: u32) -> Self {
-        self.delete_limit = Some(DeleteLimit::new(max_rows));
+    pub const fn limit(mut self, limit: u32) -> Self {
+        match self.mode {
+            QueryMode::Load(mut spec) => {
+                spec.limit = Some(limit);
+                self.mode = QueryMode::Load(spec);
+            }
+            QueryMode::Delete(mut spec) => {
+                spec.limit = Some(limit);
+                self.mode = QueryMode::Delete(spec);
+            }
+        }
         self
     }
 
-    /// Replace the current pagination settings with an explicit limit/offset window.
-    /// Pagination is part of intent and is enforced during planning.
+    /// Apply an offset to a load intent.
+    ///
+    /// Note: session-bound queries reject offsets on delete intents.
     #[must_use]
-    pub const fn page(mut self, limit: u32, offset: u64) -> Self {
-        self.page = Some(Page::new(limit, offset));
+    pub const fn offset(mut self, offset: u64) -> Self {
+        if let QueryMode::Load(mut spec) = self.mode {
+            spec.offset = offset;
+            self.mode = QueryMode::Load(spec);
+        }
         self
     }
 
     /// Explain this intent without executing it.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
         let plan = self.build_plan::<E>()?;
+
         Ok(plan.explain())
     }
 
     /// Plan this intent into an executor-ready plan.
     pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
         let plan = self.build_plan::<E>()?;
+
         Ok(ExecutablePlan::new(plan))
     }
 
@@ -200,8 +233,23 @@ impl<E: EntityKind> Query<E> {
             access: access_plan,
             predicate: normalized_predicate,
             order: self.order.clone(),
-            delete_limit: self.delete_limit.map(DeleteLimit::to_spec),
-            page: self.page.map(Page::to_spec),
+            delete_limit: match self.mode {
+                QueryMode::Delete(spec) => spec.limit.map(|max_rows| DeleteLimitSpec { max_rows }),
+                QueryMode::Load(_) => None,
+            },
+            page: match self.mode {
+                QueryMode::Load(spec) => {
+                    if spec.limit.is_some() || spec.offset > 0 {
+                        Some(PageSpec {
+                            limit: spec.limit,
+                            offset: spec.offset,
+                        })
+                    } else {
+                        None
+                    }
+                }
+                QueryMode::Delete(_) => None,
+            },
             projection: self.projection.clone(),
             consistency: self.consistency,
         };
@@ -212,19 +260,9 @@ impl<E: EntityKind> Query<E> {
     // Validate delete-specific intent rules before planning.
     const fn validate_intent(&self) -> Result<(), IntentError> {
         match self.mode {
-            QueryMode::Load => {
-                if self.delete_limit.is_some() {
-                    return Err(IntentError::DeleteLimitOnLoad);
-                }
-            }
-            QueryMode::Delete => {
-                if self.page.is_some() && self.delete_limit.is_some() {
-                    return Err(IntentError::DeleteLimitWithPagination);
-                }
-                if self.page.is_some() {
-                    return Err(IntentError::DeletePaginationNotSupported);
-                }
-                if self.delete_limit.is_some() && self.order.is_none() {
+            QueryMode::Load(_) => {}
+            QueryMode::Delete(spec) => {
+                if spec.limit.is_some() && self.order.is_none() {
                     return Err(IntentError::DeleteLimitRequiresOrder);
                 }
             }
@@ -237,14 +275,18 @@ impl<E: EntityKind> Query<E> {
 ///
 /// QueryError
 ///
+
 #[derive(Debug, ThisError)]
 pub enum QueryError {
     #[error("{0}")]
     Validate(#[from] ValidateError),
+
     #[error("{0}")]
     Plan(#[from] PlanError),
+
     #[error("{0}")]
     Intent(#[from] IntentError),
+
     #[error("{0}")]
     Execute(#[from] InternalError),
 }
@@ -261,16 +303,20 @@ impl From<PlannerError> for QueryError {
 ///
 /// IntentError
 ///
-#[derive(Debug, ThisError)]
+
+#[derive(Clone, Copy, Debug, ThisError)]
 pub enum IntentError {
-    #[error("delete limit is only valid for delete intents")]
-    DeleteLimitOnLoad,
-    #[error("delete queries do not support pagination offsets")]
-    DeletePaginationNotSupported,
-    #[error("delete limit cannot be combined with pagination")]
-    DeleteLimitWithPagination,
     #[error("delete limit requires an explicit ordering")]
     DeleteLimitRequiresOrder,
+
+    #[error("offsets are only valid for load intents")]
+    OffsetOnDelete,
+
+    #[error("load execution requested for a delete intent")]
+    ExecuteLoadOnDelete,
+
+    #[error("delete execution requested for a load intent")]
+    ExecuteDeleteOnLoad,
 }
 
 /// Helper to append an ordering field while preserving existing order spec.

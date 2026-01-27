@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🦴 Fixed
 
 ### 🧃 Changed
+* Query diagnostics now surface composite access shapes in trace access (union/intersection).
+* Executor trace events include per-phase row counts (access, filter, order, page/delete limit).
+* Fluent queries now start with explicit `DbSession::load`/`DbSession::delete` entry points (no implicit mode switching).
+* Pagination and delete limits are expressed via `offset()`/`limit()` on mode-specific intents.
 
 ---
 

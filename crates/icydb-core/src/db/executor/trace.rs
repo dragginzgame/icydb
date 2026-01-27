@@ -40,6 +40,21 @@ pub enum TraceAccess {
     IndexPrefix { name: &'static str, prefix_len: u32 },
     FullScan,
     UniqueIndex { name: &'static str },
+    Union { branches: u32 },
+    Intersection { branches: u32 },
+}
+
+///
+/// TracePhase
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TracePhase {
+    Access,
+    Filter,
+    Order,
+    Page,
+    DeleteLimit,
 }
 
 ///
@@ -52,6 +67,13 @@ pub enum QueryTraceEvent {
         fingerprint: PlanFingerprint,
         executor: TraceExecutorKind,
         access: Option<TraceAccess>,
+    },
+    Phase {
+        fingerprint: PlanFingerprint,
+        executor: TraceExecutorKind,
+        access: Option<TraceAccess>,
+        phase: TracePhase,
+        rows: u64,
     },
     Finish {
         fingerprint: PlanFingerprint,
@@ -108,6 +130,16 @@ impl TraceScope {
         });
     }
 
+    pub(crate) fn phase(&self, phase: TracePhase, rows: u64) {
+        self.sink.on_event(QueryTraceEvent::Phase {
+            fingerprint: self.fingerprint,
+            executor: self.executor,
+            access: self.access,
+            phase,
+            rows,
+        });
+    }
+
     pub(crate) fn error(self, err: &InternalError) {
         self.sink.on_event(QueryTraceEvent::Error {
             fingerprint: self.fingerprint,
@@ -125,7 +157,7 @@ pub fn start_plan_trace<E: crate::traits::EntityKind>(
     plan: &ExecutablePlan<E>,
 ) -> Option<TraceScope> {
     let sink = sink?;
-    let access = trace_access_from_plan(plan.access());
+    let access = Some(trace_access_from_plan(plan.access()));
     let fingerprint = plan.fingerprint();
     Some(TraceScope::new(sink, fingerprint, executor, access))
 }
@@ -142,10 +174,15 @@ pub fn start_exec_trace(
     Some(TraceScope::new(sink, fingerprint, executor, access))
 }
 
-fn trace_access_from_plan(plan: &AccessPlan) -> Option<TraceAccess> {
+fn trace_access_from_plan(plan: &AccessPlan) -> TraceAccess {
     match plan {
-        AccessPlan::Path(path) => Some(trace_access_from_path(path)),
-        AccessPlan::Union(_) | AccessPlan::Intersection(_) => None,
+        AccessPlan::Path(path) => trace_access_from_path(path),
+        AccessPlan::Union(children) => TraceAccess::Union {
+            branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
+        },
+        AccessPlan::Intersection(children) => TraceAccess::Intersection {
+            branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
+        },
     }
 }
 

@@ -28,6 +28,10 @@ pub struct ExplainPlan {
     pub consistency: ReadConsistency,
 }
 
+///
+/// ExplainAccessPath
+///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainAccessPath {
     ByKey {
@@ -329,13 +333,14 @@ impl ExplainProjection {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::query::plan::planner::PlannerEntity;
-    use crate::db::query::plan::{AccessPath, LogicalPlan};
     use crate::db::query::{Query, ReadConsistency, eq};
-    use crate::key::Key;
     use crate::model::index::IndexModel;
     use crate::types::Ulid;
     use crate::value::Value;
+    use crate::{
+        db::query::plan::{AccessPath, LogicalPlan, planner::PlannerEntity},
+        key::Key,
+    };
 
     #[test]
     fn explain_is_deterministic_for_same_query() {

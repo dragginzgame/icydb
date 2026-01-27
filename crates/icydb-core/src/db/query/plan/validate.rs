@@ -364,7 +364,7 @@ mod tests {
 
         let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
         let plan = LogicalPlan {
-            mode: crate::db::query::QueryMode::Load,
+            mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::FullScan),
             predicate: None,
             order: Some(OrderSpec {
@@ -385,7 +385,7 @@ mod tests {
     fn plan_rejects_index_prefix_too_long() {
         let schema = SchemaInfo::from_entity_model(PlannerEntity::MODEL).expect("valid model");
         let plan = LogicalPlan {
-            mode: crate::db::query::QueryMode::Load,
+            mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::IndexPrefix {
                 index: *PlannerEntity::INDEXES[0],
                 values: vec![
@@ -411,7 +411,7 @@ mod tests {
     fn plan_accepts_model_based_validation() {
         let model = model_with_fields(vec![field("id", EntityFieldKind::Ulid)], 0);
         let plan = LogicalPlan {
-            mode: crate::db::query::QueryMode::Load,
+            mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::ByKey(Key::Ulid(Ulid::nil()))),
             predicate: None,
             order: None,
