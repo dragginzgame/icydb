@@ -32,7 +32,7 @@ and mechanical enforcement of architectural boundaries.
 - **Entity macros** — define schema-first entities declaratively.
 - **Typed query intent** — build queries as `Query<E>` with explicit semantics.
 - **Deterministic planning** — validated, executor-safe plans only.
-- **Stable storage** — B-tree–backed stable memory via CanIC structures.
+- **Stable storage** — data is persisted in stable memory (not heap), backed by CanIC B-trees.
 - **Path dispatch** — `icydb_build` generates internal routing helpers.
 - **Observability endpoints** — `icydb_snapshot`, `icydb_metrics`, `icydb_metrics_reset`.
 - **IC integration** — ergonomic `icydb::start!` and `icydb::build!` macros.
