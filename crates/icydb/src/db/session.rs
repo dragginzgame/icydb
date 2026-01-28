@@ -32,7 +32,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Debug contract:
     /// - Debug is session-scoped only; executors do not expose independent toggles.
     /// - Load debug narrates the full access/decode/filter/order/page pipeline.
-    /// - Save/delete debug narrate intent plus commit/rollback outcomes.
+    /// - Save/delete debug narrate query intent plus commit/rollback outcomes.
     #[must_use]
     pub const fn debug(mut self) -> Self {
         self.inner = self.inner.debug();
@@ -124,7 +124,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.diagnose_query(query)?)
     }
 
-    /// Execute a query intent using session policy and executor routing.
+    /// Execute a query using session policy and executor routing.
     pub fn execute_query<E: EntityKind<Canister = C>>(
         &self,
         query: &Query<E>,
@@ -228,10 +228,10 @@ pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
 }
 
 impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
-    /// Return a reference to the underlying intent.
+    /// Return a reference to the underlying query.
     #[must_use]
-    pub const fn intent(&self) -> &Query<E> {
-        self.inner.intent()
+    pub const fn query(&self) -> &Query<E> {
+        self.inner.query()
     }
 
     /// Add a predicate, implicitly AND-ing with any existing predicate.
@@ -269,27 +269,27 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         self
     }
 
-    /// Explain this intent without executing it.
+    /// Explain this query without executing it.
     pub fn explain(&self) -> Result<core::db::query::plan::ExplainPlan, Error> {
         Ok(self.inner.explain()?)
     }
 
-    /// Execute this intent using the session's policy settings.
+    /// Execute this query using the session's policy settings.
     pub fn execute(&self) -> Result<Response<E>, Error> {
         Ok(self.inner.execute()?)
     }
 
-    /// Execute a load intent and return all entities.
+    /// Execute a load query and return all entities.
     pub fn all(&self) -> Result<Vec<E>, Error> {
         Ok(self.inner.all()?)
     }
 
-    /// Execute a load intent and require exactly one entity.
+    /// Execute a load query and require exactly one entity.
     pub fn one(&self) -> Result<E, Error> {
         Ok(self.inner.one()?)
     }
 
-    /// Execute a load intent and return zero or one entity.
+    /// Execute a load query and return zero or one entity.
     pub fn one_opt(&self) -> Result<Option<E>, Error> {
         Ok(self.inner.one_opt()?)
     }
@@ -306,10 +306,10 @@ pub struct SessionDeleteQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> 
 }
 
 impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> {
-    /// Return a reference to the underlying intent.
+    /// Return a reference to the underlying query.
     #[must_use]
-    pub const fn intent(&self) -> &Query<E> {
-        self.inner.intent()
+    pub const fn query(&self) -> &Query<E> {
+        self.inner.query()
     }
 
     /// Add a predicate, implicitly AND-ing with any existing predicate.
@@ -340,17 +340,17 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
         self
     }
 
-    /// Explain this intent without executing it.
+    /// Explain this query without executing it.
     pub fn explain(&self) -> Result<core::db::query::plan::ExplainPlan, Error> {
         Ok(self.inner.explain()?)
     }
 
-    /// Execute this intent using the session's policy settings.
+    /// Execute this query using the session's policy settings.
     pub fn execute(&self) -> Result<Response<E>, Error> {
         Ok(self.inner.execute()?)
     }
 
-    /// Execute a delete intent and return the deleted rows.
+    /// Execute a delete query and return the deleted rows.
     pub fn delete_rows(&self) -> Result<Response<E>, Error> {
         Ok(self.inner.delete_rows()?)
     }
