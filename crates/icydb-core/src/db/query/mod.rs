@@ -17,7 +17,7 @@ pub use diagnostics::{
     QueryTraceExecutorKind, QueryTracePhase,
 };
 pub use intent::{DeleteSpec, IntentError, LoadSpec, Query, QueryError, QueryMode};
-pub use save::*;
+pub(crate) use save::SaveMode;
 pub use session::{SessionDeleteQuery, SessionLoadQuery};
 
 ///
@@ -32,22 +32,4 @@ pub enum ReadConsistency {
 
     /// Missing rows are treated as corruption.
     Strict,
-}
-
-/// Build an insert `SaveQuery`.
-#[must_use]
-pub fn insert() -> SaveQuery {
-    SaveQuery::new(SaveMode::Insert)
-}
-
-/// Build an update `SaveQuery`.
-#[must_use]
-pub fn update() -> SaveQuery {
-    SaveQuery::new(SaveMode::Update)
-}
-
-/// Build a replace `SaveQuery`.
-#[must_use]
-pub fn replace() -> SaveQuery {
-    SaveQuery::new(SaveMode::Replace)
 }

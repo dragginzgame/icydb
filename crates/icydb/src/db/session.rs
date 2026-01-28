@@ -1,8 +1,6 @@
 use crate::{
     db::query::{
-        Query, ReadConsistency,
-        diagnostics::{QueryDiagnostics, QueryExecutionDiagnostics},
-        predicate::Predicate,
+        Query, QueryDiagnostics, QueryExecutionDiagnostics, ReadConsistency, predicate::Predicate,
     },
     db::response::Response,
     error::Error,
@@ -138,7 +136,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     //
-    // High-level save shortcuts
+    // High-level write shortcuts
     //
 
     /// Insert a new entity, returning the stored value.
@@ -271,13 +269,6 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         Ok(self.inner.explain()?)
     }
 
-    /// Plan this intent into an executor-ready plan.
-    #[doc(hidden)]
-    #[expect(dead_code)]
-    pub(crate) fn plan(&self) -> Result<core::db::query::plan::ExecutablePlan<E>, Error> {
-        Ok(self.inner.plan()?)
-    }
-
     /// Execute this intent using the session's policy settings.
     pub fn execute(&self) -> Result<Response<E>, Error> {
         Ok(self.inner.execute()?)
@@ -347,13 +338,6 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     /// Explain this intent without executing it.
     pub fn explain(&self) -> Result<core::db::query::plan::ExplainPlan, Error> {
         Ok(self.inner.explain()?)
-    }
-
-    /// Plan this intent into an executor-ready plan.
-    #[doc(hidden)]
-    #[expect(dead_code)]
-    pub(crate) fn plan(&self) -> Result<core::db::query::plan::ExecutablePlan<E>, Error> {
-        Ok(self.inner.plan()?)
     }
 
     /// Execute this intent using the session's policy settings.

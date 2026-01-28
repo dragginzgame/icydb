@@ -1,13 +1,4 @@
-//! Executor-facing validation for logical plans.
-//!
-//! This module validates that a `LogicalPlan` is *safe for execution* against a
-//! concrete entity schema. It must not:
-//!   - infer planner semantics
-//!   - assert planner invariants
-//!   - normalize or rewrite plans
-//!
-//! Planner correctness is enforced elsewhere. This layer exists solely to
-//! protect the executor from malformed or schema-incompatible plans.
+//! Executor-ready plan validation against a concrete entity schema.
 
 use super::{AccessPath, AccessPlan, LogicalPlan, OrderSpec};
 use crate::{

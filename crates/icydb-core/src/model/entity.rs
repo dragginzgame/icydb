@@ -28,7 +28,7 @@ use crate::model::{field::EntityFieldModel, index::IndexModel};
 ///
 
 pub struct EntityModel {
-    /// Fully-qualified Rust type path (for dispatch and diagnostics).
+    /// Fully-qualified Rust type path (for diagnostics).
     pub path: &'static str,
 
     /// Stable external name used in keys and routing.

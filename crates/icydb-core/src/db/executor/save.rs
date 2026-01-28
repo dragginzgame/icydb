@@ -11,13 +11,13 @@ use crate::{
             IndexKey, IndexStore, MAX_INDEX_ENTRY_BYTES, RawIndexEntry, RawIndexKey,
             plan::{IndexApplyPlan, plan_index_mutation_for_entity},
         },
-        query::{SaveMode, SaveQuery},
+        query::SaveMode,
         store::{DataKey, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
-    serialize::{deserialize, serialize},
+    serialize::serialize,
     traits::{EntityKind, Path, Storable},
     validate::validate,
 };
@@ -163,25 +163,6 @@ impl<E: EntityKind> SaveExecutor<E> {
         }
 
         Ok(out)
-    }
-
-    // ======================================================================
-    // Low-level execution
-    // ======================================================================
-
-    /// Execute a serialized save query.
-    ///
-    /// NOTE: Deserialization here is over user-supplied bytes. Failures are
-    /// considered invalid input rather than storage corruption.
-    pub fn execute(&self, query: SaveQuery) -> Result<E, InternalError> {
-        let entity: E = deserialize(&query.bytes).map_err(|err| {
-            InternalError::new(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Serialize,
-                format!("save query decode failed: {err}"),
-            )
-        })?;
-        self.save_entity(query.mode, entity)
     }
 
     #[expect(clippy::too_many_lines)]

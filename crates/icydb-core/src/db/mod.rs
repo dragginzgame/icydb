@@ -1,5 +1,5 @@
 mod commit;
-pub mod executor;
+pub(crate) mod executor;
 pub mod identity;
 pub mod index;
 pub mod query;

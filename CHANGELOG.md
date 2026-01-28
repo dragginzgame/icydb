@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [Unreleased]
+
+### 🧲 Changed
+* Stale comment/code cleanup pass to keep docs aligned with the current public facade.
+
+---
+
 ## [0.5.2] - 2026-01-28 - Public Facade Boundary
 
 ### 🍕 Fixed

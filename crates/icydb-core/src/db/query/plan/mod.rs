@@ -23,8 +23,3 @@ pub(crate) use types::{
     AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec, ProjectionSpec,
 };
 pub use validate::PlanError;
-
-#[doc(hidden)]
-pub mod __internal {
-    pub use crate::db::query::plan::executable::ExecutablePlanErased;
-}

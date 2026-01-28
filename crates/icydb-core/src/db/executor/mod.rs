@@ -8,11 +8,11 @@ mod unique;
 mod upsert;
 
 pub(crate) use context::*;
-pub use delete::DeleteExecutor;
-pub use load::LoadExecutor;
-pub use save::SaveExecutor;
+pub(crate) use delete::DeleteExecutor;
+pub(crate) use load::LoadExecutor;
+pub(crate) use save::SaveExecutor;
 pub(crate) use unique::resolve_unique_pk;
-pub use upsert::{UniqueIndexHandle, UpsertExecutor, UpsertResult};
+pub(crate) use upsert::{UniqueIndexHandle, UpsertExecutor, UpsertResult};
 
 use crate::{
     db::store::DataKey,
