@@ -4,6 +4,7 @@ use crate::{
     },
     db::response::Response,
     error::Error,
+    key::Key,
     traits::{CanisterKind, EntityKind},
 };
 use icydb_core as core;
@@ -234,6 +235,13 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         self.inner.query()
     }
 
+    /// Filter by primary key.
+    #[must_use]
+    pub fn key(mut self, key: Key) -> Self {
+        self.inner = self.inner.key(key);
+        self
+    }
+
     /// Add a predicate, implicitly AND-ing with any existing predicate.
     #[must_use]
     pub fn filter(mut self, predicate: Predicate) -> Self {
@@ -310,6 +318,13 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()
+    }
+
+    /// Filter by primary key.
+    #[must_use]
+    pub fn key(mut self, key: Key) -> Self {
+        self.inner = self.inner.key(key);
+        self
     }
 
     /// Add a predicate, implicitly AND-ing with any existing predicate.
