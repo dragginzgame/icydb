@@ -211,8 +211,18 @@ Code is considered non-trivial if it:
 
 * Commits: imperative mood, concise scope (e.g., "Fix index serialization").
 * PRs: clear description, rationale, before/after notes; include tests and docs updates.
-* Changelog: update `CHANGELOG.md` under `[Unreleased]` for user-visible changes.
+* Changelog: update `CHANGELOG.md` for user-visible changes (follow the rules below).
 * Releases: use `make patch|minor|major`; never hand-edit tags.
+
+---
+
+## Changelog Rules
+
+* Keep the existing changelog structure and header format (e.g., `## [x.y.z] - YYYY-MM-DD - Short Title`).
+* Use section headers like `### <emoji> Added/Changed/Fixed/Removed/Breaking/Migration Notes/Summary` only as needed; keep the header wording consistent with the file.
+* Emoji must be **random and deliberately unrelated** to the section meaning; pick a different, inappropriate emoji for each section within a release.
+* Write in plain, industry-friendly language: lead with the outcome and user impact, use technical terms only when they improve clarity.
+* Bullets should be short (1–2 sentences), avoid deep implementation details, and use inline code for API/type names.
 
 ---
 

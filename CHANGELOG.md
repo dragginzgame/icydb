@@ -9,8 +9,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.5.2] - 2026-01-28 - Public Facade Boundary
 
-### 🦴 Fixed
-* Public query helpers now return `icydb::Error`, preventing `InternalError`/`QueryError` leakage into application code.
+### 🍕 Fixed
+* Public query methods now return `icydb::Error`, so low-level internal errors no longer leak into app code.
+* You can no longer call executors or internal query execution paths from the public `icydb` API.
+* Removed `core_db()` and similar test-only backdoors that skipped the public API entirely.
+* Removed cross-canister query plumbing and erased-plan interfaces that exposed internal execution details.
+
+### 🦄 Changed
+* `db!()` now always returns the public `icydb` session wrapper, not the internal core session.
+* Queries must be executed through the session’s load/delete helpers; executors are now core-only.
+* Low-level executor corruption tests were removed from the public test suite.
+
+### 🤡 Removed
+* Entity-based query dispatch (`EntityDispatch`, `dispatch_load/save/delete`) and canister-to-canister query handling.
+* “Save query” abstractions — writes are now only done via explicit insert/replace/update APIs.
+* Tests that depended on calling executors directly outside of `icydb-core`.
 
 ---
 

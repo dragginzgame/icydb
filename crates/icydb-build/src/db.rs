@@ -111,12 +111,5 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
             ::icydb::db::DbSession::new(DB)
         }
 
-        /// Core-session accessor for internal dispatch paths.
-        /// Not part of the public API surface.
-        #[doc(hidden)]
-        pub(crate) const fn db_core(
-        ) -> ::icydb::__internal::core::db::DbSession<#canister_path> {
-            ::icydb::__internal::core::db::DbSession::new(DB)
-        }
     }
 }
