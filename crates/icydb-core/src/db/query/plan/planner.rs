@@ -79,6 +79,8 @@ fn plan_predicate<E: EntityKind>(
         | Predicate::IsMissing { .. }
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. }
+        | Predicate::TextContains { .. }
+        | Predicate::TextContainsCi { .. }
         | Predicate::MapContainsKey { .. }
         | Predicate::MapContainsValue { .. }
         | Predicate::MapContainsEntry { .. } => AccessPlan::full_scan(),

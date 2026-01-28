@@ -2,7 +2,10 @@ use super::{
     ast::{CompareOp, ComparePredicate, Predicate},
     coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
 };
-use crate::{traits::FieldValues, value::Value};
+use crate::{
+    traits::FieldValues,
+    value::{TextMode, Value},
+};
 use std::cmp::Ordering;
 
 ///
@@ -108,6 +111,18 @@ pub fn eval<R: Row + ?Sized>(row: &R, predicate: &Predicate) -> bool {
             coercion,
         } => match row.field(field) {
             FieldPresence::Present(actual) => map_contains_entry(&actual, key, value, coercion),
+            FieldPresence::Missing => false,
+        },
+        Predicate::TextContains { field, value } => match row.field(field) {
+            FieldPresence::Present(actual) => {
+                actual.text_contains(value, TextMode::Cs).unwrap_or(false)
+            }
+            FieldPresence::Missing => false,
+        },
+        Predicate::TextContainsCi { field, value } => match row.field(field) {
+            FieldPresence::Present(actual) => {
+                actual.text_contains(value, TextMode::Ci).unwrap_or(false)
+            }
             FieldPresence::Missing => false,
         },
     }

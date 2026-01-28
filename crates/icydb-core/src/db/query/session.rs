@@ -8,6 +8,7 @@ use crate::{
         },
         response::Response,
     },
+    error::ErrorClass,
     key::Key,
     traits::{CanisterKind, EntityKind},
     view::View,
@@ -284,12 +285,23 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     // ------------------------------------------------------------------
 
     pub fn execute(&self) -> Result<Response<E>, QueryError> {
-        self.session.execute_query(self.query())
+        match self.execute_raw() {
+            Ok(response) => Ok(response),
+            Err(QueryError::Execute(err)) if err.class == ErrorClass::NotFound => {
+                Ok(Response(Vec::new()))
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Execute a delete query and return the deleted rows.
     pub fn delete_rows(&self) -> Result<Response<E>, QueryError> {
         self.execute()
+    }
+
+    /// Execute the delete intent without facade-level cardinality handling.
+    fn execute_raw(&self) -> Result<Response<E>, QueryError> {
+        self.session.execute_query(self.query())
     }
 }
 

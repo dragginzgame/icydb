@@ -232,6 +232,16 @@ fn hash_predicate(hasher: &mut Sha256, predicate: &ExplainPredicate) {
             write_value(hasher, value);
             hash_coercion(hasher, coercion.id, &coercion.params);
         }
+        ExplainPredicate::TextContains { field, value } => {
+            write_tag(hasher, 0x2e);
+            write_str(hasher, field);
+            write_value(hasher, value);
+        }
+        ExplainPredicate::TextContainsCi { field, value } => {
+            write_tag(hasher, 0x2f);
+            write_str(hasher, field);
+            write_value(hasher, value);
+        }
     }
 }
 

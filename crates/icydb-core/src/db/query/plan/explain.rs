@@ -101,6 +101,14 @@ pub enum ExplainPredicate {
         value: Value,
         coercion: CoercionSpec,
     },
+    TextContains {
+        field: String,
+        value: Value,
+    },
+    TextContainsCi {
+        field: String,
+        value: Value,
+    },
 }
 
 ///
@@ -264,6 +272,14 @@ impl ExplainPredicate {
                 key: key.clone(),
                 value: value.clone(),
                 coercion: coercion.clone(),
+            },
+            Predicate::TextContains { field, value } => Self::TextContains {
+                field: field.clone(),
+                value: value.clone(),
+            },
+            Predicate::TextContainsCi { field, value } => Self::TextContainsCi {
+                field: field.clone(),
+                value: value.clone(),
             },
         }
     }

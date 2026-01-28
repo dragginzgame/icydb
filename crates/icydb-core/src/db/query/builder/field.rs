@@ -189,6 +189,24 @@ impl FieldRef {
             coercion: CoercionSpec::new(coercion),
         }
     }
+
+    /// Case-sensitive substring match for text fields.
+    #[must_use]
+    pub fn text_contains(self, value: impl FieldValue) -> Predicate {
+        Predicate::TextContains {
+            field: self.0.to_string(),
+            value: value.to_value(),
+        }
+    }
+
+    /// Case-insensitive substring match for text fields.
+    #[must_use]
+    pub fn text_contains_ci(self, value: impl FieldValue) -> Predicate {
+        Predicate::TextContainsCi {
+            field: self.0.to_string(),
+            value: value.to_value(),
+        }
+    }
 }
 
 // ----------------------------------------------------------------------

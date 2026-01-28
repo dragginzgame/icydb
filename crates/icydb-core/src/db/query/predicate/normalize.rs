@@ -80,6 +80,14 @@ pub fn normalize(predicate: &Predicate) -> Predicate {
             value: value.clone(),
             coercion: coercion.clone(),
         },
+        Predicate::TextContains { field, value } => Predicate::TextContains {
+            field: field.clone(),
+            value: value.clone(),
+        },
+        Predicate::TextContainsCi { field, value } => Predicate::TextContainsCi {
+            field: field.clone(),
+            value: value.clone(),
+        },
     }
 }
 
@@ -208,6 +216,8 @@ const PRED_IS_NOT_EMPTY: u8 = 0x09;
 const PRED_MAP_CONTAINS_KEY: u8 = 0x0A;
 const PRED_MAP_CONTAINS_VALUE: u8 = 0x0B;
 const PRED_MAP_CONTAINS_ENTRY: u8 = 0x0C;
+const PRED_TEXT_CONTAINS: u8 = 0x0D;
+const PRED_TEXT_CONTAINS_CI: u8 = 0x0E;
 
 // Encode predicate keys with length-prefixed segments to avoid collisions.
 fn encode_predicate_key(out: &mut Vec<u8>, predicate: &Predicate) {
@@ -286,6 +296,16 @@ fn encode_predicate_key(out: &mut Vec<u8>, predicate: &Predicate) {
             push_value(out, key);
             push_value(out, value);
             push_coercion(out, coercion);
+        }
+        Predicate::TextContains { field, value } => {
+            out.push(PRED_TEXT_CONTAINS);
+            push_str(out, field);
+            push_value(out, value);
+        }
+        Predicate::TextContainsCi { field, value } => {
+            out.push(PRED_TEXT_CONTAINS_CI);
+            push_str(out, field);
+            push_value(out, value);
         }
     }
 }

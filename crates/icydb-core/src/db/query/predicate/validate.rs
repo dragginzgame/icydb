@@ -479,6 +479,12 @@ pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), Valida
             value,
             coercion,
         } => validate_map_entry(schema, field, key, value, coercion),
+        Predicate::TextContains { field, value } => {
+            validate_text_contains(schema, field, value, "text_contains")
+        }
+        Predicate::TextContainsCi { field, value } => {
+            validate_text_contains(schema, field, value, "text_contains_ci")
+        }
     }
 }
 
@@ -731,6 +737,31 @@ fn validate_map_entry(
 
     ensure_coercion(field, key_type, key, coercion)?;
     ensure_coercion(field, value_type, value, coercion)?;
+
+    Ok(())
+}
+
+/// Validate substring predicates on text fields.
+fn validate_text_contains(
+    schema: &SchemaInfo,
+    field: &str,
+    value: &Value,
+    op: &str,
+) -> Result<(), ValidateError> {
+    let field_type = ensure_field(schema, field)?;
+    if !field_type.is_text() {
+        return Err(ValidateError::InvalidOperator {
+            field: field.to_string(),
+            op: op.to_string(),
+        });
+    }
+
+    if !matches!(value, Value::Text(_)) {
+        return Err(ValidateError::InvalidLiteral {
+            field: field.to_string(),
+            message: "expected text literal".to_string(),
+        });
+    }
 
     Ok(())
 }
@@ -1071,6 +1102,41 @@ mod tests {
         assert!(matches!(
             validate_model(&model, &predicate),
             Err(ValidateError::UnsupportedFieldType { field }) if field == "broken"
+        ));
+    }
+
+    #[test]
+    fn validate_model_accepts_text_contains() {
+        let model = model_with_fields(
+            vec![
+                field("id", EntityFieldKind::Ulid),
+                field("email", EntityFieldKind::Text),
+            ],
+            0,
+        );
+
+        let predicate = FieldRef::new("email").text_contains("example");
+        assert!(validate_model(&model, &predicate).is_ok());
+
+        let predicate = FieldRef::new("email").text_contains_ci("EXAMPLE");
+        assert!(validate_model(&model, &predicate).is_ok());
+    }
+
+    #[test]
+    fn validate_model_rejects_text_contains_on_non_text() {
+        let model = model_with_fields(
+            vec![
+                field("id", EntityFieldKind::Ulid),
+                field("age", EntityFieldKind::Uint),
+            ],
+            0,
+        );
+
+        let predicate = FieldRef::new("age").text_contains("1");
+        assert!(matches!(
+            validate_model(&model, &predicate),
+            Err(ValidateError::InvalidOperator { field, op })
+                if field == "age" && op == "text_contains"
         ));
     }
 }

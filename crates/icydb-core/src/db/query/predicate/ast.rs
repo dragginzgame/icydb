@@ -89,6 +89,14 @@ pub enum Predicate {
         value: Value,
         coercion: CoercionSpec,
     },
+    TextContains {
+        field: String,
+        value: Value,
+    },
+    TextContainsCi {
+        field: String,
+        value: Value,
+    },
 }
 
 impl BitAnd for Predicate {

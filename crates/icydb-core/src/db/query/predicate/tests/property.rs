@@ -144,6 +144,10 @@ fn arb_predicate() -> impl Strategy<Value = Predicate> {
                     coercion,
                 }
             ),
+        (arb_field(), arb_scalar_value())
+            .prop_map(|(field, value)| { Predicate::TextContains { field, value } }),
+        (arb_field(), arb_scalar_value())
+            .prop_map(|(field, value)| { Predicate::TextContainsCi { field, value } }),
     ];
 
     leaf.prop_recursive(3, 24, 4, |inner| {
