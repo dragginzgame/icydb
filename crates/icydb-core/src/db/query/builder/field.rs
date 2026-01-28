@@ -4,163 +4,216 @@ use crate::{
     value::Value,
 };
 
-/// Strict equality comparison (no coercion).
-#[must_use]
-pub fn eq(field: &'static str, value: impl FieldValue) -> Predicate {
-    compare(field, CompareOp::Eq, value.to_value(), CoercionId::Strict)
-}
+///
+/// FieldRef
+///
+/// Zero-cost wrapper around a static field name used in predicates.
+/// Enables method-based predicate builders without allocating.
+/// Carries only a `&'static str` and derefs to `str`.
+///
 
-/// Case-insensitive text equality.
-#[must_use]
-pub fn eq_ci(field: &'static str, value: impl FieldValue) -> Predicate {
-    compare(
-        field,
-        CompareOp::Eq,
-        value.to_value(),
-        CoercionId::TextCasefold,
-    )
-}
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+pub struct FieldRef(&'static str);
 
-/// Strict inequality comparison.
-#[must_use]
-pub fn ne(field: &'static str, value: impl FieldValue) -> Predicate {
-    compare(field, CompareOp::Ne, value.to_value(), CoercionId::Strict)
-}
+impl FieldRef {
+    /// Create a new field reference.
+    #[must_use]
+    pub const fn new(name: &'static str) -> Self {
+        Self(name)
+    }
 
-/// Less-than comparison with numeric widening.
-#[must_use]
-pub fn lt(field: &'static str, value: impl FieldValue) -> Predicate {
-    compare(
-        field,
-        CompareOp::Lt,
-        value.to_value(),
-        CoercionId::NumericWiden,
-    )
-}
+    /// Return the underlying field name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        self.0
+    }
 
-/// Less-than-or-equal comparison with numeric widening.
-#[must_use]
-pub fn lte(field: &'static str, value: impl FieldValue) -> Predicate {
-    compare(
-        field,
-        CompareOp::Lte,
-        value.to_value(),
-        CoercionId::NumericWiden,
-    )
-}
+    // ------------------------------------------------------------------
+    // Comparison predicates
+    // ------------------------------------------------------------------
 
-/// Greater-than comparison with numeric widening.
-#[must_use]
-pub fn gt(field: &'static str, value: impl FieldValue) -> Predicate {
-    compare(
-        field,
-        CompareOp::Gt,
-        value.to_value(),
-        CoercionId::NumericWiden,
-    )
-}
+    /// Strict equality comparison (no coercion).
+    #[must_use]
+    pub fn eq(self, value: impl FieldValue) -> Predicate {
+        compare(self.0, CompareOp::Eq, value.to_value(), CoercionId::Strict)
+    }
 
-/// Greater-than-or-equal comparison with numeric widening.
-#[must_use]
-pub fn gte(field: &'static str, value: impl FieldValue) -> Predicate {
-    compare(
-        field,
-        CompareOp::Gte,
-        value.to_value(),
-        CoercionId::NumericWiden,
-    )
-}
+    /// Case-insensitive text equality.
+    #[must_use]
+    pub fn eq_ci(self, value: impl FieldValue) -> Predicate {
+        compare(
+            self.0,
+            CompareOp::Eq,
+            value.to_value(),
+            CoercionId::TextCasefold,
+        )
+    }
 
-/// Membership test against a fixed list (strict).
-#[must_use]
-pub fn in_list(field: &'static str, values: Vec<Value>) -> Predicate {
-    compare(
-        field,
-        CompareOp::In,
-        Value::List(values),
-        CoercionId::Strict,
-    )
-}
+    /// Strict inequality comparison.
+    #[must_use]
+    pub fn ne(self, value: impl FieldValue) -> Predicate {
+        compare(self.0, CompareOp::Ne, value.to_value(), CoercionId::Strict)
+    }
 
-/// Field is present and explicitly null.
-#[must_use]
-pub fn is_null(field: &'static str) -> Predicate {
-    Predicate::IsNull {
-        field: field.to_string(),
+    /// Less-than comparison with numeric widening.
+    #[must_use]
+    pub fn lt(self, value: impl FieldValue) -> Predicate {
+        compare(
+            self.0,
+            CompareOp::Lt,
+            value.to_value(),
+            CoercionId::NumericWiden,
+        )
+    }
+
+    /// Less-than-or-equal comparison with numeric widening.
+    #[must_use]
+    pub fn lte(self, value: impl FieldValue) -> Predicate {
+        compare(
+            self.0,
+            CompareOp::Lte,
+            value.to_value(),
+            CoercionId::NumericWiden,
+        )
+    }
+
+    /// Greater-than comparison with numeric widening.
+    #[must_use]
+    pub fn gt(self, value: impl FieldValue) -> Predicate {
+        compare(
+            self.0,
+            CompareOp::Gt,
+            value.to_value(),
+            CoercionId::NumericWiden,
+        )
+    }
+
+    /// Greater-than-or-equal comparison with numeric widening.
+    #[must_use]
+    pub fn gte(self, value: impl FieldValue) -> Predicate {
+        compare(
+            self.0,
+            CompareOp::Gte,
+            value.to_value(),
+            CoercionId::NumericWiden,
+        )
+    }
+
+    /// Membership test against a fixed list (strict).
+    #[must_use]
+    pub fn in_list<I, V>(self, values: I) -> Predicate
+    where
+        I: IntoIterator<Item = V>,
+        V: FieldValue,
+    {
+        Predicate::Compare(ComparePredicate {
+            field: self.0.to_string(),
+            op: CompareOp::In,
+            value: Value::List(values.into_iter().map(|v| v.to_value()).collect()),
+            coercion: CoercionSpec::new(CoercionId::Strict),
+        })
+    }
+
+    // ------------------------------------------------------------------
+    // Structural predicates
+    // ------------------------------------------------------------------
+
+    /// Field is present and explicitly null.
+    #[must_use]
+    pub fn is_null(self) -> Predicate {
+        Predicate::IsNull {
+            field: self.0.to_string(),
+        }
+    }
+
+    /// Field is not present at all.
+    #[must_use]
+    pub fn is_missing(self) -> Predicate {
+        Predicate::IsMissing {
+            field: self.0.to_string(),
+        }
+    }
+
+    /// Field is present but empty (collection- or string-specific).
+    #[must_use]
+    pub fn is_empty(self) -> Predicate {
+        Predicate::IsEmpty {
+            field: self.0.to_string(),
+        }
+    }
+
+    /// Field is present and non-empty.
+    #[must_use]
+    pub fn is_not_empty(self) -> Predicate {
+        Predicate::IsNotEmpty {
+            field: self.0.to_string(),
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Map predicates
+    // ------------------------------------------------------------------
+
+    /// Map field contains the given key.
+    #[must_use]
+    pub fn map_contains_key(self, key: impl FieldValue, coercion: CoercionId) -> Predicate {
+        Predicate::MapContainsKey {
+            field: self.0.to_string(),
+            key: key.to_value(),
+            coercion: CoercionSpec::new(coercion),
+        }
+    }
+
+    /// Map field contains the given value.
+    #[must_use]
+    pub fn map_contains_value(self, value: impl FieldValue, coercion: CoercionId) -> Predicate {
+        Predicate::MapContainsValue {
+            field: self.0.to_string(),
+            value: value.to_value(),
+            coercion: CoercionSpec::new(coercion),
+        }
+    }
+
+    /// Map field contains the given key/value pair.
+    #[must_use]
+    pub fn map_contains_entry(
+        self,
+        key: impl FieldValue,
+        value: impl FieldValue,
+        coercion: CoercionId,
+    ) -> Predicate {
+        Predicate::MapContainsEntry {
+            field: self.0.to_string(),
+            key: key.to_value(),
+            value: value.to_value(),
+            coercion: CoercionSpec::new(coercion),
+        }
     }
 }
 
-/// Field is not present at all.
-#[must_use]
-pub fn is_missing(field: &'static str) -> Predicate {
-    Predicate::IsMissing {
-        field: field.to_string(),
+// ----------------------------------------------------------------------
+// Boundary traits
+// ----------------------------------------------------------------------
+
+impl AsRef<str> for FieldRef {
+    fn as_ref(&self) -> &str {
+        self.0
     }
 }
 
-/// Field is present but empty (collection- or string-specific).
-#[must_use]
-pub fn is_empty(field: &'static str) -> Predicate {
-    Predicate::IsEmpty {
-        field: field.to_string(),
+impl std::ops::Deref for FieldRef {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
     }
 }
 
-/// Field is present and non-empty.
-#[must_use]
-pub fn is_not_empty(field: &'static str) -> Predicate {
-    Predicate::IsNotEmpty {
-        field: field.to_string(),
-    }
-}
+// ----------------------------------------------------------------------
+// Internal helpers (not public API)
+// ----------------------------------------------------------------------
 
-/// Map field contains the given key.
-#[must_use]
-pub fn map_contains_key(
-    field: &'static str,
-    key: impl FieldValue,
-    coercion: CoercionId,
-) -> Predicate {
-    Predicate::MapContainsKey {
-        field: field.to_string(),
-        key: key.to_value(),
-        coercion: CoercionSpec::new(coercion),
-    }
-}
-
-/// Map field contains the given value.
-#[must_use]
-pub fn map_contains_value(
-    field: &'static str,
-    value: impl FieldValue,
-    coercion: CoercionId,
-) -> Predicate {
-    Predicate::MapContainsValue {
-        field: field.to_string(),
-        value: value.to_value(),
-        coercion: CoercionSpec::new(coercion),
-    }
-}
-
-/// Map field contains the given key/value pair.
-#[must_use]
-pub fn map_contains_entry(
-    field: &'static str,
-    key: impl FieldValue,
-    value: impl FieldValue,
-    coercion: CoercionId,
-) -> Predicate {
-    Predicate::MapContainsEntry {
-        field: field.to_string(),
-        key: key.to_value(),
-        value: value.to_value(),
-        coercion: CoercionSpec::new(coercion),
-    }
-}
-
-/// Internal helper to construct comparison predicates.
-/// No validation or schema lookup occurs here.
-fn compare(field: &'static str, op: CompareOp, value: Value, coercion: CoercionId) -> Predicate {
+fn compare(field: &str, op: CompareOp, value: Value, coercion: CoercionId) -> Predicate {
     Predicate::Compare(ComparePredicate {
         field: field.to_string(),
         op,

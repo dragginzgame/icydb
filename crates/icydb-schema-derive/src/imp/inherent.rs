@@ -23,9 +23,10 @@ impl Imp<Entity> for InherentTrait {
                 let ident = format_ident!("{constant}");
                 let name_str = f.ident.to_string();
 
-                // right now just strings, could be your Field<Self, T> later
+                // zero-cost field wrapper for predicate helpers
                 quote! {
-                    pub const #ident: &str = #name_str;
+                    pub const #ident: ::icydb::db::query::FieldRef =
+                        ::icydb::db::query::FieldRef::new(#name_str);
                 }
             })
             .collect();

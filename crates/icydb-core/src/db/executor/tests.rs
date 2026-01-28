@@ -8,7 +8,7 @@ use crate::{
             IndexEntryCorruption, IndexKey, IndexStore, IndexStoreRegistry, store::IndexRemoveError,
         },
         query::{
-            DeleteSpec, LoadSpec, Query, QueryError, QueryMode, ReadConsistency, eq, gt, in_list,
+            DeleteSpec, FieldRef, LoadSpec, Query, QueryError, QueryMode, ReadConsistency,
             plan::{
                 AccessPath, AccessPlan, ExecutablePlan, ExplainAccessPath, OrderDirection,
                 OrderSpec, PageSpec, PlanError, ProjectionSpec, logical::LogicalPlan,
@@ -869,11 +869,16 @@ fn load_or_predicate_executes_union() {
     saver.insert(a.clone()).unwrap();
     saver.insert(b.clone()).unwrap();
 
-    let predicate = Predicate::Or(vec![eq("id", a.id), eq("id", b.id)]);
+    let predicate = Predicate::Or(vec![
+        FieldRef::new("id").eq(a.id),
+        FieldRef::new("id").eq(b.id),
+    ]);
+
     let plan = Query::<TestEntity>::new(ReadConsistency::MissingOk)
         .filter(predicate)
         .plan()
         .expect("plan");
+
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
     let rows = loader.execute(plan).unwrap().entities();
 
@@ -897,17 +902,13 @@ fn load_in_predicate_executes_union() {
     saver.insert(a).unwrap();
     saver.insert(b).unwrap();
 
-    let predicate = in_list(
-        "name",
-        vec![
-            Value::Text("alpha".to_string()),
-            Value::Text("beta".to_string()),
-        ],
-    );
+    let predicate = FieldRef::new("name").in_list(["alpha", "beta"]);
+
     let plan = Query::<TestEntity>::new(ReadConsistency::MissingOk)
         .filter(predicate)
         .plan()
         .expect("plan");
+
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
     let rows = loader.execute(plan).unwrap().entities();
 
@@ -926,11 +927,16 @@ fn load_or_strict_missing_errors() {
     };
     saver.insert(entity.clone()).unwrap();
 
-    let predicate = Predicate::Or(vec![eq("id", entity.id), eq("id", Ulid::from_u128(43))]);
+    let predicate = Predicate::Or(vec![
+        FieldRef::new("id").eq(entity.id),
+        FieldRef::new("id").eq(Ulid::from_u128(43)),
+    ]);
+
     let plan = Query::<TestEntity>::new(ReadConsistency::Strict)
         .filter(predicate)
         .plan()
         .expect("plan");
+
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
     let err = loader.execute(plan).unwrap_err();
 
@@ -945,9 +951,10 @@ fn timestamp_pk_plans_by_key_and_strict_missing_is_corruption() {
 
     let ts = Timestamp::from_seconds(123);
     let plan = Query::<TimestampEntity>::new(ReadConsistency::Strict)
-        .filter(eq("id", ts))
+        .filter(FieldRef::new("id").eq(ts))
         .plan()
         .expect("plan");
+
     let fingerprint = plan.fingerprint();
 
     assert_eq!(
@@ -981,7 +988,6 @@ fn timestamp_pk_plans_by_key_and_strict_missing_is_corruption() {
         ]
     );
 }
-
 #[test]
 fn trace_emits_start_and_finish_for_load() {
     reset_stores();
@@ -1155,14 +1161,8 @@ fn trace_emits_phase_counts_for_filter_order_page() {
             .unwrap();
     }
 
-    let predicate = in_list(
-        "name",
-        vec![
-            Value::Text("beta".to_string()),
-            Value::Text("delta".to_string()),
-            Value::Text("epsilon".to_string()),
-        ],
-    );
+    let predicate = FieldRef::new("name").in_list(["beta", "delta", "epsilon"]);
+
     let plan = LogicalPlan {
         mode: QueryMode::Load(LoadSpec::new()),
         access: AccessPlan::Path(AccessPath::FullScan),
@@ -1178,6 +1178,7 @@ fn trace_emits_phase_counts_for_filter_order_page() {
         projection: ProjectionSpec::All,
         consistency: ReadConsistency::MissingOk,
     };
+
     let fingerprint = plan.fingerprint();
     let access = Some(TraceAccess::FullScan);
     let loader = LoadExecutor::<TestEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
@@ -1649,14 +1650,15 @@ fn load_paginates_after_filtering_and_ordering() {
     let rows = loader
         .execute(
             Query::<OrderEntity>::new(ReadConsistency::MissingOk)
-                .filter(gt("secondary", 0))
-                .order_by("secondary")
+                .filter(FieldRef::new("secondary").gt(0))
+                .order_by(FieldRef::new("secondary"))
                 .limit(2)
                 .plan()
                 .unwrap(),
         )
         .unwrap()
         .entities();
+
     let secondaries = rows
         .iter()
         .map(|entity| entity.secondary)

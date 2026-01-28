@@ -5,6 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+
+## [0.5.7] - 2026-01-28
+
+### 🪁 Added
+* Generated entity field constants now use `FieldRef`, enabling predicate helpers like `Asset::ID.in_list(&ids)` without changing planner or executor behavior.
+
+### 🥝 Fixed
+* The `icydb` load facade now exposes `count()` and `exists()` terminals.
+
+
 ---
 
 ## [0.5.6] - 2026-01-28

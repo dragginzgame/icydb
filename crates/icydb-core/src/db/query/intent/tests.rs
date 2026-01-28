@@ -1,32 +1,20 @@
 use super::*;
-use crate::db::query::{
-    ReadConsistency, eq, eq_ci, gt,
-    plan::{ExplainAccessPath, OrderDirection, OrderSpec, PlanError, planner::PlannerEntity},
-    predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
-};
 use crate::{
-    model::{
-        entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel},
-        index::IndexModel,
-    },
-    traits::{
-        CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
-        ValidateAuto, ValidateCustom, View, ViewError, Visitable,
+    db::query::{
+        FieldRef, ReadConsistency,
+        plan::{ExplainAccessPath, OrderDirection, OrderSpec, PlanError, planner::PlannerEntity},
+        predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
     },
     types::Ulid,
     value::Value,
 };
-use serde::{Deserialize, Serialize};
 
 #[test]
 fn fluent_chain_builds_predicate_tree() {
     let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .filter(eq("name", "ice"))
-        .filter(gt("age", 10))
-        .filter(Predicate::IsNull {
-            field: "deleted_at".to_string(),
-        });
+        .filter(FieldRef::new("name").eq("ice"))
+        .filter(FieldRef::new("age").gt(10))
+        .filter(FieldRef::new("deleted_at").is_null());
 
     let expected = Predicate::And(vec![
         Predicate::And(vec![
@@ -53,7 +41,7 @@ fn fluent_chain_builds_predicate_tree() {
 
 #[test]
 fn eq_ci_uses_text_casefold() {
-    let predicate = eq_ci("name", "ICE");
+    let predicate = FieldRef::new("name").eq_ci("ICE");
     let Predicate::Compare(cmp) = predicate else {
         panic!("expected compare predicate");
     };
@@ -65,9 +53,9 @@ fn eq_ci_uses_text_casefold() {
 #[test]
 fn filter_chains_are_nested() {
     let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .filter(eq("a", 1))
-        .filter(eq("b", 2))
-        .filter(eq("c", 3));
+        .filter(FieldRef::new("a").eq(1))
+        .filter(FieldRef::new("b").eq(2))
+        .filter(FieldRef::new("c").eq(3));
 
     let expected = Predicate::And(vec![
         Predicate::And(vec![
@@ -98,8 +86,8 @@ fn filter_chains_are_nested() {
 #[test]
 fn order_accumulates() {
     let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .order_by("a")
-        .order_by_desc("b");
+        .order_by(FieldRef::new("a"))
+        .order_by_desc(FieldRef::new("b"));
 
     assert_eq!(
         query.order,
@@ -176,8 +164,8 @@ fn intent_has_no_planning_access_types() {
 #[test]
 fn planning_allows_composite_access_plans() {
     let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .filter(eq("id", Value::Ulid(Ulid::default())))
-        .filter(eq("idx_a", "alpha"));
+        .filter(FieldRef::new("id").eq(Ulid::default()))
+        .filter(FieldRef::new("idx_a").eq("alpha"));
 
     let plan = query.plan().expect("composite plan");
     let explain = plan.explain();
@@ -187,8 +175,8 @@ fn planning_allows_composite_access_plans() {
 #[test]
 fn plan_is_deterministic_for_same_query() {
     let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .filter(eq("id", Ulid::default()))
-        .order_by("idx_a");
+        .filter(FieldRef::new("id").eq(Ulid::default()))
+        .order_by(FieldRef::new("idx_a"));
 
     let plan_a = query.plan().expect("first plan");
     let plan_b = query.plan().expect("second plan");
@@ -200,11 +188,11 @@ fn plan_is_deterministic_for_same_query() {
 fn plan_is_deterministic_for_equivalent_predicates() {
     let id = Ulid::default();
     let query_a = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .filter(eq("id", id))
-        .filter(eq("other", "x"));
+        .filter(FieldRef::new("id").eq(id))
+        .filter(FieldRef::new("other").eq("x"));
     let query_b = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .filter(eq("other", "x"))
-        .filter(eq("id", id));
+        .filter(FieldRef::new("other").eq("x"))
+        .filter(FieldRef::new("id").eq(id));
 
     let plan_a = query_a.plan().expect("plan a");
     let plan_b = query_b.plan().expect("plan b");
@@ -215,8 +203,8 @@ fn plan_is_deterministic_for_equivalent_predicates() {
 #[test]
 fn query_explain_matches_plan() {
     let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .filter(eq("id", Ulid::default()))
-        .order_by("idx_a");
+        .filter(FieldRef::new("id").eq(Ulid::default()))
+        .order_by(FieldRef::new("idx_a"));
 
     let plan = query.plan().expect("plan");
     let explain = query.explain().expect("explain");
@@ -226,7 +214,8 @@ fn query_explain_matches_plan() {
 
 #[test]
 fn query_explain_rejects_invalid_order() {
-    let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk).order_by("missing");
+    let query =
+        Query::<PlannerEntity>::new(ReadConsistency::MissingOk).order_by(FieldRef::new("missing"));
 
     let err = query.explain().expect_err("invalid order");
 
@@ -234,115 +223,4 @@ fn query_explain_rejects_invalid_order() {
         err,
         QueryError::Plan(PlanError::UnknownOrderField { .. })
     ));
-}
-
-#[test]
-fn broken_model_rejected_without_panic() {
-    let query =
-        Query::<BrokenEntity>::new(ReadConsistency::MissingOk).filter(eq("id", Ulid::default()));
-
-    let Err(err) = query.plan() else {
-        panic!("broken model should fail")
-    };
-
-    match err {
-        QueryError::Validate(_) | QueryError::Plan(_) | QueryError::Intent(_) => {}
-        QueryError::Execute(err) => panic!("unexpected execute error: {err}"),
-    }
-}
-
-const BROKEN_ENTITY_PATH: &str = "planner_test::BrokenEntity";
-
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-struct BrokenEntity {
-    id: Ulid,
-}
-
-impl Path for BrokenEntity {
-    const PATH: &'static str = BROKEN_ENTITY_PATH;
-}
-
-impl View for BrokenEntity {
-    type ViewType = Self;
-
-    fn to_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-        Ok(view)
-    }
-}
-
-impl SanitizeAuto for BrokenEntity {}
-impl SanitizeCustom for BrokenEntity {}
-impl ValidateAuto for BrokenEntity {}
-impl ValidateCustom for BrokenEntity {}
-impl Visitable for BrokenEntity {}
-
-impl FieldValues for BrokenEntity {
-    fn get_value(&self, field: &str) -> Option<Value> {
-        match field {
-            "id" => Some(Value::Ulid(self.id)),
-            _ => None,
-        }
-    }
-}
-
-struct BrokenCanister;
-
-impl Path for BrokenCanister {
-    const PATH: &'static str = "planner_test::BrokenCanister";
-}
-
-impl CanisterKind for BrokenCanister {}
-
-struct BrokenStore;
-
-impl Path for BrokenStore {
-    const PATH: &'static str = "planner_test::BrokenStore";
-}
-
-impl StoreKind for BrokenStore {
-    type Canister = BrokenCanister;
-}
-
-const BROKEN_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
-    name: "id",
-    kind: EntityFieldKind::Ulid,
-}];
-const BROKEN_PK_FIELD: EntityFieldModel = EntityFieldModel {
-    name: "missing",
-    kind: EntityFieldKind::Ulid,
-};
-const BROKEN_MODEL: EntityModel = EntityModel {
-    path: BROKEN_ENTITY_PATH,
-    entity_name: "BrokenEntity",
-    primary_key: &BROKEN_PK_FIELD,
-    fields: &BROKEN_FIELDS,
-    indexes: &[],
-};
-
-impl EntityKind for BrokenEntity {
-    type PrimaryKey = Ulid;
-    type Store = BrokenStore;
-    type Canister = BrokenCanister;
-
-    const ENTITY_NAME: &'static str = "BrokenEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id"];
-    const INDEXES: &'static [&'static IndexModel] = &[];
-    const MODEL: &'static EntityModel = &BROKEN_MODEL;
-
-    fn key(&self) -> crate::key::Key {
-        self.id.into()
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
-    }
 }

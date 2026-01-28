@@ -2,7 +2,7 @@ use crate::{
     db::{
         DbSession,
         query::{
-            Query, QueryError, eq,
+            FieldRef, Query, QueryError,
             plan::{ExecutablePlan, ExplainPlan},
             predicate::Predicate,
         },
@@ -48,7 +48,8 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
     #[must_use]
     pub fn key(mut self, key: impl Into<Key>) -> Self {
         let key = key.into();
-        self.query = self.query.filter(eq(E::PRIMARY_KEY, key));
+        let field = FieldRef::new(E::PRIMARY_KEY);
+        self.query = self.query.filter(field.eq(key));
         self
     }
 
@@ -61,14 +62,14 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
 
     /// Append an ascending sort key.
     #[must_use]
-    pub fn order_by(mut self, field: &'static str) -> Self {
+    pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
         self.query = self.query.order_by(field);
         self
     }
 
     /// Append a descending sort key.
     #[must_use]
-    pub fn order_by_desc(mut self, field: &'static str) -> Self {
+    pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
         self.query = self.query.order_by_desc(field);
         self
     }
@@ -189,7 +190,8 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     #[must_use]
     pub fn key(mut self, key: impl Into<Key>) -> Self {
         let key = key.into();
-        self.query = self.query.filter(eq(E::PRIMARY_KEY, key));
+        let field = FieldRef::new(E::PRIMARY_KEY);
+        self.query = self.query.filter(field.eq(key));
         self
     }
 
@@ -202,14 +204,14 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
 
     /// Append an ascending sort key.
     #[must_use]
-    pub fn order_by(mut self, field: &'static str) -> Self {
+    pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
         self.query = self.query.order_by(field);
         self
     }
 
     /// Append a descending sort key.
     #[must_use]
-    pub fn order_by_desc(mut self, field: &'static str) -> Self {
+    pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
         self.query = self.query.order_by_desc(field);
         self
     }

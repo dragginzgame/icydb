@@ -146,15 +146,15 @@ impl<E: EntityKind> Query<E> {
 
     /// Append an ascending sort key.
     #[must_use]
-    pub fn order_by(mut self, field: &'static str) -> Self {
-        self.order = Some(push_order(self.order, field, OrderDirection::Asc));
+    pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
+        self.order = Some(push_order(self.order, field.as_ref(), OrderDirection::Asc));
         self
     }
 
     /// Append a descending sort key.
     #[must_use]
-    pub fn order_by_desc(mut self, field: &'static str) -> Self {
-        self.order = Some(push_order(self.order, field, OrderDirection::Desc));
+    pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
+        self.order = Some(push_order(self.order, field.as_ref(), OrderDirection::Desc));
         self
     }
 
@@ -310,11 +310,7 @@ pub enum IntentError {
 }
 
 /// Helper to append an ordering field while preserving existing order spec.
-fn push_order(
-    order: Option<OrderSpec>,
-    field: &'static str,
-    direction: OrderDirection,
-) -> OrderSpec {
+fn push_order(order: Option<OrderSpec>, field: &str, direction: OrderDirection) -> OrderSpec {
     match order {
         Some(mut spec) => {
             spec.fields.push((field.to_string(), direction));

@@ -967,7 +967,7 @@ mod tests {
     use super::{ValidateError, validate_model};
     use crate::{
         db::query::{
-            builder::{eq, eq_ci, is_empty, is_not_empty, lt, map_contains_entry},
+            FieldRef,
             predicate::{CoercionId, Predicate},
         },
         model::{
@@ -1010,9 +1010,9 @@ mod tests {
         );
 
         let predicate = Predicate::And(vec![
-            eq("id", Ulid::nil()),
-            eq_ci("email", "User@example.com"),
-            lt("age", 30u32),
+            FieldRef::new("id").eq(Ulid::nil()),
+            FieldRef::new("email").eq_ci("User@example.com"),
+            FieldRef::new("age").lt(30u32),
         ]);
 
         assert!(validate_model(&model, &predicate).is_ok());
@@ -1040,14 +1040,16 @@ mod tests {
         );
 
         let predicate = Predicate::And(vec![
-            is_empty("tags"),
-            is_not_empty("principals"),
-            map_contains_entry("attributes", "k", 1u64, CoercionId::Strict),
+            FieldRef::new("tags").is_empty(),
+            FieldRef::new("principals").is_not_empty(),
+            FieldRef::new("attributes").map_contains_entry("k", 1u64, CoercionId::Strict),
         ]);
 
         assert!(validate_model(&model, &predicate).is_ok());
 
-        let bad = map_contains_entry("attributes", "k", 1u64, CoercionId::TextCasefold);
+        let bad =
+            FieldRef::new("attributes").map_contains_entry("k", 1u64, CoercionId::TextCasefold);
+
         assert!(matches!(
             validate_model(&model, &bad),
             Err(ValidateError::InvalidCoercion { .. })
@@ -1063,7 +1065,8 @@ mod tests {
             ],
             0,
         );
-        let predicate = eq("broken", 1u64);
+
+        let predicate = FieldRef::new("broken").eq(1u64);
 
         assert!(matches!(
             validate_model(&model, &predicate),

@@ -383,9 +383,9 @@ const fn coercion_id_tag(id: CoercionId) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::query::plan::planner::PlannerEntity;
     use crate::db::query::plan::{AccessPath, DeleteLimitSpec, LogicalPlan};
-    use crate::db::query::{Query, QueryMode, ReadConsistency, eq};
+    use crate::db::query::{FieldRef, plan::planner::PlannerEntity};
+    use crate::db::query::{Query, QueryMode, ReadConsistency};
     use crate::model::index::IndexModel;
     use crate::types::Ulid;
     use crate::value::Value;
@@ -393,12 +393,14 @@ mod tests {
     #[test]
     fn fingerprint_is_deterministic_for_equivalent_predicates() {
         let id = Ulid::default();
+
         let query_a = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-            .filter(eq("id", id))
-            .filter(eq("other", "x"));
+            .filter(FieldRef::new("id").eq(id))
+            .filter(FieldRef::new("other").eq("x"));
+
         let query_b = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-            .filter(eq("other", "x"))
-            .filter(eq("id", id));
+            .filter(FieldRef::new("other").eq("x"))
+            .filter(FieldRef::new("id").eq(id));
 
         let plan_a = query_a.plan().expect("plan a");
         let plan_b = query_b.plan().expect("plan b");

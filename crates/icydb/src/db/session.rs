@@ -278,6 +278,16 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         self
     }
 
+    /// Execute this query and return whether any rows match.
+    pub fn exists(&self) -> Result<bool, Error> {
+        Ok(self.inner.exists()?)
+    }
+
+    /// Execute this query and return the number of matching rows.
+    pub fn count(&self) -> Result<u64, Error> {
+        Ok(self.inner.count()?)
+    }
+
     /// Explain this query without executing it.
     pub fn explain(&self) -> Result<core::db::query::plan::ExplainPlan, Error> {
         Ok(self.inner.explain()?)

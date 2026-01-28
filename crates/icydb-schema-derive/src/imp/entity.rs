@@ -9,7 +9,6 @@ pub struct EntityKindTrait {}
 impl Imp<Entity> for EntityKindTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let store = &node.store;
-        let pk_field = &node.primary_key.to_string();
         let Some(pk_entry) = node.fields.get(&node.primary_key) else {
             let msg = LitStr::new(
                 &format!(
@@ -20,6 +19,7 @@ impl Imp<Entity> for EntityKindTrait {
             );
             return Some(TraitStrategy::from_impl(quote!(compile_error!(#msg))));
         };
+        let pk_const_ident = pk_entry.const_ident();
         let pk_type = &pk_entry.value.item.type_expr();
         let entity_name = if let Some(name) = &node.name {
             quote!(#name)
@@ -45,8 +45,10 @@ impl Imp<Entity> for EntityKindTrait {
             type Canister = <Self::Store as ::icydb::traits::StoreKind>::Canister;
 
             const ENTITY_NAME: &'static str = #entity_name;
-            const PRIMARY_KEY: &'static str = #pk_field;
-            const FIELDS: &'static [&'static str]  = &[ #( Self::#field_refs ),* ];
+            const PRIMARY_KEY: &'static str = Self::#pk_const_ident.as_str();
+            const FIELDS: &'static [&'static str]  = &[
+                #( Self::#field_refs.as_str() ),*
+            ];
             const INDEXES: &'static [&'static ::icydb::model::index::IndexModel]  = &[#(&#indexes),*];
             const MODEL: &'static ::icydb::model::entity::EntityModel = &Self::__ENTITY_MODEL;
         };
