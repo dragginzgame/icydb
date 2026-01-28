@@ -62,7 +62,7 @@ impl DeleteUniqueSuite {
             .delete()
             .plan()
             .expect("plan");
-        let err = crate::db()
+        let err = crate::core_db()
             .delete_executor::<Index>()
             .execute(plan)
             .map_err(icydb::Error::from)
@@ -107,7 +107,7 @@ impl DeleteUniqueSuite {
             .delete()
             .plan()
             .expect("plan");
-        let err = crate::db()
+        let err = crate::core_db()
             .delete_executor::<Index>()
             .execute(plan)
             .map_err(icydb::Error::from)
@@ -151,7 +151,7 @@ impl DeleteUniqueSuite {
             .delete()
             .plan()
             .expect("plan");
-        let err = crate::db()
+        let err = crate::core_db()
             .delete_executor::<Index>()
             .execute(plan)
             .map_err(icydb::Error::from)
@@ -182,7 +182,7 @@ impl DeleteUniqueSuite {
             .delete()
             .plan()
             .expect("plan");
-        let err = crate::db()
+        let err = crate::core_db()
             .delete_executor::<Index>()
             .execute(plan)
             .map_err(icydb::Error::from)

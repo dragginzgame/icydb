@@ -1,11 +1,11 @@
 pub use crate::prelude::*;
 
 ///
-/// Canister
+/// TestCanister
 ///
 
 #[canister(memory_min = 50, memory_max = 100)]
-pub struct Canister {}
+pub struct TestCanister {}
 
 ///
 /// TestDataStore
@@ -14,7 +14,7 @@ pub struct Canister {}
 #[store(
     ident = "TEST_DATA_STORE",
     ty = "Data",
-    canister = "Canister",
+    canister = "TestCanister",
     memory_id = 50
 )]
 pub struct TestDataStore {}
@@ -26,7 +26,7 @@ pub struct TestDataStore {}
 #[store(
     ident = "TEST_INDEX_STORE",
     ty = "Index",
-    canister = "Canister",
+    canister = "TestCanister",
     memory_id = 51
 )]
 pub struct TestIndexStore {}

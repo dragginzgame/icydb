@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 /// Query planning types are exposed for diagnostics and intent composition.
 ///
 pub use core::db::query::{
-    DeleteSpec, IntentError, LoadSpec, Query, QueryError, QueryMode, ReadConsistency, SaveMode,
-    builder, builder::*, diagnostics, predicate,
+    DeleteSpec, LoadSpec, Query, QueryMode, ReadConsistency, SaveMode, builder, builder::*,
+    diagnostics, predicate,
 };
 
 pub mod plan {

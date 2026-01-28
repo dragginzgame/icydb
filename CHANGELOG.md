@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [0.5.2] - 2026-01-28 - Public Facade Boundary
+
+### 🦴 Fixed
+* Public query helpers now return `icydb::Error`, preventing `InternalError`/`QueryError` leakage into application code.
+
+---
+
 ## [0.5.1] - 2026-01-28 - Redesigned Query Builder
 
 ### 🦴 Fixed

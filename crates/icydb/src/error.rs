@@ -1,7 +1,8 @@
 use candid::CandidType;
 use derive_more::Display;
-use icydb_core::error::{
-    ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin, InternalError,
+use icydb_core::{
+    db::query::QueryError,
+    error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin, InternalError},
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
@@ -36,6 +37,23 @@ impl From<InternalError> for Error {
             class: err.class.into(),
             origin: err.origin.into(),
             message: err.message,
+        }
+    }
+}
+
+impl From<QueryError> for Error {
+    fn from(err: QueryError) -> Self {
+        match err {
+            QueryError::Validate(err) => {
+                Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+            }
+            QueryError::Plan(err) => {
+                Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+            }
+            QueryError::Intent(err) => {
+                Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+            }
+            QueryError::Execute(err) => Self::from(err),
         }
     }
 }

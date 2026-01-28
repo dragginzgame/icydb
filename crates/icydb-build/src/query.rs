@@ -25,7 +25,7 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
     //
     //   "my.entity.Path" => Ok(EntityDispatch { ... }),
     //
-    // Each arm embeds typed closures that call db!().load_executor::<Ty>(), etc.
+    // Each arm embeds typed closures that call db_core().load_executor::<Ty>(), etc.
     let arms = entities.iter().map(|(entity_path, _)| {
         // Parse the fully-qualified Rust type (e.g. "my_canister::types::User")
         let ty: Path =
@@ -41,7 +41,7 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
                 load_keys: |query: ::icydb::__internal::core::db::query::plan::__internal::ExecutablePlanErased| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
                     let plan = query.into_typed::<#ty>()?;
 
-                    crate::db()
+                    crate::db_core()
                         .load_executor::<#ty>()
                         .execute(plan)
                         .map(|res| res.keys())
@@ -49,14 +49,14 @@ fn generate_dispatch(builder: &ActorBuilder) -> TokenStream {
 
                 // Save closure: executes a SaveQuery and returns the resulting key.
                 save_key: |query: ::icydb::__internal::core::db::query::SaveQuery| -> Result<::icydb::key::Key, ::icydb::__internal::core::error::InternalError> {
-                    crate::db().save::<#ty>().execute(query).map(|res| res.key())
+                    crate::db_core().save::<#ty>().execute(query).map(|res| res.key())
                 },
 
                 // Delete closure: executes the logical plan and returns all removed keys.
                 delete_keys: |query: ::icydb::__internal::core::db::query::plan::__internal::ExecutablePlanErased| -> Result<Vec<::icydb::key::Key>, ::icydb::__internal::core::error::InternalError> {
                     let plan = query.into_typed::<#ty>()?;
 
-                    crate::db()
+                    crate::db_core()
                         .delete_executor::<#ty>()
                         .execute(plan)
                         .map(|res| res.keys())

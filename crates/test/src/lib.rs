@@ -4,7 +4,7 @@ mod view_into;
 
 use canic_cdk::{export_candid, update};
 use icydb::design::prelude::*;
-use test_design::schema::{TestDataStore, TestIndexStore};
+use test_design::schema::{TestCanister, TestDataStore, TestIndexStore};
 
 //
 // INIT
@@ -25,6 +25,16 @@ pub(crate) fn clear_test_data_store() {
     crate::INDEX_REGISTRY.with(|reg| {
         let _ = reg.with_store_mut(TestIndexStore::PATH, |s| s.clear());
     });
+}
+
+///
+/// Core session access
+/// Internal-only helper for executor-focused tests.
+/// Bypasses the public facade boundary.
+///
+
+pub(crate) const fn core_db() -> icydb::__internal::core::db::DbSession<TestCanister> {
+    icydb::__internal::core::db::DbSession::new(crate::DB)
 }
 
 /// test
