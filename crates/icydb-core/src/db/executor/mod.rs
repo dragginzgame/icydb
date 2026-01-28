@@ -3,25 +3,20 @@ mod delete;
 mod load;
 mod plan;
 mod save;
-pub(crate) mod trace;
-mod unique;
-mod upsert;
+#[cfg(test)]
+mod tests;
+pub mod trace;
 
-pub(crate) use context::*;
-pub(crate) use delete::DeleteExecutor;
-pub(crate) use load::LoadExecutor;
-pub(crate) use save::SaveExecutor;
-pub(crate) use unique::resolve_unique_pk;
-pub(crate) use upsert::{UniqueIndexHandle, UpsertExecutor, UpsertResult};
+pub use context::*;
+pub use delete::DeleteExecutor;
+pub use load::LoadExecutor;
+pub use save::SaveExecutor;
 
 use crate::{
     db::store::DataKey,
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
 use thiserror::Error as ThisError;
-
-#[cfg(test)]
-mod tests;
 
 ///
 /// ExecutorError

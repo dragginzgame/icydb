@@ -12,7 +12,7 @@ use crate::{
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     traits::EntityKind,
 };
-use std::{collections::HashMap, hash::Hash, marker::PhantomData};
+use std::marker::PhantomData;
 
 ///
 /// LoadExecutor
@@ -138,42 +138,5 @@ impl<E: EntityKind> LoadExecutor<E> {
         }
 
         result
-    }
-
-    /// Execute a plan and require exactly one row.
-    pub fn require_one(&self, plan: ExecutablePlan<E>) -> Result<(), InternalError> {
-        self.execute(plan)?.require_one()
-    }
-
-    /// Count rows matching a plan.
-    pub fn count(&self, plan: ExecutablePlan<E>) -> Result<u32, InternalError> {
-        Ok(self.execute(plan)?.count())
-    }
-
-    // ======================================================================
-    // Aggregations
-    // ======================================================================
-
-    /// Group rows matching a plan and count them by a derived key.
-    ///
-    /// This is intentionally implemented on the executor (not Response)
-    /// so it can later avoid full deserialization.
-    pub fn group_count_by<K, F>(
-        &self,
-        plan: ExecutablePlan<E>,
-        key_fn: F,
-    ) -> Result<HashMap<K, u32>, InternalError>
-    where
-        K: Eq + Hash,
-        F: Fn(&E) -> K,
-    {
-        let entities = self.execute(plan)?.entities();
-
-        let mut counts = HashMap::new();
-        for e in entities {
-            *counts.entry(key_fn(&e)).or_insert(0) += 1;
-        }
-
-        Ok(counts)
     }
 }

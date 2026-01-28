@@ -3,13 +3,9 @@ use crate::{
         CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit,
         ensure_recovered,
         executor::{
-            Context, ExecutorError, UniqueIndexHandle,
+            Context, ExecutorError,
             plan::{record_plan_metrics, set_rows_from_len},
-            resolve_unique_pk,
-            trace::{
-                QueryTraceSink, TraceAccess, TraceExecutorKind, TracePhase, start_exec_trace,
-                start_plan_trace,
-            },
+            trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
         },
         finish_commit,
         index::{
@@ -19,12 +15,10 @@ use crate::{
         query::plan::ExecutablePlan,
         response::Response,
         store::{DataKey, DataRow, RawDataKey, RawRow},
-        traits::FromKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
-    sanitize::sanitize,
     traits::{EntityKind, Path, Storable},
 };
 use std::{
@@ -114,114 +108,6 @@ impl<E: EntityKind> DeleteExecutor<E> {
         if self.debug {
             println!("{}", s.into());
         }
-    }
-
-    // ─────────────────────────────────────────────
-    // Unique-index delete
-    // ─────────────────────────────────────────────
-
-    pub fn by_unique_index(
-        self,
-        index: UniqueIndexHandle,
-        entity: E,
-    ) -> Result<Response<E>, InternalError>
-    where
-        E::PrimaryKey: FromKey,
-    {
-        let trace = start_exec_trace(
-            self.trace,
-            TraceExecutorKind::Delete,
-            E::PATH,
-            Some(TraceAccess::UniqueIndex {
-                name: index.index().name,
-            }),
-            Some(index.index().name),
-        );
-        let result = (|| {
-            self.debug_log(format!(
-                "[debug] delete by unique index on {} ({})",
-                E::PATH,
-                index.index().fields.join(", ")
-            ));
-            let mut span = Span::<E>::new(ExecKind::Delete);
-            ensure_recovered(&self.db)?;
-
-            let index = index.index();
-            let mut lookup = entity;
-            sanitize(&mut lookup)?;
-
-            // Resolve PK via unique index; absence is a no-op.
-            let Some(pk) = resolve_unique_pk::<E>(&self.db, index, &lookup)? else {
-                set_rows_from_len(&mut span, 0);
-                return Ok(Response(Vec::new()));
-            };
-
-            // Intentional re-decode for defense-in-depth; resolve_unique_pk only returns the key.
-            let (dk, stored_row, stored) = self.load_existing(pk)?;
-            let ctx = self.db.context::<E>();
-            let index_plans = self.build_index_plans()?;
-            let (index_ops, index_remove_count) =
-                Self::build_index_removal_ops(&index_plans, &[&stored])?;
-
-            // Preflight: ensure stores are accessible before committing.
-            ctx.with_store(|_| ())?;
-
-            let raw_key = dk.to_raw()?;
-            let marker = CommitMarker::new(
-                CommitKind::Delete,
-                index_ops,
-                vec![CommitDataOp {
-                    store: E::Store::PATH.to_string(),
-                    key: raw_key.as_bytes().to_vec(),
-                    value: None,
-                }],
-            )?;
-            let (index_apply_stores, index_rollback_ops) =
-                Self::prepare_index_delete_ops(&index_plans, &marker.index_ops)?;
-            let mut rollback_rows = BTreeMap::new();
-            rollback_rows.insert(raw_key, stored_row);
-            let data_rollback_ops =
-                Self::prepare_data_delete_ops(&marker.data_ops, &rollback_rows)?;
-            let commit = begin_commit(marker)?;
-
-            finish_commit(commit, |guard| {
-                let mut unit = WriteUnit::new("delete_unique_row_atomic");
-
-                // Commit boundary: apply the marker's raw mutations mechanically.
-                let index_rollback_ops = index_rollback_ops;
-                unit.record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
-                Self::apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores);
-                for _ in 0..index_remove_count {
-                    sink::record(MetricsEvent::IndexRemove {
-                        entity_path: E::PATH,
-                    });
-                }
-
-                unit.checkpoint("delete_unique_after_indexes")?;
-
-                // Apply data mutations recorded in the marker.
-                let data_rollback_ops = data_rollback_ops;
-                let db = self.db;
-                unit.record_rollback(move || Self::apply_data_rollbacks(db, data_rollback_ops));
-                unit.run(|| Self::apply_marker_data_ops(&guard.marker.data_ops, &ctx))?;
-
-                unit.checkpoint("delete_unique_after_data")?;
-                unit.commit();
-                Ok(())
-            })?;
-
-            set_rows_from_len(&mut span, 1);
-            Ok(Response(vec![(dk.key(), stored)]))
-        })();
-
-        if let Some(trace) = trace {
-            match &result {
-                Ok(resp) => trace.finish(u64::try_from(resp.0.len()).unwrap_or(u64::MAX)),
-                Err(err) => trace.error(err),
-            }
-        }
-
-        result
     }
 
     // ─────────────────────────────────────────────
@@ -582,18 +468,6 @@ impl<E: EntityKind> DeleteExecutor<E> {
         for op in ops {
             let _ = ctx.with_store_mut(|s| s.insert(op.key, op.value));
         }
-    }
-
-    fn load_existing(&self, pk: E::PrimaryKey) -> Result<(DataKey, RawRow, E), InternalError> {
-        let dk = DataKey::new::<E>(pk.into());
-        let row = self.db.context::<E>().read_strict(&dk)?;
-        let entity = row.try_decode::<E>().map_err(|err| {
-            ExecutorError::corruption(
-                ErrorOrigin::Serialize,
-                format!("failed to deserialize row: {dk} ({err})"),
-            )
-        })?;
-        Ok((dk, row, entity))
     }
 
     fn build_index_plans(&self) -> Result<Vec<IndexPlan>, InternalError> {

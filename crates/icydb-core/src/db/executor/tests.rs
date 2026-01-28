@@ -1,13 +1,11 @@
 use super::trace::{QueryTraceEvent, QueryTraceSink, TraceAccess, TraceExecutorKind, TracePhase};
-use super::{DeleteExecutor, LoadExecutor, SaveExecutor, UniqueIndexHandle, resolve_unique_pk};
+use super::{DeleteExecutor, LoadExecutor, SaveExecutor};
 use crate::{
     db::{
-        CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, DbSession, begin_commit,
+        Db, DbSession,
         commit::commit_marker_present,
-        force_recovery_for_tests,
         index::{
-            IndexEntry, IndexEntryCorruption, IndexKey, IndexStore, IndexStoreRegistry,
-            RawIndexEntry, store::IndexRemoveError,
+            IndexEntryCorruption, IndexKey, IndexStore, IndexStoreRegistry, store::IndexRemoveError,
         },
         query::{
             DeleteSpec, LoadSpec, Query, QueryError, QueryMode, ReadConsistency, eq, gt, in_list,
@@ -30,7 +28,6 @@ use crate::{
         field::{EntityFieldKind, EntityFieldModel},
         index::IndexModel,
     },
-    serialize::serialize,
     traits::{
         CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
         ValidateAuto, ValidateCustom, View, ViewError, Visitable,
@@ -680,57 +677,6 @@ fn save_rolls_back_on_forced_failure() {
 }
 
 #[test]
-fn delete_by_unique_index_is_idempotent() {
-    reset_stores();
-    init_schema();
-
-    let deleter = DeleteExecutor::<TestEntity>::new(DB, false);
-    let handle = UniqueIndexHandle::new::<TestEntity>(&INDEX_MODEL).unwrap();
-    let entity = TestEntity {
-        id: Ulid::nil(),
-        name: "missing".to_string(),
-    };
-
-    let response = deleter.by_unique_index(handle, entity).unwrap();
-    assert!(response.0.is_empty());
-}
-
-#[test]
-fn delete_unique_rolls_back_after_index_removal() {
-    reset_stores();
-    init_schema();
-
-    let saver = SaveExecutor::<TestEntity>::new(DB, false);
-    let entity = TestEntity {
-        id: Ulid::from_u128(1),
-        name: "alpha".to_string(),
-    };
-    saver.insert(entity.clone()).unwrap();
-    assert_entity_present(&entity);
-
-    let deleter = DeleteExecutor::<TestEntity>::new(DB, false);
-    let handle = UniqueIndexHandle::new::<TestEntity>(&INDEX_MODEL).unwrap();
-
-    fail_checkpoint_label("delete_unique_after_indexes");
-    let result = deleter.clone().by_unique_index(handle, entity.clone());
-    assert!(result.is_err());
-    assert_entity_present(&entity);
-    assert_commit_marker_clear();
-
-    let response = deleter
-        .clone()
-        .by_unique_index(handle, entity.clone())
-        .unwrap();
-    assert_eq!(response.0.len(), 1);
-    assert_entity_missing(&entity);
-    assert_commit_marker_clear();
-
-    let response = deleter.by_unique_index(handle, entity).unwrap();
-    assert!(response.0.is_empty());
-    assert_commit_marker_clear();
-}
-
-#[test]
 fn delete_scan_rolls_back_after_data_removal() {
     reset_stores();
     init_schema();
@@ -834,74 +780,6 @@ fn delete_limit_deletes_oldest_rows() {
         .map(|entity| entity.name.as_str())
         .collect::<Vec<_>>();
     assert_eq!(remaining_names, vec!["charlie", "delta"]);
-}
-
-#[test]
-fn commit_marker_recovery_replays_ops() {
-    reset_stores();
-    init_schema();
-
-    let entity = TestEntity {
-        id: Ulid::from_u128(42),
-        name: "alpha".to_string(),
-    };
-    let data_key = DataKey::new::<TestEntity>(entity.id);
-    let raw_data_key = data_key.to_raw().expect("data key encode");
-    let raw_row = RawRow::try_new(serialize(&entity).unwrap()).unwrap();
-
-    let index_key = IndexKey::new(&entity, &INDEX_MODEL)
-        .expect("index key")
-        .expect("index key missing");
-    let raw_index_key = index_key.to_raw();
-    let entry = IndexEntry::new(entity.key());
-    let raw_index_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
-
-    let marker = CommitMarker::new(
-        CommitKind::Save,
-        vec![CommitIndexOp {
-            store: INDEX_STORE_PATH.to_string(),
-            key: raw_index_key.as_bytes().to_vec(),
-            value: Some(raw_index_entry.as_bytes().to_vec()),
-        }],
-        vec![CommitDataOp {
-            store: DATA_STORE_PATH.to_string(),
-            key: raw_data_key.as_bytes().to_vec(),
-            value: Some(raw_row.as_bytes().to_vec()),
-        }],
-    )
-    .unwrap();
-
-    let _guard = begin_commit(marker).unwrap();
-    assert!(commit_marker_present().unwrap());
-
-    TEST_INDEX_STORE.with_borrow_mut(|store| {
-        store.insert(raw_index_key, raw_index_entry);
-    });
-    force_recovery_for_tests();
-    let saver = SaveExecutor::<TestEntity>::new(DB, false);
-    let result = saver.insert(entity.clone());
-    assert!(result.is_err());
-
-    assert_entity_present(&entity);
-    assert_commit_marker_clear();
-
-    let stored_entry = TEST_INDEX_STORE
-        .with_borrow(|store| store.get(&raw_index_key))
-        .expect("index entry restored");
-    let decoded = stored_entry.try_decode().unwrap();
-    assert_eq!(decoded.len(), 1);
-    assert!(decoded.contains(&entity.key()));
-
-    let deleter = DeleteExecutor::<TestEntity>::new(DB, false);
-    let handle = UniqueIndexHandle::new::<TestEntity>(&INDEX_MODEL).unwrap();
-    let response = deleter.by_unique_index(handle, entity.clone()).unwrap();
-    assert_eq!(response.0.len(), 1);
-    assert_entity_missing(&entity);
-    assert_commit_marker_clear();
-
-    let saver = SaveExecutor::<TestEntity>::new(DB, false);
-    saver.insert(entity).unwrap();
-    assert_commit_marker_clear();
 }
 
 #[test]
@@ -1534,42 +1412,6 @@ fn execute_with_diagnostics_returns_events() {
             },
         ]
     );
-}
-
-#[test]
-fn unique_index_key_type_mismatch_is_corruption() {
-    reset_stores();
-    init_schema();
-
-    let lookup = TestEntity {
-        id: Ulid::from_u128(1),
-        name: "alpha".to_string(),
-    };
-    let index_key = IndexKey::new(&lookup, &INDEX_MODEL)
-        .expect("index key")
-        .expect("index key missing");
-    let raw_index_key = index_key.to_raw();
-
-    let entry = IndexEntry::new(Key::Int(9));
-    let raw_index_entry = RawIndexEntry::try_from_entry(&entry).expect("index entry");
-    TEST_INDEX_STORE.with_borrow_mut(|store| {
-        store.insert(raw_index_key, raw_index_entry);
-    });
-
-    let stored = TestEntity {
-        id: Ulid::from_u128(2),
-        name: "alpha".to_string(),
-    };
-    let data_key = DataKey::new::<TestEntity>(Key::Int(9));
-    let raw_data_key = data_key.to_raw().expect("data key encode");
-    let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
-    TEST_DATA_STORE.with_borrow_mut(|store| {
-        store.insert(raw_data_key, raw_row);
-    });
-
-    let err = resolve_unique_pk::<TestEntity>(&DB, &INDEX_MODEL, &lookup)
-        .expect_err("expected corruption");
-    assert_eq!(err.class, ErrorClass::Corruption);
 }
 
 #[test]
