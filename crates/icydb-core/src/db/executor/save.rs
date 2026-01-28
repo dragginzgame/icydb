@@ -42,6 +42,8 @@ impl<E: EntityKind> SaveExecutor<E> {
     // Construction & configuration
     // ======================================================================
 
+    // Debug is session-scoped via DbSession and propagated into executors;
+    // executors do not expose independent debug control.
     #[must_use]
     pub const fn new(db: Db<E::Canister>, debug: bool) -> Self {
         Self {
@@ -62,15 +64,9 @@ impl<E: EntityKind> SaveExecutor<E> {
         self
     }
 
-    #[must_use]
-    pub const fn debug(mut self) -> Self {
-        self.debug = true;
-        self
-    }
-
     fn debug_log(&self, s: impl Into<String>) {
         if self.debug {
-            println!("{}", s.into());
+            println!("[debug] {}", s.into());
         }
     }
 
@@ -167,6 +163,7 @@ impl<E: EntityKind> SaveExecutor<E> {
 
     #[expect(clippy::too_many_lines)]
     fn save_entity(&self, mode: SaveMode, mut entity: E) -> Result<E, InternalError> {
+        let mut commit_started = false;
         let trace = start_exec_trace(
             self.trace,
             TraceExecutorKind::Save,
@@ -189,12 +186,7 @@ impl<E: EntityKind> SaveExecutor<E> {
             let data_key = DataKey::new::<E>(key);
             let raw_key = data_key.to_raw()?;
 
-            self.debug_log(format!(
-                "[debug] save {:?} on {} (key={})",
-                mode,
-                E::PATH,
-                data_key
-            ));
+            self.debug_log(format!("save {:?} on {} (key={})", mode, E::PATH, data_key));
             let (old, old_raw) = match mode {
                 SaveMode::Insert => {
                     // Inserts must not load or decode existing rows; absence is expected.
@@ -255,6 +247,8 @@ impl<E: EntityKind> SaveExecutor<E> {
             let (index_removes, index_inserts) = Self::plan_index_metrics(old.as_ref(), &entity)?;
             let data_rollback_ops = Self::prepare_data_save_ops(&marker.data_ops, old_raw)?;
             let commit = begin_commit(marker)?;
+            commit_started = true;
+            self.debug_log("Save commit window opened");
 
             // FIRST STABLE WRITE: commit marker is persisted before any mutations.
             finish_commit(commit, |guard| {
@@ -285,8 +279,14 @@ impl<E: EntityKind> SaveExecutor<E> {
                 Ok(())
             })?;
 
+            self.debug_log("Save committed");
+
             Ok(entity)
         })();
+
+        if commit_started && result.is_err() {
+            self.debug_log("Save failed; rollback applied");
+        }
 
         if let Some(trace) = trace {
             match &result {

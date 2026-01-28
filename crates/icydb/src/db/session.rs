@@ -28,6 +28,11 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Enable debug logging for subsequent queries in this session.
+    ///
+    /// Debug contract:
+    /// - Debug is session-scoped only; executors do not expose independent toggles.
+    /// - Load debug narrates the full access/decode/filter/order/page pipeline.
+    /// - Save/delete debug narrate intent plus commit/rollback outcomes.
     #[must_use]
     pub const fn debug(mut self) -> Self {
         self.inner = self.inner.debug();

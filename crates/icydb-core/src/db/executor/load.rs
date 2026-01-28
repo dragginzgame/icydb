@@ -5,7 +5,7 @@ use crate::{
             plan::{record_plan_metrics, set_rows_from_len},
             trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
         },
-        query::plan::ExecutablePlan,
+        query::plan::{AccessPath, AccessPlan, ExecutablePlan},
         response::Response,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -31,6 +31,8 @@ impl<E: EntityKind> LoadExecutor<E> {
     // Construction & diagnostics
     // ======================================================================
 
+    // Debug is session-scoped via DbSession and propagated into executors;
+    // executors do not expose independent debug control.
     #[must_use]
     pub const fn new(db: Db<E::Canister>, debug: bool) -> Self {
         Self {
@@ -53,7 +55,7 @@ impl<E: EntityKind> LoadExecutor<E> {
 
     fn debug_log(&self, s: impl Into<String>) {
         if self.debug {
-            println!("{}", s.into());
+            println!("[debug] {}", s.into());
         }
     }
 
@@ -75,7 +77,30 @@ impl<E: EntityKind> LoadExecutor<E> {
             let mut span = Span::<E>::new(ExecKind::Load);
             let plan = plan.into_inner();
 
-            self.debug_log(format!("🧭 Executing plan on {}", E::PATH));
+            if self.debug {
+                let access = access_summary(&plan.access);
+                let ordered = plan
+                    .order
+                    .as_ref()
+                    .is_some_and(|order| !order.fields.is_empty());
+                let page = match plan.page.as_ref() {
+                    Some(page) => format!("limit={:?}, offset={}", page.limit, page.offset),
+                    None => "none".to_string(),
+                };
+
+                self.debug_log(format!(
+                    "Executing load plan on {} (consistency={:?})",
+                    E::PATH,
+                    plan.consistency
+                ));
+                self.debug_log(format!("Access: {access}"));
+                self.debug_log(format!(
+                    "Post-access: filter={}, order={}, page={}",
+                    yes_no(plan.predicate.is_some()),
+                    yes_no(ordered),
+                    page
+                ));
+            }
 
             let ctx = self.db.context::<E>();
             record_plan_metrics(&plan.access);
@@ -88,7 +113,7 @@ impl<E: EntityKind> LoadExecutor<E> {
             });
 
             self.debug_log(format!(
-                "📦 Scanned {} data rows before deserialization",
+                "Scanned {} data rows before deserialization",
                 data_rows.len()
             ));
 
@@ -96,7 +121,7 @@ impl<E: EntityKind> LoadExecutor<E> {
             let mut rows = ctx.deserialize_rows(data_rows)?;
             let access_rows = rows.len();
             self.debug_log(format!(
-                "🧩 Deserialized {} entities before filtering",
+                "Deserialized {} entities before filtering",
                 rows.len()
             ));
 
@@ -104,15 +129,15 @@ impl<E: EntityKind> LoadExecutor<E> {
             let stats = plan.apply_post_access::<E, _>(&mut rows)?;
             if stats.filtered {
                 self.debug_log(format!(
-                    "🔎 Applied predicate -> {} entities remaining",
+                    "Applied predicate -> {} entities remaining",
                     rows.len()
                 ));
             }
             if stats.ordered {
-                self.debug_log("↕️ Applied order spec");
+                self.debug_log("Applied order spec");
             }
             if stats.paged {
-                self.debug_log(format!("📏 Applied pagination -> {} entities", rows.len()));
+                self.debug_log(format!("Applied pagination -> {} entities", rows.len()));
             }
 
             // Emit per-phase counts after the pipeline completes successfully.
@@ -125,7 +150,7 @@ impl<E: EntityKind> LoadExecutor<E> {
             }
 
             set_rows_from_len(&mut span, rows.len());
-            self.debug_log(format!("✅ query complete -> {} final rows", rows.len()));
+            self.debug_log(format!("Query complete -> {} final rows", rows.len()));
 
             Ok(Response(rows))
         })();
@@ -139,4 +164,35 @@ impl<E: EntityKind> LoadExecutor<E> {
 
         result
     }
+}
+
+/// Return a human-readable summary of the access plan.
+fn access_summary(access: &AccessPlan) -> String {
+    match access {
+        AccessPlan::Path(path) => access_path_summary(path),
+        AccessPlan::Union(children) => format!("union of {} access paths", children.len()),
+        AccessPlan::Intersection(children) => {
+            format!("intersection of {} access paths", children.len())
+        }
+    }
+}
+
+/// Render a compact description for a concrete access path.
+fn access_path_summary(path: &AccessPath) -> String {
+    match path {
+        AccessPath::ByKey(_) => "primary key lookup".to_string(),
+        AccessPath::ByKeys(keys) => format!("primary key lookup ({} keys)", keys.len()),
+        AccessPath::KeyRange { .. } => "primary key range scan".to_string(),
+        AccessPath::IndexPrefix { index, values } => format!(
+            "index prefix scan ({}, prefix_len={})",
+            index.name,
+            values.len()
+        ),
+        AccessPath::FullScan => "full scan".to_string(),
+    }
+}
+
+/// Convert a boolean to a concise yes/no label for debug summaries.
+const fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }

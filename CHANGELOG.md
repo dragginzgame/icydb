@@ -7,13 +7,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [Unreleased]
-
-### 🧲 Changed
-* Stale comment/code cleanup pass to keep docs aligned with the current public facade.
-
----
-
 ## [0.5.2] - 2026-01-28 - Public Facade Boundary
 
 ### 🍕 Fixed
@@ -31,6 +24,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Entity-based query dispatch (`EntityDispatch`, `dispatch_load/save/delete`) and canister-to-canister query handling.
 * “Save query” abstractions — writes are now only done via explicit insert/replace/update APIs.
 * Tests that depended on calling executors directly outside of `icydb-core`.
+* Dropped `upsert` support and the related code paths (~800 lines).
 
 ---
 

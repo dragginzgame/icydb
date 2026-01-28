@@ -12,7 +12,7 @@ use crate::{
             IndexEntry, IndexEntryCorruption, IndexKey, IndexStore, MAX_INDEX_ENTRY_BYTES,
             RawIndexEntry, RawIndexKey,
         },
-        query::plan::ExecutablePlan,
+        query::plan::{AccessPath, AccessPlan, ExecutablePlan},
         response::Response,
         store::{DataKey, DataRow, RawDataKey, RawRow},
     },
@@ -78,6 +78,8 @@ pub struct DeleteExecutor<E: EntityKind> {
 }
 
 impl<E: EntityKind> DeleteExecutor<E> {
+    // Debug is session-scoped via DbSession and propagated into executors;
+    // executors do not expose independent debug control.
     #[must_use]
     pub const fn new(db: Db<E::Canister>, debug: bool) -> Self {
         Self {
@@ -98,15 +100,9 @@ impl<E: EntityKind> DeleteExecutor<E> {
         self
     }
 
-    #[must_use]
-    pub const fn debug(mut self) -> Self {
-        self.debug = true;
-        self
-    }
-
     fn debug_log(&self, s: impl Into<String>) {
         if self.debug {
-            println!("{}", s.into());
+            println!("[debug] {}", s.into());
         }
     }
 
@@ -123,12 +119,36 @@ impl<E: EntityKind> DeleteExecutor<E> {
                 "delete executor requires delete plans".to_string(),
             ));
         }
+        let mut commit_started = false;
         let trace = start_plan_trace(self.trace, TraceExecutorKind::Delete, &plan);
         let result = (|| {
             let plan = plan.into_inner();
             ensure_recovered(&self.db)?;
 
-            self.debug_log(format!("[debug] delete plan on {}", E::PATH));
+            if self.debug {
+                let access = access_summary(&plan.access);
+                let ordered = plan
+                    .order
+                    .as_ref()
+                    .is_some_and(|order| !order.fields.is_empty());
+                let delete_limit = match plan.delete_limit {
+                    Some(limit) => limit.max_rows.to_string(),
+                    None => "none".to_string(),
+                };
+
+                self.debug_log(format!(
+                    "Delete plan on {} (consistency={:?})",
+                    E::PATH,
+                    plan.consistency
+                ));
+                self.debug_log(format!("Access: {access}"));
+                self.debug_log(format!(
+                    "Intent: predicate={}, order={}, delete_limit={}",
+                    yes_no(plan.predicate.is_some()),
+                    yes_no(ordered),
+                    delete_limit
+                ));
+            }
 
             let mut span = Span::<E>::new(ExecKind::Delete);
             record_plan_metrics(&plan.access);
@@ -166,6 +186,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                     );
                 }
                 set_rows_from_len(&mut span, 0);
+                self.debug_log("Delete complete -> 0 rows (nothing to commit)");
                 return Ok(Response(Vec::new()));
             }
 
@@ -205,6 +226,8 @@ impl<E: EntityKind> DeleteExecutor<E> {
             let data_rollback_ops =
                 Self::prepare_data_delete_ops(&marker.data_ops, &rollback_rows)?;
             let commit = begin_commit(marker)?;
+            commit_started = true;
+            self.debug_log("Delete commit window opened");
 
             finish_commit(commit, |guard| {
                 let mut unit = WriteUnit::new("delete_rows_atomic");
@@ -250,9 +273,14 @@ impl<E: EntityKind> DeleteExecutor<E> {
                 .map(|row| (row.key.key(), row.entity))
                 .collect::<Vec<_>>();
             set_rows_from_len(&mut span, res.len());
+            self.debug_log(format!("Delete committed -> {} rows", res.len()));
 
             Ok(Response(res))
         })();
+
+        if commit_started && result.is_err() {
+            self.debug_log("Delete failed; rollback applied");
+        }
 
         if let Some(trace) = trace {
             match &result {
@@ -622,6 +650,37 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
         Ok((ops, removed))
     }
+}
+
+/// Return a human-readable summary of the access plan.
+fn access_summary(access: &AccessPlan) -> String {
+    match access {
+        AccessPlan::Path(path) => access_path_summary(path),
+        AccessPlan::Union(children) => format!("union of {} access paths", children.len()),
+        AccessPlan::Intersection(children) => {
+            format!("intersection of {} access paths", children.len())
+        }
+    }
+}
+
+/// Render a compact description for a concrete access path.
+fn access_path_summary(path: &AccessPath) -> String {
+    match path {
+        AccessPath::ByKey(_) => "primary key lookup".to_string(),
+        AccessPath::ByKeys(keys) => format!("primary key lookup ({} keys)", keys.len()),
+        AccessPath::KeyRange { .. } => "primary key range scan".to_string(),
+        AccessPath::IndexPrefix { index, values } => format!(
+            "index prefix scan ({}, prefix_len={})",
+            index.name,
+            values.len()
+        ),
+        AccessPath::FullScan => "full scan".to_string(),
+    }
+}
+
+/// Convert a boolean to a concise yes/no label for debug summaries.
+const fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }
 
 fn decode_rows<E: EntityKind>(rows: Vec<DataRow>) -> Result<Vec<DeleteRow<E>>, InternalError> {
