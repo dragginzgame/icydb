@@ -100,11 +100,7 @@ pub mod __reexports {
 pub mod prelude {
     pub use crate::{
         db,
-        db::{
-            query,
-            query::builder::*,
-            response::{Response, ResponseExt},
-        },
+        db::{query, query::builder::*},
         key::Key,
         traits::{
             CreateView as _, EntityKind as _, Inner as _, Path as _, UpdateView as _, View as _,
@@ -130,7 +126,6 @@ pub mod design {
         pub use crate::{
             base, db,
             db::query::builder::*,
-            db::response::ResponseExt as _,
             key::Key,
             macros::*,
             traits::{

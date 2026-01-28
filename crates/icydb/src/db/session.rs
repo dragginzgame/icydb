@@ -2,7 +2,6 @@ use crate::{
     db::query::{
         Query, QueryDiagnostics, QueryExecutionDiagnostics, ReadConsistency, predicate::Predicate,
     },
-    db::response::Response,
     error::Error,
     key::Key,
     traits::{CanisterKind, EntityKind},
@@ -130,7 +129,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn execute_query<E: EntityKind<Canister = C>>(
         &self,
         query: &Query<E>,
-    ) -> Result<Response<E>, Error> {
+    ) -> Result<core::db::response::Response<E>, Error> {
         Ok(self.inner.execute_query(query)?)
     }
 
@@ -138,7 +137,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn execute_with_diagnostics<E: EntityKind<Canister = C>>(
         &self,
         query: &Query<E>,
-    ) -> Result<(Response<E>, QueryExecutionDiagnostics), Error> {
+    ) -> Result<(core::db::response::Response<E>, QueryExecutionDiagnostics), Error> {
         Ok(self.inner.execute_with_diagnostics(query)?)
     }
 
@@ -285,7 +284,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     }
 
     /// Execute this query using the session's policy settings.
-    pub fn execute(&self) -> Result<Response<E>, Error> {
+    pub fn execute(&self) -> Result<core::db::response::Response<E>, Error> {
         Ok(self.inner.execute()?)
     }
 
@@ -379,12 +378,12 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     }
 
     /// Execute this query using the session's policy settings.
-    pub fn execute(&self) -> Result<Response<E>, Error> {
+    pub fn execute(&self) -> Result<core::db::response::Response<E>, Error> {
         Ok(self.inner.execute()?)
     }
 
     /// Execute a delete query and return the deleted rows.
-    pub fn delete_rows(&self) -> Result<Response<E>, Error> {
+    pub fn delete_rows(&self) -> Result<core::db::response::Response<E>, Error> {
         Ok(self.inner.delete_rows()?)
     }
 }

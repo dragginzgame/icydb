@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [0.5.5] - 2026-01-28
+## [0.5.6] - 2026-01-28
 
 ### 🧲 Added
 * Load queries now expose view terminals (`views`, `view`, `view_opt`) so callers can materialize read-only views directly.

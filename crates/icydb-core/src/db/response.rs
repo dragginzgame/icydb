@@ -22,7 +22,7 @@ pub enum ResponseError {
     NotFound { entity: &'static str },
 
     #[error("expected exactly one row, found {count} (entity {entity})")]
-    NotUnique { entity: &'static str, count: u32 },
+    NotUnique { entity: &'static str, count: u64 },
 }
 
 impl ResponseError {
@@ -44,9 +44,7 @@ impl From<ResponseError> for InternalError {
 /// Response
 /// Materialized query result: ordered `(Key, Entity)` pairs.
 ///
-/// Fully materialized executor output. Pagination, ordering, and
-/// filtering are expressed at the intent layer.
-///
+
 #[derive(Debug)]
 pub struct Response<E: EntityKind>(pub Vec<Row<E>>);
 
@@ -56,9 +54,8 @@ impl<E: EntityKind> Response<E> {
     // ------------------------------------------------------------------
 
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    pub const fn count(&self) -> u32 {
-        self.0.len() as u32
+    pub const fn count(&self) -> u64 {
+        self.0.len() as u64
     }
 
     #[must_use]
@@ -99,14 +96,13 @@ impl<E: EntityKind> Response<E> {
         Ok(self.0.into_iter().next().unwrap())
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     pub fn try_row(self) -> Result<Option<Row<E>>, InternalError> {
-        match self.0.len() {
+        match self.count() {
             0 => Ok(None),
             1 => Ok(Some(self.0.into_iter().next().unwrap())),
             n => Err(ResponseError::NotUnique {
                 entity: E::PATH,
-                count: n as u32,
+                count: n,
             }
             .into()),
         }
@@ -118,7 +114,7 @@ impl<E: EntityKind> Response<E> {
     }
 
     // ------------------------------------------------------------------
-    // Entities (primary ergonomic surface)
+    // Entities
     // ------------------------------------------------------------------
 
     pub fn entity(self) -> Result<E, InternalError> {
@@ -135,7 +131,7 @@ impl<E: EntityKind> Response<E> {
     }
 
     // ------------------------------------------------------------------
-    // Keys
+    // Keys (delete ergonomics)
     // ------------------------------------------------------------------
 
     #[must_use]
@@ -162,50 +158,41 @@ impl<E: EntityKind> Response<E> {
     }
 
     // ------------------------------------------------------------------
-    // Views
+    // Views (first-class, canonical)
     // ------------------------------------------------------------------
 
-    /// Require exactly one result and return it as a view.
     pub fn view(&self) -> Result<View<E>, InternalError> {
         self.require_one()?;
-        let view = self
+        Ok(self
             .0
             .first()
-            .map(|(_, entity)| entity.to_view())
-            .expect("require_one ensures one row");
-
-        Ok(view)
+            .expect("require_one guarantees a row")
+            .1
+            .to_view())
     }
 
-    /// Return zero or one result as a view.
-    #[allow(clippy::cast_possible_truncation)]
     pub fn view_opt(&self) -> Result<Option<View<E>>, InternalError> {
-        match self.0.len() {
+        match self.count() {
             0 => Ok(None),
-            1 => Ok(self.0.first().map(|(_, entity)| entity.to_view())),
+            1 => Ok(Some(self.0[0].1.to_view())),
             n => Err(ResponseError::NotUnique {
                 entity: E::PATH,
-                count: n as u32,
+                count: n,
             }
             .into()),
         }
     }
 
-    /// Return zero or one result as a view.
-    pub fn try_view(&self) -> Result<Option<View<E>>, InternalError> {
-        self.view_opt()
-    }
-
-    /// Return all results as views.
     #[must_use]
     pub fn views(&self) -> Vec<View<E>> {
-        self.0.iter().map(|(_, entity)| entity.to_view()).collect()
+        self.0.iter().map(|(_, e)| e.to_view()).collect()
     }
 
     // ------------------------------------------------------------------
-    // Non-strict access (explicitly unsafe)
+    // Explicitly non-strict access (escape hatches)
     // ------------------------------------------------------------------
 
+    /// NOTE: Bypasses cardinality checks. Prefer strict APIs unless intentional.
     #[must_use]
     pub fn first(self) -> Option<Row<E>> {
         self.0.into_iter().next()
@@ -228,43 +215,5 @@ impl<E: EntityKind> IntoIterator for Response<E> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
-    }
-}
-
-///
-/// ResponseExt
-/// Ergonomic helpers for `Result<Response<E>, InternalError>`.
-///
-/// This trait exists solely to avoid repetitive `?` when
-/// working with executor results. It intentionally exposes
-/// a *minimal* surface.
-///
-pub trait ResponseExt<E: EntityKind> {
-    // --- entities (primary use case) ---
-
-    fn entities(self) -> Result<Vec<E>, InternalError>;
-    fn entity(self) -> Result<E, InternalError>;
-    fn try_entity(self) -> Result<Option<E>, InternalError>;
-
-    // --- introspection ---
-
-    fn count(self) -> Result<u32, InternalError>;
-}
-
-impl<E: EntityKind> ResponseExt<E> for Result<Response<E>, InternalError> {
-    fn entities(self) -> Result<Vec<E>, InternalError> {
-        Ok(self?.entities())
-    }
-
-    fn entity(self) -> Result<E, InternalError> {
-        self?.entity()
-    }
-
-    fn try_entity(self) -> Result<Option<E>, InternalError> {
-        self?.try_entity()
-    }
-
-    fn count(self) -> Result<u32, InternalError> {
-        Ok(self?.count())
     }
 }

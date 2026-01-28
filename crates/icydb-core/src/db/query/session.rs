@@ -30,11 +30,19 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
         Self { session, query }
     }
 
-    /// Return a reference to the underlying intent.
+    // ------------------------------------------------------------------
+    // Intent inspection
+    // ------------------------------------------------------------------
+
+    /// Return a reference to the underlying query intent.
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         &self.query
     }
+
+    // ------------------------------------------------------------------
+    // Intent builders (pure, no execution)
+    // ------------------------------------------------------------------
 
     /// Filter by primary key.
     #[must_use]
@@ -79,6 +87,10 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
         self
     }
 
+    // ------------------------------------------------------------------
+    // Planning / diagnostics
+    // ------------------------------------------------------------------
+
     /// Explain this query without executing it.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
         self.query.explain()
@@ -89,51 +101,57 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
         self.query.plan()
     }
 
+    // ------------------------------------------------------------------
+    // Execution (single boundary)
+    // ------------------------------------------------------------------
+
     /// Execute this query using the session's policy settings.
     pub fn execute(&self) -> Result<Response<E>, QueryError> {
         self.session.execute_query(self.query())
     }
 
-    /// Execute a load query and return all entities.
+    // ------------------------------------------------------------------
+    // Execution terminals (interpretation)
+    // ------------------------------------------------------------------
+
+    /// Return whether any rows match this query.
+    pub fn exists(&self) -> Result<bool, QueryError> {
+        Ok(self.count()? > 0)
+    }
+
+    /// Execute and return the number of matching rows.
+    pub fn count(&self) -> Result<u64, QueryError> {
+        Ok(self.execute()?.count())
+    }
+
+    /// Execute and return all entities.
     pub fn all(&self) -> Result<Vec<E>, QueryError> {
-        let response = self.execute()?;
-
-        Ok(response.entities())
+        Ok(self.execute()?.entities())
     }
 
-    /// Execute a load query and return all results as views.
+    /// Execute and return all results as views.
     pub fn views(&self) -> Result<Vec<View<E>>, QueryError> {
-        let response = self.execute()?;
-
-        Ok(response.views())
+        Ok(self.execute()?.views())
     }
 
-    /// Execute a load query and require exactly one entity.
+    /// Execute and require exactly one entity.
     pub fn one(&self) -> Result<E, QueryError> {
-        let response = self.execute()?;
-
-        response.entity().map_err(QueryError::Execute)
+        self.execute()?.entity().map_err(QueryError::Execute)
     }
 
-    /// Execute a load query and require exactly one view.
+    /// Execute and require exactly one view.
     pub fn view(&self) -> Result<View<E>, QueryError> {
-        let response = self.execute()?;
-
-        response.view().map_err(QueryError::Execute)
+        self.execute()?.view().map_err(QueryError::Execute)
     }
 
-    /// Execute a load query and return zero or one entity.
+    /// Execute and return zero or one entity.
     pub fn one_opt(&self) -> Result<Option<E>, QueryError> {
-        let response = self.execute()?;
-
-        response.try_entity().map_err(QueryError::Execute)
+        self.execute()?.try_entity().map_err(QueryError::Execute)
     }
 
-    /// Execute a load query and return zero or one view.
+    /// Execute and return zero or one view.
     pub fn view_opt(&self) -> Result<Option<View<E>>, QueryError> {
-        let response = self.execute()?;
-
-        response.view_opt().map_err(QueryError::Execute)
+        self.execute()?.view_opt().map_err(QueryError::Execute)
     }
 }
 
@@ -154,11 +172,18 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
         Self { session, query }
     }
 
-    /// Return a reference to the underlying query.
+    // ------------------------------------------------------------------
+    // Intent inspection
+    // ------------------------------------------------------------------
+
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         &self.query
     }
+
+    // ------------------------------------------------------------------
+    // Intent builders
+    // ------------------------------------------------------------------
 
     /// Delete by primary key.
     #[must_use]
@@ -196,17 +221,22 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
         self
     }
 
-    /// Explain this query without executing it.
+    // ------------------------------------------------------------------
+    // Planning / diagnostics
+    // ------------------------------------------------------------------
+
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
         self.query.explain()
     }
 
-    /// Plan this query into an executor-ready plan.
     pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
         self.query.plan()
     }
 
-    /// Execute this query using the session's policy settings.
+    // ------------------------------------------------------------------
+    // Execution
+    // ------------------------------------------------------------------
+
     pub fn execute(&self) -> Result<Response<E>, QueryError> {
         self.session.execute_query(self.query())
     }
