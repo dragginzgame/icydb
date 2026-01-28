@@ -1,8 +1,4 @@
-use crate::{
-    error::{ErrorClass, ErrorOrigin, InternalError},
-    prelude::*,
-    view::View,
-};
+use crate::{prelude::*, view::View};
 use thiserror::Error as ThisError;
 
 ///
@@ -23,21 +19,6 @@ pub enum ResponseError {
 
     #[error("expected exactly one row, found {count} (entity {entity})")]
     NotUnique { entity: &'static str, count: u64 },
-}
-
-impl ResponseError {
-    pub(crate) const fn class(&self) -> ErrorClass {
-        match self {
-            Self::NotFound { .. } => ErrorClass::NotFound,
-            Self::NotUnique { .. } => ErrorClass::Conflict,
-        }
-    }
-}
-
-impl From<ResponseError> for InternalError {
-    fn from(err: ResponseError) -> Self {
-        Self::new(err.class(), ErrorOrigin::Response, err.to_string())
-    }
 }
 
 ///
@@ -64,24 +45,23 @@ impl<E: EntityKind> Response<E> {
     }
 
     // ------------------------------------------------------------------
-    // Cardinality enforcement
+    // Cardinality enforcement (domain-level)
     // ------------------------------------------------------------------
 
-    pub fn require_one(&self) -> Result<(), InternalError> {
+    pub const fn require_one(&self) -> Result<(), ResponseError> {
         match self.count() {
             1 => Ok(()),
-            0 => Err(ResponseError::NotFound { entity: E::PATH }.into()),
+            0 => Err(ResponseError::NotFound { entity: E::PATH }),
             n => Err(ResponseError::NotUnique {
                 entity: E::PATH,
                 count: n,
-            }
-            .into()),
+            }),
         }
     }
 
-    pub fn require_some(&self) -> Result<(), InternalError> {
+    pub const fn require_some(&self) -> Result<(), ResponseError> {
         if self.is_empty() {
-            Err(ResponseError::NotFound { entity: E::PATH }.into())
+            Err(ResponseError::NotFound { entity: E::PATH })
         } else {
             Ok(())
         }
@@ -91,20 +71,19 @@ impl<E: EntityKind> Response<E> {
     // Rows
     // ------------------------------------------------------------------
 
-    pub fn row(self) -> Result<Row<E>, InternalError> {
+    pub fn row(self) -> Result<Row<E>, ResponseError> {
         self.require_one()?;
         Ok(self.0.into_iter().next().unwrap())
     }
 
-    pub fn try_row(self) -> Result<Option<Row<E>>, InternalError> {
+    pub fn try_row(self) -> Result<Option<Row<E>>, ResponseError> {
         match self.count() {
             0 => Ok(None),
             1 => Ok(Some(self.0.into_iter().next().unwrap())),
             n => Err(ResponseError::NotUnique {
                 entity: E::PATH,
                 count: n,
-            }
-            .into()),
+            }),
         }
     }
 
@@ -117,11 +96,11 @@ impl<E: EntityKind> Response<E> {
     // Entities
     // ------------------------------------------------------------------
 
-    pub fn entity(self) -> Result<E, InternalError> {
+    pub fn entity(self) -> Result<E, ResponseError> {
         self.row().map(|(_, e)| e)
     }
 
-    pub fn try_entity(self) -> Result<Option<E>, InternalError> {
+    pub fn try_entity(self) -> Result<Option<E>, ResponseError> {
         Ok(self.try_row()?.map(|(_, e)| e))
     }
 
@@ -139,11 +118,11 @@ impl<E: EntityKind> Response<E> {
         self.0.first().map(|(k, _)| *k)
     }
 
-    pub fn key_strict(self) -> Result<Key, InternalError> {
+    pub fn key_strict(self) -> Result<Key, ResponseError> {
         self.row().map(|(k, _)| k)
     }
 
-    pub fn try_key(self) -> Result<Option<Key>, InternalError> {
+    pub fn try_key(self) -> Result<Option<Key>, ResponseError> {
         Ok(self.try_row()?.map(|(k, _)| k))
     }
 
@@ -161,7 +140,7 @@ impl<E: EntityKind> Response<E> {
     // Views (first-class, canonical)
     // ------------------------------------------------------------------
 
-    pub fn view(&self) -> Result<View<E>, InternalError> {
+    pub fn view(&self) -> Result<View<E>, ResponseError> {
         self.require_one()?;
         Ok(self
             .0
@@ -171,15 +150,14 @@ impl<E: EntityKind> Response<E> {
             .to_view())
     }
 
-    pub fn view_opt(&self) -> Result<Option<View<E>>, InternalError> {
+    pub fn view_opt(&self) -> Result<Option<View<E>>, ResponseError> {
         match self.count() {
             0 => Ok(None),
             1 => Ok(Some(self.0[0].1.to_view())),
             n => Err(ResponseError::NotUnique {
                 entity: E::PATH,
                 count: n,
-            }
-            .into()),
+            }),
         }
     }
 

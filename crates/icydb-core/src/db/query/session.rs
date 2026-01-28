@@ -8,7 +8,6 @@ use crate::{
         },
         response::Response,
     },
-    error::ErrorClass,
     key::Key,
     traits::{CanisterKind, EntityKind},
     view::View,
@@ -152,22 +151,22 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
 
     /// Execute and require exactly one entity.
     pub fn one(&self) -> Result<E, QueryError> {
-        self.execute()?.entity().map_err(QueryError::Execute)
+        self.execute()?.entity().map_err(QueryError::Response)
     }
 
     /// Execute and require exactly one view.
     pub fn view(&self) -> Result<View<E>, QueryError> {
-        self.execute()?.view().map_err(QueryError::Execute)
+        self.execute()?.view().map_err(QueryError::Response)
     }
 
     /// Execute and return zero or one entity.
     pub fn one_opt(&self) -> Result<Option<E>, QueryError> {
-        self.execute()?.try_entity().map_err(QueryError::Execute)
+        self.execute()?.try_entity().map_err(QueryError::Response)
     }
 
     /// Execute and return zero or one view.
     pub fn view_opt(&self) -> Result<Option<View<E>>, QueryError> {
-        self.execute()?.view_opt().map_err(QueryError::Execute)
+        self.execute()?.view_opt().map_err(QueryError::Response)
     }
 }
 
@@ -285,13 +284,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     // ------------------------------------------------------------------
 
     pub fn execute(&self) -> Result<Response<E>, QueryError> {
-        match self.execute_raw() {
-            Ok(response) => Ok(response),
-            Err(QueryError::Execute(err)) if err.class == ErrorClass::NotFound => {
-                Ok(Response(Vec::new()))
-            }
-            Err(err) => Err(err),
-        }
+        self.execute_raw()
     }
 
     /// Execute a delete query and return the deleted rows.

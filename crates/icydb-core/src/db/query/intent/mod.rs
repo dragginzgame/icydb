@@ -10,6 +10,7 @@ use crate::{
         },
         predicate::{Predicate, SchemaInfo, ValidateError, normalize, validate},
     },
+    db::response::ResponseError,
     error::InternalError,
     key::Key,
     traits::EntityKind,
@@ -350,6 +351,9 @@ pub enum QueryError {
 
     #[error("{0}")]
     Intent(#[from] IntentError),
+
+    #[error("{0}")]
+    Response(#[from] ResponseError),
 
     #[error("{0}")]
     Execute(#[from] InternalError),

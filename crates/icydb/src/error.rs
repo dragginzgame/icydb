@@ -1,7 +1,7 @@
 use candid::CandidType;
 use derive_more::Display;
 use icydb_core::{
-    db::query::QueryError,
+    db::{query::QueryError, response::ResponseError},
     error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin, InternalError},
 };
 use serde::{Deserialize, Serialize};
@@ -53,6 +53,14 @@ impl From<QueryError> for Error {
             QueryError::Intent(err) => {
                 Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
             }
+            QueryError::Response(err) => match err {
+                ResponseError::NotFound { .. } => {
+                    Self::new(ErrorClass::NotFound, ErrorOrigin::Response, err.to_string())
+                }
+                ResponseError::NotUnique { .. } => {
+                    Self::new(ErrorClass::Conflict, ErrorOrigin::Response, err.to_string())
+                }
+            },
             QueryError::Execute(err) => Self::from(err),
         }
     }

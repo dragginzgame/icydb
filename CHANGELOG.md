@@ -5,11 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.5.9] - 2026-01-28
+## [0.5.10] - 2026-01-28
 
 ### 🪐 Added
 * Restored key-only query helpers: `only()` for singleton entities and `many()` for primary-key batch access.
 * Added `text_contains` and `text_contains_ci` predicates for explicit substring searches on text fields.
+
+### 🧩 Fixed
+* Cardinality errors now surface as `NotFound`/`Conflict` instead of internal failures when interpreting query responses.
 
 ---
 
