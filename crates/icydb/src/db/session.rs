@@ -6,6 +6,7 @@ use crate::{
     error::Error,
     key::Key,
     traits::{CanisterKind, EntityKind},
+    view::View,
 };
 use icydb_core as core;
 
@@ -237,7 +238,8 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
 
     /// Filter by primary key.
     #[must_use]
-    pub fn key(mut self, key: Key) -> Self {
+    pub fn key(mut self, key: impl Into<Key>) -> Self {
+        let key = key.into();
         self.inner = self.inner.key(key);
         self
     }
@@ -292,14 +294,29 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         Ok(self.inner.all()?)
     }
 
+    /// Execute a load query and return all results as views.
+    pub fn views(&self) -> Result<Vec<View<E>>, Error> {
+        Ok(self.inner.views()?)
+    }
+
     /// Execute a load query and require exactly one entity.
     pub fn one(&self) -> Result<E, Error> {
         Ok(self.inner.one()?)
     }
 
+    /// Execute a load query and require exactly one view.
+    pub fn view(&self) -> Result<View<E>, Error> {
+        Ok(self.inner.view()?)
+    }
+
     /// Execute a load query and return zero or one entity.
     pub fn one_opt(&self) -> Result<Option<E>, Error> {
         Ok(self.inner.one_opt()?)
+    }
+
+    /// Execute a load query and return zero or one view.
+    pub fn view_opt(&self) -> Result<Option<View<E>>, Error> {
+        Ok(self.inner.view_opt()?)
     }
 }
 
@@ -322,7 +339,8 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
 
     /// Filter by primary key.
     #[must_use]
-    pub fn key(mut self, key: Key) -> Self {
+    pub fn key(mut self, key: impl Into<Key>) -> Self {
+        let key = key.into();
         self.inner = self.inner.key(key);
         self
     }

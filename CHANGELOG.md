@@ -5,6 +5,19 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+---
+
+## [0.5.5] - 2026-01-28
+
+### 🧲 Added
+* Load queries now expose view terminals (`views`, `view`, `view_opt`) so callers can materialize read-only views directly.
+* `Response` now provides view helpers (`views`, `view`, `view_opt`) to keep view materialization explicit at the terminal.
+* Predicates now support `&` composition for building conjunctions inline.
+
+### 🐚 Changed
+* `key()` on load and delete session queries now accepts any type convertible into `Key`.
+
+---
 
 ## [0.5.4] - 2026-01-28
 

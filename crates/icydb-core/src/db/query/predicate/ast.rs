@@ -1,6 +1,7 @@
 use crate::value::Value;
 
 use super::coercion::CoercionSpec;
+use std::ops::BitAnd;
 
 ///
 /// Predicate AST
@@ -88,4 +89,20 @@ pub enum Predicate {
         value: Value,
         coercion: CoercionSpec,
     },
+}
+
+impl BitAnd for Predicate {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self::And(vec![self, rhs])
+    }
+}
+
+impl BitAnd for &Predicate {
+    type Output = Predicate;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Predicate::And(vec![self.clone(), rhs.clone()])
+    }
 }

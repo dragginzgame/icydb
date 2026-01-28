@@ -10,6 +10,7 @@ use crate::{
     },
     key::Key,
     traits::{CanisterKind, EntityKind},
+    view::View,
 };
 
 ///
@@ -35,8 +36,10 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
         &self.query
     }
 
+    /// Filter by primary key.
     #[must_use]
-    pub fn key(mut self, key: Key) -> Self {
+    pub fn key(mut self, key: impl Into<Key>) -> Self {
+        let key = key.into();
         self.query = self.query.filter(eq(E::PRIMARY_KEY, key));
         self
     }
@@ -98,6 +101,13 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
         Ok(response.entities())
     }
 
+    /// Execute a load query and return all results as views.
+    pub fn views(&self) -> Result<Vec<View<E>>, QueryError> {
+        let response = self.execute()?;
+
+        Ok(response.views())
+    }
+
     /// Execute a load query and require exactly one entity.
     pub fn one(&self) -> Result<E, QueryError> {
         let response = self.execute()?;
@@ -105,11 +115,25 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
         response.entity().map_err(QueryError::Execute)
     }
 
+    /// Execute a load query and require exactly one view.
+    pub fn view(&self) -> Result<View<E>, QueryError> {
+        let response = self.execute()?;
+
+        response.view().map_err(QueryError::Execute)
+    }
+
     /// Execute a load query and return zero or one entity.
     pub fn one_opt(&self) -> Result<Option<E>, QueryError> {
         let response = self.execute()?;
 
         response.try_entity().map_err(QueryError::Execute)
+    }
+
+    /// Execute a load query and return zero or one view.
+    pub fn view_opt(&self) -> Result<Option<View<E>>, QueryError> {
+        let response = self.execute()?;
+
+        response.view_opt().map_err(QueryError::Execute)
     }
 }
 
@@ -138,7 +162,8 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
 
     /// Delete by primary key.
     #[must_use]
-    pub fn key(mut self, key: Key) -> Self {
+    pub fn key(mut self, key: impl Into<Key>) -> Self {
+        let key = key.into();
         self.query = self.query.filter(eq(E::PRIMARY_KEY, key));
         self
     }

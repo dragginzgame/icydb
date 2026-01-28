@@ -1,6 +1,7 @@
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     prelude::*,
+    view::View,
 };
 use thiserror::Error as ThisError;
 
@@ -164,17 +165,41 @@ impl<E: EntityKind> Response<E> {
     // Views
     // ------------------------------------------------------------------
 
-    pub fn view(self) -> Result<E::ViewType, InternalError> {
-        self.entity().map(|e| e.to_view())
+    /// Require exactly one result and return it as a view.
+    pub fn view(&self) -> Result<View<E>, InternalError> {
+        self.require_one()?;
+        let view = self
+            .0
+            .first()
+            .map(|(_, entity)| entity.to_view())
+            .expect("require_one ensures one row");
+
+        Ok(view)
     }
 
-    pub fn try_view(self) -> Result<Option<E::ViewType>, InternalError> {
-        Ok(self.try_entity()?.map(|e| e.to_view()))
+    /// Return zero or one result as a view.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn view_opt(&self) -> Result<Option<View<E>>, InternalError> {
+        match self.0.len() {
+            0 => Ok(None),
+            1 => Ok(self.0.first().map(|(_, entity)| entity.to_view())),
+            n => Err(ResponseError::NotUnique {
+                entity: E::PATH,
+                count: n as u32,
+            }
+            .into()),
+        }
     }
 
+    /// Return zero or one result as a view.
+    pub fn try_view(&self) -> Result<Option<View<E>>, InternalError> {
+        self.view_opt()
+    }
+
+    /// Return all results as views.
     #[must_use]
-    pub fn views(self) -> Vec<E::ViewType> {
-        self.entities().into_iter().map(|e| e.to_view()).collect()
+    pub fn views(&self) -> Vec<View<E>> {
+        self.0.iter().map(|(_, entity)| entity.to_view()).collect()
     }
 
     // ------------------------------------------------------------------
