@@ -1,6 +1,5 @@
 # Mimic Changelog
 
-
 ## [0.29] - Public Release Prep - 2025-11-19
 - Rewrote the README with public-facing positioning, expanded quickstart steps, and detailed onboarding/contribution info for new users.
 - Clarified repository status and support expectations as Mimic moves from a private to a public home.

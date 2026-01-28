@@ -7,9 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [Unreleased]
+## [0.5.1] - 2026-01-28 - Redesigned Query Builder
 
 ### 🦴 Fixed
+* Executors now reject mismatched plan modes (load vs delete) with a typed `Unsupported` error instead of trapping.
 
 ### 🧃 Changed
 * Query diagnostics now surface composite access shapes in trace access (union/intersection).
@@ -490,4 +491,3 @@ email of shame.
 - Docs and guides refreshed to point at `icydb` tags, endpoints, and examples so newcomers can copy-paste.
 - Path resolver now prefers `icydb::` for downstream users while keeping internal crates on direct deps to avoid cycles.
 - Observability/query endpoints and codegen names align on the `icydb_*` prefix for a consistent surface.
-

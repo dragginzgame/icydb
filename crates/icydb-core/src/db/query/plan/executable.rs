@@ -1,5 +1,8 @@
 use crate::{
-    db::query::plan::{ExplainPlan, LogicalPlan, PlanFingerprint},
+    db::query::{
+        QueryMode,
+        plan::{ExplainPlan, LogicalPlan, PlanFingerprint},
+    },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
 };
@@ -34,6 +37,12 @@ impl<E: EntityKind> ExecutablePlan<E> {
     #[must_use]
     pub fn fingerprint(&self) -> PlanFingerprint {
         self.plan.fingerprint()
+    }
+
+    /// Return the plan mode (load vs delete).
+    #[must_use]
+    pub(crate) const fn mode(&self) -> QueryMode {
+        self.plan.mode
     }
 
     pub(crate) const fn access(&self) -> &crate::db::query::plan::AccessPlan {

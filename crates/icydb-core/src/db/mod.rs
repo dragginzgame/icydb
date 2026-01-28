@@ -17,7 +17,7 @@ use crate::{
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor, UpsertExecutor},
         index::IndexStoreRegistry,
         query::{
-            Query, QueryError, QueryMode, ReadConsistency, SessionQuery,
+            Query, QueryError, QueryMode, ReadConsistency, SessionDeleteQuery, SessionLoadQuery,
             diagnostics::{
                 QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceExecutorKind, finish_event,
                 start_event, trace_access_from_plan,
@@ -150,11 +150,11 @@ impl<C: CanisterKind> DbSession<C> {
     /// Create a fluent, session-bound load query with default consistency.
     ///
     #[must_use]
-    pub const fn load<E>(&self) -> SessionQuery<'_, C, E>
+    pub const fn load<E>(&self) -> SessionLoadQuery<'_, C, E>
     where
         E: EntityKind<Canister = C>,
     {
-        SessionQuery::new(self, Query::new(ReadConsistency::MissingOk))
+        SessionLoadQuery::new(self, Query::new(ReadConsistency::MissingOk))
     }
 
     ///
@@ -165,11 +165,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub const fn load_with_consistency<E>(
         &self,
         consistency: ReadConsistency,
-    ) -> SessionQuery<'_, C, E>
+    ) -> SessionLoadQuery<'_, C, E>
     where
         E: EntityKind<Canister = C>,
     {
-        SessionQuery::new(self, Query::new(consistency))
+        SessionLoadQuery::new(self, Query::new(consistency))
     }
 
     ///
@@ -177,11 +177,11 @@ impl<C: CanisterKind> DbSession<C> {
     /// Create a fluent, session-bound delete query with default consistency.
     ///
     #[must_use]
-    pub const fn delete<E>(&self) -> SessionQuery<'_, C, E>
+    pub const fn delete<E>(&self) -> SessionDeleteQuery<'_, C, E>
     where
         E: EntityKind<Canister = C>,
     {
-        SessionQuery::new(self, Query::new(ReadConsistency::MissingOk).delete())
+        SessionDeleteQuery::new(self, Query::new(ReadConsistency::MissingOk).delete())
     }
 
     ///
@@ -192,18 +192,18 @@ impl<C: CanisterKind> DbSession<C> {
     pub const fn delete_with_consistency<E>(
         &self,
         consistency: ReadConsistency,
-    ) -> SessionQuery<'_, C, E>
+    ) -> SessionDeleteQuery<'_, C, E>
     where
         E: EntityKind<Canister = C>,
     {
-        SessionQuery::new(self, Query::new(consistency).delete())
+        SessionDeleteQuery::new(self, Query::new(consistency).delete())
     }
 
     //
     // Low-level executors
     //
 
-    /// Get a [`LoadExecutor`] for building and executing queries that read entities.
+    /// Get a [`LoadExecutor`] for executing planned load queries.
     /// Note: executor methods do not apply the session metrics override.
     #[must_use]
     pub const fn load_executor<E>(&self) -> LoadExecutor<E>
@@ -215,7 +215,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Get a [`SaveExecutor`] for inserting or updating entities.
     ///
-    /// Normally you will use the higher-level `create/replace/update` shortcuts instead.
+    /// Normally you will use the higher-level `insert/replace/update` shortcuts instead.
     /// Note: executor methods do not apply the session metrics override.
     #[must_use]
     pub const fn save<E>(&self) -> SaveExecutor<E>
@@ -256,6 +256,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
     ) -> Result<QueryDiagnostics, QueryError> {
         let explain = query.explain()?;
+
         Ok(QueryDiagnostics::from(explain))
     }
 

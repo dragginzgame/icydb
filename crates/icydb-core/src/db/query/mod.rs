@@ -18,7 +18,7 @@ pub use diagnostics::{
 };
 pub use intent::{DeleteSpec, IntentError, LoadSpec, Query, QueryError, QueryMode};
 pub use save::*;
-pub use session::SessionQuery;
+pub use session::{SessionDeleteQuery, SessionLoadQuery};
 
 ///
 /// ReadConsistency

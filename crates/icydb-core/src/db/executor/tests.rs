@@ -10,7 +10,7 @@ use crate::{
             RawIndexEntry, store::IndexRemoveError,
         },
         query::{
-            LoadSpec, Query, QueryError, QueryMode, ReadConsistency, eq, gt, in_list,
+            DeleteSpec, LoadSpec, Query, QueryError, QueryMode, ReadConsistency, eq, gt, in_list,
             plan::{
                 AccessPath, AccessPlan, ExecutablePlan, ExplainAccessPath, OrderDirection,
                 OrderSpec, PageSpec, PlanError, ProjectionSpec, logical::LogicalPlan,
@@ -750,10 +750,9 @@ fn delete_scan_rolls_back_after_data_removal() {
     assert_entity_present(&entity_b);
 
     let deleter = DeleteExecutor::<TestEntity>::new(DB, false);
-    let plan = ExecutablePlan::new(LogicalPlan::new(
-        AccessPath::FullScan,
-        ReadConsistency::MissingOk,
-    ));
+    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+    plan.mode = QueryMode::Delete(DeleteSpec::new());
+    let plan = ExecutablePlan::new(plan);
 
     fail_checkpoint_label("delete_after_data");
     let result = deleter.clone().execute(plan);
@@ -762,24 +761,17 @@ fn delete_scan_rolls_back_after_data_removal() {
     assert_entity_present(&entity_b);
     assert_commit_marker_clear();
 
-    let response = deleter
-        .clone()
-        .execute(ExecutablePlan::new(LogicalPlan::new(
-            AccessPath::FullScan,
-            ReadConsistency::MissingOk,
-        )))
-        .unwrap();
+    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+    plan.mode = QueryMode::Delete(DeleteSpec::new());
+    let response = deleter.clone().execute(ExecutablePlan::new(plan)).unwrap();
     assert_eq!(response.0.len(), 2);
     assert_entity_missing(&entity_a);
     assert_entity_missing(&entity_b);
     assert_commit_marker_clear();
 
-    let response = deleter
-        .execute(ExecutablePlan::new(LogicalPlan::new(
-            AccessPath::FullScan,
-            ReadConsistency::MissingOk,
-        )))
-        .unwrap();
+    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+    plan.mode = QueryMode::Delete(DeleteSpec::new());
+    let response = deleter.execute(ExecutablePlan::new(plan)).unwrap();
     assert!(response.0.is_empty());
     assert_commit_marker_clear();
 }

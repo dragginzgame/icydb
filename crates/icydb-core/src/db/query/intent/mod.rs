@@ -186,8 +186,6 @@ impl<E: EntityKind> Query<E> {
     }
 
     /// Apply an offset to a load intent.
-    ///
-    /// Note: session-bound queries reject offsets on delete intents.
     #[must_use]
     pub const fn offset(mut self, offset: u64) -> Self {
         if let QueryMode::Load(mut spec) = self.mode {
@@ -211,6 +209,7 @@ impl<E: EntityKind> Query<E> {
         Ok(ExecutablePlan::new(plan))
     }
 
+    // Build a logical plan for the current intent.
     fn build_plan<T: EntityKind>(&self) -> Result<LogicalPlan, QueryError> {
         // Phase 1: schema surface and intent validation.
         let model = T::MODEL;
@@ -308,15 +307,6 @@ impl From<PlannerError> for QueryError {
 pub enum IntentError {
     #[error("delete limit requires an explicit ordering")]
     DeleteLimitRequiresOrder,
-
-    #[error("offsets are only valid for load intents")]
-    OffsetOnDelete,
-
-    #[error("load execution requested for a delete intent")]
-    ExecuteLoadOnDelete,
-
-    #[error("delete execution requested for a load intent")]
-    ExecuteDeleteOnLoad,
 }
 
 /// Helper to append an ordering field while preserving existing order spec.

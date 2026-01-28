@@ -8,7 +8,7 @@ use crate::{
         query::plan::ExecutablePlan,
         response::Response,
     },
-    error::InternalError,
+    error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     traits::EntityKind,
 };
@@ -63,6 +63,13 @@ impl<E: EntityKind> LoadExecutor<E> {
 
     /// Execute an executor-ready plan directly (no planner inference).
     pub fn execute(&self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
+        if !plan.mode().is_load() {
+            return Err(InternalError::new(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "load executor requires load plans".to_string(),
+            ));
+        }
         let trace = start_plan_trace(self.trace, TraceExecutorKind::Load, &plan);
         let result = (|| {
             let mut span = Span::<E>::new(ExecKind::Load);

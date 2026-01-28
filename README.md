@@ -83,6 +83,8 @@ pub struct User {}
 ### Build and execute a query
 
 Queries are built as **typed intent**, explicitly planned, and then executed.
+For session-bound fluent queries, use `db!().load::<User>()` (returns `SessionLoadQuery`)
+or `db!().delete::<User>()` (returns `SessionDeleteQuery`).
 
 ```rust
 use icydb::prelude::*;

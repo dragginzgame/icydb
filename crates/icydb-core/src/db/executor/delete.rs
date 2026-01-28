@@ -230,6 +230,13 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
     #[allow(clippy::too_many_lines)]
     pub fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
+        if !plan.mode().is_delete() {
+            return Err(InternalError::new(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Query,
+                "delete executor requires delete plans".to_string(),
+            ));
+        }
         let trace = start_plan_trace(self.trace, TraceExecutorKind::Delete, &plan);
         let result = (|| {
             let plan = plan.into_inner();

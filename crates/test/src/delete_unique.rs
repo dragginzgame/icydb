@@ -59,6 +59,7 @@ impl DeleteUniqueSuite {
 
         let plan = Query::<Index>::new(ReadConsistency::Strict)
             .filter(eq("y", 55))
+            .delete()
             .plan()
             .expect("plan");
         let err = crate::db()
@@ -103,6 +104,7 @@ impl DeleteUniqueSuite {
 
         let plan = Query::<Index>::new(ReadConsistency::MissingOk)
             .filter(eq("y", 88))
+            .delete()
             .plan()
             .expect("plan");
         let err = crate::db()
@@ -146,6 +148,7 @@ impl DeleteUniqueSuite {
 
         let plan = Query::<Index>::new(ReadConsistency::MissingOk)
             .filter(eq("y", 777))
+            .delete()
             .plan()
             .expect("plan");
         let err = crate::db()
@@ -176,6 +179,7 @@ impl DeleteUniqueSuite {
 
         let plan = Query::<Index>::new(ReadConsistency::Strict)
             .filter(eq("y", 444))
+            .delete()
             .plan()
             .expect("plan");
         let err = crate::db()
