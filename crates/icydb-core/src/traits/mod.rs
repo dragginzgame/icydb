@@ -126,6 +126,13 @@ pub trait FieldValues {
 ///
 /// FieldValue
 ///
+/// Conversion boundary for values used in query predicates.
+///
+/// `FieldValue` represents any value that can appear on the *right-hand side*
+/// of a predicate (e.g. `field == value`, `field IN values`). Implementations
+/// convert Rust values into owned [`Value`] instances that are stored inside
+/// query plans and executed later.
+///
 
 pub trait FieldValue {
     fn to_value(&self) -> Value {
@@ -145,9 +152,12 @@ impl FieldValue for String {
     }
 }
 
-impl<T: FieldValue + Clone> FieldValue for &T {
+impl<T> FieldValue for &'_ T
+where
+    T: FieldValue + Copy,
+{
     fn to_value(&self) -> Value {
-        (*self).clone().to_value()
+        (*self).to_value()
     }
 }
 

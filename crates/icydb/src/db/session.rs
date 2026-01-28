@@ -11,8 +11,9 @@ use icydb_core as core;
 
 ///
 /// DbSession
-/// Public facade session wrapper for query execution and policy.
-/// Converts core errors into `icydb::Error`.
+///
+/// Public facade for session-scoped query execution and policy.
+/// Wraps the core session and converts core errors into `icydb::Error`.
 ///
 
 pub struct DbSession<C: CanisterKind> {
@@ -20,7 +21,11 @@ pub struct DbSession<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    /// Create a new facade session scoped to the provided database.
+    // ------------------------------------------------------------------
+    // Session configuration
+    // ------------------------------------------------------------------
+
+    /// Create a new session scoped to the provided database.
     #[must_use]
     pub const fn new(db: core::db::Db<C>) -> Self {
         Self {
@@ -28,33 +33,27 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    /// Enable debug logging for subsequent queries in this session.
+    /// Enable debug logging for queries executed in this session.
     ///
-    /// Debug contract:
-    /// - Debug is session-scoped only; executors do not expose independent toggles.
-    /// - Load debug narrates the full access/decode/filter/order/page pipeline.
-    /// - Save/delete debug narrate query intent plus commit/rollback outcomes.
+    /// Debug is session-scoped and affects all subsequent operations.
     #[must_use]
     pub const fn debug(mut self) -> Self {
         self.inner = self.inner.debug();
         self
     }
 
-    /// Override the metrics sink for operations executed through this session.
+    /// Override the metrics sink for queries executed in this session.
     #[must_use]
     pub const fn metrics_sink(mut self, sink: &'static dyn core::obs::sink::MetricsSink) -> Self {
         self.inner = self.inner.metrics_sink(sink);
         self
     }
 
-    //
+    // ------------------------------------------------------------------
     // Query entry points
-    //
+    // ------------------------------------------------------------------
 
-    ///
-    /// Load Query
-    /// Create a fluent, session-bound load query with default consistency.
-    ///
+    /// Create a session-bound load query with default consistency.
     #[must_use]
     pub const fn load<E>(&self) -> SessionLoadQuery<'_, C, E>
     where
@@ -65,10 +64,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    ///
-    /// Load Query With Consistency
-    /// Create a fluent, session-bound load query with explicit consistency.
-    ///
+    /// Create a session-bound load query with explicit consistency.
     #[must_use]
     pub const fn load_with_consistency<E>(
         &self,
@@ -82,10 +78,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    ///
-    /// Delete Query
-    /// Create a fluent, session-bound delete query with default consistency.
-    ///
+    /// Create a session-bound delete query with default consistency.
     #[must_use]
     pub const fn delete<E>(&self) -> SessionDeleteQuery<'_, C, E>
     where
@@ -96,10 +89,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    ///
-    /// Delete Query With Consistency
-    /// Create a fluent, session-bound delete query with explicit consistency.
-    ///
+    /// Create a session-bound delete query with explicit consistency.
     #[must_use]
     pub const fn delete_with_consistency<E>(
         &self,
@@ -113,11 +103,11 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    //
-    // Query diagnostics
-    //
+    // ------------------------------------------------------------------
+    // Query diagnostics / execution
+    // ------------------------------------------------------------------
 
-    /// Plan and return diagnostics for a query without executing it.
+    /// Plan and return diagnostics without executing the query.
     pub fn diagnose_query<E: EntityKind<Canister = C>>(
         &self,
         query: &Query<E>,
@@ -125,7 +115,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.diagnose_query(query)?)
     }
 
-    /// Execute a query using session policy and executor routing.
+    /// Execute a query using session policy.
     pub fn execute_query<E: EntityKind<Canister = C>>(
         &self,
         query: &Query<E>,
@@ -133,7 +123,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.execute_query(query)?)
     }
 
-    /// Execute a query and return per-execution diagnostics.
+    /// Execute a query and return execution diagnostics.
     pub fn execute_with_diagnostics<E: EntityKind<Canister = C>>(
         &self,
         query: &Query<E>,
@@ -141,11 +131,10 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.execute_with_diagnostics(query)?)
     }
 
-    //
-    // High-level write shortcuts
-    //
+    // ------------------------------------------------------------------
+    // High-level write helpers
+    // ------------------------------------------------------------------
 
-    /// Insert a new entity, returning the stored value.
     pub fn insert<E>(&self, entity: E) -> Result<E, Error>
     where
         E: EntityKind<Canister = C>,
@@ -153,7 +142,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.insert(entity)?)
     }
 
-    /// Insert multiple entities, returning stored values.
     pub fn insert_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
     where
         E: EntityKind<Canister = C>,
@@ -161,7 +149,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.insert_many(entities)?)
     }
 
-    /// Replace an existing entity or insert it if it does not yet exist.
     pub fn replace<E>(&self, entity: E) -> Result<E, Error>
     where
         E: EntityKind<Canister = C>,
@@ -169,7 +156,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.replace(entity)?)
     }
 
-    /// Replace multiple entities, inserting if missing.
     pub fn replace_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
     where
         E: EntityKind<Canister = C>,
@@ -177,7 +163,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.replace_many(entities)?)
     }
 
-    /// Partially update an existing entity.
     pub fn update<E>(&self, entity: E) -> Result<E, Error>
     where
         E: EntityKind<Canister = C>,
@@ -185,7 +170,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.update(entity)?)
     }
 
-    /// Partially update multiple existing entities.
     pub fn update_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
     where
         E: EntityKind<Canister = C>,
@@ -193,7 +177,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.update_many(entities)?)
     }
 
-    /// Insert a new view value for an entity.
     pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
     where
         E: EntityKind<Canister = C>,
@@ -201,7 +184,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.insert_view::<E>(view)?)
     }
 
-    /// Replace an existing view or insert it if it does not yet exist.
     pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
     where
         E: EntityKind<Canister = C>,
@@ -209,7 +191,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self.inner.replace_view::<E>(view)?)
     }
 
-    /// Partially update an existing view.
     pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
     where
         E: EntityKind<Canister = C>,
@@ -220,8 +201,8 @@ impl<C: CanisterKind> DbSession<C> {
 
 ///
 /// SessionLoadQuery
-/// Facade wrapper for session-bound load queries.
-/// Converts core errors into `icydb::Error`.
+///
+/// Session-bound fluent wrapper for load queries.
 ///
 
 pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
@@ -229,110 +210,136 @@ pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
 }
 
 impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
-    /// Return a reference to the underlying query.
+    // ------------------------------------------------------------------
+    // Intent inspection
+    // ------------------------------------------------------------------
+
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()
     }
 
-    /// Filter by primary key.
+    // ------------------------------------------------------------------
+    // Primary-key access
+    // ------------------------------------------------------------------
+
     #[must_use]
     pub fn key(mut self, key: impl Into<Key>) -> Self {
-        let key = key.into();
-        self.inner = self.inner.key(key);
+        self.inner = self.inner.key(key.into());
         self
     }
 
-    /// Add a predicate, implicitly AND-ing with any existing predicate.
+    /// Load multiple entities by primary key.
+    ///
+    /// Uses key-based access only (no predicate lowering).
+    #[must_use]
+    pub fn many<I>(mut self, keys: I) -> Self
+    where
+        I: IntoIterator<Item = E::PrimaryKey>,
+    {
+        self.inner = self.inner.many(keys);
+        self
+    }
+
+    // ------------------------------------------------------------------
+    // Query refinement
+    // ------------------------------------------------------------------
+
     #[must_use]
     pub fn filter(mut self, predicate: Predicate) -> Self {
         self.inner = self.inner.filter(predicate);
         self
     }
 
-    /// Append an ascending sort key.
     #[must_use]
-    pub fn order_by(mut self, field: &'static str) -> Self {
+    pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
         self.inner = self.inner.order_by(field);
         self
     }
 
-    /// Append a descending sort key.
     #[must_use]
-    pub fn order_by_desc(mut self, field: &'static str) -> Self {
+    pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
         self.inner = self.inner.order_by_desc(field);
         self
     }
 
-    /// Apply a load limit to bound result size.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
         self.inner = self.inner.limit(limit);
         self
     }
 
-    /// Apply a load offset.
     #[must_use]
     pub fn offset(mut self, offset: u64) -> Self {
         self.inner = self.inner.offset(offset);
         self
     }
 
-    /// Execute this query and return whether any rows match.
+    // ------------------------------------------------------------------
+    // Execution terminals
+    // ------------------------------------------------------------------
+
     pub fn exists(&self) -> Result<bool, Error> {
         Ok(self.inner.exists()?)
     }
 
-    /// Execute this query and return the number of matching rows.
     pub fn count(&self) -> Result<u64, Error> {
         Ok(self.inner.count()?)
     }
 
-    /// Explain this query without executing it.
     pub fn explain(&self) -> Result<core::db::query::plan::ExplainPlan, Error> {
         Ok(self.inner.explain()?)
     }
 
-    /// Execute this query using the session's policy settings.
     pub fn execute(&self) -> Result<core::db::response::Response<E>, Error> {
         Ok(self.inner.execute()?)
     }
 
-    /// Execute a load query and return all entities.
     pub fn all(&self) -> Result<Vec<E>, Error> {
         Ok(self.inner.all()?)
     }
 
-    /// Execute a load query and return all results as views.
     pub fn views(&self) -> Result<Vec<View<E>>, Error> {
         Ok(self.inner.views()?)
     }
 
-    /// Execute a load query and require exactly one entity.
     pub fn one(&self) -> Result<E, Error> {
         Ok(self.inner.one()?)
     }
 
-    /// Execute a load query and require exactly one view.
     pub fn view(&self) -> Result<View<E>, Error> {
         Ok(self.inner.view()?)
     }
 
-    /// Execute a load query and return zero or one entity.
     pub fn one_opt(&self) -> Result<Option<E>, Error> {
         Ok(self.inner.one_opt()?)
     }
 
-    /// Execute a load query and return zero or one view.
     pub fn view_opt(&self) -> Result<Option<View<E>>, Error> {
         Ok(self.inner.view_opt()?)
     }
 }
 
+impl<C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = ()>> SessionLoadQuery<'_, C, E> {
+    /// Load the singleton entity identified by the unit primary key `()`.
+    ///
+    /// Semantics:
+    /// - Equivalent to `WHERE pk = ()`
+    /// - Uses key-based access (ByKey)
+    /// - Does not allow predicates
+    /// - MissingOk mode returns empty
+    /// - Strict mode treats missing row as corruption
+    #[must_use]
+    pub fn only(mut self) -> Self {
+        self.inner = self.inner.only();
+        self
+    }
+}
+
 ///
 /// SessionDeleteQuery
-/// Facade wrapper for session-bound delete queries.
-/// Converts core errors into `icydb::Error`.
+///
+/// Session-bound fluent wrapper for delete queries.
 ///
 
 pub struct SessionDeleteQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
@@ -340,60 +347,93 @@ pub struct SessionDeleteQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> 
 }
 
 impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> {
-    /// Return a reference to the underlying query.
+    // ------------------------------------------------------------------
+    // Intent inspection
+    // ------------------------------------------------------------------
+
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()
     }
 
-    /// Filter by primary key.
+    // ------------------------------------------------------------------
+    // Primary-key access
+    // ------------------------------------------------------------------
+
     #[must_use]
     pub fn key(mut self, key: impl Into<Key>) -> Self {
-        let key = key.into();
-        self.inner = self.inner.key(key);
+        self.inner = self.inner.key(key.into());
         self
     }
 
-    /// Add a predicate, implicitly AND-ing with any existing predicate.
+    /// Delete multiple entities by primary key.
+    ///
+    /// Deletions are key-only and idempotent in MissingOk mode.
+    #[must_use]
+    pub fn many<I>(mut self, keys: I) -> Self
+    where
+        I: IntoIterator<Item = E::PrimaryKey>,
+    {
+        self.inner = self.inner.many(keys);
+        self
+    }
+
+    // ------------------------------------------------------------------
+    // Query refinement
+    // ------------------------------------------------------------------
+
     #[must_use]
     pub fn filter(mut self, predicate: Predicate) -> Self {
         self.inner = self.inner.filter(predicate);
         self
     }
 
-    /// Append an ascending sort key.
     #[must_use]
-    pub fn order_by(mut self, field: &'static str) -> Self {
+    pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
         self.inner = self.inner.order_by(field);
         self
     }
 
-    /// Append a descending sort key.
     #[must_use]
-    pub fn order_by_desc(mut self, field: &'static str) -> Self {
+    pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
         self.inner = self.inner.order_by_desc(field);
         self
     }
 
-    /// Apply a delete limit to bound mutation size.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
         self.inner = self.inner.limit(limit);
         self
     }
 
-    /// Explain this query without executing it.
+    // ------------------------------------------------------------------
+    // Execution
+    // ------------------------------------------------------------------
+
     pub fn explain(&self) -> Result<core::db::query::plan::ExplainPlan, Error> {
         Ok(self.inner.explain()?)
     }
 
-    /// Execute this query using the session's policy settings.
     pub fn execute(&self) -> Result<core::db::response::Response<E>, Error> {
         Ok(self.inner.execute()?)
     }
 
-    /// Execute a delete query and return the deleted rows.
     pub fn delete_rows(&self) -> Result<core::db::response::Response<E>, Error> {
         Ok(self.inner.delete_rows()?)
+    }
+}
+
+impl<C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = ()>> SessionDeleteQuery<'_, C, E> {
+    /// Delete the singleton entity identified by the unit primary key `()`.
+    ///
+    /// Semantics:
+    /// - Equivalent to `DELETE … WHERE pk = ()`
+    /// - Uses key-based access (ByKey)
+    /// - MissingOk mode is idempotent
+    /// - Strict mode treats missing row as corruption
+    #[must_use]
+    pub fn only(mut self) -> Self {
+        self.inner = self.inner.only();
+        self
     }
 }

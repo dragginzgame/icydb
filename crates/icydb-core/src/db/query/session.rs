@@ -2,7 +2,7 @@ use crate::{
     db::{
         DbSession,
         query::{
-            FieldRef, Query, QueryError,
+            Query, QueryError,
             plan::{ExecutablePlan, ExplainPlan},
             predicate::Predicate,
         },
@@ -47,9 +47,23 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
     /// Filter by primary key.
     #[must_use]
     pub fn key(mut self, key: impl Into<Key>) -> Self {
-        let key = key.into();
-        let field = FieldRef::new(E::PRIMARY_KEY);
-        self.query = self.query.filter(field.eq(key));
+        self.query = self.query.by_key(key.into());
+        self
+    }
+
+    /// Load multiple entities by primary key.
+    ///
+    /// Semantics:
+    /// - Equivalent to `WHERE pk IN (…)`
+    /// - Uses key-based access (ByKey / ByKeys)
+    /// - Missing keys are ignored in MissingOk mode
+    /// - Strict mode treats missing rows as corruption
+    #[must_use]
+    pub fn many<I>(mut self, keys: I) -> Self
+    where
+        I: IntoIterator<Item = E::PrimaryKey>,
+    {
+        self.query = self.query.by_keys(keys.into_iter().map(Into::into));
         self
     }
 
@@ -156,6 +170,22 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
     }
 }
 
+impl<C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = ()>> SessionLoadQuery<'_, C, E> {
+    /// Load the singleton entity identified by the unit primary key `()`.
+    ///
+    /// Semantics:
+    /// - Equivalent to `WHERE pk = ()`
+    /// - Uses key-based access (ByKey)
+    /// - Does not allow predicates
+    /// - MissingOk mode returns empty
+    /// - Strict mode treats missing row as corruption
+    #[must_use]
+    pub fn only(mut self) -> Self {
+        self.query = self.query.only();
+        self
+    }
+}
+
 ///
 /// SessionDeleteQuery
 ///
@@ -189,9 +219,23 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     /// Delete by primary key.
     #[must_use]
     pub fn key(mut self, key: impl Into<Key>) -> Self {
-        let key = key.into();
-        let field = FieldRef::new(E::PRIMARY_KEY);
-        self.query = self.query.filter(field.eq(key));
+        self.query = self.query.by_key(key.into());
+        self
+    }
+
+    /// Delete multiple entities by primary key.
+    ///
+    /// Semantics:
+    /// - Equivalent to `WHERE pk IN (…)`
+    /// - Uses key-based access (ByKey / ByKeys)
+    /// - Missing keys are ignored in MissingOk mode
+    /// - Strict mode treats missing rows as corruption
+    #[must_use]
+    pub fn many<I>(mut self, keys: I) -> Self
+    where
+        I: IntoIterator<Item = E::PrimaryKey>,
+    {
+        self.query = self.query.by_keys(keys.into_iter().map(Into::into));
         self
     }
 
@@ -246,5 +290,20 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     /// Execute a delete query and return the deleted rows.
     pub fn delete_rows(&self) -> Result<Response<E>, QueryError> {
         self.execute()
+    }
+}
+
+impl<C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = ()>> SessionDeleteQuery<'_, C, E> {
+    /// Delete the singleton entity identified by the unit primary key `()`.
+    ///
+    /// Semantics:
+    /// - Equivalent to `DELETE … WHERE pk = ()`
+    /// - Uses key-based access (ByKey)
+    /// - MissingOk mode is idempotent
+    /// - Strict mode treats missing row as corruption
+    #[must_use]
+    pub fn only(mut self) -> Self {
+        self.query = self.query.only();
+        self
     }
 }

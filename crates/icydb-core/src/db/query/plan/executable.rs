@@ -13,6 +13,7 @@ use std::marker::PhantomData;
 /// Executor-ready plan bound to a specific entity type.
 ///
 
+#[derive(Debug)]
 pub struct ExecutablePlan<E: EntityKind> {
     plan: LogicalPlan,
     _marker: PhantomData<E>,

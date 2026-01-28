@@ -5,15 +5,21 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.5.8] - 2026-01-28
+
+* Restored key-only query helpers: `only()` for singleton entities and `many()` for primary-key batch access.
+
+---
 
 ## [0.5.7] - 2026-01-28
 
 ### 🪁 Added
 * Generated entity field constants now use `FieldRef`, enabling predicate helpers like `Asset::ID.in_list(&ids)` without changing planner or executor behavior.
+* Load and delete queries now support `many` for primary-key batch lookups, using key-based access instead of predicate scans.
+* Singleton entities with unit primary keys can use `only()` on load/delete queries for key-only access.
 
 ### 🥝 Fixed
 * The `icydb` load facade now exposes `count()` and `exists()` terminals.
-
 
 ---
 

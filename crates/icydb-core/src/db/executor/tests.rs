@@ -116,6 +116,20 @@ const TIMESTAMP_MODEL: EntityModel = EntityModel {
     indexes: &[],
 };
 
+const UNIT_ENTITY_PATH: &str = "write_unit_test::UnitEntity";
+const UNIT_FIELDS: [&str; 1] = ["id"];
+const UNIT_FIELD_MODELS: [EntityFieldModel; 1] = [EntityFieldModel {
+    name: "id",
+    kind: EntityFieldKind::Unit,
+}];
+const UNIT_MODEL: EntityModel = EntityModel {
+    path: UNIT_ENTITY_PATH,
+    entity_name: "UnitEntity",
+    primary_key: &UNIT_FIELD_MODELS[0],
+    fields: &UNIT_FIELD_MODELS,
+    indexes: &[],
+};
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct TestEntity {
     id: Ulid,
@@ -191,6 +205,66 @@ impl EntityKind for TestEntity {
     fn primary_key(&self) -> Self::PrimaryKey {
         self.id
     }
+
+    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+        self.id = key;
+    }
+}
+
+/// UnitEntity
+/// Test-only singleton entity with a unit primary key.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct UnitEntity {
+    id: (),
+}
+
+impl Path for UnitEntity {
+    const PATH: &'static str = UNIT_ENTITY_PATH;
+}
+
+impl View for UnitEntity {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
+    }
+}
+
+impl SanitizeAuto for UnitEntity {}
+impl SanitizeCustom for UnitEntity {}
+impl ValidateAuto for UnitEntity {}
+impl ValidateCustom for UnitEntity {}
+impl Visitable for UnitEntity {}
+
+impl FieldValues for UnitEntity {
+    fn get_value(&self, field: &str) -> Option<Value> {
+        match field {
+            "id" => Some(Value::Unit),
+            _ => None,
+        }
+    }
+}
+
+impl EntityKind for UnitEntity {
+    type PrimaryKey = ();
+    type Store = TestStore;
+    type Canister = TestCanister;
+
+    const ENTITY_NAME: &'static str = "UnitEntity";
+    const PRIMARY_KEY: &'static str = "id";
+    const FIELDS: &'static [&'static str] = &UNIT_FIELDS;
+    const INDEXES: &'static [&'static IndexModel] = &[];
+    const MODEL: &'static EntityModel = &UNIT_MODEL;
+
+    fn key(&self) -> crate::key::Key {
+        crate::key::Key::Unit
+    }
+
+    fn primary_key(&self) -> Self::PrimaryKey {}
 
     fn set_primary_key(&mut self, key: Self::PrimaryKey) {
         self.id = key;
@@ -850,6 +924,205 @@ fn load_by_keys_skips_missing_after_dedup() {
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].id, entity.id);
+}
+
+#[test]
+fn session_many_empty_is_noop() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(1),
+        name: "alpha".to_string(),
+    };
+    saver.insert(entity).unwrap();
+
+    let session = DbSession::new(DB);
+    let rows = session
+        .load::<TestEntity>()
+        .many(Vec::<Ulid>::new())
+        .all()
+        .unwrap();
+
+    assert!(rows.is_empty());
+}
+
+#[test]
+fn session_many_dedups_duplicate_keys() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(7),
+        name: "alpha".to_string(),
+    };
+    saver.insert(entity.clone()).unwrap();
+
+    let session = DbSession::new(DB);
+    let rows = session
+        .load::<TestEntity>()
+        .many(vec![entity.id, entity.id, entity.id])
+        .all()
+        .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, entity.id);
+}
+
+#[test]
+fn session_many_missing_ok_skips_missing() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(1),
+        name: "alpha".to_string(),
+    };
+    saver.insert(entity.clone()).unwrap();
+
+    let session = DbSession::new(DB);
+    let rows = session
+        .load::<TestEntity>()
+        .many(vec![entity.id, Ulid::from_u128(2)])
+        .all()
+        .unwrap();
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, entity.id);
+}
+
+#[test]
+fn session_many_strict_missing_errors() {
+    reset_stores();
+    init_schema();
+
+    let session = DbSession::new(DB);
+    let err = session
+        .load_with_consistency::<TestEntity>(ReadConsistency::Strict)
+        .many(vec![Ulid::from_u128(99)])
+        .all()
+        .expect_err("strict missing should error");
+
+    assert!(matches!(
+        err,
+        QueryError::Execute(inner) if inner.class == ErrorClass::Corruption
+    ));
+}
+
+#[test]
+fn session_many_views_materializes() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(42),
+        name: "alpha".to_string(),
+    };
+    saver.insert(entity.clone()).unwrap();
+
+    let session = DbSession::new(DB);
+    let views = session
+        .load::<TestEntity>()
+        .many(vec![entity.id])
+        .views()
+        .unwrap();
+
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0], entity);
+}
+
+#[test]
+fn session_delete_many_by_primary_key() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let a = TestEntity {
+        id: Ulid::from_u128(10),
+        name: "alpha".to_string(),
+    };
+    let b = TestEntity {
+        id: Ulid::from_u128(11),
+        name: "beta".to_string(),
+    };
+    saver.insert(a.clone()).unwrap();
+    saver.insert(b.clone()).unwrap();
+
+    let session = DbSession::new(DB);
+    let deleted = session
+        .delete::<TestEntity>()
+        .many(vec![a.id, b.id])
+        .delete_rows()
+        .unwrap()
+        .entities();
+
+    assert_eq!(deleted.len(), 2);
+    let remaining = session.load::<TestEntity>().all().unwrap();
+    assert!(remaining.is_empty());
+}
+
+#[test]
+fn session_only_missing_ok_skips_missing() {
+    reset_stores();
+    init_schema();
+
+    let session = DbSession::new(DB);
+    let rows = session.load::<UnitEntity>().only().all().unwrap();
+
+    assert!(rows.is_empty());
+}
+
+#[test]
+fn session_only_strict_missing_errors() {
+    reset_stores();
+    init_schema();
+
+    let session = DbSession::new(DB);
+    let err = session
+        .load_with_consistency::<UnitEntity>(ReadConsistency::Strict)
+        .only()
+        .all()
+        .expect_err("strict missing should error");
+
+    assert!(matches!(
+        err,
+        QueryError::Execute(inner) if inner.class == ErrorClass::Corruption
+    ));
+}
+
+#[test]
+fn session_only_delete_is_idempotent_missing_ok() {
+    reset_stores();
+    init_schema();
+
+    let session = DbSession::new(DB);
+    let deleted = session
+        .delete::<UnitEntity>()
+        .only()
+        .delete_rows()
+        .unwrap()
+        .entities();
+
+    assert!(deleted.is_empty());
+}
+
+#[test]
+fn session_only_loads_singleton() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<UnitEntity>::new(DB, false);
+    let entity = UnitEntity { id: () };
+    saver.insert(entity.clone()).unwrap();
+
+    let session = DbSession::new(DB);
+    let loaded = session.load::<UnitEntity>().only().one().unwrap();
+
+    assert_eq!(loaded, entity);
 }
 
 #[test]

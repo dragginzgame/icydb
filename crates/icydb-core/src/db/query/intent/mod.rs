@@ -2,15 +2,16 @@ use crate::{
     db::query::{
         ReadConsistency,
         plan::{
-            DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan, OrderDirection, OrderSpec,
-            PageSpec, PlanError, ProjectionSpec,
+            AccessPath, AccessPlan, DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan,
+            OrderDirection, OrderSpec, PageSpec, PlanError, ProjectionSpec,
             planner::{PlannerError, plan_access},
             validate::validate_access_plan,
             validate::validate_order,
         },
-        predicate::{Predicate, SchemaInfo, ValidateError, normalize},
+        predicate::{Predicate, SchemaInfo, ValidateError, normalize, validate},
     },
     error::InternalError,
+    key::Key,
     traits::EntityKind,
 };
 use std::marker::PhantomData;
@@ -106,6 +107,8 @@ impl DeleteSpec {
 pub struct Query<E: EntityKind> {
     mode: QueryMode,
     predicate: Option<Predicate>,
+    key_access: Option<KeyAccessState>,
+    key_access_conflict: bool,
     order: Option<OrderSpec>,
     projection: ProjectionSpec,
     consistency: ReadConsistency,
@@ -121,6 +124,8 @@ impl<E: EntityKind> Query<E> {
         Self {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
+            key_access: None,
+            key_access_conflict: false,
             order: None,
             projection: ProjectionSpec::All,
             consistency,
@@ -156,6 +161,35 @@ impl<E: EntityKind> Query<E> {
     pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
         self.order = Some(push_order(self.order, field.as_ref(), OrderDirection::Desc));
         self
+    }
+
+    /// Track key-only access paths and detect conflicting key intents.
+    fn set_key_access(mut self, kind: KeyAccessKind, access: KeyAccess) -> Self {
+        if let Some(existing) = &self.key_access
+            && existing.kind != kind
+        {
+            self.key_access_conflict = true;
+        }
+
+        self.key_access = Some(KeyAccessState { kind, access });
+
+        self
+    }
+
+    /// Set the access path to a single primary key lookup.
+    pub(crate) fn by_key(self, key: Key) -> Self {
+        self.set_key_access(KeyAccessKind::Single, KeyAccess::Single(key))
+    }
+
+    /// Set the access path to a primary key batch lookup.
+    pub(crate) fn by_keys<I>(self, keys: I) -> Self
+    where
+        I: IntoIterator<Item = Key>,
+    {
+        self.set_key_access(
+            KeyAccessKind::Many,
+            KeyAccess::Many(keys.into_iter().collect()),
+        )
     }
 
     /// Mark this intent as a delete query.
@@ -222,7 +256,15 @@ impl<E: EntityKind> Query<E> {
 
         // Phase 2: predicate normalization and access planning.
         let normalized_predicate = self.predicate.as_ref().map(normalize);
-        let access_plan = plan_access::<T>(&schema_info, normalized_predicate.as_ref())?;
+        let access_plan = match &self.key_access {
+            Some(state) => {
+                if let Some(predicate) = self.predicate.as_ref() {
+                    validate(&schema_info, predicate)?;
+                }
+                access_plan_from_keys(&state.access)
+            }
+            None => plan_access::<T>(&schema_info, normalized_predicate.as_ref())?,
+        };
 
         validate_access_plan(&schema_info, model, &access_plan)?;
 
@@ -258,6 +300,22 @@ impl<E: EntityKind> Query<E> {
 
     // Validate delete-specific intent rules before planning.
     const fn validate_intent(&self) -> Result<(), IntentError> {
+        if self.key_access_conflict {
+            return Err(IntentError::KeyAccessConflict);
+        }
+
+        if let Some(state) = &self.key_access {
+            match state.kind {
+                KeyAccessKind::Many if self.predicate.is_some() => {
+                    return Err(IntentError::ManyWithPredicate);
+                }
+                KeyAccessKind::Only if self.predicate.is_some() => {
+                    return Err(IntentError::OnlyWithPredicate);
+                }
+                _ => {}
+            }
+        }
+
         match self.mode {
             QueryMode::Load(_) => {}
             QueryMode::Delete(spec) => {
@@ -268,6 +326,13 @@ impl<E: EntityKind> Query<E> {
         }
 
         Ok(())
+    }
+}
+
+impl<E: EntityKind<PrimaryKey = ()>> Query<E> {
+    /// Set the access path to the singleton unit primary key.
+    pub(crate) fn only(self) -> Self {
+        self.set_key_access(KeyAccessKind::Only, KeyAccess::Single(Key::Unit))
     }
 }
 
@@ -307,6 +372,53 @@ impl From<PlannerError> for QueryError {
 pub enum IntentError {
     #[error("delete limit requires an explicit ordering")]
     DeleteLimitRequiresOrder,
+
+    #[error("many() cannot be combined with predicates")]
+    ManyWithPredicate,
+
+    #[error("only() cannot be combined with predicates")]
+    OnlyWithPredicate,
+
+    #[error("multiple key access methods were used on the same query")]
+    KeyAccessConflict,
+}
+
+/// Primary-key-only access hints for query planning.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum KeyAccess {
+    Single(Key),
+    Many(Vec<Key>),
+}
+
+// Identifies which key-only builder set the access path.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum KeyAccessKind {
+    Single,
+    Many,
+    Only,
+}
+
+// Tracks key-only access plus its origin for intent validation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct KeyAccessState {
+    kind: KeyAccessKind,
+    access: KeyAccess,
+}
+
+// Build a key-only access plan without predicate-based planning.
+fn access_plan_from_keys(access: &KeyAccess) -> AccessPlan {
+    match access {
+        KeyAccess::Single(key) => AccessPlan::Path(AccessPath::ByKey(*key)),
+        KeyAccess::Many(keys) => {
+            if let Some((first, rest)) = keys.split_first()
+                && rest.is_empty()
+            {
+                return AccessPlan::Path(AccessPath::ByKey(*first));
+            }
+
+            AccessPlan::Path(AccessPath::ByKeys(keys.clone()))
+        }
+    }
 }
 
 /// Helper to append an ordering field while preserving existing order spec.

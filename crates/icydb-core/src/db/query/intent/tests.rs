@@ -5,9 +5,116 @@ use crate::{
         plan::{ExplainAccessPath, OrderDirection, OrderSpec, PlanError, planner::PlannerEntity},
         predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
     },
+    key::Key,
+    model::{
+        entity::EntityModel,
+        field::{EntityFieldKind, EntityFieldModel},
+        index::IndexModel,
+    },
+    traits::{
+        CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
+        ValidateAuto, ValidateCustom, View, ViewError, Visitable,
+    },
     types::Ulid,
     value::Value,
 };
+use serde::{Deserialize, Serialize};
+
+const UNIT_CANISTER_PATH: &str = "planner_test::UnitCanister";
+const UNIT_STORE_PATH: &str = "planner_test::UnitStore";
+const UNIT_ENTITY_PATH: &str = "planner_test::UnitEntity";
+const UNIT_FIELD_MODELS: [EntityFieldModel; 1] = [EntityFieldModel {
+    name: "id",
+    kind: EntityFieldKind::Unit,
+}];
+const UNIT_FIELDS: [&str; 1] = ["id"];
+const UNIT_MODEL: EntityModel = EntityModel {
+    path: UNIT_ENTITY_PATH,
+    entity_name: "UnitEntity",
+    primary_key: &UNIT_FIELD_MODELS[0],
+    fields: &UNIT_FIELD_MODELS,
+    indexes: &[],
+};
+
+/// UnitEntity
+/// Test-only entity with a unit primary key.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct UnitEntity {
+    id: (),
+}
+
+impl Path for UnitEntity {
+    const PATH: &'static str = UNIT_ENTITY_PATH;
+}
+
+impl View for UnitEntity {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+        Ok(view)
+    }
+}
+
+impl SanitizeAuto for UnitEntity {}
+impl SanitizeCustom for UnitEntity {}
+impl ValidateAuto for UnitEntity {}
+impl ValidateCustom for UnitEntity {}
+impl Visitable for UnitEntity {}
+
+impl FieldValues for UnitEntity {
+    fn get_value(&self, field: &str) -> Option<Value> {
+        match field {
+            "id" => Some(Value::Unit),
+            _ => None,
+        }
+    }
+}
+
+// Test-only canister marker for unit-key entity planning.
+struct UnitCanister;
+
+impl Path for UnitCanister {
+    const PATH: &'static str = UNIT_CANISTER_PATH;
+}
+
+impl CanisterKind for UnitCanister {}
+
+// Test-only store marker for unit-key entity planning.
+struct UnitStore;
+
+impl Path for UnitStore {
+    const PATH: &'static str = UNIT_STORE_PATH;
+}
+
+impl StoreKind for UnitStore {
+    type Canister = UnitCanister;
+}
+
+impl EntityKind for UnitEntity {
+    type PrimaryKey = ();
+    type Store = UnitStore;
+    type Canister = UnitCanister;
+
+    const ENTITY_NAME: &'static str = "UnitEntity";
+    const PRIMARY_KEY: &'static str = "id";
+    const FIELDS: &'static [&'static str] = &UNIT_FIELDS;
+    const INDEXES: &'static [&'static IndexModel] = &[];
+    const MODEL: &'static EntityModel = &UNIT_MODEL;
+
+    fn key(&self) -> crate::key::Key {
+        crate::key::Key::Unit
+    }
+
+    fn primary_key(&self) -> Self::PrimaryKey {}
+
+    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+        self.id = key;
+    }
+}
 
 #[test]
 fn fluent_chain_builds_predicate_tree() {
@@ -198,6 +305,70 @@ fn plan_is_deterministic_for_equivalent_predicates() {
     let plan_b = query_b.plan().expect("plan b");
 
     assert_eq!(plan_a.explain(), plan_b.explain());
+}
+
+#[test]
+fn many_plans_as_primary_key_access() {
+    let keys = vec![Key::Ulid(Ulid::from_u128(1)), Key::Ulid(Ulid::from_u128(2))];
+    let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk).by_keys(keys.clone());
+
+    let plan = query.plan().expect("plan");
+    let explain = plan.explain();
+
+    assert!(matches!(
+        explain.access,
+        ExplainAccessPath::ByKeys { keys: access_keys } if access_keys == keys
+    ));
+}
+
+#[test]
+fn many_empty_plans_as_primary_key_access() {
+    let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk).by_keys(Vec::new());
+    let plan = query.plan().expect("plan");
+
+    assert!(matches!(
+        plan.explain().access,
+        ExplainAccessPath::ByKeys { keys } if keys.is_empty()
+    ));
+}
+
+#[test]
+fn many_rejects_predicates() {
+    let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
+        .by_keys(vec![Key::Ulid(Ulid::from_u128(1))])
+        .filter(FieldRef::new("other").eq("x"));
+
+    let err = query.plan().expect_err("many with predicate");
+    assert!(matches!(
+        err,
+        QueryError::Intent(IntentError::ManyWithPredicate)
+    ));
+}
+
+#[test]
+fn only_plans_without_schema_initialization() {
+    let plan = Query::<UnitEntity>::new(ReadConsistency::MissingOk)
+        .only()
+        .plan()
+        .expect("plan");
+
+    assert!(matches!(
+        plan.explain().access,
+        ExplainAccessPath::ByKey { key } if key == Key::Unit
+    ));
+}
+
+#[test]
+fn only_rejects_predicates() {
+    let query = Query::<UnitEntity>::new(ReadConsistency::MissingOk)
+        .only()
+        .filter(FieldRef::new("id").eq(()));
+
+    let err = query.plan().expect_err("only with predicate");
+    assert!(matches!(
+        err,
+        QueryError::Intent(IntentError::OnlyWithPredicate)
+    ));
 }
 
 #[test]
