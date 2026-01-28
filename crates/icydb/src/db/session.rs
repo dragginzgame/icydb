@@ -272,7 +272,9 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     }
 
     /// Plan this intent into an executor-ready plan.
-    pub fn plan(&self) -> Result<core::db::query::plan::ExecutablePlan<E>, Error> {
+    #[doc(hidden)]
+    #[expect(dead_code)]
+    pub(crate) fn plan(&self) -> Result<core::db::query::plan::ExecutablePlan<E>, Error> {
         Ok(self.inner.plan()?)
     }
 
@@ -348,7 +350,9 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     }
 
     /// Plan this intent into an executor-ready plan.
-    pub fn plan(&self) -> Result<core::db::query::plan::ExecutablePlan<E>, Error> {
+    #[doc(hidden)]
+    #[expect(dead_code)]
+    pub(crate) fn plan(&self) -> Result<core::db::query::plan::ExecutablePlan<E>, Error> {
         Ok(self.inner.plan()?)
     }
 

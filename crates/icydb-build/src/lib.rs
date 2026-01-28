@@ -1,7 +1,6 @@
 mod db;
 mod macros;
 mod metrics;
-mod query;
 
 use icydb_schema::{
     build::get_schema,
@@ -54,7 +53,6 @@ impl ActorBuilder {
         // shared between all canisters
         tokens.extend(db::generate(&self));
         tokens.extend(metrics::generate(&self));
-        tokens.extend(query::generate(&self));
 
         quote! {
             #tokens

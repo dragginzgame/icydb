@@ -2,7 +2,6 @@
 //! the ergonomics exported via the `prelude`.
 pub mod db;
 pub mod error;
-pub mod interface;
 pub mod key;
 pub mod model;
 pub mod obs;
