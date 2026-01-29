@@ -24,6 +24,11 @@ impl<E: EntityKind> Response<E> {
         Self { inner }
     }
 
+    #[must_use]
+    pub const fn count(&self) -> u32 {
+        self.inner.count()
+    }
+
     // ------------------------------------------------------------------
     // Cardinality
     // ------------------------------------------------------------------
