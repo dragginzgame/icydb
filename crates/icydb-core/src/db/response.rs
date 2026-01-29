@@ -110,7 +110,7 @@ impl<E: EntityKind> Response<E> {
     }
 
     // ------------------------------------------------------------------
-    // Keys (delete ergonomics)
+    // Store keys (delete ergonomics)
     // ------------------------------------------------------------------
 
     #[must_use]
@@ -134,6 +134,26 @@ impl<E: EntityKind> Response<E> {
     #[must_use]
     pub fn contains_key(&self, key: &Key) -> bool {
         self.0.iter().any(|(k, _)| k == key)
+    }
+
+    // ------------------------------------------------------------------
+    // Primary keys (domain-level, strict)
+    // ------------------------------------------------------------------
+
+    pub fn primary_key(self) -> Result<E::PrimaryKey, ResponseError> {
+        Ok(self.entity()?.primary_key())
+    }
+
+    pub fn try_primary_key(self) -> Result<Option<E::PrimaryKey>, ResponseError> {
+        Ok(self.try_entity()?.map(|e| e.primary_key()))
+    }
+
+    #[must_use]
+    pub fn primary_keys(self) -> Vec<E::PrimaryKey> {
+        self.entities()
+            .into_iter()
+            .map(|e| e.primary_key())
+            .collect()
     }
 
     // ------------------------------------------------------------------
@@ -164,26 +184,6 @@ impl<E: EntityKind> Response<E> {
     #[must_use]
     pub fn views(&self) -> Vec<View<E>> {
         self.0.iter().map(|(_, e)| e.to_view()).collect()
-    }
-
-    // ------------------------------------------------------------------
-    // Explicitly non-strict access (escape hatches)
-    // ------------------------------------------------------------------
-
-    /// NOTE: Bypasses cardinality checks. Prefer strict APIs unless intentional.
-    #[must_use]
-    pub fn first(self) -> Option<Row<E>> {
-        self.0.into_iter().next()
-    }
-
-    #[must_use]
-    pub fn first_entity(self) -> Option<E> {
-        self.first().map(|(_, e)| e)
-    }
-
-    #[must_use]
-    pub fn first_pk(self) -> Option<E::PrimaryKey> {
-        self.first_entity().map(|e| e.primary_key())
     }
 }
 

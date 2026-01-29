@@ -100,7 +100,10 @@ pub mod __reexports {
 pub mod prelude {
     pub use crate::{
         db,
-        db::{query, query::builder::FieldRef},
+        db::{
+            query,
+            query::{FilterExpr, SortExpr, builder::FieldRef},
+        },
         key::Key,
         traits::{
             CreateView as _, EntityKind as _, Inner as _, Path as _, UpdateView as _, View as _,

@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        query::{Query, predicate::Predicate},
+        query::{FilterExpr, Query, SortExpr, predicate::Predicate},
         response::Response,
     },
     error::Error,
@@ -59,6 +59,20 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     pub fn filter(mut self, predicate: Predicate) -> Self {
         self.inner = self.inner.filter(predicate);
         self
+    }
+
+    /// Apply a dynamic filter expression.
+    pub fn filter_expr(mut self, expr: FilterExpr) -> Result<Self, Error> {
+        self.inner = self.inner.filter_expr(expr)?;
+
+        Ok(self)
+    }
+
+    /// Apply a dynamic sort expression.
+    pub fn sort_expr(mut self, expr: SortExpr) -> Result<Self, Error> {
+        self.inner = self.inner.sort_expr(expr)?;
+
+        Ok(self)
     }
 
     #[must_use]

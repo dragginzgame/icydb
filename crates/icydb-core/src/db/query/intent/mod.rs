@@ -1,6 +1,7 @@
 use crate::{
     db::query::{
         ReadConsistency,
+        expr::{FilterExpr, SortExpr, SortLowerError},
         plan::{
             AccessPath, AccessPlan, DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan,
             OrderDirection, OrderSpec, PageSpec, PlanError, ProjectionSpec,
@@ -150,6 +151,24 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
+    /// Apply a dynamic filter expression.
+    pub fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
+        let predicate = expr.lower::<E>().map_err(QueryError::Validate)?;
+
+        Ok(self.filter(predicate))
+    }
+
+    /// Apply a dynamic sort expression.
+    pub fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
+        let order = match expr.lower::<E>() {
+            Ok(order) => order,
+            Err(SortLowerError::Validate(err)) => return Err(QueryError::Validate(err)),
+            Err(SortLowerError::Plan(err)) => return Err(QueryError::Plan(err)),
+        };
+
+        Ok(self.order_spec(order))
+    }
+
     /// Append an ascending sort key.
     #[must_use]
     pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
@@ -161,6 +180,12 @@ impl<E: EntityKind> Query<E> {
     #[must_use]
     pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
         self.order = Some(push_order(self.order, field.as_ref(), OrderDirection::Desc));
+        self
+    }
+
+    /// Set a fully-specified order spec (validated before reaching this boundary).
+    pub(crate) fn order_spec(mut self, order: OrderSpec) -> Self {
+        self.order = Some(order);
         self
     }
 

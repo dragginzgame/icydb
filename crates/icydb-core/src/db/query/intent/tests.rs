@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     db::query::{
         FieldRef, ReadConsistency,
+        expr::{FilterExpr, SortExpr},
         plan::{ExplainAccessPath, OrderDirection, OrderSpec, PlanError, planner::PlannerEntity},
         predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
     },
@@ -33,6 +34,26 @@ const UNIT_MODEL: EntityModel = EntityModel {
     entity_name: "UnitEntity",
     primary_key: &UNIT_FIELD_MODELS[0],
     fields: &UNIT_FIELD_MODELS,
+    indexes: &[],
+};
+
+const UNORDERABLE_ENTITY_PATH: &str = "planner_test::UnorderableEntity";
+const UNORDERABLE_FIELD_MODELS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Unit,
+    },
+    EntityFieldModel {
+        name: "tags",
+        kind: EntityFieldKind::List(&EntityFieldKind::Text),
+    },
+];
+const UNORDERABLE_FIELDS: [&str; 2] = ["id", "tags"];
+const UNORDERABLE_MODEL: EntityModel = EntityModel {
+    path: UNORDERABLE_ENTITY_PATH,
+    entity_name: "UnorderableEntity",
+    primary_key: &UNORDERABLE_FIELD_MODELS[0],
+    fields: &UNORDERABLE_FIELD_MODELS,
     indexes: &[],
 };
 
@@ -104,6 +125,73 @@ impl EntityKind for UnitEntity {
     const FIELDS: &'static [&'static str] = &UNIT_FIELDS;
     const INDEXES: &'static [&'static IndexModel] = &[];
     const MODEL: &'static EntityModel = &UNIT_MODEL;
+
+    fn key(&self) -> crate::key::Key {
+        crate::key::Key::Unit
+    }
+
+    fn primary_key(&self) -> Self::PrimaryKey {}
+
+    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+        self.id = key;
+    }
+}
+
+/// UnorderableEntity
+/// Test-only entity with a non-orderable list field.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct UnorderableEntity {
+    id: (),
+    tags: Vec<String>,
+}
+
+impl Path for UnorderableEntity {
+    const PATH: &'static str = UNORDERABLE_ENTITY_PATH;
+}
+
+impl View for UnorderableEntity {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for UnorderableEntity {}
+impl SanitizeCustom for UnorderableEntity {}
+impl ValidateAuto for UnorderableEntity {}
+impl ValidateCustom for UnorderableEntity {}
+impl Visitable for UnorderableEntity {}
+
+impl FieldValues for UnorderableEntity {
+    fn get_value(&self, field: &str) -> Option<Value> {
+        match field {
+            "id" => Some(Value::Unit),
+            "tags" => Some(Value::List(
+                self.tags
+                    .iter()
+                    .map(|tag| Value::Text(tag.clone()))
+                    .collect(),
+            )),
+            _ => None,
+        }
+    }
+}
+
+impl EntityKind for UnorderableEntity {
+    type PrimaryKey = ();
+    type Store = UnitStore;
+    type Canister = UnitCanister;
+
+    const ENTITY_NAME: &'static str = "UnorderableEntity";
+    const PRIMARY_KEY: &'static str = "id";
+    const FIELDS: &'static [&'static str] = &UNORDERABLE_FIELDS;
+    const INDEXES: &'static [&'static IndexModel] = &[];
+    const MODEL: &'static EntityModel = &UNORDERABLE_MODEL;
 
     fn key(&self) -> crate::key::Key {
         crate::key::Key::Unit
@@ -381,6 +469,54 @@ fn query_explain_matches_plan() {
     let explain = query.explain().expect("explain");
 
     assert_eq!(explain, plan.explain());
+}
+
+#[test]
+fn filter_expr_rejects_unknown_field() {
+    let expr = FilterExpr(Predicate::IsNull {
+        field: "missing".to_string(),
+    });
+
+    let err = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
+        .filter_expr(expr)
+        .expect_err("unknown field");
+
+    assert!(matches!(
+        err,
+        QueryError::Validate(ValidateError::UnknownField { .. })
+    ));
+}
+
+#[test]
+fn sort_expr_rejects_unknown_field() {
+    let expr = SortExpr {
+        fields: vec![("missing".to_string(), OrderDirection::Asc)],
+    };
+
+    let err = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
+        .sort_expr(expr)
+        .expect_err("unknown order field");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(PlanError::UnknownOrderField { .. })
+    ));
+}
+
+#[test]
+fn sort_expr_rejects_unorderable_field() {
+    let expr = SortExpr {
+        fields: vec![("tags".to_string(), OrderDirection::Asc)],
+    };
+
+    let err = Query::<UnorderableEntity>::new(ReadConsistency::MissingOk)
+        .sort_expr(expr)
+        .expect_err("unorderable field");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(PlanError::UnorderableField { .. })
+    ));
 }
 
 #[test]

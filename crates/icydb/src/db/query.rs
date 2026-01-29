@@ -5,7 +5,8 @@ use icydb_core as core;
 /// Query planning types are exposed for diagnostics and intent composition.
 ///
 pub use core::db::query::{
-    DeleteSpec, LoadSpec, Query, QueryMode, ReadConsistency, builder,
+    DeleteSpec, FilterExpr, LoadSpec, Query, QueryMode, ReadConsistency, SortExpr, SortLowerError,
+    builder,
     builder::*,
     diagnostics::{
         QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceAccess, QueryTraceEvent,
@@ -20,4 +21,8 @@ pub mod plan {
         ExplainPlan, ExplainPredicate, ExplainProjection, OrderDirection, PlanError,
         PlanFingerprint,
     };
+}
+
+pub mod expr {
+    pub use icydb_core::db::query::expr::{FilterExpr, SortExpr, SortLowerError};
 }

@@ -5,6 +5,7 @@
 
 pub mod builder;
 pub mod diagnostics;
+pub mod expr;
 pub mod intent;
 pub mod plan;
 pub mod predicate;
@@ -16,6 +17,7 @@ pub use diagnostics::{
     QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceAccess, QueryTraceEvent,
     QueryTraceExecutorKind, QueryTracePhase,
 };
+pub use expr::{FilterExpr, SortExpr, SortLowerError};
 pub use intent::{DeleteSpec, IntentError, LoadSpec, Query, QueryError, QueryMode};
 pub(crate) use save::SaveMode;
 pub use session::{SessionDeleteQuery, SessionLoadQuery};
