@@ -5,6 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.5.22] - 2026-01-29
+
+### 🧭 Fixed
+* Unique index validation now treats index/data key mismatches as corruption, preventing hash-collision or conflict misclassification.
+* Delete limits now treat empty sort expressions as missing ordering, avoiding nondeterministic delete ordering.
+
+### 🦉 Changed
+* Empty `many([])` / `ByKeys([])` is now a defined no-op that returns an empty result set.
+
+### 🧵 Removed
+* Removed legacy index mutation helpers (`IndexStore::insert_index_entry`, `IndexStore::remove_index_entry`) and the unused `load_existing_index_entry` helper.
+
+---
+
 ## [0.5.21] - 2026-01-29
 
 ### 🪗 Added
