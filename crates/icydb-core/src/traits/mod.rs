@@ -25,7 +25,7 @@ pub use std::{
     str::FromStr,
 };
 
-use crate::{prelude::*, types::Unit, visitor::VisitorContext};
+use crate::{prelude::*, types::Unit, value::ValueEnum, visitor::VisitorContext};
 
 /// ------------------------
 /// KIND TRAITS
@@ -158,6 +158,16 @@ pub trait FieldValue {
     fn to_value(&self) -> Value {
         Value::Unsupported
     }
+}
+
+///
+/// EnumValue
+/// Explicit conversion boundary for domain enums used in query values.
+///
+
+pub trait EnumValue {
+    /// Convert this enum into a strict [`ValueEnum`] with its canonical path.
+    fn to_value_enum(&self) -> ValueEnum;
 }
 
 impl FieldValue for &str {

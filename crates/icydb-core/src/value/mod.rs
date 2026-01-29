@@ -5,7 +5,7 @@ mod tests;
 
 use crate::{
     prelude::*,
-    traits::{FieldValue, NumFromPrimitive},
+    traits::{EnumValue, FieldValue, NumFromPrimitive},
     types::*,
 };
 use candid::CandidType;
@@ -92,6 +92,17 @@ impl Value {
     /// Build a `Value::List` from a slice of items convertible into `Value`.
     pub fn from_list<T: Into<Self> + Clone>(items: &[T]) -> Self {
         Self::List(items.iter().cloned().map(Into::into).collect())
+    }
+
+    /// Build a `Value::Enum` from a domain enum using its explicit mapping.
+    pub fn from_enum<E: EnumValue>(value: E) -> Self {
+        Self::Enum(value.to_value_enum())
+    }
+
+    /// Build a strict enum value using the canonical path of `E`.
+    #[must_use]
+    pub fn enum_strict<E: Path>(variant: &str) -> Self {
+        Self::Enum(ValueEnum::strict::<E>(variant))
     }
 
     ///
@@ -608,6 +619,18 @@ impl ValueEnum {
             path: path.map(ToString::to_string),
             payload: None,
         }
+    }
+
+    #[must_use]
+    /// Build a strict enum value using the canonical path of `E`.
+    pub fn strict<E: Path>(variant: &str) -> Self {
+        Self::new(variant, Some(E::PATH))
+    }
+
+    #[must_use]
+    /// Build a strict enum value from a domain enum using its explicit mapping.
+    pub fn from_enum<E: EnumValue>(value: E) -> Self {
+        value.to_value_enum()
     }
 
     #[must_use]

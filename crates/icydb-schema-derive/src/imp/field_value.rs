@@ -41,21 +41,33 @@ impl Imp<Enum> for FieldValueTrait {
         });
 
         // quote
-        let q = quote! {
-            fn to_value(&self) -> ::icydb::value::Value {
-                use ::icydb::value::{ValueEnum, Value};
+        let enum_value = quote! {
+            fn to_value_enum(&self) -> ::icydb::value::ValueEnum {
+                use ::icydb::value::ValueEnum;
 
-                let ev = match self {
+                match self {
                     #(#arms),*
-                };
-
-                Value::Enum(ev)
+                }
             }
         };
 
-        let tokens = Implementor::new(node.def(), TraitKind::FieldValue)
-            .set_tokens(q)
-            .to_token_stream();
+        let field_value = quote! {
+            fn to_value(&self) -> ::icydb::value::Value {
+                ::icydb::value::Value::Enum(::icydb::traits::EnumValue::to_value_enum(self))
+            }
+        };
+
+        let mut tokens = TokenStream::new();
+        tokens.extend(
+            Implementor::new(node.def(), TraitKind::EnumValue)
+                .set_tokens(enum_value)
+                .to_token_stream(),
+        );
+        tokens.extend(
+            Implementor::new(node.def(), TraitKind::FieldValue)
+                .set_tokens(field_value)
+                .to_token_stream(),
+        );
 
         Some(TraitStrategy::from_impl(tokens))
     }

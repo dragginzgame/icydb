@@ -61,6 +61,7 @@ pub enum TraitKind {
     // orm
     CreateView,
     UpdateView,
+    EnumValue,
     FieldValue,
     FieldValues,
     From,

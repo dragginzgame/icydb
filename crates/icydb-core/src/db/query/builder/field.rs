@@ -38,6 +38,12 @@ impl FieldRef {
         compare(self.0, CompareOp::Eq, value.to_value(), CoercionId::Strict)
     }
 
+    /// Strict equality comparison against a null value.
+    #[must_use]
+    pub fn eq_none(self) -> Predicate {
+        self.is_null()
+    }
+
     /// Case-insensitive text equality.
     #[must_use]
     pub fn eq_ci(self, value: impl FieldValue) -> Predicate {
