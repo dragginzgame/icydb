@@ -23,10 +23,13 @@ pub enum FilterExpr {
 }
 
 impl FilterExpr {
+    // ─────────────────────────────────────────────────────────────
+    // Lowering
+    // ─────────────────────────────────────────────────────────────
+
     pub fn lower<E: EntityKind>(&self) -> Result<core::db::query::expr::FilterExpr, QueryError> {
         use core::db::query::predicate::Predicate;
 
-        // Helper: lower and extract the inner Predicate
         let lower_pred =
             |expr: &Self| -> Result<Predicate, QueryError> { Ok(expr.lower::<E>()?.0) };
 
@@ -49,6 +52,107 @@ impl FilterExpr {
         };
 
         Ok(core::db::query::expr::FilterExpr(pred))
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Comparison constructors
+    // ─────────────────────────────────────────────────────────────
+
+    pub fn eq(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Eq {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn ne(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Ne {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn lt(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Lt {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn lte(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Lte {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn gt(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Gt {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn gte(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Gte {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn in_list<V>(field: impl Into<String>, values: V) -> Self
+    where
+        V: IntoIterator,
+        V::Item: Into<Value>,
+    {
+        Self::In {
+            field: field.into(),
+            values: values.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Logical constructors
+    // ─────────────────────────────────────────────────────────────
+
+    pub fn and_all(exprs: impl Into<Vec<Self>>) -> Self {
+        Self::And(exprs.into())
+    }
+
+    pub fn or_all(exprs: impl Into<Vec<Self>>) -> Self {
+        Self::Or(exprs.into())
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    #[must_use]
+    pub fn not(expr: Self) -> Self {
+        Self::Not(Box::new(expr))
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Fluent combinators (flattening)
+    // ─────────────────────────────────────────────────────────────
+
+    #[must_use]
+    pub fn and(self, other: Self) -> Self {
+        match self {
+            Self::And(mut xs) => {
+                xs.push(other);
+                Self::And(xs)
+            }
+            lhs => Self::And(vec![lhs, other]),
+        }
+    }
+
+    #[must_use]
+    pub fn or(self, other: Self) -> Self {
+        match self {
+            Self::Or(mut xs) => {
+                xs.push(other);
+                Self::Or(xs)
+            }
+            lhs => Self::Or(vec![lhs, other]),
+        }
     }
 }
 

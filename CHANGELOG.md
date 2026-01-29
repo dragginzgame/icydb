@@ -5,10 +5,11 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.5.20] - 2026-01-29
+## [0.5.21] - 2026-01-29
 
 ### 🪗 Added
 * Added enum filter helpers (`EnumValue`, `Value::from_enum`, `Value::enum_strict`) and `FieldRef::eq_none` to make enum/null predicates ergonomic without changing planners or wire formats.
+* Added ergonomic helpers to FilterExpr, ie. `FilterExpr::eq()`
 
 ---
 
