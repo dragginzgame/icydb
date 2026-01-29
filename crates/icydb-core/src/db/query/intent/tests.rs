@@ -16,7 +16,7 @@ use crate::{
         CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
         ValidateAuto, ValidateCustom, View, Visitable,
     },
-    types::Ulid,
+    types::{Ulid, Unit},
     value::Value,
 };
 use serde::{Deserialize, Serialize};
@@ -61,7 +61,7 @@ const UNORDERABLE_MODEL: EntityModel = EntityModel {
 /// Test-only entity with a unit primary key.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct UnitEntity {
-    id: (),
+    id: Unit,
 }
 
 impl Path for UnitEntity {
@@ -116,7 +116,7 @@ impl StoreKind for UnitStore {
 }
 
 impl EntityKind for UnitEntity {
-    type PrimaryKey = ();
+    type PrimaryKey = Unit;
     type Store = UnitStore;
     type Canister = UnitCanister;
 
@@ -130,7 +130,9 @@ impl EntityKind for UnitEntity {
         crate::key::Key::Unit
     }
 
-    fn primary_key(&self) -> Self::PrimaryKey {}
+    fn primary_key(&self) -> Self::PrimaryKey {
+        Unit
+    }
 
     fn set_primary_key(&mut self, key: Self::PrimaryKey) {
         self.id = key;
@@ -141,7 +143,7 @@ impl EntityKind for UnitEntity {
 /// Test-only entity with a non-orderable list field.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct UnorderableEntity {
-    id: (),
+    id: Unit,
     tags: Vec<String>,
 }
 
@@ -183,7 +185,7 @@ impl FieldValues for UnorderableEntity {
 }
 
 impl EntityKind for UnorderableEntity {
-    type PrimaryKey = ();
+    type PrimaryKey = Unit;
     type Store = UnitStore;
     type Canister = UnitCanister;
 
@@ -197,7 +199,9 @@ impl EntityKind for UnorderableEntity {
         crate::key::Key::Unit
     }
 
-    fn primary_key(&self) -> Self::PrimaryKey {}
+    fn primary_key(&self) -> Self::PrimaryKey {
+        Unit
+    }
 
     fn set_primary_key(&mut self, key: Self::PrimaryKey) {
         self.id = key;

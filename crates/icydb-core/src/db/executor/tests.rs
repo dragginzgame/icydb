@@ -32,7 +32,7 @@ use crate::{
         CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
         ValidateAuto, ValidateCustom, View, Visitable,
     },
-    types::{Timestamp, Ulid},
+    types::{Timestamp, Ulid, Unit},
     value::Value,
 };
 use canic_memory::runtime::registry::MemoryRegistryRuntime;
@@ -215,7 +215,7 @@ impl EntityKind for TestEntity {
 /// Test-only singleton entity with a unit primary key.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct UnitEntity {
-    id: (),
+    id: Unit,
 }
 
 impl Path for UnitEntity {
@@ -250,7 +250,7 @@ impl FieldValues for UnitEntity {
 }
 
 impl EntityKind for UnitEntity {
-    type PrimaryKey = ();
+    type PrimaryKey = Unit;
     type Store = TestStore;
     type Canister = TestCanister;
 
@@ -264,7 +264,9 @@ impl EntityKind for UnitEntity {
         crate::key::Key::Unit
     }
 
-    fn primary_key(&self) -> Self::PrimaryKey {}
+    fn primary_key(&self) -> Self::PrimaryKey {
+        Unit
+    }
 
     fn set_primary_key(&mut self, key: Self::PrimaryKey) {
         self.id = key;
@@ -1116,7 +1118,7 @@ fn session_only_loads_singleton() {
     init_schema();
 
     let saver = SaveExecutor::<UnitEntity>::new(DB, false);
-    let entity = UnitEntity { id: () };
+    let entity = UnitEntity { id: Unit };
     saver.insert(entity.clone()).unwrap();
 
     let session = DbSession::new(DB);

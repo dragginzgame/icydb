@@ -14,7 +14,7 @@ use crate::{
     db::response::ResponseError,
     error::InternalError,
     key::Key,
-    traits::EntityKind,
+    traits::{EntityKind, UnitKey},
 };
 use std::marker::PhantomData;
 use thiserror::Error as ThisError;
@@ -355,7 +355,10 @@ impl<E: EntityKind> Query<E> {
     }
 }
 
-impl<E: EntityKind<PrimaryKey = ()>> Query<E> {
+impl<E: EntityKind> Query<E>
+where
+    E::PrimaryKey: UnitKey,
+{
     /// Set the access path to the singleton unit primary key.
     pub(crate) fn only(self) -> Self {
         self.set_key_access(KeyAccessKind::Only, KeyAccess::Single(Key::Unit))

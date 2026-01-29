@@ -18,7 +18,7 @@ pub enum ResponseError {
     NotFound { entity: &'static str },
 
     #[error("expected exactly one row, found {count} (entity {entity})")]
-    NotUnique { entity: &'static str, count: u64 },
+    NotUnique { entity: &'static str, count: u32 },
 }
 
 ///
@@ -35,8 +35,9 @@ impl<E: EntityKind> Response<E> {
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub const fn count(&self) -> u64 {
-        self.0.len() as u64
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn count(&self) -> u32 {
+        self.0.len() as u32
     }
 
     #[must_use]

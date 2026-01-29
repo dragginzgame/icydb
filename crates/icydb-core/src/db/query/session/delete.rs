@@ -10,7 +10,7 @@ use crate::{
         response::{Response, Row},
     },
     key::Key,
-    traits::{CanisterKind, EntityKind},
+    traits::{CanisterKind, EntityKind, UnitKey},
     view::View,
 };
 
@@ -139,7 +139,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     }
 
     /// Execute and return the number of affected rows.
-    pub fn count(&self) -> Result<u64, QueryError> {
+    pub fn count(&self) -> Result<u32, QueryError> {
         Ok(self.execute()?.count())
     }
 
@@ -251,7 +251,10 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     }
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = ()>> SessionDeleteQuery<'_, C, E> {
+impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E>
+where
+    E::PrimaryKey: UnitKey,
+{
     /// Delete the singleton entity identified by the unit primary key `()`.
     ///
     /// Semantics:

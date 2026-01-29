@@ -10,7 +10,7 @@ use crate::{
         response::{Response, Row},
     },
     key::Key,
-    traits::{CanisterKind, EntityKind},
+    traits::{CanisterKind, EntityKind, UnitKey},
     view::View,
 };
 
@@ -153,7 +153,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
     }
 
     /// Execute and return the number of matching rows.
-    pub fn count(&self) -> Result<u64, QueryError> {
+    pub fn count(&self) -> Result<u32, QueryError> {
         Ok(self.execute()?.count())
     }
 
@@ -273,7 +273,10 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
     }
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = ()>> SessionLoadQuery<'_, C, E> {
+impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E>
+where
+    E::PrimaryKey: UnitKey,
+{
     /// Load the singleton entity identified by the unit primary key `()`.
     ///
     /// Semantics:

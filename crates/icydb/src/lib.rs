@@ -102,7 +102,7 @@ pub mod prelude {
         db,
         db::{
             query,
-            query::{FilterExpr, SortExpr, builder::FieldRef},
+            query::{FilterExpr, SortExpr, builder::FieldRef, predicate::Predicate},
         },
         key::Key,
         traits::{

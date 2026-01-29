@@ -25,7 +25,7 @@ pub use std::{
     str::FromStr,
 };
 
-use crate::{prelude::*, visitor::VisitorContext};
+use crate::{prelude::*, types::Unit, visitor::VisitorContext};
 
 /// ------------------------
 /// KIND TRAITS
@@ -67,11 +67,31 @@ pub trait EntityKind: Kind + TypeKind + FieldValues {
 }
 
 ///
+/// UnitKey
+/// Marker trait for unit-valued primary keys used by singleton entities.
+///
+
+pub trait UnitKey: Copy + Into<Key> + unit_key::Sealed {}
+
+impl UnitKey for () {}
+impl UnitKey for Unit {}
+
+///
 /// StoreKind
 ///
 
 pub trait StoreKind: Kind {
     type Canister: CanisterKind;
+}
+
+mod unit_key {
+    use crate::types::Unit;
+
+    // Seal UnitKey so only unit-equivalent key types can implement it.
+    pub trait Sealed {}
+
+    impl Sealed for () {}
+    impl Sealed for Unit {}
 }
 
 /// ------------------------

@@ -6,7 +6,7 @@ use crate::{
     },
     error::Error,
     key::Key,
-    traits::{CanisterKind, EntityKind},
+    traits::{CanisterKind, EntityKind, UnitKey},
     view::View,
 };
 use icydb_core as core;
@@ -124,7 +124,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     }
 
     /// Execute and return the number of affected rows.
-    pub fn count(&self) -> Result<u64, Error> {
+    pub fn count(&self) -> Result<u32, Error> {
         Ok(self.inner.execute()?.count())
     }
 
@@ -247,7 +247,10 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     }
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = ()>> SessionDeleteQuery<'_, C, E> {
+impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E>
+where
+    E::PrimaryKey: UnitKey,
+{
     /// Delete the singleton entity identified by `()`.
     #[must_use]
     pub fn only(mut self) -> Self {

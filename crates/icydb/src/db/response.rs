@@ -1,6 +1,5 @@
 use crate::{
     error::{Error, ErrorClass, ErrorOrigin},
-    key::Key,
     traits::EntityKind,
     view::View,
 };
@@ -80,13 +79,23 @@ impl<E: EntityKind> Response<E> {
     }
 
     // ------------------------------------------------------------------
-    // Keys
+    // Primary keys
     // ------------------------------------------------------------------
+
+    /// Return the single primary key.
+    pub fn primary_key(self) -> Result<E::PrimaryKey, Error> {
+        self.inner.primary_key().map_err(map_response_error)
+    }
+
+    /// Return zero or one primary key.
+    pub fn try_primary_key(self) -> Result<Option<E::PrimaryKey>, Error> {
+        self.inner.try_primary_key().map_err(map_response_error)
+    }
 
     /// Return all primary keys.
     #[must_use]
-    pub fn keys(&self) -> Vec<Key> {
-        self.inner.keys()
+    pub fn primary_keys(self) -> Vec<E::PrimaryKey> {
+        self.inner.primary_keys()
     }
 }
 
