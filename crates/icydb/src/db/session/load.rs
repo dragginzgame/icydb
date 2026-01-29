@@ -1,7 +1,7 @@
 use crate::{
     db::{
         Row,
-        query::{FilterExpr, Query, SortExpr, predicate::Predicate},
+        query::{FilterExpr, Predicate, Query, SortExpr},
         response::{Response, map_response_error},
     },
     error::Error,
@@ -71,14 +71,15 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
 
     /// Apply a dynamic filter expression.
     pub fn filter_expr(mut self, expr: FilterExpr) -> Result<Self, Error> {
-        self.inner = self.inner.filter_expr(expr)?;
+        let core_expr = expr.lower::<E>()?;
+        self.inner = self.inner.filter_expr(core_expr)?;
 
         Ok(self)
     }
-
     /// Apply a dynamic sort expression.
     pub fn sort_expr(mut self, expr: SortExpr) -> Result<Self, Error> {
-        self.inner = self.inner.sort_expr(expr)?;
+        let core_expr = expr.lower();
+        self.inner = self.inner.sort_expr(core_expr)?;
 
         Ok(self)
     }

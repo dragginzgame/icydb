@@ -2,19 +2,21 @@ pub mod expr;
 
 use icydb_core as core;
 
+pub use expr::{FilterExpr, OrderDirection, SortExpr};
+
 ///
 /// Re-exports
 /// Query planning types are exposed for diagnostics and intent composition.
 ///
 pub use core::db::query::{
-    DeleteSpec, FilterExpr, LoadSpec, Query, QueryMode, ReadConsistency, SortExpr, SortLowerError,
-    builder,
+    DeleteSpec, LoadSpec, Query, QueryMode, ReadConsistency, SortLowerError, builder,
     builder::*,
     diagnostics::{
         QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceAccess, QueryTraceEvent,
         QueryTraceExecutorKind, QueryTracePhase,
     },
     predicate,
+    predicate::Predicate,
 };
 
 pub mod plan {
