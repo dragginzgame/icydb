@@ -76,6 +76,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
 
         Ok(self)
     }
+
     /// Apply a dynamic sort expression.
     pub fn sort_expr(mut self, expr: SortExpr) -> Result<Self, Error> {
         let core_expr = expr.lower();

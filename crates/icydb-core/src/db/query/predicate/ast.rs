@@ -1,5 +1,5 @@
 use crate::{db::query::predicate::coercion::CoercionSpec, value::Value};
-use std::ops::BitAnd;
+use std::ops::{BitAnd, BitOr};
 
 ///
 /// Predicate AST
@@ -219,5 +219,21 @@ impl BitAnd for &Predicate {
 
     fn bitand(self, rhs: Self) -> Self::Output {
         Predicate::And(vec![self.clone(), rhs.clone()])
+    }
+}
+
+impl BitOr for Predicate {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self::Or(vec![self, rhs])
+    }
+}
+
+impl BitOr for &Predicate {
+    type Output = Predicate;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Predicate::Or(vec![self.clone(), rhs.clone()])
     }
 }
