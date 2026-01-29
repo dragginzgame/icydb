@@ -1,7 +1,7 @@
 use crate::{
     traits::{
         FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, ViewError, Visitable,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
 };
@@ -287,9 +287,8 @@ impl SanitizeCustom for Decimal {}
 impl UpdateView for Decimal {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
+    fn merge(&mut self, v: Self::UpdateViewType) {
         *self = v;
-        Ok(())
     }
 }
 
@@ -305,8 +304,8 @@ impl View for Decimal {
         *self
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-        Ok(view)
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 

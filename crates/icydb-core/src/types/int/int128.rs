@@ -2,7 +2,7 @@ use crate::{
     prelude::*,
     traits::{
         FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, ViewError, Visitable,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
 };
 use candid::CandidType;
@@ -165,9 +165,8 @@ impl<'de> Deserialize<'de> for Int128 {
 impl UpdateView for Int128 {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
+    fn merge(&mut self, v: Self::UpdateViewType) {
         *self = v;
-        Ok(())
     }
 }
 
@@ -182,8 +181,8 @@ impl View for Int128 {
         *self
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-        Ok(view)
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 

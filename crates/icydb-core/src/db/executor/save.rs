@@ -81,7 +81,7 @@ impl<E: EntityKind> SaveExecutor<E> {
 
     /// Insert a new view, returning the stored view.
     pub fn insert_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        let entity = E::from_view(view)?;
+        let entity = E::from_view(view);
         Ok(self.insert(entity)?.to_view())
     }
 
@@ -92,7 +92,7 @@ impl<E: EntityKind> SaveExecutor<E> {
 
     /// Update an existing view (errors if it does not exist).
     pub fn update_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        let entity = E::from_view(view)?;
+        let entity = E::from_view(view);
 
         Ok(self.update(entity)?.to_view())
     }
@@ -104,7 +104,7 @@ impl<E: EntityKind> SaveExecutor<E> {
 
     /// Replace a view, inserting if missing.
     pub fn replace_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        let entity = E::from_view(view)?;
+        let entity = E::from_view(view);
 
         Ok(self.replace(entity)?.to_view())
     }

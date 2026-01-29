@@ -1,50 +1,22 @@
-use crate::{
-    error::{ErrorClass, ErrorOrigin, InternalError},
-    view::{ListPatch, MapPatch, SetPatch},
-};
+use crate::view::{ListPatch, MapPatch, SetPatch};
 use candid::CandidType;
 use std::{
     collections::{HashMap, HashSet, hash_map::Entry as HashMapEntry},
     hash::{BuildHasher, Hash},
     iter::IntoIterator,
 };
-use thiserror::Error as ThisError;
 
 ///
 /// View
 /// Recursive for all field/value nodes
-/// `from_view` is fallible and must reject invalid view values.
+/// `from_view` is infallible; view values are treated as canonical.
 ///
 
 pub trait View: Sized {
     type ViewType: Default;
 
     fn to_view(&self) -> Self::ViewType;
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError>;
-}
-
-///
-/// ViewError
-/// Errors returned when converting view types into core values.
-///
-
-#[derive(Debug, ThisError)]
-pub enum ViewError {
-    #[error("Float32 view value must be finite (got {value})")]
-    Float32NonFinite { value: f32 },
-
-    #[error("Float64 view value must be finite (got {value})")]
-    Float64NonFinite { value: f64 },
-}
-
-impl From<ViewError> for InternalError {
-    fn from(err: ViewError) -> Self {
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Interface,
-            err.to_string(),
-        )
-    }
+    fn from_view(view: Self::ViewType) -> Self;
 }
 
 impl View for String {
@@ -54,8 +26,8 @@ impl View for String {
         self.clone()
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-        Ok(view)
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 
@@ -68,9 +40,9 @@ impl<T: View> View for Box<T> {
         T::to_view(self.as_ref())
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+    fn from_view(view: Self::ViewType) -> Self {
         // Re-box after reconstructing inner
-        Ok(Self::new(T::from_view(view)?))
+        Self::new(T::from_view(view))
     }
 }
 
@@ -81,11 +53,8 @@ impl<T: View> View for Option<T> {
         self.as_ref().map(View::to_view)
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-        match view {
-            Some(inner) => Ok(Some(T::from_view(inner)?)),
-            None => Ok(None),
-        }
+    fn from_view(view: Self::ViewType) -> Self {
+        view.map(T::from_view)
     }
 }
 
@@ -96,7 +65,7 @@ impl<T: View> View for Vec<T> {
         self.iter().map(View::to_view).collect()
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+    fn from_view(view: Self::ViewType) -> Self {
         view.into_iter().map(T::from_view).collect()
     }
 }
@@ -112,7 +81,7 @@ where
         self.iter().map(View::to_view).collect()
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+    fn from_view(view: Self::ViewType) -> Self {
         view.into_iter().map(T::from_view).collect()
     }
 }
@@ -131,9 +100,9 @@ where
             .collect()
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+    fn from_view(view: Self::ViewType) -> Self {
         view.into_iter()
-            .map(|(k, v)| Ok((K::from_view(k)?, V::from_view(v)?)))
+            .map(|(k, v)| (K::from_view(k), V::from_view(v)))
             .collect()
     }
 }
@@ -149,8 +118,8 @@ macro_rules! impl_view {
                     *self
                 }
 
-                fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-                    Ok(view)
+                fn from_view(view: Self::ViewType) -> Self {
+                    view
                 }
             }
         )*
@@ -166,11 +135,11 @@ impl View for f32 {
         *self
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+    fn from_view(view: Self::ViewType) -> Self {
         if view.is_finite() {
-            Ok(view)
+            if view == 0.0 { 0.0 } else { view }
         } else {
-            Err(ViewError::Float32NonFinite { value: view })
+            0.0
         }
     }
 }
@@ -182,11 +151,11 @@ impl View for f64 {
         *self
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
+    fn from_view(view: Self::ViewType) -> Self {
         if view.is_finite() {
-            Ok(view)
+            if view == 0.0 { 0.0 } else { view }
         } else {
-            Err(ViewError::Float64NonFinite { value: view })
+            0.0
         }
     }
 }
@@ -207,9 +176,7 @@ pub trait UpdateView {
     type UpdateViewType: CandidType + Default;
 
     /// merge the updateview into self
-    fn merge(&mut self, _: Self::UpdateViewType) -> Result<(), ViewError> {
-        Ok(())
-    }
+    fn merge(&mut self, _: Self::UpdateViewType) {}
 }
 
 impl<T> UpdateView for Option<T>
@@ -218,7 +185,7 @@ where
 {
     type UpdateViewType = Option<T::UpdateViewType>;
 
-    fn merge(&mut self, update: Self::UpdateViewType) -> Result<(), ViewError> {
+    fn merge(&mut self, update: Self::UpdateViewType) {
         match update {
             None => {
                 // Field was provided (outer Some), inner None means explicit delete
@@ -226,16 +193,14 @@ where
             }
             Some(inner_update) => {
                 if let Some(inner_value) = self.as_mut() {
-                    inner_value.merge(inner_update)?;
+                    inner_value.merge(inner_update);
                 } else {
                     let mut new_value = T::default();
-                    new_value.merge(inner_update)?;
+                    new_value.merge(inner_update);
                     *self = Some(new_value);
                 }
             }
         }
-
-        Ok(())
     }
 }
 
@@ -246,23 +211,23 @@ where
     // Payload is T::UpdateViewType, which *is* CandidType
     type UpdateViewType = Vec<ListPatch<T::UpdateViewType>>;
 
-    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), ViewError> {
+    fn merge(&mut self, patches: Self::UpdateViewType) {
         for patch in patches {
             match patch {
                 ListPatch::Update { index, patch } => {
                     if let Some(elem) = self.get_mut(index) {
-                        elem.merge(patch)?;
+                        elem.merge(patch);
                     }
                 }
                 ListPatch::Insert { index, value } => {
                     let mut elem = T::default();
-                    elem.merge(value)?;
+                    elem.merge(value);
                     let idx = index.min(self.len());
                     self.insert(idx, elem);
                 }
                 ListPatch::Push { value } => {
                     let mut elem = T::default();
-                    elem.merge(value)?;
+                    elem.merge(value);
                     self.push(elem);
                 }
                 ListPatch::Overwrite { values } => {
@@ -271,7 +236,7 @@ where
 
                     for value in values {
                         let mut elem = T::default();
-                        elem.merge(value)?;
+                        elem.merge(value);
                         self.push(elem);
                     }
                 }
@@ -283,8 +248,6 @@ where
                 ListPatch::Clear => self.clear(),
             }
         }
-
-        Ok(())
     }
 }
 
@@ -295,17 +258,17 @@ where
 {
     type UpdateViewType = Vec<SetPatch<T::UpdateViewType>>;
 
-    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), ViewError> {
+    fn merge(&mut self, patches: Self::UpdateViewType) {
         for patch in patches {
             match patch {
                 SetPatch::Insert(value) => {
                     let mut elem = T::default();
-                    elem.merge(value)?;
+                    elem.merge(value);
                     self.insert(elem);
                 }
                 SetPatch::Remove(value) => {
                     let mut elem = T::default();
-                    elem.merge(value)?;
+                    elem.merge(value);
                     self.remove(&elem);
                 }
                 SetPatch::Overwrite { values } => {
@@ -313,15 +276,13 @@ where
 
                     for value in values {
                         let mut elem = T::default();
-                        elem.merge(value)?;
+                        elem.merge(value);
                         self.insert(elem);
                     }
                 }
                 SetPatch::Clear => self.clear(),
             }
         }
-
-        Ok(())
     }
 }
 
@@ -333,27 +294,27 @@ where
 {
     type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
 
-    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), ViewError> {
+    fn merge(&mut self, patches: Self::UpdateViewType) {
         for patch in patches {
             match patch {
                 MapPatch::Upsert { key, value } => {
                     let mut key_value = K::default();
-                    key_value.merge(key)?;
+                    key_value.merge(key);
 
                     match self.entry(key_value) {
                         HashMapEntry::Occupied(mut slot) => {
-                            slot.get_mut().merge(value)?;
+                            slot.get_mut().merge(value);
                         }
                         HashMapEntry::Vacant(slot) => {
                             let mut value_value = V::default();
-                            value_value.merge(value)?;
+                            value_value.merge(value);
                             slot.insert(value_value);
                         }
                     }
                 }
                 MapPatch::Remove { key } => {
                     let mut key_value = K::default();
-                    key_value.merge(key)?;
+                    key_value.merge(key);
                     self.remove(&key_value);
                 }
                 MapPatch::Overwrite { entries } => {
@@ -362,18 +323,16 @@ where
 
                     for (key, value) in entries {
                         let mut key_value = K::default();
-                        key_value.merge(key)?;
+                        key_value.merge(key);
 
                         let mut value_value = V::default();
-                        value_value.merge(value)?;
+                        value_value.merge(value);
                         self.insert(key_value, value_value);
                     }
                 }
                 MapPatch::Clear => self.clear(),
             }
         }
-
-        Ok(())
     }
 }
 
@@ -383,9 +342,8 @@ macro_rules! impl_update_view {
             impl UpdateView for $type {
                 type UpdateViewType = Self;
 
-                fn merge(&mut self, update: Self::UpdateViewType) -> Result<(), ViewError> {
+                fn merge(&mut self, update: Self::UpdateViewType) {
                     *self = update;
-                    Ok(())
                 }
             }
         )*

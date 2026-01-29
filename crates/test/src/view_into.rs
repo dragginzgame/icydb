@@ -28,7 +28,7 @@ impl ViewIntoSuite {
         assert_eq!(view.nickname.as_deref(), Some("prime"));
 
         entity.name = "updated".into();
-        let from_view: ViewIntoRoundTrip = view.try_into().expect("view into entity");
+        let from_view: ViewIntoRoundTrip = view.into();
         assert_eq!(from_view.name, "primary");
         assert_eq!(from_view.score, 42);
         assert_eq!(from_view.tags, vec!["alpha", "beta"]);

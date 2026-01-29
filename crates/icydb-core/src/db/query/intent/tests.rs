@@ -13,7 +13,7 @@ use crate::{
     },
     traits::{
         CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
-        ValidateAuto, ValidateCustom, View, ViewError, Visitable,
+        ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::Ulid,
     value::Value,
@@ -54,8 +54,8 @@ impl View for UnitEntity {
         self.clone()
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-        Ok(view)
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 

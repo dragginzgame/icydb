@@ -2,7 +2,7 @@ use crate::{
     prelude::*,
     traits::{
         FieldValue, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, ViewError, Visitable,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
     visitor::VisitorContext,
 };
@@ -185,9 +185,8 @@ impl SanitizeCustom for Float64 {}
 impl UpdateView for Float64 {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
+    fn merge(&mut self, v: Self::UpdateViewType) {
         *self = v;
-        Ok(())
     }
 }
 
@@ -208,9 +207,15 @@ impl View for Float64 {
         self.0
     }
 
-    // NOTE: Non-finite view inputs are rejected during view conversion to avoid panics.
-    fn from_view(view: f64) -> Result<Self, ViewError> {
-        Self::try_new(view).ok_or(ViewError::Float64NonFinite { value: view })
+    // NOTE: View inputs are normalized to preserve invariants (finite only, -0.0 → 0.0).
+    fn from_view(view: f64) -> Self {
+        let normalized = if view.is_finite() {
+            if view == 0.0 { 0.0 } else { view }
+        } else {
+            0.0
+        };
+
+        Self::try_new(normalized).unwrap_or(Self(0.0))
     }
 }
 
@@ -251,9 +256,17 @@ mod tests {
     }
 
     #[test]
-    fn from_view_rejects_non_finite() {
+    #[allow(clippy::float_cmp)]
+    fn from_view_normalizes_non_finite() {
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            assert!(Float64::from_view(value).is_err());
+            let normalized = Float64::from_view(value);
+            assert_eq!(normalized.get(), 0.0);
         }
+    }
+
+    #[test]
+    fn from_view_normalizes_negative_zero() {
+        let normalized = Float64::from_view(-0.0);
+        assert_eq!(normalized.to_be_bytes(), 0.0f64.to_bits().to_be_bytes());
     }
 }

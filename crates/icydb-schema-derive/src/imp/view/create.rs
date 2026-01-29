@@ -21,12 +21,12 @@ impl Imp<Entity> for CreateViewTrait {
             .map(|f| f.ident.clone())
             .collect();
 
-        // For each field, generate `field: View::from_view(create.field)?`
+        // For each field, generate `field: View::from_view(create.field)`
         let init_pairs: Vec<_> = field_idents
             .iter()
             .map(|ident| {
                 quote! {
-                    #ident: ::icydb::traits::View::from_view(create.#ident)?,
+                    #ident: ::icydb::traits::View::from_view(create.#ident),
                 }
             })
             .collect();
@@ -40,16 +40,14 @@ impl Imp<Entity> for CreateViewTrait {
             .set_tokens(q)
             .to_token_stream();
 
-        // Generate TryFrom<Create> impl that performs the construction
+        // Generate From<Create> impl that performs the construction
         let conversions = quote! {
-            impl ::core::convert::TryFrom<#create_ident> for #ident {
-                type Error = ::icydb::traits::ViewError;
-
-                fn try_from(create: #create_ident) -> Result<Self, Self::Error> {
-                    Ok(Self {
+            impl From<#create_ident> for #ident {
+                fn from(create: #create_ident) -> Self {
+                    Self {
                         #(#init_pairs)*
                         ..Default::default()
-                    })
+                    }
                 }
             }
         };

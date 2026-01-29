@@ -5,7 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.5.10] - 2026-01-28
+## [0.5.12] - 2026-01-29
+
+### 🧁 Changed
+* View-to-entity conversions are now infallible; view values are treated as canonical state.
+* Create/view-derived entity conversions now use `From` instead of `TryFrom`.
+* Float view inputs now normalize `NaN`, infinities, and `-0.0` to `0.0` during conversion.
+* Removed `ViewError` plumbing from view conversion and update merge paths.
+
+### 🪁 Breaking
+* `View::from_view` and `UpdateView::merge` no longer return `Result`, and conversion errors are no longer surfaced at the view boundary.
+
+---
+
+## [0.5.11] - 2026-01-29
 
 ### 🪐 Added
 * Restored key-only query helpers: `only()` for singleton entities and `many()` for primary-key batch access.

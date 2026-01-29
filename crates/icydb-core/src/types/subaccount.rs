@@ -1,7 +1,7 @@
 use crate::{
     traits::{
         FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, ViewError, Visitable,
+        View, Visitable,
     },
     types::{Principal, Ulid},
     value::Value,
@@ -181,9 +181,8 @@ impl SanitizeCustom for Subaccount {}
 impl UpdateView for Subaccount {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
+    fn merge(&mut self, v: Self::UpdateViewType) {
         *self = v;
-        Ok(())
     }
 }
 
@@ -198,8 +197,8 @@ impl View for Subaccount {
         self.0
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-        Ok(Self(view))
+    fn from_view(view: Self::ViewType) -> Self {
+        Self(view)
     }
 }
 

@@ -429,7 +429,7 @@ mod tests {
         prelude::IndexModel,
         traits::{
             CanisterKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind, ValidateAuto,
-            ValidateCustom, View, ViewError, Visitable,
+            ValidateCustom, View, Visitable,
         },
         types::Ulid,
         value::Value,
@@ -494,8 +494,8 @@ mod tests {
             self.clone()
         }
 
-        fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-            Ok(view)
+        fn from_view(view: Self::ViewType) -> Self {
+            view
         }
     }
 
@@ -624,8 +624,8 @@ mod tests {
             self.clone()
         }
 
-        fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-            Ok(view)
+        fn from_view(view: Self::ViewType) -> Self {
+            view
         }
     }
 

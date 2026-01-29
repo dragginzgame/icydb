@@ -4,7 +4,7 @@ pub mod generator;
 use crate::{
     traits::{
         FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, ViewError, Visitable,
+        View, Visitable,
     },
     value::Value,
     visitor::VisitorContext,
@@ -212,9 +212,8 @@ impl<'de> Deserialize<'de> for Ulid {
 impl UpdateView for Ulid {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
+    fn merge(&mut self, v: Self::UpdateViewType) {
         *self = v;
-        Ok(())
     }
 }
 
@@ -235,8 +234,8 @@ impl View for Ulid {
         *self
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-        Ok(view)
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 

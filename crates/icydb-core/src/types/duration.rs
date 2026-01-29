@@ -1,7 +1,7 @@
 use crate::{
     traits::{
         FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, ViewError, Visitable,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
 };
@@ -178,7 +178,8 @@ impl TryFrom<i32> for Duration {
     type Error = std::num::TryFromIntError;
 
     fn try_from(n: i32) -> Result<Self, Self::Error> {
-        Ok(Self(u64::try_from(n)?))
+        let v = Self(u64::try_from(n)?);
+        Ok(v)
     }
 }
 
@@ -246,9 +247,8 @@ impl SubAssign for Duration {
 impl UpdateView for Duration {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), ViewError> {
+    fn merge(&mut self, v: Self::UpdateViewType) {
         *self = v;
-        Ok(())
     }
 }
 
@@ -263,8 +263,8 @@ impl View for Duration {
         self.0
     }
 
-    fn from_view(view: Self::ViewType) -> Result<Self, ViewError> {
-        Ok(Self(view))
+    fn from_view(view: Self::ViewType) -> Self {
+        Self(view)
     }
 }
 
