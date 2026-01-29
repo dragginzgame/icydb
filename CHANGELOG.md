@@ -10,10 +10,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🦑 Fixed
 * `only()` now works for singleton entities whose primary key is `()` or `types::Unit`, keeping unit keys explicit without leaking internal representations.
 
----
-
-## [0.5.14] - 2026-01-29
-
 ### 🪑 Added
 * Session load/delete queries now expose `Response` terminal helpers directly (for example `row`, `keys`, `primary_keys`, and `require_one`), so applications can avoid handling `Response` explicitly.
 
