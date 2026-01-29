@@ -61,7 +61,7 @@ impl QueryMode {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct LoadSpec {
     pub limit: Option<u32>,
-    pub offset: u64,
+    pub offset: u32,
 }
 
 impl LoadSpec {
@@ -247,7 +247,7 @@ impl<E: EntityKind> Query<E> {
 
     /// Apply an offset to a load intent.
     #[must_use]
-    pub const fn offset(mut self, offset: u64) -> Self {
+    pub const fn offset(mut self, offset: u32) -> Self {
         if let QueryMode::Load(mut spec) = self.mode {
             spec.offset = offset;
             self.mode = QueryMode::Load(spec);

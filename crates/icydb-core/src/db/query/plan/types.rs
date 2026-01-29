@@ -103,5 +103,5 @@ pub struct DeleteLimitSpec {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PageSpec {
     pub limit: Option<u32>,
-    pub offset: u64,
+    pub offset: u32,
 }

@@ -271,7 +271,7 @@ fn hash_page(hasher: &mut Sha256, page: &ExplainPagination) {
                 }
                 None => write_tag(hasher, 0x00),
             }
-            write_u64(hasher, *offset);
+            write_u32(hasher, *offset);
         }
     }
 }
@@ -345,10 +345,6 @@ fn write_str(hasher: &mut Sha256, value: &str) {
 }
 
 fn write_u32(hasher: &mut Sha256, value: u32) {
-    hasher.update(value.to_be_bytes());
-}
-
-fn write_u64(hasher: &mut Sha256, value: u64) {
     hasher.update(value.to_be_bytes());
 }
 

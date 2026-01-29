@@ -243,27 +243,32 @@ fn compare_entities<E: EntityKind>(left: &E, right: &E, order: &OrderSpec) -> Or
 }
 
 /// Apply offset/limit pagination to an in-memory vector, in-place.
-fn apply_pagination<T>(rows: &mut Vec<T>, offset: u64, limit: Option<u32>) {
-    let total = rows.len();
-    // Avoid truncation on 32-bit targets: out-of-range offsets yield empty pages.
-    let start = match usize::try_from(offset) {
-        Ok(start) if start < total => start,
-        _ => {
-            rows.clear();
-            return;
-        }
-    };
-    let end = limit.map_or(total, |limit| {
-        let capped = start.saturating_add(limit as usize);
-        usize::min(capped, total)
-    });
+///
+/// - `offset` and `limit` are logical (u32) pagination parameters
+/// - Conversion to `usize` happens only at the indexing boundary
+#[allow(clippy::cast_possible_truncation)]
+fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
+    let total: u32 = rows.len() as u32;
 
-    if start >= end {
+    // If offset is past the end, clear everything
+    if offset >= total {
         rows.clear();
-    } else {
-        rows.drain(..start);
-        rows.truncate(end - start);
+        return;
     }
+
+    let start = offset;
+    let end = match limit {
+        Some(limit) => start.saturating_add(limit).min(total),
+        None => total,
+    };
+
+    // Convert once, at the boundary
+    let start_usize = start as usize;
+    let end_usize = end as usize;
+
+    // Drop leading rows, then truncate to window size
+    rows.drain(..start_usize);
+    rows.truncate(end_usize - start_usize);
 }
 
 /// Apply a delete limit to an in-memory vector, in-place.

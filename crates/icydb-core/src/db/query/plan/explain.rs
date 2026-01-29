@@ -138,7 +138,7 @@ pub struct ExplainOrder {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainPagination {
     None,
-    Page { limit: Option<u32>, offset: u64 },
+    Page { limit: Option<u32>, offset: u32 },
 }
 
 ///

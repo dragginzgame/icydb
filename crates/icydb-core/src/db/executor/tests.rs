@@ -1958,7 +1958,7 @@ fn load_pagination_handles_large_offset() {
         .execute(
             Query::<TestEntity>::new(ReadConsistency::MissingOk)
                 .order_by("name")
-                .offset(u64::MAX)
+                .offset(u32::MAX)
                 .limit(1)
                 .plan()
                 .unwrap(),
