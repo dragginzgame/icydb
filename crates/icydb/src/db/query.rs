@@ -1,15 +1,17 @@
 use icydb_core as core;
 
-pub use core::db::query::diagnostics::{
-    QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceAccess, QueryTraceEvent,
-    QueryTraceExecutorKind, QueryTracePhase,
-};
 ///
 /// Re-exports
 /// Query planning types are exposed for diagnostics and intent composition.
 ///
 pub use core::db::query::{
-    DeleteSpec, LoadSpec, Query, QueryMode, ReadConsistency, builder, builder::*, predicate,
+    DeleteSpec, LoadSpec, Query, QueryMode, ReadConsistency, builder,
+    builder::*,
+    diagnostics::{
+        QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceAccess, QueryTraceEvent,
+        QueryTraceExecutorKind, QueryTracePhase,
+    },
+    predicate,
 };
 
 pub mod plan {

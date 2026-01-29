@@ -1,4 +1,5 @@
 pub mod query;
+pub mod response;
 mod session;
 
 pub use icydb_core::db::response::Row;

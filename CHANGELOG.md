@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🪐 Added
 * Restored key-only query helpers: `only()` for singleton entities and `many()` for primary-key batch access.
 * Added `text_contains` and `text_contains_ci` predicates for explicit substring searches on text fields.
+* Session query execution now returns the facade `Response`, keeping core response types out of the public API.
 
 ### 🧩 Fixed
 * Cardinality errors now surface as `NotFound`/`Conflict` instead of internal failures when interpreting query responses.
