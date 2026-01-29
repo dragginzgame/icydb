@@ -1,3 +1,5 @@
+pub mod expr;
+
 use icydb_core as core;
 
 ///
@@ -21,8 +23,4 @@ pub mod plan {
         ExplainPlan, ExplainPredicate, ExplainProjection, OrderDirection, PlanError,
         PlanFingerprint,
     };
-}
-
-pub mod expr {
-    pub use icydb_core::db::query::expr::{FilterExpr, SortExpr, SortLowerError};
 }

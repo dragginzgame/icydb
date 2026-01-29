@@ -1,6 +1,4 @@
-use crate::value::Value;
-
-use super::coercion::CoercionSpec;
+use crate::{db::query::predicate::coercion::CoercionSpec, value::Value};
 use std::ops::BitAnd;
 
 ///
@@ -47,6 +45,57 @@ pub struct ComparePredicate {
     pub op: CompareOp,
     pub value: Value,
     pub coercion: CoercionSpec,
+}
+
+impl ComparePredicate {
+    fn new(field: String, op: CompareOp, value: Value) -> Self {
+        Self {
+            field,
+            op,
+            value,
+            coercion: CoercionSpec::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn eq(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Eq, value)
+    }
+
+    #[must_use]
+    pub fn ne(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Ne, value)
+    }
+
+    #[must_use]
+    pub fn lt(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Lt, value)
+    }
+
+    #[must_use]
+    pub fn lte(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Lte, value)
+    }
+
+    #[must_use]
+    pub fn gt(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Gt, value)
+    }
+
+    #[must_use]
+    pub fn gte(field: String, value: Value) -> Self {
+        Self::new(field, CompareOp::Gte, value)
+    }
+
+    #[must_use]
+    pub fn in_(field: String, values: Vec<Value>) -> Self {
+        Self::new(field, CompareOp::In, Value::List(values))
+    }
+
+    #[must_use]
+    pub fn not_in(field: String, values: Vec<Value>) -> Self {
+        Self::new(field, CompareOp::NotIn, Value::List(values))
+    }
 }
 
 ///
@@ -97,6 +146,64 @@ pub enum Predicate {
         field: String,
         value: Value,
     },
+}
+
+impl Predicate {
+    #[must_use]
+    pub const fn and(preds: Vec<Self>) -> Self {
+        Self::And(preds)
+    }
+
+    #[must_use]
+    pub const fn or(preds: Vec<Self>) -> Self {
+        Self::Or(preds)
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    #[must_use]
+    pub fn not(pred: Self) -> Self {
+        Self::Not(Box::new(pred))
+    }
+
+    #[must_use]
+    pub fn eq(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::eq(field, value))
+    }
+
+    #[must_use]
+    pub fn ne(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::ne(field, value))
+    }
+
+    #[must_use]
+    pub fn lt(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::lt(field, value))
+    }
+
+    #[must_use]
+    pub fn lte(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::lte(field, value))
+    }
+
+    #[must_use]
+    pub fn gt(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::gt(field, value))
+    }
+
+    #[must_use]
+    pub fn gte(field: String, value: Value) -> Self {
+        Self::Compare(ComparePredicate::gte(field, value))
+    }
+
+    #[must_use]
+    pub fn in_(field: String, values: Vec<Value>) -> Self {
+        Self::Compare(ComparePredicate::in_(field, values))
+    }
+
+    #[must_use]
+    pub fn not_in(field: String, values: Vec<Value>) -> Self {
+        Self::Compare(ComparePredicate::not_in(field, values))
+    }
 }
 
 impl BitAnd for Predicate {

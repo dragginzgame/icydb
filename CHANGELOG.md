@@ -5,12 +5,13 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.5.12] - 2026-01-29
+## [0.5.13] - 2026-01-29
 
 ### 🧃 Added
 * Added dynamic query expressions (`FilterExpr`, `SortExpr`) that lower into validated predicates and order specs at the intent boundary.
 * Session load/delete queries now expose `filter_expr` and `sort_expr` to attach dynamic filters and sorting safely.
 * Re-exported expression types in the public query module for API endpoints that accept user-supplied filters or ordering.
+* Facade versions of FilterExpr and SortExpr
 
 ---
 
