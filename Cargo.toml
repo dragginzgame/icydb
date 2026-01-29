@@ -14,7 +14,7 @@ resolver = "2"
 [workspace.package]
 rust-version = "1.93.0"
 edition = "2024"
-version = "0.5.11"
+version = "0.5.12"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A type-safe, embedded ORM and schema system for the Internet Computer"
 categories = ["database", "web-programming", "wasm"]
@@ -31,11 +31,11 @@ ctor = "0.6"
 darling = "0.23"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
 ic-cdk = "0.19.0"
-icydb = { path = "crates/icydb", version = "0.5.11" }
-icydb-build = { path = "crates/icydb-build", version = "0.5.11" }
-icydb-core = { path = "crates/icydb-core", version = "0.5.11" }
-icydb-schema = { path = "crates/icydb-schema", version = "0.5.11" }
-icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.5.11" }
+icydb = { path = "crates/icydb", version = "0.5.12" }
+icydb-build = { path = "crates/icydb-build", version = "0.5.12" }
+icydb-core = { path = "crates/icydb-core", version = "0.5.12" }
+icydb-schema = { path = "crates/icydb-schema", version = "0.5.12" }
+icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.5.12" }
 num-traits = { version = "0.2", default-features = false }
 proc-macro2 = "1.0"
 quote = "1.0"
