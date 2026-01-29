@@ -5,6 +5,13 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.5.15] - 2026-01-29
+
+### 🦑 Fixed
+* `only()` now works for singleton entities whose primary key is `()` or `types::Unit`, keeping unit keys explicit without leaking internal representations.
+
+---
+
 ## [0.5.14] - 2026-01-29
 
 ### 🪑 Added
@@ -13,13 +20,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🧻 Changed
 * Load query offsets now use `u32` across intent, planning, and session APIs.
 * Also count is u32
-
----
-
-## [0.5.15] - 2026-01-29
-
-### 🦑 Fixed
-* `only()` now works for singleton entities whose primary key is `()` or `types::Unit`, keeping unit keys explicit without leaking internal representations.
 
 ---
 
