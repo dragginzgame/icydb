@@ -60,6 +60,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
     /// - Uses key-based access (ByKey / ByKeys)
     /// - Missing keys are ignored in MissingOk mode
     /// - Strict mode treats missing rows as corruption
+    /// - Empty input yields an empty result set
     #[must_use]
     pub fn many<I>(mut self, keys: I) -> Self
     where

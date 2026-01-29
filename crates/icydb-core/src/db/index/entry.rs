@@ -54,6 +54,12 @@ pub enum IndexEntryCorruption {
         index_key: Box<RawIndexKey>,
         entity_key: Key,
     },
+
+    #[error("index entry points at key {indexed_key} but stored row key is {row_key}")]
+    RowKeyMismatch {
+        indexed_key: Box<Key>,
+        row_key: Box<Key>,
+    },
 }
 
 impl IndexEntryCorruption {

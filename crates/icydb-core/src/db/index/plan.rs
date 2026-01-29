@@ -181,6 +181,7 @@ fn load_existing_entry<E: EntityKind>(
 /// This detects:
 /// - Index corruption (multiple keys in a unique entry)
 /// - Uniqueness violations (conflicting key ownership)
+#[expect(clippy::too_many_lines)]
 fn validate_unique_constraint<E: EntityKind>(
     db: &crate::db::Db<E::Canister>,
     index: &IndexModel,
@@ -245,6 +246,23 @@ fn validate_unique_constraint<E: EntityKind>(
             )
         })?
     };
+    let stored_key = stored.key();
+    if stored_key != existing_key {
+        // Stored row decoded successfully but key mismatch indicates index/data divergence; treat as corruption.
+        return Err(ExecutorError::corruption(
+            ErrorOrigin::Index,
+            format!(
+                "index corrupted: {} ({}) -> {}",
+                E::PATH,
+                index.fields.join(", "),
+                IndexEntryCorruption::RowKeyMismatch {
+                    indexed_key: Box::new(existing_key),
+                    row_key: Box::new(stored_key),
+                }
+            ),
+        )
+        .into());
+    }
 
     for field in index.fields {
         let expected = new_entity.get_value(field).ok_or_else(|| {
@@ -396,60 +414,6 @@ fn build_commit_ops_for_index<E: EntityKind>(
     }
 
     Ok(())
-}
-
-/// Load and decode the current index entry for an entity, if one exists.
-///
-/// This is a *planning-phase* helper used during index mutation prevalidation.
-/// It performs a read-only lookup of the index store and attempts to decode
-/// the raw entry into an `IndexEntry`.
-///
-/// Semantics:
-/// - Returns `Ok(None)` if:
-///   - the entity does not participate in this index, or
-///   - no index entry exists for the computed index key.
-/// - Returns `Ok(Some(IndexEntry))` if a valid entry is present.
-/// - Returns `Err` if the raw index data exists but cannot be decoded.
-///
-/// Error handling:
-/// - Decode failures are treated as *index corruption*, not user error.
-///   Such corruption must be detected *before* any commit marker is written,
-///   ensuring no partial mutations occur.
-///
-/// Atomicity rationale:
-/// This function is intentionally fallible and must only be called during the
-/// prevalidation phase. Once the commit marker is persisted, all index/data
-/// mutations are assumed infallible (or trap), so any corruption must surface
-/// here to preserve Stage-2 atomicity guarantees.
-pub fn load_existing_index_entry<E: EntityKind>(
-    store: &'static LocalKey<RefCell<IndexStore>>,
-    index: &'static IndexModel,
-    entity: Option<&E>,
-) -> Result<Option<IndexEntry>, InternalError> {
-    let Some(entity) = entity else {
-        return Ok(None);
-    };
-    let Some(key) = IndexKey::new(entity, index)? else {
-        return Ok(None);
-    };
-
-    store
-        .with_borrow(|s| s.get(&key.to_raw()))
-        .map(|raw| {
-            raw.try_decode().map_err(|err| {
-                ExecutorError::corruption(
-                    ErrorOrigin::Index,
-                    format!(
-                        "index corrupted: {} ({}) -> {}",
-                        E::PATH,
-                        index.fields.join(", "),
-                        err
-                    ),
-                )
-                .into()
-            })
-        })
-        .transpose()
 }
 
 #[cfg(test)]
@@ -685,5 +649,42 @@ mod tests {
             assert_eq!(err.class, ErrorClass::Corruption);
             assert_eq!(err.origin, ErrorOrigin::Index);
         });
+    }
+
+    #[test]
+    fn unique_collision_row_key_mismatch_is_corruption() {
+        reset_stores();
+
+        let indexed = TestEntity {
+            id: Ulid::from_u128(1),
+            tag: "alpha".to_string(),
+        };
+        let corrupted = TestEntity {
+            id: Ulid::from_u128(2),
+            tag: "alpha".to_string(),
+        };
+
+        let data_key = DataKey::new::<TestEntity>(indexed.id);
+        let raw_key = data_key.to_raw().expect("data key encode");
+        let raw_row = RawRow::try_new(serialize(&corrupted).unwrap()).unwrap();
+        TEST_DATA_STORE.with_borrow_mut(|store| store.insert(raw_key, raw_row));
+
+        let index_key = IndexKey::new(&indexed, &INDEX_MODEL)
+            .expect("index key")
+            .expect("index key missing");
+        let raw_index_key = index_key.to_raw();
+        let entry = IndexEntry::new(indexed.key());
+        let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
+        TEST_INDEX_STORE.with_borrow_mut(|store| store.insert(raw_index_key, raw_entry));
+
+        let incoming = TestEntity {
+            id: Ulid::from_u128(3),
+            tag: "alpha".to_string(),
+        };
+
+        let err = plan_index_mutation_for_entity::<TestEntity>(&DB, None, Some(&incoming))
+            .expect_err("expected row key mismatch corruption");
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Index);
     }
 }

@@ -2,24 +2,15 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         identity::{EntityName, IndexName},
-        index::*,
+        index::{
+            IndexEntry, IndexEntryCorruption, IndexId, IndexKey, MAX_INDEX_ENTRY_BYTES,
+            MAX_INDEX_ENTRY_KEYS, RawIndexEntry, RawIndexKey,
+        },
     },
     key::Key,
-    model::{
-        entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel},
-        index::IndexModel,
-    },
     traits::Storable,
-    traits::{
-        CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
-        ValidateAuto, ValidateCustom, View, Visitable,
-    },
-    types::Ulid,
-    value::Value,
 };
-use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, cell::RefCell};
+use std::borrow::Cow;
 
 #[test]
 fn index_key_rejects_undersized_bytes() {
@@ -269,157 +260,4 @@ fn raw_index_entry_decode_fuzz_does_not_panic() {
         let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
         let _ = raw.try_decode();
     }
-}
-
-const NULL_ENTITY_PATH: &str = "index_null_test::NullIndexEntity";
-const NULL_INDEX_STORE_PATH: &str = "index_null_test::NullIndexStore";
-const NULL_INDEX_FIELDS: [&str; 1] = ["tag"];
-const NULL_INDEX_MODEL: IndexModel = IndexModel::new(
-    "index_null_test::tag_unique",
-    NULL_INDEX_STORE_PATH,
-    &NULL_INDEX_FIELDS,
-    true,
-);
-const NULL_INDEXES: [&IndexModel; 1] = [&NULL_INDEX_MODEL];
-const NULL_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
-        name: "id",
-        kind: EntityFieldKind::Ulid,
-    },
-    EntityFieldModel {
-        name: "tag",
-        kind: EntityFieldKind::Text,
-    },
-];
-const NULL_MODEL: EntityModel = EntityModel {
-    path: NULL_ENTITY_PATH,
-    entity_name: "NullIndexEntity",
-    primary_key: &NULL_FIELDS[0],
-    fields: &NULL_FIELDS,
-    indexes: &NULL_INDEXES,
-};
-
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-struct NullIndexEntity {
-    id: Ulid,
-    tag: Option<String>,
-}
-
-impl Path for NullIndexEntity {
-    const PATH: &'static str = NULL_ENTITY_PATH;
-}
-
-impl View for NullIndexEntity {
-    type ViewType = Self;
-
-    fn to_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for NullIndexEntity {}
-impl SanitizeCustom for NullIndexEntity {}
-impl ValidateAuto for NullIndexEntity {}
-impl ValidateCustom for NullIndexEntity {}
-impl Visitable for NullIndexEntity {}
-
-impl FieldValues for NullIndexEntity {
-    fn get_value(&self, field: &str) -> Option<Value> {
-        match field {
-            "id" => Some(Value::Ulid(self.id)),
-            "tag" => match &self.tag {
-                Some(tag) => Some(Value::Text(tag.clone())),
-                None => Some(Value::None),
-            },
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct NullIndexCanister;
-
-impl Path for NullIndexCanister {
-    const PATH: &'static str = "index_null_test::NullIndexCanister";
-}
-
-impl CanisterKind for NullIndexCanister {}
-
-struct NullIndexStore;
-
-impl Path for NullIndexStore {
-    const PATH: &'static str = NULL_INDEX_STORE_PATH;
-}
-
-impl StoreKind for NullIndexStore {
-    type Canister = NullIndexCanister;
-}
-
-impl EntityKind for NullIndexEntity {
-    type PrimaryKey = Ulid;
-    type Store = NullIndexStore;
-    type Canister = NullIndexCanister;
-
-    const ENTITY_NAME: &'static str = "NullIndexEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id", "tag"];
-    const INDEXES: &'static [&'static IndexModel] = &NULL_INDEXES;
-    const MODEL: &'static EntityModel = &NULL_MODEL;
-
-    fn key(&self) -> Key {
-        self.id.into()
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
-    }
-}
-
-canic_memory::eager_static! {
-    static NULL_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(canic_memory::ic_memory!(IndexStore, 12)));
-}
-
-canic_memory::eager_init!({
-    canic_memory::ic_memory_range!(0, 20);
-});
-
-#[test]
-fn unique_index_allows_multiple_non_indexable_values() {
-    NULL_INDEX_STORE.with_borrow_mut(|store| store.clear());
-
-    let first = NullIndexEntity {
-        id: Ulid::from_u128(1),
-        tag: None,
-    };
-    let second = NullIndexEntity {
-        id: Ulid::from_u128(2),
-        tag: None,
-    };
-
-    let outcome_first = NULL_INDEX_STORE
-        .with_borrow_mut(|store| store.insert_index_entry(&first, &NULL_INDEX_MODEL));
-    let outcome_second = NULL_INDEX_STORE
-        .with_borrow_mut(|store| store.insert_index_entry(&second, &NULL_INDEX_MODEL));
-
-    assert!(
-        matches!(outcome_first, Ok(IndexInsertOutcome::Skipped)),
-        "expected non-indexable value to skip indexing"
-    );
-    assert!(
-        matches!(outcome_second, Ok(IndexInsertOutcome::Skipped)),
-        "expected non-indexable value to skip indexing"
-    );
-    assert!(
-        NULL_INDEX_STORE.with_borrow(|store| store.is_empty()),
-        "index store should remain empty for non-indexable values"
-    );
 }

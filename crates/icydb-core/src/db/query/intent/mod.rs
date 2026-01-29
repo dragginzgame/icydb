@@ -166,6 +166,14 @@ impl<E: EntityKind> Query<E> {
             Err(SortLowerError::Plan(err)) => return Err(QueryError::Plan(err)),
         };
 
+        if order.fields.is_empty() {
+            // Normalize empty sort expressions into "no ordering" to keep intent invariants simple.
+            return Ok(Self {
+                order: None,
+                ..self
+            });
+        }
+
         Ok(self.order_spec(order))
     }
 

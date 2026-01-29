@@ -59,6 +59,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     /// - Uses key-based access (ByKey / ByKeys)
     /// - Missing keys are ignored in MissingOk mode
     /// - Strict mode treats missing rows as corruption
+    /// - Empty input yields a no-op delete
     #[must_use]
     pub fn many<I>(mut self, keys: I) -> Self
     where

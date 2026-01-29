@@ -34,6 +34,8 @@ pub enum AccessPath {
     ByKey(Key),
 
     /// Batched lookup by multiple primary keys.
+    ///
+    /// Empty key lists are a valid no-op and return no rows.
     ByKeys(Vec<Key>),
 
     /// Range scan over primary keys (inclusive).

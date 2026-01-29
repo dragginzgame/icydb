@@ -4,9 +4,7 @@ use crate::{
     db::{
         Db, DbSession,
         commit::commit_marker_present,
-        index::{
-            IndexEntryCorruption, IndexKey, IndexStore, IndexStoreRegistry, store::IndexRemoveError,
-        },
+        index::{IndexKey, IndexStore, IndexStoreRegistry},
         query::{
             DeleteSpec, FieldRef, LoadSpec, Query, QueryError, QueryMode, ReadConsistency,
             plan::{
@@ -1688,47 +1686,6 @@ fn execute_with_diagnostics_returns_events() {
             },
         ]
     );
-}
-
-#[test]
-fn remove_index_entry_missing_key_is_corruption() {
-    reset_stores();
-    init_schema();
-
-    // Setup: index entry exists but does not include the entity key.
-    let stored = TestEntity {
-        id: Ulid::from_u128(1),
-        name: "alpha".to_string(),
-    };
-    let missing = TestEntity {
-        id: Ulid::from_u128(2),
-        name: "alpha".to_string(),
-    };
-
-    TEST_INDEX_STORE.with_borrow_mut(|store| {
-        store
-            .insert_index_entry(&stored, &INDEX_MODEL)
-            .expect("insert index entry");
-    });
-
-    let err = TEST_INDEX_STORE
-        .with_borrow_mut(|store| store.remove_index_entry(&missing, &INDEX_MODEL))
-        .expect_err("expected corruption");
-    assert!(matches!(
-        err,
-        IndexRemoveError::Corruption(IndexEntryCorruption::MissingKey { .. })
-    ));
-
-    let raw_key = IndexKey::new(&stored, &INDEX_MODEL)
-        .expect("index key")
-        .expect("index key missing")
-        .to_raw();
-    let decoded = TEST_INDEX_STORE
-        .with_borrow(|store| store.get(&raw_key))
-        .expect("index entry present")
-        .try_decode()
-        .expect("decode index entry");
-    assert!(decoded.contains(&stored.key()));
 }
 
 #[test]

@@ -161,11 +161,7 @@ fn validate_access_path<E: EntityKind>(
             )?;
         }
         AccessPath::ByKeys(keys) => {
-            // Internal invariant: ByKeys must contain at least one key.
-            ensure_invariant(
-                !keys.is_empty(),
-                "planner invariant violated: ByKeys must be non-empty",
-            )?;
+            // Empty ByKeys is a valid no-op for key-only intents.
             for key in keys {
                 // Internal invariant: ByKeys only targets the primary key.
                 ensure_invariant(

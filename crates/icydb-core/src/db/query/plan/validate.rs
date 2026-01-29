@@ -136,6 +136,10 @@ fn validate_access_path(
     match access {
         AccessPath::ByKey(key) => validate_pk_key(schema, model, key),
         AccessPath::ByKeys(keys) => {
+            // Empty key lists are a valid no-op.
+            if keys.is_empty() {
+                return Ok(());
+            }
             for key in keys {
                 validate_pk_key(schema, model, key)?;
             }

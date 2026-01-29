@@ -328,6 +328,21 @@ fn delete_limit_requires_order() {
 }
 
 #[test]
+fn delete_limit_requires_non_empty_order() {
+    let err = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .sort_expr(SortExpr { fields: vec![] })
+        .expect("empty sort expr should normalize")
+        .limit(5)
+        .plan();
+
+    assert!(matches!(
+        err,
+        Err(QueryError::Intent(IntentError::DeleteLimitRequiresOrder))
+    ));
+}
+
+#[test]
 fn delete_clears_load_bounds() {
     let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
         .offset(10)
