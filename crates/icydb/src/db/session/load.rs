@@ -10,7 +10,7 @@ use crate::{
     view::View,
 };
 use icydb_core as core;
-use std::borrow::Borrow;
+use std::{borrow::Borrow, collections::HashMap};
 
 ///
 /// SessionLoadQuery
@@ -189,6 +189,16 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     /// Execute and return all entities.
     pub fn entities(&self) -> Result<Vec<E>, Error> {
         Ok(self.inner.execute()?.entities())
+    }
+
+    /// Execute and count entities grouped by the provided key selector.
+    pub fn group_count_by<K>(&self, key: impl Fn(&E) -> K) -> Result<HashMap<K, u32>, Error>
+    where
+        K: Eq + std::hash::Hash,
+    {
+        let counts = self.inner.group_count_by(key)?;
+
+        Ok(counts)
     }
 
     /// Execute and return the first store key, if any.

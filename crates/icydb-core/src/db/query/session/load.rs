@@ -13,6 +13,7 @@ use crate::{
     traits::{CanisterKind, EntityKind, UnitKey},
     view::View,
 };
+use std::collections::HashMap;
 
 ///
 /// SessionLoadQuery
@@ -197,6 +198,23 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
 
     pub fn entities(&self) -> Result<Vec<E>, QueryError> {
         Ok(self.execute()?.entities())
+    }
+
+    /// Execute and count entities grouped by the provided key selector.
+    pub fn group_count_by<K>(&self, key: impl Fn(&E) -> K) -> Result<HashMap<K, u32>, QueryError>
+    where
+        K: Eq + std::hash::Hash,
+    {
+        // Phase: materialize entities.
+        let entities = self.execute()?.entities();
+
+        // Phase: count by derived key.
+        let mut counts = HashMap::new();
+        for entity in entities {
+            *counts.entry(key(&entity)).or_insert(0) += 1;
+        }
+
+        Ok(counts)
     }
 
     /// Alias for `entity`.
