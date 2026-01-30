@@ -214,12 +214,7 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
             })?;
 
         if !field_type.is_orderable() {
-            // ORDER BY permits opaque / unsupported fields.
-            // Executor treats incomparable values as Ordering::Equal and preserves input order.
-            if matches!(field_type, FieldType::Unsupported) {
-                continue;
-            }
-
+            // CONTRACT: ORDER BY rejects unsupported or unordered fields.
             return Err(PlanError::UnorderableField {
                 field: field.clone(),
             });

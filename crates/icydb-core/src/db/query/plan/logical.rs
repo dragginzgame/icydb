@@ -130,6 +130,7 @@ impl LogicalPlan {
 
         // Predicate (already normalized during planning).
         let filtered = if let Some(predicate) = self.predicate.as_ref() {
+            // CONTRACT: predicates are validated before reaching the executor.
             rows.retain(|row| eval_predicate(row.entity(), predicate));
             true
         } else {

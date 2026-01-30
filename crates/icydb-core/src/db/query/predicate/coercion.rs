@@ -188,6 +188,11 @@ pub fn compare_text(
     coercion: &CoercionSpec,
     op: TextOp,
 ) -> Option<bool> {
+    if !matches!(left, Value::Text(_)) || !matches!(right, Value::Text(_)) {
+        // CONTRACT: text coercions never apply to non-text values.
+        return None;
+    }
+
     let mode = match coercion.id {
         CoercionId::Strict => TextMode::Cs,
         CoercionId::TextCasefold => TextMode::Ci,
@@ -249,6 +254,7 @@ fn compare_casefold(left: &Value, right: &Value) -> Option<bool> {
 fn casefold_value(value: &Value) -> Option<String> {
     match value {
         Value::Text(text) => Some(casefold(text)),
+        // CONTRACT: identifiers and structured values never casefold.
         _ => None,
     }
 }

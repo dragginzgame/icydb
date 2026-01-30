@@ -496,13 +496,12 @@ fn validate_compare(schema: &SchemaInfo, cmp: &ComparePredicate) -> Result<(), V
         CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
             validate_ordering(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
         }
-        CompareOp::In => validate_in(&cmp.field, field_type, &cmp.value, &cmp.coercion),
-        CompareOp::NotIn | CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => {
-            // CONTRACT: legacy comparison ops are rejected for public predicates.
-            Err(ValidateError::InvalidOperator {
-                field: cmp.field.clone(),
-                op: format!("{:?}", cmp.op),
-            })
+        CompareOp::In | CompareOp::NotIn => {
+            validate_in(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
+        }
+        CompareOp::Contains => validate_contains(&cmp.field, field_type, &cmp.value, &cmp.coercion),
+        CompareOp::StartsWith | CompareOp::EndsWith => {
+            validate_text_compare(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
         }
     }
 }
@@ -513,13 +512,6 @@ fn validate_eq_ne(
     value: &Value,
     coercion: &CoercionSpec,
 ) -> Result<(), ValidateError> {
-    if matches!(coercion.id, CoercionId::TextCasefold) && !field_type.is_text() {
-        return Err(ValidateError::InvalidCoercion {
-            field: field.to_string(),
-            coercion: coercion.id,
-        });
-    }
-
     if field_type.is_list_like() {
         ensure_list_literal(field, value, field_type)?;
     } else if field_type.is_map() {
@@ -565,23 +557,18 @@ fn validate_ordering(
     ensure_coercion(field, field_type, value, coercion)
 }
 
+/// Validate list membership predicates.
 fn validate_in(
     field: &str,
     field_type: &FieldType,
     value: &Value,
     coercion: &CoercionSpec,
+    op: CompareOp,
 ) -> Result<(), ValidateError> {
-    if matches!(coercion.id, CoercionId::TextCasefold) && !field_type.is_text() {
-        return Err(ValidateError::InvalidCoercion {
-            field: field.to_string(),
-            coercion: coercion.id,
-        });
-    }
-
     if field_type.is_collection() {
         return Err(ValidateError::InvalidOperator {
             field: field.to_string(),
-            op: format!("{:?}", CompareOp::In),
+            op: format!("{op:?}"),
         });
     }
 
@@ -597,6 +584,67 @@ fn validate_in(
     }
 
     Ok(())
+}
+
+/// Validate collection containment predicates on list/set fields.
+fn validate_contains(
+    field: &str,
+    field_type: &FieldType,
+    value: &Value,
+    coercion: &CoercionSpec,
+) -> Result<(), ValidateError> {
+    if field_type.is_text() {
+        // CONTRACT: text substring matching uses TextContains/TextContainsCi only.
+        return Err(ValidateError::InvalidOperator {
+            field: field.to_string(),
+            op: format!("{:?}", CompareOp::Contains),
+        });
+    }
+
+    let element_type = match field_type {
+        FieldType::List(inner) | FieldType::Set(inner) => inner.as_ref(),
+        _ => {
+            return Err(ValidateError::InvalidOperator {
+                field: field.to_string(),
+                op: format!("{:?}", CompareOp::Contains),
+            });
+        }
+    };
+
+    if matches!(coercion.id, CoercionId::TextCasefold) {
+        // CONTRACT: case-insensitive coercion never applies to structured values.
+        return Err(ValidateError::InvalidCoercion {
+            field: field.to_string(),
+            coercion: coercion.id,
+        });
+    }
+
+    ensure_coercion(field, element_type, value, coercion)
+}
+
+/// Validate text prefix/suffix comparisons.
+fn validate_text_compare(
+    field: &str,
+    field_type: &FieldType,
+    value: &Value,
+    coercion: &CoercionSpec,
+    op: CompareOp,
+) -> Result<(), ValidateError> {
+    if !field_type.is_text() {
+        return Err(ValidateError::InvalidOperator {
+            field: field.to_string(),
+            op: format!("{op:?}"),
+        });
+    }
+
+    if !matches!(value, Value::Text(_)) {
+        return Err(ValidateError::InvalidLiteral {
+            field: field.to_string(),
+            message: "expected text literal".to_string(),
+        });
+    }
+
+    ensure_coercion(field, field_type, value, coercion)
 }
 
 fn validate_map_key(
@@ -740,6 +788,14 @@ fn ensure_coercion(
             field: field.to_string(),
         })?;
     let right_family = literal.family();
+
+    if matches!(coercion.id, CoercionId::TextCasefold) && !field_type.is_text() {
+        // CONTRACT: case-insensitive coercions are text-only.
+        return Err(ValidateError::InvalidCoercion {
+            field: field.to_string(),
+            coercion: coercion.id,
+        });
+    }
 
     if !supports_coercion(left_family, right_family, coercion.id) {
         return Err(ValidateError::InvalidCoercion {

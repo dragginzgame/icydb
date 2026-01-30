@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.5.25] – 2026-01-30
+
+### 🧲 Breaking
+- Case-insensitive coercions are now rejected for non-text fields, including identifiers and numeric types.
+- Text substring matching must use `TextContains`/`TextContainsCi`; `CompareOp::Contains` on text fields is invalid.
+- ORDER BY now rejects unsupported or non-orderable fields instead of silently preserving input order.
+
+---
+
 ## [0.5.24] – 2026-01-30
 
 ### 🪤 Fixed
