@@ -28,7 +28,6 @@ impl AccessPlan {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[expect(dead_code)]
 pub enum AccessPath {
     /// Direct lookup by a single primary key.
     ByKey(Key),
@@ -39,6 +38,7 @@ pub enum AccessPath {
     ByKeys(Vec<Key>),
 
     /// Range scan over primary keys (inclusive).
+    #[expect(dead_code)]
     KeyRange { start: Key, end: Key },
 
     /// Index scan using a prefix of index fields and bound values.
