@@ -1132,13 +1132,14 @@ fn session_many_empty_is_noop() {
     saver.insert(entity).unwrap();
 
     let session = DbSession::new(DB);
-    let rows = session
+    let resp = session
         .load::<TestEntity>()
         .many(Vec::<Ulid>::new())
-        .all()
+        .execute()
         .unwrap();
 
-    assert!(rows.is_empty());
+    assert!(resp.is_empty());
+    assert_eq!(resp.count(), 0);
 }
 
 #[test]
@@ -1154,14 +1155,15 @@ fn session_many_dedups_duplicate_keys() {
     saver.insert(entity.clone()).unwrap();
 
     let session = DbSession::new(DB);
-    let rows = session
+    let resp = session
         .load::<TestEntity>()
         .many(vec![entity.id, entity.id, entity.id])
-        .all()
+        .execute()
         .unwrap();
 
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].id, entity.id);
+    let entities = resp.entities();
+    assert_eq!(entities.len(), 1);
+    assert_eq!(entities[0].id, entity.id);
 }
 
 #[test]
@@ -1177,14 +1179,15 @@ fn session_many_missing_ok_skips_missing() {
     saver.insert(entity.clone()).unwrap();
 
     let session = DbSession::new(DB);
-    let rows = session
+    let resp = session
         .load::<TestEntity>()
         .many(vec![entity.id, Ulid::from_u128(2)])
-        .all()
+        .execute()
         .unwrap();
 
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].id, entity.id);
+    let entities = resp.entities();
+    assert_eq!(entities.len(), 1);
+    assert_eq!(entities[0].id, entity.id);
 }
 
 #[test]
@@ -1196,7 +1199,7 @@ fn session_many_strict_missing_errors() {
     let err = session
         .load_with_consistency::<TestEntity>(ReadConsistency::Strict)
         .many(vec![Ulid::from_u128(99)])
-        .all()
+        .execute()
         .expect_err("strict missing should error");
 
     assert!(matches!(
@@ -1221,8 +1224,9 @@ fn session_many_views_materializes() {
     let views = session
         .load::<TestEntity>()
         .many(vec![entity.id])
-        .views()
-        .unwrap();
+        .execute()
+        .unwrap()
+        .views();
 
     assert_eq!(views.len(), 1);
     assert_eq!(views[0], entity);
@@ -1249,12 +1253,12 @@ fn session_delete_many_by_primary_key() {
     let deleted = session
         .delete::<TestEntity>()
         .many(vec![a.id, b.id])
-        .delete_rows()
+        .execute()
         .unwrap()
         .entities();
 
     assert_eq!(deleted.len(), 2);
-    let remaining = session.load::<TestEntity>().all().unwrap();
+    let remaining = session.load::<TestEntity>().execute().unwrap().entities();
     assert!(remaining.is_empty());
 }
 
@@ -1264,7 +1268,12 @@ fn session_only_missing_ok_skips_missing() {
     init_schema();
 
     let session = DbSession::new(DB);
-    let rows = session.load::<UnitEntity>().only().all().unwrap();
+    let rows = session
+        .load::<UnitEntity>()
+        .only()
+        .execute()
+        .unwrap()
+        .entities();
 
     assert!(rows.is_empty());
 }
@@ -1278,7 +1287,7 @@ fn session_only_strict_missing_errors() {
     let err = session
         .load_with_consistency::<UnitEntity>(ReadConsistency::Strict)
         .only()
-        .all()
+        .execute()
         .expect_err("strict missing should error");
 
     assert!(matches!(
@@ -1296,7 +1305,7 @@ fn session_only_delete_is_idempotent_missing_ok() {
     let deleted = session
         .delete::<UnitEntity>()
         .only()
-        .delete_rows()
+        .execute()
         .unwrap()
         .entities();
 
@@ -1313,7 +1322,13 @@ fn session_only_loads_singleton() {
     saver.insert(entity.clone()).unwrap();
 
     let session = DbSession::new(DB);
-    let loaded = session.load::<UnitEntity>().only().one().unwrap();
+    let loaded = session
+        .load::<UnitEntity>()
+        .only()
+        .execute()
+        .unwrap()
+        .entity()
+        .unwrap();
 
     assert_eq!(loaded, entity);
 }

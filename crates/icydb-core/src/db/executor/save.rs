@@ -4,7 +4,7 @@ use crate::{
         ensure_recovered,
         executor::{
             ExecutorError,
-            commit_ops::{apply_marker_index_ops, resolve_index_op},
+            commit_ops::{apply_marker_index_ops, resolve_index_key},
             trace::{QueryTraceSink, TraceExecutorKind, start_exec_trace},
         },
         finish_commit,
@@ -524,7 +524,7 @@ impl<E: EntityKind> SaveExecutor<E> {
 
         // Phase 2: validate marker ops and snapshot current entries for rollback.
         for op in ops {
-            let (store, raw_key, existing) = resolve_index_op(&stores, op, E::PATH, || {
+            let (store, raw_key) = resolve_index_key(&stores, op, E::PATH, || {
                 if op.value.is_none() {
                     Some(InternalError::new(
                         ErrorClass::Internal,
@@ -539,6 +539,7 @@ impl<E: EntityKind> SaveExecutor<E> {
                     None
                 }
             })?;
+            let existing = store.with_borrow(|s| s.get(&raw_key));
 
             apply_stores.push(store);
             rollbacks.push(PreparedIndexRollback {
@@ -636,6 +637,11 @@ impl<E: EntityKind> SaveExecutor<E> {
         ops: &[CommitDataOp],
         ctx: &crate::db::executor::Context<'_, E>,
     ) -> Result<(), InternalError> {
+        // SAFETY / INVARIANT:
+        // All structural and semantic invariants for these marker ops are fully
+        // validated during planning *before* the commit marker is persisted.
+        // After marker creation, apply is required to be infallible or trap.
+        // Therefore, debug_assert!s here are correctness sentinels, not user errors.
         for op in ops {
             debug_assert!(op.value.is_some());
             let Some(value) = op.value.as_ref() else {

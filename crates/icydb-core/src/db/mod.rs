@@ -81,6 +81,7 @@ impl<C: CanisterKind> Db<C> {
 }
 
 impl<C: CanisterKind> Copy for Db<C> {}
+
 impl<C: CanisterKind> Clone for Db<C> {
     fn clone(&self) -> Self {
         *self

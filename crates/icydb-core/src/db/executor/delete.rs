@@ -3,7 +3,7 @@ use crate::{
         CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit,
         executor::{
             Context, ExecutorError,
-            commit_ops::{apply_marker_index_ops, resolve_index_op},
+            commit_ops::{apply_marker_index_ops, resolve_index_key},
             plan::{record_plan_metrics, set_rows_from_len},
             trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
         },
@@ -318,7 +318,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
         // Prevalidate commit ops and capture rollback bytes from current state.
         for op in ops {
-            let (store, raw_key, rollback_value) = resolve_index_op(&stores, op, E::PATH, || {
+            let (store, raw_key) = resolve_index_key(&stores, op, E::PATH, || {
                 Some(InternalError::new(
                     ErrorClass::Internal,
                     ErrorOrigin::Index,
@@ -329,6 +329,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                     ),
                 ))
             })?;
+            let rollback_value = store.with_borrow(|s| s.get(&raw_key));
             let rollback_value = rollback_value.ok_or_else(|| {
                 InternalError::new(
                     ErrorClass::Internal,
@@ -427,6 +428,11 @@ impl<E: EntityKind> DeleteExecutor<E> {
         ops: &[CommitDataOp],
         ctx: &Context<'_, E>,
     ) -> Result<(), InternalError> {
+        // SAFETY / INVARIANT:
+        // All structural and semantic invariants for these marker ops are fully
+        // validated during planning *before* the commit marker is persisted.
+        // After marker creation, apply is required to be infallible or trap.
+        // Therefore, debug_assert!s here are correctness sentinels, not user errors.
         for op in ops {
             debug_assert!(op.value.is_none());
             let raw_key = RawDataKey::from_bytes(Cow::Borrowed(op.key.as_slice()));

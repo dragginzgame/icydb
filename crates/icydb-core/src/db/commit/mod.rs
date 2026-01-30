@@ -11,6 +11,11 @@
 //! on entity/index contents; apply logic deterministically replays the marker
 //! ops. Recovery replays commit ops as recorded, not planner logic.
 
+mod decode;
+mod memory;
+mod recovery;
+mod store;
+
 use crate::{
     db::{
         Db,
@@ -42,15 +47,24 @@ use std::{borrow::Cow, cell::RefCell, collections::BTreeSet, sync::OnceLock};
 
 const COMMIT_LABEL: &str = "CommitMarker";
 const COMMIT_ID_BYTES: usize = 16;
+
 // Conservative upper bound to avoid rejecting valid commits when index entries
 // are large; still small enough to fit typical canister constraints.
 pub const MAX_COMMIT_BYTES: u32 = 16 * 1024 * 1024;
+
+///
+/// CommitKind
+///
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum CommitKind {
     Save,
     Delete,
 }
+
+///
+/// CommitIndexOp
+///
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CommitIndexOp {
@@ -59,12 +73,20 @@ pub struct CommitIndexOp {
     pub value: Option<Vec<u8>>,
 }
 
+///
+/// CommitDataOp
+///
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CommitDataOp {
     pub store: String,
     pub key: Vec<u8>,
     pub value: Option<Vec<u8>>,
 }
+
+///
+/// CommitMarker
+///
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CommitMarker {
@@ -98,6 +120,10 @@ impl CommitMarker {
         })
     }
 }
+
+///
+/// RawCommitMarker
+///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct RawCommitMarker(Vec<u8>);
@@ -161,6 +187,10 @@ impl Storable for RawCommitMarker {
         is_fixed_size: false,
     };
 }
+
+///
+/// CommitStore
+///
 
 struct CommitStore {
     cell: StableCell<RawCommitMarker, VirtualMemory<DefaultMemoryImpl>>,
@@ -299,11 +329,19 @@ pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(),
     Ok(())
 }
 
+///
+/// DecodedIndexOp
+///
+
 struct DecodedIndexOp {
     store: &'static std::thread::LocalKey<RefCell<crate::db::index::IndexStore>>,
     key: RawIndexKey,
     value: Option<RawIndexEntry>,
 }
+
+///
+/// DecodedDataOp
+///
 
 struct DecodedDataOp {
     store: &'static std::thread::LocalKey<RefCell<DataStore>>,
@@ -577,6 +615,10 @@ fn decode_data_key(bytes: &[u8]) -> Result<RawDataKey, InternalError> {
     })?;
     Ok(raw)
 }
+
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {

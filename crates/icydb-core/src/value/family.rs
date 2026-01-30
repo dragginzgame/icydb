@@ -9,7 +9,11 @@
 //!
 //! This avoids hardcoding tag comparisons all over the evaluator.
 
+///
+/// ValueFamily
 /// High-level semantic classification of a `Value`.
+///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValueFamily {
     Numeric,    // Int, Uint, Decimal, Float, Duration, Timestamp, …

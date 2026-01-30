@@ -7,20 +7,19 @@ use crate::{
             plan::{ExecutablePlan, ExplainPlan},
             predicate::Predicate,
         },
-        response::{Response, Row},
+        response::Response,
     },
     key::Key,
     traits::{CanisterKind, EntityKind, UnitKey},
-    view::View,
 };
 
 ///
 /// SessionDeleteQuery
 ///
-/// Fluent, session-bound delete query wrapper that keeps query intent pure
-/// while routing execution through the `DbSession` boundary.
+/// Session-bound delete query wrapper.
+/// This type owns *intent construction* and *execution routing only*.
+/// All result projection and cardinality handling lives on `Response<E>`.
 ///
-
 pub struct SessionDeleteQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
     session: &'a DbSession<C>,
     query: Query<E>,
@@ -35,7 +34,6 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     // Intent inspection
     // ------------------------------------------------------------------
 
-    /// Return a reference to the underlying query intent.
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         &self.query
@@ -45,21 +43,12 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     // Intent builders
     // ------------------------------------------------------------------
 
-    /// Delete by primary key.
     #[must_use]
     pub fn by_key(mut self, key: impl Into<Key>) -> Self {
         self.query = self.query.by_key(key.into());
         self
     }
 
-    /// Delete multiple entities by primary key.
-    ///
-    /// Semantics:
-    /// - Equivalent to `WHERE pk IN (…)`
-    /// - Uses key-based access (ByKey / ByKeys)
-    /// - Missing keys are ignored in MissingOk mode
-    /// - Strict mode treats missing rows as corruption
-    /// - Empty input yields a no-op delete
     #[must_use]
     pub fn many<I>(mut self, keys: I) -> Self
     where
@@ -69,42 +58,34 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
         self
     }
 
-    /// Add a predicate, implicitly AND-ing with any existing predicate.
     #[must_use]
     pub fn filter(mut self, predicate: Predicate) -> Self {
         self.query = self.query.filter(predicate);
         self
     }
 
-    /// Apply a dynamic filter expression.
     pub fn filter_expr(mut self, expr: FilterExpr) -> Result<Self, QueryError> {
         self.query = self.query.filter_expr(expr)?;
-
         Ok(self)
     }
 
-    /// Apply a dynamic sort expression.
     pub fn sort_expr(mut self, expr: SortExpr) -> Result<Self, QueryError> {
         self.query = self.query.sort_expr(expr)?;
-
         Ok(self)
     }
 
-    /// Append an ascending sort key.
     #[must_use]
     pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
         self.query = self.query.order_by(field);
         self
     }
 
-    /// Append a descending sort key.
     #[must_use]
     pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
         self.query = self.query.order_by_desc(field);
         self
     }
 
-    /// Apply a delete limit to bound mutation size.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
         self.query = self.query.limit(limit);
@@ -115,26 +96,26 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     // Planning / diagnostics
     // ------------------------------------------------------------------
 
-    /// Explain this query without executing it.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
         self.query.explain()
     }
 
-    /// Plan this query into an executor-ready plan.
     pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
         self.query.plan()
     }
 
     // ------------------------------------------------------------------
-    // Execution
+    // Execution (minimal core surface)
     // ------------------------------------------------------------------
 
     /// Execute this delete using the session's policy settings.
+    ///
+    /// All result inspection and projection is performed on `Response<E>`.
     pub fn execute(&self) -> Result<Response<E>, QueryError> {
-        self.execute_raw()
+        self.session.execute_query(self.query())
     }
 
-    /// Execute and return whether the response is empty.
+    /// Execute and return whether any rows were affected.
     pub fn is_empty(&self) -> Result<bool, QueryError> {
         Ok(self.execute()?.is_empty())
     }
@@ -144,111 +125,14 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
         Ok(self.execute()?.count())
     }
 
-    /// Execute and require exactly one row.
+    /// Execute and require exactly one affected row.
     pub fn require_one(&self) -> Result<(), QueryError> {
         self.execute()?.require_one().map_err(QueryError::Response)
     }
 
-    /// Execute and require at least one row.
+    /// Execute and require at least one affected row.
     pub fn require_some(&self) -> Result<(), QueryError> {
         self.execute()?.require_some().map_err(QueryError::Response)
-    }
-
-    /// Execute and return the single row.
-    pub fn row(&self) -> Result<Row<E>, QueryError> {
-        self.execute()?.row().map_err(QueryError::Response)
-    }
-
-    /// Execute and return zero or one row.
-    pub fn try_row(&self) -> Result<Option<Row<E>>, QueryError> {
-        self.execute()?.try_row().map_err(QueryError::Response)
-    }
-
-    /// Execute and return all rows.
-    pub fn rows(&self) -> Result<Vec<Row<E>>, QueryError> {
-        Ok(self.execute()?.rows())
-    }
-
-    /// Execute and return the single entity.
-    pub fn entity(&self) -> Result<E, QueryError> {
-        self.execute()?.entity().map_err(QueryError::Response)
-    }
-
-    /// Execute and return zero or one entity.
-    pub fn try_entity(&self) -> Result<Option<E>, QueryError> {
-        self.execute()?.try_entity().map_err(QueryError::Response)
-    }
-
-    /// Execute and return all entities.
-    pub fn entities(&self) -> Result<Vec<E>, QueryError> {
-        Ok(self.execute()?.entities())
-    }
-
-    /// Execute and return the first store key, if any.
-    pub fn key(&self) -> Result<Option<Key>, QueryError> {
-        Ok(self.execute()?.key())
-    }
-
-    /// Execute and require exactly one store key.
-    pub fn key_strict(&self) -> Result<Key, QueryError> {
-        self.execute()?.key_strict().map_err(QueryError::Response)
-    }
-
-    /// Execute and return zero or one store key.
-    pub fn try_key(&self) -> Result<Option<Key>, QueryError> {
-        self.execute()?.try_key().map_err(QueryError::Response)
-    }
-
-    /// Execute and return all store keys.
-    pub fn keys(&self) -> Result<Vec<Key>, QueryError> {
-        Ok(self.execute()?.keys())
-    }
-
-    /// Execute and check whether the response contains the provided key.
-    pub fn contains_key(&self, key: &Key) -> Result<bool, QueryError> {
-        Ok(self.execute()?.contains_key(key))
-    }
-
-    /// Execute and require exactly one primary key.
-    pub fn primary_key(&self) -> Result<E::PrimaryKey, QueryError> {
-        self.execute()?.primary_key().map_err(QueryError::Response)
-    }
-
-    /// Execute and return zero or one primary key.
-    pub fn try_primary_key(&self) -> Result<Option<E::PrimaryKey>, QueryError> {
-        self.execute()?
-            .try_primary_key()
-            .map_err(QueryError::Response)
-    }
-
-    /// Execute and return all primary keys.
-    pub fn primary_keys(&self) -> Result<Vec<E::PrimaryKey>, QueryError> {
-        Ok(self.execute()?.primary_keys())
-    }
-
-    /// Execute and return the single view.
-    pub fn view(&self) -> Result<View<E>, QueryError> {
-        self.execute()?.view().map_err(QueryError::Response)
-    }
-
-    /// Execute and return zero or one view.
-    pub fn view_opt(&self) -> Result<Option<View<E>>, QueryError> {
-        self.execute()?.view_opt().map_err(QueryError::Response)
-    }
-
-    /// Execute and return all views.
-    pub fn views(&self) -> Result<Vec<View<E>>, QueryError> {
-        Ok(self.execute()?.views())
-    }
-
-    /// Execute a delete query and return the deleted rows.
-    pub fn delete_rows(&self) -> Result<Response<E>, QueryError> {
-        self.execute()
-    }
-
-    /// Execute the delete intent without facade-level cardinality handling.
-    fn execute_raw(&self) -> Result<Response<E>, QueryError> {
-        self.session.execute_query(self.query())
     }
 }
 
@@ -257,12 +141,6 @@ where
     E::PrimaryKey: UnitKey,
 {
     /// Delete the singleton entity identified by the unit primary key `()`.
-    ///
-    /// Semantics:
-    /// - Equivalent to `DELETE … WHERE pk = ()`
-    /// - Uses key-based access (ByKey)
-    /// - MissingOk mode is idempotent
-    /// - Strict mode treats missing row as corruption
     #[must_use]
     pub fn only(mut self) -> Self {
         self.query = self.query.only();

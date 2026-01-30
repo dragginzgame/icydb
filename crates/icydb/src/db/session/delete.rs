@@ -245,11 +245,6 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     pub fn views(&self) -> Result<Vec<View<E>>, Error> {
         Ok(self.inner.execute()?.views())
     }
-
-    /// Execute the delete and return affected rows (explicit form).
-    pub fn delete_rows(&self) -> Result<Response<E>, Error> {
-        Ok(Response::from_core(self.inner.delete_rows()?))
-    }
 }
 
 impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E>

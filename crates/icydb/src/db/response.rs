@@ -29,6 +29,11 @@ impl<E: EntityKind> Response<E> {
         self.inner.count()
     }
 
+    #[must_use]
+    pub const fn exists(&self) -> bool {
+        self.count() != 0
+    }
+
     // ------------------------------------------------------------------
     // Cardinality
     // ------------------------------------------------------------------

@@ -1,6 +1,10 @@
 use crate::error::{ErrorClass, ErrorOrigin, InternalError};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+///
+/// WriteUnit
+///
+
 pub struct WriteUnit {
     label: &'static str,
     applied: bool,

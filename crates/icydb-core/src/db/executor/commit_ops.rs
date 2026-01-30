@@ -13,6 +13,11 @@ pub fn apply_marker_index_ops(
     ops: &[CommitIndexOp],
     stores: Vec<&'static LocalKey<RefCell<IndexStore>>>,
 ) {
+    // SAFETY / INVARIANT:
+    // All structural and semantic invariants for these marker ops are fully
+    // validated during planning *before* the commit marker is persisted.
+    // After marker creation, apply is required to be infallible or trap.
+    // Therefore, debug_assert!s here are correctness sentinels, not user errors.
     debug_assert_eq!(
         ops.len(),
         stores.len(),
@@ -35,21 +40,13 @@ pub fn apply_marker_index_ops(
     }
 }
 
-/// Resolve and validate a commit marker index op, returning the store and key.
-#[allow(clippy::type_complexity)]
-pub fn resolve_index_op(
+// Resolve and validate a commit marker index op, returning the store and key.
+pub(super) fn resolve_index_key(
     stores: &'_ BTreeMap<&'static str, &'static LocalKey<RefCell<IndexStore>>>,
     op: &CommitIndexOp,
     entity_path: &str,
     on_missing: impl FnOnce() -> Option<InternalError>,
-) -> Result<
-    (
-        &'static LocalKey<RefCell<IndexStore>>,
-        RawIndexKey,
-        Option<RawIndexEntry>,
-    ),
-    InternalError,
-> {
+) -> Result<(&'static LocalKey<RefCell<IndexStore>>, RawIndexKey), InternalError> {
     // Phase 1: resolve the target store.
     let store = stores.get(op.store.as_str()).ok_or_else(|| {
         InternalError::new(
@@ -98,5 +95,5 @@ pub fn resolve_index_op(
         return Err(err);
     }
 
-    Ok((*store, raw_key, existing))
+    Ok((*store, raw_key))
 }

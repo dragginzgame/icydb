@@ -8,12 +8,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.5.25] – 2026-01-30
 
 ### 🧲 Breaking
-- Case-insensitive coercions are now rejected for non-text fields, including identifiers and numeric types.
-- Text substring matching must use `TextContains`/`TextContainsCi`; `CompareOp::Contains` on text fields is invalid.
-- ORDER BY now rejects unsupported or non-orderable fields instead of silently preserving input order.
+* Case-insensitive coercions are now rejected for non-text fields, including identifiers and numeric types.
+* Text substring matching must use `TextContains`/`TextContainsCi`; `CompareOp::Contains` on text fields is invalid.
+* ORDER BY now rejects unsupported or non-orderable fields instead of silently preserving input order.
 
 ### 🧻 Changed
-- Executor ordering tests now sort only on orderable fields while preserving tie stability and secondary ordering guarantees.
+* Executor ordering tests now sort only on orderable fields while preserving tie stability and secondary ordering guarantees.
+* Conducted a DRY / legacy sweep across query session, executor, and plan layers to remove duplicated or misleading APIs.
 
 ---
 

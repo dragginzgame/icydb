@@ -7,21 +7,19 @@ use crate::{
             plan::{ExecutablePlan, ExplainPlan},
             predicate::Predicate,
         },
-        response::{Response, Row},
+        response::Response,
     },
     key::Key,
     traits::{CanisterKind, EntityKind, UnitKey},
-    view::View,
 };
-use std::collections::HashMap;
 
 ///
 /// SessionLoadQuery
 ///
-/// Fluent, session-bound load query wrapper that keeps intent pure
-/// while routing execution through the `DbSession` boundary.
+/// Session-bound load query wrapper.
+/// Owns intent construction and execution routing only.
+/// All result inspection and projection is performed on `Response<E>`.
 ///
-
 pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
     session: &'a DbSession<C>,
     query: Query<E>,
@@ -32,35 +30,25 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
         Self { session, query }
     }
 
-    // ==================================================================
+    // ------------------------------------------------------------------
     // Intent inspection
-    // ==================================================================
+    // ------------------------------------------------------------------
 
-    /// Return a reference to the underlying query intent.
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         &self.query
     }
 
-    // ==================================================================
-    // Intent builders (pure, no execution)
-    // ==================================================================
+    // ------------------------------------------------------------------
+    // Intent builders (pure)
+    // ------------------------------------------------------------------
 
-    /// Filter by primary key.
     #[must_use]
     pub fn by_key(mut self, key: impl Into<Key>) -> Self {
         self.query = self.query.by_key(key.into());
         self
     }
 
-    /// Load multiple entities by primary key.
-    ///
-    /// Semantics:
-    /// - Equivalent to `WHERE pk IN (…)`
-    /// - Uses key-based access (ByKey / ByKeys)
-    /// - Missing keys are ignored in MissingOk mode
-    /// - Strict mode treats missing rows as corruption
-    /// - Empty input yields an empty result set
     #[must_use]
     pub fn many<I>(mut self, keys: I) -> Self
     where
@@ -70,86 +58,72 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
         self
     }
 
-    /// Add a predicate, implicitly AND-ing with any existing predicate.
     #[must_use]
     pub fn filter(mut self, predicate: Predicate) -> Self {
         self.query = self.query.filter(predicate);
         self
     }
 
-    /// Apply a dynamic filter expression.
     pub fn filter_expr(mut self, expr: FilterExpr) -> Result<Self, QueryError> {
         self.query = self.query.filter_expr(expr)?;
         Ok(self)
     }
 
-    /// Apply a dynamic sort expression.
     pub fn sort_expr(mut self, expr: SortExpr) -> Result<Self, QueryError> {
         self.query = self.query.sort_expr(expr)?;
         Ok(self)
     }
 
-    /// Append an ascending sort key.
     #[must_use]
     pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
         self.query = self.query.order_by(field);
         self
     }
 
-    /// Append a descending sort key.
     #[must_use]
     pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
         self.query = self.query.order_by_desc(field);
         self
     }
 
-    /// Apply a load limit.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
         self.query = self.query.limit(limit);
         self
     }
 
-    /// Apply a load offset.
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {
         self.query = self.query.offset(offset);
         self
     }
 
-    // ==================================================================
-    // Planning / diagnostics (no execution)
-    // ==================================================================
+    // ------------------------------------------------------------------
+    // Planning / diagnostics
+    // ------------------------------------------------------------------
 
-    /// Explain this query without executing it.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
         self.query.explain()
     }
 
-    /// Plan this query into an executor-ready plan.
     pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
         self.query.plan()
     }
 
-    // ==================================================================
-    // Execution boundary (single entry point)
-    // ==================================================================
+    // ------------------------------------------------------------------
+    // Execution (single semantic boundary)
+    // ------------------------------------------------------------------
 
     /// Execute this query using the session's policy settings.
     pub fn execute(&self) -> Result<Response<E>, QueryError> {
         self.session.execute_query(self.query())
     }
 
-    // ==================================================================
-    // Execution terminals — cardinality / existence
-    // ==================================================================
+    // ------------------------------------------------------------------
+    // Execution terminals — semantic only
+    // ------------------------------------------------------------------
 
-    /// Return whether any rows match this query.
-    pub fn exists(&self) -> Result<bool, QueryError> {
-        Ok(self.count()? > 0)
-    }
-
-    /// Execute and return whether the response is empty.
+    /// Execute and return whether the result set is empty.
     pub fn is_empty(&self) -> Result<bool, QueryError> {
         Ok(self.execute()?.is_empty())
     }
@@ -159,136 +133,14 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
         Ok(self.execute()?.count())
     }
 
-    /// Execute and require exactly one row.
+    /// Execute and require exactly one matching row.
     pub fn require_one(&self) -> Result<(), QueryError> {
         self.execute()?.require_one().map_err(QueryError::Response)
     }
 
-    /// Execute and require at least one row.
+    /// Execute and require at least one matching row.
     pub fn require_some(&self) -> Result<(), QueryError> {
         self.execute()?.require_some().map_err(QueryError::Response)
-    }
-
-    // ==================================================================
-    // Execution terminals — rows
-    // ==================================================================
-
-    pub fn row(&self) -> Result<Row<E>, QueryError> {
-        self.execute()?.row().map_err(QueryError::Response)
-    }
-
-    pub fn try_row(&self) -> Result<Option<Row<E>>, QueryError> {
-        self.execute()?.try_row().map_err(QueryError::Response)
-    }
-
-    pub fn rows(&self) -> Result<Vec<Row<E>>, QueryError> {
-        Ok(self.execute()?.rows())
-    }
-
-    // ==================================================================
-    // Execution terminals — entities
-    // ==================================================================
-
-    pub fn entity(&self) -> Result<E, QueryError> {
-        self.execute()?.entity().map_err(QueryError::Response)
-    }
-
-    pub fn try_entity(&self) -> Result<Option<E>, QueryError> {
-        self.execute()?.try_entity().map_err(QueryError::Response)
-    }
-
-    pub fn entities(&self) -> Result<Vec<E>, QueryError> {
-        Ok(self.execute()?.entities())
-    }
-
-    /// Execute and count entities grouped by the provided key selector.
-    pub fn group_count_by<K>(&self, key: impl Fn(&E) -> K) -> Result<HashMap<K, u32>, QueryError>
-    where
-        K: Eq + std::hash::Hash,
-    {
-        // Phase: materialize entities.
-        let entities = self.execute()?.entities();
-
-        // Phase: count by derived key.
-        let mut counts = HashMap::new();
-        for entity in entities {
-            *counts.entry(key(&entity)).or_insert(0) += 1;
-        }
-
-        Ok(counts)
-    }
-
-    /// Alias for `entity`.
-    pub fn one(&self) -> Result<E, QueryError> {
-        self.entity()
-    }
-
-    /// Alias for `try_entity`.
-    pub fn one_opt(&self) -> Result<Option<E>, QueryError> {
-        self.try_entity()
-    }
-
-    /// Alias for `entities`.
-    pub fn all(&self) -> Result<Vec<E>, QueryError> {
-        self.entities()
-    }
-
-    // ==================================================================
-    // Execution terminals — store keys
-    // ==================================================================
-
-    pub fn key(&self) -> Result<Option<Key>, QueryError> {
-        Ok(self.execute()?.key())
-    }
-
-    pub fn key_strict(&self) -> Result<Key, QueryError> {
-        self.execute()?.key_strict().map_err(QueryError::Response)
-    }
-
-    pub fn try_key(&self) -> Result<Option<Key>, QueryError> {
-        self.execute()?.try_key().map_err(QueryError::Response)
-    }
-
-    pub fn keys(&self) -> Result<Vec<Key>, QueryError> {
-        Ok(self.execute()?.keys())
-    }
-
-    pub fn contains_key(&self, key: &Key) -> Result<bool, QueryError> {
-        Ok(self.execute()?.contains_key(key))
-    }
-
-    // ==================================================================
-    // Execution terminals — primary keys
-    // ==================================================================
-
-    pub fn primary_key(&self) -> Result<E::PrimaryKey, QueryError> {
-        self.execute()?.primary_key().map_err(QueryError::Response)
-    }
-
-    pub fn try_primary_key(&self) -> Result<Option<E::PrimaryKey>, QueryError> {
-        self.execute()?
-            .try_primary_key()
-            .map_err(QueryError::Response)
-    }
-
-    pub fn primary_keys(&self) -> Result<Vec<E::PrimaryKey>, QueryError> {
-        Ok(self.execute()?.primary_keys())
-    }
-
-    // ==================================================================
-    // Execution terminals — views
-    // ==================================================================
-
-    pub fn views(&self) -> Result<Vec<View<E>>, QueryError> {
-        Ok(self.execute()?.views())
-    }
-
-    pub fn view(&self) -> Result<View<E>, QueryError> {
-        self.execute()?.view().map_err(QueryError::Response)
-    }
-
-    pub fn view_opt(&self) -> Result<Option<View<E>>, QueryError> {
-        self.execute()?.view_opt().map_err(QueryError::Response)
     }
 }
 
@@ -297,13 +149,6 @@ where
     E::PrimaryKey: UnitKey,
 {
     /// Load the singleton entity identified by the unit primary key `()`.
-    ///
-    /// Semantics:
-    /// - Equivalent to `WHERE pk = ()`
-    /// - Uses key-based access (ByKey)
-    /// - Does not allow predicates
-    /// - MissingOk mode returns empty
-    /// - Strict mode treats missing row as corruption
     #[must_use]
     pub fn only(mut self) -> Self {
         self.query = self.query.only();

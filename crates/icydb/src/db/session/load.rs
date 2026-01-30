@@ -10,7 +10,7 @@ use crate::{
     view::View,
 };
 use icydb_core as core;
-use std::{borrow::Borrow, collections::HashMap};
+use std::{borrow::Borrow, collections::HashMap, hash::Hash};
 
 ///
 /// SessionLoadQuery
@@ -117,11 +117,6 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     // Execution terminals
     // ------------------------------------------------------------------
 
-    /// Execute and return whether any rows match this query.
-    pub fn exists(&self) -> Result<bool, Error> {
-        Ok(self.inner.exists()?)
-    }
-
     /// Execute and return whether the response is empty.
     pub fn is_empty(&self) -> Result<bool, Error> {
         Ok(self.inner.is_empty()?)
@@ -191,12 +186,20 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         Ok(self.inner.execute()?.entities())
     }
 
-    /// Execute and count entities grouped by the provided key selector.
-    pub fn group_count_by<K>(&self, key: impl Fn(&E) -> K) -> Result<HashMap<K, u32>, Error>
+    /// Materialize all entities and count them grouped by a derived key.
+    ///
+    /// This is a facade-level helper that performs in-memory aggregation
+    /// over the query result. It does not affect query planning or execution.
+    pub fn group_count_by<K>(self, key: impl Fn(&E) -> K) -> Result<HashMap<K, u32>, Error>
     where
-        K: Eq + std::hash::Hash,
+        K: Eq + Hash,
     {
-        let counts = self.inner.group_count_by(key)?;
+        let entities = self.inner.execute()?.entities();
+
+        let mut counts = HashMap::new();
+        for entity in entities {
+            *counts.entry(key(&entity)).or_insert(0) += 1;
+        }
 
         Ok(counts)
     }

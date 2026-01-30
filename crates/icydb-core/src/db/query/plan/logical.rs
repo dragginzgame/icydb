@@ -142,10 +142,13 @@ impl LogicalPlan {
         let ordered = if let Some(order) = &self.order
             && !order.fields.is_empty()
         {
-            debug_assert!(
-                self.predicate.is_none() || filtered,
-                "executor invariant violated: ordering must run after filtering"
-            );
+            if self.predicate.is_some() && !filtered {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Query,
+                    "executor invariant violated: ordering must run after filtering".to_string(),
+                ));
+            }
             if rows.len() > 1 {
                 apply_order_spec::<E, R>(rows, order);
             }
@@ -158,10 +161,13 @@ impl LogicalPlan {
         let paged = if self.mode.is_load()
             && let Some(page) = &self.page
         {
-            debug_assert!(
-                self.order.is_none() || ordered,
-                "executor invariant violated: pagination must run after ordering"
-            );
+            if self.order.is_some() && !ordered {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Query,
+                    "executor invariant violated: pagination must run after ordering".to_string(),
+                ));
+            }
             apply_pagination(rows, page.offset, page.limit);
             true
         } else {
@@ -173,10 +179,13 @@ impl LogicalPlan {
         let delete_limited = if self.mode.is_delete()
             && let Some(limit) = &self.delete_limit
         {
-            debug_assert!(
-                self.order.is_none() || ordered,
-                "executor invariant violated: delete limit must run after ordering"
-            );
+            if self.order.is_some() && !ordered {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Query,
+                    "executor invariant violated: delete limit must run after ordering".to_string(),
+                ));
+            }
             apply_delete_limit(rows, limit.max_rows);
             true
         } else {
