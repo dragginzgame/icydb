@@ -270,6 +270,213 @@ impl FilterExpr {
 
         Ok(core::db::query::expr::FilterExpr(pred))
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // Boolean
+    // ─────────────────────────────────────────────────────────────
+
+    #[must_use]
+    pub const fn and(exprs: Vec<Self>) -> Self {
+        Self::And(exprs)
+    }
+
+    #[must_use]
+    pub const fn or(exprs: Vec<Self>) -> Self {
+        Self::Or(exprs)
+    }
+
+    #[must_use]
+    #[allow(clippy::should_implement_trait)]
+    pub fn not(expr: Self) -> Self {
+        Self::Not(Box::new(expr))
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Scalar comparisons
+    // ─────────────────────────────────────────────────────────────
+
+    pub fn eq(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Eq {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn ne(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Ne {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn lt(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Lt {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn lte(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Lte {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn gt(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Gt {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn gte(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Gte {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn in_list(
+        field: impl Into<String>,
+        values: impl IntoIterator<Item = impl Into<Value>>,
+    ) -> Self {
+        Self::In {
+            field: field.into(),
+            values: values.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    pub fn not_in(
+        field: impl Into<String>,
+        values: impl IntoIterator<Item = impl Into<Value>>,
+    ) -> Self {
+        Self::NotIn {
+            field: field.into(),
+            values: values.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Collection
+    // ─────────────────────────────────────────────────────────────
+
+    pub fn contains(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::Contains {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Text predicates
+    // ─────────────────────────────────────────────────────────────
+
+    pub fn text_contains(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::TextContains {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn text_contains_ci(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::TextContainsCi {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn starts_with(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::StartsWith {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn starts_with_ci(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::StartsWithCi {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn ends_with(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::EndsWith {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn ends_with_ci(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::EndsWithCi {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Presence / nullability
+    // ─────────────────────────────────────────────────────────────
+
+    pub fn is_null(field: impl Into<String>) -> Self {
+        Self::IsNull {
+            field: field.into(),
+        }
+    }
+
+    pub fn is_not_null(field: impl Into<String>) -> Self {
+        Self::IsNotNull {
+            field: field.into(),
+        }
+    }
+
+    pub fn is_missing(field: impl Into<String>) -> Self {
+        Self::IsMissing {
+            field: field.into(),
+        }
+    }
+
+    pub fn is_empty(field: impl Into<String>) -> Self {
+        Self::IsEmpty {
+            field: field.into(),
+        }
+    }
+
+    pub fn is_not_empty(field: impl Into<String>) -> Self {
+        Self::IsNotEmpty {
+            field: field.into(),
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Map predicates
+    // ─────────────────────────────────────────────────────────────
+
+    pub fn map_contains_key(field: impl Into<String>, key: impl Into<Value>) -> Self {
+        Self::MapContainsKey {
+            field: field.into(),
+            key: key.into(),
+        }
+    }
+
+    pub fn map_contains_value(field: impl Into<String>, value: impl Into<Value>) -> Self {
+        Self::MapContainsValue {
+            field: field.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn map_contains_entry(
+        field: impl Into<String>,
+        key: impl Into<Value>,
+        value: impl Into<Value>,
+    ) -> Self {
+        Self::MapContainsEntry {
+            field: field.into(),
+            key: key.into(),
+            value: value.into(),
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────
