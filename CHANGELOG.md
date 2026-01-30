@@ -5,38 +5,44 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.5.24] - 2026-01-30
+
+## [0.5.23] – 2026-01-30
 
 ### 🪤 Fixed
-* Insert now decodes existing rows and surfaces row-key mismatches as corruption instead of conflicts.
-* Unique index validation now treats stored entities missing indexed fields as corruption.
-* Executors now validate logical plan invariants at execution to protect erased plans (delete limits require ordering; delete plans cannot carry pagination).
-* Recovery now validates commit marker kind semantics (delete markers with payloads and save markers missing payloads are rejected).
-* ORDER BY now permits opaque primary-key fields; incomparable values sort stably and preserve input order.
+
+* Insert now decodes existing rows and surfaces row-key mismatches as **corruption** instead of conflicts.
+* `SaveExecutor` update/replace detects row-key mismatches as corruption, preventing index updates from amplifying bad rows.
+* Unique index validation now treats stored entities missing indexed fields as **corruption**.
+* Executors validate logical plan invariants at execution time to protect erased plans:
+
+  * delete limits require ordering
+  * delete plans cannot carry pagination
+* Recovery validates commit marker kind semantics:
+
+  * delete markers with payloads are rejected
+  * save markers missing payloads are rejected
+* Load execution performs recovery before reads when a commit marker exists, eliminating read-after-crash exposure to partial state.
+* `NotIn` comparisons now return `false` for invalid inputs, matching the “unsupported comparisons are false” contract.
+* **ORDER BY now permits opaque primary-key fields; incomparable values sort stably and preserve input order.**
 
 ### 🧵 Changed
-* Recovery-guarded read access is now enforced via `Db::recovered_context`, and raw store accessors are crate-private.
+
+* Recovery-guarded read access is now enforced via `Db::recovered_context`; raw store accessors are crate-private.
 * `storage_report` now enforces recovery before collecting snapshots.
-* `FilterExpr` now represents null/missing/empty checks explicitly, matching core predicate semantics.
+* `FilterExpr` now represents null / missing / empty checks explicitly, matching core predicate semantics.
 * Dynamic filters now expose case-insensitive comparisons and text operators without embedding coercion flags in values.
-* Map and membership predicates (`not_in`, map contains variants) are now available via `FilterExpr`.
+* Map and membership predicates (`not_in`, map-contains variants) are now available via `FilterExpr`.
+
+### 🥌 Removed
+
+* Dropped the unused projection surface (`ProjectionSpec` and related plan/query fields) to avoid false affordances.
 
 ### 🪙 Breaking
+
 * `obs::snapshot::storage_report` now returns `Result<StorageReport, InternalError>` instead of `StorageReport`.
 
 ---
 
-## [0.5.23] - 2026-01-29
-
-### 🥨 Fixed
-* `SaveExecutor` update/replace now detects row-key mismatches as corruption, preventing index updates from amplifying bad rows.
-* `NotIn` comparisons now return `false` for invalid inputs, matching the “unsupported comparisons are false” contract.
-* Load execution now performs recovery before reads when a commit marker exists, eliminating read-after-crash exposure to partial state.
-
-### 🥌 Removed
-* Dropped the unused projection surface (`ProjectionSpec` and the related plan/query fields) to avoid false affordances.
-
----
 
 ## [0.5.22] - 2026-01-29
 
