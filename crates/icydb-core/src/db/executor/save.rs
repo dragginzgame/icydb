@@ -64,8 +64,8 @@ impl<E: EntityKind> SaveExecutor<E> {
         }
     }
 
+    #[cfg(test)]
     #[must_use]
-    #[allow(dead_code)]
     pub(crate) const fn with_trace_sink(
         mut self,
         sink: Option<&'static dyn QueryTraceSink>,

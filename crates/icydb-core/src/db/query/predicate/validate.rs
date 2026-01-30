@@ -1,42 +1,16 @@
+use super::{
+    ast::{CompareOp, ComparePredicate, Predicate},
+    coercion::{CoercionId, CoercionSpec, supports_coercion},
+};
 use crate::{
     db::identity::{EntityName, EntityNameError, IndexName, IndexNameError},
     model::{entity::EntityModel, field::EntityFieldKind, index::IndexModel},
     value::{Value, ValueFamily, ValueFamilyExt},
 };
-use icydb_schema::{
-    node::{
-        Entity, Enum, Item, ItemTarget, List, Map, Newtype, Record, Schema, Set, Tuple,
-        Value as SValue,
-    },
-    types::{Cardinality, Primitive},
-};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
 };
-
-use super::{
-    ast::{CompareOp, ComparePredicate, Predicate},
-    coercion::{CoercionId, CoercionSpec, supports_coercion},
-};
-
-#[cfg(test)]
-use std::cell::Cell;
-
-#[cfg(test)]
-thread_local! {
-    static SCHEMA_LOOKUP_CALLED: Cell<bool> = const { Cell::new(false) };
-}
-
-#[cfg(test)]
-pub(crate) fn reset_schema_lookup_called() {
-    SCHEMA_LOOKUP_CALLED.with(|flag| flag.set(false));
-}
-
-#[cfg(test)]
-pub(crate) fn schema_lookup_called() -> bool {
-    SCHEMA_LOOKUP_CALLED.with(Cell::get)
-}
 
 ///
 /// ScalarType
@@ -294,21 +268,6 @@ impl SchemaInfo {
         self.fields.get(name)
     }
 
-    #[must_use]
-    pub fn from_entity_schema(entity: &Entity, schema: &Schema) -> Self {
-        let fields = entity
-            .fields
-            .fields
-            .iter()
-            .map(|field| {
-                let ty = field_type_from_value(&field.value, schema);
-                (field.ident.to_string(), ty)
-            })
-            .collect::<BTreeMap<_, _>>();
-
-        Self { fields }
-    }
-
     pub fn from_entity_model(model: &EntityModel) -> Result<Self, ValidateError> {
         // Validate identity constraints before building schema maps.
         let entity_name = EntityName::try_from_str(model.entity_name).map_err(|err| {
@@ -414,9 +373,6 @@ pub enum ValidateError {
 
     #[error("invalid literal for field '{field}': {message}")]
     InvalidLiteral { field: String, message: String },
-
-    #[error("schema unavailable: {0}")]
-    SchemaUnavailable(String),
 }
 
 pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), ValidateError> {
@@ -839,80 +795,6 @@ pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> b
             _ => false,
         },
         FieldType::Unsupported => false,
-    }
-}
-
-fn field_type_from_value(value: &SValue, schema: &Schema) -> FieldType {
-    let base = field_type_from_item(&value.item, schema);
-
-    match value.cardinality {
-        Cardinality::Many => FieldType::List(Box::new(base)),
-        Cardinality::One | Cardinality::Opt => base,
-    }
-}
-
-fn field_type_from_item(item: &Item, schema: &Schema) -> FieldType {
-    match &item.target {
-        ItemTarget::Primitive(prim) => FieldType::Scalar(scalar_from_primitive(*prim)),
-        ItemTarget::Is(path) => {
-            if schema.cast_node::<Enum>(path).is_ok() {
-                return FieldType::Scalar(ScalarType::Enum);
-            }
-            if let Ok(node) = schema.cast_node::<Newtype>(path) {
-                return field_type_from_item(&node.item, schema);
-            }
-            if let Ok(node) = schema.cast_node::<List>(path) {
-                return FieldType::List(Box::new(field_type_from_item(&node.item, schema)));
-            }
-            if let Ok(node) = schema.cast_node::<Set>(path) {
-                return FieldType::Set(Box::new(field_type_from_item(&node.item, schema)));
-            }
-            if let Ok(node) = schema.cast_node::<Map>(path) {
-                let key = field_type_from_item(&node.key, schema);
-                let value = field_type_from_value(&node.value, schema);
-                return FieldType::Map {
-                    key: Box::new(key),
-                    value: Box::new(value),
-                };
-            }
-            if schema.cast_node::<Record>(path).is_ok() {
-                return FieldType::Unsupported;
-            }
-            if schema.cast_node::<Tuple>(path).is_ok() {
-                return FieldType::Unsupported;
-            }
-
-            FieldType::Unsupported
-        }
-    }
-}
-
-const fn scalar_from_primitive(prim: Primitive) -> ScalarType {
-    match prim {
-        Primitive::Account => ScalarType::Account,
-        Primitive::Blob => ScalarType::Blob,
-        Primitive::Bool => ScalarType::Bool,
-        Primitive::Date => ScalarType::Date,
-        Primitive::Decimal => ScalarType::Decimal,
-        Primitive::Duration => ScalarType::Duration,
-        Primitive::E8s => ScalarType::E8s,
-        Primitive::E18s => ScalarType::E18s,
-        Primitive::Float32 => ScalarType::Float32,
-        Primitive::Float64 => ScalarType::Float64,
-        Primitive::Int => ScalarType::IntBig,
-        Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64 => ScalarType::Int,
-        Primitive::Int128 => ScalarType::Int128,
-        Primitive::Nat => ScalarType::UintBig,
-        Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => {
-            ScalarType::Uint
-        }
-        Primitive::Nat128 => ScalarType::Uint128,
-        Primitive::Principal => ScalarType::Principal,
-        Primitive::Subaccount => ScalarType::Subaccount,
-        Primitive::Text => ScalarType::Text,
-        Primitive::Timestamp => ScalarType::Timestamp,
-        Primitive::Ulid => ScalarType::Ulid,
-        Primitive::Unit => ScalarType::Unit,
     }
 }
 

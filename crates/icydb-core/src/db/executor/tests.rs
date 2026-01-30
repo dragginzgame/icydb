@@ -14,10 +14,7 @@ use crate::{
                 AccessPath, AccessPlan, ExecutablePlan, ExplainAccessPath, OrderDirection,
                 OrderSpec, PageSpec, PlanError, logical::LogicalPlan,
             },
-            predicate::{
-                Predicate,
-                validate::{reset_schema_lookup_called, schema_lookup_called},
-            },
+            predicate::Predicate,
         },
         store::{DataKey, DataStore, DataStoreRegistry, RawRow},
         write::{fail_checkpoint_label, fail_next_checkpoint},
@@ -1761,6 +1758,135 @@ fn trace_disabled_emits_no_events() {
 }
 
 #[test]
+fn trace_emits_start_and_finish_for_save() {
+    reset_stores();
+    init_schema();
+
+    let save_executor =
+        SaveExecutor::<TestEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
+    let entity = TestEntity {
+        id: Ulid::from_u128(1001),
+        name: "alpha".to_string(),
+    };
+
+    let (result, events) = with_trace_events(|| save_executor.insert(entity));
+    let saved = result.unwrap();
+
+    assert_eq!(saved.id, Ulid::from_u128(1001));
+    assert_eq!(events.len(), 2);
+
+    let (start_fp, finish_fp) = match (&events[0], &events[1]) {
+        (
+            QueryTraceEvent::Start {
+                fingerprint,
+                executor,
+                access,
+            },
+            QueryTraceEvent::Finish {
+                fingerprint: finish,
+                executor: finish_exec,
+                access: finish_access,
+                rows,
+            },
+        ) => {
+            assert_eq!(*executor, TraceExecutorKind::Save);
+            assert_eq!(*finish_exec, TraceExecutorKind::Save);
+            assert_eq!(*access, None);
+            assert_eq!(*finish_access, None);
+            assert_eq!(*rows, 1);
+            (*fingerprint, *finish)
+        }
+        _ => panic!("unexpected trace events: {events:?}"),
+    };
+
+    assert_eq!(start_fp, finish_fp);
+}
+
+#[test]
+fn trace_emits_phases_for_delete() {
+    reset_stores();
+    init_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity_id = Ulid::from_u128(2002);
+    let entity = TestEntity {
+        id: entity_id,
+        name: "beta".to_string(),
+    };
+    saver.insert(entity).unwrap();
+
+    let query = Query::<TestEntity>::new(ReadConsistency::MissingOk)
+        .filter(FieldRef::new("id").eq(entity_id))
+        .delete();
+    let plan = query.plan().expect("plan");
+    let fingerprint = plan.fingerprint();
+    let deleter = DeleteExecutor::<TestEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
+
+    let (result, events) = with_trace_events(|| deleter.execute(plan));
+    let response = result.unwrap();
+
+    assert_eq!(response.0.len(), 1);
+    assert_eq!(events.len(), 6);
+    assert_eq!(
+        events[0],
+        QueryTraceEvent::Start {
+            fingerprint,
+            executor: TraceExecutorKind::Delete,
+            access: Some(TraceAccess::ByKey),
+        }
+    );
+    assert_eq!(
+        events[1],
+        QueryTraceEvent::Phase {
+            fingerprint,
+            executor: TraceExecutorKind::Delete,
+            access: Some(TraceAccess::ByKey),
+            phase: TracePhase::Access,
+            rows: 1,
+        }
+    );
+    assert_eq!(
+        events[2],
+        QueryTraceEvent::Phase {
+            fingerprint,
+            executor: TraceExecutorKind::Delete,
+            access: Some(TraceAccess::ByKey),
+            phase: TracePhase::Filter,
+            rows: 1,
+        }
+    );
+    assert_eq!(
+        events[3],
+        QueryTraceEvent::Phase {
+            fingerprint,
+            executor: TraceExecutorKind::Delete,
+            access: Some(TraceAccess::ByKey),
+            phase: TracePhase::Order,
+            rows: 1,
+        }
+    );
+    assert_eq!(
+        events[4],
+        QueryTraceEvent::Phase {
+            fingerprint,
+            executor: TraceExecutorKind::Delete,
+            access: Some(TraceAccess::ByKey),
+            phase: TracePhase::DeleteLimit,
+            rows: 1,
+        }
+    );
+    assert_eq!(
+        events[5],
+        QueryTraceEvent::Finish {
+            fingerprint,
+            executor: TraceExecutorKind::Delete,
+            access: Some(TraceAccess::ByKey),
+            rows: 1,
+        }
+    );
+}
+
+#[test]
 fn diagnose_query_matches_queryspec_explain() {
     reset_stores();
     init_schema();
@@ -2228,19 +2354,4 @@ fn ordering_does_not_compare_incomparable_values() {
     let inserted_ids = entities.iter().map(|entity| entity.id).collect::<Vec<_>>();
 
     assert_eq!(ordered_ids, inserted_ids);
-}
-
-#[test]
-fn load_execute_does_not_touch_global_schema() {
-    reset_schema_lookup_called();
-    reset_stores();
-
-    let plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
-    let loader = LoadExecutor::<TestEntity>::new(DB, false);
-
-    let _ = loader
-        .execute(ExecutablePlan::new(plan))
-        .expect("load executes");
-
-    assert!(!schema_lookup_called());
 }

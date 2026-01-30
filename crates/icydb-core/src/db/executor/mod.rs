@@ -43,23 +43,8 @@ pub enum ExecutorError {
     #[error("index constraint violation: {0} ({1})")]
     IndexViolation(String, String),
 
-    #[error("index not found: {0} ({1})")]
-    IndexNotFound(String, String),
-
-    #[error("index not unique: {0} ({1})")]
-    IndexNotUnique(String, String),
-
-    #[error("index key missing: {0} ({1})")]
-    IndexKeyMissing(String, String),
-
     #[error("data key exists: {0}")]
     KeyExists(DataKey),
-
-    #[error("primary key type mismatch: expected {0}, got {1}")]
-    KeyTypeMismatch(String, String),
-
-    #[error("primary key out of range for {0}: {1}")]
-    KeyOutOfRange(String, String),
 }
 
 impl ExecutorError {
@@ -72,11 +57,6 @@ impl ExecutorError {
     pub(crate) const fn class(&self) -> ErrorClass {
         match self {
             Self::KeyExists(_) | Self::IndexViolation(_, _) => ErrorClass::Conflict,
-            Self::IndexNotFound(_, _)
-            | Self::IndexNotUnique(_, _)
-            | Self::IndexKeyMissing(_, _)
-            | Self::KeyTypeMismatch(_, _)
-            | Self::KeyOutOfRange(_, _) => ErrorClass::Unsupported,
             Self::Corruption { .. } => ErrorClass::Corruption,
         }
     }
@@ -84,12 +64,8 @@ impl ExecutorError {
     pub(crate) const fn origin(&self) -> ErrorOrigin {
         match self {
             Self::KeyExists(_) => ErrorOrigin::Store,
-            Self::IndexViolation(_, _)
-            | Self::IndexNotFound(_, _)
-            | Self::IndexNotUnique(_, _)
-            | Self::IndexKeyMissing(_, _) => ErrorOrigin::Index,
+            Self::IndexViolation(_, _) => ErrorOrigin::Index,
             Self::Corruption { origin, .. } => *origin,
-            Self::KeyTypeMismatch(_, _) | Self::KeyOutOfRange(_, _) => ErrorOrigin::Executor,
         }
     }
 
