@@ -791,7 +791,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.5.24"
+version = "0.5.25"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -811,7 +811,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.5.24"
+version = "0.5.25"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -821,7 +821,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.5.24"
+version = "0.5.25"
 dependencies = [
  "bencher",
  "candid",
@@ -846,7 +846,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.5.24"
+version = "0.5.25"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -862,7 +862,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.5.24"
+version = "0.5.25"
 dependencies = [
  "canic-utils",
  "darling 0.23.0",
@@ -1450,7 +1450,7 @@ dependencies = [
 
 [[package]]
 name = "test"
-version = "0.5.24"
+version = "0.5.25"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1463,7 +1463,7 @@ dependencies = [
 
 [[package]]
 name = "test_design"
-version = "0.5.24"
+version = "0.5.25"
 dependencies = [
  "candid",
  "icydb",
@@ -1582,9 +1582,9 @@ checksum = "ab16f14aed21ee8bfd8ec22513f7287cd4a91aa92e44edfe2c17ddd004e92607"
 
 [[package]]
 name = "trybuild"
-version = "1.0.114"
+version = "1.0.115"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e17e807bff86d2a06b52bca4276746584a78375055b6e45843925ce2802b335"
+checksum = "5f614c21bd3a61bad9501d75cbb7686f00386c806d7f456778432c25cf86948a"
 dependencies = [
  "glob",
  "serde",
