@@ -52,7 +52,7 @@ impl IndexStore {
         Self(BTreeMap::init(memory))
     }
 
-    pub fn resolve_data_values<E: EntityKind>(
+    pub(crate) fn resolve_data_values<E: EntityKind>(
         &self,
         index: &IndexModel,
         prefix: &[Value],

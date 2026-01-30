@@ -1,8 +1,5 @@
-use crate::{
-    types::{Account, Principal, Ulid},
-    value::{TextMode, Value, ValueFamily},
-};
-use std::{cmp::Ordering, collections::BTreeMap, mem::discriminant, str::FromStr};
+use crate::value::{TextMode, Value, ValueFamily};
+use std::{cmp::Ordering, collections::BTreeMap, mem::discriminant};
 
 ///
 /// Predicate coercion and comparison semantics
@@ -22,12 +19,15 @@ use std::{cmp::Ordering, collections::BTreeMap, mem::discriminant, str::FromStr}
 /// a comparison is semantically valid for a given field.
 /// Validation and planning enforce legality separately.
 ///
+/// CollectionElement is used when comparing a scalar literal
+/// against individual elements of a collection field.
+/// It must never be used for scalar-vs-scalar comparisons.
+///
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CoercionId {
     Strict,
     NumericWiden,
-    IdentifierText,
     TextCasefold,
     CollectionElement,
 }
@@ -103,33 +103,8 @@ pub const COERCION_TABLE: &[CoercionRule] = &[
         id: CoercionId::NumericWiden,
     },
     CoercionRule {
-        left: CoercionFamily::Family(ValueFamily::Identifier),
-        right: CoercionFamily::Family(ValueFamily::Textual),
-        id: CoercionId::IdentifierText,
-    },
-    CoercionRule {
-        left: CoercionFamily::Family(ValueFamily::Textual),
-        right: CoercionFamily::Family(ValueFamily::Identifier),
-        id: CoercionId::IdentifierText,
-    },
-    CoercionRule {
         left: CoercionFamily::Family(ValueFamily::Textual),
         right: CoercionFamily::Family(ValueFamily::Textual),
-        id: CoercionId::TextCasefold,
-    },
-    CoercionRule {
-        left: CoercionFamily::Family(ValueFamily::Identifier),
-        right: CoercionFamily::Family(ValueFamily::Identifier),
-        id: CoercionId::TextCasefold,
-    },
-    CoercionRule {
-        left: CoercionFamily::Family(ValueFamily::Identifier),
-        right: CoercionFamily::Family(ValueFamily::Textual),
-        id: CoercionId::TextCasefold,
-    },
-    CoercionRule {
-        left: CoercionFamily::Family(ValueFamily::Textual),
-        right: CoercionFamily::Family(ValueFamily::Identifier),
         id: CoercionId::TextCasefold,
     },
     CoercionRule {
@@ -176,10 +151,6 @@ pub fn compare_eq(left: &Value, right: &Value, coercion: &CoercionSpec) -> Optio
             same_variant(left, right).then_some(left == right)
         }
         CoercionId::NumericWiden => left.cmp_numeric(right).map(|ord| ord == Ordering::Equal),
-        CoercionId::IdentifierText => {
-            let (l, r) = coerce_identifier_text(left, right)?;
-            Some(l == r)
-        }
         CoercionId::TextCasefold => compare_casefold(left, right),
     }
 }
@@ -198,10 +169,6 @@ pub fn compare_order(left: &Value, right: &Value, coercion: &CoercionSpec) -> Op
             strict_ordering(left, right)
         }
         CoercionId::NumericWiden => left.cmp_numeric(right),
-        CoercionId::IdentifierText => {
-            let (l, r) = coerce_identifier_text(left, right)?;
-            strict_ordering(&l, &r)
-        }
         CoercionId::TextCasefold => {
             let left = casefold_value(left)?;
             let right = casefold_value(right)?;
@@ -271,35 +238,6 @@ fn strict_ordering(left: &Value, right: &Value) -> Option<Ordering> {
     }
 }
 
-/// Normalize identifier/text comparisons by parsing textual
-/// representations into identifier values when possible.
-fn coerce_identifier_text(left: &Value, right: &Value) -> Option<(Value, Value)> {
-    match (left, right) {
-        (Value::Ulid(_) | Value::Principal(_) | Value::Account(_), Value::Text(_)) => {
-            let parsed = parse_identifier_text(left, right)?;
-            Some((left.clone(), parsed))
-        }
-        (Value::Text(_), Value::Ulid(_) | Value::Principal(_) | Value::Account(_)) => {
-            let parsed = parse_identifier_text(right, left)?;
-            Some((parsed, right.clone()))
-        }
-        _ => None,
-    }
-}
-
-fn parse_identifier_text(identifier: &Value, text: &Value) -> Option<Value> {
-    let Value::Text(raw) = text else {
-        return None;
-    };
-
-    match identifier {
-        Value::Ulid(_) => Ulid::from_str(raw).ok().map(Value::Ulid),
-        Value::Principal(_) => Principal::from_str(raw).ok().map(Value::Principal),
-        Value::Account(_) => Account::from_str(raw).ok().map(Value::Account),
-        _ => None,
-    }
-}
-
 fn compare_casefold(left: &Value, right: &Value) -> Option<bool> {
     let left = casefold_value(left)?;
     let right = casefold_value(right)?;
@@ -311,9 +249,6 @@ fn compare_casefold(left: &Value, right: &Value) -> Option<bool> {
 fn casefold_value(value: &Value) -> Option<String> {
     match value {
         Value::Text(text) => Some(casefold(text)),
-        Value::Ulid(ulid) => Some(casefold(&ulid.to_string())),
-        Value::Principal(principal) => Some(casefold(&principal.to_string())),
-        Value::Account(account) => Some(casefold(&account.to_string())),
         _ => None,
     }
 }

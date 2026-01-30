@@ -729,13 +729,12 @@ mod tests {
     }
 
     #[test]
-    fn pk_eq_non_strict_falls_back_to_full_scan() {
+    fn pk_eq_non_strict_rejected() {
         let schema = model_schema();
         let id = Ulid::default();
         let predicate = eq("id", Value::Ulid(id), non_strict());
-        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
-        assert_eq!(plan, AccessPlan::Path(AccessPath::FullScan));
+        assert!(plan_access::<PlannerEntity>(&schema, Some(&predicate)).is_err());
     }
 
     #[test]
@@ -828,22 +827,15 @@ mod tests {
     }
 
     #[test]
-    fn mixed_pk_non_strict_and_index_strict_does_not_plan_by_key() {
+    fn mixed_pk_non_strict_and_index_strict_rejected() {
         let schema = model_schema();
         let id = Ulid::default();
         let predicate = Predicate::And(vec![
             eq("id", Value::Ulid(id), non_strict()),
             eq("idx_a", v_text("alpha"), strict()),
         ]);
-        let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
-        assert_eq!(
-            plan,
-            AccessPlan::Path(AccessPath::IndexPrefix {
-                index: INDEX_MODEL,
-                values: vec![v_text("alpha")],
-            })
-        );
+        assert!(plan_access::<PlannerEntity>(&schema, Some(&predicate)).is_err());
     }
 
     #[test]

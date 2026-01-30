@@ -250,7 +250,7 @@ fn validate_unique_constraint<E: EntityKind>(
     if stored_key != existing_key {
         // Stored row decoded successfully but key mismatch indicates index/data divergence; treat as corruption.
         return Err(ExecutorError::corruption(
-            ErrorOrigin::Index,
+            ErrorOrigin::Store,
             format!(
                 "index corrupted: {} ({}) -> {}",
                 E::PATH,
@@ -277,11 +277,10 @@ fn validate_unique_constraint<E: EntityKind>(
             )
         })?;
         let actual = stored.get_value(field).ok_or_else(|| {
-            InternalError::new(
-                ErrorClass::InvariantViolation,
+            ExecutorError::corruption(
                 ErrorOrigin::Index,
                 format!(
-                    "index field missing on stored entity: {} ({})",
+                    "index corrupted: {} ({}) -> stored entity missing field",
                     E::PATH,
                     field
                 ),
@@ -474,6 +473,14 @@ mod tests {
         fields: &TEST_FIELDS,
         indexes: &INDEXES,
     };
+    const MISSING_ENTITY_PATH: &str = "index_plan_test::MissingFieldEntity";
+    const MISSING_MODEL: EntityModel = EntityModel {
+        path: MISSING_ENTITY_PATH,
+        entity_name: "MissingFieldEntity",
+        primary_key: &TEST_FIELDS[0],
+        fields: &TEST_FIELDS,
+        indexes: &INDEXES,
+    };
 
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     struct TestEntity {
@@ -513,6 +520,45 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    struct MissingFieldEntity {
+        id: Ulid,
+        tag: String,
+    }
+
+    impl Path for MissingFieldEntity {
+        const PATH: &'static str = MISSING_ENTITY_PATH;
+    }
+
+    impl View for MissingFieldEntity {
+        type ViewType = Self;
+
+        fn to_view(&self) -> Self::ViewType {
+            self.clone()
+        }
+
+        fn from_view(view: Self::ViewType) -> Self {
+            view
+        }
+    }
+
+    impl SanitizeAuto for MissingFieldEntity {}
+    impl SanitizeCustom for MissingFieldEntity {}
+    impl ValidateAuto for MissingFieldEntity {}
+    impl ValidateCustom for MissingFieldEntity {}
+    impl Visitable for MissingFieldEntity {}
+
+    impl FieldValues for MissingFieldEntity {
+        fn get_value(&self, field: &str) -> Option<Value> {
+            match field {
+                "id" => Some(Value::Ulid(self.id)),
+                "tag" if self.tag == "__missing__" => None,
+                "tag" => Some(Value::Text(self.tag.clone())),
+                _ => None,
+            }
+        }
+    }
+
     #[derive(Clone, Copy)]
     struct TestCanister;
 
@@ -542,6 +588,30 @@ mod tests {
         const FIELDS: &'static [&'static str] = &["id", "tag"];
         const INDEXES: &'static [&'static IndexModel] = &INDEXES;
         const MODEL: &'static EntityModel = &TEST_MODEL;
+
+        fn key(&self) -> crate::key::Key {
+            self.id.into()
+        }
+
+        fn primary_key(&self) -> Self::PrimaryKey {
+            self.id
+        }
+
+        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+            self.id = key;
+        }
+    }
+
+    impl EntityKind for MissingFieldEntity {
+        type PrimaryKey = Ulid;
+        type Store = TestStore;
+        type Canister = TestCanister;
+
+        const ENTITY_NAME: &'static str = "MissingFieldEntity";
+        const PRIMARY_KEY: &'static str = "id";
+        const FIELDS: &'static [&'static str] = &["id", "tag"];
+        const INDEXES: &'static [&'static IndexModel] = &INDEXES;
+        const MODEL: &'static EntityModel = &MISSING_MODEL;
 
         fn key(&self) -> crate::key::Key {
             self.id.into()
@@ -684,6 +754,38 @@ mod tests {
 
         let err = plan_index_mutation_for_entity::<TestEntity>(&DB, None, Some(&incoming))
             .expect_err("expected row key mismatch corruption");
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+    }
+
+    #[test]
+    fn unique_collision_stored_missing_field_is_corruption() {
+        reset_stores();
+
+        let stored = MissingFieldEntity {
+            id: Ulid::from_u128(1),
+            tag: "__missing__".to_string(),
+        };
+        let data_key = DataKey::new::<MissingFieldEntity>(stored.id);
+        let raw_key = data_key.to_raw().expect("data key encode");
+        let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
+        TEST_DATA_STORE.with_borrow_mut(|store| store.insert(raw_key, raw_row));
+
+        let incoming = MissingFieldEntity {
+            id: Ulid::from_u128(2),
+            tag: "alpha".to_string(),
+        };
+
+        let index_key = IndexKey::new(&incoming, &INDEX_MODEL)
+            .expect("index key")
+            .expect("index key missing");
+        let raw_index_key = index_key.to_raw();
+        let entry = IndexEntry::new(stored.key());
+        let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
+        TEST_INDEX_STORE.with_borrow_mut(|store| store.insert(raw_index_key, raw_entry));
+
+        let err = plan_index_mutation_for_entity::<MissingFieldEntity>(&DB, None, Some(&incoming))
+            .expect_err("expected missing stored field corruption");
         assert_eq!(err.class, ErrorClass::Corruption);
         assert_eq!(err.origin, ErrorOrigin::Index);
     }

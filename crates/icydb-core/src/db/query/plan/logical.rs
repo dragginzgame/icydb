@@ -2,7 +2,7 @@
 #[cfg_attr(not(test), expect(unused_imports))]
 use crate::db::query::{
     LoadSpec, QueryMode, ReadConsistency,
-    plan::{AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec, ProjectionSpec},
+    plan::{AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec},
     predicate::{Predicate, eval as eval_predicate},
 };
 use crate::{
@@ -26,9 +26,8 @@ use std::cmp::Ordering;
 /// - Access may be a single path or a composite (union/intersection) of paths
 /// - Predicates are applied *after* data access
 /// - Ordering is applied after filtering
-/// - Pagination is applied after ordering and before projection (load only)
-/// - Delete limits are applied after ordering and before projection (delete only)
-/// - Projection is applied to the final materialized rows
+/// - Pagination is applied after ordering (load only)
+/// - Delete limits are applied after ordering (delete only)
 /// - Missing-row policy is explicit and must not depend on access path
 ///
 /// This struct is the explicit contract between the planner and executors.
@@ -55,9 +54,6 @@ pub struct LogicalPlan {
 
     /// Optional pagination specification.
     pub(crate) page: Option<PageSpec>,
-
-    /// Projection specification.
-    pub(crate) projection: ProjectionSpec,
 
     /// Missing-row policy for execution.
     pub(crate) consistency: ReadConsistency,
@@ -104,7 +100,6 @@ impl LogicalPlan {
             order: None,
             delete_limit: None,
             page: None,
-            projection: ProjectionSpec::All,
             consistency,
         }
     }
@@ -173,7 +168,7 @@ impl LogicalPlan {
         };
         let rows_after_page = rows.len();
 
-        // Delete limit (applied after ordering and before projection).
+        // Delete limit (applied after ordering).
         let delete_limited = if self.mode.is_delete()
             && let Some(limit) = &self.delete_limit
         {

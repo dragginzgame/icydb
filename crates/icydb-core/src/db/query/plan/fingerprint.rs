@@ -3,14 +3,11 @@
 
 use super::{
     ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination, ExplainPlan,
-    ExplainPredicate, ExplainProjection,
+    ExplainPredicate,
 };
 use crate::db::index::fingerprint::hash_value;
 use crate::db::query::QueryMode;
-use crate::db::query::{
-    ReadConsistency,
-    predicate::{CompareOp, coercion::CoercionId},
-};
+use crate::db::query::{ReadConsistency, predicate::coercion::CoercionId};
 use crate::key::Key;
 use sha2::{Digest, Sha256};
 
@@ -84,12 +81,9 @@ fn hash_explain_plan(hasher: &mut Sha256, plan: &ExplainPlan) {
     hash_delete_limit(hasher, &plan.delete_limit);
 
     write_tag(hasher, 0x06);
-    hash_projection(hasher, &plan.projection);
-
-    write_tag(hasher, 0x07);
     hash_consistency(hasher, plan.consistency);
 
-    write_tag(hasher, 0x08);
+    write_tag(hasher, 0x07);
     hash_mode(hasher, plan.mode);
 }
 
@@ -180,7 +174,7 @@ fn hash_predicate(hasher: &mut Sha256, predicate: &ExplainPredicate) {
         } => {
             write_tag(hasher, 0x26);
             write_str(hasher, field);
-            write_tag(hasher, compare_op_tag(*op));
+            write_tag(hasher, op.tag());
             write_value(hasher, value);
             hash_coercion(hasher, coercion.id, &coercion.params);
         }
@@ -286,12 +280,6 @@ fn hash_delete_limit(hasher: &mut Sha256, limit: &ExplainDeleteLimit) {
     }
 }
 
-fn hash_projection(hasher: &mut Sha256, projection: &ExplainProjection) {
-    match projection {
-        ExplainProjection::All => write_tag(hasher, 0x40),
-    }
-}
-
 fn hash_consistency(hasher: &mut Sha256, consistency: ReadConsistency) {
     match consistency {
         ReadConsistency::MissingOk => write_tag(hasher, 0x50),
@@ -352,24 +340,6 @@ fn write_tag(hasher: &mut Sha256, tag: u8) {
     hasher.update([tag]);
 }
 
-const fn compare_op_tag(op: CompareOp) -> u8 {
-    match op {
-        CompareOp::Eq => 0x01,
-        CompareOp::Ne => 0x02,
-        CompareOp::Lt => 0x03,
-        CompareOp::Lte => 0x04,
-        CompareOp::Gt => 0x05,
-        CompareOp::Gte => 0x06,
-        CompareOp::In => 0x07,
-        CompareOp::NotIn => 0x08,
-        CompareOp::AnyIn => 0x09,
-        CompareOp::AllIn => 0x0a,
-        CompareOp::Contains => 0x0b,
-        CompareOp::StartsWith => 0x0c,
-        CompareOp::EndsWith => 0x0d,
-    }
-}
-
 const fn order_direction_tag(direction: crate::db::query::plan::OrderDirection) -> u8 {
     match direction {
         crate::db::query::plan::OrderDirection::Asc => 0x01,
@@ -381,7 +351,6 @@ const fn coercion_id_tag(id: CoercionId) -> u8 {
     match id {
         CoercionId::Strict => 0x01,
         CoercionId::NumericWiden => 0x02,
-        CoercionId::IdentifierText => 0x03,
         CoercionId::TextCasefold => 0x04,
         CoercionId::CollectionElement => 0x05,
     }

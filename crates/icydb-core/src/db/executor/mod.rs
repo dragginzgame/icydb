@@ -12,6 +12,15 @@ pub use delete::DeleteExecutor;
 pub use load::LoadExecutor;
 pub use save::SaveExecutor;
 
+// Design notes:
+// - SchemaInfo is the planner-visible schema (relational attributes). Executors may see
+//   additional tuple payload not represented in SchemaInfo.
+// - Unsupported or opaque values are treated as incomparable; executor validation may
+//   skip type checks for these values.
+// - ORDER BY is stable; incomparable values preserve input order.
+// - Corruption indicates invalid persisted bytes or store mismatches; invariant violations
+//   indicate executor/planner contract breaches.
+
 use crate::{
     db::store::DataKey,
     error::{ErrorClass, ErrorOrigin, InternalError},

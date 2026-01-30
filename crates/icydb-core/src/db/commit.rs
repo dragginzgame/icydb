@@ -277,8 +277,8 @@ fn should_force_recovery() -> bool {
     }
 }
 
-// Recovery is invoked only from mutation entrypoints; read paths must remain
-// side-effect free to avoid re-entrancy and performance risks.
+// Recovery is invoked from read and mutation entrypoints to prevent
+// observing partial commit state.
 pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {
     let force = should_force_recovery();
     if !force && RECOVERED.get().is_some() {
@@ -315,6 +315,27 @@ fn prevalidate_recovery(
     db: &Db<impl crate::traits::CanisterKind>,
     marker: &CommitMarker,
 ) -> Result<(Vec<DecodedIndexOp>, Vec<DecodedDataOp>), InternalError> {
+    match marker.kind {
+        CommitKind::Save => {
+            if marker.data_ops.iter().any(|op| op.value.is_none()) {
+                return Err(InternalError::new(
+                    ErrorClass::Corruption,
+                    ErrorOrigin::Store,
+                    "commit marker corrupted: save op missing data payload",
+                ));
+            }
+        }
+        CommitKind::Delete => {
+            if marker.data_ops.iter().any(|op| op.value.is_some()) {
+                return Err(InternalError::new(
+                    ErrorClass::Corruption,
+                    ErrorOrigin::Store,
+                    "commit marker corrupted: delete op includes data payload",
+                ));
+            }
+        }
+    }
+
     let mut decoded_index = Vec::with_capacity(marker.index_ops.len());
     let mut decoded_data = Vec::with_capacity(marker.data_ops.len());
 
@@ -793,6 +814,43 @@ mod tests {
         let err = ensure_recovered(&DB).expect_err("corrupted marker should fail recovery");
         assert_eq!(err.class, ErrorClass::Corruption);
         assert_eq!(err.origin, ErrorOrigin::Index);
+
+        let _ = with_commit_store(|store| {
+            store.clear_infallible();
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn recovery_rejects_delete_marker_with_payload() {
+        reset_stores();
+
+        let entity = TestEntity {
+            id: Ulid::from_u128(8),
+            name: "alpha".to_string(),
+        };
+        let data_key = DataKey::new::<TestEntity>(entity.id);
+        let raw_data_key = data_key.to_raw().expect("data key encode");
+        let raw_row = RawRow::try_new(serialize(&entity).unwrap()).unwrap();
+
+        let marker = CommitMarker::new(
+            CommitKind::Delete,
+            Vec::new(),
+            vec![CommitDataOp {
+                store: DATA_STORE_PATH.to_string(),
+                key: raw_data_key.as_bytes().to_vec(),
+                value: Some(raw_row.as_bytes().to_vec()),
+            }],
+        )
+        .unwrap();
+
+        let _guard = begin_commit(marker).unwrap();
+        assert!(commit_marker_present().unwrap());
+
+        force_recovery_for_tests();
+        let err = ensure_recovered(&DB).expect_err("delete marker payload should fail recovery");
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Store);
 
         let _ = with_commit_store(|store| {
             store.clear_infallible();

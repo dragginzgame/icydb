@@ -1,25 +1,163 @@
 use crate::{traits::EntityKind, value::Value};
 use candid::CandidType;
-use icydb_core::{self as core, db::query::QueryError};
+use icydb_core::{
+    self as core,
+    db::query::{
+        QueryError,
+        predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
+    },
+};
 use serde::{Deserialize, Serialize};
 
 ///
 /// FilterExpr
 ///
+/// Serialized, planner-agnostic predicate language.
+///
+/// This enum is intentionally isomorphic to the subset of core::Predicate that is:
+/// - deterministic
+/// - schema-visible
+/// - safe across API boundaries
+///
+/// No planner hints, no legacy semantics, no overloaded operators.
+/// Any new Predicate variant must be explicitly reviewed for exposure here.
+///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub enum FilterExpr {
+    /// Always true.
+    True,
+    /// Always false.
+    False,
+
     And(Vec<Self>),
     Or(Vec<Self>),
     Not(Box<Self>),
 
-    Eq { field: String, value: Value },
-    Ne { field: String, value: Value },
-    Lt { field: String, value: Value },
-    Lte { field: String, value: Value },
-    Gt { field: String, value: Value },
-    Gte { field: String, value: Value },
-    In { field: String, values: Vec<Value> },
+    // ─────────────────────────────────────────────────────────────
+    // Scalar comparisons
+    // ─────────────────────────────────────────────────────────────
+    Eq {
+        field: String,
+        value: Value,
+    },
+    Ne {
+        field: String,
+        value: Value,
+    },
+    Lt {
+        field: String,
+        value: Value,
+    },
+    Lte {
+        field: String,
+        value: Value,
+    },
+    Gt {
+        field: String,
+        value: Value,
+    },
+    Gte {
+        field: String,
+        value: Value,
+    },
+
+    In {
+        field: String,
+        values: Vec<Value>,
+    },
+    NotIn {
+        field: String,
+        values: Vec<Value>,
+    },
+
+    // ─────────────────────────────────────────────────────────────
+    // Collection predicates
+    // ─────────────────────────────────────────────────────────────
+    /// Collection contains value.
+    Contains {
+        field: String,
+        value: Value,
+    },
+
+    // ─────────────────────────────────────────────────────────────
+    // Text predicates (explicit, no overloading)
+    // ─────────────────────────────────────────────────────────────
+    /// Case-sensitive substring match.
+    TextContains {
+        field: String,
+        value: Value,
+    },
+
+    /// Case-insensitive substring match.
+    TextContainsCi {
+        field: String,
+        value: Value,
+    },
+
+    StartsWith {
+        field: String,
+        value: Value,
+    },
+    StartsWithCi {
+        field: String,
+        value: Value,
+    },
+
+    EndsWith {
+        field: String,
+        value: Value,
+    },
+    EndsWithCi {
+        field: String,
+        value: Value,
+    },
+
+    // ─────────────────────────────────────────────────────────────
+    // Presence / nullability
+    // ─────────────────────────────────────────────────────────────
+    /// Field is present and explicitly null.
+    IsNull {
+        field: String,
+    },
+
+    /// Field is present and not null.
+    /// Equivalent to: NOT IsNull AND NOT IsMissing
+    IsNotNull {
+        field: String,
+    },
+
+    /// Field is not present at all.
+    IsMissing {
+        field: String,
+    },
+
+    /// Field is present but empty (collection or string).
+    IsEmpty {
+        field: String,
+    },
+
+    /// Field is present and non-empty.
+    IsNotEmpty {
+        field: String,
+    },
+
+    // ─────────────────────────────────────────────────────────────
+    // Map predicates (strict only)
+    // ─────────────────────────────────────────────────────────────
+    MapContainsKey {
+        field: String,
+        key: Value,
+    },
+    MapContainsValue {
+        field: String,
+        value: Value,
+    },
+    MapContainsEntry {
+        field: String,
+        key: Value,
+        value: Value,
+    },
 }
 
 impl FilterExpr {
@@ -28,12 +166,13 @@ impl FilterExpr {
     // ─────────────────────────────────────────────────────────────
 
     pub fn lower<E: EntityKind>(&self) -> Result<core::db::query::expr::FilterExpr, QueryError> {
-        use core::db::query::predicate::Predicate;
-
         let lower_pred =
             |expr: &Self| -> Result<Predicate, QueryError> { Ok(expr.lower::<E>()?.0) };
 
         let pred = match self {
+            Self::True => Predicate::True,
+            Self::False => Predicate::False,
+
             Self::And(xs) => {
                 Predicate::and(xs.iter().map(lower_pred).collect::<Result<Vec<_>, _>>()?)
             }
@@ -42,118 +181,126 @@ impl FilterExpr {
             }
             Self::Not(x) => Predicate::not(lower_pred(x)?),
 
-            Self::Eq { field, value } => Predicate::eq(field.clone(), value.clone()),
-            Self::Ne { field, value } => Predicate::ne(field.clone(), value.clone()),
-            Self::Lt { field, value } => Predicate::lt(field.clone(), value.clone()),
-            Self::Lte { field, value } => Predicate::lte(field.clone(), value.clone()),
-            Self::Gt { field, value } => Predicate::gt(field.clone(), value.clone()),
-            Self::Gte { field, value } => Predicate::gte(field.clone(), value.clone()),
-            Self::In { field, values } => Predicate::in_(field.clone(), values.clone()),
+            Self::Eq { field, value } => compare(field, CompareOp::Eq, value.clone()),
+
+            Self::Ne { field, value } => compare(field, CompareOp::Ne, value.clone()),
+
+            Self::Lt { field, value } => compare(field, CompareOp::Lt, value.clone()),
+
+            Self::Lte { field, value } => compare(field, CompareOp::Lte, value.clone()),
+
+            Self::Gt { field, value } => compare(field, CompareOp::Gt, value.clone()),
+
+            Self::Gte { field, value } => compare(field, CompareOp::Gte, value.clone()),
+
+            Self::In { field, values } => compare_list(field, CompareOp::In, values),
+
+            Self::NotIn { field, values } => compare_list(field, CompareOp::NotIn, values),
+
+            Self::Contains { field, value } => compare(field, CompareOp::Contains, value.clone()),
+
+            Self::TextContains { field, value } => Predicate::TextContains {
+                field: field.clone(),
+                value: value.clone(),
+            },
+
+            Self::TextContainsCi { field, value } => Predicate::TextContainsCi {
+                field: field.clone(),
+                value: value.clone(),
+            },
+
+            Self::StartsWith { field, value } => {
+                compare(field, CompareOp::StartsWith, value.clone())
+            }
+
+            Self::StartsWithCi { field, value } => {
+                compare_ci(field, CompareOp::StartsWith, value.clone())
+            }
+
+            Self::EndsWith { field, value } => compare(field, CompareOp::EndsWith, value.clone()),
+
+            Self::EndsWithCi { field, value } => {
+                compare_ci(field, CompareOp::EndsWith, value.clone())
+            }
+
+            Self::IsNull { field } => Predicate::IsNull {
+                field: field.clone(),
+            },
+
+            Self::IsNotNull { field } => Predicate::and(vec![
+                Predicate::not(Predicate::IsNull {
+                    field: field.clone(),
+                }),
+                Predicate::not(Predicate::IsMissing {
+                    field: field.clone(),
+                }),
+            ]),
+
+            Self::IsMissing { field } => Predicate::IsMissing {
+                field: field.clone(),
+            },
+
+            Self::IsEmpty { field } => Predicate::IsEmpty {
+                field: field.clone(),
+            },
+
+            Self::IsNotEmpty { field } => Predicate::IsNotEmpty {
+                field: field.clone(),
+            },
+
+            Self::MapContainsKey { field, key } => Predicate::MapContainsKey {
+                field: field.clone(),
+                key: key.clone(),
+                coercion: CoercionSpec::new(CoercionId::Strict),
+            },
+
+            Self::MapContainsValue { field, value } => Predicate::MapContainsValue {
+                field: field.clone(),
+                value: value.clone(),
+                coercion: CoercionSpec::new(CoercionId::Strict),
+            },
+
+            Self::MapContainsEntry { field, key, value } => Predicate::MapContainsEntry {
+                field: field.clone(),
+                key: key.clone(),
+                value: value.clone(),
+                coercion: CoercionSpec::new(CoercionId::Strict),
+            },
         };
 
         Ok(core::db::query::expr::FilterExpr(pred))
     }
+}
 
-    // ─────────────────────────────────────────────────────────────
-    // Comparison constructors
-    // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Internal helpers
+// ─────────────────────────────────────────────────────────────
 
-    pub fn eq(field: impl Into<String>, value: impl Into<Value>) -> Self {
-        Self::Eq {
-            field: field.into(),
-            value: value.into(),
-        }
-    }
+fn compare(field: &str, op: CompareOp, value: Value) -> Predicate {
+    Predicate::Compare(ComparePredicate {
+        field: field.to_string(),
+        op,
+        value,
+        coercion: CoercionSpec::new(CoercionId::Strict),
+    })
+}
 
-    pub fn ne(field: impl Into<String>, value: impl Into<Value>) -> Self {
-        Self::Ne {
-            field: field.into(),
-            value: value.into(),
-        }
-    }
+fn compare_ci(field: &str, op: CompareOp, value: Value) -> Predicate {
+    Predicate::Compare(ComparePredicate {
+        field: field.to_string(),
+        op,
+        value,
+        coercion: CoercionSpec::new(CoercionId::TextCasefold),
+    })
+}
 
-    pub fn lt(field: impl Into<String>, value: impl Into<Value>) -> Self {
-        Self::Lt {
-            field: field.into(),
-            value: value.into(),
-        }
-    }
-
-    pub fn lte(field: impl Into<String>, value: impl Into<Value>) -> Self {
-        Self::Lte {
-            field: field.into(),
-            value: value.into(),
-        }
-    }
-
-    pub fn gt(field: impl Into<String>, value: impl Into<Value>) -> Self {
-        Self::Gt {
-            field: field.into(),
-            value: value.into(),
-        }
-    }
-
-    pub fn gte(field: impl Into<String>, value: impl Into<Value>) -> Self {
-        Self::Gte {
-            field: field.into(),
-            value: value.into(),
-        }
-    }
-
-    pub fn in_list<V>(field: impl Into<String>, values: V) -> Self
-    where
-        V: IntoIterator,
-        V::Item: Into<Value>,
-    {
-        Self::In {
-            field: field.into(),
-            values: values.into_iter().map(Into::into).collect(),
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // Logical constructors
-    // ─────────────────────────────────────────────────────────────
-
-    pub fn and_all(exprs: impl Into<Vec<Self>>) -> Self {
-        Self::And(exprs.into())
-    }
-
-    pub fn or_all(exprs: impl Into<Vec<Self>>) -> Self {
-        Self::Or(exprs.into())
-    }
-
-    #[allow(clippy::should_implement_trait)]
-    #[must_use]
-    pub fn not(expr: Self) -> Self {
-        Self::Not(Box::new(expr))
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // Fluent combinators (flattening)
-    // ─────────────────────────────────────────────────────────────
-
-    #[must_use]
-    pub fn and(self, other: Self) -> Self {
-        match self {
-            Self::And(mut xs) => {
-                xs.push(other);
-                Self::And(xs)
-            }
-            lhs => Self::And(vec![lhs, other]),
-        }
-    }
-
-    #[must_use]
-    pub fn or(self, other: Self) -> Self {
-        match self {
-            Self::Or(mut xs) => {
-                xs.push(other);
-                Self::Or(xs)
-            }
-            lhs => Self::Or(vec![lhs, other]),
-        }
-    }
+fn compare_list(field: &str, op: CompareOp, values: &[Value]) -> Predicate {
+    Predicate::Compare(ComparePredicate {
+        field: field.to_string(),
+        op,
+        value: Value::List(values.to_vec()),
+        coercion: CoercionSpec::new(CoercionId::Strict),
+    })
 }
 
 ///

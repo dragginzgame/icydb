@@ -1,6 +1,6 @@
 use crate::{
     db::query::predicate::{
-        ast::{CompareOp, ComparePredicate, Predicate},
+        ast::{ComparePredicate, Predicate},
         coercion::{CoercionId, CoercionSpec},
     },
     value::{Value, ValueEnum},
@@ -245,7 +245,7 @@ fn encode_predicate_key(out: &mut Vec<u8>, predicate: &Predicate) {
         Predicate::Compare(cmp) => {
             out.push(PRED_COMPARE);
             push_str(out, &cmp.field);
-            out.push(compare_op_tag(cmp.op));
+            out.push(cmp.op.tag());
             push_value(out, &cmp.value);
             push_coercion(out, &cmp.coercion);
         }
@@ -489,29 +489,10 @@ fn push_coercion(out: &mut Vec<u8>, spec: &CoercionSpec) {
     }
 }
 
-const fn compare_op_tag(op: CompareOp) -> u8 {
-    match op {
-        CompareOp::Eq => 0,
-        CompareOp::Ne => 1,
-        CompareOp::Lt => 2,
-        CompareOp::Lte => 3,
-        CompareOp::Gt => 4,
-        CompareOp::Gte => 5,
-        CompareOp::In => 6,
-        CompareOp::NotIn => 7,
-        CompareOp::AnyIn => 8,
-        CompareOp::AllIn => 9,
-        CompareOp::Contains => 10,
-        CompareOp::StartsWith => 11,
-        CompareOp::EndsWith => 12,
-    }
-}
-
 const fn coercion_id_tag(id: CoercionId) -> u8 {
     match id {
         CoercionId::Strict => 0,
         CoercionId::NumericWiden => 1,
-        CoercionId::IdentifierText => 2,
         CoercionId::TextCasefold => 3,
         CoercionId::CollectionElement => 4,
     }
@@ -538,6 +519,7 @@ fn push_str(out: &mut Vec<u8>, s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::query::predicate::CompareOp;
 
     #[test]
     fn sort_key_distinguishes_list_text_with_delimiters() {

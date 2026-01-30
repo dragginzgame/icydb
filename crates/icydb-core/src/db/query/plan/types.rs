@@ -77,17 +77,6 @@ pub struct OrderSpec {
 }
 
 ///
-/// ProjectionSpec
-/// Executor-facing projection specification.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProjectionSpec {
-    /// Return all fields (default).
-    All,
-}
-
-///
 /// DeleteLimitSpec
 /// Executor-facing delete bound with no offsets.
 ///

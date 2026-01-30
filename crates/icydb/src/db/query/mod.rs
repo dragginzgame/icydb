@@ -22,7 +22,6 @@ pub use core::db::query::{
 pub mod plan {
     pub use icydb_core::db::query::plan::{
         ExplainAccessPath, ExplainDeleteLimit, ExplainOrder, ExplainOrderBy, ExplainPagination,
-        ExplainPlan, ExplainPredicate, ExplainProjection, OrderDirection, PlanError,
-        PlanFingerprint,
+        ExplainPlan, ExplainPredicate, OrderDirection, PlanError, PlanFingerprint,
     };
 }

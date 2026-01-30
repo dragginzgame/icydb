@@ -57,18 +57,27 @@ impl<C: CanisterKind> Db<C> {
     }
 
     #[must_use]
-    pub const fn context<E>(&self) -> Context<'_, E>
+    pub(crate) const fn context<E>(&self) -> Context<'_, E>
     where
         E: EntityKind<Canister = C>,
     {
         Context::new(self)
     }
 
-    pub fn with_data<R>(&self, f: impl FnOnce(&DataStoreRegistry) -> R) -> R {
+    /// Return a recovery-guarded context for read paths.
+    pub(crate) fn recovered_context<E>(&self) -> Result<Context<'_, E>, InternalError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        ensure_recovered(self)?;
+        Ok(Context::new(self))
+    }
+
+    pub(crate) fn with_data<R>(&self, f: impl FnOnce(&DataStoreRegistry) -> R) -> R {
         self.data.with(|reg| f(reg))
     }
 
-    pub fn with_index<R>(&self, f: impl FnOnce(&IndexStoreRegistry) -> R) -> R {
+    pub(crate) fn with_index<R>(&self, f: impl FnOnce(&IndexStoreRegistry) -> R) -> R {
         self.index.with(|reg| f(reg))
     }
 }

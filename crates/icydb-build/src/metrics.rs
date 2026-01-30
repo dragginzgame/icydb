@@ -23,7 +23,7 @@ pub fn generate(builder: &ActorBuilder) -> TokenStream {
         /// Includes data/index store stats and per-entity breakdown by store.
         #[::icydb::__reexports::canic_cdk::query]
         pub fn icydb_snapshot() -> Result<::icydb::obs::snapshot::StorageReport, ::icydb::Error> {
-            Ok(::icydb::obs::snapshot::storage_report(&DB, ICYDB_ENTITY_NAME_PATH))
+            Ok(::icydb::obs::snapshot::storage_report(&DB, ICYDB_ENTITY_NAME_PATH)?)
         }
 
         /// Ephemeral event report since the internal `since_ms` (counters + per-entity summaries).

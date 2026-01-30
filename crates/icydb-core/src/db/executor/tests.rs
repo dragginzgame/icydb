@@ -3,13 +3,16 @@ use super::{DeleteExecutor, LoadExecutor, SaveExecutor};
 use crate::{
     db::{
         Db, DbSession,
-        commit::commit_marker_present,
-        index::{IndexKey, IndexStore, IndexStoreRegistry},
+        commit::{
+            CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, begin_commit,
+            commit_marker_present, force_recovery_for_tests,
+        },
+        index::{IndexEntry, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
         query::{
             DeleteSpec, FieldRef, LoadSpec, Query, QueryError, QueryMode, ReadConsistency,
             plan::{
                 AccessPath, AccessPlan, ExecutablePlan, ExplainAccessPath, OrderDirection,
-                OrderSpec, PageSpec, PlanError, ProjectionSpec, logical::LogicalPlan,
+                OrderSpec, PageSpec, PlanError, logical::LogicalPlan,
             },
             predicate::{
                 Predicate,
@@ -26,6 +29,7 @@ use crate::{
         field::{EntityFieldKind, EntityFieldModel},
         index::IndexModel,
     },
+    serialize::serialize,
     traits::{
         CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
         ValidateAuto, ValidateCustom, View, Visitable,
@@ -686,6 +690,35 @@ fn assert_commit_marker_clear() {
     assert!(!commit_marker_present().unwrap());
 }
 
+// Build a commit marker that inserts a single entity row and index entry.
+fn commit_marker_for_entity(entity: &TestEntity) -> CommitMarker {
+    let data_key = DataKey::new::<TestEntity>(entity.id);
+    let raw_data_key = data_key.to_raw().expect("data key encode");
+    let raw_row = RawRow::try_new(serialize(entity).unwrap()).unwrap();
+
+    let index_key = IndexKey::new(entity, &INDEX_MODEL)
+        .expect("index key")
+        .expect("index key missing");
+    let raw_index_key = index_key.to_raw();
+    let entry = IndexEntry::new(entity.key());
+    let raw_index_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
+
+    CommitMarker::new(
+        CommitKind::Save,
+        vec![CommitIndexOp {
+            store: INDEX_STORE_PATH.to_string(),
+            key: raw_index_key.as_bytes().to_vec(),
+            value: Some(raw_index_entry.as_bytes().to_vec()),
+        }],
+        vec![CommitDataOp {
+            store: DATA_STORE_PATH.to_string(),
+            key: raw_data_key.as_bytes().to_vec(),
+            value: Some(raw_row.as_bytes().to_vec()),
+        }],
+    )
+    .unwrap()
+}
+
 fn assert_entity_present(entity: &TestEntity) {
     let data_key = DataKey::new::<TestEntity>(entity.id);
     let raw_key = data_key.to_raw().expect("data key encode");
@@ -748,6 +781,154 @@ fn save_rolls_back_on_forced_failure() {
     let raw_index_key = index_key.to_raw();
     let index_present = TEST_INDEX_STORE.with_borrow(|s| s.get(&raw_index_key));
     assert!(index_present.is_none());
+}
+
+#[test]
+fn save_update_rejects_row_key_mismatch() {
+    reset_stores();
+    init_schema();
+
+    let stored = TestEntity {
+        id: Ulid::from_u128(1),
+        name: "alpha".to_string(),
+    };
+    let data_key = DataKey::new::<TestEntity>(Ulid::from_u128(2));
+    let raw_key = data_key.to_raw().expect("data key encode");
+    let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
+    DB.context::<TestEntity>()
+        .with_store_mut(|store| store.insert(raw_key, raw_row))
+        .unwrap();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(2),
+        name: "beta".to_string(),
+    };
+    let err = saver.update(entity).unwrap_err();
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn save_insert_rejects_row_key_mismatch() {
+    reset_stores();
+    init_schema();
+
+    let stored = TestEntity {
+        id: Ulid::from_u128(1),
+        name: "alpha".to_string(),
+    };
+    let data_key = DataKey::new::<TestEntity>(Ulid::from_u128(2));
+    let raw_key = data_key.to_raw().expect("data key encode");
+    let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
+    DB.context::<TestEntity>()
+        .with_store_mut(|store| store.insert(raw_key, raw_row))
+        .unwrap();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(2),
+        name: "beta".to_string(),
+    };
+    let err = saver.insert(entity).unwrap_err();
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn save_replace_rejects_row_key_mismatch() {
+    reset_stores();
+    init_schema();
+
+    let stored = TestEntity {
+        id: Ulid::from_u128(3),
+        name: "alpha".to_string(),
+    };
+    let data_key = DataKey::new::<TestEntity>(Ulid::from_u128(4));
+    let raw_key = data_key.to_raw().expect("data key encode");
+    let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
+    DB.context::<TestEntity>()
+        .with_store_mut(|store| store.insert(raw_key, raw_row))
+        .unwrap();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity = TestEntity {
+        id: Ulid::from_u128(4),
+        name: "beta".to_string(),
+    };
+    let err = saver.replace(entity).unwrap_err();
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+}
+
+#[test]
+fn load_recovers_when_commit_marker_present() {
+    reset_stores();
+    init_schema();
+
+    let entity = TestEntity {
+        id: Ulid::from_u128(9),
+        name: "alpha".to_string(),
+    };
+
+    let _guard = begin_commit(commit_marker_for_entity(&entity)).unwrap();
+    assert!(commit_marker_present().unwrap());
+    force_recovery_for_tests();
+
+    let plan = Query::<TestEntity>::new(ReadConsistency::Strict)
+        .filter(FieldRef::new("id").eq(entity.id))
+        .plan()
+        .expect("plan");
+    let loader = LoadExecutor::<TestEntity>::new(DB, false);
+    let response = loader.execute(plan).unwrap();
+
+    assert_eq!(response.entities(), vec![entity]);
+    assert_commit_marker_clear();
+}
+
+#[test]
+fn context_reads_enforce_recovery() {
+    reset_stores();
+    init_schema();
+
+    let entity = TestEntity {
+        id: Ulid::from_u128(12),
+        name: "alpha".to_string(),
+    };
+    let data_key = DataKey::new::<TestEntity>(entity.id);
+
+    let _guard = begin_commit(commit_marker_for_entity(&entity)).unwrap();
+    assert!(commit_marker_present().unwrap());
+    force_recovery_for_tests();
+
+    let ctx = DB.recovered_context::<TestEntity>().unwrap();
+    let _ = ctx.read(&data_key).unwrap();
+    assert_commit_marker_clear();
+
+    let _guard = begin_commit(commit_marker_for_entity(&entity)).unwrap();
+    assert!(commit_marker_present().unwrap());
+    force_recovery_for_tests();
+
+    let ctx = DB.recovered_context::<TestEntity>().unwrap();
+    let _ = ctx.read_strict(&data_key).unwrap();
+    assert_commit_marker_clear();
+
+    let _guard = begin_commit(commit_marker_for_entity(&entity)).unwrap();
+    assert!(commit_marker_present().unwrap());
+    force_recovery_for_tests();
+
+    let ctx = DB.recovered_context::<TestEntity>().unwrap();
+    let access = AccessPath::IndexPrefix {
+        index: INDEX_MODEL,
+        values: vec![Value::Text(entity.name.clone())],
+    };
+    let rows = ctx
+        .rows_from_access(&access, ReadConsistency::Strict)
+        .unwrap();
+    let decoded = ctx.deserialize_rows(rows).unwrap();
+    assert_eq!(decoded.len(), 1);
+    assert_eq!(decoded[0].1, entity);
+    assert_commit_marker_clear();
 }
 
 #[test]
@@ -854,6 +1035,21 @@ fn delete_limit_deletes_oldest_rows() {
         .map(|entity| entity.name.as_str())
         .collect::<Vec<_>>();
     assert_eq!(remaining_names, vec!["charlie", "delta"]);
+}
+
+#[test]
+fn delete_limit_without_order_is_rejected() {
+    reset_stores();
+    init_schema();
+
+    let deleter = DeleteExecutor::<TestEntity>::new(DB, false);
+    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+    plan.mode = QueryMode::Delete(DeleteSpec { limit: Some(1) });
+    plan.delete_limit = Some(crate::db::query::plan::DeleteLimitSpec { max_rows: 1 });
+
+    let err = deleter.execute(ExecutablePlan::new(plan)).unwrap_err();
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Query);
 }
 
 #[test]
@@ -1355,7 +1551,6 @@ fn trace_access_includes_composite_plan() {
         order: None,
         delete_limit: None,
         page: None,
-        projection: ProjectionSpec::All,
         consistency: ReadConsistency::MissingOk,
     };
     let fingerprint = plan.fingerprint();
@@ -1448,7 +1643,6 @@ fn trace_emits_phase_counts_for_filter_order_page() {
             limit: Some(1),
             offset: 1,
         }),
-        projection: ProjectionSpec::All,
         consistency: ReadConsistency::MissingOk,
     };
 

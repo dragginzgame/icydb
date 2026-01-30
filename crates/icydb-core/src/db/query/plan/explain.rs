@@ -2,7 +2,6 @@
 
 use super::{
     AccessPath, AccessPlan, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
-    ProjectionSpec,
 };
 use crate::db::query::QueryMode;
 use crate::db::query::predicate::{
@@ -13,7 +12,7 @@ use crate::{db::query::ReadConsistency, key::Key, value::Value};
 ///
 /// ExplainPlan
 ///
-/// Stable, deterministic projection of a `LogicalPlan` for observability.
+/// Stable, deterministic representation of a `LogicalPlan` for observability.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,7 +23,6 @@ pub struct ExplainPlan {
     pub order_by: ExplainOrderBy,
     pub page: ExplainPagination,
     pub delete_limit: ExplainDeleteLimit,
-    pub projection: ExplainProjection,
     pub consistency: ReadConsistency,
 }
 
@@ -151,15 +149,6 @@ pub enum ExplainDeleteLimit {
     Limit { max_rows: u32 },
 }
 
-///
-/// ExplainProjection
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExplainProjection {
-    All,
-}
-
 impl LogicalPlan {
     /// Produce a stable, deterministic explanation of this logical plan.
     #[must_use]
@@ -172,7 +161,6 @@ impl LogicalPlan {
         let order_by = explain_order(self.order.as_ref());
         let page = explain_page(self.page.as_ref());
         let delete_limit = explain_delete_limit(self.delete_limit.as_ref());
-        let projection = ExplainProjection::from_spec(&self.projection);
 
         ExplainPlan {
             mode: self.mode,
@@ -181,7 +169,6 @@ impl LogicalPlan {
             order_by,
             page,
             delete_limit,
-            projection,
             consistency: self.consistency,
         }
     }
@@ -331,14 +318,6 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
             max_rows: limit.max_rows,
         },
         None => ExplainDeleteLimit::None,
-    }
-}
-
-impl ExplainProjection {
-    const fn from_spec(spec: &ProjectionSpec) -> Self {
-        match spec {
-            ProjectionSpec::All => Self::All,
-        }
     }
 }
 

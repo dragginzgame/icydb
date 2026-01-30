@@ -38,9 +38,9 @@ impl FieldRef {
         compare(self.0, CompareOp::Eq, value.to_value(), CoercionId::Strict)
     }
 
-    /// Case-insensitive text equality.
+    /// Case-insensitive equality for text fields.
     #[must_use]
-    pub fn eq_ci(self, value: impl FieldValue) -> Predicate {
+    pub fn text_eq_ci(self, value: impl FieldValue) -> Predicate {
         compare(
             self.0,
             CompareOp::Eq,

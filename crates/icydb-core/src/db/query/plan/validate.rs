@@ -1,22 +1,28 @@
 //! Executor-ready plan validation against a concrete entity schema.
-
 use super::{AccessPath, AccessPlan, LogicalPlan, OrderSpec};
 use crate::{
     db::query::predicate::{
         self, SchemaInfo,
         validate::{FieldType, ScalarType},
     },
+    error::{ErrorClass, ErrorOrigin, InternalError},
     key::Key,
     model::entity::EntityModel,
     model::index::IndexModel,
+    traits::EntityKind,
     value::Value,
 };
 use thiserror::Error as ThisError;
 
+///
+/// PlanError
+///
 /// Executor-visible validation failures for logical plans.
 ///
 /// These errors indicate that a plan cannot be safely executed against the
 /// current schema or entity definition. They are *not* planner bugs.
+///
+
 #[derive(Debug, ThisError)]
 pub enum PlanError {
     /// Predicate failed schema-level validation.
@@ -39,6 +45,10 @@ pub enum PlanError {
     #[error("index prefix length {prefix_len} exceeds index field count {field_len}")]
     IndexPrefixTooLong { prefix_len: usize, field_len: usize },
 
+    /// Index prefix must include at least one value.
+    #[error("index prefix must include at least one value")]
+    IndexPrefixEmpty,
+
     /// Index prefix literal does not match indexed field type.
     #[error("index prefix value for field '{field}' is incompatible")]
     IndexPrefixValueMismatch { field: String },
@@ -54,6 +64,32 @@ pub enum PlanError {
     /// Key range has invalid ordering.
     #[error("key range start is greater than end")]
     InvalidKeyRange,
+
+    /// ORDER BY must specify at least one field.
+    #[error("order specification must include at least one field")]
+    EmptyOrderSpec,
+
+    /// Delete plans must not carry pagination.
+    #[error("delete plans must not include pagination")]
+    DeletePlanWithPagination,
+
+    /// Load plans must not carry delete limits.
+    #[error("load plans must not include delete limits")]
+    LoadPlanWithDeleteLimit,
+
+    /// Delete limits require an explicit ordering.
+    #[error("delete limit requires an explicit ordering")]
+    DeleteLimitRequiresOrder,
+}
+
+/// Validate a logical plan using a prebuilt schema surface.
+#[cfg(test)]
+pub(crate) fn validate_plan_with_schema_info(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    plan: &LogicalPlan,
+) -> Result<(), PlanError> {
+    validate_logical_plan(schema, model, plan)
 }
 
 /// Validate a logical plan against the runtime entity model.
@@ -68,9 +104,8 @@ pub(crate) fn validate_plan_with_model(
     validate_plan_with_schema_info(&schema, model, plan)
 }
 
-/// Validate a logical plan using a prebuilt schema surface.
-#[cfg(test)]
-pub(crate) fn validate_plan_with_schema_info(
+/// Validate a logical plan against schema and plan-level invariants.
+pub(crate) fn validate_logical_plan(
     schema: &SchemaInfo,
     model: &EntityModel,
     plan: &LogicalPlan,
@@ -84,11 +119,90 @@ pub(crate) fn validate_plan_with_schema_info(
     }
 
     validate_access_plan(schema, model, &plan.access)?;
+    validate_plan_semantics(plan)?;
 
     Ok(())
 }
 
-impl LogicalPlan {}
+/// Validate plan-level invariants not covered by schema checks.
+fn validate_plan_semantics(plan: &LogicalPlan) -> Result<(), PlanError> {
+    if let Some(order) = &plan.order
+        && order.fields.is_empty()
+    {
+        return Err(PlanError::EmptyOrderSpec);
+    }
+
+    if plan.mode.is_delete() {
+        if plan.page.is_some() {
+            return Err(PlanError::DeletePlanWithPagination);
+        }
+
+        if plan.delete_limit.is_some()
+            && plan
+                .order
+                .as_ref()
+                .is_none_or(|order| order.fields.is_empty())
+        {
+            return Err(PlanError::DeleteLimitRequiresOrder);
+        }
+    }
+
+    if plan.mode.is_load() && plan.delete_limit.is_some() {
+        return Err(PlanError::LoadPlanWithDeleteLimit);
+    }
+
+    Ok(())
+}
+
+/// Validate plans at executor boundaries and surface invariant violations.
+pub(crate) fn validate_executor_plan<E: EntityKind>(
+    plan: &LogicalPlan,
+) -> Result<(), InternalError> {
+    let schema = SchemaInfo::from_entity_model(E::MODEL).map_err(|err| {
+        InternalError::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Query,
+            format!("entity schema invalid for {}: {err}", E::PATH),
+        )
+    })?;
+
+    if let Some(predicate) = &plan.predicate {
+        predicate::validate(&schema, predicate).map_err(|err| {
+            InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                err.to_string(),
+            )
+        })?;
+    }
+
+    if let Some(order) = &plan.order {
+        validate_executor_order(&schema, order).map_err(|err| {
+            InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                err.to_string(),
+            )
+        })?;
+    }
+
+    validate_access_plan(&schema, E::MODEL, &plan.access).map_err(|err| {
+        InternalError::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Query,
+            err.to_string(),
+        )
+    })?;
+    validate_plan_semantics(plan).map_err(|err| {
+        InternalError::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Query,
+            err.to_string(),
+        )
+    })?;
+
+    Ok(())
+}
 
 /// Validate ORDER BY fields against the schema.
 pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
@@ -100,6 +214,12 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
             })?;
 
         if !field_type.is_orderable() {
+            // ORDER BY permits opaque / unsupported fields.
+            // Executor treats incomparable values as Ordering::Equal and preserves input order.
+            if matches!(field_type, FieldType::Unsupported) {
+                continue;
+            }
+
             return Err(PlanError::UnorderableField {
                 field: field.clone(),
             });
@@ -107,6 +227,13 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
     }
 
     Ok(())
+}
+
+/// Validate ORDER BY fields for executor-only plans.
+///
+/// CONTRACT: executor ordering validation matches planner rules.
+fn validate_executor_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
+    validate_order(schema, order)
 }
 
 /// Validate executor-visible access paths.
@@ -367,7 +494,6 @@ mod tests {
             }),
             delete_limit: None,
             page: None,
-            projection: crate::db::query::plan::ProjectionSpec::All,
             consistency: crate::db::query::ReadConsistency::MissingOk,
         };
 
@@ -393,13 +519,33 @@ mod tests {
             order: None,
             delete_limit: None,
             page: None,
-            projection: crate::db::query::plan::ProjectionSpec::All,
             consistency: crate::db::query::ReadConsistency::MissingOk,
         };
 
         let err = validate_plan_with_schema_info(&schema, PlannerEntity::MODEL, &plan)
             .expect_err("index prefix too long");
         assert!(matches!(err, PlanError::IndexPrefixTooLong { .. }));
+    }
+
+    #[test]
+    fn plan_rejects_empty_index_prefix() {
+        let schema = SchemaInfo::from_entity_model(PlannerEntity::MODEL).expect("valid model");
+        let plan = LogicalPlan {
+            mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+            access: AccessPlan::Path(AccessPath::IndexPrefix {
+                index: *PlannerEntity::INDEXES[0],
+                values: vec![],
+            }),
+            predicate: None,
+            order: None,
+            delete_limit: None,
+            page: None,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        };
+
+        let err = validate_plan_with_schema_info(&schema, PlannerEntity::MODEL, &plan)
+            .expect_err("index prefix empty");
+        assert!(matches!(err, PlanError::IndexPrefixEmpty));
     }
 
     #[test]
@@ -412,7 +558,6 @@ mod tests {
             order: None,
             delete_limit: None,
             page: None,
-            projection: crate::db::query::plan::ProjectionSpec::All,
             consistency: crate::db::query::ReadConsistency::MissingOk,
         };
 
@@ -454,6 +599,10 @@ fn validate_index_prefix(
 ) -> Result<(), PlanError> {
     if !model.indexes.contains(&index) {
         return Err(PlanError::IndexNotFound { index: *index });
+    }
+
+    if values.is_empty() {
+        return Err(PlanError::IndexPrefixEmpty);
     }
 
     if values.len() > index.fields.len() {

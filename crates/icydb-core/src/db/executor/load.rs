@@ -5,7 +5,7 @@ use crate::{
             plan::{record_plan_metrics, set_rows_from_len},
             trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
         },
-        query::plan::{AccessPath, AccessPlan, ExecutablePlan},
+        query::plan::{AccessPath, AccessPlan, ExecutablePlan, validate::validate_executor_plan},
         response::Response,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -77,6 +77,11 @@ impl<E: EntityKind> LoadExecutor<E> {
             let mut span = Span::<E>::new(ExecKind::Load);
             let plan = plan.into_inner();
 
+            validate_executor_plan::<E>(&plan)?;
+
+            // Recover before reads to prevent observing partial commit state.
+            let ctx = self.db.recovered_context::<E>()?;
+
             if self.debug {
                 let access = access_summary(&plan.access);
                 let ordered = plan
@@ -102,7 +107,6 @@ impl<E: EntityKind> LoadExecutor<E> {
                 ));
             }
 
-            let ctx = self.db.context::<E>();
             record_plan_metrics(&plan.access);
 
             // Access phase: resolve candidate rows from the store.

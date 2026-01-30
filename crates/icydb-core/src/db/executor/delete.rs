@@ -1,7 +1,6 @@
 use crate::{
     db::{
         CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit,
-        ensure_recovered,
         executor::{
             Context, ExecutorError,
             plan::{record_plan_metrics, set_rows_from_len},
@@ -12,7 +11,7 @@ use crate::{
             IndexEntry, IndexEntryCorruption, IndexKey, IndexStore, MAX_INDEX_ENTRY_BYTES,
             RawIndexEntry, RawIndexKey,
         },
-        query::plan::{AccessPath, AccessPlan, ExecutablePlan},
+        query::plan::{AccessPath, AccessPlan, ExecutablePlan, validate::validate_executor_plan},
         response::Response,
         store::{DataKey, DataRow, RawDataKey, RawRow},
     },
@@ -123,7 +122,8 @@ impl<E: EntityKind> DeleteExecutor<E> {
         let trace = start_plan_trace(self.trace, TraceExecutorKind::Delete, &plan);
         let result = (|| {
             let plan = plan.into_inner();
-            ensure_recovered(&self.db)?;
+            validate_executor_plan::<E>(&plan)?;
+            let ctx = self.db.recovered_context::<E>()?;
 
             if self.debug {
                 let access = access_summary(&plan.access);
@@ -153,7 +153,6 @@ impl<E: EntityKind> DeleteExecutor<E> {
             let mut span = Span::<E>::new(ExecKind::Delete);
             record_plan_metrics(&plan.access);
 
-            let ctx = self.db.context::<E>();
             // Access phase: resolve candidate rows before delete filtering.
             let data_rows = ctx.rows_from_access_plan(&plan.access, plan.consistency)?;
             sink::record(MetricsEvent::RowsScanned {

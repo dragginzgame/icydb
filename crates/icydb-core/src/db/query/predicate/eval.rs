@@ -15,6 +15,7 @@ use std::cmp::Ordering;
 /// evaluation. This distinguishes between a missing field and a
 /// present field whose value may be `None`.
 ///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FieldPresence {
     /// Field exists and has a value (including `Value::None`).
@@ -29,6 +30,7 @@ pub enum FieldPresence {
 /// Abstraction over a row-like value that can expose fields by name.
 /// This decouples predicate evaluation from concrete entity types.
 ///
+
 pub trait Row {
     fn field(&self, name: &str) -> FieldPresence;
 }
@@ -37,6 +39,7 @@ pub trait Row {
 /// Default `Row` implementation for any type that exposes
 /// `FieldValues`, which is the standard runtime entity interface.
 ///
+
 impl<T: FieldValues> Row for T {
     fn field(&self, name: &str) -> FieldPresence {
         match self.get_value(name) {
@@ -55,6 +58,7 @@ impl<T: FieldValues> Row for T {
 /// - no validation
 ///
 /// Any unsupported comparison simply evaluates to `false`.
+/// CONTRACT: internal-only; predicates must be validated before evaluation.
 ///
 #[must_use]
 #[expect(clippy::match_like_matches_macro)]
@@ -156,11 +160,8 @@ fn eval_compare<R: Row + ?Sized>(row: &R, cmp: &ComparePredicate) -> bool {
         CompareOp::Gt => compare_order(&actual, value, coercion).is_some_and(Ordering::is_gt),
         CompareOp::Gte => compare_order(&actual, value, coercion).is_some_and(Ordering::is_ge),
 
-        CompareOp::In => in_list(&actual, value, coercion),
-        CompareOp::NotIn => !in_list(&actual, value, coercion),
-
-        CompareOp::AnyIn => any_in(&actual, value, coercion),
-        CompareOp::AllIn => all_in(&actual, value, coercion),
+        CompareOp::In => in_list(&actual, value, coercion).unwrap_or(false),
+        CompareOp::NotIn => in_list(&actual, value, coercion).is_some_and(|matched| !matched),
 
         CompareOp::Contains => contains(&actual, value, coercion),
 
@@ -187,61 +188,32 @@ const fn is_empty_value(value: &Value) -> bool {
 ///
 /// Check whether a value equals any element in a list.
 ///
-fn in_list(actual: &Value, list: &Value, coercion: &CoercionSpec) -> bool {
+fn in_list(actual: &Value, list: &Value, coercion: &CoercionSpec) -> Option<bool> {
     let Value::List(items) = list else {
-        return false;
+        return None;
     };
 
-    items
-        .iter()
-        .any(|item| compare_eq(actual, item, coercion).unwrap_or(false))
+    let mut saw_valid = false;
+    for item in items {
+        match compare_eq(actual, item, coercion) {
+            Some(true) => return Some(true),
+            Some(false) => saw_valid = true,
+            None => {}
+        }
+    }
+
+    saw_valid.then_some(false)
 }
 
 ///
-/// Check whether any element of `actual` exists in `list`.
+/// Check whether a collection contains another value.
 ///
-fn any_in(actual: &Value, list: &Value, coercion: &CoercionSpec) -> bool {
-    let Value::List(actual_items) = actual else {
-        return false;
-    };
-    let Value::List(needles) = list else {
-        return false;
-    };
-
-    actual_items.iter().any(|item| {
-        needles
-            .iter()
-            .any(|needle| compare_eq(item, needle, coercion).unwrap_or(false))
-    })
-}
-
-///
-/// Check whether all elements of `actual` exist in `list`.
-///
-fn all_in(actual: &Value, list: &Value, coercion: &CoercionSpec) -> bool {
-    let Value::List(actual_items) = actual else {
-        return false;
-    };
-    let Value::List(needles) = list else {
-        return false;
-    };
-
-    actual_items.iter().all(|item| {
-        needles
-            .iter()
-            .any(|needle| compare_eq(item, needle, coercion).unwrap_or(false))
-    })
-}
-
-///
-/// Check whether a value contains another value.
-///
-/// For textual values, this defers to text comparison semantics.
-/// For collections, this performs element-wise equality checks.
+/// CONTRACT: text substring matching uses TextContains/TextContainsCi only.
 ///
 fn contains(actual: &Value, needle: &Value, coercion: &CoercionSpec) -> bool {
-    if let Some(res) = compare_text(actual, needle, coercion, TextOp::Contains) {
-        return res;
+    if matches!(actual, Value::Text(_)) {
+        // CONTRACT: text substring matching uses TextContains/TextContainsCi.
+        return false;
     }
 
     let Value::List(items) = actual else {
@@ -265,9 +237,11 @@ fn map_contains_key(map: &Value, key: &Value, coercion: &CoercionSpec) -> bool {
 
     for entry in entries {
         let Value::List(pair) = entry else {
+            // CONTRACT: malformed map encoding short-circuits to false.
             return false;
         };
         if pair.len() != 2 {
+            // CONTRACT: malformed map encoding short-circuits to false.
             return false;
         }
         if compare_eq(&pair[0], key, coercion).unwrap_or(false) {
@@ -288,9 +262,11 @@ fn map_contains_value(map: &Value, value: &Value, coercion: &CoercionSpec) -> bo
 
     for entry in entries {
         let Value::List(pair) = entry else {
+            // CONTRACT: malformed map encoding short-circuits to false.
             return false;
         };
         if pair.len() != 2 {
+            // CONTRACT: malformed map encoding short-circuits to false.
             return false;
         }
         if compare_eq(&pair[1], value, coercion).unwrap_or(false) {
@@ -311,9 +287,11 @@ fn map_contains_entry(map: &Value, key: &Value, value: &Value, coercion: &Coerci
 
     for entry in entries {
         let Value::List(pair) = entry else {
+            // CONTRACT: malformed map encoding short-circuits to false.
             return false;
         };
         if pair.len() != 2 {
+            // CONTRACT: malformed map encoding short-circuits to false.
             return false;
         }
 

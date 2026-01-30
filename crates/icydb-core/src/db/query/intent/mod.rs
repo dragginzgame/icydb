@@ -4,10 +4,9 @@ use crate::{
         expr::{FilterExpr, SortExpr, SortLowerError},
         plan::{
             AccessPath, AccessPlan, DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan,
-            OrderDirection, OrderSpec, PageSpec, PlanError, ProjectionSpec,
+            OrderDirection, OrderSpec, PageSpec, PlanError,
             planner::{PlannerError, plan_access},
-            validate::validate_access_plan,
-            validate::validate_order,
+            validate::{validate_access_plan, validate_logical_plan, validate_order},
         },
         predicate::{Predicate, SchemaInfo, ValidateError, normalize, validate},
     },
@@ -112,7 +111,6 @@ pub struct Query<E: EntityKind> {
     key_access: Option<KeyAccessState>,
     key_access_conflict: bool,
     order: Option<OrderSpec>,
-    projection: ProjectionSpec,
     consistency: ReadConsistency,
     _marker: PhantomData<E>,
 }
@@ -129,7 +127,6 @@ impl<E: EntityKind> Query<E> {
             key_access: None,
             key_access_conflict: false,
             order: None,
-            projection: ProjectionSpec::All,
             consistency,
             _marker: PhantomData,
         }
@@ -167,11 +164,7 @@ impl<E: EntityKind> Query<E> {
         };
 
         if order.fields.is_empty() {
-            // Normalize empty sort expressions into "no ordering" to keep intent invariants simple.
-            return Ok(Self {
-                order: None,
-                ..self
-            });
+            return Err(QueryError::Intent(IntentError::EmptyOrderSpec));
         }
 
         Ok(self.order_spec(order))
@@ -325,9 +318,10 @@ impl<E: EntityKind> Query<E> {
                 }
                 QueryMode::Delete(_) => None,
             },
-            projection: self.projection.clone(),
             consistency: self.consistency,
         };
+
+        validate_logical_plan(&schema_info, model, &plan)?;
 
         Ok(plan)
     }
@@ -336,6 +330,12 @@ impl<E: EntityKind> Query<E> {
     const fn validate_intent(&self) -> Result<(), IntentError> {
         if self.key_access_conflict {
             return Err(IntentError::KeyAccessConflict);
+        }
+
+        if let Some(order) = &self.order
+            && order.fields.is_empty()
+        {
+            return Err(IntentError::EmptyOrderSpec);
         }
 
         if let Some(state) = &self.key_access {
@@ -412,6 +412,9 @@ impl From<PlannerError> for QueryError {
 pub enum IntentError {
     #[error("delete limit requires an explicit ordering")]
     DeleteLimitRequiresOrder,
+
+    #[error("order specification must include at least one field")]
+    EmptyOrderSpec,
 
     #[error("many() cannot be combined with predicates")]
     ManyWithPredicate,

@@ -19,20 +19,26 @@ use std::ops::{BitAnd, BitOr};
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
 pub enum CompareOp {
-    Eq,
-    Ne,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
-    In,
-    NotIn,
-    AnyIn,
-    AllIn,
-    Contains,
-    StartsWith,
-    EndsWith,
+    Eq = 0x01,
+    Ne = 0x02,
+    Lt = 0x03,
+    Lte = 0x04,
+    Gt = 0x05,
+    Gte = 0x06,
+    In = 0x07,
+    NotIn = 0x08,
+    Contains = 0x09,
+    StartsWith = 0x0a,
+    EndsWith = 0x0b,
+}
+
+impl CompareOp {
+    #[must_use]
+    pub const fn tag(self) -> u8 {
+        self as u8
+    }
 }
 
 ///

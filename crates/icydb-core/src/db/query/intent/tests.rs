@@ -239,8 +239,8 @@ fn fluent_chain_builds_predicate_tree() {
 }
 
 #[test]
-fn eq_ci_uses_text_casefold() {
-    let predicate = FieldRef::new("name").eq_ci("ICE");
+fn text_eq_ci_uses_text_casefold() {
+    let predicate = FieldRef::new("name").text_eq_ci("ICE");
     let Predicate::Compare(cmp) = predicate else {
         panic!("expected compare predicate");
     };
@@ -331,14 +331,11 @@ fn delete_limit_requires_order() {
 fn delete_limit_requires_non_empty_order() {
     let err = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
         .delete()
-        .sort_expr(SortExpr { fields: vec![] })
-        .expect("empty sort expr should normalize")
-        .limit(5)
-        .plan();
+        .sort_expr(SortExpr { fields: vec![] });
 
     assert!(matches!(
         err,
-        Err(QueryError::Intent(IntentError::DeleteLimitRequiresOrder))
+        Err(QueryError::Intent(IntentError::EmptyOrderSpec))
     ));
 }
 

@@ -1,5 +1,6 @@
 use crate::{
-    db::{Db, identity::EntityName, index::IndexKey, store::DataKey},
+    db::{Db, ensure_recovered, identity::EntityName, index::IndexKey, store::DataKey},
+    error::InternalError,
     key::Key,
     traits::CanisterKind,
 };
@@ -103,11 +104,11 @@ impl EntityStats {
 }
 
 /// Build storage snapshot and per-entity breakdown; enrich path names using name→path map
-#[must_use]
 pub fn storage_report<C: CanisterKind>(
     db: &Db<C>,
     name_to_path: &[(&'static str, &'static str)],
-) -> StorageReport {
+) -> Result<StorageReport, InternalError> {
+    ensure_recovered(db)?;
     // Build name→path map once, reuse across stores
     let name_map: BTreeMap<&'static str, &str> = name_to_path.iter().copied().collect();
     let mut data = Vec::new();
@@ -175,11 +176,11 @@ pub fn storage_report<C: CanisterKind>(
         });
     });
 
-    StorageReport {
+    Ok(StorageReport {
         storage_data: data,
         storage_index: index,
         entity_storage,
         corrupted_keys,
         corrupted_entries,
-    }
+    })
 }

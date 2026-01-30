@@ -1,6 +1,8 @@
 use crate::{
     db::query::predicate::{
-        CoercionId, CoercionSpec, CompareOp, FieldPresence, Predicate, Row, eval, normalize,
+        CoercionId, CoercionSpec, CompareOp, Predicate, eval,
+        eval::{FieldPresence, Row},
+        normalize,
     },
     types::{Account, Principal, Ulid},
     value::{Value, ValueEnum},
@@ -69,7 +71,6 @@ fn arb_coercion_spec() -> impl Strategy<Value = CoercionSpec> {
     prop_oneof![
         Just(CoercionId::Strict),
         Just(CoercionId::NumericWiden),
-        Just(CoercionId::IdentifierText),
         Just(CoercionId::TextCasefold),
         Just(CoercionId::CollectionElement),
     ]
@@ -86,8 +87,6 @@ fn arb_compare_op() -> impl Strategy<Value = CompareOp> {
         Just(CompareOp::Gte),
         Just(CompareOp::In),
         Just(CompareOp::NotIn),
-        Just(CompareOp::AnyIn),
-        Just(CompareOp::AllIn),
         Just(CompareOp::Contains),
         Just(CompareOp::StartsWith),
         Just(CompareOp::EndsWith),
@@ -219,8 +218,8 @@ proptest! {
         let symmetric = [
             CoercionId::Strict,
             CoercionId::NumericWiden,
-            CoercionId::TextCasefold,
             CoercionId::CollectionElement,
+            CoercionId::TextCasefold,
         ];
 
         for id in symmetric {
@@ -237,15 +236,24 @@ proptest! {
 }
 
 #[test]
-fn identifier_text_directional() {
-    use crate::db::query::predicate::coercion::compare_eq;
+fn not_in_invalid_values_are_false() {
+    let mut fields = BTreeMap::new();
+    fields.insert("a".to_string(), Value::Int(5));
+    let row = TestRow { fields };
 
-    let ulid = Ulid::from_u128(42);
-    let id = Value::Ulid(ulid);
-    let text = Value::Text(ulid.to_string());
-    let spec = CoercionSpec::new(CoercionId::IdentifierText);
+    let not_list = Predicate::Compare(crate::db::query::predicate::ast::ComparePredicate {
+        field: "a".to_string(),
+        op: CompareOp::NotIn,
+        value: Value::Text("nope".to_string()),
+        coercion: CoercionSpec::new(CoercionId::Strict),
+    });
+    assert!(!eval(&row, &not_list));
 
-    assert_eq!(compare_eq(&id, &text, &spec), Some(true));
-    assert_eq!(compare_eq(&text, &id, &spec), Some(true));
-    assert_eq!(compare_eq(&text, &text, &spec), None);
+    let wrong_list = Predicate::Compare(crate::db::query::predicate::ast::ComparePredicate {
+        field: "a".to_string(),
+        op: CompareOp::NotIn,
+        value: Value::List(vec![Value::Text("nope".to_string())]),
+        coercion: CoercionSpec::new(CoercionId::Strict),
+    });
+    assert!(!eval(&row, &wrong_list));
 }

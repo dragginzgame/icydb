@@ -189,14 +189,6 @@ impl FieldType {
     }
 
     #[must_use]
-    pub fn element_type(&self) -> Option<&Self> {
-        match self {
-            Self::List(inner) | Self::Set(inner) => Some(inner),
-            _ => None,
-        }
-    }
-
-    #[must_use]
     pub fn map_types(&self) -> Option<(&Self, &Self)> {
         match self {
             Self::Map { key, value } => Some((key.as_ref(), value.as_ref())),
@@ -439,7 +431,8 @@ pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), Valida
         Predicate::Not(inner) => validate(schema, inner),
         Predicate::Compare(cmp) => validate_compare(schema, cmp),
         Predicate::IsNull { field } | Predicate::IsMissing { field } => {
-            ensure_field(schema, field).map(|_| ())
+            // CONTRACT: presence checks are the only predicates allowed on unsupported fields.
+            ensure_field_exists(schema, field).map(|_| ())
         }
         Predicate::IsEmpty { field } => {
             let field_type = ensure_field(schema, field)?;
@@ -503,15 +496,13 @@ fn validate_compare(schema: &SchemaInfo, cmp: &ComparePredicate) -> Result<(), V
         CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
             validate_ordering(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
         }
-        CompareOp::In | CompareOp::NotIn => {
-            validate_in(&cmp.field, field_type, &cmp.value, &cmp.coercion)
-        }
-        CompareOp::AnyIn | CompareOp::AllIn => {
-            validate_any_all_in(&cmp.field, field_type, &cmp.value, &cmp.coercion)
-        }
-        CompareOp::Contains => validate_contains(&cmp.field, field_type, &cmp.value, &cmp.coercion),
-        CompareOp::StartsWith | CompareOp::EndsWith => {
-            validate_text_op(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
+        CompareOp::In => validate_in(&cmp.field, field_type, &cmp.value, &cmp.coercion),
+        CompareOp::NotIn | CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => {
+            // CONTRACT: legacy comparison ops are rejected for public predicates.
+            Err(ValidateError::InvalidOperator {
+                field: cmp.field.clone(),
+                op: format!("{:?}", cmp.op),
+            })
         }
     }
 }
@@ -522,6 +513,13 @@ fn validate_eq_ne(
     value: &Value,
     coercion: &CoercionSpec,
 ) -> Result<(), ValidateError> {
+    if matches!(coercion.id, CoercionId::TextCasefold) && !field_type.is_text() {
+        return Err(ValidateError::InvalidCoercion {
+            field: field.to_string(),
+            coercion: coercion.id,
+        });
+    }
+
     if field_type.is_list_like() {
         ensure_list_literal(field, value, field_type)?;
     } else if field_type.is_map() {
@@ -573,6 +571,13 @@ fn validate_in(
     value: &Value,
     coercion: &CoercionSpec,
 ) -> Result<(), ValidateError> {
+    if matches!(coercion.id, CoercionId::TextCasefold) && !field_type.is_text() {
+        return Err(ValidateError::InvalidCoercion {
+            field: field.to_string(),
+            coercion: coercion.id,
+        });
+    }
+
     if field_type.is_collection() {
         return Err(ValidateError::InvalidOperator {
             field: field.to_string(),
@@ -594,103 +599,19 @@ fn validate_in(
     Ok(())
 }
 
-fn validate_any_all_in(
-    field: &str,
-    field_type: &FieldType,
-    value: &Value,
-    coercion: &CoercionSpec,
-) -> Result<(), ValidateError> {
-    let element_type = field_type
-        .element_type()
-        .ok_or_else(|| ValidateError::InvalidOperator {
-            field: field.to_string(),
-            op: format!("{:?}", CompareOp::AnyIn),
-        })?;
-
-    let Value::List(items) = value else {
-        return Err(ValidateError::InvalidLiteral {
-            field: field.to_string(),
-            message: "expected list literal".to_string(),
-        });
-    };
-
-    for item in items {
-        ensure_coercion(field, element_type, item, coercion)?;
-    }
-
-    Ok(())
-}
-
-fn validate_contains(
-    field: &str,
-    field_type: &FieldType,
-    value: &Value,
-    coercion: &CoercionSpec,
-) -> Result<(), ValidateError> {
-    if field_type.is_text() {
-        if !matches!(coercion.id, CoercionId::Strict | CoercionId::TextCasefold) {
-            return Err(ValidateError::InvalidCoercion {
-                field: field.to_string(),
-                coercion: coercion.id,
-            });
-        }
-        if !matches!(value, Value::Text(_)) {
-            return Err(ValidateError::InvalidLiteral {
-                field: field.to_string(),
-                message: "expected text literal".to_string(),
-            });
-        }
-
-        return ensure_coercion(field, field_type, value, coercion);
-    }
-
-    let element_type = field_type
-        .element_type()
-        .ok_or_else(|| ValidateError::InvalidOperator {
-            field: field.to_string(),
-            op: format!("{:?}", CompareOp::Contains),
-        })?;
-
-    ensure_coercion(field, element_type, value, coercion)
-}
-
-fn validate_text_op(
-    field: &str,
-    field_type: &FieldType,
-    value: &Value,
-    coercion: &CoercionSpec,
-    op: CompareOp,
-) -> Result<(), ValidateError> {
-    if !field_type.is_text() {
-        return Err(ValidateError::InvalidOperator {
-            field: field.to_string(),
-            op: format!("{op:?}"),
-        });
-    }
-
-    if !matches!(coercion.id, CoercionId::Strict | CoercionId::TextCasefold) {
-        return Err(ValidateError::InvalidCoercion {
-            field: field.to_string(),
-            coercion: coercion.id,
-        });
-    }
-
-    if !matches!(value, Value::Text(_)) {
-        return Err(ValidateError::InvalidLiteral {
-            field: field.to_string(),
-            message: "expected text literal".to_string(),
-        });
-    }
-
-    ensure_coercion(field, field_type, value, coercion)
-}
-
 fn validate_map_key(
     schema: &SchemaInfo,
     field: &str,
     key: &Value,
     coercion: &CoercionSpec,
 ) -> Result<(), ValidateError> {
+    if matches!(coercion.id, CoercionId::TextCasefold) {
+        return Err(ValidateError::InvalidCoercion {
+            field: field.to_string(),
+            coercion: coercion.id,
+        });
+    }
+
     let field_type = ensure_field(schema, field)?;
     let (key_type, _) = field_type
         .map_types()
@@ -708,6 +629,13 @@ fn validate_map_value(
     value: &Value,
     coercion: &CoercionSpec,
 ) -> Result<(), ValidateError> {
+    if matches!(coercion.id, CoercionId::TextCasefold) {
+        return Err(ValidateError::InvalidCoercion {
+            field: field.to_string(),
+            coercion: coercion.id,
+        });
+    }
+
     let field_type = ensure_field(schema, field)?;
     let (_, value_type) = field_type
         .map_types()
@@ -726,6 +654,13 @@ fn validate_map_entry(
     value: &Value,
     coercion: &CoercionSpec,
 ) -> Result<(), ValidateError> {
+    if matches!(coercion.id, CoercionId::TextCasefold) {
+        return Err(ValidateError::InvalidCoercion {
+            field: field.to_string(),
+            coercion: coercion.id,
+        });
+    }
+
     let field_type = ensure_field(schema, field)?;
     let (key_type, value_type) =
         field_type
@@ -780,6 +715,17 @@ fn ensure_field<'a>(schema: &'a SchemaInfo, field: &str) -> Result<&'a FieldType
     }
 
     Ok(field_type)
+}
+
+fn ensure_field_exists<'a>(
+    schema: &'a SchemaInfo,
+    field: &str,
+) -> Result<&'a FieldType, ValidateError> {
+    schema
+        .field(field)
+        .ok_or_else(|| ValidateError::UnknownField {
+            field: field.to_string(),
+        })
 }
 
 fn ensure_coercion(
@@ -1042,7 +988,7 @@ mod tests {
 
         let predicate = Predicate::And(vec![
             FieldRef::new("id").eq(Ulid::nil()),
-            FieldRef::new("email").eq_ci("User@example.com"),
+            FieldRef::new("email").text_eq_ci("User@example.com"),
             FieldRef::new("age").lt(30u32),
         ]);
 

@@ -13,13 +13,11 @@ pub mod validate;
 pub use executable::ExecutablePlan;
 pub use explain::{
     ExplainAccessPath, ExplainDeleteLimit, ExplainOrder, ExplainOrderBy, ExplainPagination,
-    ExplainPlan, ExplainPredicate, ExplainProjection,
+    ExplainPlan, ExplainPredicate,
 };
 pub use fingerprint::PlanFingerprint;
 pub(crate) use invariants::validate_plan_invariants;
 pub(crate) use logical::LogicalPlan;
 pub use types::OrderDirection;
-pub(crate) use types::{
-    AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec, ProjectionSpec,
-};
+pub(crate) use types::{AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec};
 pub use validate::PlanError;

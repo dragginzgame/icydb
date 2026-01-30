@@ -12,17 +12,26 @@ use crate::{
             plan::{IndexApplyPlan, plan_index_mutation_for_entity},
         },
         query::SaveMode,
+        query::predicate::validate::{SchemaInfo, literal_matches_type},
         store::{DataKey, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
+    key::Key,
+    model::field::EntityFieldKind,
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::serialize,
-    traits::{EntityKind, Path, Storable},
+    traits::{EntityKind, FieldValue, Path, Storable},
     validate::validate,
+    value::Value,
 };
 use std::{
-    borrow::Cow, cell::RefCell, collections::BTreeMap, marker::PhantomData, thread::LocalKey,
+    borrow::Cow,
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
+    sync::OnceLock,
+    thread::LocalKey,
 };
 
 ///
@@ -181,6 +190,7 @@ impl<E: EntityKind> SaveExecutor<E> {
             // Sanitize & validate before key extraction in case PK fields are normalized
             sanitize(&mut entity)?;
             validate(&entity)?;
+            Self::ensure_entity_invariants(&entity)?;
 
             let key = entity.key();
             let data_key = DataKey::new::<E>(key);
@@ -190,7 +200,22 @@ impl<E: EntityKind> SaveExecutor<E> {
             let (old, old_raw) = match mode {
                 SaveMode::Insert => {
                     // Inserts must not load or decode existing rows; absence is expected.
-                    if ctx.with_store(|store| store.contains_key(&raw_key))? {
+                    if let Some(existing) = ctx.with_store(|store| store.get(&raw_key))? {
+                        let stored = existing.try_decode::<E>().map_err(|err| {
+                            ExecutorError::corruption(
+                                ErrorOrigin::Serialize,
+                                format!("failed to deserialize row: {data_key} ({err})"),
+                            )
+                        })?;
+                        let expected = data_key.key();
+                        let actual = stored.key();
+                        if expected != actual {
+                            return Err(ExecutorError::corruption(
+                                ErrorOrigin::Store,
+                                format!("row key mismatch: expected {expected}, found {actual}"),
+                            )
+                            .into());
+                        }
                         return Err(ExecutorError::KeyExists(data_key).into());
                     }
                     (None, None)
@@ -205,6 +230,15 @@ impl<E: EntityKind> SaveExecutor<E> {
                             format!("failed to deserialize row: {data_key} ({err})"),
                         )
                     })?;
+                    let expected = data_key.key();
+                    let actual = old.key();
+                    if expected != actual {
+                        return Err(ExecutorError::corruption(
+                            ErrorOrigin::Store,
+                            format!("row key mismatch: expected {expected}, found {actual}"),
+                        )
+                        .into());
+                    }
                     (Some(old), Some(old_row))
                 }
                 SaveMode::Replace => {
@@ -220,6 +254,17 @@ impl<E: EntityKind> SaveExecutor<E> {
                             })
                         })
                         .transpose()?;
+                    if let Some(old) = old.as_ref() {
+                        let expected = data_key.key();
+                        let actual = old.key();
+                        if expected != actual {
+                            return Err(ExecutorError::corruption(
+                                ErrorOrigin::Store,
+                                format!("row key mismatch: expected {expected}, found {actual}"),
+                            )
+                            .into());
+                        }
+                    }
                     (old, old_row)
                 }
             };
@@ -296,6 +341,140 @@ impl<E: EntityKind> SaveExecutor<E> {
         }
 
         result
+    }
+
+    // Cache schema validation per entity type to keep invariant checks fast.
+    // Note: these trait boundaries may be sealed in a future major version.
+    fn ensure_entity_invariants(entity: &E) -> Result<(), InternalError> {
+        let schema = Self::schema_info()?;
+
+        Self::validate_entity_invariants(entity, schema)
+    }
+
+    // Cache schema validation results per entity type.
+    fn schema_info() -> Result<&'static SchemaInfo, InternalError> {
+        static CACHE: OnceLock<Result<SchemaInfo, CachedInvariant>> = OnceLock::new();
+        let cached = CACHE.get_or_init(|| {
+            SchemaInfo::from_entity_model(E::MODEL).map_err(|err| {
+                CachedInvariant::from_error(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Executor,
+                    format!("entity schema invalid for {}: {err}", E::PATH),
+                ))
+            })
+        });
+
+        match cached {
+            Ok(schema) => Ok(schema),
+            Err(err) => Err(err.to_error()),
+        }
+    }
+
+    // Enforce trait boundary invariants for user-provided entities.
+    fn validate_entity_invariants(entity: &E, schema: &SchemaInfo) -> Result<(), InternalError> {
+        let key = entity.key();
+        let primary_key: Key = entity.primary_key().into();
+        if key != primary_key {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
+                format!(
+                    "entity key mismatch: {} key={key} primary_key={primary_key}",
+                    E::PATH
+                ),
+            ));
+        }
+
+        // Phase 1: validate primary key field presence and value.
+        let expected = key.to_value();
+        let actual = entity.get_value(E::PRIMARY_KEY).ok_or_else(|| {
+            InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
+                format!(
+                    "entity primary key field missing: {} field={}",
+                    E::PATH,
+                    E::PRIMARY_KEY
+                ),
+            )
+        })?;
+        if actual != expected {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
+                format!(
+                    "entity primary key field mismatch: {} expected={expected:?} actual={actual:?}",
+                    E::PATH
+                ),
+            ));
+        }
+
+        // Phase 2: validate field presence and runtime value shapes.
+        let indexed_fields = indexed_field_set::<E>();
+        for field in E::MODEL.fields {
+            let value = entity.get_value(field.name).ok_or_else(|| {
+                let note = if indexed_fields.contains(field.name) {
+                    " (indexed)"
+                } else {
+                    ""
+                };
+                InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Executor,
+                    format!(
+                        "entity field missing: {} field={}{}",
+                        E::PATH,
+                        field.name,
+                        note
+                    ),
+                )
+            })?;
+
+            if matches!(value, Value::None) {
+                continue;
+            }
+
+            if matches!(value, Value::Unit) {
+                // Unit is an executor-only sentinel for singleton presence; skip type checks.
+                continue;
+            }
+
+            if matches!(field.kind, EntityFieldKind::Unsupported) {
+                // Unsupported fields accept any runtime value; comparisons treat mismatches as
+                // incomparable, so we intentionally skip type validation here.
+                continue;
+            }
+
+            if matches!(value, Value::Unsupported) {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Executor,
+                    format!(
+                        "entity field value is unsupported: {} field={}",
+                        E::PATH,
+                        field.name
+                    ),
+                ));
+            }
+
+            let Some(field_type) = schema.field(field.name) else {
+                // Field is not part of schema (runtime-only); treat as unsupported.
+                continue;
+            };
+            if !literal_matches_type(&value, field_type) {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Executor,
+                    format!(
+                        "entity field type mismatch: {} field={} value={value:?}",
+                        E::PATH,
+                        field.name
+                    ),
+                ));
+            }
+        }
+
+        Ok(())
     }
 
     // ======================================================================
@@ -549,6 +728,37 @@ impl<E: EntityKind> SaveExecutor<E> {
     }
 }
 
+// Persisted error metadata for schema validation results.
+struct CachedInvariant {
+    class: ErrorClass,
+    origin: ErrorOrigin,
+    message: String,
+}
+
+impl CachedInvariant {
+    fn from_error(err: InternalError) -> Self {
+        Self {
+            class: err.class,
+            origin: err.origin,
+            message: err.message,
+        }
+    }
+
+    fn to_error(&self) -> InternalError {
+        InternalError::new(self.class, self.origin, self.message.clone())
+    }
+}
+
+// Build the set of fields referenced by indexes for an entity.
+fn indexed_field_set<E: EntityKind>() -> BTreeSet<&'static str> {
+    let mut fields = BTreeSet::new();
+    for index in E::INDEXES {
+        fields.extend(index.fields.iter().copied());
+    }
+
+    fields
+}
+
 const fn save_mode_tag(mode: SaveMode) -> &'static str {
     match mode {
         SaveMode::Insert => "insert",
@@ -568,4 +778,305 @@ struct PreparedIndexRollback {
 struct PreparedDataRollback {
     key: RawDataKey,
     value: Option<RawRow>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SaveExecutor;
+    use crate::{
+        error::{ErrorClass, ErrorOrigin},
+        key::Key,
+        model::{
+            entity::EntityModel,
+            field::{EntityFieldKind, EntityFieldModel},
+            index::IndexModel,
+        },
+        traits::{
+            CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
+            ValidateAuto, ValidateCustom, View, Visitable,
+        },
+        types::Ulid,
+        value::Value,
+    };
+    use serde::{Deserialize, Serialize};
+
+    const CANISTER_PATH: &str = "save_invariant_test::TestCanister";
+    const STORE_PATH: &str = "save_invariant_test::TestStore";
+
+    const KEY_ENTITY_PATH: &str = "save_invariant_test::BadKeyEntity";
+    const FIELD_ENTITY_PATH: &str = "save_invariant_test::BadFieldEntity";
+    const TYPE_ENTITY_PATH: &str = "save_invariant_test::BadTypeEntity";
+
+    const TEST_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    }];
+    const INDEXES: [&IndexModel; 0] = [];
+
+    const KEY_MODEL: EntityModel = EntityModel {
+        path: KEY_ENTITY_PATH,
+        entity_name: "BadKeyEntity",
+        primary_key: &TEST_FIELDS[0],
+        fields: &TEST_FIELDS,
+        indexes: &INDEXES,
+    };
+    const FIELD_MODEL: EntityModel = EntityModel {
+        path: FIELD_ENTITY_PATH,
+        entity_name: "BadFieldEntity",
+        primary_key: &TEST_FIELDS[0],
+        fields: &TEST_FIELDS,
+        indexes: &INDEXES,
+    };
+    const TYPE_MODEL: EntityModel = EntityModel {
+        path: TYPE_ENTITY_PATH,
+        entity_name: "BadTypeEntity",
+        primary_key: &TEST_FIELDS[0],
+        fields: &TEST_FIELDS,
+        indexes: &INDEXES,
+    };
+
+    /// Deliberately violates `key() == primary_key()` for invariant testing.
+    #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+    struct BadKeyEntity {
+        id: Ulid,
+        other: Ulid,
+    }
+
+    /// Deliberately returns an inconsistent primary key field value.
+    #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+    struct BadFieldEntity {
+        id: Ulid,
+        other: Ulid,
+    }
+
+    /// Deliberately returns an invalid value type for the primary key field.
+    #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+    struct BadTypeEntity {
+        id: Ulid,
+    }
+
+    impl Path for BadKeyEntity {
+        const PATH: &'static str = KEY_ENTITY_PATH;
+    }
+
+    impl Path for BadFieldEntity {
+        const PATH: &'static str = FIELD_ENTITY_PATH;
+    }
+
+    impl Path for BadTypeEntity {
+        const PATH: &'static str = TYPE_ENTITY_PATH;
+    }
+
+    impl View for BadKeyEntity {
+        type ViewType = Self;
+
+        fn to_view(&self) -> Self::ViewType {
+            self.clone()
+        }
+
+        fn from_view(view: Self::ViewType) -> Self {
+            view
+        }
+    }
+
+    impl View for BadFieldEntity {
+        type ViewType = Self;
+
+        fn to_view(&self) -> Self::ViewType {
+            self.clone()
+        }
+
+        fn from_view(view: Self::ViewType) -> Self {
+            view
+        }
+    }
+
+    impl View for BadTypeEntity {
+        type ViewType = Self;
+
+        fn to_view(&self) -> Self::ViewType {
+            self.clone()
+        }
+
+        fn from_view(view: Self::ViewType) -> Self {
+            view
+        }
+    }
+
+    impl SanitizeAuto for BadKeyEntity {}
+    impl SanitizeCustom for BadKeyEntity {}
+    impl ValidateAuto for BadKeyEntity {}
+    impl ValidateCustom for BadKeyEntity {}
+    impl Visitable for BadKeyEntity {}
+
+    impl SanitizeAuto for BadFieldEntity {}
+    impl SanitizeCustom for BadFieldEntity {}
+    impl ValidateAuto for BadFieldEntity {}
+    impl ValidateCustom for BadFieldEntity {}
+    impl Visitable for BadFieldEntity {}
+
+    impl SanitizeAuto for BadTypeEntity {}
+    impl SanitizeCustom for BadTypeEntity {}
+    impl ValidateAuto for BadTypeEntity {}
+    impl ValidateCustom for BadTypeEntity {}
+    impl Visitable for BadTypeEntity {}
+
+    impl FieldValues for BadKeyEntity {
+        fn get_value(&self, field: &str) -> Option<Value> {
+            match field {
+                "id" => Some(Value::Ulid(self.id)),
+                _ => None,
+            }
+        }
+    }
+
+    impl FieldValues for BadFieldEntity {
+        fn get_value(&self, field: &str) -> Option<Value> {
+            match field {
+                "id" => Some(Value::Ulid(self.other)),
+                _ => None,
+            }
+        }
+    }
+
+    impl FieldValues for BadTypeEntity {
+        fn get_value(&self, field: &str) -> Option<Value> {
+            match field {
+                "id" => Some(Value::Text(self.id.to_string())),
+                _ => None,
+            }
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct TestCanister;
+
+    impl Path for TestCanister {
+        const PATH: &'static str = CANISTER_PATH;
+    }
+
+    impl CanisterKind for TestCanister {}
+
+    struct TestStore;
+
+    impl Path for TestStore {
+        const PATH: &'static str = STORE_PATH;
+    }
+
+    impl StoreKind for TestStore {
+        type Canister = TestCanister;
+    }
+
+    impl EntityKind for BadKeyEntity {
+        type PrimaryKey = Ulid;
+        type Store = TestStore;
+        type Canister = TestCanister;
+
+        const ENTITY_NAME: &'static str = "BadKeyEntity";
+        const PRIMARY_KEY: &'static str = "id";
+        const FIELDS: &'static [&'static str] = &["id"];
+        const INDEXES: &'static [&'static IndexModel] = &INDEXES;
+        const MODEL: &'static EntityModel = &KEY_MODEL;
+
+        fn key(&self) -> Key {
+            self.other.into()
+        }
+
+        fn primary_key(&self) -> Self::PrimaryKey {
+            self.id
+        }
+
+        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+            self.id = key;
+        }
+    }
+
+    impl EntityKind for BadFieldEntity {
+        type PrimaryKey = Ulid;
+        type Store = TestStore;
+        type Canister = TestCanister;
+
+        const ENTITY_NAME: &'static str = "BadFieldEntity";
+        const PRIMARY_KEY: &'static str = "id";
+        const FIELDS: &'static [&'static str] = &["id"];
+        const INDEXES: &'static [&'static IndexModel] = &INDEXES;
+        const MODEL: &'static EntityModel = &FIELD_MODEL;
+
+        fn key(&self) -> Key {
+            self.id.into()
+        }
+
+        fn primary_key(&self) -> Self::PrimaryKey {
+            self.id
+        }
+
+        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+            self.id = key;
+        }
+    }
+
+    impl EntityKind for BadTypeEntity {
+        type PrimaryKey = Ulid;
+        type Store = TestStore;
+        type Canister = TestCanister;
+
+        const ENTITY_NAME: &'static str = "BadTypeEntity";
+        const PRIMARY_KEY: &'static str = "id";
+        const FIELDS: &'static [&'static str] = &["id"];
+        const INDEXES: &'static [&'static IndexModel] = &INDEXES;
+        const MODEL: &'static EntityModel = &TYPE_MODEL;
+
+        fn key(&self) -> Key {
+            self.id.into()
+        }
+
+        fn primary_key(&self) -> Self::PrimaryKey {
+            self.id
+        }
+
+        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+            self.id = key;
+        }
+    }
+
+    #[test]
+    fn validate_entity_invariants_rejects_key_mismatch() {
+        let entity = BadKeyEntity {
+            id: Ulid::from_u128(1),
+            other: Ulid::from_u128(2),
+        };
+        let schema = SaveExecutor::<BadKeyEntity>::schema_info().expect("schema");
+        let err = SaveExecutor::<BadKeyEntity>::validate_entity_invariants(&entity, schema)
+            .expect_err("expected key mismatch to fail");
+
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Executor);
+    }
+
+    #[test]
+    fn validate_entity_invariants_rejects_field_mismatch() {
+        let entity = BadFieldEntity {
+            id: Ulid::from_u128(1),
+            other: Ulid::from_u128(2),
+        };
+        let schema = SaveExecutor::<BadFieldEntity>::schema_info().expect("schema");
+        let err = SaveExecutor::<BadFieldEntity>::validate_entity_invariants(&entity, schema)
+            .expect_err("expected field mismatch to fail");
+
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Executor);
+    }
+
+    #[test]
+    fn validate_entity_invariants_rejects_type_mismatch() {
+        let entity = BadTypeEntity {
+            id: Ulid::from_u128(1),
+        };
+        let schema = SaveExecutor::<BadTypeEntity>::schema_info().expect("schema");
+        let err = SaveExecutor::<BadTypeEntity>::validate_entity_invariants(&entity, schema)
+            .expect_err("expected type mismatch to fail");
+
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Executor);
+    }
 }
