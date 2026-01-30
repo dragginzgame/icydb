@@ -5,8 +5,6 @@ pub mod index;
 pub mod query;
 pub mod response;
 pub mod store;
-pub mod traits;
-pub mod types;
 mod write;
 
 pub(crate) use commit::*;

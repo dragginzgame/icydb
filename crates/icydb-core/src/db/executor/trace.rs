@@ -25,7 +25,6 @@ pub enum TraceExecutorKind {
     Load,
     Save,
     Delete,
-    Upsert,
 }
 
 ///
@@ -230,7 +229,6 @@ const fn executor_tag(executor: TraceExecutorKind) -> u8 {
         TraceExecutorKind::Load => 0x01,
         TraceExecutorKind::Save => 0x02,
         TraceExecutorKind::Delete => 0x03,
-        TraceExecutorKind::Upsert => 0x04,
     }
 }
 
