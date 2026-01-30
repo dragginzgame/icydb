@@ -1,4 +1,7 @@
-use crate::{db::query::predicate::coercion::CoercionSpec, value::Value};
+use crate::{
+    db::query::predicate::coercion::{CoercionId, CoercionSpec},
+    value::Value,
+};
 use std::ops::{BitAnd, BitOr};
 
 ///
@@ -60,6 +63,22 @@ impl ComparePredicate {
             op,
             value,
             coercion: CoercionSpec::default(),
+        }
+    }
+
+    /// Construct a comparison predicate with an explicit coercion policy.
+    #[must_use]
+    pub fn with_coercion(
+        field: impl Into<String>,
+        op: CompareOp,
+        value: Value,
+        coercion: CoercionId,
+    ) -> Self {
+        Self {
+            field: field.into(),
+            op,
+            value,
+            coercion: CoercionSpec::new(coercion),
         }
     }
 

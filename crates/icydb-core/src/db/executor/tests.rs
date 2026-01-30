@@ -89,7 +89,7 @@ const ORDER_FIELD_MODELS: [EntityFieldModel; 3] = [
     },
     EntityFieldModel {
         name: "primary",
-        kind: EntityFieldKind::Unsupported,
+        kind: EntityFieldKind::Int,
     },
     EntityFieldModel {
         name: "secondary",
@@ -514,7 +514,7 @@ fn init_schema() {
                 value: SchemaValue {
                     cardinality: Cardinality::One,
                     item: Item {
-                        target: ItemTarget::Primitive(Primitive::Text),
+                        target: ItemTarget::Primitive(Primitive::Int),
                         relation: None,
                         validators: &[],
                         sanitizers: &[],
@@ -1908,22 +1908,22 @@ fn load_orders_with_incomparable_primary_uses_secondary() {
     let entities = vec![
         OrderEntity {
             id: Ulid::from_u128(1),
-            primary: Value::Int(2),
+            primary: Value::None,
             secondary: 0,
         },
         OrderEntity {
             id: Ulid::from_u128(2),
-            primary: Value::Text("b".to_string()),
+            primary: Value::None,
             secondary: 1,
         },
         OrderEntity {
             id: Ulid::from_u128(3),
-            primary: Value::Int(1),
+            primary: Value::None,
             secondary: 0,
         },
         OrderEntity {
             id: Ulid::from_u128(4),
-            primary: Value::Text("a".to_string()),
+            primary: Value::None,
             secondary: 1,
         },
     ];
@@ -1950,10 +1950,10 @@ fn load_orders_with_incomparable_primary_uses_secondary() {
     assert_eq!(
         ordered_ids,
         vec![
-            Ulid::from_u128(3),
             Ulid::from_u128(1),
-            Ulid::from_u128(4),
+            Ulid::from_u128(3),
             Ulid::from_u128(2),
+            Ulid::from_u128(4),
         ]
     );
 }
@@ -2048,22 +2048,22 @@ fn load_paginates_after_filtering_and_ordering() {
     let entities = vec![
         OrderEntity {
             id: Ulid::from_u128(1),
-            primary: Value::Text("a".to_string()),
+            primary: Value::Int(10),
             secondary: 0,
         },
         OrderEntity {
             id: Ulid::from_u128(2),
-            primary: Value::Text("b".to_string()),
+            primary: Value::Int(20),
             secondary: 1,
         },
         OrderEntity {
             id: Ulid::from_u128(3),
-            primary: Value::Text("c".to_string()),
+            primary: Value::Int(30),
             secondary: 2,
         },
         OrderEntity {
             id: Ulid::from_u128(4),
-            primary: Value::Text("d".to_string()),
+            primary: Value::Int(40),
             secondary: 3,
         },
     ];
@@ -2131,22 +2131,22 @@ fn ordering_does_not_break_ties_by_primary_key() {
     let entities = vec![
         OrderEntity {
             id: Ulid::from_u128(3),
-            primary: Value::Text("same".to_string()),
+            primary: Value::Int(1),
             secondary: 1,
         },
         OrderEntity {
             id: Ulid::from_u128(1),
-            primary: Value::Text("same".to_string()),
+            primary: Value::Int(1),
             secondary: 2,
         },
         OrderEntity {
             id: Ulid::from_u128(4),
-            primary: Value::Text("same".to_string()),
+            primary: Value::Int(1),
             secondary: 3,
         },
         OrderEntity {
             id: Ulid::from_u128(2),
-            primary: Value::Text("same".to_string()),
+            primary: Value::Int(1),
             secondary: 4,
         },
     ];
@@ -2190,22 +2190,22 @@ fn ordering_does_not_compare_incomparable_values() {
     let entities = vec![
         OrderEntity {
             id: Ulid::from_u128(10),
-            primary: Value::Int(1),
+            primary: Value::None,
             secondary: 1,
         },
         OrderEntity {
             id: Ulid::from_u128(11),
-            primary: Value::Text("a".to_string()),
+            primary: Value::Int(1),
             secondary: 2,
         },
         OrderEntity {
             id: Ulid::from_u128(12),
-            primary: Value::Int(2),
+            primary: Value::None,
             secondary: 3,
         },
         OrderEntity {
             id: Ulid::from_u128(13),
-            primary: Value::Text("b".to_string()),
+            primary: Value::Int(1),
             secondary: 4,
         },
     ];

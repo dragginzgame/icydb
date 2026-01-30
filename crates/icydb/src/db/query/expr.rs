@@ -165,6 +165,7 @@ impl FilterExpr {
     // Lowering
     // ─────────────────────────────────────────────────────────────
 
+    #[expect(clippy::too_many_lines)]
     pub fn lower<E: EntityKind>(&self) -> Result<core::db::query::expr::FilterExpr, QueryError> {
         let lower_pred =
             |expr: &Self| -> Result<Predicate, QueryError> { Ok(expr.lower::<E>()?.0) };
@@ -181,23 +182,68 @@ impl FilterExpr {
             }
             Self::Not(x) => Predicate::not(lower_pred(x)?),
 
-            Self::Eq { field, value } => compare(field, CompareOp::Eq, value.clone()),
+            Self::Eq { field, value } => Predicate::Compare(ComparePredicate::with_coercion(
+                field.as_str(),
+                CompareOp::Eq,
+                value.clone(),
+                CoercionId::Strict,
+            )),
 
-            Self::Ne { field, value } => compare(field, CompareOp::Ne, value.clone()),
+            Self::Ne { field, value } => Predicate::Compare(ComparePredicate::with_coercion(
+                field.as_str(),
+                CompareOp::Ne,
+                value.clone(),
+                CoercionId::Strict,
+            )),
 
-            Self::Lt { field, value } => compare(field, CompareOp::Lt, value.clone()),
+            Self::Lt { field, value } => Predicate::Compare(ComparePredicate::with_coercion(
+                field.as_str(),
+                CompareOp::Lt,
+                value.clone(),
+                CoercionId::Strict,
+            )),
 
-            Self::Lte { field, value } => compare(field, CompareOp::Lte, value.clone()),
+            Self::Lte { field, value } => Predicate::Compare(ComparePredicate::with_coercion(
+                field.as_str(),
+                CompareOp::Lte,
+                value.clone(),
+                CoercionId::Strict,
+            )),
 
-            Self::Gt { field, value } => compare(field, CompareOp::Gt, value.clone()),
+            Self::Gt { field, value } => Predicate::Compare(ComparePredicate::with_coercion(
+                field.as_str(),
+                CompareOp::Gt,
+                value.clone(),
+                CoercionId::Strict,
+            )),
 
-            Self::Gte { field, value } => compare(field, CompareOp::Gte, value.clone()),
+            Self::Gte { field, value } => Predicate::Compare(ComparePredicate::with_coercion(
+                field.as_str(),
+                CompareOp::Gte,
+                value.clone(),
+                CoercionId::Strict,
+            )),
 
-            Self::In { field, values } => compare_list(field, CompareOp::In, values),
+            Self::In { field, values } => Predicate::Compare(ComparePredicate::with_coercion(
+                field.as_str(),
+                CompareOp::In,
+                Value::List(values.clone()),
+                CoercionId::Strict,
+            )),
 
-            Self::NotIn { field, values } => compare_list(field, CompareOp::NotIn, values),
+            Self::NotIn { field, values } => Predicate::Compare(ComparePredicate::with_coercion(
+                field.as_str(),
+                CompareOp::NotIn,
+                Value::List(values.clone()),
+                CoercionId::Strict,
+            )),
 
-            Self::Contains { field, value } => compare(field, CompareOp::Contains, value.clone()),
+            Self::Contains { field, value } => Predicate::Compare(ComparePredicate::with_coercion(
+                field.as_str(),
+                CompareOp::Contains,
+                value.clone(),
+                CoercionId::Strict,
+            )),
 
             Self::TextContains { field, value } => Predicate::TextContains {
                 field: field.clone(),
@@ -210,17 +256,37 @@ impl FilterExpr {
             },
 
             Self::StartsWith { field, value } => {
-                compare(field, CompareOp::StartsWith, value.clone())
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    field.as_str(),
+                    CompareOp::StartsWith,
+                    value.clone(),
+                    CoercionId::Strict,
+                ))
             }
 
             Self::StartsWithCi { field, value } => {
-                compare_ci(field, CompareOp::StartsWith, value.clone())
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    field.as_str(),
+                    CompareOp::StartsWith,
+                    value.clone(),
+                    CoercionId::TextCasefold,
+                ))
             }
 
-            Self::EndsWith { field, value } => compare(field, CompareOp::EndsWith, value.clone()),
+            Self::EndsWith { field, value } => Predicate::Compare(ComparePredicate::with_coercion(
+                field.as_str(),
+                CompareOp::EndsWith,
+                value.clone(),
+                CoercionId::Strict,
+            )),
 
             Self::EndsWithCi { field, value } => {
-                compare_ci(field, CompareOp::EndsWith, value.clone())
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    field.as_str(),
+                    CompareOp::EndsWith,
+                    value.clone(),
+                    CoercionId::TextCasefold,
+                ))
             }
 
             Self::IsNull { field } => Predicate::IsNull {
@@ -477,37 +543,6 @@ impl FilterExpr {
             value: value.into(),
         }
     }
-}
-
-// ─────────────────────────────────────────────────────────────
-// Internal helpers
-// ─────────────────────────────────────────────────────────────
-
-fn compare(field: &str, op: CompareOp, value: Value) -> Predicate {
-    Predicate::Compare(ComparePredicate {
-        field: field.to_string(),
-        op,
-        value,
-        coercion: CoercionSpec::new(CoercionId::Strict),
-    })
-}
-
-fn compare_ci(field: &str, op: CompareOp, value: Value) -> Predicate {
-    Predicate::Compare(ComparePredicate {
-        field: field.to_string(),
-        op,
-        value,
-        coercion: CoercionSpec::new(CoercionId::TextCasefold),
-    })
-}
-
-fn compare_list(field: &str, op: CompareOp, values: &[Value]) -> Predicate {
-    Predicate::Compare(ComparePredicate {
-        field: field.to_string(),
-        op,
-        value: Value::List(values.to_vec()),
-        coercion: CoercionSpec::new(CoercionId::Strict),
-    })
 }
 
 ///

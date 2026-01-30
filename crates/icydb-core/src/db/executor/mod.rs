@@ -1,3 +1,4 @@
+mod commit_ops;
 mod context;
 mod delete;
 mod load;

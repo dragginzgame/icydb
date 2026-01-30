@@ -449,7 +449,6 @@ BTreeMap
 
 ## [0.7.3]
 - shortcut methods for create, update and replace
-- In, AllIn and AnyIn now should work in queries
 - mul and div for decimal
 - e8s and e18s a lot more stable with more tests, from Decimal etc.
 

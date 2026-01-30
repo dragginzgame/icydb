@@ -35,68 +35,78 @@ impl FieldRef {
     /// Strict equality comparison (no coercion).
     #[must_use]
     pub fn eq(self, value: impl FieldValue) -> Predicate {
-        compare(self.0, CompareOp::Eq, value.to_value(), CoercionId::Strict)
+        Predicate::Compare(ComparePredicate::with_coercion(
+            self.0,
+            CompareOp::Eq,
+            value.to_value(),
+            CoercionId::Strict,
+        ))
     }
 
     /// Case-insensitive equality for text fields.
     #[must_use]
     pub fn text_eq_ci(self, value: impl FieldValue) -> Predicate {
-        compare(
+        Predicate::Compare(ComparePredicate::with_coercion(
             self.0,
             CompareOp::Eq,
             value.to_value(),
             CoercionId::TextCasefold,
-        )
+        ))
     }
 
     /// Strict inequality comparison.
     #[must_use]
     pub fn ne(self, value: impl FieldValue) -> Predicate {
-        compare(self.0, CompareOp::Ne, value.to_value(), CoercionId::Strict)
+        Predicate::Compare(ComparePredicate::with_coercion(
+            self.0,
+            CompareOp::Ne,
+            value.to_value(),
+            CoercionId::Strict,
+        ))
     }
 
     /// Less-than comparison with numeric widening.
     #[must_use]
     pub fn lt(self, value: impl FieldValue) -> Predicate {
-        compare(
+        Predicate::Compare(ComparePredicate::with_coercion(
             self.0,
             CompareOp::Lt,
             value.to_value(),
             CoercionId::NumericWiden,
-        )
+        ))
     }
 
     /// Less-than-or-equal comparison with numeric widening.
     #[must_use]
     pub fn lte(self, value: impl FieldValue) -> Predicate {
-        compare(
+        Predicate::Compare(ComparePredicate::with_coercion(
             self.0,
             CompareOp::Lte,
             value.to_value(),
             CoercionId::NumericWiden,
-        )
+        ))
     }
 
     /// Greater-than comparison with numeric widening.
     #[must_use]
     pub fn gt(self, value: impl FieldValue) -> Predicate {
-        compare(
+        Predicate::Compare(ComparePredicate::with_coercion(
             self.0,
             CompareOp::Gt,
             value.to_value(),
             CoercionId::NumericWiden,
-        )
+        ))
     }
 
     /// Greater-than-or-equal comparison with numeric widening.
     #[must_use]
     pub fn gte(self, value: impl FieldValue) -> Predicate {
-        compare(
+        Predicate::Compare(ComparePredicate::with_coercion(
             self.0,
             CompareOp::Gte,
             value.to_value(),
             CoercionId::NumericWiden,
-        )
+        ))
     }
 
     /// Membership test against a fixed list (strict).
@@ -106,12 +116,12 @@ impl FieldRef {
         I: IntoIterator<Item = V>,
         V: FieldValue,
     {
-        Predicate::Compare(ComparePredicate {
-            field: self.0.to_string(),
-            op: CompareOp::In,
-            value: Value::List(values.into_iter().map(|v| v.to_value()).collect()),
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        })
+        Predicate::Compare(ComparePredicate::with_coercion(
+            self.0,
+            CompareOp::In,
+            Value::List(values.into_iter().map(|v| v.to_value()).collect()),
+            CoercionId::Strict,
+        ))
     }
 
     // ------------------------------------------------------------------
@@ -225,17 +235,4 @@ impl std::ops::Deref for FieldRef {
     fn deref(&self) -> &Self::Target {
         self.0
     }
-}
-
-// ----------------------------------------------------------------------
-// Internal helpers (not public API)
-// ----------------------------------------------------------------------
-
-fn compare(field: &str, op: CompareOp, value: Value, coercion: CoercionId) -> Predicate {
-    Predicate::Compare(ComparePredicate {
-        field: field.to_string(),
-        op,
-        value,
-        coercion: CoercionSpec::new(coercion),
-    })
 }

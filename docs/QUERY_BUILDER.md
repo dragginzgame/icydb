@@ -91,7 +91,6 @@ For `Compare`:
 * `Eq`, `Ne`
 * `Lt`, `Lte`, `Gt`, `Gte`
 * `In`, `NotIn`
-* `AnyIn`, `AllIn`
 * `Contains`, `StartsWith`, `EndsWith`
 
 #### Notes
@@ -185,7 +184,6 @@ Given a row `R` and predicate `P`:
 * `Eq` / `Ne` — equality under declared coercion.
 * `Lt` / `Lte` / `Gt` / `Gte` — total ordering over coerced values in the same domain.
 * `In` / `NotIn` — membership in a literal list; coercion applies per element.
-* `AnyIn` / `AllIn` — list-vs-list semantics with per-element coercion.
 * `Contains` / `StartsWith` / `EndsWith`:
 
   * for text: substring / prefix / suffix under declared coercion

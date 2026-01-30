@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Text substring matching must use `TextContains`/`TextContainsCi`; `CompareOp::Contains` on text fields is invalid.
 - ORDER BY now rejects unsupported or non-orderable fields instead of silently preserving input order.
 
+### 🧻 Changed
+- Executor ordering tests now sort only on orderable fields while preserving tie stability and secondary ordering guarantees.
+
 ---
 
 ## [0.5.24] – 2026-01-30

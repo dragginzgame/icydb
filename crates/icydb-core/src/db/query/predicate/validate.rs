@@ -439,10 +439,7 @@ pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), Valida
             if field_type.is_text() || field_type.is_collection() {
                 Ok(())
             } else {
-                Err(ValidateError::InvalidOperator {
-                    field: field.clone(),
-                    op: "is_empty".to_string(),
-                })
+                Err(invalid_operator(field, "is_empty"))
             }
         }
         Predicate::IsNotEmpty { field } => {
@@ -450,10 +447,7 @@ pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), Valida
             if field_type.is_text() || field_type.is_collection() {
                 Ok(())
             } else {
-                Err(ValidateError::InvalidOperator {
-                    field: field.clone(),
-                    op: "is_not_empty".to_string(),
-                })
+                Err(invalid_operator(field, "is_not_empty"))
             }
         }
         Predicate::MapContainsKey {
@@ -517,10 +511,7 @@ fn validate_eq_ne(
     } else if field_type.is_map() {
         ensure_map_literal(field, value, field_type)?;
     } else if matches!(value, Value::List(_)) {
-        return Err(ValidateError::InvalidLiteral {
-            field: field.to_string(),
-            message: "expected scalar literal".to_string(),
-        });
+        return Err(invalid_literal(field, "expected scalar literal"));
     }
 
     ensure_coercion(field, field_type, value, coercion)
@@ -541,17 +532,11 @@ fn validate_ordering(
     }
 
     if !field_type.is_orderable() {
-        return Err(ValidateError::InvalidOperator {
-            field: field.to_string(),
-            op: format!("{op:?}"),
-        });
+        return Err(invalid_operator(field, format!("{op:?}")));
     }
 
     if matches!(value, Value::List(_)) {
-        return Err(ValidateError::InvalidLiteral {
-            field: field.to_string(),
-            message: "expected scalar literal".to_string(),
-        });
+        return Err(invalid_literal(field, "expected scalar literal"));
     }
 
     ensure_coercion(field, field_type, value, coercion)
@@ -566,17 +551,11 @@ fn validate_in(
     op: CompareOp,
 ) -> Result<(), ValidateError> {
     if field_type.is_collection() {
-        return Err(ValidateError::InvalidOperator {
-            field: field.to_string(),
-            op: format!("{op:?}"),
-        });
+        return Err(invalid_operator(field, format!("{op:?}")));
     }
 
     let Value::List(items) = value else {
-        return Err(ValidateError::InvalidLiteral {
-            field: field.to_string(),
-            message: "expected list literal".to_string(),
-        });
+        return Err(invalid_literal(field, "expected list literal"));
     };
 
     for item in items {
@@ -595,19 +574,19 @@ fn validate_contains(
 ) -> Result<(), ValidateError> {
     if field_type.is_text() {
         // CONTRACT: text substring matching uses TextContains/TextContainsCi only.
-        return Err(ValidateError::InvalidOperator {
-            field: field.to_string(),
-            op: format!("{:?}", CompareOp::Contains),
-        });
+        return Err(invalid_operator(
+            field,
+            format!("{:?}", CompareOp::Contains),
+        ));
     }
 
     let element_type = match field_type {
         FieldType::List(inner) | FieldType::Set(inner) => inner.as_ref(),
         _ => {
-            return Err(ValidateError::InvalidOperator {
-                field: field.to_string(),
-                op: format!("{:?}", CompareOp::Contains),
-            });
+            return Err(invalid_operator(
+                field,
+                format!("{:?}", CompareOp::Contains),
+            ));
         }
     };
 
@@ -631,20 +610,26 @@ fn validate_text_compare(
     op: CompareOp,
 ) -> Result<(), ValidateError> {
     if !field_type.is_text() {
-        return Err(ValidateError::InvalidOperator {
-            field: field.to_string(),
-            op: format!("{op:?}"),
-        });
+        return Err(invalid_operator(field, format!("{op:?}")));
     }
 
     if !matches!(value, Value::Text(_)) {
-        return Err(ValidateError::InvalidLiteral {
-            field: field.to_string(),
-            message: "expected text literal".to_string(),
-        });
+        return Err(invalid_literal(field, "expected text literal"));
     }
 
     ensure_coercion(field, field_type, value, coercion)
+}
+
+// Ensure a field exists and is a map, returning key/value types.
+fn ensure_map_types<'a>(
+    schema: &'a SchemaInfo,
+    field: &str,
+    op: &str,
+) -> Result<(&'a FieldType, &'a FieldType), ValidateError> {
+    let field_type = ensure_field(schema, field)?;
+    field_type
+        .map_types()
+        .ok_or_else(|| invalid_operator(field, op))
 }
 
 fn validate_map_key(
@@ -660,13 +645,7 @@ fn validate_map_key(
         });
     }
 
-    let field_type = ensure_field(schema, field)?;
-    let (key_type, _) = field_type
-        .map_types()
-        .ok_or_else(|| ValidateError::InvalidOperator {
-            field: field.to_string(),
-            op: "map_contains_key".to_string(),
-        })?;
+    let (key_type, _) = ensure_map_types(schema, field, "map_contains_key")?;
 
     ensure_coercion(field, key_type, key, coercion)
 }
@@ -684,13 +663,7 @@ fn validate_map_value(
         });
     }
 
-    let field_type = ensure_field(schema, field)?;
-    let (_, value_type) = field_type
-        .map_types()
-        .ok_or_else(|| ValidateError::InvalidOperator {
-            field: field.to_string(),
-            op: "map_contains_value".to_string(),
-        })?;
+    let (_, value_type) = ensure_map_types(schema, field, "map_contains_value")?;
 
     ensure_coercion(field, value_type, value, coercion)
 }
@@ -709,14 +682,7 @@ fn validate_map_entry(
         });
     }
 
-    let field_type = ensure_field(schema, field)?;
-    let (key_type, value_type) =
-        field_type
-            .map_types()
-            .ok_or_else(|| ValidateError::InvalidOperator {
-                field: field.to_string(),
-                op: "map_contains_entry".to_string(),
-            })?;
+    let (key_type, value_type) = ensure_map_types(schema, field, "map_contains_entry")?;
 
     ensure_coercion(field, key_type, key, coercion)?;
     ensure_coercion(field, value_type, value, coercion)?;
@@ -733,17 +699,11 @@ fn validate_text_contains(
 ) -> Result<(), ValidateError> {
     let field_type = ensure_field(schema, field)?;
     if !field_type.is_text() {
-        return Err(ValidateError::InvalidOperator {
-            field: field.to_string(),
-            op: op.to_string(),
-        });
+        return Err(invalid_operator(field, op));
     }
 
     if !matches!(value, Value::Text(_)) {
-        return Err(ValidateError::InvalidLiteral {
-            field: field.to_string(),
-            message: "expected text literal".to_string(),
-        });
+        return Err(invalid_literal(field, "expected text literal"));
     }
 
     Ok(())
@@ -774,6 +734,20 @@ fn ensure_field_exists<'a>(
         .ok_or_else(|| ValidateError::UnknownField {
             field: field.to_string(),
         })
+}
+
+fn invalid_operator(field: &str, op: impl fmt::Display) -> ValidateError {
+    ValidateError::InvalidOperator {
+        field: field.to_string(),
+        op: op.to_string(),
+    }
+}
+
+fn invalid_literal(field: &str, msg: &str) -> ValidateError {
+    ValidateError::InvalidLiteral {
+        field: field.to_string(),
+        message: msg.to_string(),
+    }
 }
 
 fn ensure_coercion(
@@ -809,10 +783,10 @@ fn ensure_coercion(
         CoercionId::Strict | CoercionId::CollectionElement
     ) && !literal_matches_type(literal, field_type)
     {
-        return Err(ValidateError::InvalidLiteral {
-            field: field.to_string(),
-            message: "literal type does not match field type".to_string(),
-        });
+        return Err(invalid_literal(
+            field,
+            "literal type does not match field type",
+        ));
     }
 
     Ok(())
@@ -824,10 +798,10 @@ fn ensure_list_literal(
     field_type: &FieldType,
 ) -> Result<(), ValidateError> {
     if !literal_matches_type(literal, field_type) {
-        return Err(ValidateError::InvalidLiteral {
-            field: field.to_string(),
-            message: "list literal does not match field element type".to_string(),
-        });
+        return Err(invalid_literal(
+            field,
+            "list literal does not match field element type",
+        ));
     }
 
     Ok(())
@@ -839,10 +813,10 @@ fn ensure_map_literal(
     field_type: &FieldType,
 ) -> Result<(), ValidateError> {
     if !literal_matches_type(literal, field_type) {
-        return Err(ValidateError::InvalidLiteral {
-            field: field.to_string(),
-            message: "map literal does not match field key/value types".to_string(),
-        });
+        return Err(invalid_literal(
+            field,
+            "map literal does not match field key/value types",
+        ));
     }
 
     Ok(())

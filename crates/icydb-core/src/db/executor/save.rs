@@ -4,11 +4,12 @@ use crate::{
         ensure_recovered,
         executor::{
             ExecutorError,
+            commit_ops::{apply_marker_index_ops, resolve_index_op},
             trace::{QueryTraceSink, TraceExecutorKind, start_exec_trace},
         },
         finish_commit,
         index::{
-            IndexKey, IndexStore, MAX_INDEX_ENTRY_BYTES, RawIndexEntry, RawIndexKey,
+            IndexKey, IndexStore, RawIndexEntry, RawIndexKey,
             plan::{IndexApplyPlan, plan_index_mutation_for_entity},
         },
         query::SaveMode,
@@ -300,7 +301,7 @@ impl<E: EntityKind> SaveExecutor<E> {
                 let mut unit = WriteUnit::new("save_entity_atomic");
                 let index_rollback_ops = index_rollback_ops;
                 unit.record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
-                Self::apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores);
+                apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores);
                 for _ in 0..index_removes {
                     sink::record(MetricsEvent::IndexRemove {
                         entity_path: E::PATH,
@@ -523,58 +524,23 @@ impl<E: EntityKind> SaveExecutor<E> {
 
         // Phase 2: validate marker ops and snapshot current entries for rollback.
         for op in ops {
-            let store = stores.get(op.store.as_str()).ok_or_else(|| {
-                InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Index,
-                    format!(
-                        "commit marker references unknown index store '{}' ({})",
-                        op.store,
-                        E::PATH
-                    ),
-                )
+            let (store, raw_key, existing) = resolve_index_op(&stores, op, E::PATH, || {
+                if op.value.is_none() {
+                    Some(InternalError::new(
+                        ErrorClass::Internal,
+                        ErrorOrigin::Index,
+                        format!(
+                            "commit marker index op missing entry before save: {} ({})",
+                            op.store,
+                            E::PATH
+                        ),
+                    ))
+                } else {
+                    None
+                }
             })?;
-            if op.key.len() != IndexKey::STORED_SIZE as usize {
-                return Err(InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Index,
-                    format!(
-                        "commit marker index key length {} does not match {} ({})",
-                        op.key.len(),
-                        IndexKey::STORED_SIZE,
-                        E::PATH
-                    ),
-                ));
-            }
-            if let Some(value) = &op.value
-                && value.len() > MAX_INDEX_ENTRY_BYTES as usize
-            {
-                return Err(InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Index,
-                    format!(
-                        "commit marker index entry exceeds max size: {} bytes ({})",
-                        value.len(),
-                        E::PATH
-                    ),
-                ));
-            }
 
-            let raw_key = RawIndexKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
-            let existing = store.with_borrow(|s| s.get(&raw_key));
-            if op.value.is_none() && existing.is_none() {
-                return Err(InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Index,
-                    format!(
-                        "commit marker index op missing entry before save: {} ({})",
-                        op.store,
-                        E::PATH
-                    ),
-                ));
-            }
-
-            apply_stores.push(*store);
+            apply_stores.push(store);
             rollbacks.push(PreparedIndexRollback {
                 store,
                 key: raw_key,
@@ -650,33 +616,6 @@ impl<E: EntityKind> SaveExecutor<E> {
             key: raw_key,
             value: old_row,
         }])
-    }
-
-    /// Apply commit marker index ops using pre-resolved stores.
-    fn apply_marker_index_ops(
-        ops: &[CommitIndexOp],
-        stores: Vec<&'static LocalKey<RefCell<IndexStore>>>,
-    ) {
-        debug_assert_eq!(
-            ops.len(),
-            stores.len(),
-            "commit marker index ops length mismatch"
-        );
-
-        for (op, store) in ops.iter().zip(stores.into_iter()) {
-            debug_assert_eq!(op.key.len(), IndexKey::STORED_SIZE as usize);
-            let raw_key = RawIndexKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
-
-            store.with_borrow_mut(|s| {
-                if let Some(value) = &op.value {
-                    debug_assert!(value.len() <= MAX_INDEX_ENTRY_BYTES as usize);
-                    let raw_entry = RawIndexEntry::from_bytes(Cow::Borrowed(value.as_slice()));
-                    s.insert(raw_key, raw_entry);
-                } else {
-                    s.remove(&raw_key);
-                }
-            });
-        }
     }
 
     /// Apply rollback mutations for index entries using raw bytes.
