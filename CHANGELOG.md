@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.5.26] – 2026-01-31
+## [0.6.0] – 2026-01-31 - Referential Integrity, Part I
 
 ### 🪐 Breaking
 * Index storage now splits data and index stores explicitly; index stores require separate entry and fingerprint memories.
