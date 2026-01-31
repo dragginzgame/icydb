@@ -41,8 +41,8 @@ impl Imp<Entity> for EntityKindTrait {
         // static definitions
         let mut q = quote! {
             type PrimaryKey = #pk_type;
-            type Store = #store;
-            type Canister = <Self::Store as ::icydb::traits::StoreKind>::Canister;
+            type DataStore = #store;
+            type Canister = <Self::DataStore as ::icydb::traits::DataStoreKind>::Canister;
 
             const ENTITY_NAME: &'static str = #entity_name;
             const PRIMARY_KEY: &'static str = Self::#pk_const_ident.as_str();

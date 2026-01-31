@@ -50,3 +50,11 @@ where
 {
     cbor::deserialize(bytes)
 }
+
+/// Deserialize a value produced by [`serialize`], with an explicit size limit.
+pub fn deserialize_bounded<T>(bytes: &[u8], max_bytes: usize) -> Result<T, SerializeError>
+where
+    T: DeserializeOwned,
+{
+    cbor::deserialize_bounded(bytes, max_bytes)
+}

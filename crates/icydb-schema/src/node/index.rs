@@ -48,10 +48,7 @@ impl ValidateNode for Index {
         let schema = schema_read();
 
         // store
-        match schema.cast_node::<Store>(self.store) {
-            Ok(store) if !matches!(store.ty, StoreType::Index) => {
-                err!(errs, "store is not type Index");
-            }
+        match schema.cast_node::<IndexStore>(self.store) {
             Ok(_) => {}
             Err(e) => errs.add(e),
         }

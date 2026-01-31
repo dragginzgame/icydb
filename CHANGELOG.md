@@ -5,6 +5,29 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.5.26] – 2026-01-31
+
+### 🪐 Breaking
+* Index storage now splits data and index stores explicitly; index stores require separate entry and fingerprint memories.
+* `IndexStore::init` now requires both entry and fingerprint memories; constructing an index store without fingerprint memory is no longer possible.
+
+### 🥖 Added
+* Added dedicated index fingerprint storage to keep verification data independent from index routing entries.
+* Added a cross-canister relation validation test with a dedicated relation canister to lock in the new schema invariant.
+
+### 🪿 Fixed
+* ORDER BY now preserves input order deterministically for incomparable values.
+* Commit marker apply now rejects malformed index ops or unexpected delete payloads in release builds.
+* Commit marker decoding now rejects unknown fields instead of silently ignoring them.
+* Commit marker decoding now honors the marker size limit instead of the default row size cap.
+* Oversized commit markers now surface invariant violations instead of corruption.
+
+### 🎿 Changed
+* Documented that `FieldRef` and `FilterExpr` use different coercion defaults for ordering; see `docs/QUERY_BUILDER.md`.
+* Consolidated build-time schema validation behind `validate::validate_schema` so all passes run through a single entrypoint.
+
+---
+
 ## [0.5.25] – 2026-01-30
 
 ### 🧲 Breaking

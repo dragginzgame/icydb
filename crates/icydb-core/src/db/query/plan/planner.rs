@@ -428,8 +428,8 @@ mod tests {
         },
         prelude::IndexModel,
         traits::{
-            CanisterKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind, ValidateAuto,
-            ValidateCustom, View, Visitable,
+            CanisterKind, DataStoreKind, FieldValues, Path, SanitizeAuto, SanitizeCustom,
+            ValidateAuto, ValidateCustom, View, Visitable,
         },
         types::Ulid,
         value::Value,
@@ -531,13 +531,13 @@ mod tests {
         const PATH: &'static str = DATA_STORE_PATH;
     }
 
-    impl StoreKind for PlannerStore {
+    impl DataStoreKind for PlannerStore {
         type Canister = PlannerCanister;
     }
 
     impl EntityKind for PlannerEntity {
         type PrimaryKey = Ulid;
-        type Store = PlannerStore;
+        type DataStore = PlannerStore;
         type Canister = PlannerCanister;
 
         const ENTITY_NAME: &'static str = "PlannerEntity";
@@ -648,7 +648,7 @@ mod tests {
 
     impl EntityKind for MultiIndexEntity {
         type PrimaryKey = Ulid;
-        type Store = PlannerStore;
+        type DataStore = PlannerStore;
         type Canister = PlannerCanister;
 
         const ENTITY_NAME: &'static str = "MultiIndexEntity";

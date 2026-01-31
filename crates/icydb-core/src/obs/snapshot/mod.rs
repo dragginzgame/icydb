@@ -164,12 +164,12 @@ pub fn storage_report<C: CanisterKind>(
                 memory_bytes: store.memory_bytes(),
             });
 
-            for entry in store.iter() {
-                if IndexKey::try_from_raw(entry.key()).is_err() {
+            for (key, value) in store.entries() {
+                if IndexKey::try_from_raw(&key).is_err() {
                     corrupted_entries = corrupted_entries.saturating_add(1);
                     continue;
                 }
-                if entry.value().try_decode().is_err() {
+                if value.try_decode().is_err() {
                     corrupted_entries = corrupted_entries.saturating_add(1);
                 }
             }

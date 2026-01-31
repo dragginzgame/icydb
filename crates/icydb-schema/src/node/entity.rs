@@ -69,15 +69,12 @@ impl ValidateNode for Entity {
         }
 
         // entity name length/encoding
-        if let Err(msg) = crate::build::validate::validate_entity_name(self.resolved_name()) {
+        if let Err(msg) = crate::validate::validate_entity_name(self.resolved_name()) {
             err!(errs, "{msg}");
         }
 
         // store
-        match schema.cast_node::<Store>(self.store) {
-            Ok(store) if !matches!(store.ty, StoreType::Data) => {
-                err!(errs, "store is not type Data");
-            }
+        match schema.cast_node::<DataStore>(self.store) {
             Ok(_) => {}
             Err(e) => errs.add(e),
         }
@@ -89,10 +86,7 @@ impl ValidateNode for Entity {
         for index in self.indexes {
             // Indexing is hash-based over Value equality for all variants; collisions surface as corruption.
             // index store
-            match schema.cast_node::<Store>(index.store) {
-                Ok(store) if !matches!(store.ty, StoreType::Index) => {
-                    err!(errs, "store is not type Index");
-                }
+            match schema.cast_node::<IndexStore>(index.store) {
                 Ok(_) => {}
                 Err(e) => errs.add(e),
             }
@@ -127,7 +121,7 @@ impl ValidateNode for Entity {
             }
 
             if let Err(msg) =
-                crate::build::validate::validate_index_name_len(self.resolved_name(), index.fields)
+                crate::validate::validate_index_name_len(self.resolved_name(), index.fields)
             {
                 err!(errs, "{msg}");
             }

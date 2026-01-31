@@ -327,21 +327,6 @@ impl<E: EntityKind> Span<E> {
         self.rows = rows;
     }
 
-    #[expect(dead_code)]
-    /// Increment the recorded row count.
-    pub(crate) const fn add_rows(&mut self, rows: u64) {
-        self.rows = self.rows.saturating_add(rows);
-    }
-
-    #[expect(dead_code)]
-    /// Finish the span early (also happens on Drop).
-    pub(crate) fn finish(mut self) {
-        if !self.finished {
-            self.finish_inner();
-            self.finished = true;
-        }
-    }
-
     fn finish_inner(&self) {
         let now = read_perf_counter();
         let delta = now.saturating_sub(self.start);

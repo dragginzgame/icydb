@@ -2,27 +2,27 @@ use crate::prelude::*;
 use canic_utils::case::{Case, Casing};
 
 ///
-/// Store
+/// DataStore
 ///
 /// Schema node describing a stable IC BTreeMap that stores entity data.
+/// This is the authoritative row store for an entity.
 ///
 
 #[derive(Clone, Debug, Serialize)]
-pub struct Store {
+pub struct DataStore {
     pub def: Def,
     pub ident: &'static str,
-    pub ty: StoreType,
     pub canister: &'static str,
     pub memory_id: u8,
 }
 
-impl MacroNode for Store {
+impl MacroNode for DataStore {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 }
 
-impl ValidateNode for Store {
+impl ValidateNode for DataStore {
     fn validate(&self) -> Result<(), ErrorTree> {
         let mut errs = ErrorTree::new();
         let schema = schema_read();
@@ -52,7 +52,7 @@ impl ValidateNode for Store {
     }
 }
 
-impl VisitableNode for Store {
+impl VisitableNode for DataStore {
     fn route_key(&self) -> String {
         self.def.path()
     }

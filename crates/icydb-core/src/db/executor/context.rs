@@ -37,7 +37,8 @@ where
 
     /// Access the entity's data store in read-only mode.
     pub fn with_store<R>(&self, f: impl FnOnce(&DataStore) -> R) -> Result<R, InternalError> {
-        self.db.with_data(|reg| reg.with_store(E::Store::PATH, f))
+        self.db
+            .with_data(|reg| reg.with_store(E::DataStore::PATH, f))
     }
 
     /// Access the entity's data store mutably.
@@ -46,7 +47,7 @@ where
         f: impl FnOnce(&mut DataStore) -> R,
     ) -> Result<R, InternalError> {
         self.db
-            .with_data(|reg| reg.with_store_mut(E::Store::PATH, f))
+            .with_data(|reg| reg.with_store_mut(E::DataStore::PATH, f))
     }
 
     /// Read a row; missing rows return `NotFound`.

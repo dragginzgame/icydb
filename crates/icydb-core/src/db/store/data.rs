@@ -38,6 +38,11 @@ impl DataStore {
         Self(BTreeMap::init(memory))
     }
 
+    /// Clear all stored rows from the data store.
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
     /// Sum of bytes used by all stored rows.
     pub fn memory_bytes(&self) -> u64 {
         self.iter()

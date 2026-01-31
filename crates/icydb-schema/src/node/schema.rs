@@ -10,15 +10,16 @@ use std::{any::Any, collections::BTreeMap};
 #[derive(Clone, Debug, Serialize)]
 pub enum SchemaNode {
     Canister(Canister),
+    DataStore(DataStore),
     Entity(Entity),
     Enum(Enum),
+    IndexStore(IndexStore),
     List(List),
     Map(Map),
     Newtype(Newtype),
     Record(Record),
     Sanitizer(Sanitizer),
     Set(Set),
-    Store(Store),
     Tuple(Tuple),
     Validator(Validator),
 }
@@ -44,15 +45,16 @@ impl SchemaNode {
     const fn def(&self) -> &Def {
         match self {
             Self::Canister(n) => &n.def,
+            Self::DataStore(n) => &n.def,
             Self::Entity(n) => &n.def,
             Self::Enum(n) => &n.def,
+            Self::IndexStore(n) => &n.def,
             Self::List(n) => &n.def,
             Self::Map(n) => &n.def,
             Self::Newtype(n) => &n.def,
             Self::Record(n) => &n.def,
             Self::Sanitizer(n) => &n.def,
             Self::Set(n) => &n.def,
-            Self::Store(n) => &n.def,
             Self::Tuple(n) => &n.def,
             Self::Validator(n) => &n.def,
         }
@@ -63,15 +65,16 @@ impl MacroNode for SchemaNode {
     fn as_any(&self) -> &dyn Any {
         match self {
             Self::Canister(n) => n.as_any(),
+            Self::DataStore(n) => n.as_any(),
             Self::Entity(n) => n.as_any(),
             Self::Enum(n) => n.as_any(),
+            Self::IndexStore(n) => n.as_any(),
             Self::List(n) => n.as_any(),
             Self::Map(n) => n.as_any(),
             Self::Newtype(n) => n.as_any(),
             Self::Record(n) => n.as_any(),
             Self::Sanitizer(n) => n.as_any(),
             Self::Set(n) => n.as_any(),
-            Self::Store(n) => n.as_any(),
             Self::Tuple(n) => n.as_any(),
             Self::Validator(n) => n.as_any(),
         }
@@ -84,15 +87,16 @@ impl VisitableNode for SchemaNode {
     fn drive<V: Visitor>(&self, v: &mut V) {
         match self {
             Self::Canister(n) => n.accept(v),
+            Self::DataStore(n) => n.accept(v),
             Self::Entity(n) => n.accept(v),
             Self::Enum(n) => n.accept(v),
+            Self::IndexStore(n) => n.accept(v),
             Self::List(n) => n.accept(v),
             Self::Map(n) => n.accept(v),
             Self::Newtype(n) => n.accept(v),
             Self::Record(n) => n.accept(v),
             Self::Sanitizer(n) => n.accept(v),
             Self::Set(n) => n.accept(v),
-            Self::Store(n) => n.accept(v),
             Self::Tuple(n) => n.accept(v),
             Self::Validator(n) => n.accept(v),
         }

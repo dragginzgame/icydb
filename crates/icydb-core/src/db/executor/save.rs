@@ -35,6 +35,9 @@ use std::{
     thread::LocalKey,
 };
 
+// Debug assertions below are diagnostic sentinels; correctness is enforced by
+// runtime validation earlier in the pipeline.
+
 ///
 /// SaveExecutor
 ///
@@ -283,7 +286,7 @@ impl<E: EntityKind> SaveExecutor<E> {
             let index_plan =
                 plan_index_mutation_for_entity::<E>(&self.db, old.as_ref(), Some(&entity))?;
             let data_op = CommitDataOp {
-                store: E::Store::PATH.to_string(),
+                store: E::DataStore::PATH.to_string(),
                 key: raw_key.as_bytes().to_vec(),
                 value: Some(row.as_bytes().to_vec()),
             };
@@ -301,7 +304,7 @@ impl<E: EntityKind> SaveExecutor<E> {
                 let mut unit = WriteUnit::new("save_entity_atomic");
                 let index_rollback_ops = index_rollback_ops;
                 unit.record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
-                apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores);
+                apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores)?;
                 for _ in 0..index_removes {
                     sink::record(MetricsEvent::IndexRemove {
                         entity_path: E::PATH,
@@ -570,7 +573,7 @@ impl<E: EntityKind> SaveExecutor<E> {
         }
 
         let op = &ops[0];
-        if op.store != E::Store::PATH {
+        if op.store != E::DataStore::PATH {
             return Err(InternalError::new(
                 ErrorClass::Internal,
                 ErrorOrigin::Store,
@@ -737,8 +740,8 @@ mod tests {
             index::IndexModel,
         },
         traits::{
-            CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
-            ValidateAuto, ValidateCustom, View, Visitable,
+            CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto,
+            SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
         },
         types::Ulid,
         value::Value,
@@ -908,13 +911,13 @@ mod tests {
         const PATH: &'static str = STORE_PATH;
     }
 
-    impl StoreKind for TestStore {
+    impl DataStoreKind for TestStore {
         type Canister = TestCanister;
     }
 
     impl EntityKind for BadKeyEntity {
         type PrimaryKey = Ulid;
-        type Store = TestStore;
+        type DataStore = TestStore;
         type Canister = TestCanister;
 
         const ENTITY_NAME: &'static str = "BadKeyEntity";
@@ -938,7 +941,7 @@ mod tests {
 
     impl EntityKind for BadFieldEntity {
         type PrimaryKey = Ulid;
-        type Store = TestStore;
+        type DataStore = TestStore;
         type Canister = TestCanister;
 
         const ENTITY_NAME: &'static str = "BadFieldEntity";
@@ -962,7 +965,7 @@ mod tests {
 
     impl EntityKind for BadTypeEntity {
         type PrimaryKey = Ulid;
-        type Store = TestStore;
+        type DataStore = TestStore;
         type Canister = TestCanister;
 
         const ENTITY_NAME: &'static str = "BadTypeEntity";

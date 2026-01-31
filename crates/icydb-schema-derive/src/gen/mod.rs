@@ -125,8 +125,7 @@ define_gen!(
 //
 
 define_gen!(CanisterGen, Canister, view = _, create = _, update = _,);
-
+define_gen!(DataStoreGen, DataStore, view = _, create = _, update = _,);
+define_gen!(IndexStoreGen, IndexStore, view = _, create = _, update = _,);
 define_gen!(SanitizerGen, Sanitizer, view = _, create = _, update = _,);
-define_gen!(StoreGen, Store, view = _, create = _, update = _,);
-
 define_gen!(ValidatorGen, Validator, view = _, create = _, update = _,);

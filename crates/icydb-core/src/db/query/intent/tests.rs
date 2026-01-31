@@ -13,7 +13,7 @@ use crate::{
         index::IndexModel,
     },
     traits::{
-        CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
+        CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::{Ulid, Unit},
@@ -111,13 +111,13 @@ impl Path for UnitStore {
     const PATH: &'static str = UNIT_STORE_PATH;
 }
 
-impl StoreKind for UnitStore {
+impl DataStoreKind for UnitStore {
     type Canister = UnitCanister;
 }
 
 impl EntityKind for UnitEntity {
     type PrimaryKey = Unit;
-    type Store = UnitStore;
+    type DataStore = UnitStore;
     type Canister = UnitCanister;
 
     const ENTITY_NAME: &'static str = "UnitEntity";
@@ -186,7 +186,7 @@ impl FieldValues for UnorderableEntity {
 
 impl EntityKind for UnorderableEntity {
     type PrimaryKey = Unit;
-    type Store = UnitStore;
+    type DataStore = UnitStore;
     type Canister = UnitCanister;
 
     const ENTITY_NAME: &'static str = "UnorderableEntity";

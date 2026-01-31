@@ -12,25 +12,52 @@ use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, thread::LocalKey};
 pub fn apply_marker_index_ops(
     ops: &[CommitIndexOp],
     stores: Vec<&'static LocalKey<RefCell<IndexStore>>>,
-) {
+) -> Result<(), InternalError> {
     // SAFETY / INVARIANT:
-    // All structural and semantic invariants for these marker ops are fully
-    // validated during planning *before* the commit marker is persisted.
-    // After marker creation, apply is required to be infallible or trap.
-    // Therefore, debug_assert!s here are correctness sentinels, not user errors.
-    debug_assert_eq!(
-        ops.len(),
-        stores.len(),
-        "commit marker index ops length mismatch"
-    );
+    // All structural and semantic invariants for these marker ops are validated
+    // before the commit marker is persisted. Runtime checks here prevent
+    // release builds from applying malformed marker payloads.
+    if ops.len() != stores.len() {
+        return Err(InternalError::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Index,
+            format!(
+                "commit marker index ops length mismatch: {} ops vs {} stores",
+                ops.len(),
+                stores.len()
+            ),
+        ));
+    }
 
     for (op, store) in ops.iter().zip(stores.into_iter()) {
-        debug_assert_eq!(op.key.len(), IndexKey::STORED_SIZE as usize);
+        if op.key.len() != IndexKey::STORED_SIZE as usize {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Index,
+                format!(
+                    "commit marker index key length {} does not match {}",
+                    op.key.len(),
+                    IndexKey::STORED_SIZE
+                ),
+            ));
+        }
+        if let Some(value) = &op.value
+            && value.len() > MAX_INDEX_ENTRY_BYTES as usize
+        {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Index,
+                format!(
+                    "commit marker index entry exceeds max size: {} bytes",
+                    value.len()
+                ),
+            ));
+        }
+
         let raw_key = RawIndexKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
 
         store.with_borrow_mut(|s| {
             if let Some(value) = &op.value {
-                debug_assert!(value.len() <= MAX_INDEX_ENTRY_BYTES as usize);
                 let raw_entry = RawIndexEntry::from_bytes(Cow::Borrowed(value.as_slice()));
                 s.insert(raw_key, raw_entry);
             } else {
@@ -38,6 +65,8 @@ pub fn apply_marker_index_ops(
             }
         });
     }
+
+    Ok(())
 }
 
 // Resolve and validate a commit marker index op, returning the store and key.

@@ -433,8 +433,8 @@ mod tests {
         },
         serialize::serialize,
         traits::{
-            CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
-            ValidateAuto, ValidateCustom, View, Visitable,
+            CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto,
+            SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
         },
         types::Ulid,
         value::Value,
@@ -574,13 +574,13 @@ mod tests {
         const PATH: &'static str = DATA_STORE_PATH;
     }
 
-    impl StoreKind for TestStore {
+    impl DataStoreKind for TestStore {
         type Canister = TestCanister;
     }
 
     impl EntityKind for TestEntity {
         type PrimaryKey = Ulid;
-        type Store = TestStore;
+        type DataStore = TestStore;
         type Canister = TestCanister;
 
         const ENTITY_NAME: &'static str = "TestEntity";
@@ -604,7 +604,7 @@ mod tests {
 
     impl EntityKind for MissingFieldEntity {
         type PrimaryKey = Ulid;
-        type Store = TestStore;
+        type DataStore = TestStore;
         type Canister = TestCanister;
 
         const ENTITY_NAME: &'static str = "MissingFieldEntity";
@@ -633,7 +633,10 @@ mod tests {
 
     canic_memory::eager_static! {
         static TEST_INDEX_STORE: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init(canic_memory::ic_memory!(IndexStore, 21)));
+            RefCell::new(IndexStore::init(
+                canic_memory::ic_memory!(IndexStore, 21),
+                canic_memory::ic_memory!(IndexStore, 22),
+            ));
     }
 
     thread_local! {
@@ -657,8 +660,8 @@ mod tests {
     });
 
     fn reset_stores() {
-        TEST_DATA_STORE.with_borrow_mut(|store| store.clear());
-        TEST_INDEX_STORE.with_borrow_mut(|store| store.clear());
+        TEST_DATA_STORE.with_borrow_mut(DataStore::clear);
+        TEST_INDEX_STORE.with_borrow_mut(IndexStore::clear);
     }
 
     fn seed_entity(entity: &TestEntity) {

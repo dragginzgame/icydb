@@ -1,13 +1,13 @@
 use crate::prelude::*;
 
 ///
-/// StoreKindTrait
+/// IndexStoreKindTrait
 ///
 
-pub struct StoreKindTrait {}
+pub struct IndexStoreKindTrait {}
 
-impl Imp<Store> for StoreKindTrait {
-    fn strategy(node: &Store) -> Option<TraitStrategy> {
+impl Imp<IndexStore> for IndexStoreKindTrait {
+    fn strategy(node: &IndexStore) -> Option<TraitStrategy> {
         let canister = &node.canister;
 
         // static definitions
@@ -15,7 +15,7 @@ impl Imp<Store> for StoreKindTrait {
             type Canister = #canister;
         };
 
-        let tokens = Implementor::new(node.def(), TraitKind::StoreKind)
+        let tokens = Implementor::new(node.def(), TraitKind::IndexStoreKind)
             .set_tokens(q)
             .to_token_stream();
 

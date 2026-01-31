@@ -53,10 +53,10 @@ pub enum TraitKind {
     // kind
     // traits for the implementation of specific Schema Nodes
     CanisterKind,
+    DataStoreKind,
     EntityKind,
-    IndexKind,
+    IndexStoreKind,
     PrimitiveKind,
-    StoreKind,
 
     // orm
     CreateView,

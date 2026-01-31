@@ -207,12 +207,29 @@ impl LogicalPlan {
 }
 
 // Sort rows by the configured order spec, using entity field values.
-fn apply_order_spec<E, R>(rows: &mut [R], order: &OrderSpec)
+fn apply_order_spec<E, R>(rows: &mut Vec<R>, order: &OrderSpec)
 where
     E: EntityKind,
     R: PlanRow<E>,
 {
-    rows.sort_by(|left, right| compare_entities::<E>(left.entity(), right.entity(), order));
+    // Phase 1: tag rows with their original position to preserve stability.
+    let mut indexed = Vec::with_capacity(rows.len());
+    for (idx, row) in rows.drain(..).enumerate() {
+        indexed.push((idx, row));
+    }
+
+    // Phase 2: stable ordering via position tie-breaker.
+    indexed.sort_by(|(left_idx, left), (right_idx, right)| {
+        let ordering = compare_entities::<E>(left.entity(), right.entity(), order);
+        if ordering == Ordering::Equal {
+            left_idx.cmp(right_idx)
+        } else {
+            ordering
+        }
+    });
+
+    // Phase 3: restore the ordered rows.
+    rows.extend(indexed.into_iter().map(|(_, row)| row));
 }
 
 // Compare two entities according to the order spec, returning the first non-equal field ordering.

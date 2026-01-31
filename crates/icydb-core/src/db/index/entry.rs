@@ -81,6 +81,7 @@ impl IndexEntryCorruption {
 pub enum IndexEntryEncodeError {
     #[error("index entry exceeds max keys: {keys} (limit {MAX_INDEX_ENTRY_KEYS})")]
     TooManyKeys { keys: usize },
+
     #[error("index entry key encoding failed: {0}")]
     KeyEncoding(#[from] KeyEncodeError),
 }

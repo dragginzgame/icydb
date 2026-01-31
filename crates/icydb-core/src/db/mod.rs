@@ -13,7 +13,7 @@ pub(crate) use write::WriteUnit;
 use crate::{
     db::{
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor},
-        index::IndexStoreRegistry,
+        index::{IndexStore, IndexStoreRegistry},
         query::{
             Query, QueryError, QueryMode, ReadConsistency, SessionDeleteQuery, SessionLoadQuery,
             diagnostics::{
@@ -22,7 +22,7 @@ use crate::{
             },
         },
         response::Response,
-        store::DataStoreRegistry,
+        store::{DataStore, DataStoreRegistry},
     },
     error::InternalError,
     obs::sink::{self, MetricsSink},
@@ -332,5 +332,23 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         self.with_metrics(|| self.save_executor::<E>().update_view(view))
+    }
+
+    /// TEST ONLY: clear all registered data and index stores for this database.
+    #[doc(hidden)]
+    pub fn clear_stores_for_tests(&self) {
+        // Data stores.
+        self.db.with_data(|reg| {
+            for (path, _) in reg.iter() {
+                let _ = reg.with_store_mut(path, DataStore::clear);
+            }
+        });
+
+        // Index stores.
+        self.db.with_index(|reg| {
+            for (path, _) in reg.iter() {
+                let _ = reg.with_store_mut(path, IndexStore::clear);
+            }
+        });
     }
 }

@@ -205,4 +205,10 @@ impl<C: CanisterKind> DbSession<C> {
     {
         Ok(self.inner.update_view::<E>(view)?)
     }
+
+    /// TEST ONLY: clear all registered data and index stores for this database.
+    #[doc(hidden)]
+    pub fn clear_stores_for_tests(&self) {
+        self.inner.clear_stores_for_tests();
+    }
 }

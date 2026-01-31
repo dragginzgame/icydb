@@ -48,6 +48,7 @@ and mechanical enforcement of architectural boundaries.
 - Install with:
   ```bash
   rustup toolchain install 1.93
+  ```
 
 ### Add IcyDB
 
@@ -109,6 +110,7 @@ Key properties:
 * Entity type is fixed at construction (`Query<User>`).
 * Missing-row behavior is explicit (`ReadConsistency`).
 * Executors only accept validated, executable plans.
+* Query semantics are API-surface dependent: `FieldRef` and `FilterExpr` use different coercion defaults for ordering. See `docs/QUERY_BUILDER.md` for the locked contract.
 
 ---
 

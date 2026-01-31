@@ -10,7 +10,10 @@ pub mod test;
 pub(crate) mod prelude {
     pub use crate::{
         assert_invalid, assert_valid,
-        schema::{TestDataStore, TestIndexStore},
+        schema::{
+            relation::RelationDataStore,
+            test::{TestDataStore, TestIndexStore},
+        },
     };
     pub use icydb::{base, design::prelude::*};
     pub use std::str::FromStr as _;

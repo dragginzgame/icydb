@@ -2,6 +2,7 @@ pub mod entry;
 pub mod fingerprint;
 pub mod key;
 pub mod plan;
+pub(crate) mod rebuild;
 pub mod store;
 
 #[cfg(test)]

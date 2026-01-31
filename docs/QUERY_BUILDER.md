@@ -35,6 +35,43 @@ This step intentionally excludes indexes, planning, and access-path selection.
 
 ---
 
+## API Surface Defaults (Locked)
+
+The coercion model is shared, but **different API surfaces set different defaults**.
+This is intentional and must not be “unified” or “fixed.”
+
+* `FieldRef` (builder API): ordering operators (`Lt`, `Lte`, `Gt`, `Gte`) use `NumericWiden`.
+* `FilterExpr` (facade API): ordering operators (`Lt`, `Lte`, `Gt`, `Gte`) use `Strict`.
+
+Equivalent logical predicates **may differ** depending on which API is used.
+This is a contract difference, not a bug.
+
+---
+
+## Example: Ordering Coercion Divergence
+
+Same logical intent, different API surface, different result:
+
+```rust
+// Builder API (FieldRef): ordering uses NumericWiden.
+// Field value: Int(10), predicate: age > Uint(5)  → true (numeric widen).
+let pred = field("age").gt(5u64);
+```
+
+```rust
+// Facade API (FilterExpr): ordering uses Strict.
+// Field value: Int(10), predicate: age > Uint(5)  → false (type mismatch).
+let pred = FilterExpr::Gt {
+    field: "age".to_string(),
+    value: Value::Uint(5),
+};
+```
+
+Both predicates are valid per their respective API contracts, but they are **not**
+interchangeable. Use the API that matches the coercion guarantees you want.
+
+---
+
 ## Core Data Model
 
 ### Field Presence

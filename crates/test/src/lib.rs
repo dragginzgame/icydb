@@ -3,7 +3,6 @@ mod view_into;
 
 use canic_cdk::{export_candid, update};
 use icydb::design::prelude::*;
-use test_design::schema::{TestDataStore, TestIndexStore};
 
 //
 // INIT
@@ -17,13 +16,7 @@ icydb::start!();
 
 /// Clear all test stores between suite runs.
 pub(crate) fn clear_test_data_store() {
-    // clear before each test
-    crate::DATA_REGISTRY.with(|reg| {
-        let _ = reg.with_store_mut(TestDataStore::PATH, |s| s.clear());
-    });
-    crate::INDEX_REGISTRY.with(|reg| {
-        let _ = reg.with_store_mut(TestIndexStore::PATH, |s| s.clear());
-    });
+    crate::db().clear_stores_for_tests();
 }
 
 /// test

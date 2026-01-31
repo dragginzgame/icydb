@@ -11,20 +11,21 @@ where
     to_vec(t).map_err(|e| SerializeError::Serialize(e.to_string()))
 }
 
-/// Deserialize CBOR bytes into a value.
+/// Deserialize CBOR bytes into a value with a caller-provided size limit.
 ///
 /// Safety guarantees:
 /// - Input size is bounded before decode.
 /// - Any panic during decode is caught and reported as a deserialize error.
 /// - No panic escapes this function.
-pub fn deserialize<T>(bytes: &[u8]) -> Result<T, SerializeError>
+pub fn deserialize_bounded<T>(bytes: &[u8], max_bytes: usize) -> Result<T, SerializeError>
 where
     T: DeserializeOwned,
 {
-    if bytes.len() > MAX_ROW_BYTES as usize {
-        return Err(SerializeError::Deserialize(
-            "payload exceeds maximum allowed size".into(),
-        ));
+    if bytes.len() > max_bytes {
+        return Err(SerializeError::Deserialize(format!(
+            "payload exceeds maximum allowed size: {} bytes (limit {max_bytes})",
+            bytes.len()
+        )));
     }
 
     let result = catch_unwind(AssertUnwindSafe(|| from_slice(bytes)));
@@ -36,4 +37,12 @@ where
             "panic during CBOR deserialization".into(),
         )),
     }
+}
+
+/// Deserialize CBOR bytes into a value using the default size limit.
+pub fn deserialize<T>(bytes: &[u8]) -> Result<T, SerializeError>
+where
+    T: DeserializeOwned,
+{
+    deserialize_bounded(bytes, MAX_ROW_BYTES as usize)
 }

@@ -44,12 +44,20 @@ impl<T> Kind for T where T: Path + 'static {}
 pub trait CanisterKind: Kind {}
 
 ///
+/// DataStoreKind
+///
+
+pub trait DataStoreKind: Kind {
+    type Canister: CanisterKind;
+}
+
+///
 /// EntityKind
 ///
 
 pub trait EntityKind: Kind + TypeKind + FieldValues {
     type PrimaryKey: Copy + Into<Key>;
-    type Store: StoreKind;
+    type DataStore: DataStoreKind;
     type Canister: CanisterKind; // Self::Store::Canister shortcut
 
     const ENTITY_NAME: &'static str;
@@ -64,6 +72,14 @@ pub trait EntityKind: Kind + TypeKind + FieldValues {
 }
 
 ///
+/// IndexStoreKind
+///
+
+pub trait IndexStoreKind: Kind {
+    type Canister: CanisterKind;
+}
+
+///
 /// UnitKey
 /// Marker trait for unit-valued primary keys used by singleton entities.
 ///
@@ -72,14 +88,6 @@ pub trait UnitKey: Copy + Into<Key> + unit_key::Sealed {}
 
 impl UnitKey for () {}
 impl UnitKey for Unit {}
-
-///
-/// StoreKind
-///
-
-pub trait StoreKind: Kind {
-    type Canister: CanisterKind;
-}
 
 mod unit_key {
     use crate::types::Unit;

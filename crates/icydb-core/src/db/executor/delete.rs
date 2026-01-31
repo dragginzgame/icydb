@@ -212,7 +212,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                     })?;
                     rollback_rows.insert(raw_key, raw_row);
                     Ok(CommitDataOp {
-                        store: E::Store::PATH.to_string(),
+                        store: E::DataStore::PATH.to_string(),
                         key: raw_key.as_bytes().to_vec(),
                         value: None,
                     })
@@ -234,7 +234,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                 // Commit boundary: apply the marker's raw mutations mechanically.
                 let index_rollback_ops = index_rollback_ops;
                 unit.record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
-                apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores);
+                apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores)?;
                 for _ in 0..index_remove_count {
                     sink::record(MetricsEvent::IndexRemove {
                         entity_path: E::PATH,
@@ -362,7 +362,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
         // Validate marker ops and map them to rollback rows.
         for op in ops {
-            if op.store != E::Store::PATH {
+            if op.store != E::DataStore::PATH {
                 return Err(InternalError::new(
                     ErrorClass::Internal,
                     ErrorOrigin::Store,
@@ -434,7 +434,13 @@ impl<E: EntityKind> DeleteExecutor<E> {
         // After marker creation, apply is required to be infallible or trap.
         // Therefore, debug_assert!s here are correctness sentinels, not user errors.
         for op in ops {
-            debug_assert!(op.value.is_none());
+            if op.value.is_some() {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Store,
+                    format!("commit marker delete includes data payload ({})", E::PATH),
+                ));
+            }
             let raw_key = RawDataKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
             ctx.with_store_mut(|s| s.remove(&raw_key))?;
         }

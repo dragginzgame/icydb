@@ -7,7 +7,9 @@ use crate::{
             CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, begin_commit,
             commit_marker_present, force_recovery_for_tests,
         },
-        index::{IndexEntry, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
+        index::{
+            IndexEntry, IndexKey, IndexStore as DbIndexStore, IndexStoreRegistry, RawIndexEntry,
+        },
         query::{
             DeleteSpec, FieldRef, LoadSpec, Query, QueryError, QueryMode, ReadConsistency,
             plan::{
@@ -16,7 +18,7 @@ use crate::{
             },
             predicate::Predicate,
         },
-        store::{DataKey, DataStore, DataStoreRegistry, RawRow},
+        store::{DataKey, DataStore as DbDataStore, DataStoreRegistry, RawRow},
         write::{fail_checkpoint_label, fail_next_checkpoint},
     },
     error::{ErrorClass, ErrorOrigin},
@@ -28,7 +30,7 @@ use crate::{
     },
     serialize::serialize,
     traits::{
-        CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
+        CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::{Timestamp, Ulid, Unit},
@@ -38,14 +40,15 @@ use canic_memory::runtime::registry::MemoryRegistryRuntime;
 use icydb_schema::{
     build::schema_write,
     node::{
-        Canister, Def, Entity, Field, FieldList, Index, Item, ItemTarget, SchemaNode, Store, Type,
-        Value as SchemaValue,
+        Canister, DataStore as SchemaDataStore, Def, Entity, Field, FieldList, Index,
+        IndexStore as SchemaIndexStore, Item, ItemTarget, SchemaNode, Type, Value as SchemaValue,
     },
-    types::{Cardinality, Primitive, StoreType},
+    types::{Cardinality, Primitive},
 };
 use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
+    fmt::Write,
     mem,
     sync::{Mutex, Once},
 };
@@ -176,19 +179,19 @@ impl Path for TestCanister {
 
 impl CanisterKind for TestCanister {}
 
-struct TestStore;
+struct TestDataStore;
 
-impl Path for TestStore {
+impl Path for TestDataStore {
     const PATH: &'static str = DATA_STORE_PATH;
 }
 
-impl StoreKind for TestStore {
+impl DataStoreKind for TestDataStore {
     type Canister = TestCanister;
 }
 
 impl EntityKind for TestEntity {
     type PrimaryKey = Ulid;
-    type Store = TestStore;
+    type DataStore = TestDataStore;
     type Canister = TestCanister;
 
     const ENTITY_NAME: &'static str = "TestEntity";
@@ -250,7 +253,7 @@ impl FieldValues for UnitEntity {
 
 impl EntityKind for UnitEntity {
     type PrimaryKey = Unit;
-    type Store = TestStore;
+    type DataStore = TestDataStore;
     type Canister = TestCanister;
 
     const ENTITY_NAME: &'static str = "UnitEntity";
@@ -324,7 +327,7 @@ impl FieldValues for OrderEntity {
 
 impl EntityKind for OrderEntity {
     type PrimaryKey = Ulid;
-    type Store = TestStore;
+    type DataStore = TestDataStore;
     type Canister = TestCanister;
 
     const ENTITY_NAME: &'static str = "OrderEntity";
@@ -385,7 +388,7 @@ impl FieldValues for TimestampEntity {
 
 impl EntityKind for TimestampEntity {
     type PrimaryKey = Timestamp;
-    type Store = TestStore;
+    type DataStore = TestDataStore;
     type Canister = TestCanister;
 
     const ENTITY_NAME: &'static str = "TimestampEntity";
@@ -408,13 +411,16 @@ impl EntityKind for TimestampEntity {
 }
 
 canic_memory::eager_static! {
-    static TEST_DATA_STORE: RefCell<DataStore> =
-        RefCell::new(DataStore::init(canic_memory::ic_memory!(DataStore, 10)));
+    static TEST_DATA_STORE: RefCell<DbDataStore> =
+        RefCell::new(DbDataStore::init(canic_memory::ic_memory!(DbDataStore, 10)));
 }
 
 canic_memory::eager_static! {
-    static TEST_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(canic_memory::ic_memory!(IndexStore, 11)));
+    static TEST_INDEX_STORE: RefCell<DbIndexStore> =
+        RefCell::new(DbIndexStore::init(
+            canic_memory::ic_memory!(DbIndexStore, 11),
+            canic_memory::ic_memory!(DbIndexStore, 12),
+        ));
 }
 
 thread_local! {
@@ -562,28 +568,27 @@ fn init_schema() {
             memory_max: 1,
         };
 
-        let data_store = Store {
+        let data_store = SchemaDataStore {
             def: Def {
                 module_path: "write_unit_test",
                 ident: "TestDataStore",
                 comments: None,
             },
             ident: "TEST_DATA_STORE",
-            ty: StoreType::Data,
             canister: CANISTER_PATH,
             memory_id: 10,
         };
 
-        let index_store = Store {
+        let index_store = SchemaIndexStore {
             def: Def {
                 module_path: "write_unit_test",
                 ident: "TestIndexStore",
                 comments: None,
             },
             ident: "TEST_INDEX_STORE",
-            ty: StoreType::Index,
             canister: CANISTER_PATH,
-            memory_id: 11,
+            entry_memory_id: 11,
+            fingerprint_memory_id: 12,
         };
 
         let test_entity = Entity {
@@ -643,17 +648,22 @@ fn init_schema() {
         };
 
         schema.insert_node(SchemaNode::Canister(canister));
-        schema.insert_node(SchemaNode::Store(data_store));
-        schema.insert_node(SchemaNode::Store(index_store));
+        schema.insert_node(SchemaNode::DataStore(data_store));
+        schema.insert_node(SchemaNode::IndexStore(index_store));
         schema.insert_node(SchemaNode::Entity(test_entity));
         schema.insert_node(SchemaNode::Entity(order_entity));
         schema.insert_node(SchemaNode::Entity(timestamp_entity));
     });
 }
 
+fn setup_schema() {
+    reset_stores();
+    init_schema();
+}
+
 fn reset_stores() {
-    TEST_DATA_STORE.with_borrow_mut(|store| store.clear());
-    TEST_INDEX_STORE.with_borrow_mut(|store| store.clear());
+    TEST_DATA_STORE.with_borrow_mut(DbDataStore::clear);
+    TEST_INDEX_STORE.with_borrow_mut(DbIndexStore::clear);
     init_memory_registry();
 }
 
@@ -729,7 +739,9 @@ fn assert_entity_present(entity: &TestEntity) {
         .expect("index key")
         .expect("index key missing");
     let raw_index_key = index_key.to_raw();
-    let index_present = TEST_INDEX_STORE.with_borrow(|s| s.get(&raw_index_key));
+    let index_present = DB
+        .with_index(|reg| reg.with_store(INDEX_STORE_PATH, |s| s.get(&raw_index_key)))
+        .unwrap();
     assert!(index_present.is_some());
 }
 
@@ -746,8 +758,82 @@ fn assert_entity_missing(entity: &TestEntity) {
         .expect("index key")
         .expect("index key missing");
     let raw_index_key = index_key.to_raw();
-    let index_present = TEST_INDEX_STORE.with_borrow(|s| s.get(&raw_index_key));
+    let index_present = DB
+        .with_index(|reg| reg.with_store(INDEX_STORE_PATH, |s| s.get(&raw_index_key)))
+        .unwrap();
     assert!(index_present.is_none());
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn debug_index_fingerprint_flow_demo() {
+    setup_schema();
+
+    let saver = SaveExecutor::<TestEntity>::new(DB, false);
+    let entity_a = TestEntity {
+        id: Ulid::from_u128(100),
+        name: "alpha".to_string(),
+    };
+    let entity_b = TestEntity {
+        id: Ulid::from_u128(101),
+        name: "bravo".to_string(),
+    };
+
+    let to_hex = |bytes: [u8; 16]| {
+        let mut out = String::with_capacity(32);
+        for byte in bytes {
+            let _ = write!(&mut out, "{byte:02x}");
+        }
+        out
+    };
+    let load_fingerprint = |raw_key| {
+        DB.with_index(|reg| reg.with_store(INDEX_STORE_PATH, |s| s.debug_fingerprint_for(raw_key)))
+            .expect("index store access")
+    };
+    let print_fingerprint = |label: &str, key: &IndexKey, raw_key| match load_fingerprint(raw_key) {
+        Some(bytes) => {
+            println!(
+                "[fingerprint-demo] {label}: key={key:?} fingerprint=0x{}",
+                to_hex(bytes)
+            );
+        }
+        None => {
+            println!("[fingerprint-demo] {label}: key={key:?} fingerprint=<removed>");
+        }
+    };
+
+    // Phase 1: insert entities to create index entries + fingerprints.
+    saver.insert(entity_a.clone()).unwrap();
+    saver.insert(entity_b.clone()).unwrap();
+
+    let key_a = IndexKey::new(&entity_a, &INDEX_MODEL)
+        .expect("index key")
+        .expect("index key missing");
+    let key_b = IndexKey::new(&entity_b, &INDEX_MODEL)
+        .expect("index key")
+        .expect("index key missing");
+    let raw_key_a = key_a.to_raw();
+    let raw_key_b = key_b.to_raw();
+
+    print_fingerprint("after insert (a)", &key_a, &raw_key_a);
+    print_fingerprint("after insert (b)", &key_b, &raw_key_b);
+
+    // Phase 2: delete one entity and show fingerprint removal.
+    let session = DbSession::new(DB);
+    let deleted = session
+        .delete::<TestEntity>()
+        .many(vec![entity_a.id])
+        .execute()
+        .unwrap();
+    println!(
+        "[fingerprint-demo] delete: removed {} entity",
+        deleted.entities().len()
+    );
+    print_fingerprint("after delete (a)", &key_a, &raw_key_a);
+
+    // Phase 3: rebuild indexes to regenerate fingerprints.
+    crate::db::index::rebuild::rebuild_indexes_for_entity::<TestEntity>(&DB).unwrap();
+    print_fingerprint("after rebuild (b)", &key_b, &raw_key_b);
 }
 
 #[test]
@@ -776,14 +862,15 @@ fn save_rolls_back_on_forced_failure() {
         .expect("index key")
         .expect("index key missing");
     let raw_index_key = index_key.to_raw();
-    let index_present = TEST_INDEX_STORE.with_borrow(|s| s.get(&raw_index_key));
+    let index_present = DB
+        .with_index(|reg| reg.with_store(INDEX_STORE_PATH, |s| s.get(&raw_index_key)))
+        .unwrap();
     assert!(index_present.is_none());
 }
 
 #[test]
 fn save_update_rejects_row_key_mismatch() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let stored = TestEntity {
         id: Ulid::from_u128(1),
@@ -808,8 +895,7 @@ fn save_update_rejects_row_key_mismatch() {
 
 #[test]
 fn save_insert_rejects_row_key_mismatch() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let stored = TestEntity {
         id: Ulid::from_u128(1),
@@ -834,8 +920,7 @@ fn save_insert_rejects_row_key_mismatch() {
 
 #[test]
 fn save_replace_rejects_row_key_mismatch() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let stored = TestEntity {
         id: Ulid::from_u128(3),
@@ -860,8 +945,7 @@ fn save_replace_rejects_row_key_mismatch() {
 
 #[test]
 fn load_recovers_when_commit_marker_present() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let entity = TestEntity {
         id: Ulid::from_u128(9),
@@ -885,8 +969,7 @@ fn load_recovers_when_commit_marker_present() {
 
 #[test]
 fn context_reads_enforce_recovery() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let entity = TestEntity {
         id: Ulid::from_u128(12),
@@ -930,8 +1013,7 @@ fn context_reads_enforce_recovery() {
 
 #[test]
 fn delete_scan_rolls_back_after_data_removal() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity_a = TestEntity {
@@ -976,8 +1058,7 @@ fn delete_scan_rolls_back_after_data_removal() {
 
 #[test]
 fn delete_limit_deletes_oldest_rows() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entities = vec![
@@ -1036,8 +1117,7 @@ fn delete_limit_deletes_oldest_rows() {
 
 #[test]
 fn delete_limit_without_order_is_rejected() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let deleter = DeleteExecutor::<TestEntity>::new(DB, false);
     let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
@@ -1051,8 +1131,7 @@ fn delete_limit_without_order_is_rejected() {
 
 #[test]
 fn load_by_key_missing_is_ok() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let plan = ExecutablePlan::new(LogicalPlan::new(
         AccessPath::ByKey(Key::Ulid(Ulid::from_u128(1))),
@@ -1066,8 +1145,7 @@ fn load_by_key_missing_is_ok() {
 
 #[test]
 fn load_by_keys_dedups_duplicates() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
@@ -1093,8 +1171,7 @@ fn load_by_keys_dedups_duplicates() {
 
 #[test]
 fn load_by_keys_skips_missing_after_dedup() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
@@ -1121,8 +1198,7 @@ fn load_by_keys_skips_missing_after_dedup() {
 
 #[test]
 fn session_many_empty_is_noop() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
@@ -1144,8 +1220,7 @@ fn session_many_empty_is_noop() {
 
 #[test]
 fn session_many_dedups_duplicate_keys() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
@@ -1168,8 +1243,7 @@ fn session_many_dedups_duplicate_keys() {
 
 #[test]
 fn session_many_missing_ok_skips_missing() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
@@ -1192,8 +1266,7 @@ fn session_many_missing_ok_skips_missing() {
 
 #[test]
 fn session_many_strict_missing_errors() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let session = DbSession::new(DB);
     let err = session
@@ -1210,8 +1283,7 @@ fn session_many_strict_missing_errors() {
 
 #[test]
 fn session_many_views_materializes() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
@@ -1234,8 +1306,7 @@ fn session_many_views_materializes() {
 
 #[test]
 fn session_delete_many_by_primary_key() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let a = TestEntity {
@@ -1264,8 +1335,7 @@ fn session_delete_many_by_primary_key() {
 
 #[test]
 fn session_only_missing_ok_skips_missing() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let session = DbSession::new(DB);
     let rows = session
@@ -1280,8 +1350,7 @@ fn session_only_missing_ok_skips_missing() {
 
 #[test]
 fn session_only_strict_missing_errors() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let session = DbSession::new(DB);
     let err = session
@@ -1298,8 +1367,7 @@ fn session_only_strict_missing_errors() {
 
 #[test]
 fn session_only_delete_is_idempotent_missing_ok() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let session = DbSession::new(DB);
     let deleted = session
@@ -1314,8 +1382,7 @@ fn session_only_delete_is_idempotent_missing_ok() {
 
 #[test]
 fn session_only_loads_singleton() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<UnitEntity>::new(DB, false);
     let entity = UnitEntity { id: Unit };
@@ -1335,8 +1402,7 @@ fn session_only_loads_singleton() {
 
 #[test]
 fn load_or_predicate_executes_union() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let a = TestEntity {
@@ -1368,8 +1434,7 @@ fn load_or_predicate_executes_union() {
 
 #[test]
 fn load_in_predicate_executes_union() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let a = TestEntity {
@@ -1398,8 +1463,7 @@ fn load_in_predicate_executes_union() {
 
 #[test]
 fn load_or_strict_missing_errors() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
@@ -1427,8 +1491,7 @@ fn load_or_strict_missing_errors() {
 
 #[test]
 fn timestamp_pk_plans_by_key_and_strict_missing_is_corruption() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let ts = Timestamp::from_seconds(123);
     let plan = Query::<TimestampEntity>::new(ReadConsistency::Strict)
@@ -1471,8 +1534,7 @@ fn timestamp_pk_plans_by_key_and_strict_missing_is_corruption() {
 }
 #[test]
 fn trace_emits_start_and_finish_for_load() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
@@ -1538,8 +1600,7 @@ fn trace_emits_start_and_finish_for_load() {
 
 #[test]
 fn trace_access_includes_composite_plan() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity_a = TestEntity {
@@ -1621,8 +1682,7 @@ fn trace_access_includes_composite_plan() {
 
 #[test]
 fn trace_emits_phase_counts_for_filter_order_page() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entities = [
@@ -1714,8 +1774,7 @@ fn trace_emits_phase_counts_for_filter_order_page() {
 
 #[test]
 fn trace_emits_error_for_strict_missing_row() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let plan = LogicalPlan::new(
         AccessPath::ByKey(Key::Ulid(Ulid::from_u128(1))),
@@ -1750,8 +1809,7 @@ fn trace_emits_error_for_strict_missing_row() {
 
 #[test]
 fn trace_disabled_emits_no_events() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
@@ -1774,8 +1832,7 @@ fn trace_disabled_emits_no_events() {
 
 #[test]
 fn trace_emits_start_and_finish_for_save() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let save_executor =
         SaveExecutor::<TestEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
@@ -1819,8 +1876,7 @@ fn trace_emits_start_and_finish_for_save() {
 
 #[test]
 fn trace_emits_phases_for_delete() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity_id = Ulid::from_u128(2002);
@@ -1903,8 +1959,7 @@ fn trace_emits_phases_for_delete() {
 
 #[test]
 fn diagnose_query_matches_queryspec_explain() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let query = Query::<TestEntity>::new(ReadConsistency::MissingOk);
     let session = DbSession::new(DB);
@@ -1920,8 +1975,7 @@ fn diagnose_query_matches_queryspec_explain() {
 
 #[test]
 fn diagnose_query_fingerprint_matches_plan() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let query = Query::<TestEntity>::new(ReadConsistency::MissingOk);
     let session = DbSession::new(DB);
@@ -1936,8 +1990,7 @@ fn diagnose_query_fingerprint_matches_plan() {
 
 #[test]
 fn diagnose_query_does_not_execute() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let data_key = DataKey::new::<TestEntity>(Ulid::from_u128(1));
     let raw_key = data_key.to_raw().expect("data key encode");
@@ -1962,8 +2015,7 @@ fn diagnose_query_does_not_execute() {
 
 #[test]
 fn diagnose_query_invalid_matches_explain() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let query = Query::<TestEntity>::new(ReadConsistency::MissingOk).order_by("missing");
     let session = DbSession::new(DB);
@@ -1985,8 +2037,7 @@ fn diagnose_query_invalid_matches_explain() {
 
 #[test]
 fn execute_with_diagnostics_returns_events() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
@@ -2025,8 +2076,7 @@ fn execute_with_diagnostics_returns_events() {
 
 #[test]
 fn resolve_data_values_rejects_prefix_too_long() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let values = vec![
         Value::Text("alpha".to_string()),
@@ -2042,8 +2092,7 @@ fn resolve_data_values_rejects_prefix_too_long() {
 
 #[test]
 fn load_orders_with_incomparable_primary_uses_secondary() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<OrderEntity>::new(DB, false);
     let entities = vec![
@@ -2101,8 +2150,7 @@ fn load_orders_with_incomparable_primary_uses_secondary() {
 
 #[test]
 fn load_paginates_after_ordering() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entities = vec![
@@ -2182,8 +2230,7 @@ fn load_paginates_after_ordering() {
 
 #[test]
 fn load_paginates_after_filtering_and_ordering() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<OrderEntity>::new(DB, false);
     let entities = vec![
@@ -2236,8 +2283,7 @@ fn load_paginates_after_filtering_and_ordering() {
 
 #[test]
 fn load_pagination_handles_large_offset() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     saver
@@ -2265,8 +2311,7 @@ fn load_pagination_handles_large_offset() {
 
 #[test]
 fn ordering_does_not_break_ties_by_primary_key() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<OrderEntity>::new(DB, false);
     let entities = vec![
@@ -2324,8 +2369,7 @@ fn ordering_does_not_break_ties_by_primary_key() {
 
 #[test]
 fn ordering_does_not_compare_incomparable_values() {
-    reset_stores();
-    init_schema();
+    setup_schema();
 
     let saver = SaveExecutor::<OrderEntity>::new(DB, false);
     let entities = vec![

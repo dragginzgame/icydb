@@ -216,28 +216,3 @@ impl ToTokens for Primitive {
         tokens.extend(quote!(::icydb::schema::types::Primitive::#ident));
     }
 }
-
-///
-/// StoreType
-///
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, FromStr, Serialize)]
-pub enum StoreType {
-    Data,
-    Index,
-}
-
-impl FromMeta for StoreType {
-    fn from_string(s: &str) -> Result<Self, darling::Error> {
-        s.parse::<Self>()
-            .map_err(|_| darling::Error::unknown_value(s))
-    }
-}
-
-impl ToTokens for StoreType {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let ident = format_ident!("{self}");
-
-        tokens.extend(quote!(::icydb::schema::types::StoreType::#ident));
-    }
-}

@@ -17,27 +17,21 @@ mod recovery;
 mod store;
 
 use crate::{
-    db::{
-        Db,
-        index::{IndexKey, MAX_INDEX_ENTRY_BYTES, RawIndexEntry, RawIndexKey},
-        store::{DataKey, DataStore, RawDataKey, RawRow},
-    },
+    db::commit::store::{CommitStore, with_commit_store, with_commit_store_infallible},
     error::{ErrorClass, ErrorOrigin, InternalError},
-    serialize::{deserialize, serialize},
     types::Ulid,
 };
-use canic_cdk::structures::{
-    Cell as StableCell, DefaultMemoryImpl, Storable,
-    memory::{MemoryId, VirtualMemory},
-    storable::Bound,
-};
-use canic_memory::{
-    MEMORY_MANAGER,
-    registry::{MemoryRange, MemoryRegistry, MemoryRegistryEntry},
-    runtime::registry::MemoryRegistryRuntime,
-};
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, cell::RefCell, collections::BTreeSet, sync::OnceLock};
+
+pub use recovery::ensure_recovered;
+#[cfg(test)]
+pub use recovery::force_recovery_for_tests;
+
+#[cfg(test)]
+/// Return true if a commit marker is currently persisted.
+pub fn commit_marker_present() -> Result<bool, InternalError> {
+    store::commit_marker_present()
+}
 
 // Stage-2 invariant:
 // - We persist a commit marker before any stable mutation.
@@ -65,8 +59,11 @@ pub enum CommitKind {
 ///
 /// CommitIndexOp
 ///
+/// Raw index mutation recorded in a commit marker.
+/// Carries store identity plus raw key/value bytes.
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommitIndexOp {
     pub store: String,
     pub key: Vec<u8>,
@@ -76,8 +73,11 @@ pub struct CommitIndexOp {
 ///
 /// CommitDataOp
 ///
+/// Raw data-store mutation recorded in a commit marker.
+/// Carries store identity plus raw key/value bytes.
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommitDataOp {
     pub store: String,
     pub key: Vec<u8>,
@@ -87,8 +87,13 @@ pub struct CommitDataOp {
 ///
 /// CommitMarker
 ///
+/// Persisted mutation plan covering all index and data operations.
+/// Recovery replays the marker exactly as stored.
+/// Unknown fields are rejected as corruption; commit markers are not forward-compatible.
+/// This is internal commit-protocol metadata, not a user-schema type.
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommitMarker {
     pub id: [u8; COMMIT_ID_BYTES],
     pub kind: CommitKind,
@@ -97,6 +102,7 @@ pub struct CommitMarker {
 }
 
 impl CommitMarker {
+    /// Construct a new commit marker with a fresh commit id.
     pub fn new(
         kind: CommitKind,
         index_ops: Vec<CommitIndexOp>,
@@ -122,107 +128,10 @@ impl CommitMarker {
 }
 
 ///
-/// RawCommitMarker
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct RawCommitMarker(Vec<u8>);
-
-impl RawCommitMarker {
-    const fn empty() -> Self {
-        Self(Vec::new())
-    }
-
-    const fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    fn try_from_marker(marker: &CommitMarker) -> Result<Self, InternalError> {
-        let bytes = serialize(marker)?;
-        if bytes.len() > MAX_COMMIT_BYTES as usize {
-            return Err(InternalError::new(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Store,
-                format!(
-                    "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
-                    bytes.len()
-                ),
-            ));
-        }
-        Ok(Self(bytes))
-    }
-
-    fn try_decode(&self) -> Result<Option<CommitMarker>, InternalError> {
-        if self.is_empty() {
-            return Ok(None);
-        }
-
-        deserialize::<CommitMarker>(&self.0)
-            .map(Some)
-            .map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    format!("commit marker corrupted: {err}"),
-                )
-            })
-    }
-}
-
-impl Storable for RawCommitMarker {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(&self.0)
-    }
-
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.0
-    }
-
-    const BOUND: Bound = Bound::Bounded {
-        max_size: MAX_COMMIT_BYTES,
-        is_fixed_size: false,
-    };
-}
-
-///
-/// CommitStore
-///
-
-struct CommitStore {
-    cell: StableCell<RawCommitMarker, VirtualMemory<DefaultMemoryImpl>>,
-}
-
-impl CommitStore {
-    fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
-        let cell = StableCell::init(memory, RawCommitMarker::empty());
-        Self { cell }
-    }
-
-    fn load(&self) -> Result<Option<CommitMarker>, InternalError> {
-        self.cell.get().try_decode()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.cell.get().is_empty()
-    }
-
-    fn set(&mut self, marker: &CommitMarker) -> Result<(), InternalError> {
-        let raw = RawCommitMarker::try_from_marker(marker)?;
-        self.cell.set(raw);
-        Ok(())
-    }
-
-    fn clear_infallible(&mut self) {
-        self.cell.set(RawCommitMarker::empty());
-    }
-}
-
-///
 /// CommitGuard
+///
+/// In-flight commit handle that clears the marker on completion.
+/// Must not be leaked across mutation boundaries.
 ///
 
 #[derive(Clone, Debug)]
@@ -231,12 +140,14 @@ pub struct CommitGuard {
 }
 
 impl CommitGuard {
+    // Clear the commit marker without surfacing errors.
     fn clear(self) {
         let _ = self;
         with_commit_store_infallible(CommitStore::clear_infallible);
     }
 }
 
+/// Persist a commit marker and open the commit window.
 pub fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
     with_commit_store(|store| {
         if store.load()?.is_some() {
@@ -252,6 +163,7 @@ pub fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> 
     })
 }
 
+/// Apply commit ops and clear the marker regardless of outcome.
 pub fn finish_commit(
     mut guard: CommitGuard,
     apply: impl FnOnce(&mut CommitGuard) -> Result<(), InternalError>,
@@ -269,351 +181,6 @@ pub fn finish_commit(
         "commit marker must be cleared after finish_commit (commit_id={commit_id:?})"
     );
     result
-}
-
-// -----------------------------------------------------------------------------
-// Recovery
-// -----------------------------------------------------------------------------
-
-static COMMIT_STORE_ID: OnceLock<u8> = OnceLock::new();
-static RECOVERED: OnceLock<()> = OnceLock::new();
-
-#[cfg(test)]
-thread_local! {
-    static FORCE_RECOVERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-#[cfg(test)]
-pub fn force_recovery_for_tests() {
-    FORCE_RECOVERY.with(|flag| flag.set(true));
-}
-
-#[allow(clippy::missing_const_for_fn)]
-fn should_force_recovery() -> bool {
-    #[cfg(test)]
-    {
-        FORCE_RECOVERY.with(|flag| {
-            let force = flag.get();
-            if force {
-                flag.set(false);
-            }
-            force
-        })
-    }
-
-    #[cfg(not(test))]
-    {
-        false
-    }
-}
-
-// Recovery is invoked from read and mutation entrypoints to prevent
-// observing partial commit state.
-pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {
-    let force = should_force_recovery();
-    if !force && RECOVERED.get().is_some() {
-        return Ok(());
-    }
-
-    let marker = with_commit_store(|store| store.load())?;
-    if let Some(marker) = marker {
-        let (index_ops, data_ops) = prevalidate_recovery(db, &marker)?;
-        apply_recovery_ops(index_ops, data_ops);
-        with_commit_store(|store| {
-            store.clear_infallible();
-            Ok(())
-        })?;
-    }
-
-    let _ = RECOVERED.set(());
-    Ok(())
-}
-
-///
-/// DecodedIndexOp
-///
-
-struct DecodedIndexOp {
-    store: &'static std::thread::LocalKey<RefCell<crate::db::index::IndexStore>>,
-    key: RawIndexKey,
-    value: Option<RawIndexEntry>,
-}
-
-///
-/// DecodedDataOp
-///
-
-struct DecodedDataOp {
-    store: &'static std::thread::LocalKey<RefCell<DataStore>>,
-    key: RawDataKey,
-    value: Option<RawRow>,
-}
-
-fn prevalidate_recovery(
-    db: &Db<impl crate::traits::CanisterKind>,
-    marker: &CommitMarker,
-) -> Result<(Vec<DecodedIndexOp>, Vec<DecodedDataOp>), InternalError> {
-    match marker.kind {
-        CommitKind::Save => {
-            if marker.data_ops.iter().any(|op| op.value.is_none()) {
-                return Err(InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    "commit marker corrupted: save op missing data payload",
-                ));
-            }
-        }
-        CommitKind::Delete => {
-            if marker.data_ops.iter().any(|op| op.value.is_some()) {
-                return Err(InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    "commit marker corrupted: delete op includes data payload",
-                ));
-            }
-        }
-    }
-
-    let mut decoded_index = Vec::with_capacity(marker.index_ops.len());
-    let mut decoded_data = Vec::with_capacity(marker.data_ops.len());
-
-    for op in &marker.index_ops {
-        let store = db
-            .with_index(|reg| reg.try_get_store(&op.store))
-            .map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Index,
-                    format!("missing index store '{}': {err}", op.store),
-                )
-            })?;
-        let key = decode_index_key(&op.key)?;
-        let value = match &op.value {
-            Some(bytes) => Some(decode_index_entry(bytes)?),
-            None => None,
-        };
-        decoded_index.push(DecodedIndexOp { store, key, value });
-    }
-
-    for op in &marker.data_ops {
-        let store = db
-            .with_data(|reg| reg.try_get_store(&op.store))
-            .map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    format!("missing data store '{}': {err}", op.store),
-                )
-            })?;
-        let key = decode_data_key(&op.key)?;
-        let value = match &op.value {
-            Some(bytes) => Some(RawRow::try_new(bytes.clone())?),
-            None => None,
-        };
-        decoded_data.push(DecodedDataOp { store, key, value });
-    }
-
-    Ok((decoded_index, decoded_data))
-}
-
-fn apply_recovery_ops(index_ops: Vec<DecodedIndexOp>, data_ops: Vec<DecodedDataOp>) {
-    // Apply indexes first, then data, mirroring executor ordering.
-    for op in index_ops {
-        op.store.with_borrow_mut(|store| {
-            if let Some(value) = op.value {
-                store.insert(op.key, value);
-            } else {
-                store.remove(&op.key);
-            }
-        });
-    }
-
-    for op in data_ops {
-        op.store.with_borrow_mut(|store| {
-            if let Some(value) = op.value {
-                store.insert(op.key, value);
-            } else {
-                store.remove(&op.key);
-            }
-        });
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Commit store plumbing
-// -----------------------------------------------------------------------------
-
-#[cfg(test)]
-pub fn commit_marker_present() -> Result<bool, InternalError> {
-    with_commit_store(|store| Ok(store.load()?.is_some()))
-}
-
-thread_local! {
-    static COMMIT_STORE: RefCell<Option<CommitStore>> = const { RefCell::new(None) };
-}
-
-fn with_commit_store<R>(
-    f: impl FnOnce(&mut CommitStore) -> Result<R, InternalError>,
-) -> Result<R, InternalError> {
-    COMMIT_STORE.with(|cell| {
-        if cell.borrow().is_none() {
-            // StableCell::init performs a benign stable write for the empty marker.
-            let store = CommitStore::init(commit_memory()?);
-            *cell.borrow_mut() = Some(store);
-        }
-        let mut guard = cell.borrow_mut();
-        let store = guard.as_mut().expect("commit store missing after init");
-        f(store)
-    })
-}
-
-fn with_commit_store_infallible<R>(f: impl FnOnce(&mut CommitStore) -> R) -> R {
-    COMMIT_STORE.with(|cell| {
-        let mut guard = cell.borrow_mut();
-        let store = guard.as_mut().expect("commit store not initialized");
-        f(store)
-    })
-}
-
-fn commit_memory() -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
-    let id = commit_memory_id()?;
-    Ok(MEMORY_MANAGER.with_borrow_mut(|mgr| mgr.get(MemoryId::new(id))))
-}
-
-fn commit_memory_id() -> Result<u8, InternalError> {
-    if let Some(id) = COMMIT_STORE_ID.get() {
-        return Ok(*id);
-    }
-
-    MemoryRegistryRuntime::init(None).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Store,
-            format!("memory registry init failed: {err}"),
-        )
-    })?;
-
-    let (owner, range, used_ids) = select_commit_range()?;
-    let id = allocate_commit_id(range, &used_ids)?;
-    MemoryRegistry::register(id, &owner, COMMIT_LABEL).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Store,
-            format!("commit memory id registration failed: {err}"),
-        )
-    })?;
-
-    let _ = COMMIT_STORE_ID.set(id);
-    Ok(id)
-}
-
-fn select_commit_range() -> Result<(String, MemoryRange, BTreeSet<u8>), InternalError> {
-    let snapshots = MemoryRegistryRuntime::snapshot_ids_by_range();
-    for snapshot in snapshots {
-        if snapshot
-            .entries
-            .iter()
-            .any(|(_, entry)| is_db_store_entry(entry))
-        {
-            let used_ids = snapshot
-                .entries
-                .iter()
-                .map(|(id, _)| *id)
-                .collect::<BTreeSet<_>>();
-            return Ok((snapshot.owner, snapshot.range, used_ids));
-        }
-    }
-
-    Err(InternalError::new(
-        ErrorClass::Internal,
-        ErrorOrigin::Store,
-        "unable to locate reserved memory range for commit markers",
-    ))
-}
-
-fn allocate_commit_id(range: MemoryRange, used: &BTreeSet<u8>) -> Result<u8, InternalError> {
-    for id in (range.start..=range.end).rev() {
-        if !used.contains(&id) {
-            return Ok(id);
-        }
-    }
-
-    Err(InternalError::new(
-        ErrorClass::Unsupported,
-        ErrorOrigin::Store,
-        format!(
-            "no free memory ids available for commit markers in range {}-{}",
-            range.start, range.end
-        ),
-    ))
-}
-
-fn is_db_store_entry(entry: &MemoryRegistryEntry) -> bool {
-    entry.label.ends_with("DataStore") || entry.label.ends_with("IndexStore")
-}
-
-// -----------------------------------------------------------------------------
-// Raw decoding helpers
-// -----------------------------------------------------------------------------
-
-fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, InternalError> {
-    if bytes.len() != IndexKey::STORED_SIZE as usize {
-        return Err(InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Index,
-            "commit marker index key has invalid length",
-        ));
-    }
-
-    let raw = <RawIndexKey as Storable>::from_bytes(Cow::Borrowed(bytes));
-    IndexKey::try_from_raw(&raw).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Index,
-            format!("commit marker index key corrupted: {err}"),
-        )
-    })?;
-    Ok(raw)
-}
-
-fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, InternalError> {
-    if bytes.len() > MAX_INDEX_ENTRY_BYTES as usize {
-        return Err(InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Index,
-            "commit marker index entry exceeds max size",
-        ));
-    }
-
-    let raw = <RawIndexEntry as Storable>::from_bytes(Cow::Borrowed(bytes));
-    raw.try_decode().map_err(|err| {
-        InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Index,
-            format!("commit marker index entry corrupted: {err}"),
-        )
-    })?;
-    Ok(raw)
-}
-
-fn decode_data_key(bytes: &[u8]) -> Result<RawDataKey, InternalError> {
-    if bytes.len() != DataKey::STORED_SIZE as usize {
-        return Err(InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Store,
-            "commit marker data key has invalid length",
-        ));
-    }
-
-    let raw = <RawDataKey as Storable>::from_bytes(Cow::Borrowed(bytes));
-    DataKey::try_from_raw(&raw).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Store,
-            format!("commit marker data key corrupted: {err}"),
-        )
-    })?;
-    Ok(raw)
 }
 
 ///
@@ -637,8 +204,8 @@ mod tests {
         },
         serialize::serialize,
         traits::{
-            CanisterKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
-            ValidateAuto, ValidateCustom, View, Visitable,
+            CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto,
+            SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
         },
         types::Ulid,
         value::Value,
@@ -731,13 +298,13 @@ mod tests {
         const PATH: &'static str = DATA_STORE_PATH;
     }
 
-    impl StoreKind for TestStore {
+    impl DataStoreKind for TestStore {
         type Canister = TestCanister;
     }
 
     impl EntityKind for TestEntity {
         type PrimaryKey = Ulid;
-        type Store = TestStore;
+        type DataStore = TestStore;
         type Canister = TestCanister;
 
         const ENTITY_NAME: &'static str = "TestEntity";
@@ -766,7 +333,10 @@ mod tests {
 
     canic_memory::eager_static! {
         static TEST_INDEX_STORE: RefCell<IndexStore> =
-            RefCell::new(IndexStore::init(canic_memory::ic_memory!(IndexStore, 11)));
+            RefCell::new(IndexStore::init(
+                canic_memory::ic_memory!(IndexStore, 11),
+                canic_memory::ic_memory!(IndexStore, 12),
+            ));
     }
 
     thread_local! {
@@ -799,8 +369,8 @@ mod tests {
     }
 
     fn reset_stores() {
-        TEST_DATA_STORE.with_borrow_mut(|store| store.clear());
-        TEST_INDEX_STORE.with_borrow_mut(|store| store.clear());
+        TEST_DATA_STORE.with_borrow_mut(DataStore::clear);
+        TEST_INDEX_STORE.with_borrow_mut(IndexStore::clear);
         init_memory_registry();
         let _ = with_commit_store(|store| {
             store.clear_infallible();
@@ -849,7 +419,7 @@ mod tests {
         }
 
         let _guard = begin_commit(marker).unwrap();
-        assert!(commit_marker_present().unwrap());
+        assert!(crate::db::commit::store::commit_marker_present().unwrap());
 
         // Stage 3: recovery should fail with a corruption error.
         force_recovery_for_tests();
@@ -887,7 +457,7 @@ mod tests {
         .unwrap();
 
         let _guard = begin_commit(marker).unwrap();
-        assert!(commit_marker_present().unwrap());
+        assert!(crate::db::commit::store::commit_marker_present().unwrap());
 
         force_recovery_for_tests();
         let err = ensure_recovered(&DB).expect_err("delete marker payload should fail recovery");

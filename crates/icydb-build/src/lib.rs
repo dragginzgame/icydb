@@ -4,7 +4,7 @@ mod metrics;
 
 use icydb_schema::{
     build::get_schema,
-    node::{Canister, Entity, Schema, Store},
+    node::{Canister, DataStore, Entity, IndexStore, Schema},
 };
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -37,14 +37,12 @@ pub(crate) struct ActorBuilder {
 }
 
 impl ActorBuilder {
-    // new
     #[must_use]
     /// Create an actor builder for a specific canister.
     pub const fn new(schema: Arc<Schema>, canister: Canister) -> Self {
         Self { schema, canister }
     }
 
-    // generate
     #[must_use]
     /// Generate the full actor module (db/metrics/query glue).
     pub fn generate(self) -> TokenStream {
@@ -59,29 +57,37 @@ impl ActorBuilder {
         }
     }
 
-    // get_stores
-    #[must_use]
     /// All stores belonging to the current canister, keyed by path.
-    pub fn get_stores(&self) -> Vec<(String, Store)> {
+    #[must_use]
+    pub fn get_data_stores(&self) -> Vec<(String, DataStore)> {
         let canister_path = self.canister.def.path();
 
         self.schema
-            .filter_nodes::<Store>(|node| node.canister == canister_path)
+            .filter_nodes::<DataStore>(|node| node.canister == canister_path)
             .map(|(path, store)| (path.to_string(), store.clone()))
             .collect()
     }
 
-    // get_entities
-    // helper function to get all the entities for the current canister
+    /// All stores belonging to the current canister, keyed by path.
     #[must_use]
+    pub fn get_index_stores(&self) -> Vec<(String, IndexStore)> {
+        let canister_path = self.canister.def.path();
+
+        self.schema
+            .filter_nodes::<IndexStore>(|node| node.canister == canister_path)
+            .map(|(path, store)| (path.to_string(), store.clone()))
+            .collect()
+    }
+
     /// All entities attached to the current canister, keyed by path.
+    #[must_use]
     pub fn get_entities(&self) -> Vec<(String, Entity)> {
         let canister_path = self.canister.def.path();
         let mut entities = Vec::new();
 
         for (store_path, _) in self
             .schema
-            .filter_nodes::<Store>(|node| node.canister == canister_path)
+            .filter_nodes::<DataStore>(|node| node.canister == canister_path)
         {
             for (entity_path, entity) in self
                 .schema

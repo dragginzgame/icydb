@@ -1,52 +1,49 @@
 use crate::{imp::*, prelude::*};
 
 ///
-/// Store
+/// DataStore
 ///
 
 #[derive(Debug, FromMeta)]
-pub struct Store {
+pub struct DataStore {
     #[darling(default, skip)]
     pub def: Def,
 
     pub ident: Ident,
-    pub ty: StoreType,
     pub canister: Path,
     pub memory_id: u8,
 }
 
-impl HasDef for Store {
+impl HasDef for DataStore {
     fn def(&self) -> &Def {
         &self.def
     }
 }
 
-impl ValidateNode for Store {
+impl ValidateNode for DataStore {
     fn validate(&self) -> Result<(), DarlingError> {
         Ok(())
     }
 }
 
-impl HasSchema for Store {
+impl HasSchema for DataStore {
     fn schema_node_kind() -> SchemaNodeKind {
-        SchemaNodeKind::Store
+        SchemaNodeKind::DataStore
     }
 }
 
-impl HasSchemaPart for Store {
+impl HasSchemaPart for DataStore {
     fn schema_part(&self) -> TokenStream {
         let def = &self.def.schema_part();
         let ident = quote_one(&self.ident, to_str_lit);
-        let ty = &self.ty;
         let canister = quote_one(&self.canister, to_path);
         let memory_id = &self.memory_id;
 
         // quote
         quote! {
-            ::icydb::schema::node::Store{
+            ::icydb::schema::node::DataStore{
                 def: #def,
                 ident: #ident,
-                ty: #ty,
                 canister: #canister,
                 memory_id: #memory_id,
             }
@@ -54,23 +51,23 @@ impl HasSchemaPart for Store {
     }
 }
 
-impl HasTraits for Store {
+impl HasTraits for DataStore {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = TraitBuilder::default().build();
-        traits.add(TraitKind::StoreKind);
+        traits.add(TraitKind::DataStoreKind);
 
         traits.into_vec()
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::StoreKind => StoreKindTrait::strategy(self),
+            TraitKind::DataStoreKind => DataStoreKindTrait::strategy(self),
             _ => None,
         }
     }
 }
 
-impl HasType for Store {
+impl HasType for DataStore {
     fn type_part(&self) -> TokenStream {
         let ident = self.def.ident();
 
@@ -80,7 +77,7 @@ impl HasType for Store {
     }
 }
 
-impl ToTokens for Store {
+impl ToTokens for DataStore {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.extend(self.all_tokens());
     }
