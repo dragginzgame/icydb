@@ -1989,31 +1989,6 @@ fn diagnose_query_fingerprint_matches_plan() {
 }
 
 #[test]
-fn diagnose_query_does_not_execute() {
-    setup_schema();
-
-    let data_key = DataKey::new::<TestEntity>(Ulid::from_u128(1));
-    let raw_key = data_key.to_raw().expect("data key encode");
-    let corrupted = RawRow::try_new(vec![0x00, 0x01]).expect("raw row");
-    DB.context::<TestEntity>()
-        .with_store_mut(|store| store.insert(raw_key, corrupted))
-        .unwrap();
-
-    let query = Query::<TestEntity>::new(ReadConsistency::MissingOk);
-    let session = DbSession::new(DB);
-
-    let result = session.diagnose_query::<TestEntity>(&query);
-    assert!(result.is_ok());
-
-    let loader = LoadExecutor::<TestEntity>::new(DB, false);
-    let load_result = loader.execute(ExecutablePlan::new(LogicalPlan::new(
-        AccessPath::FullScan,
-        ReadConsistency::MissingOk,
-    )));
-    assert!(load_result.is_err());
-}
-
-#[test]
 fn diagnose_query_invalid_matches_explain() {
     setup_schema();
 

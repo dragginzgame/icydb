@@ -11,6 +11,7 @@ pub struct WriteUnit {
     rollbacks: Vec<Box<dyn FnOnce()>>,
 }
 
+#[expect(dead_code)]
 impl WriteUnit {
     pub(crate) const fn new(label: &'static str) -> Self {
         Self {

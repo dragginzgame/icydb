@@ -2,7 +2,7 @@ use crate::{
     db::{
         CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit,
         executor::{
-            Context, ExecutorError,
+            ExecutorError,
             commit_ops::{apply_marker_index_ops, resolve_index_key},
             plan::{record_plan_metrics, set_rows_from_len},
             trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
@@ -13,7 +13,7 @@ use crate::{
         },
         query::plan::{AccessPath, AccessPlan, ExecutablePlan, validate::validate_executor_plan},
         response::Response,
-        store::{DataKey, DataRow, RawDataKey, RawRow},
+        store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
@@ -63,10 +63,11 @@ impl<E: EntityKind> crate::db::query::plan::logical::PlanRow<E> for DeleteRow<E>
 ///
 /// DeleteExecutor
 ///
-/// Stage-1 atomicity invariant:
-/// All fallible validation completes before the first stable write.
-/// Mutations run inside a WriteUnit so mid-flight failures roll back
-/// before the commit marker is cleared.
+/// Atomicity invariant:
+/// All fallible validation and planning completes before the commit boundary.
+/// After `begin_commit`, mutations are applied mechanically from a
+/// prevalidated commit marker. Rollback exists as a safety net but is
+/// not relied upon for correctness.
 ///
 #[derive(Clone, Copy)]
 pub struct DeleteExecutor<E: EntityKind> {
@@ -197,6 +198,9 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
             // Preflight store access to ensure no fallible work remains post-commit.
             ctx.with_store(|_| ())?;
+            let data_store = self
+                .db
+                .with_data(|reg| reg.try_get_store(E::DataStore::PATH))?;
 
             let mut rollback_rows = BTreeMap::new();
             let data_ops = rows
@@ -224,6 +228,18 @@ impl<E: EntityKind> DeleteExecutor<E> {
                 Self::prepare_index_delete_ops(&index_plans, &marker.index_ops)?;
             let data_rollback_ops =
                 Self::prepare_data_delete_ops(&marker.data_ops, &rollback_rows)?;
+            if index_apply_stores.len() != marker.index_ops.len() {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Index,
+                    format!(
+                        "commit marker index ops length mismatch: {} ops vs {} stores ({})",
+                        marker.index_ops.len(),
+                        index_apply_stores.len(),
+                        E::PATH
+                    ),
+                ));
+            }
             let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Delete commit window opened");
@@ -234,21 +250,24 @@ impl<E: EntityKind> DeleteExecutor<E> {
                 // Commit boundary: apply the marker's raw mutations mechanically.
                 let index_rollback_ops = index_rollback_ops;
                 unit.record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
-                apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores)?;
+                apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores);
                 for _ in 0..index_remove_count {
                     sink::record(MetricsEvent::IndexRemove {
                         entity_path: E::PATH,
                     });
                 }
 
+                #[cfg(test)]
                 unit.checkpoint("delete_after_indexes")?;
 
                 // Apply data mutations recorded in the marker.
                 let data_rollback_ops = data_rollback_ops;
-                let db = self.db;
-                unit.record_rollback(move || Self::apply_data_rollbacks(db, data_rollback_ops));
-                unit.run(|| Self::apply_marker_data_ops(&guard.marker.data_ops, &ctx))?;
+                unit.record_rollback(move || {
+                    Self::apply_data_rollbacks(data_store, data_rollback_ops);
+                });
+                Self::apply_marker_data_ops(&guard.marker.data_ops, data_store);
 
+                #[cfg(test)]
                 unit.checkpoint("delete_after_data")?;
                 unit.commit();
 
@@ -424,34 +443,29 @@ impl<E: EntityKind> DeleteExecutor<E> {
     }
 
     // Apply commit marker data deletes using raw keys only.
-    fn apply_marker_data_ops(
-        ops: &[CommitDataOp],
-        ctx: &Context<'_, E>,
-    ) -> Result<(), InternalError> {
+    fn apply_marker_data_ops(ops: &[CommitDataOp], store: &'static LocalKey<RefCell<DataStore>>) {
         // SAFETY / INVARIANT:
         // All structural and semantic invariants for these marker ops are fully
         // validated during planning *before* the commit marker is persisted.
         // After marker creation, apply is required to be infallible or trap.
-        // Therefore, debug_assert!s here are correctness sentinels, not user errors.
         for op in ops {
-            if op.value.is_some() {
-                return Err(InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Store,
-                    format!("commit marker delete includes data payload ({})", E::PATH),
-                ));
-            }
+            assert!(
+                op.value.is_none(),
+                "commit marker delete includes data payload ({})",
+                E::PATH
+            );
             let raw_key = RawDataKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
-            ctx.with_store_mut(|s| s.remove(&raw_key))?;
+            store.with_borrow_mut(|s| s.remove(&raw_key));
         }
-        Ok(())
     }
 
     // Apply rollback mutations for data rows.
-    fn apply_data_rollbacks(db: Db<E::Canister>, ops: Vec<PreparedDataRollback>) {
-        let ctx = db.context::<E>();
+    fn apply_data_rollbacks(
+        store: &'static LocalKey<RefCell<DataStore>>,
+        ops: Vec<PreparedDataRollback>,
+    ) {
         for op in ops {
-            let _ = ctx.with_store_mut(|s| s.insert(op.key, op.value));
+            store.with_borrow_mut(|s| s.insert(op.key, op.value));
         }
     }
 

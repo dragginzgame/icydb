@@ -1,128 +1,217 @@
 
-# IcyDB Atomicity Model (Single-Message)
+# IcyDB Atomicity Model (Explicit, Single-Message)
 
-This document defines the atomicity and write-safety contract for IcyDB under
-**single-message update execution** on the Internet Computer.
+This document defines the **atomicity, write-safety, and invariant contract** for
+IcyDB mutations executed within a **single Internet Computer update call**.
 
-It is a **constraint on future changes**, not an implementation plan.
+It is a **normative constraint on future changes**, not an implementation plan.
 
-**Assumption:** All mutation entrypoints complete within a single IC update call
-and perform no `await`, yield, or re-entrancy after any durable state mutation.
-
----
-
-## 1. Definitions
-
-* **Single-message atomicity**
-  Within a single update call, either all intended writes become visible at the
-  end of the call, or the call traps and **no user-visible mutation is committed**.
-  This relies solely on IC rollback semantics.
-
-* **Commit window**
-  The phase of a mutation after all fallible work has completed and durable
-  state mutation begins.
-
-* **Best-effort operations**
-  Multi-entity batch helpers may partially succeed; earlier successful writes
-  are retained if later items fail.
+**Scope:**
+This model applies to all IcyDB mutation executors in the current architecture.
+It assumes no `await`, yield, or re-entrancy during mutation execution.
 
 ---
 
-## 2. Commit Discipline (Marker-Optional)
+## 1. Core Principle
 
-IcyDB enforces atomicity through **execution discipline**, not multi-phase
-recovery.
+**Atomicity is enforced by IcyDB itself, not delegated to IC trap semantics.**
 
-If a commit marker is used, it is **diagnostic only** and must not be relied on
-for correctness.
+Within a single mutation operation:
 
-### Required discipline
+> Either all intended durable mutations are committed as a unit,
+> or no durable mutation is made visible.
 
-* All fallible work (validation, decoding, planning, index derivation) must
-  complete **before** the commit window.
-* After the commit window begins:
-
-  * no fallible operations may be performed
-  * any invariant violation must trap
-* No `await`, yield, or re-entrancy is permitted once durable mutation begins.
-
-### Marker rules (if present)
-
-* Marker must be empty before mutation begins.
-* Marker may be written at the start of the commit window.
-* Marker must be cleared before returning from the update call.
-* Marker must never be observable across messages.
+This guarantee must hold **even if execution does not trap**.
 
 ---
 
-## 3. Executor Guarantees
+## 2. Definitions
 
-* **Save (single entity)**
-  Atomic within a single update call. All validation and planning occurs before
-  the commit window.
+### Atomic mutation
 
-* **Delete (single entity or planner-based)**
-  Atomic within a single update call. Scan and planning are completed before
-  mutation; apply phase is infallible or traps.
+A mutation whose effects are applied entirely or not at all, as defined by
+IcyDB’s own commit discipline.
 
-* **Upsert (single entity via unique index)**
-  Atomic; implemented as a Save.
+### System recovery step
 
-### Best-effort by design
+A **system recovery step** is a synchronous, unconditional operation that restores
+global database invariants (e.g. completing or rolling back a previously started
+commit) before any new mutation is planned or validated.
 
-* Batch helpers (`insert_many`, `update_many`, `replace_many`) are **not atomic
-  as a group**. Partial success is preserved if later items fail.
+System recovery:
+* Executes before mutation pre-commit begins
+* Leaves the database in a fully consistent state
+* Is not part of the current mutation’s atomicity scope
+* Is not observable by reads as partial state
+* Is not read-time recovery
 
----
+### Commit boundary
 
-## 4. Explicit Non-Goals
+The explicit boundary after which durable state mutation occurs.
+This boundary is **structural and enforced**, not implicit.
 
-* No multi-message commit or forward recovery protocol.
-* No durability of partial progress across traps.
-* No batch atomicity across multiple entities.
-* No read-time recovery or gating logic.
+### Apply phase
 
-If any of these are introduced in the future, this document must be revised.
+The phase in which prevalidated, infallible operations are mechanically applied
+to durable state.
 
----
+### Commit marker
 
-## 5. Invariants (Must Never Be Broken)
-
-* No fallible work after the commit window begins.
-* No `await`, yield, or re-entrancy after any durable mutation.
-* All durable mutations for an operation occur within a single update call.
-* Executors must not rely on commit markers for correctness.
-* Mutation entrypoints must enforce the commit discipline before writes.
+A persisted representation of intended mutations used to enforce atomicity and
+support deterministic application. Commit markers are **semantically meaningful**
+and must be correct.
 
 ---
 
-## 6. Consequences
+## 3. Commit Discipline (Required)
 
-* Atomicity is guaranteed by IC execution semantics, not recovery logic.
-* Traps leave no partially committed state.
-* Commit markers, if present, are informational and must not affect behavior.
-* Introducing async or multi-message mutation **invalidates this contract**.
+IcyDB enforces atomicity via a **two-phase discipline** within a single update
+call.
+
+Before any mutation’s pre-commit phase begins, the system may perform a mandatory
+**system recovery step** to restore global invariants from prior incomplete commits.
+
+This recovery step is conceptually separate from the current mutation and must
+complete successfully before mutation planning or validation begins.
+
+### Phase 1 — Pre-commit (Fallible)
+
+All fallible work **must complete before any durable mutation**, including:
+
+* validation
+* decoding
+* schema checks
+* query planning
+* index derivation
+* uniqueness resolution
+* mutation planning
+
+If any step fails, **no durable state is mutated**.
+
+---
+
+### Phase 2 — Apply (Infallible)
+
+After the commit boundary:
+
+* All durable mutations are applied mechanically
+* No fallible operations are permitted
+* No validation, decoding, or planning occurs
+* Any invariant violation is a **logic error** (bug), not a recoverable condition
+
+The apply phase must be correct by construction.
+
+---
+
+## 4. Commit Markers
+
+Commit markers are **authoritative**, not diagnostic.
+
+### Required properties
+
+* Marker content fully describes the intended durable mutations
+* Marker is validated completely before application
+* Marker application is deterministic and infallible
+* Marker application alone is sufficient to produce a correct final state
+
+### Visibility rules
+
+* Markers may be persisted during execution
+* Markers must not be observable as committed state
+* Markers must not be required for read-time logic in the current model
+
+---
+
+## 5. Executor Guarantees
+
+### Save (single entity)
+
+* Fully atomic
+* All fallible work occurs pre-commit
+* Apply phase replays validated marker ops only
+
+### Delete (single entity or planner-based)
+
+* Fully atomic
+* Scan and planning are pre-commit
+* Apply phase performs only raw removals and index updates
+
+### Upsert (unique index)
+
+* Fully atomic
+* Implemented as a validated save with uniqueness resolution
+
+---
+
+## 6. Explicit Non-Goals (0.6 Contract)
+
+The following are **explicitly out of scope**:
+
+* Multi-message commits
+* Async or awaited mutation paths
+* Forward recovery after process crash
+* Read-time recovery, read gating, or lazy repair of partial commits
+* Atomicity across independent mutation calls
+* Distributed or cross-canister transactions
+
+Introducing any of these **requires a new atomicity specification**.
+
+---
+
+## 7. Invariants (Must Hold in Release Builds)
+
+The following invariants are **mandatory and non-negotiable**:
+
+* No durable mutation before pre-commit completes successfully
+* No fallible work after the commit boundary
+* Apply phase must be infallible by construction
+* Commit marker application must not depend on IC trap rollback
+* Executors must not rely on traps for correctness
+* Mutation correctness must not depend on recovery occurring after the commit
+  boundary or at read time.
+* System recovery, if present, must complete before mutation pre-commit and must
+  not be interleaved with mutation planning or apply phases.
+* No `await`, yield, or re-entrancy during mutation execution
+
+Violating any invariant is a **bug**, not an acceptable failure mode.
+
+---
+
+## 8. Consequences
+
+* Atomicity is an **IcyDB guarantee**, independent of IC rollback semantics
+* Traps are treated as catastrophic failures, not control flow
+* Partial state visibility is structurally impossible
+* Release builds enforce invariants explicitly (no `debug_assert!` reliance)
 
 ---
 
 ## Design Note (Non-Binding)
 
-If IcyDB ever introduces multi-message commits or awaits in mutation entrypoints,
-a new atomicity model must be specified, including:
+If IcyDB later introduces:
+
+* async mutation entrypoints
+* multi-message commits
+* durable recovery protocols
+
+Then a new atomicity model must define:
 
 * recovery semantics
 * read behavior during in-flight commits
-* index/data ordering guarantees
+* ordering and visibility guarantees
 
-Until then, this model is authoritative.
+System recovery, if implemented, is expected to run synchronously at mutation
+entrypoints or initialization boundaries and is not a substitute for atomic
+apply-phase correctness.
+
+Until then, this document is authoritative.
 
 ---
 
-## Why this is the right replacement
+## Why This Replaces the Old Model
 
-* **Internally consistent** with “single message only”
-* Does not claim forward recovery you do not support
-* Keeps your “no fallible work after commit” discipline intact
-* Makes future async work an explicit contract break, not a silent regression
-* Aligns cleanly with your executor/query-facade design philosophy
-
+* Removes implicit reliance on IC traps
+* Matches the current executor + commit-marker architecture
+* Makes invariants explicit and enforceable
+* Prevents silent regression via async or refactors
+* Sets a clean, honest contract for 0.6+

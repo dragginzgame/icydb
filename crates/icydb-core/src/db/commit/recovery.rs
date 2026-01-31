@@ -1,4 +1,19 @@
-//! Commit marker recovery.
+//! System-level commit recovery.
+//!
+//! This module implements a **system recovery step** that restores global
+//! database invariants by completing or rolling back a previously started
+//! commit before any new operation proceeds.
+//!
+//! Important semantic notes:
+//! - This is **not read-time recovery**.
+//! - Reads do not observe partial commit state and do not rely on recovery
+//!   for correctness.
+//! - Recovery, if needed, completes synchronously before control returns
+//!   to the caller.
+//!
+//! Invocation from read or mutation entrypoints is permitted only as an
+//! unconditional invariant-restoration step. Recovery must not be
+//! interleaved with read logic or mutation planning/apply phases.
 
 use crate::{
     db::{
@@ -23,13 +38,14 @@ thread_local! {
 }
 
 #[cfg(test)]
-/// Force recovery to run once on the next call to `ensure_recovered`.
+/// Force the system recovery step to run once on the next call to
+/// `ensure_recovered`.
 pub fn force_recovery_for_tests() {
     FORCE_RECOVERY.with(|flag| flag.set(true));
 }
 
 #[allow(clippy::missing_const_for_fn)]
-// Test hook to force a one-shot recovery run.
+// Test hook to force a one-shot system recovery run.
 fn should_force_recovery() -> bool {
     #[cfg(test)]
     {
@@ -48,10 +64,20 @@ fn should_force_recovery() -> bool {
     }
 }
 
-/// Ensure recovery has been applied before exposing any reads or mutations.
+/// Ensure global database invariants are restored before proceeding.
 ///
-/// Recovery is invoked from read and mutation entrypoints to prevent
-/// observing partial commit state.
+/// This function performs a **system recovery step**:
+/// - It completes or rolls back any previously started commit.
+/// - It leaves the database in a fully consistent state on return.
+///
+/// This function is:
+/// - **Not part of mutation atomicity**
+/// - **Not read-time recovery**
+/// - **Not conditional on read semantics**
+///
+/// It may be invoked at operation boundaries (including read or mutation
+/// entrypoints), but must always complete **before** any operation-specific
+/// planning, validation, or apply phase begins.
 pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {
     let force = should_force_recovery();
     if !force && RECOVERED.get().is_some() {
@@ -64,7 +90,6 @@ pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(),
         apply_recovery_ops(index_ops, data_ops);
         with_commit_store(|store| {
             store.clear_infallible();
-
             Ok(())
         })?;
     }
@@ -93,7 +118,10 @@ struct DecodedDataOp {
     value: Option<RawRow>,
 }
 
-// Validate commit marker payloads and decode ops before applying recovery.
+/// Validate commit marker payloads and decode recovery ops.
+///
+/// All validation and decoding is performed **before** any recovery mutation
+/// is applied, ensuring the recovery apply phase is mechanical and infallible.
 fn prevalidate_recovery(
     db: &Db<impl crate::traits::CanisterKind>,
     marker: &CommitMarker,
@@ -161,9 +189,12 @@ fn prevalidate_recovery(
     Ok((decoded_index, decoded_data))
 }
 
-// Apply decoded index ops, then data ops, mirroring executor ordering.
+/// Apply decoded recovery ops.
+///
+/// Index operations are applied first, followed by data operations,
+/// mirroring executor commit ordering. This function performs only
+/// mechanical store mutations and must not fail.
 fn apply_recovery_ops(index_ops: Vec<DecodedIndexOp>, data_ops: Vec<DecodedDataOp>) {
-    // Apply indexes first, then data, mirroring executor ordering.
     for op in index_ops {
         op.store.with_borrow_mut(|store| {
             if let Some(value) = op.value {

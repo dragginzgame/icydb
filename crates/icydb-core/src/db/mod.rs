@@ -71,6 +71,18 @@ impl<C: CanisterKind> Db<C> {
         Ok(Context::new(self))
     }
 
+    /// TEST ONLY: Mutate a data store directly, bypassing atomicity and executors.
+    ///
+    /// This is intended for corruption injection and diagnostic testing only.
+    #[cfg(test)]
+    pub fn with_data_store_mut_for_test<R>(
+        &self,
+        path: &'static str,
+        f: impl FnOnce(&mut DataStore) -> R,
+    ) -> Result<R, InternalError> {
+        self.with_data(|reg| reg.with_store_mut(path, f))
+    }
+
     pub(crate) fn with_data<R>(&self, f: impl FnOnce(&DataStoreRegistry) -> R) -> R {
         self.data.with(|reg| f(reg))
     }

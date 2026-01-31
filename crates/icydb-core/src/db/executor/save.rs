@@ -14,7 +14,7 @@ use crate::{
         },
         query::SaveMode,
         query::predicate::validate::{SchemaInfo, literal_matches_type},
-        store::{DataKey, RawDataKey, RawRow},
+        store::{DataKey, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     key::Key,
@@ -295,6 +295,21 @@ impl<E: EntityKind> SaveExecutor<E> {
                 Self::prepare_index_save_ops(&index_plan.apply, &marker.index_ops)?;
             let (index_removes, index_inserts) = Self::plan_index_metrics(old.as_ref(), &entity)?;
             let data_rollback_ops = Self::prepare_data_save_ops(&marker.data_ops, old_raw)?;
+            if index_apply_stores.len() != marker.index_ops.len() {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Index,
+                    format!(
+                        "commit marker index ops length mismatch: {} ops vs {} stores ({})",
+                        marker.index_ops.len(),
+                        index_apply_stores.len(),
+                        E::PATH
+                    ),
+                ));
+            }
+            let data_store = self
+                .db
+                .with_data(|reg| reg.try_get_store(E::DataStore::PATH))?;
             let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Save commit window opened");
@@ -304,7 +319,7 @@ impl<E: EntityKind> SaveExecutor<E> {
                 let mut unit = WriteUnit::new("save_entity_atomic");
                 let index_rollback_ops = index_rollback_ops;
                 unit.record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
-                apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores)?;
+                apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores);
                 for _ in 0..index_removes {
                     sink::record(MetricsEvent::IndexRemove {
                         entity_path: E::PATH,
@@ -316,12 +331,14 @@ impl<E: EntityKind> SaveExecutor<E> {
                     });
                 }
 
+                #[cfg(test)]
                 unit.checkpoint("save_entity_after_indexes")?;
 
                 let data_rollback_ops = data_rollback_ops;
-                let db = self.db;
-                unit.record_rollback(move || Self::apply_data_rollbacks(db, data_rollback_ops));
-                unit.run(|| Self::apply_marker_data_ops(&guard.marker.data_ops, &ctx))?;
+                unit.record_rollback(move || {
+                    Self::apply_data_rollbacks(data_store, data_rollback_ops);
+                });
+                Self::apply_marker_data_ops(&guard.marker.data_ops, data_store);
 
                 span.set_rows(1);
                 unit.commit();
@@ -636,36 +653,31 @@ impl<E: EntityKind> SaveExecutor<E> {
     }
 
     /// Apply commit marker data ops to the data store.
-    fn apply_marker_data_ops(
-        ops: &[CommitDataOp],
-        ctx: &crate::db::executor::Context<'_, E>,
-    ) -> Result<(), InternalError> {
+    fn apply_marker_data_ops(ops: &[CommitDataOp], store: &'static LocalKey<RefCell<DataStore>>) {
         // SAFETY / INVARIANT:
         // All structural and semantic invariants for these marker ops are fully
         // validated during planning *before* the commit marker is persisted.
         // After marker creation, apply is required to be infallible or trap.
-        // Therefore, debug_assert!s here are correctness sentinels, not user errors.
         for op in ops {
-            debug_assert!(op.value.is_some());
-            let Some(value) = op.value.as_ref() else {
-                return Err(InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Store,
-                    format!("commit marker save missing data payload ({})", E::PATH),
-                ));
-            };
+            assert!(
+                op.value.is_some(),
+                "commit marker save missing data payload ({})",
+                E::PATH
+            );
+            let value = op.value.as_ref().unwrap();
             let raw_key = RawDataKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
             let raw_value = RawRow::from_bytes(Cow::Borrowed(value.as_slice()));
-            ctx.with_store_mut(|s| s.insert(raw_key, raw_value))?;
+            store.with_borrow_mut(|s| s.insert(raw_key, raw_value));
         }
-        Ok(())
     }
 
     /// Apply rollback mutations for saved rows.
-    fn apply_data_rollbacks(db: Db<E::Canister>, ops: Vec<PreparedDataRollback>) {
-        let ctx = db.context::<E>();
+    fn apply_data_rollbacks(
+        store: &'static LocalKey<RefCell<DataStore>>,
+        ops: Vec<PreparedDataRollback>,
+    ) {
         for op in ops {
-            let _ = ctx.with_store_mut(|s| {
+            store.with_borrow_mut(|s| {
                 if let Some(value) = op.value {
                     s.insert(op.key, value);
                 } else {

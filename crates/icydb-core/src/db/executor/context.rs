@@ -42,6 +42,8 @@ where
     }
 
     /// Access the entity's data store mutably.
+    /// ONLY FOR TESTING!
+    #[cfg(test)]
     pub fn with_store_mut<R>(
         &self,
         f: impl FnOnce(&mut DataStore) -> R,
