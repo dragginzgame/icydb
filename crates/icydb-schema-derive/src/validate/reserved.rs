@@ -1,11 +1,11 @@
 use std::{collections::HashSet, sync::LazyLock};
 
 ///
-/// WORDS
+/// RESERVED_WORDS
 /// basic reserved words list for anything using candid and rust
 ///
 
-pub(crate) static WORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+static RESERVED_WORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     let mut words = Vec::new();
 
     // candid
@@ -54,3 +54,8 @@ pub(crate) static WORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 
     words.into_iter().collect()
 });
+
+/// Check if an identifier is a reserved word.
+pub fn is_reserved_word(word: &str) -> bool {
+    RESERVED_WORDS.contains(word)
+}

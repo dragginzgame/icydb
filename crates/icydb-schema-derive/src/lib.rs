@@ -4,6 +4,7 @@ mod imp;
 mod node;
 mod trait_kind;
 mod types;
+mod validate;
 mod view;
 
 use crate::node::{Def, ValidateNode};

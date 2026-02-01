@@ -26,7 +26,7 @@ use thiserror::Error as ThisError;
 ///
 
 pub mod prelude {
-    pub(crate) use crate::{build::schema_read, validate::validate_ident};
+    pub(crate) use crate::build::schema_read;
     pub use crate::{
         err,
         error::ErrorTree,
