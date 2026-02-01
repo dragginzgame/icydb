@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use canic_utils::case::{Case, Casing};
 
 ///
 /// DataStore
@@ -41,11 +40,6 @@ impl ValidateNode for DataStore {
                 }
             }
             Err(e) => errs.add(e),
-        }
-
-        // ident
-        if !self.ident.is_case(Case::UpperSnake) {
-            err!(errs, "ident '{}' must be UPPER_SNAKE_CASE", self.ident);
         }
 
         errs.result()

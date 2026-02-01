@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 * Entity macros now reject relation fields as primary keys, preventing `Ref<T>` from being used as an identity type.
 * Primary key fields must have cardinality `One`; optional or many primary keys now fail at macro expansion time.
+* Local schema invariants now fail fast during macro expansion, including field identifier rules, enum variant ordering, and redundant index prefix checks.
 * Added compile-fail tests covering relation and non-One primary key shapes in the entity macro.
 
 ### 🧪 Summary

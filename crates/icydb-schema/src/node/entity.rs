@@ -1,5 +1,5 @@
-use crate::{MAX_INDEX_FIELDS, prelude::*};
-use std::{any::Any, collections::HashSet};
+use crate::prelude::*;
+use std::any::Any;
 
 ///
 /// Entity
@@ -52,102 +52,19 @@ impl ValidateNode for Entity {
         let mut errs = ErrorTree::new();
         let schema = schema_read();
 
-        // primary key must exist and be single-valued
-        match self.fields.get(self.primary_key) {
-            Some(pk) => {
-                if !matches!(pk.value.cardinality, Cardinality::One) {
-                    err!(
-                        errs,
-                        "primary key '{0}' must have cardinality One",
-                        self.primary_key
-                    );
-                }
-            }
-            None => {
-                err!(errs, "missing primary key field '{0}'", self.primary_key);
-            }
-        }
-
-        // entity name length/encoding
-        if let Err(msg) = crate::validate::validate_entity_name(self.resolved_name()) {
-            err!(errs, "{msg}");
-        }
-
         // store
         match schema.cast_node::<DataStore>(self.store) {
             Ok(_) => {}
             Err(e) => errs.add(e),
         }
 
-        // Load and validate index references
-        let mut resolved_indexes = Vec::new();
-
-        // check indexes have proper fields
+        // Validate index store references.
         for index in self.indexes {
             // Indexing is hash-based over Value equality for all variants; collisions surface as corruption.
             // index store
             match schema.cast_node::<IndexStore>(index.store) {
                 Ok(_) => {}
                 Err(e) => errs.add(e),
-            }
-
-            // basic length checks
-            if index.fields.is_empty() {
-                err!(errs, "index must reference at least one field");
-            }
-            if index.fields.len() > MAX_INDEX_FIELDS {
-                err!(
-                    errs,
-                    "index has {} fields; maximum is {}",
-                    index.fields.len(),
-                    MAX_INDEX_FIELDS
-                );
-            }
-
-            // no duplicate fields in a single index definition
-            let mut seen = HashSet::new();
-            // Check all fields in the index exist on the entity
-            for field in index.fields {
-                if !seen.insert(*field) {
-                    err!(errs, "index contains duplicate field '{field}'");
-                }
-                if let Some(field) = self.fields.get(field) {
-                    if field.value.cardinality == Cardinality::Many {
-                        err!(errs, "cannot add an index field with many cardinality");
-                    }
-                } else {
-                    err!(errs, "index field '{field}' not found");
-                }
-            }
-
-            if let Err(msg) =
-                crate::validate::validate_index_name_len(self.resolved_name(), index.fields)
-            {
-                err!(errs, "{msg}");
-            }
-            resolved_indexes.push(index);
-        }
-
-        // Check for redundant indexes (prefix relationships)
-        for (i, a) in resolved_indexes.iter().enumerate() {
-            for b in resolved_indexes.iter().skip(i + 1) {
-                if a.unique == b.unique {
-                    if a.is_prefix_of(b) {
-                        err!(
-                            errs,
-                            "index {:?} is redundant (prefix of {:?})",
-                            a.fields,
-                            b.fields
-                        );
-                    } else if b.is_prefix_of(a) {
-                        err!(
-                            errs,
-                            "index {:?} is redundant (prefix of {:?})",
-                            b.fields,
-                            a.fields
-                        );
-                    }
-                }
             }
         }
 

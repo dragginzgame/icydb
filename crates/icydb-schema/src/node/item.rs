@@ -47,10 +47,6 @@ impl ValidateNode for Item {
 
         // relation
         if let Some(relation) = &self.relation {
-            if self.indirect {
-                err!(errs, "relations cannot be set to indirect");
-            }
-
             // Step 1: Ensure the relation path exists and is an Entity
             match schema.cast_node::<Entity>(relation) {
                 Ok(entity) => {

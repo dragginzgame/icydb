@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use canic_utils::case::{Case, Casing};
 
 ///
 /// FieldList
@@ -43,38 +42,7 @@ pub struct Field {
 
 impl ValidateNode for Field {
     fn validate(&self) -> Result<(), ErrorTree> {
-        let mut errs = ErrorTree::new();
-
-        // idents
-        errs.add_result(validate_ident(self.ident));
-        if let Err(msg) = crate::validate::validate_field_name_len(self.ident) {
-            err!(errs, "{msg}");
-        }
-
-        // snake case
-        if !self.ident.is_case(Case::Snake) {
-            err!(errs, "field ident '{}' must be snake_case", self.ident);
-        }
-
-        // relation naming
-        if self.value.item.is_relation() {
-            let ident = self.ident;
-            match self.value.cardinality {
-                Cardinality::One | Cardinality::Opt if !ident.ends_with("id") => {
-                    err!(
-                        errs,
-                        "one or optional relationship '{ident}' should end with 'id'"
-                    );
-                }
-                Cardinality::Many if !ident.ends_with("ids") => {
-                    err!(errs, "many relationship '{ident}' should end with 'ids'");
-                }
-
-                _ => {}
-            }
-        }
-
-        errs.result()
+        Ok(())
     }
 }
 

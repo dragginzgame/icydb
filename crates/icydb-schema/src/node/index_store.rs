@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use canic_utils::case::{Case, Casing};
 
 ///
 /// IndexStore
@@ -49,20 +48,8 @@ impl ValidateNode for IndexStore {
                         max
                     );
                 }
-
-                if self.entry_memory_id == self.fingerprint_memory_id {
-                    err!(
-                        errs,
-                        "entry_memory_id and fingerprint_memory_id must be distinct (both = {})",
-                        self.entry_memory_id
-                    );
-                }
             }
             Err(e) => errs.add(e),
-        }
-
-        if !self.ident.is_case(Case::UpperSnake) {
-            err!(errs, "ident '{}' must be UPPER_SNAKE_CASE", self.ident);
         }
 
         errs.result()

@@ -88,6 +88,10 @@ impl Entity {
 
     /// Validate index definitions against local entity fields.
     fn validate_indexes(&self, entity_name: &str) -> Result<(), DarlingError> {
+        let is_prefix_of = |a: &[Ident], b: &[Ident]| {
+            a.len() < b.len() && b.iter().take(a.len()).zip(a).all(|(b, a)| b == a)
+        };
+
         for index in &self.indexes {
             // Basic shape.
             if index.fields.is_empty() {
@@ -145,6 +149,31 @@ impl Entity {
                     "index name '{entity_name}|{fields:?}' exceeds max length {MAX_INDEX_NAME_LEN}"
                 ))
                 .with_span(&index.store));
+            }
+        }
+
+        // Check for redundant indexes (prefix relationships).
+        for (i, a) in self.indexes.iter().enumerate() {
+            for b in self.indexes.iter().skip(i + 1) {
+                if a.unique == b.unique {
+                    let a_fields = a.fields.iter().map(ToString::to_string).collect::<Vec<_>>();
+                    let b_fields = b.fields.iter().map(ToString::to_string).collect::<Vec<_>>();
+
+                    if is_prefix_of(&a.fields, &b.fields) {
+                        return Err(DarlingError::custom(format!(
+                            "index {:?} is redundant (prefix of {:?})",
+                            a_fields, b_fields
+                        ))
+                        .with_span(&a.store));
+                    }
+                    if is_prefix_of(&b.fields, &a.fields) {
+                        return Err(DarlingError::custom(format!(
+                            "index {:?} is redundant (prefix of {:?})",
+                            b_fields, a_fields
+                        ))
+                        .with_span(&b.store));
+                    }
+                }
             }
         }
 

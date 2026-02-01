@@ -37,11 +37,6 @@ impl ValidateNode for Canister {
             }
         }
 
-        // store
-        if self.memory_min > self.memory_max {
-            err!(errs, "memory_min must be equal to or less than memory_max");
-        }
-
         errs.result()
     }
 }

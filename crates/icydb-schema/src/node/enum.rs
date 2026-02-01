@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use canic_utils::case::{Case, Casing};
 use std::ops::Not;
 
 ///
@@ -27,48 +26,7 @@ impl TypeNode for Enum {
 
 impl ValidateNode for Enum {
     fn validate(&self) -> Result<(), ErrorTree> {
-        let mut errs = ErrorTree::new();
-
-        // check variants for unspecified
-        let mut un_count = 0;
-        let mut un_first = None;
-        for (i, variant) in self.variants.iter().enumerate() {
-            if variant.unspecified {
-                un_count += 1;
-                if un_first.is_none() {
-                    un_first = Some(i);
-                }
-            }
-        }
-
-        // Check if there's more than one unspecified variant
-        if un_count > 1 {
-            err!(
-                errs,
-                "there should not be more than one unspecified variant"
-            );
-        }
-
-        // Check if the unspecified variant is not the first in the list
-        if let Some(index) = un_first
-            && index != 0
-        {
-            err!(
-                errs,
-                "the unspecified variant must be the first in the list"
-            );
-        }
-
-        // Check for multiple defaults
-        let default_count = self.variants.iter().filter(|v| v.default).count();
-        if default_count > 1 {
-            err!(
-                errs,
-                "exactly one variant must be marked as default, found {default_count}"
-            );
-        }
-
-        errs.result()
+        Ok(())
     }
 }
 
@@ -106,18 +64,7 @@ pub struct EnumVariant {
 
 impl ValidateNode for EnumVariant {
     fn validate(&self) -> Result<(), ErrorTree> {
-        let mut errs = ErrorTree::new();
-
-        // name
-        if !self.ident.is_case(Case::UpperCamel) {
-            err!(
-                errs,
-                "variant ident '{}' must be in UpperCamelCase",
-                self.ident
-            );
-        }
-
-        errs.result()
+        Ok(())
     }
 }
 

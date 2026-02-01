@@ -32,6 +32,10 @@ impl Item {
                 "item 'is' cannot be combined with 'prim' or 'rel'",
             ));
         }
+        if self.indirect && self.relation.is_some() {
+            return Err(DarlingError::custom("relations cannot be set to indirect")
+                .with_span(self.relation.as_ref().unwrap()));
+        }
 
         Ok(())
     }
