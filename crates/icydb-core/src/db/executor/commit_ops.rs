@@ -26,10 +26,10 @@ pub fn apply_marker_index_ops(
     for (op, store) in ops.iter().zip(stores.into_iter()) {
         // Length and size checks are enforced pre-commit; reassert as invariant.
         assert!(
-            op.key.len() == IndexKey::STORED_SIZE as usize,
+            op.key.len() == IndexKey::STORED_SIZE_USIZE,
             "commit marker index key length {} does not match {}",
             op.key.len(),
-            IndexKey::STORED_SIZE
+            IndexKey::STORED_SIZE_BYTES
         );
         if let Some(value) = &op.value {
             assert!(
@@ -72,14 +72,14 @@ pub(super) fn resolve_index_key(
     })?;
 
     // Phase 2: validate key and entry sizes.
-    if op.key.len() != IndexKey::STORED_SIZE as usize {
+    if op.key.len() != IndexKey::STORED_SIZE_USIZE {
         return Err(InternalError::new(
             ErrorClass::Internal,
             ErrorOrigin::Index,
             format!(
                 "commit marker index key length {} does not match {} ({})",
                 op.key.len(),
-                IndexKey::STORED_SIZE,
+                IndexKey::STORED_SIZE_BYTES,
                 entity_path
             ),
         ));

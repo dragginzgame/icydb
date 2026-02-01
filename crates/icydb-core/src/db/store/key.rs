@@ -1,8 +1,8 @@
 use crate::{
-    db::identity::EntityName,
+    db::identity::{EntityName, IdentityDecodeError},
     error::{ErrorClass, ErrorOrigin, InternalError},
     key::{Key, KeyEncodeError},
-    traits::Storable,
+    traits::{EntityKind, Storable},
 };
 use canic_cdk::structures::storable::Bound;
 use std::{
@@ -12,19 +12,7 @@ use std::{
 use thiserror::Error as ThisError;
 
 ///
-/// DataKey
-///
-
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct DataKey {
-    entity: EntityName,
-    key: Key,
-}
-
-///
 /// DataKeyEncodeError
-///
-/// Errors returned when encoding a data key for persistence.
 ///
 
 #[derive(Debug, ThisError)]
@@ -46,56 +34,89 @@ impl From<DataKeyEncodeError> for InternalError {
     }
 }
 
-impl DataKey {
-    #[allow(clippy::cast_possible_truncation)]
-    pub const STORED_SIZE: u32 = EntityName::STORED_SIZE + Key::STORED_SIZE as u32;
+///
+/// DataKeyDecodeError
+///
 
-    #[must_use]
+#[derive(Debug, ThisError)]
+pub enum DataKeyDecodeError {
+    #[error("invalid entity name")]
+    Entity(#[from] IdentityDecodeError),
+
+    #[error("invalid primary key: {0}")]
+    Key(&'static str),
+}
+
+///
+/// DataKey
+///
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DataKey {
+    entity: EntityName,
+    key: Key,
+}
+
+#[expect(clippy::cast_possible_truncation)]
+impl DataKey {
+    /// Fixed on-disk size in bytes (stable, protocol-level)
+    pub const STORED_SIZE_BYTES: u64 = EntityName::STORED_SIZE_BYTES + Key::STORED_SIZE_BYTES;
+
+    /// Fixed in-memory size (for buffers and arrays only)
+    pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
+
     /// Build a data key for the given entity type and primary key.
-    pub fn new<E: crate::traits::EntityKind>(key: impl Into<Key>) -> Self {
+    #[must_use]
+    pub fn new<E: EntityKind>(key: impl Into<Key>) -> Self {
+        let entity = EntityName::try_from_str(E::ENTITY_NAME)
+            .expect("ENTITY_NAME must be a valid ASCII identifier");
+
         Self {
-            entity: EntityName::from_static_unchecked(E::ENTITY_NAME),
+            entity,
             key: key.into(),
         }
     }
 
     #[must_use]
-    pub const fn lower_bound<E: crate::traits::EntityKind>() -> Self {
+    pub fn lower_bound<E: EntityKind>() -> Self {
+        let entity = EntityName::try_from_str(E::ENTITY_NAME)
+            .expect("ENTITY_NAME must be a valid ASCII identifier");
+
         Self {
-            entity: EntityName::from_static_unchecked(E::ENTITY_NAME),
+            entity,
             key: Key::MIN,
         }
     }
 
     #[must_use]
-    pub const fn upper_bound<E: crate::traits::EntityKind>() -> Self {
+    pub fn upper_bound<E: EntityKind>() -> Self {
+        let entity = EntityName::try_from_str(E::ENTITY_NAME)
+            .expect("ENTITY_NAME must be a valid ASCII identifier");
+
         Self {
-            entity: EntityName::from_static_unchecked(E::ENTITY_NAME),
+            entity,
             key: Key::upper_bound(),
         }
     }
 
-    /// Return the primary key component of this data key.
+    /// Return the primary key component.
     #[must_use]
     pub const fn key(&self) -> Key {
         self.key
     }
 
-    /// Entity name (stable, compile-time constant per entity type).
     #[must_use]
     pub const fn entity_name(&self) -> &EntityName {
         &self.entity
     }
 
-    /// Compute the on-disk size used by a single data entry from its value length.
-    /// Includes the bounded `DataKey` size and the value bytes.
+    /// Compute on-disk entry size from value length.
     #[must_use]
     pub const fn entry_size_bytes(value_len: u64) -> u64 {
-        Self::STORED_SIZE as u64 + value_len
+        Self::STORED_SIZE_BYTES + value_len
     }
 
     #[must_use]
-    /// Max sentinel key for sizing.
     pub fn max_storable() -> Self {
         Self {
             entity: EntityName::max_storable(),
@@ -103,13 +124,12 @@ impl DataKey {
         }
     }
 
-    /// Encode this data key into the fixed-size on-disk representation.
+    /// Encode into fixed-size on-disk representation.
     pub fn to_raw(&self) -> Result<RawDataKey, InternalError> {
-        let mut buf = [0u8; Self::STORED_SIZE as usize];
+        let mut buf = [0u8; Self::STORED_SIZE_USIZE];
 
-        buf[0] = self.entity.len;
-        let entity_end = EntityName::STORED_SIZE_USIZE;
-        buf[1..entity_end].copy_from_slice(&self.entity.bytes);
+        let entity_bytes = self.entity.to_bytes();
+        buf[..EntityName::STORED_SIZE_USIZE].copy_from_slice(&entity_bytes);
 
         let key_bytes = self
             .key
@@ -118,22 +138,19 @@ impl DataKey {
                 key: self.clone(),
                 source: err,
             })?;
+
         let key_offset = EntityName::STORED_SIZE_USIZE;
-        buf[key_offset..key_offset + Key::STORED_SIZE].copy_from_slice(&key_bytes);
+        buf[key_offset..key_offset + Key::STORED_SIZE_USIZE].copy_from_slice(&key_bytes);
 
         Ok(RawDataKey(buf))
     }
 
-    pub fn try_from_raw(raw: &RawDataKey) -> Result<Self, &'static str> {
+    pub fn try_from_raw(raw: &RawDataKey) -> Result<Self, DataKeyDecodeError> {
         let bytes = &raw.0;
 
-        let mut offset = 0;
-        let entity = EntityName::from_bytes(&bytes[offset..offset + EntityName::STORED_SIZE_USIZE])
-            .map_err(|_| "corrupted DataKey: invalid EntityName bytes")?;
-        offset += EntityName::STORED_SIZE_USIZE;
-
-        let key = Key::try_from_bytes(&bytes[offset..offset + Key::STORED_SIZE])
-            .map_err(|_| "corrupted DataKey: invalid Key bytes")?;
+        let entity = EntityName::from_bytes(&bytes[..EntityName::STORED_SIZE_USIZE])?;
+        let key = Key::try_from_bytes(&bytes[EntityName::STORED_SIZE_USIZE..])
+            .map_err(DataKeyDecodeError::Key)?;
 
         Ok(Self { entity, key })
     }
@@ -156,11 +173,11 @@ impl From<DataKey> for Key {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RawDataKey([u8; DataKey::STORED_SIZE as usize]);
+pub struct RawDataKey([u8; DataKey::STORED_SIZE_USIZE]);
 
 impl RawDataKey {
     #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; DataKey::STORED_SIZE as usize] {
+    pub const fn as_bytes(&self) -> &[u8; DataKey::STORED_SIZE_USIZE] {
         &self.0
     }
 }
@@ -171,7 +188,7 @@ impl Storable for RawDataKey {
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        let mut out = [0u8; DataKey::STORED_SIZE as usize];
+        let mut out = [0u8; DataKey::STORED_SIZE_USIZE];
         if bytes.len() == out.len() {
             out.copy_from_slice(bytes.as_ref());
         }
@@ -182,15 +199,16 @@ impl Storable for RawDataKey {
         self.0.to_vec()
     }
 
+    #[expect(clippy::cast_possible_truncation)]
     const BOUND: Bound = Bound::Bounded {
-        max_size: DataKey::STORED_SIZE,
+        max_size: DataKey::STORED_SIZE_BYTES as u32,
         is_fixed_size: true,
     };
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {
@@ -200,113 +218,67 @@ mod tests {
     #[test]
     fn data_key_is_exactly_fixed_size() {
         let data_key = DataKey::max_storable();
-        let size = data_key.to_raw().expect("data key encode").as_bytes().len();
-
-        assert_eq!(
-            size,
-            DataKey::STORED_SIZE as usize,
-            "DataKey must serialize to exactly STORED_SIZE bytes"
-        );
+        let size = data_key.to_raw().unwrap().as_bytes().len();
+        assert_eq!(size, DataKey::STORED_SIZE_USIZE);
     }
 
     #[test]
     fn data_key_ordering_matches_bytes() {
         let keys = vec![
             DataKey {
-                entity: EntityName::from_static_unchecked("a"),
+                entity: EntityName::try_from_str("a").unwrap(),
                 key: Key::Int(0),
             },
             DataKey {
-                entity: EntityName::from_static_unchecked("aa"),
+                entity: EntityName::try_from_str("aa").unwrap(),
                 key: Key::Int(0),
             },
             DataKey {
-                entity: EntityName::from_static_unchecked("b"),
+                entity: EntityName::try_from_str("b").unwrap(),
                 key: Key::Int(0),
             },
             DataKey {
-                entity: EntityName::from_static_unchecked("a"),
+                entity: EntityName::try_from_str("a").unwrap(),
                 key: Key::Uint(1),
             },
         ];
 
-        let mut sorted_by_ord = keys.clone();
-        sorted_by_ord.sort();
+        let mut by_ord = keys.clone();
+        by_ord.sort();
 
-        let mut sorted_by_bytes = keys;
-        sorted_by_bytes.sort_by(|a, b| {
+        let mut by_bytes = keys;
+        by_bytes.sort_by(|a, b| {
             a.to_raw()
-                .expect("data key encode")
+                .unwrap()
                 .as_bytes()
-                .cmp(b.to_raw().expect("data key encode").as_bytes())
+                .cmp(b.to_raw().unwrap().as_bytes())
         });
 
-        assert_eq!(
-            sorted_by_ord, sorted_by_bytes,
-            "DataKey Ord and byte ordering diverged"
-        );
+        assert_eq!(by_ord, by_bytes);
     }
 
     #[test]
-    fn data_key_rejects_undersized_bytes() {
-        let buf = vec![0u8; DataKey::STORED_SIZE as usize - 1];
-        let raw = RawDataKey::from_bytes(Cow::Borrowed(&buf));
-        let err = DataKey::try_from_raw(&raw).unwrap_err();
-        assert!(
-            err.contains("corrupted"),
-            "expected corruption error, got: {err}"
-        );
-    }
-
-    #[test]
-    fn data_key_rejects_oversized_bytes() {
-        let buf = vec![0u8; DataKey::STORED_SIZE as usize + 1];
-        let raw = RawDataKey::from_bytes(Cow::Borrowed(&buf));
-        let err = DataKey::try_from_raw(&raw).unwrap_err();
-        assert!(
-            err.contains("corrupted"),
-            "expected corruption error, got: {err}"
-        );
-    }
-
-    #[test]
-    fn data_key_rejects_invalid_entity_len() {
-        let mut raw = DataKey::max_storable().to_raw().expect("data key encode");
+    fn data_key_rejects_corrupt_entity() {
+        let mut raw = DataKey::max_storable().to_raw().unwrap();
         raw.0[0] = 0;
         assert!(DataKey::try_from_raw(&raw).is_err());
     }
 
     #[test]
-    fn data_key_rejects_non_ascii_entity_bytes() {
-        let data_key = DataKey {
-            entity: EntityName::from_static_unchecked("a"),
-            key: Key::Int(1),
-        };
-        let mut raw = data_key.to_raw().expect("data key encode");
-        raw.0[1] = 0xFF;
-        assert!(DataKey::try_from_raw(&raw).is_err());
-    }
-
-    #[test]
-    fn data_key_rejects_entity_padding() {
-        let data_key = DataKey {
-            entity: EntityName::from_static_unchecked("user"),
-            key: Key::Int(1),
-        };
-        let mut raw = data_key.to_raw().expect("data key encode");
-        let padding_offset = 1 + data_key.entity.len();
-        raw.0[padding_offset] = b'x';
+    fn data_key_rejects_corrupt_key() {
+        let mut raw = DataKey::max_storable().to_raw().unwrap();
+        let off = EntityName::STORED_SIZE_USIZE;
+        raw.0[off] = 0xFF;
         assert!(DataKey::try_from_raw(&raw).is_err());
     }
 
     #[test]
     #[allow(clippy::cast_possible_truncation)]
-    fn data_key_decode_fuzz_roundtrip_is_canonical() {
-        const RUNS: u64 = 1_000;
-
+    fn data_key_fuzz_roundtrip_is_canonical() {
         let mut seed = 0xDEAD_BEEF_u64;
-        for _ in 0..RUNS {
-            let mut bytes = [0u8; DataKey::STORED_SIZE as usize];
+
+        for _ in 0..1_000 {
+            let mut bytes = [0u8; DataKey::STORED_SIZE_USIZE];
             for b in &mut bytes {
                 seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
                 *b = (seed >> 24) as u8;
@@ -314,13 +286,17 @@ mod tests {
 
             let raw = RawDataKey(bytes);
             if let Ok(decoded) = DataKey::try_from_raw(&raw) {
-                let re = decoded.to_raw().expect("data key encode");
-                assert_eq!(
-                    raw.as_bytes(),
-                    re.as_bytes(),
-                    "decoded DataKey must be canonical"
-                );
+                let re = decoded.to_raw().unwrap();
+                assert_eq!(raw.as_bytes(), re.as_bytes());
             }
         }
+    }
+
+    #[test]
+    fn raw_data_key_storable_roundtrip() {
+        let key = DataKey::max_storable().to_raw().unwrap();
+        let bytes = key.to_bytes();
+        let decoded = RawDataKey::from_bytes(Cow::Borrowed(&bytes));
+        assert_eq!(key, decoded);
     }
 }

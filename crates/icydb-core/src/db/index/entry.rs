@@ -17,7 +17,7 @@ const INDEX_ENTRY_LEN_BYTES: usize = 4;
 pub const MAX_INDEX_ENTRY_KEYS: usize = 65_535;
 #[allow(clippy::cast_possible_truncation)]
 pub const MAX_INDEX_ENTRY_BYTES: u32 =
-    (INDEX_ENTRY_LEN_BYTES + (MAX_INDEX_ENTRY_KEYS * Key::STORED_SIZE)) as u32;
+    (INDEX_ENTRY_LEN_BYTES + (MAX_INDEX_ENTRY_KEYS * Key::STORED_SIZE_USIZE)) as u32;
 
 ///
 /// IndexEntryCorruption
@@ -165,7 +165,7 @@ impl RawIndexEntry {
             return Err(IndexEntryEncodeError::TooManyKeys { keys });
         }
 
-        let mut out = Vec::with_capacity(INDEX_ENTRY_LEN_BYTES + (keys * Key::STORED_SIZE));
+        let mut out = Vec::with_capacity(INDEX_ENTRY_LEN_BYTES + (keys * Key::STORED_SIZE_USIZE));
         let count = u32::try_from(keys).map_err(|_| IndexEntryEncodeError::TooManyKeys { keys })?;
         out.extend_from_slice(&count.to_be_bytes());
         for key in entry.iter_keys() {
@@ -198,7 +198,7 @@ impl RawIndexEntry {
         let expected = INDEX_ENTRY_LEN_BYTES
             .checked_add(
                 count
-                    .checked_mul(Key::STORED_SIZE)
+                    .checked_mul(Key::STORED_SIZE_USIZE)
                     .ok_or(IndexEntryCorruption::LengthMismatch)?,
             )
             .ok_or(IndexEntryCorruption::LengthMismatch)?;
@@ -209,7 +209,7 @@ impl RawIndexEntry {
         let mut keys = BTreeSet::new();
         let mut offset = INDEX_ENTRY_LEN_BYTES;
         for _ in 0..count {
-            let end = offset + Key::STORED_SIZE;
+            let end = offset + Key::STORED_SIZE_USIZE;
             let key = Key::try_from_bytes(&bytes[offset..end])
                 .map_err(|_| IndexEntryCorruption::InvalidKey)?;
             if !keys.insert(key) {

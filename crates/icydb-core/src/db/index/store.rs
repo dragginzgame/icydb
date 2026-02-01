@@ -180,7 +180,7 @@ impl IndexStore {
             ));
         }
 
-        let index_id = IndexId::new_unchecked::<E>(index);
+        let index_id = IndexId::new::<E>(index);
 
         let mut fps = Vec::with_capacity(prefix.len());
         for value in prefix {
@@ -243,14 +243,14 @@ impl IndexStore {
             .iter()
             .map(|e| {
                 let v: RawIndexEntry = e.value();
-                u64::from(IndexKey::STORED_SIZE) + v.len() as u64
+                IndexKey::STORED_SIZE_BYTES + v.len() as u64
             })
             .sum::<u64>();
 
         let fingerprint_bytes = self
             .fingerprint_map()
             .iter()
-            .map(|_| u64::from(IndexKey::STORED_SIZE) + u64::from(RawIndexFingerprint::STORED_SIZE))
+            .map(|_| IndexKey::STORED_SIZE_BYTES + u64::from(RawIndexFingerprint::STORED_SIZE))
             .sum::<u64>();
 
         entry_bytes.saturating_add(fingerprint_bytes)

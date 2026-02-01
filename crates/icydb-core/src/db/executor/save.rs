@@ -188,7 +188,7 @@ impl<E: EntityKind> SaveExecutor<E> {
             let mut span = Span::<E>::new(ExecKind::Save);
             let ctx = self.db.context::<E>();
 
-            // Recovery is mutation-only to keep read paths side-effect free.
+            // Recovery is mandatory before mutations; read paths recover separately.
             ensure_recovered(&self.db)?;
 
             // Sanitize & validate before key extraction in case PK fields are normalized
@@ -374,6 +374,8 @@ impl<E: EntityKind> SaveExecutor<E> {
     }
 
     fn ensure_reference_targets(&self, entity: &E) -> Result<(), InternalError> {
+        // Strong references only: direct `Ref<T>` and `Option<Ref<T>>` fields.
+        // Nested and collection references are weak in 0.6 and are not validated.
         let refs = entity.entity_refs()?;
         for reference in refs {
             self.ensure_target_exists(reference)?;
@@ -667,14 +669,14 @@ impl<E: EntityKind> SaveExecutor<E> {
                 ),
             ));
         }
-        if op.key.len() != DataKey::STORED_SIZE as usize {
+        if op.key.len() != DataKey::STORED_SIZE_USIZE {
             return Err(InternalError::new(
                 ErrorClass::Internal,
                 ErrorOrigin::Store,
                 format!(
                     "commit marker data key length {} does not match {} ({})",
                     op.key.len(),
-                    DataKey::STORED_SIZE,
+                    DataKey::STORED_SIZE_USIZE,
                     E::PATH
                 ),
             ));

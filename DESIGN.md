@@ -8,24 +8,27 @@ It is not a feature roadmap and not a user guide. Its purpose is to make explici
 
 ## 1. What icydb is (and is not)
 
-icydb is a **typed, embedded database engine**, not an ORM and not a SQL system.
+icydb is a **typed, embedded key/value database engine**, not an ORM and not a SQL system.
 
 It provides:
 
+* explicit key/value storage with typed entities
 * declarative query intent
 * explicit planning
 * executor-level semantics
 * index maintenance
-* recovery and atomicity guarantees
+* atomicity and recovery guarantees
+* optional write-time integrity checks
 
 It intentionally does **not** provide:
 
 * SQL syntax
-* joins or aggregation
+* joins, aggregation, or relational algebra
 * expression evaluation
 * automatic derived fields
+* implicit cross-entity behavior
 
-Design decisions are evaluated primarily on **correctness and semantic clarity**, not feature breadth.
+Design decisions are evaluated primarily on **correctness, semantic clarity, and predictability**, not feature breadth.
 
 ---
 
@@ -67,7 +70,7 @@ The output of planning is a **LogicalPlan** that is:
 * schema-validated
 * free of ambiguity
 
-The planner is the **only layer allowed to reason about schema semantics**.
+The planner is the **only layer allowed to reason about schema semantics or field meaning**.
 
 ---
 
@@ -96,8 +99,9 @@ The schema defines:
 * fields allowed in predicates
 * fields allowed in access paths
 * fields eligible for indexing
+* fields eligible for integrity checks
 
-Schema fields are validated strictly.
+Schema fields are validated strictly and exhaustively.
 
 ---
 
@@ -116,8 +120,7 @@ These values:
 * may appear in views or diagnostics
 * are treated as **opaque / incomparable**
 
-This distinction is intentional and mirrors the separation between
-logical schema and physical tuple payloads in traditional database engines.
+This distinction mirrors the separation between logical schema and physical tuple payloads in traditional database engines.
 
 ---
 
@@ -179,16 +182,72 @@ For such entities:
 * `Value::Unit` represents existence, not a scalar
 * executor-side type validation must not treat `Unit` as a mismatch
 
-This matches relational theory for relations with zero attributes.
+This matches relational theory for relations with zero attributes while remaining compatible with key/value storage.
 
 ---
 
-## 8. Error classification
+## 8. Referential integrity (RI)
+
+Referential integrity in icydb is a **write-time validation rule**, not a query feature.
+Referential integrity enforcement is schema-driven and may be selectively relaxed,
+but reference discovery is always structural and deterministic.
+
+icydb supports:
+
+* existence checks for **strong** direct references (`Ref<T>`, `Option<Ref<T>>`)
+* validation during save/update **before the commit boundary**
+
+icydb explicitly does **not** support:
+
+* joins or reference traversal
+* cascading deletes
+* reverse reference tracking
+* deferred constraint checks
+* reference-based query planning
+
+Referential integrity:
+
+* is enforced only during mutation
+* requires no graph traversal
+* performs only direct key existence checks for strong references
+* does not alter execution or query semantics
+
+RI exists to prevent invalid persisted state, not to enable relational querying.
+
+---
+
+## 9. Reference shape constraints
+
+To preserve key/value semantics and atomicity guarantees, icydb constrains where relations may appear.
+
+Strong reference shapes (validated):
+
+* `Ref<T>`
+* `Option<Ref<T>>`
+
+Weak reference shapes (allowed, not validated):
+
+* `Vec<Ref<T>>`, `Set<Ref<T>>`, `Map<_, Ref<T>>`
+* nested references inside records, enums, tuples, or collections
+* implicit or inferred relations are never introduced automatically
+
+These constraints ensure:
+
+* bounded validation cost
+* predictable atomicity
+* mechanical commit application
+* simple recovery semantics
+
+Future expansion of reference shapes, if any, must preserve these properties and will be considered explicitly.
+
+---
+
+## 10. Error classification
 
 icydb distinguishes between:
 
 * **Corruption**: persisted data is invalid or inconsistent
-* **InvariantViolation**: logical impossibility or violated contract
+* **InvariantViolation**: violated internal contract or impossible state
 * **Conflict**: legitimate write-time conflict
 * **Validation / Plan errors**: invalid intent
 
@@ -196,24 +255,26 @@ Error classification is part of the correctness model and must not change silent
 
 ---
 
-## 9. Recovery and read safety
+## 11. Recovery and read safety
 
 Reads must never observe partial commit state.
 
 icydb enforces:
 
 * recovery-before-read
-* commit marker validation
+* authoritative commit markers
 * atomic visibility of writes
 
 Any API that allows reads must either:
 
 * perform recovery
-* or be restricted to internal use
+* or be explicitly restricted to internal or diagnostic use
+
+Recovery is a correctness mechanism, not an optimization.
 
 ---
 
-## 10. Design goals (non-features)
+## 12. Design goals (non-features)
 
 icydb optimizes for:
 
@@ -221,36 +282,40 @@ icydb optimizes for:
 * explicit invariants
 * planner/executor clarity
 * predictable behavior
+* bounded execution cost
 
 It explicitly does **not** optimize for:
 
 * SQL compatibility
 * expressive query syntax
 * automatic derivations
-* implicit behavior
+* implicit cross-entity behavior
 
 ---
 
-## 11. Non-goals
+## 13. Non-goals
 
 * Expression evaluation
 * Arbitrary computed fields
-* User-defined execution hints
+* Relational joins
+* Cascading semantics
 * Implicit schema extension
+* Hidden execution behavior
 
-If these are added in the future, they must respect the existing intent/plan/execute separation.
+If any of these are added in the future, they must respect the existing intent/plan/execute separation and preserve key/value semantics.
 
 ---
 
-## 12. Summary
+## 14. Summary
 
-icydb is designed as a **small, principled database engine**.
+icydb is designed as a **small, principled key/value database engine**.
 
-Many behaviors that appear “permissive” at runtime are:
+Integrity checks, planning rigor, and recovery guarantees exist to:
 
-* intentionally constrained
-* planner-isolated
-* execution-safe
+* prevent invalid persisted state
+* preserve atomicity
+* ensure deterministic execution
 
-This document exists to ensure those behaviors remain **intentional**, not accidental.
+Any behavior that appears permissive or constrained is **intentional**, not accidental.
 
+This document exists to ensure those constraints remain explicit, deliberate, and stable.

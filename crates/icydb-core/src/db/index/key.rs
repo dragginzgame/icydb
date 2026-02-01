@@ -26,19 +26,20 @@ pub struct IndexId(pub IndexName);
 
 impl IndexId {
     /// Build an index id from static entity metadata.
+    ///
+    /// This is the canonical constructor. Identity invariants are always enforced.
     pub fn try_new<E: EntityKind>(index: &IndexModel) -> Result<Self, IndexIdError> {
-        let entity = EntityName::try_from_static(E::ENTITY_NAME)?;
+        let entity = EntityName::try_from_str(E::ENTITY_NAME)?;
         let name = IndexName::try_from_parts(&entity, index.fields)?;
         Ok(Self(name))
     }
 
-    /// Build an index id from validated static metadata.
+    /// Build an index id from static metadata, panicking on invariant violation.
     ///
-    /// Caller must uphold identity invariants; intended for generated code.
+    /// This is intended for generated code and schema-defined indexes.
     #[must_use]
-    pub(crate) fn new_unchecked<E: EntityKind>(index: &IndexModel) -> Self {
-        let entity = EntityName::from_static_unchecked(E::ENTITY_NAME);
-        Self(IndexName::from_parts_unchecked(&entity, index.fields))
+    pub fn new<E: EntityKind>(index: &IndexModel) -> Self {
+        Self::try_new::<E>(index).expect("static IndexModel must define a valid IndexId")
     }
 
     /// Maximum sentinel value for stable-memory bounds.
@@ -78,9 +79,14 @@ pub struct IndexKey {
     values: [[u8; 16]; MAX_INDEX_FIELDS],
 }
 
+#[expect(clippy::cast_possible_truncation)]
 impl IndexKey {
-    #[allow(clippy::cast_possible_truncation)]
-    pub const STORED_SIZE: u32 = IndexName::STORED_SIZE + 1 + (MAX_INDEX_FIELDS as u32 * 16);
+    /// Fixed on-disk size in bytes (stable, protocol-level)
+    pub const STORED_SIZE_BYTES: u64 =
+        IndexName::STORED_SIZE_BYTES + 1 + (MAX_INDEX_FIELDS as u64 * 16);
+
+    /// Fixed in-memory size (for buffers and arrays)
+    pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
 
     /// Build an index key; returns `Ok(None)` if any indexed field is missing or non-indexable.
     /// `Value::None` and `Value::Unsupported` are treated as non-indexable.
@@ -117,7 +123,7 @@ impl IndexKey {
 
         #[allow(clippy::cast_possible_truncation)]
         Ok(Some(Self {
-            index_id: IndexId::new_unchecked::<E>(index),
+            index_id: IndexId::new::<E>(index),
             len: len as u8,
             values,
         }))
@@ -159,12 +165,12 @@ impl IndexKey {
 
     #[must_use]
     pub fn to_raw(&self) -> RawIndexKey {
-        let mut buf = [0u8; Self::STORED_SIZE as usize];
+        let mut buf = [0u8; Self::STORED_SIZE_USIZE];
 
         let name_bytes = self.index_id.0.to_bytes();
         buf[..name_bytes.len()].copy_from_slice(&name_bytes);
 
-        let mut offset = IndexName::STORED_SIZE as usize;
+        let mut offset = IndexName::STORED_SIZE_USIZE;
         buf[offset] = self.len;
         offset += 1;
 
@@ -178,16 +184,16 @@ impl IndexKey {
 
     pub fn try_from_raw(raw: &RawIndexKey) -> Result<Self, &'static str> {
         let bytes = &raw.0;
-        if bytes.len() != Self::STORED_SIZE as usize {
+        if bytes.len() != Self::STORED_SIZE_USIZE {
             return Err("corrupted IndexKey: invalid size");
         }
 
         let mut offset = 0;
 
         let index_name =
-            IndexName::from_bytes(&bytes[offset..offset + IndexName::STORED_SIZE as usize])
+            IndexName::from_bytes(&bytes[offset..offset + IndexName::STORED_SIZE_USIZE])
                 .map_err(|_| "corrupted IndexKey: invalid IndexName bytes")?;
-        offset += IndexName::STORED_SIZE as usize;
+        offset += IndexName::STORED_SIZE_USIZE;
 
         let len = bytes[offset];
         offset += 1;
@@ -225,12 +231,12 @@ impl IndexKey {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RawIndexKey([u8; IndexKey::STORED_SIZE as usize]);
+pub struct RawIndexKey([u8; IndexKey::STORED_SIZE_USIZE]);
 
 impl RawIndexKey {
     /// Borrow the raw byte representation.
     #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; IndexKey::STORED_SIZE as usize] {
+    pub const fn as_bytes(&self) -> &[u8; IndexKey::STORED_SIZE_USIZE] {
         &self.0
     }
 }
@@ -241,7 +247,7 @@ impl Storable for RawIndexKey {
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        let mut out = [0u8; IndexKey::STORED_SIZE as usize];
+        let mut out = [0u8; IndexKey::STORED_SIZE_USIZE];
         if bytes.len() == out.len() {
             out.copy_from_slice(bytes.as_ref());
         }
@@ -252,8 +258,9 @@ impl Storable for RawIndexKey {
         self.0.to_vec()
     }
 
+    #[expect(clippy::cast_possible_truncation)]
     const BOUND: Bound = Bound::Bounded {
-        max_size: IndexKey::STORED_SIZE,
+        max_size: IndexKey::STORED_SIZE_BYTES as u32,
         is_fixed_size: true,
     };
 }

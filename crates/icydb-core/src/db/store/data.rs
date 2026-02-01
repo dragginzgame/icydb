@@ -46,7 +46,7 @@ impl DataStore {
     /// Sum of bytes used by all stored rows.
     pub fn memory_bytes(&self) -> u64 {
         self.iter()
-            .map(|entry| u64::from(DataKey::STORED_SIZE) + entry.value().len() as u64)
+            .map(|entry| DataKey::STORED_SIZE_BYTES + entry.value().len() as u64)
             .sum()
     }
 }

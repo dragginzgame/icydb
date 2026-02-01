@@ -7,9 +7,9 @@ fn key_max_size_is_bounded() {
     let size = key.to_bytes().expect("key encode").len();
 
     assert!(
-        size <= Key::STORED_SIZE,
+        size <= Key::STORED_SIZE_USIZE,
         "serialized Key too large: got {size} bytes (limit {})",
-        Key::STORED_SIZE
+        Key::STORED_SIZE_USIZE
     );
 }
 
@@ -52,9 +52,9 @@ fn key_is_exactly_fixed_size() {
         let len = key.to_bytes().expect("key encode").len();
         assert_eq!(
             len,
-            Key::STORED_SIZE,
+            Key::STORED_SIZE_USIZE,
             "Key serialized length must be exactly {}",
-            Key::STORED_SIZE
+            Key::STORED_SIZE_USIZE
         );
     }
 }
@@ -117,13 +117,13 @@ fn key_lower_bound_is_global_min() {
 
 #[test]
 fn key_from_bytes_rejects_undersized() {
-    let bytes = vec![0u8; Key::STORED_SIZE - 1];
+    let bytes = vec![0u8; Key::STORED_SIZE_USIZE - 1];
     assert!(Key::try_from_bytes(&bytes).is_err());
 }
 
 #[test]
 fn key_from_bytes_rejects_oversized() {
-    let bytes = vec![0u8; Key::STORED_SIZE + 1];
+    let bytes = vec![0u8; Key::STORED_SIZE_USIZE + 1];
     assert!(Key::try_from_bytes(&bytes).is_err());
 }
 
@@ -230,7 +230,7 @@ fn principal_encoding_respects_max_size() {
     let key = Key::Principal(max);
 
     let bytes = key.to_bytes().expect("key encode");
-    assert_eq!(bytes.len(), Key::STORED_SIZE);
+    assert_eq!(bytes.len(), Key::STORED_SIZE_USIZE);
 }
 
 #[test]
@@ -240,7 +240,7 @@ fn key_decode_fuzz_roundtrip_is_canonical() {
 
     let mut seed = 0x1234_5678_u64;
     for _ in 0..RUNS {
-        let mut bytes = [0u8; Key::STORED_SIZE];
+        let mut bytes = [0u8; Key::STORED_SIZE_USIZE];
         for b in &mut bytes {
             seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
             *b = (seed >> 24) as u8;

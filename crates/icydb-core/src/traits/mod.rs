@@ -174,7 +174,9 @@ pub struct EntityRef {
 ///
 /// Extract typed entity references from a concrete entity instance.
 /// This is a pure helper for pre-commit planning and RI checks.
-/// Only direct `Ref<T>` and `Option<Ref<T>>` fields are supported.
+/// Only direct `Ref<T>` and `Option<Ref<T>>` fields are strong in 0.6.
+/// Nested and collection references are treated as weak and ignored.
+/// This is a shallow walk over entity fields only; no recursive traversal occurs.
 ///
 pub trait EntityReferences {
     /// Return all concrete references currently present on this entity.
@@ -189,20 +191,13 @@ where
         let mut refs = Vec::with_capacity(E::MODEL.fields.len());
 
         for field in E::MODEL.fields {
-            // Phase 1: identify supported reference fields and reject unsupported shapes.
+            // Phase 1: identify strong reference fields; weak shapes are ignored.
             let target_path = match &field.kind {
                 &EntityFieldKind::Ref { target_path, .. } => target_path,
                 &EntityFieldKind::List(inner) | &EntityFieldKind::Set(inner) => {
                     if matches!(inner, &EntityFieldKind::Ref { .. }) {
-                        return Err(InternalError::new(
-                            ErrorClass::InvariantViolation,
-                            ErrorOrigin::Executor,
-                            format!(
-                                "reference collections are not supported: {} field={}",
-                                E::PATH,
-                                field.name
-                            ),
-                        ));
+                        // Weak references: collection refs are allowed but not validated in 0.6.
+                        continue;
                     }
                     continue;
                 }
@@ -210,15 +205,8 @@ where
                     if matches!(key, &EntityFieldKind::Ref { .. })
                         || matches!(value, &EntityFieldKind::Ref { .. })
                     {
-                        return Err(InternalError::new(
-                            ErrorClass::InvariantViolation,
-                            ErrorOrigin::Executor,
-                            format!(
-                                "reference maps are not supported: {} field={}",
-                                E::PATH,
-                                field.name
-                            ),
-                        ));
+                        // Weak references: map refs are allowed but not validated in 0.6.
+                        continue;
                     }
                     continue;
                 }

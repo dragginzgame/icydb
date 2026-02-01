@@ -314,6 +314,6 @@ where
 
     fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
         DataKey::try_from_raw(raw)
-            .map_err(|msg| ExecutorError::corruption(ErrorOrigin::Store, msg).into())
+            .map_err(|err| ExecutorError::corruption(ErrorOrigin::Store, err.to_string()).into())
     }
 }

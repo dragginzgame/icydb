@@ -12,7 +12,7 @@ use std::borrow::Cow;
 
 /// Decode a raw index key and validate its structural invariants.
 pub(super) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, InternalError> {
-    if bytes.len() != IndexKey::STORED_SIZE as usize {
+    if bytes.len() != IndexKey::STORED_SIZE_USIZE {
         return Err(InternalError::new(
             ErrorClass::Corruption,
             ErrorOrigin::Index,
@@ -54,7 +54,7 @@ pub(super) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, Internal
 
 /// Decode a raw data key and validate its structural invariants.
 pub(super) fn decode_data_key(bytes: &[u8]) -> Result<RawDataKey, InternalError> {
-    if bytes.len() != DataKey::STORED_SIZE as usize {
+    if bytes.len() != DataKey::STORED_SIZE_USIZE {
         return Err(InternalError::new(
             ErrorClass::Corruption,
             ErrorOrigin::Store,

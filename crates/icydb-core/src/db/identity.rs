@@ -1,10 +1,11 @@
 #![expect(clippy::cast_possible_truncation)]
 //! Identity invariants and construction.
 //!
-//! - Identities are ASCII, non-empty, and bounded by `MAX_*` limits.
-//! - Public constructors are the only validation boundary.
-//! - `*_unchecked` constructors are crate-private for macro-generated schemas;
-//!   executor paths assume identities are valid and do not re-validate.
+//! Invariants:
+//! - Identities are ASCII, non-empty, and bounded by MAX_* limits.
+//! - All construction paths validate invariants.
+//! - Stored byte representation is canonical and order-preserving.
+
 use crate::MAX_INDEX_FIELDS;
 use std::{
     cmp::Ordering,
@@ -22,8 +23,23 @@ pub const MAX_INDEX_NAME_LEN: usize =
     MAX_ENTITY_NAME_LEN + (MAX_INDEX_FIELDS * (MAX_INDEX_FIELD_NAME_LEN + 1));
 
 ///
+/// Decode errors (storage / corruption boundary)
+///
+
+#[derive(Debug, ThisError)]
+pub enum IdentityDecodeError {
+    #[error("invalid size")]
+    InvalidSize,
+    #[error("invalid length")]
+    InvalidLength,
+    #[error("non-ascii encoding")]
+    NonAscii,
+    #[error("non-zero padding")]
+    NonZeroPadding,
+}
+
+///
 /// EntityNameError
-/// Errors returned when constructing an [`EntityName`].
 ///
 
 #[derive(Debug, ThisError)]
@@ -40,7 +56,6 @@ pub enum EntityNameError {
 
 ///
 /// IndexNameError
-/// Errors returned when constructing an [`IndexName`].
 ///
 
 #[derive(Debug, ThisError)]
@@ -64,42 +79,17 @@ pub enum IndexNameError {
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct EntityName {
-    pub len: u8,
-    pub bytes: [u8; MAX_ENTITY_NAME_LEN],
+    len: u8,
+    bytes: [u8; MAX_ENTITY_NAME_LEN],
 }
 
 impl EntityName {
-    pub const STORED_SIZE: u32 = 1 + MAX_ENTITY_NAME_LEN as u32;
-    pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE as usize;
+    /// Fixed on-disk size in bytes (stable, protocol-level)
+    pub const STORED_SIZE_BYTES: u64 = 1 + (MAX_ENTITY_NAME_LEN as u64);
 
-    /// Build an entity name from a static identifier.
-    pub fn try_from_static(name: &'static str) -> Result<Self, EntityNameError> {
-        Self::try_from_str(name)
-    }
+    /// Fixed in-memory size (for buffers and arrays)
+    pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
 
-    #[must_use]
-    /// Build an entity name from a validated static identifier.
-    ///
-    /// Caller must uphold all identity invariants; intended for generated code.
-    pub(crate) const fn from_static_unchecked(name: &'static str) -> Self {
-        let bytes = name.as_bytes();
-        let len = bytes.len();
-
-        let mut out = [0u8; MAX_ENTITY_NAME_LEN];
-        let mut i = 0;
-        while i < len {
-            let b = bytes[i];
-            out[i] = b;
-            i += 1;
-        }
-
-        Self {
-            len: len as u8,
-            bytes: out,
-        }
-    }
-
-    /// Build an entity name from runtime input, returning a typed error on failure.
     pub fn try_from_str(name: &str) -> Result<Self, EntityNameError> {
         let bytes = name.as_bytes();
         let len = bytes.len();
@@ -127,13 +117,9 @@ impl EntityName {
     }
 
     #[must_use]
+    #[expect(clippy::len_without_is_empty)]
     pub const fn len(&self) -> usize {
         self.len as usize
-    }
-
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.len == 0
     }
 
     #[must_use]
@@ -143,7 +129,7 @@ impl EntityName {
 
     #[must_use]
     pub fn as_str(&self) -> &str {
-        // Safe because we enforce ASCII
+        // Safe: ASCII enforced at construction
         unsafe { std::str::from_utf8_unchecked(self.as_bytes()) }
     }
 
@@ -155,20 +141,20 @@ impl EntityName {
         out
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, IdentityDecodeError> {
         if bytes.len() != Self::STORED_SIZE_USIZE {
-            return Err("corrupted EntityName: invalid size");
+            return Err(IdentityDecodeError::InvalidSize);
         }
 
         let len = bytes[0] as usize;
         if len == 0 || len > MAX_ENTITY_NAME_LEN {
-            return Err("corrupted EntityName: invalid length");
+            return Err(IdentityDecodeError::InvalidLength);
         }
         if !bytes[1..=len].is_ascii() {
-            return Err("corrupted EntityName: invalid encoding");
+            return Err(IdentityDecodeError::NonAscii);
         }
         if bytes[1 + len..].iter().any(|&b| b != 0) {
-            return Err("corrupted EntityName: non-zero padding");
+            return Err(IdentityDecodeError::NonZeroPadding);
         }
 
         let mut name = [0u8; MAX_ENTITY_NAME_LEN];
@@ -180,10 +166,6 @@ impl EntityName {
         })
     }
 
-    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
-        Self::from_bytes(bytes)
-    }
-
     #[must_use]
     pub const fn max_storable() -> Self {
         Self {
@@ -193,19 +175,9 @@ impl EntityName {
     }
 }
 
-impl TryFrom<&[u8]> for EntityName {
-    type Error = &'static str;
-
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from_bytes(bytes)
-    }
-}
-
 impl Ord for EntityName {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.len
-            .cmp(&other.len)
-            .then_with(|| self.bytes.cmp(&other.bytes))
+        self.to_bytes().cmp(&other.to_bytes())
     }
 }
 
@@ -233,47 +205,15 @@ impl fmt::Debug for EntityName {
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct IndexName {
-    pub len: u16,
-    pub bytes: [u8; MAX_INDEX_NAME_LEN],
+    len: u16,
+    bytes: [u8; MAX_INDEX_NAME_LEN],
 }
 
 impl IndexName {
-    pub const STORED_SIZE: u32 = 2 + MAX_INDEX_NAME_LEN as u32;
-    pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE as usize;
+    pub const STORED_SIZE_BYTES: u64 = 2 + (MAX_INDEX_NAME_LEN as u64);
+    pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
 
-    #[must_use]
-    /// Build an index name from validated static identifiers.
-    ///
-    /// Caller must uphold all identity invariants; intended for generated code.
-    pub(crate) fn from_parts_unchecked(entity: &EntityName, fields: &[&str]) -> Self {
-        debug_assert!(
-            fields.len() <= MAX_INDEX_FIELDS,
-            "index has too many fields"
-        );
-
-        let mut out = [0u8; MAX_INDEX_NAME_LEN];
-        let mut len = 0usize;
-
-        Self::push_ascii(&mut out, &mut len, entity.as_bytes());
-
-        for field in fields {
-            debug_assert!(
-                field.len() <= MAX_INDEX_FIELD_NAME_LEN,
-                "index field name too long"
-            );
-            Self::push_ascii(&mut out, &mut len, b"|");
-            Self::push_ascii(&mut out, &mut len, field.as_bytes());
-        }
-
-        Self {
-            len: len as u16,
-            bytes: out,
-        }
-    }
-
-    /// Build an index name from runtime input, returning a typed error on failure.
     pub fn try_from_parts(entity: &EntityName, fields: &[&str]) -> Result<Self, IndexNameError> {
-        // Phase 1: validate field limits and total name length.
         if fields.len() > MAX_INDEX_FIELDS {
             return Err(IndexNameError::TooManyFields {
                 len: fields.len(),
@@ -305,7 +245,6 @@ impl IndexName {
             });
         }
 
-        // Phase 2: build the fixed-size byte representation.
         let mut out = [0u8; MAX_INDEX_NAME_LEN];
         let mut len = 0usize;
 
@@ -339,20 +278,20 @@ impl IndexName {
         out
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, IdentityDecodeError> {
         if bytes.len() != Self::STORED_SIZE_USIZE {
-            return Err("corrupted IndexName: invalid size");
+            return Err(IdentityDecodeError::InvalidSize);
         }
 
         let len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
         if len == 0 || len > MAX_INDEX_NAME_LEN {
-            return Err("corrupted IndexName: invalid length");
+            return Err(IdentityDecodeError::InvalidLength);
         }
         if !bytes[2..2 + len].is_ascii() {
-            return Err("corrupted IndexName: invalid encoding");
+            return Err(IdentityDecodeError::NonAscii);
         }
         if bytes[2 + len..].iter().any(|&b| b != 0) {
-            return Err("corrupted IndexName: non-zero padding");
+            return Err(IdentityDecodeError::NonZeroPadding);
         }
 
         let mut name = [0u8; MAX_INDEX_NAME_LEN];
@@ -364,25 +303,10 @@ impl IndexName {
         })
     }
 
-    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
-        Self::from_bytes(bytes)
-    }
-
     fn push_bytes(out: &mut [u8; MAX_INDEX_NAME_LEN], len: &mut usize, bytes: &[u8]) {
         let end = *len + bytes.len();
         out[*len..end].copy_from_slice(bytes);
         *len = end;
-    }
-
-    fn push_ascii(out: &mut [u8; MAX_INDEX_NAME_LEN], len: &mut usize, bytes: &[u8]) {
-        debug_assert!(bytes.is_ascii(), "index name must be ASCII");
-        debug_assert!(
-            *len + bytes.len() <= MAX_INDEX_NAME_LEN,
-            "index name too long"
-        );
-
-        out[*len..*len + bytes.len()].copy_from_slice(bytes);
-        *len += bytes.len();
     }
 
     #[must_use]
@@ -394,11 +318,15 @@ impl IndexName {
     }
 }
 
-impl TryFrom<&[u8]> for IndexName {
-    type Error = &'static str;
+impl Ord for IndexName {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.to_bytes().cmp(&other.to_bytes())
+    }
+}
 
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from_bytes(bytes)
+impl PartialOrd for IndexName {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -410,21 +338,7 @@ impl fmt::Debug for IndexName {
 
 impl Display for IndexName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl Ord for IndexName {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.len
-            .cmp(&other.len)
-            .then_with(|| self.bytes.cmp(&other.bytes))
-    }
-}
-
-impl PartialOrd for IndexName {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+        f.write_str(self.as_str())
     }
 }
 
@@ -445,7 +359,7 @@ mod tests {
 
     #[test]
     fn index_name_max_len_matches_limits() {
-        let entity = EntityName::from_static_unchecked(ENTITY_64);
+        let entity = EntityName::try_from_str(ENTITY_64).unwrap();
         let fields = [FIELD_64_A, FIELD_64_B, FIELD_64_C, FIELD_64_D];
 
         assert_eq!(entity.as_str().len(), MAX_ENTITY_NAME_LEN);
@@ -454,23 +368,20 @@ mod tests {
         }
         assert_eq!(fields.len(), MAX_INDEX_FIELDS);
 
-        let name = IndexName::from_parts_unchecked(&entity, &fields);
-
+        let name = IndexName::try_from_parts(&entity, &fields).unwrap();
         assert_eq!(name.as_bytes().len(), MAX_INDEX_NAME_LEN);
     }
 
     #[test]
     fn index_name_max_size_roundtrip_and_ordering() {
-        let entity_a = EntityName::from_static_unchecked(ENTITY_64);
-        let entity_b = EntityName::from_static_unchecked(ENTITY_64_B);
+        let entity_a = EntityName::try_from_str(ENTITY_64).unwrap();
+        let entity_b = EntityName::try_from_str(ENTITY_64_B).unwrap();
+
         let fields_a = [FIELD_64_A, FIELD_64_A, FIELD_64_A, FIELD_64_A];
         let fields_b = [FIELD_64_B, FIELD_64_B, FIELD_64_B, FIELD_64_B];
 
-        let idx_a = IndexName::from_parts_unchecked(&entity_a, &fields_a);
-        let idx_b = IndexName::from_parts_unchecked(&entity_b, &fields_b);
-
-        assert_eq!(idx_a.as_bytes().len(), MAX_INDEX_NAME_LEN);
-        assert_eq!(idx_b.as_bytes().len(), MAX_INDEX_NAME_LEN);
+        let idx_a = IndexName::try_from_parts(&entity_a, &fields_a).unwrap();
+        let idx_b = IndexName::try_from_parts(&entity_b, &fields_b).unwrap();
 
         let decoded = IndexName::from_bytes(&idx_a.to_bytes()).unwrap();
         assert_eq!(idx_a, decoded);
@@ -480,46 +391,40 @@ mod tests {
 
     #[test]
     fn rejects_too_many_index_fields() {
-        let entity = EntityName::try_from_str("entity").expect("entity name");
+        let entity = EntityName::try_from_str("entity").unwrap();
         let fields = ["a", "b", "c", "d", "e"];
+
         let err = IndexName::try_from_parts(&entity, &fields).unwrap_err();
         assert!(matches!(err, IndexNameError::TooManyFields { .. }));
     }
 
     #[test]
     fn rejects_index_field_over_len() {
-        let entity = EntityName::try_from_str("entity").expect("entity name");
+        let entity = EntityName::try_from_str("entity").unwrap();
         let long_field = "a".repeat(MAX_INDEX_FIELD_NAME_LEN + 1);
-        let fields = [long_field.as_str()];
-        let err = IndexName::try_from_parts(&entity, &fields).unwrap_err();
+
+        let err = IndexName::try_from_parts(&entity, &[long_field.as_str()]).unwrap_err();
         assert!(matches!(err, IndexNameError::FieldTooLong { .. }));
     }
 
     #[test]
-    fn entity_from_static_roundtrip() {
-        let e = EntityName::try_from_static("user").expect("entity name");
+    fn entity_try_from_str_roundtrip() {
+        let e = EntityName::try_from_str("user").unwrap();
         assert_eq!(e.len(), 4);
         assert_eq!(e.as_str(), "user");
-    }
-
-    #[test]
-    fn entity_try_from_static_rejects_empty() {
-        let err = EntityName::try_from_static("").unwrap_err();
-        assert!(matches!(err, EntityNameError::Empty));
-    }
-
-    #[test]
-    fn entity_try_from_static_rejects_len_over_max() {
-        let s = "a".repeat(MAX_ENTITY_NAME_LEN + 1);
-        let leaked = Box::leak(s.into_boxed_str());
-        let err = EntityName::try_from_static(leaked).unwrap_err();
-        assert!(matches!(err, EntityNameError::TooLong { .. }));
     }
 
     #[test]
     fn entity_rejects_empty() {
         let err = EntityName::try_from_str("").unwrap_err();
         assert!(matches!(err, EntityNameError::Empty));
+    }
+
+    #[test]
+    fn entity_rejects_len_over_max() {
+        let s = "a".repeat(MAX_ENTITY_NAME_LEN + 1);
+        let err = EntityName::try_from_str(&s).unwrap_err();
+        assert!(matches!(err, EntityNameError::TooLong { .. }));
     }
 
     #[test]
@@ -530,7 +435,7 @@ mod tests {
 
     #[test]
     fn entity_storage_roundtrip() {
-        let e = EntityName::try_from_static("entity_name").expect("entity name");
+        let e = EntityName::try_from_str("entity_name").unwrap();
         let bytes = e.to_bytes();
         let decoded = EntityName::from_bytes(&bytes).unwrap();
         assert_eq!(e, decoded);
@@ -539,20 +444,20 @@ mod tests {
     #[test]
     fn entity_rejects_invalid_size() {
         let buf = vec![0u8; EntityName::STORED_SIZE_USIZE - 1];
-        assert!(EntityName::from_bytes(&buf).is_err());
+        assert!(matches!(
+            EntityName::from_bytes(&buf),
+            Err(IdentityDecodeError::InvalidSize)
+        ));
     }
 
     #[test]
-    fn entity_rejects_invalid_size_oversized() {
-        let buf = vec![0u8; EntityName::STORED_SIZE_USIZE + 1];
-        assert!(EntityName::from_bytes(&buf).is_err());
-    }
-
-    #[test]
-    fn entity_rejects_len_over_max() {
+    fn entity_rejects_len_over_max_from_bytes() {
         let mut buf = [0u8; EntityName::STORED_SIZE_USIZE];
         buf[0] = (MAX_ENTITY_NAME_LEN as u8).saturating_add(1);
-        assert!(EntityName::from_bytes(&buf).is_err());
+        assert!(matches!(
+            EntityName::from_bytes(&buf),
+            Err(IdentityDecodeError::InvalidLength)
+        ));
     }
 
     #[test]
@@ -560,146 +465,70 @@ mod tests {
         let mut buf = [0u8; EntityName::STORED_SIZE_USIZE];
         buf[0] = 1;
         buf[1] = 0xFF;
-        assert!(EntityName::from_bytes(&buf).is_err());
+        assert!(matches!(
+            EntityName::from_bytes(&buf),
+            Err(IdentityDecodeError::NonAscii)
+        ));
     }
 
     #[test]
     fn entity_rejects_non_zero_padding() {
-        let e = EntityName::from_static_unchecked("user");
+        let e = EntityName::try_from_str("user").unwrap();
         let mut bytes = e.to_bytes();
         bytes[1 + e.len()] = b'x';
-        assert!(EntityName::from_bytes(&bytes).is_err());
+
+        assert!(matches!(
+            EntityName::from_bytes(&bytes),
+            Err(IdentityDecodeError::NonZeroPadding)
+        ));
     }
 
     #[test]
     fn entity_ordering_matches_bytes() {
-        let a = EntityName::from_static_unchecked("abc");
-        let b = EntityName::from_static_unchecked("abd");
-        let c = EntityName::from_static_unchecked("abcx");
+        let a = EntityName::try_from_str("abc").unwrap();
+        let b = EntityName::try_from_str("abd").unwrap();
+        let c = EntityName::try_from_str("abcx").unwrap();
 
         assert_eq!(a.cmp(&b), a.to_bytes().cmp(&b.to_bytes()));
         assert_eq!(a.cmp(&c), a.to_bytes().cmp(&c.to_bytes()));
     }
 
     #[test]
-    fn entity_ordering_b_vs_aa() {
-        let b = EntityName::from_static_unchecked("b");
-        let aa = EntityName::from_static_unchecked("aa");
-        assert_eq!(b.cmp(&aa), b.to_bytes().cmp(&aa.to_bytes()));
-    }
-
-    #[test]
-    fn entity_ordering_prefix_matches_bytes() {
-        let a = EntityName::from_static_unchecked("a");
-        let aa = EntityName::from_static_unchecked("aa");
-        assert_eq!(a.cmp(&aa), a.to_bytes().cmp(&aa.to_bytes()));
-    }
-
-    #[test]
     fn index_single_field_format() {
-        let entity = EntityName::from_static_unchecked("user");
-        let idx = IndexName::from_parts_unchecked(&entity, &["email"]);
+        let entity = EntityName::try_from_str("user").unwrap();
+        let idx = IndexName::try_from_parts(&entity, &["email"]).unwrap();
 
         assert_eq!(idx.as_str(), "user|email");
     }
 
     #[test]
     fn index_field_order_is_preserved() {
-        let entity = EntityName::from_static_unchecked("user");
-        let idx = IndexName::from_parts_unchecked(&entity, &["a", "b", "c"]);
+        let entity = EntityName::try_from_str("user").unwrap();
+        let idx = IndexName::try_from_parts(&entity, &["a", "b", "c"]).unwrap();
 
         assert_eq!(idx.as_str(), "user|a|b|c");
     }
 
     #[test]
     fn index_storage_roundtrip() {
-        let entity = EntityName::from_static_unchecked("user");
-        let idx = IndexName::from_parts_unchecked(&entity, &["a", "b"]);
+        let entity = EntityName::try_from_str("user").unwrap();
+        let idx = IndexName::try_from_parts(&entity, &["a", "b"]).unwrap();
 
         let bytes = idx.to_bytes();
         let decoded = IndexName::from_bytes(&bytes).unwrap();
-
         assert_eq!(idx, decoded);
     }
 
-    #[test]
-    fn index_rejects_zero_len() {
-        let mut buf = [0u8; IndexName::STORED_SIZE_USIZE];
-        buf[0] = 0;
-        assert!(IndexName::from_bytes(&buf).is_err());
-    }
+    // ------------------------------------------------------------------
+    // FUZZING (deterministic)
+    // ------------------------------------------------------------------
 
-    #[test]
-    fn index_rejects_invalid_size_oversized() {
-        let buf = vec![0u8; IndexName::STORED_SIZE_USIZE + 1];
-        assert!(IndexName::from_bytes(&buf).is_err());
-    }
-
-    #[test]
-    fn index_rejects_len_over_max() {
-        let mut buf = [0u8; IndexName::STORED_SIZE_USIZE];
-        let len = (MAX_INDEX_NAME_LEN as u16).saturating_add(1);
-        buf[..2].copy_from_slice(&len.to_be_bytes());
-        assert!(IndexName::from_bytes(&buf).is_err());
-    }
-
-    #[test]
-    fn index_rejects_non_ascii_from_bytes() {
-        let mut buf = [0u8; IndexName::STORED_SIZE_USIZE];
-        buf[..2].copy_from_slice(&1u16.to_be_bytes());
-        buf[2] = 0xFF;
-        assert!(IndexName::from_bytes(&buf).is_err());
-    }
-
-    #[test]
-    fn index_rejects_non_zero_padding() {
-        let entity = EntityName::from_static_unchecked("user");
-        let idx = IndexName::from_parts_unchecked(&entity, &["a"]);
-        let mut bytes = idx.to_bytes();
-        bytes[2 + idx.len as usize] = b'x';
-        assert!(IndexName::from_bytes(&bytes).is_err());
-    }
-
-    #[test]
-    fn index_ordering_matches_bytes() {
-        let entity = EntityName::from_static_unchecked("user");
-
-        let a = IndexName::from_parts_unchecked(&entity, &["a"]);
-        let ab = IndexName::from_parts_unchecked(&entity, &["a", "b"]);
-        let b = IndexName::from_parts_unchecked(&entity, &["b"]);
-
-        assert_eq!(a.cmp(&ab), a.to_bytes().cmp(&ab.to_bytes()));
-        assert_eq!(ab.cmp(&b), ab.to_bytes().cmp(&b.to_bytes()));
-    }
-
-    #[test]
-    fn index_ordering_prefix_matches_bytes() {
-        let entity = EntityName::from_static_unchecked("user");
-        let a = IndexName::from_parts_unchecked(&entity, &["a"]);
-        let ab = IndexName::from_parts_unchecked(&entity, &["a", "b"]);
-        assert_eq!(a.cmp(&ab), a.to_bytes().cmp(&ab.to_bytes()));
-    }
-
-    #[test]
-    fn max_storable_orders_last() {
-        let entity = EntityName::from_static_unchecked("zz");
-        let max = EntityName::max_storable();
-
-        assert!(entity < max);
-    }
-
-    ///
-    /// FUZZING
-    ///
-
-    /// Simple deterministic ASCII generator
     fn gen_ascii(seed: u64, max_len: usize) -> String {
         let len = (seed as usize % max_len).max(1);
         let mut out = String::with_capacity(len);
 
         let mut x = seed;
         for _ in 0..len {
-            // printable ASCII range [a–z]
             x = x.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
             let c = b'a' + (x % 26) as u8;
             out.push(c as char);
@@ -710,24 +539,18 @@ mod tests {
 
     #[test]
     fn fuzz_entity_name_roundtrip_and_ordering() {
-        const RUNS: u64 = 1_000;
-
         let mut prev: Option<EntityName> = None;
 
-        for i in 1..=RUNS {
+        for i in 1..=1_000u64 {
             let s = gen_ascii(i, MAX_ENTITY_NAME_LEN);
-            let e = EntityName::from_static_unchecked(Box::leak(s.clone().into_boxed_str()));
+            let e = EntityName::try_from_str(&s).unwrap();
 
-            // Round-trip
             let bytes = e.to_bytes();
             let decoded = EntityName::from_bytes(&bytes).unwrap();
             assert_eq!(e, decoded);
 
-            // Ordering vs bytes
             if let Some(p) = prev {
-                let ord_entity = p.cmp(&e);
-                let ord_bytes = p.to_bytes().cmp(&e.to_bytes());
-                assert_eq!(ord_entity, ord_bytes);
+                assert_eq!(p.cmp(&e), p.to_bytes().cmp(&e.to_bytes()));
             }
 
             prev = Some(e);
@@ -736,46 +559,27 @@ mod tests {
 
     #[test]
     fn fuzz_index_name_roundtrip_and_ordering() {
-        const RUNS: u64 = 1_000;
-
-        let entity = EntityName::from_static_unchecked("entity");
+        let entity = EntityName::try_from_str("entity").unwrap();
         let mut prev: Option<IndexName> = None;
 
-        for i in 1..=RUNS {
+        for i in 1..=1_000u64 {
             let field_count = (i as usize % MAX_INDEX_FIELDS).max(1);
 
-            let mut field_strings = Vec::with_capacity(field_count);
             let mut fields = Vec::with_capacity(field_count);
-            let mut string_parts = Vec::with_capacity(field_count + 1);
-
-            string_parts.push(entity.as_str().to_owned());
-
             for f in 0..field_count {
                 let s = gen_ascii(i * 31 + f as u64, MAX_INDEX_FIELD_NAME_LEN);
-                string_parts.push(s.clone());
-                field_strings.push(s);
+                fields.push(s);
             }
 
-            for s in &field_strings {
-                fields.push(s.as_str());
-            }
+            let field_refs: Vec<&str> = fields.iter().map(String::as_str).collect();
+            let idx = IndexName::try_from_parts(&entity, &field_refs).unwrap();
 
-            let idx = IndexName::from_parts_unchecked(&entity, &fields);
-            let expected = string_parts.join("|");
-
-            // Structural correctness
-            assert_eq!(idx.as_str(), expected);
-
-            // Round-trip
             let bytes = idx.to_bytes();
             let decoded = IndexName::from_bytes(&bytes).unwrap();
             assert_eq!(idx, decoded);
 
-            // Ordering vs bytes
-            if let Some(p_idx) = prev {
-                let ord_idx = p_idx.cmp(&idx);
-                let ord_bytes = p_idx.to_bytes().cmp(&idx.to_bytes());
-                assert_eq!(ord_idx, ord_bytes);
+            if let Some(p) = prev {
+                assert_eq!(p.cmp(&idx), p.to_bytes().cmp(&idx.to_bytes()));
             }
 
             prev = Some(idx);

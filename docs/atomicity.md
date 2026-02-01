@@ -14,14 +14,16 @@ It assumes no `await`, yield, or re-entrancy during mutation execution.
 
 ## 1. Core Principle
 
-**Atomicity is enforced by IcyDB itself, not delegated to IC trap semantics.**
+**Atomicity is enforced by IcyDB’s commit discipline; IC trap rollback is not
+relied upon for correctness.**
 
 Within a single mutation operation:
 
 > Either all intended durable mutations are committed as a unit,
-> or no durable mutation is made visible.
+> or the operation returns an error and no partial durable mutation is made visible.
 
-This guarantee must hold **even if execution does not trap**.
+IC traps may still occur, but traps are treated as catastrophic failures, not a
+correctness mechanism. This guarantee must hold **even if execution does not trap**.
 
 ---
 
@@ -36,14 +38,16 @@ IcyDB’s own commit discipline.
 
 A **system recovery step** is a synchronous, unconditional operation that restores
 global database invariants (e.g. completing or rolling back a previously started
-commit) before any new mutation is planned or validated.
+commit) before any read or mutation is executed.
 
 System recovery:
-* Executes before mutation pre-commit begins
+* Executes before any read or mutation pre-commit begins
 * Leaves the database in a fully consistent state
 * Is not part of the current mutation’s atomicity scope
 * Is not observable by reads as partial state
-* Is not read-time recovery
+* Is mandatory for both read and write entrypoints
+* Is idempotent, bounded, and deterministic; if it cannot complete, the entrypoint
+  must fail and must not proceed to reads or mutation planning
 
 ### Commit boundary
 
@@ -68,11 +72,12 @@ and must be correct.
 IcyDB enforces atomicity via a **two-phase discipline** within a single update
 call.
 
-Before any mutation’s pre-commit phase begins, the system may perform a mandatory
-**system recovery step** to restore global invariants from prior incomplete commits.
+Before any read or mutation’s pre-commit phase begins, the system performs a
+mandatory **system recovery step** to restore global invariants from prior
+incomplete commits.
 
 This recovery step is conceptually separate from the current mutation and must
-complete successfully before mutation planning or validation begins.
+complete successfully before any read execution, planning, or validation begins.
 
 ### Phase 1 — Pre-commit (Fallible)
 
@@ -117,8 +122,10 @@ Commit markers are **authoritative**, not diagnostic.
 ### Visibility rules
 
 * Markers may be persisted during execution
-* Markers must not be observable as committed state
-* Markers must not be required for read-time logic in the current model
+* Markers must not be observable as committed application state
+* Markers are acted upon only by the system recovery step
+* All read and write entrypoints must invoke recovery before accessing durable stores;
+  reads must not branch on marker presence outside recovery
 
 ---
 
@@ -150,7 +157,7 @@ The following are **explicitly out of scope**:
 * Multi-message commits
 * Async or awaited mutation paths
 * Forward recovery after process crash
-* Read-time recovery, read gating, or lazy repair of partial commits
+* Lazy or deferred recovery during read execution (recovery must be eager at entrypoints)
 * Atomicity across independent mutation calls
 * Distributed or cross-canister transactions
 
@@ -168,8 +175,8 @@ The following invariants are **mandatory and non-negotiable**:
 * Commit marker application must not depend on IC trap rollback
 * Executors must not rely on traps for correctness
 * Mutation correctness must not depend on recovery occurring after the commit
-  boundary or at read time.
-* System recovery, if present, must complete before mutation pre-commit and must
+  boundary.
+* System recovery must complete before any read or mutation pre-commit and must
   not be interleaved with mutation planning or apply phases.
 * No `await`, yield, or re-entrancy during mutation execution
 
@@ -200,9 +207,9 @@ Then a new atomicity model must define:
 * read behavior during in-flight commits
 * ordering and visibility guarantees
 
-System recovery, if implemented, is expected to run synchronously at mutation
-entrypoints or initialization boundaries and is not a substitute for atomic
-apply-phase correctness.
+System recovery is expected to run synchronously at read and mutation entrypoints
+or initialization boundaries and is not a substitute for atomic apply-phase
+correctness.
 
 Until then, this document is authoritative.
 

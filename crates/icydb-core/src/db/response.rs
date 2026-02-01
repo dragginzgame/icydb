@@ -21,9 +21,28 @@ pub enum ResponseError {
     NotUnique { entity: &'static str, count: u32 },
 }
 
+impl ResponseError {
+    const fn not_found<E: EntityKind>() -> Self {
+        Self::NotFound { entity: E::PATH }
+    }
+
+    const fn not_unique<E: EntityKind>(count: u32) -> Self {
+        Self::NotUnique {
+            entity: E::PATH,
+            count,
+        }
+    }
+}
+
 ///
 /// Response
+///
 /// Materialized query result: ordered `(Key, Entity)` pairs.
+///
+/// Invariants:
+/// - Rows are already ordered according to the query plan.
+/// - Cardinality is not enforced unless explicitly requested.
+/// - This type performs no lazy evaluation.
 ///
 
 #[derive(Debug)]
@@ -69,23 +88,20 @@ impl<E: EntityKind> Response<E> {
     }
 
     // ------------------------------------------------------------------
-    // Rows
+    // Rows (primitive: try_row)
     // ------------------------------------------------------------------
 
-    pub fn row(self) -> Result<Row<E>, ResponseError> {
-        self.require_one()?;
-        Ok(self.0.into_iter().next().unwrap())
-    }
-
+    #[allow(clippy::cast_possible_truncation)]
     pub fn try_row(self) -> Result<Option<Row<E>>, ResponseError> {
-        match self.count() {
+        match self.0.len() {
             0 => Ok(None),
             1 => Ok(Some(self.0.into_iter().next().unwrap())),
-            n => Err(ResponseError::NotUnique {
-                entity: E::PATH,
-                count: n,
-            }),
+            n => Err(ResponseError::not_unique::<E>(n as u32)),
         }
+    }
+
+    pub fn row(self) -> Result<Row<E>, ResponseError> {
+        self.try_row()?.ok_or_else(ResponseError::not_found::<E>)
     }
 
     #[must_use]
@@ -97,12 +113,12 @@ impl<E: EntityKind> Response<E> {
     // Entities
     // ------------------------------------------------------------------
 
-    pub fn entity(self) -> Result<E, ResponseError> {
-        self.row().map(|(_, e)| e)
-    }
-
     pub fn try_entity(self) -> Result<Option<E>, ResponseError> {
         Ok(self.try_row()?.map(|(_, e)| e))
+    }
+
+    pub fn entity(self) -> Result<E, ResponseError> {
+        self.row().map(|(_, e)| e)
     }
 
     #[must_use]
@@ -151,10 +167,7 @@ impl<E: EntityKind> Response<E> {
 
     #[must_use]
     pub fn primary_keys(self) -> Vec<E::PrimaryKey> {
-        self.entities()
-            .into_iter()
-            .map(|e| e.primary_key())
-            .collect()
+        self.0.into_iter().map(|(_, e)| e.primary_key()).collect()
     }
 
     // ------------------------------------------------------------------
@@ -163,22 +176,14 @@ impl<E: EntityKind> Response<E> {
 
     pub fn view(&self) -> Result<View<E>, ResponseError> {
         self.require_one()?;
-        Ok(self
-            .0
-            .first()
-            .expect("require_one guarantees a row")
-            .1
-            .to_view())
+        Ok(self.0[0].1.to_view())
     }
 
     pub fn view_opt(&self) -> Result<Option<View<E>>, ResponseError> {
         match self.count() {
             0 => Ok(None),
             1 => Ok(Some(self.0[0].1.to_view())),
-            n => Err(ResponseError::NotUnique {
-                entity: E::PATH,
-                count: n,
-            }),
+            n => Err(ResponseError::not_unique::<E>(n)),
         }
     }
 

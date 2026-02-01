@@ -2,7 +2,7 @@ use super::trace::{QueryTraceEvent, QueryTraceSink, TraceAccess, TraceExecutorKi
 use super::{DeleteExecutor, LoadExecutor, SaveExecutor};
 use crate::{
     db::{
-        Db, DbSession,
+        Db, DbSession, EntityRegistryEntry,
         commit::{
             CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, begin_commit,
             commit_marker_present, force_recovery_for_tests,
@@ -30,11 +30,11 @@ use crate::{
     },
     serialize::serialize,
     traits::{
-        CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        CanisterKind, DataStoreKind, EntityKind, FieldValue, FieldValues, Path, SanitizeAuto,
+        SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
     },
-    types::{Timestamp, Ulid, Unit},
-    value::Value,
+    types::{Ref, Timestamp, Ulid, Unit},
+    value::{Value, ValueEnum},
 };
 use canic_memory::runtime::registry::MemoryRegistryRuntime;
 use icydb_schema::{
@@ -132,6 +132,101 @@ const UNIT_MODEL: EntityModel = EntityModel {
     indexes: &[],
 };
 
+const OWNER_ENTITY_PATH: &str = "write_unit_test::OwnerEntity";
+const DIRECT_REF_ENTITY_PATH: &str = "write_unit_test::DirectRefEntity";
+const RECORD_REF_ENTITY_PATH: &str = "write_unit_test::RecordRefEntity";
+const ENUM_REF_ENTITY_PATH: &str = "write_unit_test::EnumRefEntity";
+const COLLECTION_REF_ENTITY_PATH: &str = "write_unit_test::CollectionRefEntity";
+
+const OWNER_KEY_KIND: EntityFieldKind = EntityFieldKind::Ulid;
+
+const OWNER_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
+    name: "id",
+    kind: EntityFieldKind::Ulid,
+}];
+const DIRECT_REF_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "owner",
+        kind: EntityFieldKind::Ref {
+            target_path: OWNER_ENTITY_PATH,
+            key_kind: &OWNER_KEY_KIND,
+        },
+    },
+];
+const RECORD_REF_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "profile",
+        kind: EntityFieldKind::Unsupported,
+    },
+];
+const ENUM_REF_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "status",
+        kind: EntityFieldKind::Enum,
+    },
+];
+const COLLECTION_REF_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "owners",
+        kind: EntityFieldKind::List(&EntityFieldKind::Ref {
+            target_path: OWNER_ENTITY_PATH,
+            key_kind: &OWNER_KEY_KIND,
+        }),
+    },
+];
+
+const OWNER_MODEL: EntityModel = EntityModel {
+    path: OWNER_ENTITY_PATH,
+    entity_name: "OwnerEntity",
+    primary_key: &OWNER_FIELDS[0],
+    fields: &OWNER_FIELDS,
+    indexes: &[],
+};
+const DIRECT_REF_MODEL: EntityModel = EntityModel {
+    path: DIRECT_REF_ENTITY_PATH,
+    entity_name: "DirectRefEntity",
+    primary_key: &DIRECT_REF_FIELDS[0],
+    fields: &DIRECT_REF_FIELDS,
+    indexes: &[],
+};
+const RECORD_REF_MODEL: EntityModel = EntityModel {
+    path: RECORD_REF_ENTITY_PATH,
+    entity_name: "RecordRefEntity",
+    primary_key: &RECORD_REF_FIELDS[0],
+    fields: &RECORD_REF_FIELDS,
+    indexes: &[],
+};
+const ENUM_REF_MODEL: EntityModel = EntityModel {
+    path: ENUM_REF_ENTITY_PATH,
+    entity_name: "EnumRefEntity",
+    primary_key: &ENUM_REF_FIELDS[0],
+    fields: &ENUM_REF_FIELDS,
+    indexes: &[],
+};
+const COLLECTION_REF_MODEL: EntityModel = EntityModel {
+    path: COLLECTION_REF_ENTITY_PATH,
+    entity_name: "CollectionRefEntity",
+    primary_key: &COLLECTION_REF_FIELDS[0],
+    fields: &COLLECTION_REF_FIELDS,
+    indexes: &[],
+};
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct TestEntity {
     id: Ulid,
@@ -170,6 +265,215 @@ impl FieldValues for TestEntity {
     }
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct OwnerEntity {
+    id: Ulid,
+}
+
+impl Path for OwnerEntity {
+    const PATH: &'static str = OWNER_ENTITY_PATH;
+}
+
+impl View for OwnerEntity {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for OwnerEntity {}
+impl SanitizeCustom for OwnerEntity {}
+impl ValidateAuto for OwnerEntity {}
+impl ValidateCustom for OwnerEntity {}
+impl Visitable for OwnerEntity {}
+
+impl FieldValues for OwnerEntity {
+    fn get_value(&self, field: &str) -> Option<Value> {
+        match field {
+            "id" => Some(Value::Ulid(self.id)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct DirectRefEntity {
+    id: Ulid,
+    owner: Option<Ref<OwnerEntity>>,
+}
+
+impl Path for DirectRefEntity {
+    const PATH: &'static str = DIRECT_REF_ENTITY_PATH;
+}
+
+impl View for DirectRefEntity {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for DirectRefEntity {}
+impl SanitizeCustom for DirectRefEntity {}
+impl ValidateAuto for DirectRefEntity {}
+impl ValidateCustom for DirectRefEntity {}
+impl Visitable for DirectRefEntity {}
+
+impl FieldValues for DirectRefEntity {
+    fn get_value(&self, field: &str) -> Option<Value> {
+        match field {
+            "id" => Some(Value::Ulid(self.id)),
+            "owner" => Some(self.owner.to_value()),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct RecordRefPayload {
+    owner: Ref<OwnerEntity>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct RecordRefEntity {
+    id: Ulid,
+    profile: RecordRefPayload,
+}
+
+impl Path for RecordRefEntity {
+    const PATH: &'static str = RECORD_REF_ENTITY_PATH;
+}
+
+impl View for RecordRefEntity {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for RecordRefEntity {}
+impl SanitizeCustom for RecordRefEntity {}
+impl ValidateAuto for RecordRefEntity {}
+impl ValidateCustom for RecordRefEntity {}
+impl Visitable for RecordRefEntity {}
+
+impl FieldValues for RecordRefEntity {
+    fn get_value(&self, field: &str) -> Option<Value> {
+        match field {
+            "id" => Some(Value::Ulid(self.id)),
+            "profile" => Some(Value::Unsupported),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+enum RefEnum {
+    Missing(Ref<OwnerEntity>),
+    #[default]
+    Empty,
+}
+
+impl Path for RefEnum {
+    const PATH: &'static str = "write_unit_test::RefEnum";
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct EnumRefEntity {
+    id: Ulid,
+    status: RefEnum,
+}
+
+impl Path for EnumRefEntity {
+    const PATH: &'static str = ENUM_REF_ENTITY_PATH;
+}
+
+impl View for EnumRefEntity {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for EnumRefEntity {}
+impl SanitizeCustom for EnumRefEntity {}
+impl ValidateAuto for EnumRefEntity {}
+impl ValidateCustom for EnumRefEntity {}
+impl Visitable for EnumRefEntity {}
+
+impl FieldValues for EnumRefEntity {
+    fn get_value(&self, field: &str) -> Option<Value> {
+        match field {
+            "id" => Some(Value::Ulid(self.id)),
+            "status" => Some(Value::Enum(match &self.status {
+                RefEnum::Missing(owner) => {
+                    ValueEnum::strict::<RefEnum>("Missing").with_payload(owner.to_value())
+                }
+                RefEnum::Empty => ValueEnum::strict::<RefEnum>("Empty"),
+            })),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+struct CollectionRefEntity {
+    id: Ulid,
+    owners: Vec<Ref<OwnerEntity>>,
+}
+
+impl Path for CollectionRefEntity {
+    const PATH: &'static str = COLLECTION_REF_ENTITY_PATH;
+}
+
+impl View for CollectionRefEntity {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for CollectionRefEntity {}
+impl SanitizeCustom for CollectionRefEntity {}
+impl ValidateAuto for CollectionRefEntity {}
+impl ValidateCustom for CollectionRefEntity {}
+impl Visitable for CollectionRefEntity {}
+
+impl FieldValues for CollectionRefEntity {
+    fn get_value(&self, field: &str) -> Option<Value> {
+        match field {
+            "id" => Some(Value::Ulid(self.id)),
+            "owners" => Some(self.owners.to_value()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct TestCanister;
 
@@ -199,6 +503,126 @@ impl EntityKind for TestEntity {
     const FIELDS: &'static [&'static str] = &["id", "name"];
     const INDEXES: &'static [&'static IndexModel] = &INDEXES;
     const MODEL: &'static EntityModel = &TEST_MODEL;
+
+    fn key(&self) -> crate::key::Key {
+        self.id.into()
+    }
+
+    fn primary_key(&self) -> Self::PrimaryKey {
+        self.id
+    }
+
+    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+        self.id = key;
+    }
+}
+
+impl EntityKind for OwnerEntity {
+    type PrimaryKey = Ulid;
+    type DataStore = TestDataStore;
+    type Canister = TestCanister;
+
+    const ENTITY_NAME: &'static str = "OwnerEntity";
+    const PRIMARY_KEY: &'static str = "id";
+    const FIELDS: &'static [&'static str] = &["id"];
+    const INDEXES: &'static [&'static IndexModel] = &[];
+    const MODEL: &'static EntityModel = &OWNER_MODEL;
+
+    fn key(&self) -> crate::key::Key {
+        self.id.into()
+    }
+
+    fn primary_key(&self) -> Self::PrimaryKey {
+        self.id
+    }
+
+    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+        self.id = key;
+    }
+}
+
+impl EntityKind for DirectRefEntity {
+    type PrimaryKey = Ulid;
+    type DataStore = TestDataStore;
+    type Canister = TestCanister;
+
+    const ENTITY_NAME: &'static str = "DirectRefEntity";
+    const PRIMARY_KEY: &'static str = "id";
+    const FIELDS: &'static [&'static str] = &["id", "owner"];
+    const INDEXES: &'static [&'static IndexModel] = &[];
+    const MODEL: &'static EntityModel = &DIRECT_REF_MODEL;
+
+    fn key(&self) -> crate::key::Key {
+        self.id.into()
+    }
+
+    fn primary_key(&self) -> Self::PrimaryKey {
+        self.id
+    }
+
+    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+        self.id = key;
+    }
+}
+
+impl EntityKind for RecordRefEntity {
+    type PrimaryKey = Ulid;
+    type DataStore = TestDataStore;
+    type Canister = TestCanister;
+
+    const ENTITY_NAME: &'static str = "RecordRefEntity";
+    const PRIMARY_KEY: &'static str = "id";
+    const FIELDS: &'static [&'static str] = &["id", "profile"];
+    const INDEXES: &'static [&'static IndexModel] = &[];
+    const MODEL: &'static EntityModel = &RECORD_REF_MODEL;
+
+    fn key(&self) -> crate::key::Key {
+        self.id.into()
+    }
+
+    fn primary_key(&self) -> Self::PrimaryKey {
+        self.id
+    }
+
+    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+        self.id = key;
+    }
+}
+
+impl EntityKind for EnumRefEntity {
+    type PrimaryKey = Ulid;
+    type DataStore = TestDataStore;
+    type Canister = TestCanister;
+
+    const ENTITY_NAME: &'static str = "EnumRefEntity";
+    const PRIMARY_KEY: &'static str = "id";
+    const FIELDS: &'static [&'static str] = &["id", "status"];
+    const INDEXES: &'static [&'static IndexModel] = &[];
+    const MODEL: &'static EntityModel = &ENUM_REF_MODEL;
+
+    fn key(&self) -> crate::key::Key {
+        self.id.into()
+    }
+
+    fn primary_key(&self) -> Self::PrimaryKey {
+        self.id
+    }
+
+    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
+        self.id = key;
+    }
+}
+
+impl EntityKind for CollectionRefEntity {
+    type PrimaryKey = Ulid;
+    type DataStore = TestDataStore;
+    type Canister = TestCanister;
+
+    const ENTITY_NAME: &'static str = "CollectionRefEntity";
+    const PRIMARY_KEY: &'static str = "id";
+    const FIELDS: &'static [&'static str] = &["id", "owners"];
+    const INDEXES: &'static [&'static IndexModel] = &[];
+    const MODEL: &'static EntityModel = &COLLECTION_REF_MODEL;
 
     fn key(&self) -> crate::key::Key {
         self.id.into()
@@ -438,6 +862,31 @@ thread_local! {
 }
 
 static DB: Db<TestCanister> = Db::new(&DATA_REGISTRY, &INDEX_REGISTRY, &[]);
+
+const RI_ENTITY_REGISTRY: [EntityRegistryEntry; 5] = [
+    EntityRegistryEntry {
+        entity_path: OWNER_ENTITY_PATH,
+        store_path: DATA_STORE_PATH,
+    },
+    EntityRegistryEntry {
+        entity_path: DIRECT_REF_ENTITY_PATH,
+        store_path: DATA_STORE_PATH,
+    },
+    EntityRegistryEntry {
+        entity_path: RECORD_REF_ENTITY_PATH,
+        store_path: DATA_STORE_PATH,
+    },
+    EntityRegistryEntry {
+        entity_path: ENUM_REF_ENTITY_PATH,
+        store_path: DATA_STORE_PATH,
+    },
+    EntityRegistryEntry {
+        entity_path: COLLECTION_REF_ENTITY_PATH,
+        store_path: DATA_STORE_PATH,
+    },
+];
+
+static RI_DB: Db<TestCanister> = Db::new(&DATA_REGISTRY, &INDEX_REGISTRY, &RI_ENTITY_REGISTRY);
 
 canic_memory::eager_init!({
     canic_memory::ic_memory_range!(0, 40);
@@ -743,6 +1192,20 @@ fn assert_entity_present(entity: &TestEntity) {
         .with_index(|reg| reg.with_store(INDEX_STORE_PATH, |s| s.get(&raw_index_key)))
         .unwrap();
     assert!(index_present.is_some());
+}
+
+fn assert_row_present<E: EntityKind>(db: Db<E::Canister>, key: E::PrimaryKey) {
+    let data_key = DataKey::new::<E>(key);
+    let raw_key = data_key.to_raw().expect("data key encode");
+    let data_present = db.context::<E>().with_store(|s| s.get(&raw_key)).unwrap();
+    assert!(data_present.is_some());
+}
+
+fn assert_row_missing<E: EntityKind>(db: Db<E::Canister>, key: E::PrimaryKey) {
+    let data_key = DataKey::new::<E>(key);
+    let raw_key = data_key.to_raw().expect("data key encode");
+    let data_present = db.context::<E>().with_store(|s| s.get(&raw_key)).unwrap();
+    assert!(data_present.is_none());
 }
 
 fn assert_entity_missing(entity: &TestEntity) {
@@ -2388,4 +2851,111 @@ fn ordering_does_not_compare_incomparable_values() {
     let inserted_ids = entities.iter().map(|entity| entity.id).collect::<Vec<_>>();
 
     assert_eq!(ordered_ids, inserted_ids);
+}
+
+#[test]
+fn save_direct_ref_missing_target_fails_no_commit() {
+    setup_schema();
+
+    let saver = SaveExecutor::<DirectRefEntity>::new(RI_DB, false);
+    let entity = DirectRefEntity {
+        id: Ulid::generate(),
+        owner: Some(Ref::new(Ulid::generate())),
+    };
+
+    let err = saver.insert(entity.clone()).unwrap_err();
+    assert_eq!(err.class, ErrorClass::Conflict);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_commit_marker_clear();
+    assert_row_missing::<DirectRefEntity>(RI_DB, entity.id);
+}
+
+#[test]
+fn save_optional_ref_none_succeeds() {
+    setup_schema();
+
+    let saver = SaveExecutor::<DirectRefEntity>::new(RI_DB, false);
+    let entity = DirectRefEntity {
+        id: Ulid::generate(),
+        owner: None,
+    };
+
+    saver.insert(entity.clone()).unwrap();
+    assert_commit_marker_clear();
+    assert_row_present::<DirectRefEntity>(RI_DB, entity.id);
+}
+
+#[test]
+fn save_nested_record_ref_missing_target_succeeds() {
+    setup_schema();
+
+    let saver = SaveExecutor::<RecordRefEntity>::new(RI_DB, false);
+    let entity = RecordRefEntity {
+        id: Ulid::generate(),
+        profile: RecordRefPayload {
+            owner: Ref::new(Ulid::generate()),
+        },
+    };
+
+    saver.insert(entity.clone()).unwrap();
+    assert_commit_marker_clear();
+    assert_row_present::<RecordRefEntity>(RI_DB, entity.id);
+}
+
+#[test]
+fn save_nested_enum_ref_missing_target_succeeds() {
+    setup_schema();
+
+    let saver = SaveExecutor::<EnumRefEntity>::new(RI_DB, false);
+    let entity = EnumRefEntity {
+        id: Ulid::generate(),
+        status: RefEnum::Missing(Ref::new(Ulid::generate())),
+    };
+
+    saver.insert(entity.clone()).unwrap();
+    assert_commit_marker_clear();
+    assert_row_present::<EnumRefEntity>(RI_DB, entity.id);
+}
+
+#[test]
+fn save_collection_refs_do_not_trigger_invariant_failure() {
+    setup_schema();
+
+    let saver = SaveExecutor::<CollectionRefEntity>::new(RI_DB, false);
+    let entity = CollectionRefEntity {
+        id: Ulid::generate(),
+        owners: vec![Ref::new(Ulid::generate()), Ref::new(Ulid::generate())],
+    };
+
+    saver.insert(entity.clone()).unwrap();
+    assert_commit_marker_clear();
+    assert_row_present::<CollectionRefEntity>(RI_DB, entity.id);
+}
+
+#[test]
+fn delete_ignores_references() {
+    setup_schema();
+
+    let owner = OwnerEntity {
+        id: Ulid::generate(),
+    };
+    let owner_saver = SaveExecutor::<OwnerEntity>::new(RI_DB, false);
+    owner_saver.insert(owner.clone()).unwrap();
+
+    let ref_entity = DirectRefEntity {
+        id: Ulid::generate(),
+        owner: Some(Ref::new(owner.id)),
+    };
+    let ref_saver = SaveExecutor::<DirectRefEntity>::new(RI_DB, false);
+    ref_saver.insert(ref_entity.clone()).unwrap();
+
+    let mut plan = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+    plan.mode = QueryMode::Delete(DeleteSpec::new());
+    let deleter = DeleteExecutor::<OwnerEntity>::new(RI_DB, false);
+    let response = deleter.execute(ExecutablePlan::new(plan)).unwrap();
+    assert_eq!(response.0.len(), 1);
+
+    assert_row_missing::<OwnerEntity>(RI_DB, owner.id);
+    assert_row_present::<DirectRefEntity>(RI_DB, ref_entity.id);
+    assert_commit_marker_clear();
 }

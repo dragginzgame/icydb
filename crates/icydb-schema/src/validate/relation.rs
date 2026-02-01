@@ -26,6 +26,7 @@ pub struct RelationEdge {
 }
 
 // Validate that all relations reachable from an entity's value graph stay within its canister.
+// This is schema-only validation and does not imply runtime referential integrity enforcement.
 pub fn validate_same_canister_relations(schema: &Schema, errs: &mut ErrorTree) {
     // Phase 1: collect relation edges for each entity.
     let mut edges = Vec::new();

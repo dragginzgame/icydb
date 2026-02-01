@@ -73,15 +73,20 @@ impl Key {
     pub(crate) const TAG_ULID: u8 = 6;
     pub(crate) const TAG_UNIT: u8 = 7;
 
-    /// Fixed serialized size (do not change without migration)
-    pub const STORED_SIZE: usize = 64;
+    /// Fixed serialized size in bytes (stable, protocol-level)
+    /// DO NOT CHANGE without migration.
+    pub const STORED_SIZE_BYTES: u64 = 64;
+
+    /// Fixed in-memory size (for buffers and indexing only)
+    #[expect(clippy::cast_possible_truncation)]
+    pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
 
     // ── Layout ─────────────────────────────────────
     const TAG_SIZE: usize = 1;
     pub(crate) const TAG_OFFSET: usize = 0;
 
     pub(crate) const PAYLOAD_OFFSET: usize = Self::TAG_SIZE;
-    const PAYLOAD_SIZE: usize = Self::STORED_SIZE - Self::TAG_SIZE;
+    const PAYLOAD_SIZE: usize = Self::STORED_SIZE_USIZE - Self::TAG_SIZE;
 
     // ── Payload sizes ──────────────────────────────
     pub(crate) const INT_SIZE: usize = 8;
@@ -131,8 +136,8 @@ impl Key {
     }
 
     /// Encode this key into its fixed-size storage representation.
-    pub fn to_bytes(&self) -> Result<[u8; Self::STORED_SIZE], KeyEncodeError> {
-        let mut buf = [0u8; Self::STORED_SIZE];
+    pub fn to_bytes(&self) -> Result<[u8; Self::STORED_SIZE_USIZE], KeyEncodeError> {
+        let mut buf = [0u8; Self::STORED_SIZE_USIZE];
 
         // ── Tag ─────────────────────────────────────
         buf[Self::TAG_OFFSET] = self.tag();
@@ -196,7 +201,7 @@ impl Key {
     }
 
     pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
-        if bytes.len() != Self::STORED_SIZE {
+        if bytes.len() != Self::STORED_SIZE_USIZE {
             return Err("corrupted Key: invalid size");
         }
 

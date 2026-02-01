@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🧉 Added
 * Save now validates direct `Ref<T>` and `Option<Ref<T>>` references pre-commit and fails when a target row is missing.
+* Added `docs/REF_INTEGRITY_v2.md` to lock the strong vs weak reference contract and its atomicity constraints.
+* Added targeted RI tests covering strong reference failures, weak reference allowance, and delete-side non-enforcement.
+
+### 🧷 Changed
+* Weak reference shapes (nested and collection `Ref<T>`) are now treated as allowed and non-validating at save time instead of raising invariant violations.
+* Updated RI documentation to distinguish strong vs weak references and clarify that schema relation validation is schema-only.
 
 ### 🧻 Summary
 * Introduced minimal save-time referential integrity checks for direct references.

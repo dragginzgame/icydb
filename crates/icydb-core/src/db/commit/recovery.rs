@@ -5,9 +5,9 @@
 //! commit before any new operation proceeds.
 //!
 //! Important semantic notes:
-//! - This is **not read-time recovery**.
-//! - Reads do not observe partial commit state and do not rely on recovery
-//!   for correctness.
+//! - Recovery is an entrypoint gate for both reads and mutations.
+//! - Reads never observe partial commit state because recovery completes
+//!   synchronously before any read logic runs.
 //! - Recovery, if needed, completes synchronously before control returns
 //!   to the caller.
 //!
@@ -72,7 +72,7 @@ fn should_force_recovery() -> bool {
 ///
 /// This function is:
 /// - **Not part of mutation atomicity**
-/// - **Not read-time recovery**
+/// - **Mandatory before any read or mutation execution**
 /// - **Not conditional on read semantics**
 ///
 /// It may be invoked at operation boundaries (including read or mutation

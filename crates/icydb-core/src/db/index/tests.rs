@@ -14,7 +14,7 @@ use std::borrow::Cow;
 
 #[test]
 fn index_key_rejects_undersized_bytes() {
-    let buf = vec![0u8; IndexKey::STORED_SIZE as usize - 1];
+    let buf = vec![0u8; IndexKey::STORED_SIZE_USIZE - 1];
     let raw = RawIndexKey::from_bytes(Cow::Borrowed(&buf));
     let err = IndexKey::try_from_raw(&raw).unwrap_err();
     assert!(
@@ -25,7 +25,7 @@ fn index_key_rejects_undersized_bytes() {
 
 #[test]
 fn index_key_rejects_oversized_bytes() {
-    let buf = vec![0u8; IndexKey::STORED_SIZE as usize + 1];
+    let buf = vec![0u8; IndexKey::STORED_SIZE_USIZE + 1];
     let raw = RawIndexKey::from_bytes(Cow::Borrowed(&buf));
     let err = IndexKey::try_from_raw(&raw).unwrap_err();
     assert!(
@@ -39,7 +39,7 @@ fn index_key_rejects_oversized_bytes() {
 fn index_key_rejects_len_over_max() {
     let key = IndexKey::empty(IndexId::max_storable());
     let raw = key.to_raw();
-    let len_offset = IndexName::STORED_SIZE as usize;
+    let len_offset = IndexName::STORED_SIZE_BYTES as usize;
     let mut bytes = raw.as_bytes().to_vec();
     bytes[len_offset] = (MAX_INDEX_FIELDS as u8) + 1;
     let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
@@ -69,7 +69,7 @@ fn index_key_rejects_invalid_index_name() {
 fn index_key_rejects_fingerprint_padding() {
     let key = IndexKey::empty(IndexId::max_storable());
     let raw = key.to_raw();
-    let values_offset = IndexName::STORED_SIZE as usize + 1;
+    let values_offset = IndexName::STORED_SIZE_USIZE + 1;
     let mut bytes = raw.as_bytes().to_vec();
     bytes[values_offset] = 1;
     let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
@@ -83,18 +83,23 @@ fn index_key_rejects_fingerprint_padding() {
 #[test]
 #[expect(clippy::large_types_passed_by_value)]
 fn index_key_ordering_matches_bytes() {
-    fn make_key(index_id: IndexId, len: u8, first: u8, second: u8) -> IndexKey {
-        let mut values = [[0u8; 16]; MAX_INDEX_FIELDS];
-        values[0] = [first; 16];
-        values[1] = [second; 16];
+    fn make_key(index_id: IndexId, value_count: u8, first: u8, second: u8) -> IndexKey {
+        // Build raw bytes directly (this is a decode-boundary test)
+        let mut bytes = [0u8; IndexKey::STORED_SIZE_USIZE];
 
-        let mut bytes = [0u8; IndexKey::STORED_SIZE as usize];
+        // 1. Index name (canonical bytes)
         let name_bytes = index_id.0.to_bytes();
         bytes[..name_bytes.len()].copy_from_slice(&name_bytes);
 
-        let mut offset = IndexName::STORED_SIZE as usize;
-        bytes[offset] = len;
+        // 2. Value count
+        let mut offset = IndexName::STORED_SIZE_USIZE;
+        bytes[offset] = value_count;
         offset += 1;
+
+        // 3. Value slots (fixed-width, canonical)
+        let mut values = [[0u8; 16]; MAX_INDEX_FIELDS];
+        values[0] = [first; 16];
+        values[1] = [second; 16];
 
         for value in values {
             bytes[offset..offset + 16].copy_from_slice(&value);
@@ -105,9 +110,10 @@ fn index_key_ordering_matches_bytes() {
         IndexKey::try_from_raw(&raw).expect("valid IndexKey")
     }
 
-    let entity = EntityName::from_static_unchecked("entity");
-    let idx_a = IndexId(IndexName::from_parts_unchecked(&entity, &["a"]));
-    let idx_b = IndexId(IndexName::from_parts_unchecked(&entity, &["b"]));
+    let entity = EntityName::try_from_str("entity").unwrap();
+
+    let idx_a = IndexId(IndexName::try_from_parts(&entity, &["a"]).unwrap());
+    let idx_b = IndexId(IndexName::try_from_parts(&entity, &["b"]).unwrap());
 
     let keys = vec![
         make_key(idx_a, 1, 1, 0),
@@ -222,7 +228,7 @@ fn index_key_decode_fuzz_roundtrip_is_canonical() {
 
     let mut seed = 0xBADC_0FFE_u64;
     for _ in 0..RUNS {
-        let mut bytes = [0u8; IndexKey::STORED_SIZE as usize];
+        let mut bytes = [0u8; IndexKey::STORED_SIZE_BYTES as usize];
         for b in &mut bytes {
             seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
             *b = (seed >> 24) as u8;

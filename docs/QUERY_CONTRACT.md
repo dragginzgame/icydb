@@ -1,7 +1,11 @@
-# Query Facade Contract (Intent-Level)
+# Query Contract (Intent + Facade)
 
 This document freezes the intent-level contract for the query facade. It is a
 source-of-truth boundary: anything not stated here is not a facade guarantee.
+
+This document defines **what the facade guarantees** at intent, planning, and
+execution boundaries. Predicate semantics, coercion rules, diagnostics, and
+testing practices live in `docs/QUERY_PRACTICE.md`.
 
 ## Scope
 

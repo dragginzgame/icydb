@@ -392,14 +392,14 @@ impl<E: EntityKind> DeleteExecutor<E> {
                     ),
                 ));
             }
-            if op.key.len() != DataKey::STORED_SIZE as usize {
+            if op.key.len() != DataKey::STORED_SIZE_USIZE {
                 return Err(InternalError::new(
                     ErrorClass::Internal,
                     ErrorOrigin::Store,
                     format!(
                         "commit marker data key length {} does not match {} ({})",
                         op.key.len(),
-                        DataKey::STORED_SIZE,
+                        DataKey::STORED_SIZE_USIZE,
                         E::PATH
                     ),
                 ));
