@@ -79,6 +79,17 @@ macro_rules! macro_node {
                         return proc_macro::TokenStream::from(err.write_errors());
                     }
 
+                    // fatal schema errors
+                    let fatal_errors = node.fatal_errors();
+                    if !fatal_errors.is_empty() {
+                        let tokens: proc_macro2::TokenStream = fatal_errors
+                            .into_iter()
+                            .map(|err| err.to_compile_error())
+                            .collect();
+
+                        return tokens.into();
+                    }
+
                     // instantiate the generator
                     let generator = $gen_type(&node);
                     let q = quote!(#generator);

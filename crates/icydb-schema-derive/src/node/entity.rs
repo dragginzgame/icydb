@@ -63,14 +63,47 @@ impl ValidateNode for Entity {
         self.traits.with_type_traits().validate()?;
         self.fields.validate()?;
 
-        if self.fields.get(&self.primary_key).is_none() {
-            return Err(DarlingError::custom(format!(
-                "primary key field '{}' not found in entity fields",
-                self.primary_key
-            )));
+        Ok(())
+    }
+
+    fn fatal_errors(&self) -> Vec<syn::Error> {
+        let mut errors = Vec::new();
+        let pk_ident = &self.primary_key;
+
+        // Primary key resolution must succeed before checking shape.
+        let Some(pk_field) = self.fields.get(pk_ident) else {
+            errors.push(syn::Error::new_spanned(
+                pk_ident,
+                format!(
+                    "primary key field '{}' not found in entity fields",
+                    self.primary_key
+                ),
+            ));
+            return errors;
+        };
+
+        // Enforce primary key cardinality and relation restrictions.
+        if pk_field.value.cardinality() != Cardinality::One {
+            errors.push(syn::Error::new_spanned(
+                pk_ident,
+                format!(
+                    "primary key field '{}' must have cardinality One",
+                    self.primary_key
+                ),
+            ));
         }
 
-        Ok(())
+        if pk_field.value.item.is_relation() {
+            errors.push(syn::Error::new_spanned(
+                pk_ident,
+                format!(
+                    "primary key field '{}' cannot be a relation (Ref<T> is not a primary key)",
+                    self.primary_key
+                ),
+            ));
+        }
+
+        errors
     }
 }
 

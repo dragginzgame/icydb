@@ -867,12 +867,14 @@ dependencies = [
  "canic-utils",
  "darling 0.23.0",
  "derive_more",
+ "icydb",
  "icydb-schema",
  "proc-macro2",
  "quote",
  "remain",
  "serde",
  "syn 2.0.114",
+ "trybuild",
 ]
 
 [[package]]

@@ -5,6 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.6.2] – 2026-02-01 - Primary Key Guardrails
+
+### 🪱 Fixed
+
+* Entity macros now reject relation fields as primary keys, preventing `Ref<T>` from being used as an identity type.
+* Primary key fields must have cardinality `One`; optional or many primary keys now fail at macro expansion time.
+* Added compile-fail tests covering relation and non-One primary key shapes in the entity macro.
+
+### 🧪 Summary
+
+* Locked primary key invariants at macro expansion time to avoid downstream RI violations.
+
+---
+
 ## [0.6.1] – 2026-02-01 - Referential Integrity, Part II
 
 ### 🧉 Added

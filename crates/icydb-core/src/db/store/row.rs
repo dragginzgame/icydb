@@ -110,9 +110,9 @@ impl Storable for RawRow {
     };
 }
 
-//
-// TESTS
-//
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {

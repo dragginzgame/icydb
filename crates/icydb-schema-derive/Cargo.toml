@@ -22,5 +22,9 @@ remain = { workspace = true }
 serde = { workspace = true }
 syn = { workspace = true }
 
+[dev-dependencies]
+icydb = { workspace = true }
+trybuild = "1.0"
+
 [lints]
 workspace = true

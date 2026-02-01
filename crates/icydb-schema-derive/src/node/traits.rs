@@ -17,6 +17,11 @@ pub trait HasDef {
 
 pub trait ValidateNode {
     fn validate(&self) -> Result<(), DarlingError>;
+
+    /// Fatal validation errors that must short-circuit macro expansion.
+    fn fatal_errors(&self) -> Vec<syn::Error> {
+        Vec::new()
+    }
 }
 
 ///
