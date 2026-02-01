@@ -1,4 +1,5 @@
 use crate::{imp::*, prelude::*};
+use canic_utils::case::{Case, Casing};
 
 ///
 /// DataStore
@@ -22,6 +23,14 @@ impl HasDef for DataStore {
 
 impl ValidateNode for DataStore {
     fn validate(&self) -> Result<(), DarlingError> {
+        let ident_str = self.ident.to_string();
+        if !ident_str.is_case(Case::UpperSnake) {
+            return Err(DarlingError::custom(format!(
+                "ident '{ident_str}' must be UPPER_SNAKE_CASE",
+            ))
+            .with_span(&self.ident));
+        }
+
         Ok(())
     }
 }

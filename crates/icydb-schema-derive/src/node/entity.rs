@@ -1,4 +1,5 @@
 use crate::{imp::*, prelude::*};
+use std::collections::HashSet;
 
 ///
 /// Entity
@@ -44,6 +45,111 @@ impl Entity {
 
         fields
     }
+
+    /// Validate and return the resolved entity name for downstream checks.
+    fn validated_entity_name(&self) -> Result<String, DarlingError> {
+        // Prefer explicit name override when provided.
+        if let Some(name) = &self.name {
+            let value = name.value();
+            if value.len() > MAX_ENTITY_NAME_LEN {
+                return Err(DarlingError::custom(format!(
+                    "entity name '{value}' exceeds max length {MAX_ENTITY_NAME_LEN}"
+                ))
+                .with_span(name));
+            }
+            if !value.is_ascii() {
+                return Err(
+                    DarlingError::custom(format!("entity name '{value}' must be ASCII"))
+                        .with_span(name),
+                );
+            }
+
+            return Ok(value);
+        }
+
+        // Fall back to the struct identifier.
+        let ident = self.def.ident();
+        let value = ident.to_string();
+        if value.len() > MAX_ENTITY_NAME_LEN {
+            return Err(DarlingError::custom(format!(
+                "entity name '{value}' exceeds max length {MAX_ENTITY_NAME_LEN}"
+            ))
+            .with_span(&ident));
+        }
+        if !value.is_ascii() {
+            return Err(
+                DarlingError::custom(format!("entity name '{value}' must be ASCII"))
+                    .with_span(&ident),
+            );
+        }
+
+        Ok(value)
+    }
+
+    /// Validate index definitions against local entity fields.
+    fn validate_indexes(&self, entity_name: &str) -> Result<(), DarlingError> {
+        for index in &self.indexes {
+            // Basic shape.
+            if index.fields.is_empty() {
+                return Err(
+                    DarlingError::custom("index must reference at least one field")
+                        .with_span(&index.store),
+                );
+            }
+            if index.fields.len() > MAX_INDEX_FIELDS {
+                return Err(DarlingError::custom(format!(
+                    "index has {} fields; maximum is {}",
+                    index.fields.len(),
+                    MAX_INDEX_FIELDS
+                ))
+                .with_span(&index.store));
+            }
+
+            // Field existence, uniqueness, and cardinality.
+            let mut seen = HashSet::new();
+            for field in &index.fields {
+                let field_name = field.to_string();
+                if !seen.insert(field_name.clone()) {
+                    return Err(DarlingError::custom(format!(
+                        "index contains duplicate field '{field_name}'"
+                    ))
+                    .with_span(field));
+                }
+
+                let Some(entity_field) = self.fields.get(field) else {
+                    return Err(DarlingError::custom(format!(
+                        "index field '{field_name}' not found"
+                    ))
+                    .with_span(field));
+                };
+                if entity_field.value.cardinality() == Cardinality::Many {
+                    return Err(DarlingError::custom(
+                        "cannot add an index field with many cardinality",
+                    )
+                    .with_span(field));
+                }
+            }
+
+            // Name length.
+            let mut len = entity_name.len();
+            for field in &index.fields {
+                len = len.saturating_add(1 + field.to_string().len());
+            }
+            if len > MAX_INDEX_NAME_LEN {
+                let fields = index
+                    .fields
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>();
+                return Err(DarlingError::custom(format!(
+                    "index name '{entity_name}|{fields:?}' exceeds max length {MAX_INDEX_NAME_LEN}"
+                ))
+                .with_span(&index.store));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 //
@@ -60,8 +166,13 @@ impl HasDef for Entity {
 
 impl ValidateNode for Entity {
     fn validate(&self) -> Result<(), DarlingError> {
+        // Phase 1: validate trait configuration and field shapes.
         self.traits.with_type_traits().validate()?;
         self.fields.validate()?;
+
+        // Phase 2: validate entity name and index definitions.
+        let entity_name = self.validated_entity_name()?;
+        self.validate_indexes(&entity_name)?;
 
         Ok(())
     }
@@ -71,7 +182,22 @@ impl ValidateNode for Entity {
         let pk_ident = &self.primary_key;
 
         // Primary key resolution must succeed before checking shape.
-        let Some(pk_field) = self.fields.get(pk_ident) else {
+        let mut pk_count = 0;
+        for field in &self.fields {
+            if field.ident == *pk_ident {
+                pk_count += 1;
+                if pk_count > 1 {
+                    errors.push(syn::Error::new_spanned(
+                        &field.ident,
+                        format!(
+                            "primary key field '{}' must appear exactly once in entity fields",
+                            self.primary_key
+                        ),
+                    ));
+                }
+            }
+        }
+        if pk_count == 0 {
             errors.push(syn::Error::new_spanned(
                 pk_ident,
                 format!(
@@ -79,6 +205,10 @@ impl ValidateNode for Entity {
                     self.primary_key
                 ),
             ));
+            return errors;
+        }
+
+        let Some(pk_field) = self.fields.get(pk_ident) else {
             return errors;
         };
 

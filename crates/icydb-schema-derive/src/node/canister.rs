@@ -23,6 +23,13 @@ impl HasDef for Canister {
 
 impl ValidateNode for Canister {
     fn validate(&self) -> Result<(), DarlingError> {
+        if self.memory_min > self.memory_max {
+            return Err(DarlingError::custom(
+                "memory_min must be equal to or less than memory_max",
+            )
+            .with_span(&self.def.ident()));
+        }
+
         Ok(())
     }
 }

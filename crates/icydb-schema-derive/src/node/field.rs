@@ -1,6 +1,62 @@
 use crate::prelude::*;
 use canic_utils::case::{Case, Casing};
-use std::slice::Iter;
+use std::{collections::HashSet, slice::Iter, sync::LazyLock};
+
+// Keep this list aligned with icydb-schema's reserved words.
+static RESERVED_WORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    let mut words = Vec::new();
+
+    // candid
+    words.extend(vec![
+        "blob",
+        "bool",
+        "composite_query",
+        "empty",
+        "float32",
+        "float64",
+        "func",
+        "import",
+        "int",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "nat",
+        "nat8",
+        "nat16",
+        "nat32",
+        "nat64",
+        "null",
+        "oneway",
+        "opt",
+        "principal",
+        "query",
+        "record",
+        "reserved",
+        "service",
+        "text",
+        "type",
+        "variant",
+        "vec",
+    ]);
+
+    // rust
+    // https://doc.rust-lang.org/reference/keywords.html
+    words.extend(vec![
+        "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn",
+        "for", "gen", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
+        "ref", "return", "self", "Self", "static", "struct", "super", "trait", "true", "type",
+        "unsafe", "use", "where", "while", "async", "await", "dyn", "abstract", "become", "box",
+        "do", "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield", "try",
+    ]);
+
+    words.into_iter().collect()
+});
+
+/// Check if an identifier is a reserved word.
+fn is_reserved_word(word: &str) -> bool {
+    RESERVED_WORDS.contains(word)
+}
 
 ///
 /// FieldList
@@ -106,7 +162,50 @@ pub struct Field {
 
 impl Field {
     pub fn validate(&self) -> Result<(), DarlingError> {
-        self.value.validate()
+        // Identifier validation.
+        let ident_str = self.ident.to_string();
+        if ident_str.len() > MAX_FIELD_NAME_LEN {
+            return Err(DarlingError::custom(format!(
+                "field name '{ident_str}' exceeds max length {MAX_FIELD_NAME_LEN}"
+            ))
+            .with_span(&self.ident));
+        }
+        if is_reserved_word(&ident_str) {
+            return Err(
+                DarlingError::custom(format!("the word '{ident_str}' is reserved"))
+                    .with_span(&self.ident),
+            );
+        }
+        if !ident_str.is_case(Case::Snake) {
+            return Err(DarlingError::custom(format!(
+                "field ident '{ident_str}' must be snake_case"
+            ))
+            .with_span(&self.ident));
+        }
+
+        // Value validation.
+        self.value.validate()?;
+
+        // Relation naming conventions.
+        if self.value.item.is_relation() {
+            match self.value.cardinality() {
+                Cardinality::One | Cardinality::Opt if !ident_str.ends_with("id") => {
+                    return Err(DarlingError::custom(format!(
+                        "one or optional relationship '{ident_str}' should end with 'id'"
+                    ))
+                    .with_span(&self.ident));
+                }
+                Cardinality::Many if !ident_str.ends_with("ids") => {
+                    return Err(DarlingError::custom(format!(
+                        "many relationship '{ident_str}' should end with 'ids'"
+                    ))
+                    .with_span(&self.ident));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
     }
 
     // default_expr
