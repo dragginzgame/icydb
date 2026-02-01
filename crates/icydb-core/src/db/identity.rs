@@ -1,4 +1,4 @@
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_possible_truncation)]
 //! Identity invariants and construction.
 //!
 //! - Identities are ASCII, non-empty, and bounded by `MAX_*` limits.

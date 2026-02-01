@@ -22,7 +22,14 @@ pub use std::{
     str::FromStr,
 };
 
-use crate::{prelude::*, types::Unit, value::ValueEnum, visitor::VisitorContext};
+use crate::{
+    error::{ErrorClass, ErrorOrigin, InternalError},
+    model::field::EntityFieldKind,
+    prelude::*,
+    types::Unit,
+    value::ValueEnum,
+    visitor::VisitorContext,
+};
 
 /// ------------------------
 /// KIND TRAITS
@@ -146,6 +153,121 @@ impl<T> TypeKind for T where
 
 pub trait FieldValues {
     fn get_value(&self, field: &str) -> Option<Value>;
+}
+
+///
+/// EntityRef
+///
+/// Concrete reference extracted from an entity instance.
+/// Carries the target entity path and the referenced key value.
+/// Produced by [`EntityReferences`] during pre-commit planning.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EntityRef {
+    pub target_path: &'static str,
+    pub key: Key,
+}
+
+///
+/// EntityReferences
+///
+/// Extract typed entity references from a concrete entity instance.
+/// This is a pure helper for pre-commit planning and RI checks.
+/// Only direct `Ref<T>` and `Option<Ref<T>>` fields are supported.
+///
+pub trait EntityReferences {
+    /// Return all concrete references currently present on this entity.
+    fn entity_refs(&self) -> Result<Vec<EntityRef>, InternalError>;
+}
+
+impl<E> EntityReferences for E
+where
+    E: EntityKind,
+{
+    fn entity_refs(&self) -> Result<Vec<EntityRef>, InternalError> {
+        let mut refs = Vec::with_capacity(E::MODEL.fields.len());
+
+        for field in E::MODEL.fields {
+            // Phase 1: identify supported reference fields and reject unsupported shapes.
+            let target_path = match &field.kind {
+                &EntityFieldKind::Ref { target_path, .. } => target_path,
+                &EntityFieldKind::List(inner) | &EntityFieldKind::Set(inner) => {
+                    if matches!(inner, &EntityFieldKind::Ref { .. }) {
+                        return Err(InternalError::new(
+                            ErrorClass::InvariantViolation,
+                            ErrorOrigin::Executor,
+                            format!(
+                                "reference collections are not supported: {} field={}",
+                                E::PATH,
+                                field.name
+                            ),
+                        ));
+                    }
+                    continue;
+                }
+                &EntityFieldKind::Map { key, value } => {
+                    if matches!(key, &EntityFieldKind::Ref { .. })
+                        || matches!(value, &EntityFieldKind::Ref { .. })
+                    {
+                        return Err(InternalError::new(
+                            ErrorClass::InvariantViolation,
+                            ErrorOrigin::Executor,
+                            format!(
+                                "reference maps are not supported: {} field={}",
+                                E::PATH,
+                                field.name
+                            ),
+                        ));
+                    }
+                    continue;
+                }
+                _ => continue,
+            };
+
+            // Phase 2: fetch the field value and skip absent references.
+            let Some(value) = self.get_value(field.name) else {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Executor,
+                    format!("reference field missing: {} field={}", E::PATH, field.name),
+                ));
+            };
+
+            if matches!(value, Value::None) {
+                continue;
+            }
+
+            if matches!(value, Value::Unsupported) {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Executor,
+                    format!(
+                        "reference field value is unsupported: {} field={}",
+                        E::PATH,
+                        field.name
+                    ),
+                ));
+            }
+
+            // Phase 3: normalize into a concrete key and record the reference.
+            let Some(key) = value.as_key() else {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Executor,
+                    format!(
+                        "reference field value is not a key: {} field={}",
+                        E::PATH,
+                        field.name
+                    ),
+                ));
+            };
+
+            refs.push(EntityRef { target_path, key });
+        }
+
+        Ok(refs)
+    }
 }
 
 ///
@@ -310,3 +432,6 @@ pub trait Sanitizer<T> {
 pub trait Validator<T: ?Sized> {
     fn validate(&self, value: &T, ctx: &mut dyn VisitorContext);
 }
+
+#[cfg(test)]
+mod tests;

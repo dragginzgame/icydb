@@ -48,6 +48,12 @@ pub enum EntityFieldKind {
     Ulid,
     Unit,
 
+    /// Typed entity reference; `key_kind` reflects the referenced key type.
+    Ref {
+        target_path: &'static str,
+        key_kind: &'static Self,
+    },
+
     // Collections
     List(&'static Self),
     Set(&'static Self),

@@ -10,11 +10,13 @@ pub fn generate(builder: &ActorBuilder) -> TokenStream {
     tokens
 }
 
+#[expect(clippy::too_many_lines)]
 fn stores(builder: &ActorBuilder) -> TokenStream {
     let mut data_defs = quote!();
     let mut index_defs = quote!();
     let mut data_inits = quote!();
     let mut index_inits = quote!();
+    let mut entity_entries = quote!();
 
     // -------------------------
     // Data stores
@@ -80,6 +82,24 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
     }
 
     // -------------------------
+    // Entity registry
+    // -------------------------
+
+    for (entity_path, entity) in builder.get_entities() {
+        let entity_ident: syn::Path = parse_str(&entity_path)
+            .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
+        let store_path: syn::Path = parse_str(entity.store)
+            .unwrap_or_else(|_| panic!("invalid data store path: {}", entity.store));
+
+        entity_entries.extend(quote! {
+            ::icydb::__internal::core::db::EntityRegistryEntry {
+                entity_path: #entity_ident::PATH,
+                store_path: #store_path::PATH,
+            },
+        });
+    }
+
+    // -------------------------
     // Canister + DB wiring
     // -------------------------
 
@@ -93,6 +113,9 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
     quote! {
         #data_defs
         #index_defs
+        const ICYDB_ENTITY_REGISTRY: &[::icydb::__internal::core::db::EntityRegistryEntry] = &[
+            #entity_entries
+        ];
 
         thread_local! {
             #[allow(unused_mut)]
@@ -121,7 +144,8 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         static DB: ::icydb::__internal::core::db::Db<#canister_path> =
             ::icydb::__internal::core::db::Db::<#canister_path>::new(
                 &DATA_REGISTRY,
-                &INDEX_REGISTRY
+                &INDEX_REGISTRY,
+                ICYDB_ENTITY_REGISTRY
             );
 
         // reserve the ic memory range

@@ -44,14 +44,18 @@ mod test {
         Ulid::generate()
     }
 
+    fn entity_ref() -> Ref<crate::test::entity::Entity> {
+        Ref::new(ulid())
+    }
+
     #[test]
     fn list_allows_up_to_max_length() {
         let mut list = List::default();
 
-        list.push(ulid());
+        list.push(entity_ref());
         assert!(validate(&list).is_ok(), "1 item should be valid");
 
-        list.push(ulid());
+        list.push(entity_ref());
         assert!(validate(&list).is_ok(), "2 items should still be valid");
     }
 
@@ -59,9 +63,9 @@ mod test {
     fn list_rejects_over_max_length() {
         let mut list = List::default();
 
-        list.push(ulid());
-        list.push(ulid());
-        list.push(ulid());
+        list.push(entity_ref());
+        list.push(entity_ref());
+        list.push(entity_ref());
 
         let result = validate(&list);
         assert!(

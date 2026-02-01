@@ -31,6 +31,19 @@ use crate::{
 use std::{marker::PhantomData, thread::LocalKey};
 
 ///
+/// EntityRegistryEntry
+///
+/// Minimal entity metadata for save-time reference existence checks.
+/// Captures the entity path and its data store path.
+///
+
+#[derive(Clone, Copy, Debug)]
+pub struct EntityRegistryEntry {
+    pub entity_path: &'static str,
+    pub store_path: &'static str,
+}
+
+///
 /// Db
 ///
 /// A handle to the set of stores registered for a specific canister domain.
@@ -38,6 +51,7 @@ use std::{marker::PhantomData, thread::LocalKey};
 pub struct Db<C: CanisterKind> {
     data: &'static LocalKey<DataStoreRegistry>,
     index: &'static LocalKey<IndexStoreRegistry>,
+    entities: &'static [EntityRegistryEntry],
     _marker: PhantomData<C>,
 }
 
@@ -46,10 +60,12 @@ impl<C: CanisterKind> Db<C> {
     pub const fn new(
         data: &'static LocalKey<DataStoreRegistry>,
         index: &'static LocalKey<IndexStoreRegistry>,
+        entities: &'static [EntityRegistryEntry],
     ) -> Self {
         Self {
             data,
             index,
+            entities,
             _marker: PhantomData,
         }
     }
@@ -89,6 +105,10 @@ impl<C: CanisterKind> Db<C> {
 
     pub(crate) fn with_index<R>(&self, f: impl FnOnce(&IndexStoreRegistry) -> R) -> R {
         self.index.with(|reg| f(reg))
+    }
+
+    pub(crate) const fn entity_registry(&self) -> &'static [EntityRegistryEntry] {
+        self.entities
     }
 }
 

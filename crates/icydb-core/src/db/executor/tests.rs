@@ -437,7 +437,7 @@ thread_local! {
     };
 }
 
-static DB: Db<TestCanister> = Db::new(&DATA_REGISTRY, &INDEX_REGISTRY);
+static DB: Db<TestCanister> = Db::new(&DATA_REGISTRY, &INDEX_REGISTRY, &[]);
 
 canic_memory::eager_init!({
     canic_memory::ic_memory_range!(0, 40);

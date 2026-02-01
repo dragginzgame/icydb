@@ -219,7 +219,18 @@ fn model_field_ident(field: &Field) -> Ident {
 }
 
 fn model_kind_from_value(value: &Value) -> TokenStream {
-    let base = model_kind_from_item(&value.item);
+    let base = if let Some(relation) = value.item.relation.as_ref() {
+        let key_kind = model_kind_from_item(&value.item);
+        let target_path = quote_one(relation, to_path);
+        quote! {
+            ::icydb::model::field::EntityFieldKind::Ref {
+                target_path: #target_path,
+                key_kind: &#key_kind,
+            }
+        }
+    } else {
+        model_kind_from_item(&value.item)
+    };
     match value.cardinality() {
         Cardinality::Many => {
             quote!(::icydb::model::field::EntityFieldKind::List(&#base))

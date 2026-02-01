@@ -24,11 +24,11 @@ mod test {
         let mut list = FriendsList::default();
 
         // Add one friend
-        list.push(Ulid::generate());
+        list.push(Ref::new(Ulid::generate()));
         assert!(validate(&list).is_ok(), "1 friend should be valid");
 
         // Add second friend (at the max)
-        list.push(Ulid::generate());
+        list.push(Ref::new(Ulid::generate()));
         assert!(validate(&list).is_ok(), "2 friends should still be valid");
     }
 
@@ -37,9 +37,9 @@ mod test {
         let mut list = FriendsList::default();
 
         // Add three (exceeds Max(2))
-        list.push(Ulid::generate());
-        list.push(Ulid::generate());
-        list.push(Ulid::generate());
+        list.push(Ref::new(Ulid::generate()));
+        list.push(Ref::new(Ulid::generate()));
+        list.push(Ref::new(Ulid::generate()));
 
         let result = validate(&list);
         assert!(

@@ -5,6 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.6.1] – 2026-02-01 - Save-Time RI Checks
+
+### 🧉 Added
+* Save now validates direct `Ref<T>` and `Option<Ref<T>>` references pre-commit and fails when a target row is missing.
+
+### 🧻 Summary
+* Introduced minimal save-time referential integrity checks for direct references.
+
+---
+
 ## [0.6.0] – 2026-01-31 - Referential Integrity, Part I
 
 ### 🪐 Breaking
@@ -25,6 +35,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🎿 Changed
 * Documented that `FieldRef` and `FilterExpr` use different coercion defaults for ordering; see `docs/QUERY_BUILDER.md`.
 * Consolidated build-time schema validation behind `validate::validate_schema` so all passes run through a single entrypoint.
+
+### 🧯 Summary
+* Logged the 0.6 atomicity audit results, including the read-path recovery mismatch, for follow-up.
 
 ---
 

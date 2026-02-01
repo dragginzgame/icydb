@@ -815,6 +815,7 @@ fn field_type_from_model_kind(kind: &EntityFieldKind) -> FieldType {
         EntityFieldKind::UintBig => FieldType::Scalar(ScalarType::UintBig),
         EntityFieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
         EntityFieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
+        EntityFieldKind::Ref { key_kind, .. } => field_type_from_model_kind(key_kind),
         EntityFieldKind::List(inner) => {
             FieldType::List(Box::new(field_type_from_model_kind(inner)))
         }
