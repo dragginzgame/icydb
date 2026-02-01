@@ -19,6 +19,7 @@ use crate::{
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     traits::{EntityKind, Path, Storable},
+    types::Ref,
 };
 use std::{
     borrow::Cow, cell::RefCell, collections::BTreeMap, marker::PhantomData, thread::LocalKey,
@@ -70,14 +71,14 @@ impl<E: EntityKind> crate::db::query::plan::logical::PlanRow<E> for DeleteRow<E>
 /// not relied upon for correctness.
 ///
 #[derive(Clone, Copy)]
-pub struct DeleteExecutor<E: EntityKind> {
+pub struct DeleteExecutor<E: EntityKind<PrimaryKey = Ref<E>>> {
     db: Db<E::Canister>,
     debug: bool,
     trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityKind> DeleteExecutor<E> {
+impl<E: EntityKind<PrimaryKey = Ref<E>>> DeleteExecutor<E> {
     // Debug is session-scoped via DbSession and propagated into executors;
     // executors do not expose independent debug control.
     #[must_use]
@@ -288,7 +289,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
             let res = rows
                 .into_iter()
-                .map(|row| (row.key.key(), row.entity))
+                .map(|row| (row.key.key::<E>(), row.entity))
                 .collect::<Vec<_>>();
             set_rows_from_len(&mut span, res.len());
             self.debug_log(format!("Delete committed -> {} rows", res.len()));
@@ -555,7 +556,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                     .into());
                 }
 
-                if !e.contains(&entity_key) {
+                if !e.contains(entity_key) {
                     return Err(ExecutorError::corruption(
                         ErrorOrigin::Index,
                         format!(
@@ -571,7 +572,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
                 // Remove this entity’s key from the index entry.
                 if let Some(e) = entry.as_mut() {
-                    e.remove_key(&entity_key);
+                    e.remove_key(entity_key);
                     if e.is_empty() {
                         *entry = None;
                     }
@@ -624,7 +625,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
 }
 
 /// Return a human-readable summary of the access plan.
-fn access_summary(access: &AccessPlan) -> String {
+fn access_summary<K>(access: &AccessPlan<K>) -> String {
     match access {
         AccessPlan::Path(path) => access_path_summary(path),
         AccessPlan::Union(children) => format!("union of {} access paths", children.len()),
@@ -635,7 +636,7 @@ fn access_summary(access: &AccessPlan) -> String {
 }
 
 /// Render a compact description for a concrete access path.
-fn access_path_summary(path: &AccessPath) -> String {
+fn access_path_summary<K>(path: &AccessPath<K>) -> String {
     match path {
         AccessPath::ByKey(_) => "primary key lookup".to_string(),
         AccessPath::ByKeys(keys) => format!("primary key lookup ({} keys)", keys.len()),
@@ -654,7 +655,9 @@ const fn yes_no(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
 }
 
-fn decode_rows<E: EntityKind>(rows: Vec<DataRow>) -> Result<Vec<DeleteRow<E>>, InternalError> {
+fn decode_rows<E: EntityKind<PrimaryKey = Ref<E>>>(
+    rows: Vec<DataRow>,
+) -> Result<Vec<DeleteRow<E>>, InternalError> {
     rows.into_iter()
         .map(|(dk, raw)| {
             let dk_for_err = dk.clone();
@@ -665,7 +668,7 @@ fn decode_rows<E: EntityKind>(rows: Vec<DataRow>) -> Result<Vec<DeleteRow<E>>, I
                 )
             })?;
 
-            let expected = dk.key();
+            let expected = dk.key::<E>();
             let actual = entity.key();
             if expected != actual {
                 return Err(ExecutorError::corruption(

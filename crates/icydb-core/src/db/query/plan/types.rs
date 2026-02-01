@@ -1,6 +1,6 @@
 //! Pure plan-layer data types; must not embed planning semantics or validation.
 
-use crate::{key::Key, model::index::IndexModel, value::Value};
+use crate::{model::index::IndexModel, value::Value};
 
 ///
 /// AccessPlan
@@ -8,13 +8,13 @@ use crate::{key::Key, model::index::IndexModel, value::Value};
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AccessPlan {
-    Path(AccessPath),
+pub enum AccessPlan<K> {
+    Path(AccessPath<K>),
     Union(Vec<Self>),
     Intersection(Vec<Self>),
 }
 
-impl AccessPlan {
+impl<K> AccessPlan<K> {
     /// Construct a plan that forces a full scan.
     #[must_use]
     pub const fn full_scan() -> Self {
@@ -28,18 +28,18 @@ impl AccessPlan {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AccessPath {
+pub enum AccessPath<K> {
     /// Direct lookup by a single primary key.
-    ByKey(Key),
+    ByKey(K),
 
     /// Batched lookup by multiple primary keys.
     ///
     /// Empty key lists are a valid no-op and return no rows.
-    ByKeys(Vec<Key>),
+    ByKeys(Vec<K>),
 
     /// Range scan over primary keys (inclusive).
     #[expect(dead_code)]
-    KeyRange { start: Key, end: Key },
+    KeyRange { start: K, end: K },
 
     /// Index scan using a prefix of index fields and bound values.
     ///

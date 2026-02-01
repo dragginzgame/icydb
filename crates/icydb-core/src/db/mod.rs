@@ -27,6 +27,7 @@ use crate::{
     error::InternalError,
     obs::sink::{self, MetricsSink},
     traits::{CanisterKind, EntityKind},
+    types::Ref,
 };
 use std::{marker::PhantomData, thread::LocalKey};
 
@@ -73,7 +74,7 @@ impl<C: CanisterKind> Db<C> {
     #[must_use]
     pub(crate) const fn context<E>(&self) -> Context<'_, E>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         Context::new(self)
     }
@@ -81,7 +82,7 @@ impl<C: CanisterKind> Db<C> {
     /// Return a recovery-guarded context for read paths.
     pub(crate) fn recovered_context<E>(&self) -> Result<Context<'_, E>, InternalError>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         ensure_recovered(self)?;
         Ok(Context::new(self))
@@ -168,7 +169,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub const fn load<E>(&self) -> SessionLoadQuery<'_, C, E>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         SessionLoadQuery::new(self, Query::new(ReadConsistency::MissingOk))
     }
@@ -179,7 +180,7 @@ impl<C: CanisterKind> DbSession<C> {
         consistency: ReadConsistency,
     ) -> SessionLoadQuery<'_, C, E>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         SessionLoadQuery::new(self, Query::new(consistency))
     }
@@ -187,7 +188,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub const fn delete<E>(&self) -> SessionDeleteQuery<'_, C, E>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         SessionDeleteQuery::new(self, Query::new(ReadConsistency::MissingOk).delete())
     }
@@ -198,7 +199,7 @@ impl<C: CanisterKind> DbSession<C> {
         consistency: ReadConsistency,
     ) -> SessionDeleteQuery<'_, C, E>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         SessionDeleteQuery::new(self, Query::new(consistency).delete())
     }
@@ -210,7 +211,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub(crate) const fn load_executor<E>(&self) -> LoadExecutor<E>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         LoadExecutor::new(self.db, self.debug)
     }
@@ -218,7 +219,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub(crate) const fn delete_executor<E>(&self) -> DeleteExecutor<E>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         DeleteExecutor::new(self.db, self.debug)
     }
@@ -226,7 +227,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub(crate) const fn save_executor<E>(&self) -> SaveExecutor<E>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         SaveExecutor::new(self.db, self.debug)
     }
@@ -235,7 +236,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Query diagnostics / execution (internal routing)
     // ---------------------------------------------------------------------
 
-    pub fn diagnose_query<E: EntityKind<Canister = C>>(
+    pub fn diagnose_query<E: EntityKind<Canister = C, PrimaryKey = Ref<E>>>(
         &self,
         query: &Query<E>,
     ) -> Result<QueryDiagnostics, QueryError> {
@@ -243,7 +244,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(QueryDiagnostics::from(explain))
     }
 
-    pub fn execute_query<E: EntityKind<Canister = C>>(
+    pub fn execute_query<E: EntityKind<Canister = C, PrimaryKey = Ref<E>>>(
         &self,
         query: &Query<E>,
     ) -> Result<Response<E>, QueryError> {
@@ -256,7 +257,7 @@ impl<C: CanisterKind> DbSession<C> {
         result.map_err(QueryError::Execute)
     }
 
-    pub fn execute_with_diagnostics<E: EntityKind<Canister = C>>(
+    pub fn execute_with_diagnostics<E: EntityKind<Canister = C, PrimaryKey = Ref<E>>>(
         &self,
         query: &Query<E>,
     ) -> Result<(Response<E>, QueryExecutionDiagnostics), QueryError> {
@@ -296,7 +297,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub fn insert<E>(&self, entity: E) -> Result<E, InternalError>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         self.with_metrics(|| self.save_executor::<E>().insert(entity))
     }
@@ -306,14 +307,14 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         self.with_metrics(|| self.save_executor::<E>().insert_many(entities))
     }
 
     pub fn replace<E>(&self, entity: E) -> Result<E, InternalError>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         self.with_metrics(|| self.save_executor::<E>().replace(entity))
     }
@@ -323,14 +324,14 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         self.with_metrics(|| self.save_executor::<E>().replace_many(entities))
     }
 
     pub fn update<E>(&self, entity: E) -> Result<E, InternalError>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         self.with_metrics(|| self.save_executor::<E>().update(entity))
     }
@@ -340,28 +341,28 @@ impl<C: CanisterKind> DbSession<C> {
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         self.with_metrics(|| self.save_executor::<E>().update_many(entities))
     }
 
     pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         self.with_metrics(|| self.save_executor::<E>().insert_view(view))
     }
 
     pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         self.with_metrics(|| self.save_executor::<E>().replace_view(view))
     }
 
     pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
-        E: EntityKind<Canister = C>,
+        E: EntityKind<Canister = C, PrimaryKey = Ref<E>>,
     {
         self.with_metrics(|| self.save_executor::<E>().update_view(view))
     }

@@ -12,7 +12,7 @@ pub struct DefaultTrait {}
 
 impl Imp<Entity> for DefaultTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        Some(default_strategy(&node.def, &node.fields))
+        Some(default_strategy_entity(node))
     }
 }
 
@@ -82,6 +82,41 @@ fn default_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
     };
 
     let tokens = Implementor::new(def, TraitKind::Default)
+        .set_tokens(q)
+        .to_token_stream();
+
+    TraitStrategy::from_impl(tokens)
+}
+
+fn default_strategy_entity(node: &Entity) -> TraitStrategy {
+    let fields = &node.fields;
+    if fields.iter().all(|f| f.default.is_none()) {
+        return TraitStrategy::from_derive(TraitKind::Default);
+    }
+
+    let primary_key = &node.primary_key;
+    let assignments = fields.iter().map(|f| {
+        let ident = &f.ident;
+
+        if ident == primary_key {
+            if let Some(default) = &f.default {
+                quote!(#ident: ::icydb::types::Ref::new(#default))
+            } else {
+                quote!(#ident: Default::default())
+            }
+        } else {
+            let expr = f.default_expr();
+            quote!(#ident: #expr)
+        }
+    });
+
+    let q = quote! {
+        fn default() -> Self {
+            Self { #(#assignments),* }
+        }
+    };
+
+    let tokens = Implementor::new(node.def(), TraitKind::Default)
         .set_tokens(q)
         .to_token_stream();
 

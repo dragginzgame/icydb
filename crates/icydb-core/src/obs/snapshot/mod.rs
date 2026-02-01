@@ -1,8 +1,9 @@
 use crate::{
     db::{Db, ensure_recovered, identity::EntityName, index::IndexKey, store::DataKey},
     error::InternalError,
-    key::Key,
-    traits::CanisterKind,
+    key::RawKey,
+    traits::{CanisterKind, FieldValue},
+    value::Value,
 };
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
@@ -62,9 +63,9 @@ pub struct EntitySnapshot {
     /// Approximate bytes used (key + value)
     pub memory_bytes: u64,
     /// Minimum primary key for this entity (entity-local ordering)
-    pub min_key: Option<Key>,
+    pub min_key: Option<Value>,
     /// Maximum primary key for this entity (entity-local ordering)
-    pub max_key: Option<Key>,
+    pub max_key: Option<Value>,
 }
 
 ///
@@ -76,8 +77,8 @@ pub struct EntitySnapshot {
 struct EntityStats {
     entries: u64,
     memory_bytes: u64,
-    min_key: Option<Key>,
-    max_key: Option<Key>,
+    min_key: Option<RawKey>,
+    max_key: Option<RawKey>,
 }
 
 impl EntityStats {
@@ -87,7 +88,7 @@ impl EntityStats {
             .memory_bytes
             .saturating_add(DataKey::entry_size_bytes(value_len));
 
-        let k = dk.key();
+        let k = dk.raw_key();
 
         match &mut self.min_key {
             Some(min) if k < *min => *min = k,
@@ -149,8 +150,8 @@ pub fn storage_report<C: CanisterKind>(
                     path: path_name.to_string(),
                     entries: stats.entries,
                     memory_bytes: stats.memory_bytes,
-                    min_key: stats.min_key,
-                    max_key: stats.max_key,
+                    min_key: stats.min_key.map(|key| key.to_value()),
+                    max_key: stats.max_key.map(|key| key.to_value()),
                 });
             }
         });

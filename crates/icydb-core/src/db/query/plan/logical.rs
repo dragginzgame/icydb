@@ -7,7 +7,6 @@ use crate::db::query::{
 };
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
-    key::Key,
     traits::EntityKind,
 };
 use std::cmp::Ordering;
@@ -36,12 +35,12 @@ use std::cmp::Ordering;
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LogicalPlan {
+pub struct LogicalPlan<K> {
     /// Load vs delete intent.
     pub(crate) mode: QueryMode,
 
     /// Storage access strategy (single path or composite).
-    pub(crate) access: AccessPlan,
+    pub(crate) access: AccessPlan<K>,
 
     /// Optional residual predicate applied after access.
     pub(crate) predicate: Option<Predicate>,
@@ -64,7 +63,7 @@ pub trait PlanRow<E: EntityKind> {
     fn entity(&self) -> &E;
 }
 
-impl<E: EntityKind> PlanRow<E> for (Key, E) {
+impl<E: EntityKind> PlanRow<E> for (E::PrimaryKey, E) {
     fn entity(&self) -> &E {
         &self.1
     }
@@ -87,12 +86,12 @@ pub struct PostAccessStats {
     pub(crate) rows_after_delete_limit: usize,
 }
 
-impl LogicalPlan {
+impl<K> LogicalPlan<K> {
     /// Construct a minimal logical plan with only an access path.
     ///
     /// Predicates, ordering, and pagination may be attached later.
     #[cfg(test)]
-    pub const fn new(access: AccessPath, consistency: ReadConsistency) -> Self {
+    pub const fn new(access: AccessPath<K>, consistency: ReadConsistency) -> Self {
         Self {
             mode: QueryMode::Load(LoadSpec::new()),
             access: AccessPlan::Path(access),

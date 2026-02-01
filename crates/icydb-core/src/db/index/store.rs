@@ -10,6 +10,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     prelude::{EntityKind, IndexModel, Value},
     traits::Storable,
+    types::Ref,
 };
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory, storable::Bound};
 use canic_utils::hash::Xxh3;
@@ -228,7 +229,11 @@ impl IndexStore {
                 ));
             }
 
-            out.extend(decoded.iter_keys().map(|k| DataKey::new::<E>(k)));
+            out.extend(
+                decoded
+                    .iter_raw_keys()
+                    .map(|k| DataKey::new::<E>(Ref::from_raw(k))),
+            );
         }
 
         #[cfg(debug_assertions)]

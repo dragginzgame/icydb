@@ -20,7 +20,7 @@ impl Imp<Entity> for EntityKindTrait {
             return Some(TraitStrategy::from_impl(quote!(compile_error!(#msg))));
         };
         let pk_const_ident = pk_entry.const_ident();
-        let pk_type = &pk_entry.value.item.type_expr();
+        let _pk_type = &pk_entry.value.item.type_expr();
         let entity_name = if let Some(name) = &node.name {
             quote!(#name)
         } else {
@@ -40,7 +40,7 @@ impl Imp<Entity> for EntityKindTrait {
 
         // static definitions
         let mut q = quote! {
-            type PrimaryKey = #pk_type;
+            type PrimaryKey = ::icydb::types::Ref<Self>;
             type DataStore = #store;
             type Canister = <Self::DataStore as ::icydb::traits::DataStoreKind>::Canister;
 
@@ -85,6 +85,15 @@ impl Imp<Entity> for EntityKindTrait {
             }
         });
 
+        if matches!(
+            pk_entry.value.item.target(),
+            ItemTarget::Primitive(Primitive::Unit)
+        ) {
+            tokens.extend(quote! {
+                impl ::icydb::traits::UnitKey for #ident {}
+            });
+        }
+
         Some(TraitStrategy::from_impl(tokens))
     }
 }
@@ -94,8 +103,8 @@ fn key(node: &Entity) -> TokenStream {
     let primary_key = &node.primary_key;
 
     quote! {
-        fn key(&self) -> Key {
-            self.primary_key().into()
+        fn key(&self) -> Self::PrimaryKey {
+            self.primary_key()
         }
 
         fn primary_key(&self) -> Self::PrimaryKey {

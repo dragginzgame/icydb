@@ -12,8 +12,8 @@ use crate::{
     },
     db::response::ResponseError,
     error::InternalError,
-    key::Key,
     traits::{EntityKind, UnitKey},
+    types::Ref,
 };
 use std::marker::PhantomData;
 use thiserror::Error as ThisError;
@@ -105,17 +105,17 @@ impl DeleteSpec {
 ///
 
 #[derive(Debug)]
-pub struct Query<E: EntityKind> {
+pub struct Query<E: EntityKind<PrimaryKey = Ref<E>>> {
     mode: QueryMode,
     predicate: Option<Predicate>,
-    key_access: Option<KeyAccessState>,
+    key_access: Option<KeyAccessState<E::PrimaryKey>>,
     key_access_conflict: bool,
     order: Option<OrderSpec>,
     consistency: ReadConsistency,
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityKind> Query<E> {
+impl<E: EntityKind<PrimaryKey = Ref<E>>> Query<E> {
     /// Create a new intent with an explicit missing-row policy.
     /// MissingOk favors idempotency and may mask index/data divergence on deletes.
     /// Use Strict to surface missing rows during scan/delete execution.
@@ -191,7 +191,7 @@ impl<E: EntityKind> Query<E> {
     }
 
     /// Track key-only access paths and detect conflicting key intents.
-    fn set_key_access(mut self, kind: KeyAccessKind, access: KeyAccess) -> Self {
+    fn set_key_access(mut self, kind: KeyAccessKind, access: KeyAccess<E::PrimaryKey>) -> Self {
         if let Some(existing) = &self.key_access
             && existing.kind != kind
         {
@@ -204,14 +204,14 @@ impl<E: EntityKind> Query<E> {
     }
 
     /// Set the access path to a single primary key lookup.
-    pub(crate) fn by_key(self, key: Key) -> Self {
+    pub(crate) fn by_key(self, key: E::PrimaryKey) -> Self {
         self.set_key_access(KeyAccessKind::Single, KeyAccess::Single(key))
     }
 
     /// Set the access path to a primary key batch lookup.
     pub(crate) fn by_keys<I>(self, keys: I) -> Self
     where
-        I: IntoIterator<Item = Key>,
+        I: IntoIterator<Item = E::PrimaryKey>,
     {
         self.set_key_access(
             KeyAccessKind::Many,
@@ -258,22 +258,22 @@ impl<E: EntityKind> Query<E> {
 
     /// Explain this intent without executing it.
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
-        let plan = self.build_plan::<E>()?;
+        let plan = self.build_plan()?;
 
         Ok(plan.explain())
     }
 
     /// Plan this intent into an executor-ready plan.
     pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
-        let plan = self.build_plan::<E>()?;
+        let plan = self.build_plan()?;
 
         Ok(ExecutablePlan::new(plan))
     }
 
     // Build a logical plan for the current intent.
-    fn build_plan<T: EntityKind>(&self) -> Result<LogicalPlan, QueryError> {
+    fn build_plan(&self) -> Result<LogicalPlan<E::PrimaryKey>, QueryError> {
         // Phase 1: schema surface and intent validation.
-        let model = T::MODEL;
+        let model = E::MODEL;
         let schema_info = SchemaInfo::from_entity_model(model)?;
         self.validate_intent()?;
 
@@ -290,7 +290,7 @@ impl<E: EntityKind> Query<E> {
                 }
                 access_plan_from_keys(&state.access)
             }
-            None => plan_access::<T>(&schema_info, normalized_predicate.as_ref())?,
+            None => plan_access::<E>(&schema_info, normalized_predicate.as_ref())?,
         };
 
         validate_access_plan(&schema_info, model, &access_plan)?;
@@ -363,13 +363,10 @@ impl<E: EntityKind> Query<E> {
     }
 }
 
-impl<E: EntityKind> Query<E>
-where
-    E::PrimaryKey: UnitKey,
-{
+impl<E: EntityKind<PrimaryKey = Ref<E>> + UnitKey> Query<E> {
     /// Set the access path to the singleton unit primary key.
     pub(crate) fn only(self) -> Self {
-        self.set_key_access(KeyAccessKind::Only, KeyAccess::Single(Key::Unit))
+        self.set_key_access(KeyAccessKind::Only, KeyAccess::Single(Ref::new(())))
     }
 }
 
@@ -428,9 +425,9 @@ pub enum IntentError {
 
 /// Primary-key-only access hints for query planning.
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum KeyAccess {
-    Single(Key),
-    Many(Vec<Key>),
+enum KeyAccess<K> {
+    Single(K),
+    Many(Vec<K>),
 }
 
 // Identifies which key-only builder set the access path.
@@ -443,13 +440,16 @@ enum KeyAccessKind {
 
 // Tracks key-only access plus its origin for intent validation.
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct KeyAccessState {
+struct KeyAccessState<K> {
     kind: KeyAccessKind,
-    access: KeyAccess,
+    access: KeyAccess<K>,
 }
 
 // Build a key-only access plan without predicate-based planning.
-fn access_plan_from_keys(access: &KeyAccess) -> AccessPlan {
+fn access_plan_from_keys<K>(access: &KeyAccess<K>) -> AccessPlan<K>
+where
+    K: Copy,
+{
     match access {
         KeyAccess::Single(key) => AccessPlan::Path(AccessPath::ByKey(*key)),
         KeyAccess::Many(keys) => {

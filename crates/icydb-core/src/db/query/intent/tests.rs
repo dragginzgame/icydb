@@ -6,17 +6,16 @@ use crate::{
         plan::{ExplainAccessPath, OrderDirection, OrderSpec, PlanError, planner::PlannerEntity},
         predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
     },
-    key::Key,
     model::{
         entity::EntityModel,
         field::{EntityFieldKind, EntityFieldModel},
         index::IndexModel,
     },
     traits::{
-        CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        CanisterKind, DataStoreKind, EntityKind, FieldValue, FieldValues, Path, SanitizeAuto,
+        SanitizeCustom, UnitKey, ValidateAuto, ValidateCustom, View, Visitable,
     },
-    types::{Ulid, Unit},
+    types::{Ref, Ulid},
     value::Value,
 };
 use serde::{Deserialize, Serialize};
@@ -61,7 +60,7 @@ const UNORDERABLE_MODEL: EntityModel = EntityModel {
 /// Test-only entity with a unit primary key.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct UnitEntity {
-    id: Unit,
+    id: Ref<Self>,
 }
 
 impl Path for UnitEntity {
@@ -89,7 +88,7 @@ impl Visitable for UnitEntity {}
 impl FieldValues for UnitEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(Value::Unit),
+            "id" => Some(self.id.to_value()),
             _ => None,
         }
     }
@@ -116,7 +115,7 @@ impl DataStoreKind for UnitStore {
 }
 
 impl EntityKind for UnitEntity {
-    type PrimaryKey = Unit;
+    type PrimaryKey = Ref<Self>;
     type DataStore = UnitStore;
     type Canister = UnitCanister;
 
@@ -126,12 +125,12 @@ impl EntityKind for UnitEntity {
     const INDEXES: &'static [&'static IndexModel] = &[];
     const MODEL: &'static EntityModel = &UNIT_MODEL;
 
-    fn key(&self) -> crate::key::Key {
-        crate::key::Key::Unit
+    fn key(&self) -> Self::PrimaryKey {
+        self.id
     }
 
     fn primary_key(&self) -> Self::PrimaryKey {
-        Unit
+        self.id
     }
 
     fn set_primary_key(&mut self, key: Self::PrimaryKey) {
@@ -139,11 +138,13 @@ impl EntityKind for UnitEntity {
     }
 }
 
+impl UnitKey for UnitEntity {}
+
 /// UnorderableEntity
 /// Test-only entity with a non-orderable list field.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct UnorderableEntity {
-    id: Unit,
+    id: Ref<Self>,
     tags: Vec<String>,
 }
 
@@ -172,7 +173,7 @@ impl Visitable for UnorderableEntity {}
 impl FieldValues for UnorderableEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(Value::Unit),
+            "id" => Some(self.id.to_value()),
             "tags" => Some(Value::List(
                 self.tags
                     .iter()
@@ -185,7 +186,7 @@ impl FieldValues for UnorderableEntity {
 }
 
 impl EntityKind for UnorderableEntity {
-    type PrimaryKey = Unit;
+    type PrimaryKey = Ref<Self>;
     type DataStore = UnitStore;
     type Canister = UnitCanister;
 
@@ -195,18 +196,20 @@ impl EntityKind for UnorderableEntity {
     const INDEXES: &'static [&'static IndexModel] = &[];
     const MODEL: &'static EntityModel = &UNORDERABLE_MODEL;
 
-    fn key(&self) -> crate::key::Key {
-        crate::key::Key::Unit
+    fn key(&self) -> Self::PrimaryKey {
+        self.id
     }
 
     fn primary_key(&self) -> Self::PrimaryKey {
-        Unit
+        self.id
     }
 
     fn set_primary_key(&mut self, key: Self::PrimaryKey) {
         self.id = key;
     }
 }
+
+impl UnitKey for UnorderableEntity {}
 
 #[test]
 fn fluent_chain_builds_predicate_tree() {
@@ -413,15 +416,19 @@ fn plan_is_deterministic_for_equivalent_predicates() {
 
 #[test]
 fn many_plans_as_primary_key_access() {
-    let keys = vec![Key::Ulid(Ulid::from_u128(1)), Key::Ulid(Ulid::from_u128(2))];
-    let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk).by_keys(keys.clone());
+    let keys = vec![Ref::new(Ulid::from_u128(1)), Ref::new(Ulid::from_u128(2))];
+    let expected = vec![
+        Value::Ulid(Ulid::from_u128(1)),
+        Value::Ulid(Ulid::from_u128(2)),
+    ];
+    let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk).by_keys(keys);
 
     let plan = query.plan().expect("plan");
     let explain = plan.explain();
 
     assert!(matches!(
         explain.access,
-        ExplainAccessPath::ByKeys { keys: access_keys } if access_keys == keys
+        ExplainAccessPath::ByKeys { keys: access_keys } if access_keys == expected
     ));
 }
 
@@ -439,7 +446,7 @@ fn many_empty_plans_as_primary_key_access() {
 #[test]
 fn many_rejects_predicates() {
     let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .by_keys(vec![Key::Ulid(Ulid::from_u128(1))])
+        .by_keys(vec![Ref::new(Ulid::from_u128(1))])
         .filter(FieldRef::new("other").eq("x"));
 
     let err = query.plan().expect_err("many with predicate");
@@ -458,7 +465,7 @@ fn only_plans_without_schema_initialization() {
 
     assert!(matches!(
         plan.explain().access,
-        ExplainAccessPath::ByKey { key } if key == Key::Unit
+        ExplainAccessPath::ByKey { key } if key == Value::Unit
     ));
 }
 

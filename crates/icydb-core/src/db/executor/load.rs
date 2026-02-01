@@ -11,6 +11,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     traits::EntityKind,
+    types::Ref,
 };
 use std::marker::PhantomData;
 
@@ -19,14 +20,14 @@ use std::marker::PhantomData;
 ///
 
 #[derive(Clone)]
-pub struct LoadExecutor<E: EntityKind> {
+pub struct LoadExecutor<E: EntityKind<PrimaryKey = Ref<E>>> {
     db: Db<E::Canister>,
     debug: bool,
     trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityKind> LoadExecutor<E> {
+impl<E: EntityKind<PrimaryKey = Ref<E>>> LoadExecutor<E> {
     // ======================================================================
     // Construction & diagnostics
     // ======================================================================
@@ -171,7 +172,7 @@ impl<E: EntityKind> LoadExecutor<E> {
 }
 
 /// Return a human-readable summary of the access plan.
-fn access_summary(access: &AccessPlan) -> String {
+fn access_summary<K>(access: &AccessPlan<K>) -> String {
     match access {
         AccessPlan::Path(path) => access_path_summary(path),
         AccessPlan::Union(children) => format!("union of {} access paths", children.len()),
@@ -182,7 +183,7 @@ fn access_summary(access: &AccessPlan) -> String {
 }
 
 /// Render a compact description for a concrete access path.
-fn access_path_summary(path: &AccessPath) -> String {
+fn access_path_summary<K>(path: &AccessPath<K>) -> String {
     match path {
         AccessPath::ByKey(_) => "primary key lookup".to_string(),
         AccessPath::ByKeys(keys) => format!("primary key lookup ({} keys)", keys.len()),

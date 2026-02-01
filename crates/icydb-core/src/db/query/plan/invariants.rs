@@ -6,8 +6,8 @@ use crate::{
         validate::{FieldType, ScalarType, literal_matches_type},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    key::Key,
-    traits::EntityKind,
+    traits::{EntityKind, FieldValue},
+    types::Ref,
     value::Value,
 };
 
@@ -16,8 +16,8 @@ use super::{
     types::{AccessPath, AccessPlan},
 };
 
-pub fn validate_plan_invariants<E: EntityKind>(
-    plan: &AccessPlan,
+pub fn validate_plan_invariants<E: EntityKind<PrimaryKey = Ref<E>>>(
+    plan: &AccessPlan<E::PrimaryKey>,
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
 ) -> Result<(), InternalError> {
@@ -31,12 +31,15 @@ pub fn validate_plan_invariants<E: EntityKind>(
 
 #[derive(Default)]
 struct StrictPredicateInfo {
-    pk_keys: std::collections::BTreeSet<Key>,
+    pk_keys: Vec<Value>,
     field_values: std::collections::BTreeMap<String, Vec<Value>>,
 }
 
 impl StrictPredicateInfo {
-    fn from_predicate<E: EntityKind>(schema: &SchemaInfo, predicate: Option<&Predicate>) -> Self {
+    fn from_predicate<E: EntityKind<PrimaryKey = Ref<E>>>(
+        schema: &SchemaInfo,
+        predicate: Option<&Predicate>,
+    ) -> Self {
         let mut info = Self::default();
         if let Some(predicate) = predicate {
             collect_strict_predicate_info::<E>(schema, predicate, false, &mut info);
@@ -51,7 +54,7 @@ impl StrictPredicateInfo {
     }
 }
 
-fn collect_strict_predicate_info<E: EntityKind>(
+fn collect_strict_predicate_info<E: EntityKind<PrimaryKey = Ref<E>>>(
     schema: &SchemaInfo,
     predicate: &Predicate,
     negated: bool,
@@ -73,10 +76,8 @@ fn collect_strict_predicate_info<E: EntityKind>(
 
             let mut push_value = |value: &Value| {
                 if is_primary_key::<E>(schema, &cmp.field) {
-                    if let Some(key) = value.as_key()
-                        && key_matches_pk::<E>(schema, &key)
-                    {
-                        info.pk_keys.insert(key);
+                    if value_matches_pk::<E>(schema, value) && !info.pk_keys.contains(value) {
+                        info.pk_keys.push(value.clone());
                     }
                     return;
                 }
@@ -111,8 +112,8 @@ fn collect_strict_predicate_info<E: EntityKind>(
     }
 }
 
-fn validate_access_plan<E: EntityKind>(
-    plan: &AccessPlan,
+fn validate_access_plan<E: EntityKind<PrimaryKey = Ref<E>>>(
+    plan: &AccessPlan<E::PrimaryKey>,
     schema: &SchemaInfo,
     info: &StrictPredicateInfo,
 ) -> Result<(), InternalError> {
@@ -141,36 +142,38 @@ fn validate_access_plan<E: EntityKind>(
     }
 }
 
-fn validate_access_path<E: EntityKind>(
-    path: &AccessPath,
+fn validate_access_path<E: EntityKind<PrimaryKey = Ref<E>>>(
+    path: &AccessPath<E::PrimaryKey>,
     schema: &SchemaInfo,
     info: &StrictPredicateInfo,
 ) -> Result<(), InternalError> {
     match path {
         AccessPath::FullScan => {}
         AccessPath::ByKey(key) => {
+            let key_value = key.to_value();
             // Internal invariant: ByKey only targets the primary key.
             ensure_invariant(
-                key_matches_pk::<E>(schema, key),
+                value_matches_pk::<E>(schema, &key_value),
                 "planner invariant violated: ByKey must target the primary key",
             )?;
             // Internal invariant: ByKey only arises from strict primary key predicates.
             ensure_invariant(
-                info.pk_keys.contains(key),
+                info.pk_keys.contains(&key_value),
                 "planner invariant violated: ByKey requires strict primary key predicate",
             )?;
         }
         AccessPath::ByKeys(keys) => {
             // Empty ByKeys is a valid no-op for key-only intents.
             for key in keys {
+                let key_value = key.to_value();
                 // Internal invariant: ByKeys only targets the primary key.
                 ensure_invariant(
-                    key_matches_pk::<E>(schema, key),
+                    value_matches_pk::<E>(schema, &key_value),
                     "planner invariant violated: ByKeys must target the primary key",
                 )?;
                 // Internal invariant: ByKeys only arises from strict primary key predicates.
                 ensure_invariant(
-                    info.pk_keys.contains(key),
+                    info.pk_keys.contains(&key_value),
                     "planner invariant violated: ByKeys requires strict primary key predicate",
                 )?;
             }
@@ -178,7 +181,8 @@ fn validate_access_path<E: EntityKind>(
         AccessPath::KeyRange { start, end } => {
             // Internal invariant: KeyRange only targets the primary key.
             ensure_invariant(
-                key_matches_pk::<E>(schema, start) && key_matches_pk::<E>(schema, end),
+                value_matches_pk::<E>(schema, &start.to_value())
+                    && value_matches_pk::<E>(schema, &end.to_value()),
                 "planner invariant violated: KeyRange must target the primary key",
             )?;
             // Internal invariant: KeyRange ordering must be normalized.
@@ -209,11 +213,11 @@ fn validate_access_path<E: EntityKind>(
     Ok(())
 }
 
-const fn is_full_scan(plan: &AccessPlan) -> bool {
+const fn is_full_scan<K>(plan: &AccessPlan<K>) -> bool {
     matches!(plan, AccessPlan::Path(AccessPath::FullScan))
 }
 
-fn is_primary_key<E: EntityKind>(schema: &SchemaInfo, field: &str) -> bool {
+fn is_primary_key<E: EntityKind<PrimaryKey = Ref<E>>>(schema: &SchemaInfo, field: &str) -> bool {
     field == E::PRIMARY_KEY && schema.field(field).is_some()
 }
 
@@ -230,54 +234,34 @@ fn ensure_invariant(condition: bool, message: &str) -> Result<(), InternalError>
     }
 }
 
-fn key_matches_pk<E: EntityKind>(schema: &SchemaInfo, key: &Key) -> bool {
+fn value_matches_pk<E: EntityKind<PrimaryKey = Ref<E>>>(
+    schema: &SchemaInfo,
+    value: &Value,
+) -> bool {
     let field = E::PRIMARY_KEY;
     let Some(field_type) = schema.field(field) else {
         return false;
     };
 
-    let Some(expected) = key_type_for_field(field_type) else {
+    if !is_key_compatible(field_type) {
         return false;
-    };
-
-    key_variant(key) == expected
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum KeyVariant {
-    Account,
-    Int,
-    Principal,
-    Subaccount,
-    Timestamp,
-    Uint,
-    Ulid,
-    Unit,
-}
-
-const fn key_variant(key: &Key) -> KeyVariant {
-    match key {
-        Key::Account(_) => KeyVariant::Account,
-        Key::Int(_) => KeyVariant::Int,
-        Key::Principal(_) => KeyVariant::Principal,
-        Key::Subaccount(_) => KeyVariant::Subaccount,
-        Key::Timestamp(_) => KeyVariant::Timestamp,
-        Key::Uint(_) => KeyVariant::Uint,
-        Key::Ulid(_) => KeyVariant::Ulid,
-        Key::Unit => KeyVariant::Unit,
     }
+
+    literal_matches_type(value, field_type)
 }
 
-const fn key_type_for_field(field_type: &FieldType) -> Option<KeyVariant> {
-    match field_type {
-        FieldType::Scalar(ScalarType::Account) => Some(KeyVariant::Account),
-        FieldType::Scalar(ScalarType::Int) => Some(KeyVariant::Int),
-        FieldType::Scalar(ScalarType::Principal) => Some(KeyVariant::Principal),
-        FieldType::Scalar(ScalarType::Subaccount) => Some(KeyVariant::Subaccount),
-        FieldType::Scalar(ScalarType::Timestamp) => Some(KeyVariant::Timestamp),
-        FieldType::Scalar(ScalarType::Uint) => Some(KeyVariant::Uint),
-        FieldType::Scalar(ScalarType::Ulid) => Some(KeyVariant::Ulid),
-        FieldType::Scalar(ScalarType::Unit) => Some(KeyVariant::Unit),
-        _ => None,
-    }
+const fn is_key_compatible(field_type: &FieldType) -> bool {
+    matches!(
+        field_type,
+        FieldType::Scalar(
+            ScalarType::Account
+                | ScalarType::Int
+                | ScalarType::Principal
+                | ScalarType::Subaccount
+                | ScalarType::Timestamp
+                | ScalarType::Uint
+                | ScalarType::Ulid
+                | ScalarType::Unit
+        )
+    )
 }

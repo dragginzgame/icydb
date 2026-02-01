@@ -10,6 +10,7 @@ use crate::{
         response::Response,
     },
     traits::{CanisterKind, EntityKind, UnitKey},
+    types::Ref,
 };
 
 ///
@@ -20,12 +21,14 @@ use crate::{
 /// All result inspection and projection is performed on `Response<E>`.
 ///
 
-pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
+pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>>> {
     session: &'a DbSession<C>,
     query: Query<E>,
 }
 
-impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E> {
+impl<'a, C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>>>
+    SessionLoadQuery<'a, C, E>
+{
     pub(crate) const fn new(session: &'a DbSession<C>, query: Query<E>) -> Self {
         Self { session, query }
     }
@@ -45,7 +48,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
 
     #[must_use]
     pub fn by_key(mut self, key: E::PrimaryKey) -> Self {
-        self.query = self.query.by_key(key.into());
+        self.query = self.query.by_key(key);
         self
     }
 
@@ -54,7 +57,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
     where
         I: IntoIterator<Item = E::PrimaryKey>,
     {
-        self.query = self.query.by_keys(keys.into_iter().map(Into::into));
+        self.query = self.query.by_keys(keys);
         self
     }
 
@@ -144,9 +147,8 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
     }
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E>
-where
-    E::PrimaryKey: UnitKey,
+impl<C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>> + UnitKey>
+    SessionLoadQuery<'_, C, E>
 {
     /// Load the singleton entity identified by the unit primary key `()`.
     #[must_use]

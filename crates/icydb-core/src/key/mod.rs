@@ -34,6 +34,8 @@ pub enum Key {
     Unit,
 }
 
+pub(crate) type RawKey = Key;
+
 ///
 /// KeyEncodeError
 ///

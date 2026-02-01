@@ -9,10 +9,10 @@ use crate::{
         store::DataKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    key::Key,
     model::index::IndexModel,
     obs::sink::{self, MetricsEvent},
-    traits::{EntityKind, Storable},
+    traits::{EntityKind, FieldValue, Storable},
+    types::Ref,
 };
 use std::{cell::RefCell, collections::BTreeMap, thread::LocalKey};
 
@@ -45,7 +45,7 @@ pub struct IndexMutationPlan {
 ///
 /// All fallible work happens here. The returned plan is safe to apply
 /// infallibly after a commit marker is written.
-pub fn plan_index_mutation_for_entity<E: EntityKind>(
+pub fn plan_index_mutation_for_entity<E: EntityKind<PrimaryKey = Ref<E>>>(
     db: &crate::db::Db<E::Canister>,
     old: Option<&E>,
     new: Option<&E>,
@@ -101,7 +101,7 @@ pub fn plan_index_mutation_for_entity<E: EntityKind>(
                 )
                 .into());
             }
-            if !entry.contains(&old_entity_key) {
+            if !entry.contains(old_entity_key) {
                 return Err(ExecutorError::corruption(
                     ErrorOrigin::Index,
                     format!(
@@ -145,7 +145,7 @@ pub fn plan_index_mutation_for_entity<E: EntityKind>(
     Ok(IndexMutationPlan { apply, commit_ops })
 }
 
-fn load_existing_entry<E: EntityKind>(
+fn load_existing_entry<E: EntityKind<PrimaryKey = Ref<E>>>(
     store: &'static LocalKey<RefCell<IndexStore>>,
     index: &'static IndexModel,
     entity: Option<&E>,
@@ -182,11 +182,11 @@ fn load_existing_entry<E: EntityKind>(
 /// - Index corruption (multiple keys in a unique entry)
 /// - Uniqueness violations (conflicting key ownership)
 #[expect(clippy::too_many_lines)]
-fn validate_unique_constraint<E: EntityKind>(
+fn validate_unique_constraint<E: EntityKind<PrimaryKey = Ref<E>>>(
     db: &crate::db::Db<E::Canister>,
     index: &IndexModel,
     entry: Option<&IndexEntry>,
-    new_key: Option<&Key>,
+    new_key: Option<&E::PrimaryKey>,
     new_entity: Option<&E>,
 ) -> Result<(), InternalError> {
     if !index.unique {
@@ -213,7 +213,7 @@ fn validate_unique_constraint<E: EntityKind>(
     let Some(new_key) = new_key else {
         return Ok(());
     };
-    if entry.contains(new_key) {
+    if entry.contains(*new_key) {
         return Ok(());
     }
 
@@ -256,8 +256,8 @@ fn validate_unique_constraint<E: EntityKind>(
                 E::PATH,
                 index.fields.join(", "),
                 IndexEntryCorruption::RowKeyMismatch {
-                    indexed_key: Box::new(existing_key),
-                    row_key: Box::new(stored_key),
+                    indexed_key: Box::new(existing_key.to_value()),
+                    row_key: Box::new(stored_key.to_value()),
                 }
             ),
         )
@@ -312,15 +312,15 @@ fn validate_unique_constraint<E: EntityKind>(
 /// Correctly handles old/new key overlap and guarantees that
 /// apply-time mutations cannot fail except by invariant violation.
 #[allow(clippy::too_many_arguments)]
-fn build_commit_ops_for_index<E: EntityKind>(
+fn build_commit_ops_for_index<E: EntityKind<PrimaryKey = Ref<E>>>(
     commit_ops: &mut Vec<CommitIndexOp>,
     index: &'static IndexModel,
     old_key: Option<IndexKey>,
     new_key: Option<IndexKey>,
     old_entry: Option<IndexEntry>,
     new_entry: Option<IndexEntry>,
-    old_entity_key: Option<Key>,
-    new_entity_key: Option<Key>,
+    old_entity_key: Option<E::PrimaryKey>,
+    new_entity_key: Option<E::PrimaryKey>,
 ) -> Result<(), InternalError> {
     let mut touched: BTreeMap<RawIndexKey, Option<IndexEntry>> = BTreeMap::new();
     let fields = index.fields.join(", ");
@@ -337,7 +337,7 @@ fn build_commit_ops_for_index<E: EntityKind>(
         };
 
         if let Some(mut entry) = old_entry {
-            entry.remove_key(&old_entity_key);
+            entry.remove_key(old_entity_key);
             let after = if entry.is_empty() { None } else { Some(entry) };
             touched.insert(old_key.to_raw(), after);
         } else {
@@ -433,10 +433,10 @@ mod tests {
         },
         serialize::serialize,
         traits::{
-            CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto,
+            CanisterKind, DataStoreKind, EntityKind, FieldValue, FieldValues, Path, SanitizeAuto,
             SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
         },
-        types::Ulid,
+        types::{Ref, Ulid},
         value::Value,
     };
     use serde::{Deserialize, Serialize};
@@ -484,7 +484,7 @@ mod tests {
 
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     struct TestEntity {
-        id: Ulid,
+        id: Ref<Self>,
         tag: String,
     }
 
@@ -513,7 +513,7 @@ mod tests {
     impl FieldValues for TestEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(Value::Ulid(self.id)),
+                "id" => Some(self.id.to_value()),
                 "tag" => Some(Value::Text(self.tag.clone())),
                 _ => None,
             }
@@ -522,7 +522,7 @@ mod tests {
 
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     struct MissingFieldEntity {
-        id: Ulid,
+        id: Ref<Self>,
         tag: String,
     }
 
@@ -551,7 +551,7 @@ mod tests {
     impl FieldValues for MissingFieldEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(Value::Ulid(self.id)),
+                "id" => Some(self.id.to_value()),
                 "tag" if self.tag == "__missing__" => None,
                 "tag" => Some(Value::Text(self.tag.clone())),
                 _ => None,
@@ -579,7 +579,7 @@ mod tests {
     }
 
     impl EntityKind for TestEntity {
-        type PrimaryKey = Ulid;
+        type PrimaryKey = Ref<Self>;
         type DataStore = TestStore;
         type Canister = TestCanister;
 
@@ -589,8 +589,8 @@ mod tests {
         const INDEXES: &'static [&'static IndexModel] = &INDEXES;
         const MODEL: &'static EntityModel = &TEST_MODEL;
 
-        fn key(&self) -> crate::key::Key {
-            self.id.into()
+        fn key(&self) -> Self::PrimaryKey {
+            self.id
         }
 
         fn primary_key(&self) -> Self::PrimaryKey {
@@ -603,7 +603,7 @@ mod tests {
     }
 
     impl EntityKind for MissingFieldEntity {
-        type PrimaryKey = Ulid;
+        type PrimaryKey = Ref<Self>;
         type DataStore = TestStore;
         type Canister = TestCanister;
 
@@ -613,8 +613,8 @@ mod tests {
         const INDEXES: &'static [&'static IndexModel] = &INDEXES;
         const MODEL: &'static EntityModel = &MISSING_MODEL;
 
-        fn key(&self) -> crate::key::Key {
-            self.id.into()
+        fn key(&self) -> Self::PrimaryKey {
+            self.id
         }
 
         fn primary_key(&self) -> Self::PrimaryKey {
@@ -685,13 +685,13 @@ mod tests {
             reset_stores();
 
             let existing = TestEntity {
-                id: Ulid::from_u128(1),
+                id: Ref::new(Ulid::from_u128(1)),
                 tag: "alpha".to_string(),
             };
             seed_entity(&existing);
 
             let incoming = TestEntity {
-                id: Ulid::from_u128(2),
+                id: Ref::new(Ulid::from_u128(2)),
                 tag: "alpha".to_string(),
             };
 
@@ -707,13 +707,13 @@ mod tests {
             reset_stores();
 
             let existing = TestEntity {
-                id: Ulid::from_u128(1),
+                id: Ref::new(Ulid::from_u128(1)),
                 tag: "alpha".to_string(),
             };
             seed_entity(&existing);
 
             let incoming = TestEntity {
-                id: Ulid::from_u128(2),
+                id: Ref::new(Ulid::from_u128(2)),
                 tag: "beta".to_string(),
             };
 
@@ -729,11 +729,11 @@ mod tests {
         reset_stores();
 
         let indexed = TestEntity {
-            id: Ulid::from_u128(1),
+            id: Ref::new(Ulid::from_u128(1)),
             tag: "alpha".to_string(),
         };
         let corrupted = TestEntity {
-            id: Ulid::from_u128(2),
+            id: Ref::new(Ulid::from_u128(2)),
             tag: "alpha".to_string(),
         };
 
@@ -751,7 +751,7 @@ mod tests {
         TEST_INDEX_STORE.with_borrow_mut(|store| store.insert(raw_index_key, raw_entry));
 
         let incoming = TestEntity {
-            id: Ulid::from_u128(3),
+            id: Ref::new(Ulid::from_u128(3)),
             tag: "alpha".to_string(),
         };
 
@@ -766,7 +766,7 @@ mod tests {
         reset_stores();
 
         let stored = MissingFieldEntity {
-            id: Ulid::from_u128(1),
+            id: Ref::new(Ulid::from_u128(1)),
             tag: "__missing__".to_string(),
         };
         let data_key = DataKey::new::<MissingFieldEntity>(stored.id);
@@ -775,7 +775,7 @@ mod tests {
         TEST_DATA_STORE.with_borrow_mut(|store| store.insert(raw_key, raw_row));
 
         let incoming = MissingFieldEntity {
-            id: Ulid::from_u128(2),
+            id: Ref::new(Ulid::from_u128(2)),
             tag: "alpha".to_string(),
         };
 

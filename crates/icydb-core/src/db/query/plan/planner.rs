@@ -13,9 +13,9 @@ use crate::{
         },
     },
     error::InternalError,
-    key::Key,
     model::index::IndexModel,
-    traits::EntityKind,
+    traits::{EntityKind, FieldValue},
+    types::Ref,
     value::Value,
 };
 use thiserror::Error as ThisError;
@@ -23,7 +23,10 @@ use thiserror::Error as ThisError;
 #[cfg(test)]
 pub(crate) use tests::PlannerEntity;
 
-impl AccessPlan {
+impl<K> AccessPlan<K>
+where
+    K: Copy + FieldValue + PartialEq,
+{
     fn normalize(self) -> Self {
         match self {
             Self::Path(_) => self,
@@ -42,10 +45,10 @@ pub(crate) enum PlannerError {
 }
 
 /// Planner entrypoint that operates on a prebuilt schema surface.
-pub(crate) fn plan_access<E: EntityKind>(
+pub(crate) fn plan_access<E: EntityKind<PrimaryKey = Ref<E>>>(
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
-) -> Result<AccessPlan, PlannerError> {
+) -> Result<AccessPlan<E::PrimaryKey>, PlannerError> {
     let Some(predicate) = predicate else {
         return Ok(AccessPlan::full_scan());
     };
@@ -67,10 +70,10 @@ pub(crate) fn plan_access<E: EntityKind>(
     Ok(plan)
 }
 
-fn plan_predicate<E: EntityKind>(
+fn plan_predicate<E: EntityKind<PrimaryKey = Ref<E>>>(
     schema: &SchemaInfo,
     predicate: &Predicate,
-) -> Result<AccessPlan, InternalError> {
+) -> Result<AccessPlan<E::PrimaryKey>, InternalError> {
     let plan = match predicate {
         Predicate::True
         | Predicate::False
@@ -108,10 +111,10 @@ fn plan_predicate<E: EntityKind>(
     Ok(plan)
 }
 
-fn plan_compare<E: EntityKind>(
+fn plan_compare<E: EntityKind<PrimaryKey = Ref<E>>>(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
-) -> Result<AccessPlan, InternalError> {
+) -> Result<AccessPlan<E::PrimaryKey>, InternalError> {
     if cmp.coercion.id != CoercionId::Strict {
         return Ok(AccessPlan::full_scan());
     }
@@ -147,14 +150,17 @@ fn plan_compare<E: EntityKind>(
     Ok(AccessPlan::full_scan())
 }
 
-fn plan_pk_compare<E: EntityKind>(
+fn plan_pk_compare<E: EntityKind<PrimaryKey = Ref<E>>>(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
-) -> Option<AccessPath> {
+) -> Option<AccessPath<E::PrimaryKey>> {
     match cmp.op {
         CompareOp::Eq => {
+            if !value_matches_pk::<E>(schema, &cmp.value) {
+                return None;
+            }
             let key = cmp.value.as_key()?;
-            key_matches_pk::<E>(schema, &key).then_some(AccessPath::ByKey(key))
+            Some(AccessPath::ByKey(Ref::new(key)))
         }
         CompareOp::In => {
             let Value::List(items) = &cmp.value else {
@@ -163,10 +169,10 @@ fn plan_pk_compare<E: EntityKind>(
             let mut keys = Vec::with_capacity(items.len());
             for item in items {
                 let key = item.as_key()?;
-                if !key_matches_pk::<E>(schema, &key) {
+                if !value_matches_pk::<E>(schema, item) {
                     return None;
                 }
-                keys.push(key);
+                keys.push(Ref::new(key));
             }
             Some(AccessPath::ByKeys(keys))
         }
@@ -174,17 +180,17 @@ fn plan_pk_compare<E: EntityKind>(
     }
 }
 
-fn sorted_indexes<E: EntityKind>() -> Vec<&'static IndexModel> {
+fn sorted_indexes<E: EntityKind<PrimaryKey = Ref<E>>>() -> Vec<&'static IndexModel> {
     let mut indexes = E::INDEXES.to_vec();
     indexes.sort_by(|left, right| left.name.cmp(right.name));
     indexes
 }
 
-fn index_prefix_for_eq<E: EntityKind>(
+fn index_prefix_for_eq<E: EntityKind<PrimaryKey = Ref<E>>>(
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
-) -> Result<Option<Vec<AccessPlan>>, InternalError> {
+) -> Result<Option<Vec<AccessPlan<E::PrimaryKey>>>, InternalError> {
     let Some(field_type) = schema.field(field) else {
         return Ok(None);
     };
@@ -215,10 +221,10 @@ fn index_prefix_for_eq<E: EntityKind>(
     }
 }
 
-fn index_prefix_from_and<E: EntityKind>(
+fn index_prefix_from_and<E: EntityKind<PrimaryKey = Ref<E>>>(
     schema: &SchemaInfo,
     children: &[Predicate],
-) -> Result<Option<AccessPath>, InternalError> {
+) -> Result<Option<AccessPath<E::PrimaryKey>>, InternalError> {
     let mut field_values = Vec::new();
 
     for child in children {
@@ -292,7 +298,10 @@ fn better_index(
         || (cand_len == best_len && cand_exact == best_exact && cand_index.name < best_index.name)
 }
 
-fn normalize_union(children: Vec<AccessPlan>) -> AccessPlan {
+fn normalize_union<K>(children: Vec<AccessPlan<K>>) -> AccessPlan<K>
+where
+    K: Copy + FieldValue + PartialEq,
+{
     let mut out = Vec::new();
 
     for child in children {
@@ -322,7 +331,10 @@ fn normalize_union(children: Vec<AccessPlan>) -> AccessPlan {
     AccessPlan::Union(out)
 }
 
-fn normalize_intersection(children: Vec<AccessPlan>) -> AccessPlan {
+fn normalize_intersection<K>(children: Vec<AccessPlan<K>>) -> AccessPlan<K>
+where
+    K: Copy + FieldValue + PartialEq,
+{
     let mut out = Vec::new();
 
     for child in children {
@@ -352,64 +364,40 @@ fn normalize_intersection(children: Vec<AccessPlan>) -> AccessPlan {
     AccessPlan::Intersection(out)
 }
 
-const fn is_full_scan(plan: &AccessPlan) -> bool {
+const fn is_full_scan<K>(plan: &AccessPlan<K>) -> bool {
     matches!(plan, AccessPlan::Path(AccessPath::FullScan))
 }
 
-fn is_primary_key<E: EntityKind>(schema: &SchemaInfo, field: &str) -> bool {
+fn is_primary_key<E: EntityKind<PrimaryKey = Ref<E>>>(schema: &SchemaInfo, field: &str) -> bool {
     field == E::PRIMARY_KEY && schema.field(field).is_some()
 }
 
-fn key_matches_pk<E: EntityKind>(schema: &SchemaInfo, key: &Key) -> bool {
+fn value_matches_pk<E: EntityKind<PrimaryKey = Ref<E>>>(
+    schema: &SchemaInfo,
+    value: &Value,
+) -> bool {
     let field = E::PRIMARY_KEY;
     let Some(field_type) = schema.field(field) else {
         return false;
     };
 
-    let Some(expected) = key_type_for_field(field_type) else {
-        return false;
-    };
-
-    key_variant(key) == expected
+    is_key_compatible(field_type) && literal_matches_type(value, field_type)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum KeyVariant {
-    Account,
-    Int,
-    Principal,
-    Subaccount,
-    Timestamp,
-    Uint,
-    Ulid,
-    Unit,
-}
-
-const fn key_variant(key: &Key) -> KeyVariant {
-    match key {
-        Key::Account(_) => KeyVariant::Account,
-        Key::Int(_) => KeyVariant::Int,
-        Key::Principal(_) => KeyVariant::Principal,
-        Key::Subaccount(_) => KeyVariant::Subaccount,
-        Key::Timestamp(_) => KeyVariant::Timestamp,
-        Key::Uint(_) => KeyVariant::Uint,
-        Key::Ulid(_) => KeyVariant::Ulid,
-        Key::Unit => KeyVariant::Unit,
-    }
-}
-
-const fn key_type_for_field(field_type: &FieldType) -> Option<KeyVariant> {
-    match field_type {
-        FieldType::Scalar(ScalarType::Account) => Some(KeyVariant::Account),
-        FieldType::Scalar(ScalarType::Int) => Some(KeyVariant::Int),
-        FieldType::Scalar(ScalarType::Principal) => Some(KeyVariant::Principal),
-        FieldType::Scalar(ScalarType::Subaccount) => Some(KeyVariant::Subaccount),
-        FieldType::Scalar(ScalarType::Timestamp) => Some(KeyVariant::Timestamp),
-        FieldType::Scalar(ScalarType::Uint) => Some(KeyVariant::Uint),
-        FieldType::Scalar(ScalarType::Ulid) => Some(KeyVariant::Ulid),
-        FieldType::Scalar(ScalarType::Unit) => Some(KeyVariant::Unit),
-        _ => None,
-    }
+const fn is_key_compatible(field_type: &FieldType) -> bool {
+    matches!(
+        field_type,
+        FieldType::Scalar(
+            ScalarType::Account
+                | ScalarType::Int
+                | ScalarType::Principal
+                | ScalarType::Subaccount
+                | ScalarType::Timestamp
+                | ScalarType::Uint
+                | ScalarType::Ulid
+                | ScalarType::Unit
+        )
+    )
 }
 
 ///
@@ -428,8 +416,8 @@ mod tests {
         },
         prelude::IndexModel,
         traits::{
-            CanisterKind, DataStoreKind, FieldValues, Path, SanitizeAuto, SanitizeCustom,
-            ValidateAuto, ValidateCustom, View, Visitable,
+            CanisterKind, DataStoreKind, FieldValue, FieldValues, Path, SanitizeAuto,
+            SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
         },
         types::Ulid,
         value::Value,
@@ -477,7 +465,7 @@ mod tests {
 
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     pub struct PlannerEntity {
-        id: Ulid,
+        id: Ref<Self>,
         idx_a: String,
         idx_b: String,
         other: String,
@@ -508,7 +496,7 @@ mod tests {
     impl FieldValues for PlannerEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(Value::Ulid(self.id)),
+                "id" => Some(self.id.to_value()),
                 "idx_a" => Some(Value::Text(self.idx_a.clone())),
                 "idx_b" => Some(Value::Text(self.idx_b.clone())),
                 "other" => Some(Value::Text(self.other.clone())),
@@ -536,7 +524,7 @@ mod tests {
     }
 
     impl EntityKind for PlannerEntity {
-        type PrimaryKey = Ulid;
+        type PrimaryKey = Ref<Self>;
         type DataStore = PlannerStore;
         type Canister = PlannerCanister;
 
@@ -546,8 +534,8 @@ mod tests {
         const INDEXES: &'static [&'static IndexModel] = &INDEXES;
         const MODEL: &'static EntityModel = &PLANNER_MODEL;
 
-        fn key(&self) -> Key {
-            self.id.into()
+        fn key(&self) -> Self::PrimaryKey {
+            self.id
         }
 
         fn primary_key(&self) -> Self::PrimaryKey {
@@ -608,7 +596,7 @@ mod tests {
 
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     struct MultiIndexEntity {
-        id: Ulid,
+        id: Ref<Self>,
         idx_a: String,
         idx_b: String,
     }
@@ -638,7 +626,7 @@ mod tests {
     impl FieldValues for MultiIndexEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(Value::Ulid(self.id)),
+                "id" => Some(self.id.to_value()),
                 "idx_a" => Some(Value::Text(self.idx_a.clone())),
                 "idx_b" => Some(Value::Text(self.idx_b.clone())),
                 _ => None,
@@ -647,7 +635,7 @@ mod tests {
     }
 
     impl EntityKind for MultiIndexEntity {
-        type PrimaryKey = Ulid;
+        type PrimaryKey = Ref<Self>;
         type DataStore = PlannerStore;
         type Canister = PlannerCanister;
 
@@ -657,8 +645,8 @@ mod tests {
         const INDEXES: &'static [&'static IndexModel] = &MULTI_INDEXES;
         const MODEL: &'static EntityModel = &MULTI_MODEL;
 
-        fn key(&self) -> Key {
-            self.id.into()
+        fn key(&self) -> Self::PrimaryKey {
+            self.id
         }
 
         fn primary_key(&self) -> Self::PrimaryKey {
@@ -711,7 +699,7 @@ mod tests {
         let predicate = eq("id", Value::Ulid(id), strict());
         let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
-        assert_eq!(plan, AccessPlan::Path(AccessPath::ByKey(Key::Ulid(id))));
+        assert_eq!(plan, AccessPlan::Path(AccessPath::ByKey(Ref::new(id))));
     }
 
     #[test]
@@ -724,7 +712,7 @@ mod tests {
 
         assert_eq!(
             plan,
-            AccessPlan::Path(AccessPath::ByKeys(vec![Key::Ulid(a), Key::Ulid(b)]))
+            AccessPlan::Path(AccessPath::ByKeys(vec![Ref::new(a), Ref::new(b)]))
         );
     }
 
@@ -804,7 +792,7 @@ mod tests {
         assert_eq!(
             plan,
             AccessPlan::Intersection(vec![
-                AccessPlan::Path(AccessPath::ByKey(Key::Ulid(id))),
+                AccessPlan::Path(AccessPath::ByKey(Ref::new(id))),
                 AccessPlan::Path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
                     values: vec![v_text("alpha")],
@@ -823,7 +811,7 @@ mod tests {
         ]);
         let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
-        assert_eq!(plan, AccessPlan::Path(AccessPath::ByKey(Key::Ulid(id))));
+        assert_eq!(plan, AccessPlan::Path(AccessPath::ByKey(Ref::new(id))));
     }
 
     #[test]
@@ -935,7 +923,7 @@ mod tests {
         assert_eq!(
             plan,
             AccessPlan::Union(vec![
-                AccessPlan::Path(AccessPath::ByKey(Key::Ulid(id))),
+                AccessPlan::Path(AccessPath::ByKey(Ref::new(id))),
                 AccessPlan::Path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
                     values: vec![v_text("alpha")],

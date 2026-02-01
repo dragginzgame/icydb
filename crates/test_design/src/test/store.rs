@@ -15,7 +15,7 @@ impl StoreTestEntity {
     #[must_use]
     pub fn new(id: u64) -> Self {
         Self {
-            id,
+            id: Ref::new(id),
             ..Default::default()
         }
     }
@@ -40,7 +40,7 @@ mod tests {
 
     #[test]
     fn raw_data_key_roundtrip_via_bytes() {
-        let data_key = DataKey::new::<StoreTestEntity>(Key::Uint(42));
+        let data_key = DataKey::new::<StoreTestEntity>(Ref::new(Key::Uint(42)));
         let raw = data_key.to_raw().expect("data key encode");
         let bytes = raw.to_bytes();
 

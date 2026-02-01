@@ -204,10 +204,10 @@ mod tests {
         },
         serialize::serialize,
         traits::{
-            CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto,
+            CanisterKind, DataStoreKind, EntityKind, FieldValue, FieldValues, Path, SanitizeAuto,
             SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
         },
-        types::Ulid,
+        types::{Ref, Ulid},
         value::Value,
     };
     use canic_memory::runtime::registry::MemoryRegistryRuntime;
@@ -247,7 +247,7 @@ mod tests {
 
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     struct TestEntity {
-        id: Ulid,
+        id: Ref<Self>,
         name: String,
     }
 
@@ -276,7 +276,7 @@ mod tests {
     impl FieldValues for TestEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(Value::Ulid(self.id)),
+                "id" => Some(self.id.to_value()),
                 "name" => Some(Value::Text(self.name.clone())),
                 _ => None,
             }
@@ -303,7 +303,7 @@ mod tests {
     }
 
     impl EntityKind for TestEntity {
-        type PrimaryKey = Ulid;
+        type PrimaryKey = Ref<Self>;
         type DataStore = TestStore;
         type Canister = TestCanister;
 
@@ -313,8 +313,8 @@ mod tests {
         const INDEXES: &'static [&'static IndexModel] = &INDEXES;
         const MODEL: &'static EntityModel = &TEST_MODEL;
 
-        fn key(&self) -> crate::key::Key {
-            self.id.into()
+        fn key(&self) -> Self::PrimaryKey {
+            self.id
         }
 
         fn primary_key(&self) -> Self::PrimaryKey {
@@ -384,7 +384,7 @@ mod tests {
 
         // Stage 1: build a valid commit marker payload.
         let entity = TestEntity {
-            id: Ulid::from_u128(7),
+            id: Ref::new(Ulid::from_u128(7)),
             name: "alpha".to_string(),
         };
         let data_key = DataKey::new::<TestEntity>(entity.id);
@@ -438,7 +438,7 @@ mod tests {
         reset_stores();
 
         let entity = TestEntity {
-            id: Ulid::from_u128(8),
+            id: Ref::new(Ulid::from_u128(8)),
             name: "alpha".to_string(),
         };
         let data_key = DataKey::new::<TestEntity>(entity.id);

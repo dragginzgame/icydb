@@ -2,8 +2,9 @@
 use crate::{
     db::identity::{EntityName, IdentityDecodeError},
     error::{ErrorClass, ErrorOrigin, InternalError},
-    key::{Key, KeyEncodeError},
+    key::{Key, KeyEncodeError, RawKey},
     traits::{EntityKind, Storable},
+    types::Ref,
 };
 use canic_cdk::structures::storable::Bound;
 use std::{
@@ -74,7 +75,7 @@ pub enum DataKeyDecodeError {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DataKey {
     entity: EntityName,
-    key: Key,
+    key: RawKey,
 }
 
 impl DataKey {
@@ -93,10 +94,10 @@ impl DataKey {
     /// This cannot fail in practice: `ENTITY_NAME` is generated and validated
     /// at compile time. If it is ever invalid, that is a programmer error.
     #[must_use]
-    pub fn new<E: EntityKind>(key: impl Into<Key>) -> Self {
+    pub fn new<E: EntityKind>(key: Ref<E>) -> Self {
         Self {
             entity: Self::entity_for::<E>(),
-            key: key.into(),
+            key: key.raw(),
         }
     }
 
@@ -128,13 +129,18 @@ impl DataKey {
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub const fn key(&self) -> Key {
-        self.key
+    pub const fn key<E: EntityKind>(&self) -> Ref<E> {
+        Ref::from_raw(self.key)
     }
 
     #[must_use]
     pub const fn entity_name(&self) -> &EntityName {
         &self.entity
+    }
+
+    #[must_use]
+    pub(crate) const fn raw_key(&self) -> RawKey {
+        self.key
     }
 
     /// Compute on-disk entry size from value length.
@@ -191,12 +197,6 @@ impl DataKey {
 impl Display for DataKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "#{} ({})", self.entity, self.key)
-    }
-}
-
-impl From<DataKey> for Key {
-    fn from(key: DataKey) -> Self {
-        key.key()
     }
 }
 

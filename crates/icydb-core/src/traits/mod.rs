@@ -24,9 +24,9 @@ pub use std::{
 
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
+    key::RawKey,
     model::field::EntityFieldKind,
     prelude::*,
-    types::Unit,
     value::ValueEnum,
     visitor::VisitorContext,
 };
@@ -63,7 +63,7 @@ pub trait DataStoreKind: Kind {
 ///
 
 pub trait EntityKind: Kind + TypeKind + FieldValues {
-    type PrimaryKey: Copy + Into<Key>;
+    type PrimaryKey: Copy + Eq + Hash;
     type DataStore: DataStoreKind;
     type Canister: CanisterKind; // Self::Store::Canister shortcut
 
@@ -73,7 +73,7 @@ pub trait EntityKind: Kind + TypeKind + FieldValues {
     const INDEXES: &'static [&'static IndexModel];
     const MODEL: &'static crate::model::entity::EntityModel;
 
-    fn key(&self) -> Key;
+    fn key(&self) -> Self::PrimaryKey;
     fn primary_key(&self) -> Self::PrimaryKey;
     fn set_primary_key(&mut self, key: Self::PrimaryKey);
 }
@@ -91,20 +91,7 @@ pub trait IndexStoreKind: Kind {
 /// Marker trait for unit-valued primary keys used by singleton entities.
 ///
 
-pub trait UnitKey: Copy + Into<Key> + unit_key::Sealed {}
-
-impl UnitKey for () {}
-impl UnitKey for Unit {}
-
-mod unit_key {
-    use crate::types::Unit;
-
-    // Seal UnitKey so only unit-equivalent key types can implement it.
-    pub trait Sealed {}
-
-    impl Sealed for () {}
-    impl Sealed for Unit {}
-}
+pub trait UnitKey {}
 
 /// ------------------------
 /// TYPE TRAITS
@@ -166,7 +153,13 @@ pub trait FieldValues {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EntityRef {
     pub target_path: &'static str,
-    pub key: Key,
+    key: RawKey,
+}
+
+impl EntityRef {
+    pub(crate) const fn raw_key(&self) -> RawKey {
+        self.key
+    }
 }
 
 ///

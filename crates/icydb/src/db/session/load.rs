@@ -5,8 +5,8 @@ use crate::{
         response::{Response, map_response_error},
     },
     error::Error,
-    key::Key,
     traits::{CanisterKind, EntityKind, UnitKey},
+    types::Ref,
     view::View,
 };
 use icydb_core as core;
@@ -18,11 +18,11 @@ use std::{borrow::Borrow, collections::HashMap, hash::Hash};
 /// Session-bound fluent wrapper for load queries.
 ///
 
-pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
+pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>>> {
     pub(crate) inner: core::db::query::SessionLoadQuery<'a, C, E>,
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
+impl<C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>>> SessionLoadQuery<'_, C, E> {
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------
@@ -204,31 +204,31 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         Ok(counts)
     }
 
-    /// Execute and return the first store key, if any.
-    pub fn key(&self) -> Result<Option<Key>, Error> {
+    /// Execute and return the first primary key, if any.
+    pub fn key(&self) -> Result<Option<E::PrimaryKey>, Error> {
         Ok(self.inner.execute()?.key())
     }
 
-    /// Execute and require exactly one store key.
-    pub fn key_strict(&self) -> Result<Key, Error> {
+    /// Execute and require exactly one primary key.
+    pub fn key_strict(&self) -> Result<E::PrimaryKey, Error> {
         self.inner
             .execute()?
             .key_strict()
             .map_err(map_response_error)
     }
 
-    /// Execute and return zero or one store key.
-    pub fn try_key(&self) -> Result<Option<Key>, Error> {
+    /// Execute and return zero or one primary key.
+    pub fn try_key(&self) -> Result<Option<E::PrimaryKey>, Error> {
         self.inner.execute()?.try_key().map_err(map_response_error)
     }
 
-    /// Execute and return all store keys.
-    pub fn keys(&self) -> Result<Vec<Key>, Error> {
+    /// Execute and return all primary keys.
+    pub fn keys(&self) -> Result<Vec<E::PrimaryKey>, Error> {
         Ok(self.inner.execute()?.keys())
     }
 
     /// Execute and check whether the response contains the provided key.
-    pub fn contains_key(&self, key: &Key) -> Result<bool, Error> {
+    pub fn contains_key(&self, key: &E::PrimaryKey) -> Result<bool, Error> {
         Ok(self.inner.execute()?.contains_key(key))
     }
 
@@ -284,9 +284,8 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     }
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E>
-where
-    E::PrimaryKey: UnitKey,
+impl<C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>> + UnitKey>
+    SessionLoadQuery<'_, C, E>
 {
     /// Load the singleton entity identified by `()`.
     #[must_use]

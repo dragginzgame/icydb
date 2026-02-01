@@ -1,4 +1,4 @@
-use icydb::macros::entity;
+use icydb_schema_derive::entity;
 
 #[entity(
     store = "TestDataStore",

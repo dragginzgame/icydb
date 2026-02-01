@@ -7,7 +7,7 @@ use crate::db::query::QueryMode;
 use crate::db::query::predicate::{
     CompareOp, ComparePredicate, Predicate, coercion::CoercionSpec, normalize,
 };
-use crate::{db::query::ReadConsistency, key::Key, value::Value};
+use crate::{db::query::ReadConsistency, traits::FieldValue, value::Value};
 
 ///
 /// ExplainPlan
@@ -33,14 +33,14 @@ pub struct ExplainPlan {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainAccessPath {
     ByKey {
-        key: Key,
+        key: Value,
     },
     ByKeys {
-        keys: Vec<Key>,
+        keys: Vec<Value>,
     },
     KeyRange {
-        start: Key,
-        end: Key,
+        start: Value,
+        end: Value,
     },
     IndexPrefix {
         name: &'static str,
@@ -149,7 +149,10 @@ pub enum ExplainDeleteLimit {
     Limit { max_rows: u32 },
 }
 
-impl LogicalPlan {
+impl<K> LogicalPlan<K>
+where
+    K: Copy + FieldValue,
+{
     /// Produce a stable, deterministic explanation of this logical plan.
     #[must_use]
     pub fn explain(&self) -> ExplainPlan {
@@ -175,7 +178,10 @@ impl LogicalPlan {
 }
 
 impl ExplainAccessPath {
-    fn from_access_plan(access: &AccessPlan) -> Self {
+    fn from_access_plan<K>(access: &AccessPlan<K>) -> Self
+    where
+        K: Copy + FieldValue,
+    {
         match access {
             AccessPlan::Path(path) => Self::from_path(path),
             AccessPlan::Union(children) => {
@@ -187,13 +193,20 @@ impl ExplainAccessPath {
         }
     }
 
-    fn from_path(path: &AccessPath) -> Self {
+    fn from_path<K>(path: &AccessPath<K>) -> Self
+    where
+        K: Copy + FieldValue,
+    {
         match path {
-            AccessPath::ByKey(key) => Self::ByKey { key: *key },
-            AccessPath::ByKeys(keys) => Self::ByKeys { keys: keys.clone() },
+            AccessPath::ByKey(key) => Self::ByKey {
+                key: key.to_value(),
+            },
+            AccessPath::ByKeys(keys) => Self::ByKeys {
+                keys: keys.iter().map(FieldValue::to_value).collect(),
+            },
             AccessPath::KeyRange { start, end } => Self::KeyRange {
-                start: *start,
-                end: *end,
+                start: start.to_value(),
+                end: end.to_value(),
             },
             AccessPath::IndexPrefix { index, values } => Self::IndexPrefix {
                 name: index.name,
@@ -328,14 +341,11 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::query::plan::{AccessPath, LogicalPlan, planner::PlannerEntity};
     use crate::db::query::{FieldRef, Query, ReadConsistency};
     use crate::model::index::IndexModel;
-    use crate::types::Ulid;
+    use crate::types::{Ref, Ulid};
     use crate::value::Value;
-    use crate::{
-        db::query::plan::{AccessPath, LogicalPlan, planner::PlannerEntity},
-        key::Key,
-    };
 
     #[test]
     fn explain_is_deterministic_for_same_query() {
@@ -378,7 +388,7 @@ mod tests {
         indexes.sort_by(|left, right| left.name.cmp(right.name));
         let chosen = indexes[0];
 
-        let plan = LogicalPlan::new(
+        let plan = LogicalPlan::<Ref<PlannerEntity>>::new(
             AccessPath::IndexPrefix {
                 index: chosen,
                 values: vec![Value::Text("alpha".to_string())],
@@ -404,11 +414,11 @@ mod tests {
 
     #[test]
     fn explain_differs_for_semantic_changes() {
-        let plan_a = LogicalPlan::new(
-            AccessPath::ByKey(Key::Ulid(Ulid::from_u128(1))),
+        let plan_a = LogicalPlan::<Ref<PlannerEntity>>::new(
+            AccessPath::ByKey(Ref::new(Ulid::from_u128(1))),
             crate::db::query::ReadConsistency::MissingOk,
         );
-        let plan_b = LogicalPlan::new(
+        let plan_b = LogicalPlan::<Ref<PlannerEntity>>::new(
             AccessPath::FullScan,
             crate::db::query::ReadConsistency::MissingOk,
         );

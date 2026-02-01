@@ -9,8 +9,8 @@ use crate::{
         store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorOrigin, InternalError},
-    key::Key,
     traits::{EntityKind, Path},
+    types::Ref,
 };
 use std::{collections::HashSet, marker::PhantomData, ops::Bound};
 
@@ -18,14 +18,14 @@ use std::{collections::HashSet, marker::PhantomData, ops::Bound};
 /// Context
 ///
 
-pub struct Context<'a, E: EntityKind> {
+pub struct Context<'a, E: EntityKind<PrimaryKey = Ref<E>>> {
     pub db: &'a Db<E::Canister>,
     _marker: PhantomData<E>,
 }
 
 impl<'a, E> Context<'a, E>
 where
-    E: EntityKind,
+    E: EntityKind<PrimaryKey = Ref<E>>,
 {
     #[must_use]
     pub const fn new(db: &'a Db<E::Canister>) -> Self {
@@ -84,7 +84,7 @@ where
     /// This ordering is for stability only and does not imply semantic ordering.
     pub(crate) fn candidates_from_access(
         &self,
-        access: &AccessPath,
+        access: &AccessPath<E::PrimaryKey>,
     ) -> Result<Vec<DataKey>, InternalError> {
         let is_index_path = matches!(access, AccessPath::IndexPrefix { .. });
 
@@ -132,7 +132,7 @@ where
     /// for this behavior.
     pub(crate) fn rows_from_access(
         &self,
-        access: &AccessPath,
+        access: &AccessPath<E::PrimaryKey>,
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError> {
         match access {
@@ -173,7 +173,7 @@ where
     /// Load data rows for a composite access plan.
     pub(crate) fn rows_from_access_plan(
         &self,
-        access: &AccessPlan,
+        access: &AccessPlan<E::PrimaryKey>,
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError> {
         match access {
@@ -190,15 +190,15 @@ where
     /// Load Helpers
     ///
 
-    fn data_key(key: Key) -> DataKey {
+    fn data_key(key: Ref<E>) -> DataKey {
         DataKey::new::<E>(key)
     }
 
-    fn data_keys(keys: Vec<Key>) -> Vec<DataKey> {
+    fn data_keys(keys: Vec<Ref<E>>) -> Vec<DataKey> {
         keys.into_iter().map(Self::data_key).collect()
     }
 
-    fn dedup_keys(keys: Vec<Key>) -> Vec<Key> {
+    fn dedup_keys(keys: Vec<Ref<E>>) -> Vec<Ref<E>> {
         let mut seen = HashSet::with_capacity(keys.len());
         let mut out = Vec::with_capacity(keys.len());
         for key in keys {
@@ -253,7 +253,7 @@ where
 
     fn candidate_keys_for_plan(
         &self,
-        plan: &AccessPlan,
+        plan: &AccessPlan<E::PrimaryKey>,
     ) -> Result<std::collections::BTreeSet<DataKey>, InternalError> {
         match plan {
             AccessPlan::Path(path) => {
@@ -287,7 +287,10 @@ where
 
     /// Deserialize raw data rows into typed entity rows, mapping `DataKey` → `(Key, E)`.
     #[allow(clippy::unused_self)]
-    pub fn deserialize_rows(&self, rows: Vec<DataRow>) -> Result<Vec<(Key, E)>, InternalError> {
+    pub fn deserialize_rows(
+        &self,
+        rows: Vec<DataRow>,
+    ) -> Result<Vec<(E::PrimaryKey, E)>, InternalError> {
         rows.into_iter()
             .map(|(k, v)| {
                 let entry = v.try_decode::<E>().map_err(|err| {
@@ -297,7 +300,7 @@ where
                     )
                 })?;
 
-                let key = k.key();
+                let key = k.key::<E>();
                 let entity_key = entry.key();
                 if key != entity_key {
                     return Err(ExecutorError::corruption(

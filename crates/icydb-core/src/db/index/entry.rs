@@ -1,7 +1,9 @@
 use crate::{
     db::index::RawIndexKey,
-    key::{Key, KeyEncodeError},
-    traits::Storable,
+    key::{Key, KeyEncodeError, RawKey},
+    traits::{EntityKind, FieldValue, Storable},
+    types::Ref,
+    value::Value,
 };
 use candid::CandidType;
 use canic_cdk::structures::storable::Bound;
@@ -49,26 +51,26 @@ pub enum IndexEntryCorruption {
     #[error("unique index entry contains {keys} keys")]
     NonUniqueEntry { keys: usize },
 
-    #[error("index entry missing expected entity key: {entity_key} (index {index_key:?})")]
+    #[error("index entry missing expected entity key: {entity_key:?} (index {index_key:?})")]
     MissingKey {
         index_key: Box<RawIndexKey>,
-        entity_key: Key,
+        entity_key: Value,
     },
 
-    #[error("index entry points at key {indexed_key} but stored row key is {row_key}")]
+    #[error("index entry points at key {indexed_key:?} but stored row key is {row_key:?}")]
     RowKeyMismatch {
-        indexed_key: Box<Key>,
-        row_key: Box<Key>,
+        indexed_key: Box<Value>,
+        row_key: Box<Value>,
     },
 }
 
 impl IndexEntryCorruption {
     // Helper used only for variants with large or representation-sensitive payloads.
     #[must_use]
-    pub fn missing_key(index_key: RawIndexKey, entity_key: Key) -> Self {
+    pub fn missing_key(index_key: RawIndexKey, entity_key: impl FieldValue) -> Self {
         Self::MissingKey {
             index_key: Box::new(index_key),
-            entity_key,
+            entity_key: entity_key.to_value(),
         }
     }
 }
@@ -102,29 +104,45 @@ impl IndexEntryEncodeError {
 
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub struct IndexEntry {
-    keys: BTreeSet<Key>,
+    keys: BTreeSet<RawKey>,
 }
 
 impl IndexEntry {
     #[must_use]
-    pub fn new(key: Key) -> Self {
+    pub fn new<E: EntityKind>(key: Ref<E>) -> Self {
+        Self::new_raw(key.raw())
+    }
+
+    #[must_use]
+    pub(crate) fn new_raw(key: RawKey) -> Self {
         let mut keys = BTreeSet::new();
         keys.insert(key);
 
         Self { keys }
     }
 
-    pub fn insert_key(&mut self, key: Key) {
-        self.keys.insert(key);
+    pub fn insert_key<E: EntityKind>(&mut self, key: Ref<E>) {
+        self.keys.insert(key.raw());
     }
 
-    pub fn remove_key(&mut self, key: &Key) {
-        self.keys.remove(key);
+    pub fn remove_key<E: EntityKind>(&mut self, key: Ref<E>) {
+        self.keys.remove(&key.raw());
     }
 
     #[must_use]
-    pub fn contains(&self, key: &Key) -> bool {
-        self.keys.contains(key)
+    pub fn contains<E: EntityKind>(&self, key: Ref<E>) -> bool {
+        self.keys.contains(&key.raw())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_raw(&mut self, key: RawKey) {
+        self.keys.insert(key);
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) fn contains_raw(&self, key: RawKey) -> bool {
+        self.keys.contains(&key)
     }
 
     #[must_use]
@@ -137,14 +155,18 @@ impl IndexEntry {
         self.keys.len()
     }
 
-    pub fn iter_keys(&self) -> impl Iterator<Item = Key> + '_ {
+    pub fn iter_keys<E: EntityKind>(&self) -> impl Iterator<Item = Ref<E>> + '_ {
+        self.keys.iter().copied().map(Ref::from_raw)
+    }
+
+    pub(crate) fn iter_raw_keys(&self) -> impl Iterator<Item = RawKey> + '_ {
         self.keys.iter().copied()
     }
 
     #[must_use]
-    pub fn single_key(&self) -> Option<Key> {
+    pub fn single_key<E: EntityKind>(&self) -> Option<Ref<E>> {
         if self.keys.len() == 1 {
-            self.keys.iter().copied().next()
+            self.keys.iter().copied().map(Ref::from_raw).next()
         } else {
             None
         }
@@ -168,7 +190,7 @@ impl RawIndexEntry {
         let mut out = Vec::with_capacity(INDEX_ENTRY_LEN_BYTES + (keys * Key::STORED_SIZE_USIZE));
         let count = u32::try_from(keys).map_err(|_| IndexEntryEncodeError::TooManyKeys { keys })?;
         out.extend_from_slice(&count.to_be_bytes());
-        for key in entry.iter_keys() {
+        for key in entry.iter_raw_keys() {
             let bytes = key.to_bytes()?;
             out.extend_from_slice(&bytes);
         }

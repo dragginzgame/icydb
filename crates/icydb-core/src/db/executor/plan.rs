@@ -6,7 +6,7 @@ use crate::{
 
 /// Records metrics for the chosen execution plan.
 /// Must be called exactly once per execution.
-pub fn record_plan_metrics(access: &AccessPlan) {
+pub fn record_plan_metrics<K>(access: &AccessPlan<K>) {
     let kind = match access {
         AccessPlan::Path(path) => match path {
             AccessPath::ByKey(_) | AccessPath::ByKeys(_) => PlanKind::Keys,

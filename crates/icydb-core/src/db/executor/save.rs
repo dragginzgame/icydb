@@ -17,12 +17,12 @@ use crate::{
         store::{DataKey, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    key::Key,
     model::field::EntityFieldKind,
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::serialize,
     traits::{EntityKind, EntityRef, EntityReferences, FieldValue, Path, Storable},
+    types::Ref,
     validate::validate,
     value::Value,
 };
@@ -43,14 +43,14 @@ use std::{
 ///
 
 #[derive(Clone, Copy)]
-pub struct SaveExecutor<E: EntityKind> {
+pub struct SaveExecutor<E: EntityKind<PrimaryKey = Ref<E>>> {
     db: Db<E::Canister>,
     debug: bool,
     trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityKind> SaveExecutor<E> {
+impl<E: EntityKind<PrimaryKey = Ref<E>>> SaveExecutor<E> {
     // ======================================================================
     // Construction & configuration
     // ======================================================================
@@ -212,7 +212,7 @@ impl<E: EntityKind> SaveExecutor<E> {
                                 format!("failed to deserialize row: {data_key} ({err})"),
                             )
                         })?;
-                        let expected = data_key.key();
+                        let expected = data_key.key::<E>();
                         let actual = stored.key();
                         if expected != actual {
                             return Err(ExecutorError::corruption(
@@ -235,7 +235,7 @@ impl<E: EntityKind> SaveExecutor<E> {
                             format!("failed to deserialize row: {data_key} ({err})"),
                         )
                     })?;
-                    let expected = data_key.key();
+                    let expected = data_key.key::<E>();
                     let actual = old.key();
                     if expected != actual {
                         return Err(ExecutorError::corruption(
@@ -260,7 +260,7 @@ impl<E: EntityKind> SaveExecutor<E> {
                         })
                         .transpose()?;
                     if let Some(old) = old.as_ref() {
-                        let expected = data_key.key();
+                        let expected = data_key.key::<E>();
                         let actual = old.key();
                         if expected != actual {
                             return Err(ExecutorError::corruption(
@@ -419,7 +419,7 @@ impl<E: EntityKind> SaveExecutor<E> {
                     )
                 })?;
 
-                if data_key.key() == reference.key {
+                if data_key.raw_key() == reference.raw_key() {
                     return Ok(true);
                 }
             }
@@ -433,7 +433,8 @@ impl<E: EntityKind> SaveExecutor<E> {
                 ErrorOrigin::Executor,
                 format!(
                     "missing referenced entity: {} key={}",
-                    reference.target_path, reference.key
+                    reference.target_path,
+                    reference.raw_key()
                 ),
             ));
         }
@@ -463,7 +464,7 @@ impl<E: EntityKind> SaveExecutor<E> {
     // Enforce trait boundary invariants for user-provided entities.
     fn validate_entity_invariants(entity: &E, schema: &SchemaInfo) -> Result<(), InternalError> {
         let key = entity.key();
-        let primary_key: Key = entity.primary_key().into();
+        let primary_key = entity.primary_key();
         if key != primary_key {
             return Err(InternalError::new(
                 ErrorClass::InvariantViolation,
@@ -818,17 +819,16 @@ mod tests {
     use super::SaveExecutor;
     use crate::{
         error::{ErrorClass, ErrorOrigin},
-        key::Key,
         model::{
             entity::EntityModel,
             field::{EntityFieldKind, EntityFieldModel},
             index::IndexModel,
         },
         traits::{
-            CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto,
+            CanisterKind, DataStoreKind, EntityKind, FieldValue, FieldValues, Path, SanitizeAuto,
             SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
         },
-        types::Ulid,
+        types::{Ref, Ulid},
         value::Value,
     };
     use serde::{Deserialize, Serialize};
@@ -871,21 +871,21 @@ mod tests {
     /// Deliberately violates `key() == primary_key()` for invariant testing.
     #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
     struct BadKeyEntity {
-        id: Ulid,
-        other: Ulid,
+        id: Ref<Self>,
+        other: Ref<Self>,
     }
 
     /// Deliberately returns an inconsistent primary key field value.
     #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
     struct BadFieldEntity {
-        id: Ulid,
-        other: Ulid,
+        id: Ref<Self>,
+        other: Ref<Self>,
     }
 
     /// Deliberately returns an invalid value type for the primary key field.
     #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
     struct BadTypeEntity {
-        id: Ulid,
+        id: Ref<Self>,
     }
 
     impl Path for BadKeyEntity {
@@ -957,7 +957,7 @@ mod tests {
     impl FieldValues for BadKeyEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(Value::Ulid(self.id)),
+                "id" => Some(self.id.to_value()),
                 _ => None,
             }
         }
@@ -966,7 +966,7 @@ mod tests {
     impl FieldValues for BadFieldEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(Value::Ulid(self.other)),
+                "id" => Some(self.other.to_value()),
                 _ => None,
             }
         }
@@ -1001,7 +1001,7 @@ mod tests {
     }
 
     impl EntityKind for BadKeyEntity {
-        type PrimaryKey = Ulid;
+        type PrimaryKey = Ref<Self>;
         type DataStore = TestStore;
         type Canister = TestCanister;
 
@@ -1011,8 +1011,8 @@ mod tests {
         const INDEXES: &'static [&'static IndexModel] = &INDEXES;
         const MODEL: &'static EntityModel = &KEY_MODEL;
 
-        fn key(&self) -> Key {
-            self.other.into()
+        fn key(&self) -> Self::PrimaryKey {
+            self.other
         }
 
         fn primary_key(&self) -> Self::PrimaryKey {
@@ -1025,7 +1025,7 @@ mod tests {
     }
 
     impl EntityKind for BadFieldEntity {
-        type PrimaryKey = Ulid;
+        type PrimaryKey = Ref<Self>;
         type DataStore = TestStore;
         type Canister = TestCanister;
 
@@ -1035,8 +1035,8 @@ mod tests {
         const INDEXES: &'static [&'static IndexModel] = &INDEXES;
         const MODEL: &'static EntityModel = &FIELD_MODEL;
 
-        fn key(&self) -> Key {
-            self.id.into()
+        fn key(&self) -> Self::PrimaryKey {
+            self.id
         }
 
         fn primary_key(&self) -> Self::PrimaryKey {
@@ -1049,7 +1049,7 @@ mod tests {
     }
 
     impl EntityKind for BadTypeEntity {
-        type PrimaryKey = Ulid;
+        type PrimaryKey = Ref<Self>;
         type DataStore = TestStore;
         type Canister = TestCanister;
 
@@ -1059,8 +1059,8 @@ mod tests {
         const INDEXES: &'static [&'static IndexModel] = &INDEXES;
         const MODEL: &'static EntityModel = &TYPE_MODEL;
 
-        fn key(&self) -> Key {
-            self.id.into()
+        fn key(&self) -> Self::PrimaryKey {
+            self.id
         }
 
         fn primary_key(&self) -> Self::PrimaryKey {
@@ -1075,8 +1075,8 @@ mod tests {
     #[test]
     fn validate_entity_invariants_rejects_key_mismatch() {
         let entity = BadKeyEntity {
-            id: Ulid::from_u128(1),
-            other: Ulid::from_u128(2),
+            id: Ref::new(Ulid::from_u128(1)),
+            other: Ref::new(Ulid::from_u128(2)),
         };
         let schema = SaveExecutor::<BadKeyEntity>::schema_info().expect("schema");
         let err = SaveExecutor::<BadKeyEntity>::validate_entity_invariants(&entity, schema)
@@ -1089,8 +1089,8 @@ mod tests {
     #[test]
     fn validate_entity_invariants_rejects_field_mismatch() {
         let entity = BadFieldEntity {
-            id: Ulid::from_u128(1),
-            other: Ulid::from_u128(2),
+            id: Ref::new(Ulid::from_u128(1)),
+            other: Ref::new(Ulid::from_u128(2)),
         };
         let schema = SaveExecutor::<BadFieldEntity>::schema_info().expect("schema");
         let err = SaveExecutor::<BadFieldEntity>::validate_entity_invariants(&entity, schema)
@@ -1103,7 +1103,7 @@ mod tests {
     #[test]
     fn validate_entity_invariants_rejects_type_mismatch() {
         let entity = BadTypeEntity {
-            id: Ulid::from_u128(1),
+            id: Ref::new(Ulid::from_u128(1)),
         };
         let schema = SaveExecutor::<BadTypeEntity>::schema_info().expect("schema");
         let err = SaveExecutor::<BadTypeEntity>::validate_entity_invariants(&entity, schema)

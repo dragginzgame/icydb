@@ -136,21 +136,21 @@ fn index_key_ordering_matches_bytes() {
 
 #[test]
 fn raw_index_entry_round_trip() {
-    let mut entry = IndexEntry::new(Key::Int(1));
-    entry.insert_key(Key::Uint(2));
+    let mut entry = IndexEntry::new_raw(Key::Int(1));
+    entry.insert_raw(Key::Uint(2));
 
     let raw = RawIndexEntry::try_from_entry(&entry).expect("encode index entry");
     let decoded = raw.try_decode().expect("decode index entry");
 
     assert_eq!(decoded.len(), entry.len());
-    assert!(decoded.contains(&Key::Int(1)));
-    assert!(decoded.contains(&Key::Uint(2)));
+    assert!(decoded.contains_raw(Key::Int(1)));
+    assert!(decoded.contains_raw(Key::Uint(2)));
 }
 
 #[test]
 fn raw_index_entry_roundtrip_via_bytes() {
-    let mut entry = IndexEntry::new(Key::Int(9));
-    entry.insert_key(Key::Uint(10));
+    let mut entry = IndexEntry::new_raw(Key::Int(9));
+    entry.insert_raw(Key::Uint(10));
 
     let raw = RawIndexEntry::try_from_entry(&entry).expect("encode index entry");
     let encoded = Storable::to_bytes(&raw);
@@ -158,8 +158,8 @@ fn raw_index_entry_roundtrip_via_bytes() {
     let decoded = raw.try_decode().expect("decode index entry");
 
     assert_eq!(decoded.len(), entry.len());
-    assert!(decoded.contains(&Key::Int(9)));
-    assert!(decoded.contains(&Key::Uint(10)));
+    assert!(decoded.contains_raw(Key::Int(9)));
+    assert!(decoded.contains_raw(Key::Uint(10)));
 }
 
 #[test]

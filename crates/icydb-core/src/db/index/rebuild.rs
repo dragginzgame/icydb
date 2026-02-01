@@ -9,6 +9,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
+    types::Ref,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[allow(dead_code)]
 pub fn rebuild_indexes_for_entity<E>(db: &Db<E::Canister>) -> Result<(), InternalError>
 where
-    E: EntityKind,
+    E: EntityKind<PrimaryKey = Ref<E>>,
 {
     // Phase 1: recovery guard to avoid rebuilding from partial commit state.
     ensure_recovered(db)?;

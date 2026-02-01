@@ -1,5 +1,4 @@
 use crate::{
-    key::Key,
     model::{
         entity::EntityModel,
         field::{EntityFieldKind, EntityFieldModel},
@@ -80,7 +79,7 @@ const COLLECTION_MODEL: EntityModel = EntityModel {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct OwnerEntity {
-    id: Ulid,
+    id: Ref<Self>,
 }
 
 impl Path for OwnerEntity {
@@ -108,7 +107,7 @@ impl Visitable for OwnerEntity {}
 impl FieldValues for OwnerEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(Value::Ulid(self.id)),
+            "id" => Some(self.id.to_value()),
             _ => None,
         }
     }
@@ -116,7 +115,7 @@ impl FieldValues for OwnerEntity {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct RefEntity {
-    id: Ulid,
+    id: Ref<Self>,
     owner: Option<Ref<OwnerEntity>>,
 }
 
@@ -145,7 +144,7 @@ impl Visitable for RefEntity {}
 impl FieldValues for RefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(Value::Ulid(self.id)),
+            "id" => Some(self.id.to_value()),
             "owner" => Some(self.owner.to_value()),
             _ => None,
         }
@@ -154,7 +153,7 @@ impl FieldValues for RefEntity {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct CollectionRefEntity {
-    id: Ulid,
+    id: Ref<Self>,
     owners: Vec<Ref<OwnerEntity>>,
 }
 
@@ -183,7 +182,7 @@ impl Visitable for CollectionRefEntity {}
 impl FieldValues for CollectionRefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(Value::Ulid(self.id)),
+            "id" => Some(self.id.to_value()),
             "owners" => Some(self.owners.to_value()),
             _ => None,
         }
@@ -210,7 +209,7 @@ impl DataStoreKind for TestStore {
 }
 
 impl EntityKind for OwnerEntity {
-    type PrimaryKey = Ulid;
+    type PrimaryKey = Ref<Self>;
     type DataStore = TestStore;
     type Canister = TestCanister;
 
@@ -220,8 +219,8 @@ impl EntityKind for OwnerEntity {
     const INDEXES: &'static [&'static IndexModel] = &INDEXES;
     const MODEL: &'static EntityModel = &OWNER_MODEL;
 
-    fn key(&self) -> Key {
-        self.id.into()
+    fn key(&self) -> Self::PrimaryKey {
+        self.id
     }
 
     fn primary_key(&self) -> Self::PrimaryKey {
@@ -234,7 +233,7 @@ impl EntityKind for OwnerEntity {
 }
 
 impl EntityKind for RefEntity {
-    type PrimaryKey = Ulid;
+    type PrimaryKey = Ref<Self>;
     type DataStore = TestStore;
     type Canister = TestCanister;
 
@@ -244,8 +243,8 @@ impl EntityKind for RefEntity {
     const INDEXES: &'static [&'static IndexModel] = &INDEXES;
     const MODEL: &'static EntityModel = &REF_MODEL;
 
-    fn key(&self) -> Key {
-        self.id.into()
+    fn key(&self) -> Self::PrimaryKey {
+        self.id
     }
 
     fn primary_key(&self) -> Self::PrimaryKey {
@@ -258,7 +257,7 @@ impl EntityKind for RefEntity {
 }
 
 impl EntityKind for CollectionRefEntity {
-    type PrimaryKey = Ulid;
+    type PrimaryKey = Ref<Self>;
     type DataStore = TestStore;
     type Canister = TestCanister;
 
@@ -268,8 +267,8 @@ impl EntityKind for CollectionRefEntity {
     const INDEXES: &'static [&'static IndexModel] = &INDEXES;
     const MODEL: &'static EntityModel = &COLLECTION_MODEL;
 
-    fn key(&self) -> Key {
-        self.id.into()
+    fn key(&self) -> Self::PrimaryKey {
+        self.id
     }
 
     fn primary_key(&self) -> Self::PrimaryKey {
@@ -284,7 +283,7 @@ impl EntityKind for CollectionRefEntity {
 #[test]
 fn entity_refs_empty_for_non_reference_entity() {
     let owner = OwnerEntity {
-        id: Ulid::generate(),
+        id: Ref::new(Ulid::generate()),
     };
 
     let refs = owner
@@ -298,7 +297,7 @@ fn entity_refs_empty_for_non_reference_entity() {
 fn entity_refs_collect_optional_reference() {
     let owner_id = Ulid::generate();
     let entity = RefEntity {
-        id: Ulid::generate(),
+        id: Ref::new(Ulid::generate()),
         owner: Some(Ref::new(owner_id)),
     };
 
@@ -306,19 +305,15 @@ fn entity_refs_collect_optional_reference() {
         .entity_refs()
         .expect("reference extraction should succeed");
 
-    assert_eq!(
-        refs,
-        vec![crate::traits::EntityRef {
-            target_path: OWNER_PATH,
-            key: Key::Ulid(owner_id),
-        }]
-    );
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].target_path, OWNER_PATH);
+    assert_eq!(refs[0].raw_key(), Ref::<OwnerEntity>::new(owner_id).raw());
 }
 
 #[test]
 fn entity_refs_skip_reference_collections() {
     let entity = CollectionRefEntity {
-        id: Ulid::generate(),
+        id: Ref::new(Ulid::generate()),
         owners: vec![Ref::new(Ulid::generate())],
     };
 

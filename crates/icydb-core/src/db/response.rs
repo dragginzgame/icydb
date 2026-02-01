@@ -1,11 +1,11 @@
-use crate::{prelude::*, view::View};
+use crate::{prelude::*, types::Ref, view::View};
 use thiserror::Error as ThisError;
 
 ///
 /// Row
 ///
 
-pub type Row<E> = (Key, E);
+pub type Row<E> = (<E as EntityKind>::PrimaryKey, E);
 
 ///
 /// ResponseError
@@ -46,9 +46,9 @@ impl ResponseError {
 ///
 
 #[derive(Debug)]
-pub struct Response<E: EntityKind>(pub Vec<Row<E>>);
+pub struct Response<E: EntityKind<PrimaryKey = Ref<E>>>(pub Vec<Row<E>>);
 
-impl<E: EntityKind> Response<E> {
+impl<E: EntityKind<PrimaryKey = Ref<E>>> Response<E> {
     // ------------------------------------------------------------------
     // Introspection
     // ------------------------------------------------------------------
@@ -131,25 +131,25 @@ impl<E: EntityKind> Response<E> {
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub fn key(&self) -> Option<Key> {
+    pub fn key(&self) -> Option<E::PrimaryKey> {
         self.0.first().map(|(k, _)| *k)
     }
 
-    pub fn key_strict(self) -> Result<Key, ResponseError> {
+    pub fn key_strict(self) -> Result<E::PrimaryKey, ResponseError> {
         self.row().map(|(k, _)| k)
     }
 
-    pub fn try_key(self) -> Result<Option<Key>, ResponseError> {
+    pub fn try_key(self) -> Result<Option<E::PrimaryKey>, ResponseError> {
         Ok(self.try_row()?.map(|(k, _)| k))
     }
 
     #[must_use]
-    pub fn keys(&self) -> Vec<Key> {
+    pub fn keys(&self) -> Vec<E::PrimaryKey> {
         self.0.iter().map(|(k, _)| *k).collect()
     }
 
     #[must_use]
-    pub fn contains_key(&self, key: &Key) -> bool {
+    pub fn contains_key(&self, key: &E::PrimaryKey) -> bool {
         self.0.iter().any(|(k, _)| k == key)
     }
 
@@ -193,7 +193,7 @@ impl<E: EntityKind> Response<E> {
     }
 }
 
-impl<E: EntityKind> IntoIterator for Response<E> {
+impl<E: EntityKind<PrimaryKey = Ref<E>>> IntoIterator for Response<E> {
     type Item = Row<E>;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 

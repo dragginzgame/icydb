@@ -8,7 +8,7 @@ use super::{
 use crate::db::index::fingerprint::hash_value;
 use crate::db::query::QueryMode;
 use crate::db::query::{ReadConsistency, predicate::coercion::CoercionId};
-use crate::key::Key;
+use crate::traits::FieldValue;
 use sha2::{Digest, Sha256};
 
 ///
@@ -42,7 +42,10 @@ impl std::fmt::Display for PlanFingerprint {
     }
 }
 
-impl super::LogicalPlan {
+impl<K> super::LogicalPlan<K>
+where
+    K: Copy + FieldValue,
+{
     /// Compute a stable fingerprint for this logical plan.
     #[must_use]
     pub fn fingerprint(&self) -> PlanFingerprint {
@@ -91,19 +94,19 @@ fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
     match access {
         ExplainAccessPath::ByKey { key } => {
             write_tag(hasher, 0x10);
-            write_key(hasher, key);
+            write_value(hasher, key);
         }
         ExplainAccessPath::ByKeys { keys } => {
             write_tag(hasher, 0x11);
             write_u32(hasher, keys.len() as u32);
             for key in keys {
-                write_key(hasher, key);
+                write_value(hasher, key);
             }
         }
         ExplainAccessPath::KeyRange { start, end } => {
             write_tag(hasher, 0x12);
-            write_key(hasher, start);
-            write_key(hasher, end);
+            write_value(hasher, start);
+            write_value(hasher, end);
         }
         ExplainAccessPath::IndexPrefix {
             name,
@@ -307,16 +310,6 @@ fn hash_coercion(
     }
 }
 
-fn write_key(hasher: &mut Sha256, key: &Key) {
-    match key.to_bytes() {
-        Ok(bytes) => hasher.update(bytes),
-        Err(err) => {
-            write_tag(hasher, 0xED);
-            write_str(hasher, &err.to_string());
-        }
-    }
-}
-
 fn write_value(hasher: &mut Sha256, value: &crate::value::Value) {
     match hash_value(value) {
         Ok(digest) => hasher.update(digest),
@@ -362,7 +355,7 @@ mod tests {
     use crate::db::query::{FieldRef, plan::planner::PlannerEntity};
     use crate::db::query::{Query, QueryMode, ReadConsistency};
     use crate::model::index::IndexModel;
-    use crate::types::Ulid;
+    use crate::types::{Ref, Ulid};
     use crate::value::Value;
 
     #[test]
@@ -399,14 +392,14 @@ mod tests {
             false,
         );
 
-        let plan_a = LogicalPlan::new(
+        let plan_a = LogicalPlan::<Ref<PlannerEntity>>::new(
             AccessPath::IndexPrefix {
                 index: INDEX_A,
                 values: vec![Value::Text("alpha".to_string())],
             },
             crate::db::query::ReadConsistency::MissingOk,
         );
-        let plan_b = LogicalPlan::new(
+        let plan_b = LogicalPlan::<Ref<PlannerEntity>>::new(
             AccessPath::IndexPrefix {
                 index: INDEX_B,
                 values: vec![Value::Text("alpha".to_string())],
@@ -419,11 +412,11 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_pagination() {
-        let mut plan_a = LogicalPlan::new(
+        let mut plan_a = LogicalPlan::<Ref<PlannerEntity>>::new(
             AccessPath::FullScan,
             crate::db::query::ReadConsistency::MissingOk,
         );
-        let mut plan_b = LogicalPlan::new(
+        let mut plan_b = LogicalPlan::<Ref<PlannerEntity>>::new(
             AccessPath::FullScan,
             crate::db::query::ReadConsistency::MissingOk,
         );
@@ -441,11 +434,11 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_delete_limit() {
-        let mut plan_a = LogicalPlan::new(
+        let mut plan_a = LogicalPlan::<Ref<PlannerEntity>>::new(
             AccessPath::FullScan,
             crate::db::query::ReadConsistency::MissingOk,
         );
-        let mut plan_b = LogicalPlan::new(
+        let mut plan_b = LogicalPlan::<Ref<PlannerEntity>>::new(
             AccessPath::FullScan,
             crate::db::query::ReadConsistency::MissingOk,
         );
@@ -459,7 +452,7 @@ mod tests {
 
     #[test]
     fn fingerprint_is_stable_for_full_scan() {
-        let plan = LogicalPlan::new(
+        let plan = LogicalPlan::<Ref<PlannerEntity>>::new(
             AccessPath::FullScan,
             crate::db::query::ReadConsistency::MissingOk,
         );

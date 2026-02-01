@@ -1,6 +1,7 @@
 use crate::{
     error::{Error, ErrorClass, ErrorOrigin},
     traits::EntityKind,
+    types::Ref,
     view::View,
 };
 use icydb_core::db::response::{Response as CoreResponse, ResponseError};
@@ -13,11 +14,11 @@ use icydb_core::db::response::{Response as CoreResponse, ResponseError};
 ///
 
 #[derive(Debug)]
-pub struct Response<E: EntityKind> {
+pub struct Response<E: EntityKind<PrimaryKey = Ref<E>>> {
     inner: CoreResponse<E>,
 }
 
-impl<E: EntityKind> Response<E> {
+impl<E: EntityKind<PrimaryKey = Ref<E>>> Response<E> {
     /// Construct a facade response from a core response.
     #[must_use]
     pub const fn from_core(inner: CoreResponse<E>) -> Self {

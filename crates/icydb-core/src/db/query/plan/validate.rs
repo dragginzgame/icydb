@@ -6,10 +6,10 @@ use crate::{
         validate::{FieldType, ScalarType},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    key::Key,
     model::entity::EntityModel,
     model::index::IndexModel,
-    traits::EntityKind,
+    traits::{EntityKind, FieldValue},
+    types::Ref,
     value::Value,
 };
 use thiserror::Error as ThisError;
@@ -58,8 +58,8 @@ pub enum PlanError {
     PrimaryKeyUnsupported { field: String },
 
     /// Supplied key does not match the primary key type.
-    #[error("key '{key}' is incompatible with primary key '{field}'")]
-    PrimaryKeyMismatch { field: String, key: Key },
+    #[error("key '{key:?}' is incompatible with primary key '{field}'")]
+    PrimaryKeyMismatch { field: String, key: Value },
 
     /// Key range has invalid ordering.
     #[error("key range start is greater than end")]
@@ -84,11 +84,14 @@ pub enum PlanError {
 
 /// Validate a logical plan using a prebuilt schema surface.
 #[cfg(test)]
-pub(crate) fn validate_plan_with_schema_info(
+pub(crate) fn validate_plan_with_schema_info<K>(
     schema: &SchemaInfo,
     model: &EntityModel,
-    plan: &LogicalPlan,
-) -> Result<(), PlanError> {
+    plan: &LogicalPlan<K>,
+) -> Result<(), PlanError>
+where
+    K: Copy + Ord + FieldValue,
+{
     validate_logical_plan(schema, model, plan)
 }
 
@@ -96,20 +99,26 @@ pub(crate) fn validate_plan_with_schema_info(
 ///
 /// This is the executor-safe entrypoint and must not consult global schema.
 #[cfg(test)]
-pub(crate) fn validate_plan_with_model(
-    plan: &LogicalPlan,
+pub(crate) fn validate_plan_with_model<K>(
+    plan: &LogicalPlan<K>,
     model: &EntityModel,
-) -> Result<(), PlanError> {
+) -> Result<(), PlanError>
+where
+    K: Copy + Ord + FieldValue,
+{
     let schema = SchemaInfo::from_entity_model(model)?;
     validate_plan_with_schema_info(&schema, model, plan)
 }
 
 /// Validate a logical plan against schema and plan-level invariants.
-pub(crate) fn validate_logical_plan(
+pub(crate) fn validate_logical_plan<K>(
     schema: &SchemaInfo,
     model: &EntityModel,
-    plan: &LogicalPlan,
-) -> Result<(), PlanError> {
+    plan: &LogicalPlan<K>,
+) -> Result<(), PlanError>
+where
+    K: Copy + Ord + FieldValue,
+{
     if let Some(predicate) = &plan.predicate {
         predicate::validate(schema, predicate)?;
     }
@@ -125,7 +134,10 @@ pub(crate) fn validate_logical_plan(
 }
 
 /// Validate plan-level invariants not covered by schema checks.
-fn validate_plan_semantics(plan: &LogicalPlan) -> Result<(), PlanError> {
+fn validate_plan_semantics<K>(plan: &LogicalPlan<K>) -> Result<(), PlanError>
+where
+    K: Copy + Ord + FieldValue,
+{
     if let Some(order) = &plan.order
         && order.fields.is_empty()
     {
@@ -155,8 +167,8 @@ fn validate_plan_semantics(plan: &LogicalPlan) -> Result<(), PlanError> {
 }
 
 /// Validate plans at executor boundaries and surface invariant violations.
-pub(crate) fn validate_executor_plan<E: EntityKind>(
-    plan: &LogicalPlan,
+pub(crate) fn validate_executor_plan<E: EntityKind<PrimaryKey = Ref<E>>>(
+    plan: &LogicalPlan<E::PrimaryKey>,
 ) -> Result<(), InternalError> {
     let schema = SchemaInfo::from_entity_model(E::MODEL).map_err(|err| {
         InternalError::new(
@@ -234,11 +246,14 @@ fn validate_executor_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(),
 /// Validate executor-visible access paths.
 ///
 /// This ensures keys, ranges, and index prefixes are schema-compatible.
-pub(crate) fn validate_access_plan(
+pub(crate) fn validate_access_plan<K>(
     schema: &SchemaInfo,
     model: &EntityModel,
-    access: &AccessPlan,
-) -> Result<(), PlanError> {
+    access: &AccessPlan<K>,
+) -> Result<(), PlanError>
+where
+    K: Copy + Ord + FieldValue,
+{
     match access {
         AccessPlan::Path(path) => validate_access_path(schema, model, path),
         AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
@@ -250,11 +265,14 @@ pub(crate) fn validate_access_plan(
     }
 }
 
-fn validate_access_path(
+fn validate_access_path<K>(
     schema: &SchemaInfo,
     model: &EntityModel,
-    access: &AccessPath,
-) -> Result<(), PlanError> {
+    access: &AccessPath<K>,
+) -> Result<(), PlanError>
+where
+    K: Copy + Ord + FieldValue,
+{
     match access {
         AccessPath::ByKey(key) => validate_pk_key(schema, model, key),
         AccessPath::ByKeys(keys) => {
@@ -282,6 +300,95 @@ fn validate_access_path(
     }
 }
 
+/// Validate that a key matches the entity's primary key type.
+fn validate_pk_key<K>(schema: &SchemaInfo, model: &EntityModel, key: &K) -> Result<(), PlanError>
+where
+    K: Copy + FieldValue,
+{
+    let field = model.primary_key.name;
+
+    let field_type = schema
+        .field(field)
+        .ok_or_else(|| PlanError::PrimaryKeyUnsupported {
+            field: field.to_string(),
+        })?;
+
+    if !is_key_compatible(field_type) {
+        return Err(PlanError::PrimaryKeyUnsupported {
+            field: field.to_string(),
+        });
+    }
+
+    let value = key.to_value();
+    if !predicate::validate::literal_matches_type(&value, field_type) {
+        return Err(PlanError::PrimaryKeyMismatch {
+            field: field.to_string(),
+            key: value,
+        });
+    }
+
+    Ok(())
+}
+
+/// Validate that an index prefix is valid for execution.
+fn validate_index_prefix(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    index: &IndexModel,
+    values: &[Value],
+) -> Result<(), PlanError> {
+    if !model.indexes.contains(&index) {
+        return Err(PlanError::IndexNotFound { index: *index });
+    }
+
+    if values.is_empty() {
+        return Err(PlanError::IndexPrefixEmpty);
+    }
+
+    if values.len() > index.fields.len() {
+        return Err(PlanError::IndexPrefixTooLong {
+            prefix_len: values.len(),
+            field_len: index.fields.len(),
+        });
+    }
+
+    for (field, value) in index.fields.iter().zip(values.iter()) {
+        let field_type =
+            schema
+                .field(field)
+                .ok_or_else(|| PlanError::IndexPrefixValueMismatch {
+                    field: field.to_string(),
+                })?;
+
+        if !predicate::validate::literal_matches_type(value, field_type) {
+            return Err(PlanError::IndexPrefixValueMismatch {
+                field: field.to_string(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+/// Map scalar field types to compatible key variants.
+///
+/// Non-scalar and unsupported field types are intentionally excluded.
+const fn is_key_compatible(field_type: &FieldType) -> bool {
+    matches!(
+        field_type,
+        FieldType::Scalar(
+            ScalarType::Account
+                | ScalarType::Int
+                | ScalarType::Principal
+                | ScalarType::Subaccount
+                | ScalarType::Timestamp
+                | ScalarType::Uint
+                | ScalarType::Ulid
+                | ScalarType::Unit
+        )
+    )
+}
+
 ///
 /// TESTS
 ///
@@ -297,14 +404,13 @@ mod tests {
             },
             predicate::{SchemaInfo, ValidateError},
         },
-        key::Key,
         model::{
             entity::EntityModel,
             field::{EntityFieldKind, EntityFieldModel},
             index::IndexModel,
         },
         traits::EntityKind,
-        types::Ulid,
+        types::{Ref, Ulid},
         value::Value,
     };
 
@@ -480,7 +586,7 @@ mod tests {
         );
 
         let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
-        let plan = LogicalPlan {
+        let plan: LogicalPlan<Ref<PlannerEntity>> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::FullScan),
             predicate: None,
@@ -500,7 +606,7 @@ mod tests {
     #[test]
     fn plan_rejects_index_prefix_too_long() {
         let schema = SchemaInfo::from_entity_model(PlannerEntity::MODEL).expect("valid model");
-        let plan = LogicalPlan {
+        let plan: LogicalPlan<Ref<PlannerEntity>> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::IndexPrefix {
                 index: *PlannerEntity::INDEXES[0],
@@ -525,7 +631,7 @@ mod tests {
     #[test]
     fn plan_rejects_empty_index_prefix() {
         let schema = SchemaInfo::from_entity_model(PlannerEntity::MODEL).expect("valid model");
-        let plan = LogicalPlan {
+        let plan: LogicalPlan<Ref<PlannerEntity>> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::IndexPrefix {
                 index: *PlannerEntity::INDEXES[0],
@@ -546,9 +652,9 @@ mod tests {
     #[test]
     fn plan_accepts_model_based_validation() {
         let model = model_with_fields(vec![field("id", EntityFieldKind::Ulid)], 0);
-        let plan = LogicalPlan {
+        let plan: LogicalPlan<Ref<PlannerEntity>> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-            access: AccessPlan::Path(AccessPath::ByKey(Key::Ulid(Ulid::nil()))),
+            access: AccessPlan::Path(AccessPath::ByKey(Ref::new(Ulid::nil()))),
             predicate: None,
             order: None,
             delete_limit: None,
@@ -557,115 +663,5 @@ mod tests {
         };
 
         validate_plan_with_model(&plan, &model).expect("valid plan");
-    }
-}
-
-/// Validate that a key matches the entity's primary key type.
-fn validate_pk_key(schema: &SchemaInfo, model: &EntityModel, key: &Key) -> Result<(), PlanError> {
-    let field = model.primary_key.name;
-
-    let field_type = schema
-        .field(field)
-        .ok_or_else(|| PlanError::PrimaryKeyUnsupported {
-            field: field.to_string(),
-        })?;
-
-    let expected =
-        key_type_for_field(field_type).ok_or_else(|| PlanError::PrimaryKeyUnsupported {
-            field: field.to_string(),
-        })?;
-
-    if key_variant(key) != expected {
-        return Err(PlanError::PrimaryKeyMismatch {
-            field: field.to_string(),
-            key: *key,
-        });
-    }
-
-    Ok(())
-}
-
-/// Validate that an index prefix is valid for execution.
-fn validate_index_prefix(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    index: &IndexModel,
-    values: &[Value],
-) -> Result<(), PlanError> {
-    if !model.indexes.contains(&index) {
-        return Err(PlanError::IndexNotFound { index: *index });
-    }
-
-    if values.is_empty() {
-        return Err(PlanError::IndexPrefixEmpty);
-    }
-
-    if values.len() > index.fields.len() {
-        return Err(PlanError::IndexPrefixTooLong {
-            prefix_len: values.len(),
-            field_len: index.fields.len(),
-        });
-    }
-
-    for (field, value) in index.fields.iter().zip(values.iter()) {
-        let field_type =
-            schema
-                .field(field)
-                .ok_or_else(|| PlanError::IndexPrefixValueMismatch {
-                    field: field.to_string(),
-                })?;
-
-        if !predicate::validate::literal_matches_type(value, field_type) {
-            return Err(PlanError::IndexPrefixValueMismatch {
-                field: field.to_string(),
-            });
-        }
-    }
-
-    Ok(())
-}
-
-/// Internal classification of primary-key-compatible value variants.
-///
-/// This exists purely to decouple `Key` from `FieldType`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum KeyVariant {
-    Account,
-    Int,
-    Principal,
-    Subaccount,
-    Timestamp,
-    Uint,
-    Ulid,
-    Unit,
-}
-
-const fn key_variant(key: &Key) -> KeyVariant {
-    match key {
-        Key::Account(_) => KeyVariant::Account,
-        Key::Int(_) => KeyVariant::Int,
-        Key::Principal(_) => KeyVariant::Principal,
-        Key::Subaccount(_) => KeyVariant::Subaccount,
-        Key::Timestamp(_) => KeyVariant::Timestamp,
-        Key::Uint(_) => KeyVariant::Uint,
-        Key::Ulid(_) => KeyVariant::Ulid,
-        Key::Unit => KeyVariant::Unit,
-    }
-}
-
-/// Map scalar field types to compatible key variants.
-///
-/// Non-scalar and unsupported field types are intentionally excluded.
-const fn key_type_for_field(field_type: &FieldType) -> Option<KeyVariant> {
-    match field_type {
-        FieldType::Scalar(ScalarType::Account) => Some(KeyVariant::Account),
-        FieldType::Scalar(ScalarType::Int) => Some(KeyVariant::Int),
-        FieldType::Scalar(ScalarType::Principal) => Some(KeyVariant::Principal),
-        FieldType::Scalar(ScalarType::Subaccount) => Some(KeyVariant::Subaccount),
-        FieldType::Scalar(ScalarType::Timestamp) => Some(KeyVariant::Timestamp),
-        FieldType::Scalar(ScalarType::Uint) => Some(KeyVariant::Uint),
-        FieldType::Scalar(ScalarType::Ulid) => Some(KeyVariant::Ulid),
-        FieldType::Scalar(ScalarType::Unit) => Some(KeyVariant::Unit),
-        _ => None,
     }
 }

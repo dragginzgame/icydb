@@ -53,7 +53,7 @@ pub type QueryTraceExecutorKind = TraceExecutorKind;
 /// Public alias for trace phase kinds in query diagnostics.
 pub type QueryTracePhase = TracePhase;
 
-pub(crate) fn trace_access_from_plan(plan: &AccessPlan) -> TraceAccess {
+pub(crate) fn trace_access_from_plan<K>(plan: &AccessPlan<K>) -> TraceAccess {
     match plan {
         AccessPlan::Path(path) => trace_access_from_path(path),
         AccessPlan::Union(children) => TraceAccess::Union {
@@ -65,7 +65,7 @@ pub(crate) fn trace_access_from_plan(plan: &AccessPlan) -> TraceAccess {
     }
 }
 
-fn trace_access_from_path(path: &AccessPath) -> TraceAccess {
+fn trace_access_from_path<K>(path: &AccessPath<K>) -> TraceAccess {
     match path {
         AccessPath::ByKey(_) => TraceAccess::ByKey,
         AccessPath::ByKeys(keys) => TraceAccess::ByKeys {
