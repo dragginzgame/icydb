@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.2] – 2026-02-01 - Primary Key Guardrails
+## [0.6.3] – 2026-02-01 - Primary Key Guardrails
 
 ### 🪱 Fixed
 
