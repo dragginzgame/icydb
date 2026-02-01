@@ -9,7 +9,6 @@ use crate::{
         },
         response::Response,
     },
-    key::Key,
     traits::{CanisterKind, EntityKind, UnitKey},
 };
 
@@ -44,7 +43,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'a, C,
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub fn by_key(mut self, key: impl Into<Key>) -> Self {
+    pub fn by_key(mut self, key: E::PrimaryKey) -> Self {
         self.query = self.query.by_key(key.into());
         self
     }

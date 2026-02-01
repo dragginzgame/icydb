@@ -9,7 +9,6 @@ use crate::{
         },
         response::Response,
     },
-    key::Key,
     traits::{CanisterKind, EntityKind, UnitKey},
 };
 
@@ -20,6 +19,7 @@ use crate::{
 /// Owns intent construction and execution routing only.
 /// All result inspection and projection is performed on `Response<E>`.
 ///
+
 pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
     session: &'a DbSession<C>,
     query: Query<E>,
@@ -44,7 +44,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub fn by_key(mut self, key: impl Into<Key>) -> Self {
+    pub fn by_key(mut self, key: E::PrimaryKey) -> Self {
         self.query = self.query.by_key(key.into());
         self
     }

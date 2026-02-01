@@ -43,8 +43,8 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
 
     /// Delete by primary key.
     #[must_use]
-    pub fn by_key(mut self, key: impl Into<Key>) -> Self {
-        self.inner = self.inner.by_key(key.into());
+    pub fn by_key(mut self, key: E::PrimaryKey) -> Self {
+        self.inner = self.inner.by_key(key);
         self
     }
 
