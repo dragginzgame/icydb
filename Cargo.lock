@@ -155,9 +155,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.9.14"
+version = "0.9.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d856bc8b47e17f6dde202e168fce2c036385ff0ea424d4d618ea90d55f49f23"
+checksum = "7aebacc9fb3aef09248e50e3b294e8f6fb7a1db138d818927c3348e5ea7166de"
 dependencies = [
  "base32 0.5.1",
  "candid",
@@ -179,9 +179,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.9.14"
+version = "0.9.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0342a75b0eed83d9a6989b933adbfad70c12bb5f61615a665d936fbe5ed4244a"
+checksum = "cd09649ff200a751450c3cbba18f1dd7da8e7b9da133113f8d1e59ff8eadf90e"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -193,12 +193,12 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.9.14"
+version = "0.9.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c16f3927f17a31cef7929c329a2dc4a5a348425dc2d834d9e34cf557be0110ad"
+checksum = "5d8688656b212a3f741700f4b99944f16cb2f39905777d6aaa338671a0068204"
 dependencies = [
  "candid",
- "convert_case",
+ "convert_case 0.11.0",
  "derive_more",
  "hex",
  "rand_chacha",
@@ -236,6 +236,15 @@ name = "convert_case"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "convert_case"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "affbf0190ed2caf063e3def54ff444b449371d55c58e513a95ab98eca50adb49"
 dependencies = [
  "unicode-segmentation",
 ]
@@ -383,7 +392,7 @@ version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
 dependencies = [
- "convert_case",
+ "convert_case 0.10.0",
  "proc-macro2",
  "quote",
  "rustc_version",
@@ -791,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -811,7 +820,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -821,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "bencher",
  "candid",
@@ -846,7 +855,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -862,7 +871,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "canic-utils",
  "darling 0.23.0",
@@ -1452,7 +1461,7 @@ dependencies = [
 
 [[package]]
 name = "test"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1465,7 +1474,7 @@ dependencies = [
 
 [[package]]
 name = "test_design"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "candid",
  "icydb",
