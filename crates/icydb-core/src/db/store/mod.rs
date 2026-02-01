@@ -1,10 +1,8 @@
 mod data;
-mod error;
 mod key;
 mod row;
 
 pub use data::*;
-pub use error::StoreError;
 pub use key::*;
 pub use row::*;
 
@@ -23,16 +21,18 @@ pub enum StoreRegistryError {
 }
 
 impl StoreRegistryError {
-    pub(crate) const fn class(&self) -> ErrorClass {
-        match self {
-            Self::StoreNotFound(_) => ErrorClass::Internal,
-        }
+    pub(crate) const fn class() -> ErrorClass {
+        ErrorClass::Internal
     }
 }
 
 impl From<StoreRegistryError> for InternalError {
     fn from(err: StoreRegistryError) -> Self {
-        Self::new(err.class(), ErrorOrigin::Store, err.to_string())
+        Self::new(
+            StoreRegistryError::class(),
+            ErrorOrigin::Store,
+            err.to_string(),
+        )
     }
 }
 

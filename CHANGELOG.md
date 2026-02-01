@@ -5,19 +5,31 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.1] – 2026-02-01 - Save-Time RI Checks
+## [0.6.1] – 2026-02-01 - Referential Integrity, Part II
 
 ### 🧉 Added
-* Save now validates direct `Ref<T>` and `Option<Ref<T>>` references pre-commit and fails when a target row is missing.
-* Added `docs/REF_INTEGRITY_v2.md` to lock the strong vs weak reference contract and its atomicity constraints.
-* Added targeted RI tests covering strong reference failures, weak reference allowance, and delete-side non-enforcement.
+
+* **Save-time referential integrity (RI v2)**: direct `Ref<T>` and `Option<Ref<T>>` fields are now validated pre-commit; saves fail if the referenced target row is missing.
+* Added `docs/REF_INTEGRITY_v2.md`, defining the v2 RI contract, including:
+
+  * strong vs weak reference shapes,
+  * atomicity boundaries,
+  * and explicit non-recursive enforcement rules.
+* Added targeted RI tests covering:
+
+  * strong reference failure on missing targets,
+  * allowance of weak reference shapes,
+  * and non-enforcement of references during delete operations.
 
 ### 🧷 Changed
-* Weak reference shapes (nested and collection `Ref<T>`) are now treated as allowed and non-validating at save time instead of raising invariant violations.
-* Updated RI documentation to distinguish strong vs weak references and clarify that schema relation validation is schema-only.
+
+* Nested and collection reference shapes (`Ref<T>` inside records/enums, and `Vec`/`Set`/`Map<Ref<T>>`) are now **explicitly treated as weak** at runtime and no longer trigger invariant violations during save.
+* Clarified that schema-level relation validation is **advisory only** and does not imply runtime RI enforcement.
+* Aligned runtime behavior, schema comments, and documentation with the RI v2 contract.
 
 ### 🧻 Summary
-* Introduced minimal save-time referential integrity checks for direct references.
+
+* Introduced **minimal, explicit save-time referential integrity** for direct references only, while formally defining and locking the weak-reference contract for all other shapes.
 
 ---
 

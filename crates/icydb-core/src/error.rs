@@ -1,63 +1,114 @@
-use crate::db::store::StoreError;
 use std::fmt;
 use thiserror::Error as ThisError;
 
 ///
 /// InternalError
+///
 /// Structured runtime error with a stable internal classification.
 /// Not a stable API; intended for internal use and may change without notice.
 ///
-
 #[derive(Debug, ThisError)]
 #[error("{message}")]
 pub struct InternalError {
     pub class: ErrorClass,
     pub origin: ErrorOrigin,
     pub message: String,
-    pub store: Option<StoreError>,
+
+    /// Optional structured error detail.
+    /// The variant (if present) must correspond to `origin`.
+    pub detail: Option<ErrorDetail>,
 }
 
 impl InternalError {
     pub fn new(class: ErrorClass, origin: ErrorOrigin, message: impl Into<String>) -> Self {
         let message = message.into();
-        let store = match (class, origin) {
-            (ErrorClass::Corruption, ErrorOrigin::Store) => Some(StoreError::Corrupt {
-                message: message.clone(),
-            }),
-            (ErrorClass::InvariantViolation, ErrorOrigin::Store) => {
-                Some(StoreError::InvariantViolation {
+
+        let detail = match (class, origin) {
+            (ErrorClass::Corruption, ErrorOrigin::Store) => {
+                Some(ErrorDetail::Store(StoreError::Corrupt {
                     message: message.clone(),
-                })
+                }))
+            }
+            (ErrorClass::InvariantViolation, ErrorOrigin::Store) => {
+                Some(ErrorDetail::Store(StoreError::InvariantViolation {
+                    message: message.clone(),
+                }))
             }
             _ => None,
         };
+
         Self {
             class,
             origin,
             message,
-            store,
+            detail,
         }
     }
 
     pub fn store_not_found(key: impl Into<String>) -> Self {
         let key = key.into();
+
         Self {
             class: ErrorClass::NotFound,
             origin: ErrorOrigin::Store,
             message: format!("data key not found: {key}"),
-            store: Some(StoreError::NotFound { key }),
+            detail: Some(ErrorDetail::Store(StoreError::NotFound { key })),
         }
     }
 
     #[must_use]
     pub const fn is_not_found(&self) -> bool {
-        matches!(self.store, Some(StoreError::NotFound { .. }))
+        matches!(
+            self.detail,
+            Some(ErrorDetail::Store(StoreError::NotFound { .. }))
+        )
     }
 
     #[must_use]
     pub fn display_with_class(&self) -> String {
         format!("{}:{}: {}", self.origin, self.class, self.message)
     }
+}
+
+///
+/// ErrorDetail
+///
+/// Structured, origin-specific error detail carried by [`InternalError`].
+/// This enum is intentionally extensible.
+///
+
+#[derive(Debug, ThisError)]
+pub enum ErrorDetail {
+    #[error("{0}")]
+    Store(StoreError),
+    // Future-proofing:
+    // #[error("{0}")]
+    // Index(IndexError),
+    //
+    // #[error("{0}")]
+    // Query(QueryErrorDetail),
+    //
+    // #[error("{0}")]
+    // Executor(ExecutorErrorDetail),
+}
+
+///
+/// StoreError
+///
+/// Store-specific structured error detail.
+/// Never returned directly; always wrapped in [`ErrorDetail::Store`].
+///
+
+#[derive(Debug, ThisError)]
+pub enum StoreError {
+    #[error("key not found: {key}")]
+    NotFound { key: String },
+
+    #[error("store corruption: {message}")]
+    Corrupt { message: String },
+
+    #[error("store invariant violation: {message}")]
+    InvariantViolation { message: String },
 }
 
 ///

@@ -16,9 +16,9 @@ pub type DataRow = (DataKey, RawRow);
 pub struct DataStoreRegistry(StoreRegistry<DataStore>);
 
 impl DataStoreRegistry {
+    /// Create an empty data store registry.
     #[must_use]
     #[allow(clippy::new_without_default)]
-    /// Create an empty data store registry.
     pub fn new() -> Self {
         Self(StoreRegistry::new())
     }

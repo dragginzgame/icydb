@@ -269,7 +269,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
                 #[cfg(test)]
                 unit.checkpoint("delete_after_data")?;
-                unit.commit();
+                unit.commit()?;
 
                 Ok(())
             })?;

@@ -342,7 +342,8 @@ impl<E: EntityKind> SaveExecutor<E> {
                 Self::apply_marker_data_ops(&guard.marker.data_ops, data_store);
 
                 span.set_rows(1);
-                unit.commit();
+                unit.commit()?;
+
                 Ok(())
             })?;
 

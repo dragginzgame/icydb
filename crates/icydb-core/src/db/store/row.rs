@@ -9,12 +9,13 @@ use thiserror::Error as ThisError;
 
 ///
 /// RawRowError
+/// Construction / storage-boundary errors.
 ///
 
 #[derive(Debug, ThisError)]
 pub enum RawRowError {
     #[error("row exceeds max size: {len} bytes (limit {MAX_ROW_BYTES})")]
-    TooLarge { len: usize },
+    TooLarge { len: u32 },
 }
 
 impl RawRowError {
@@ -36,13 +37,12 @@ impl From<RawRowError> for InternalError {
 }
 
 ///
-/// RawDecodeError
+/// RowDecodeError
+/// Logical / format errors during decode.
 ///
 
 #[derive(Debug, ThisError)]
 pub enum RowDecodeError {
-    #[error("row exceeds max size: {len} bytes (limit {MAX_ROW_BYTES})")]
-    TooLarge { len: usize },
     #[error("row failed to deserialize")]
     Deserialize,
 }
@@ -51,16 +51,19 @@ pub enum RowDecodeError {
 /// RawRow
 ///
 
-/// Max serialized bytes for a single row to keep value loads bounded.
+/// Max serialized bytes for a single row (protocol-level limit).
 pub const MAX_ROW_BYTES: u32 = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RawRow(Vec<u8>);
 
 impl RawRow {
+    /// Construct a raw row from serialized bytes.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
-        if bytes.len() > MAX_ROW_BYTES as usize {
-            return Err(RawRowError::TooLarge { len: bytes.len() });
+        let len = bytes.len() as u32;
+        if len > MAX_ROW_BYTES {
+            return Err(RawRowError::TooLarge { len });
         }
         Ok(Self(bytes))
     }
@@ -70,6 +73,7 @@ impl RawRow {
         &self.0
     }
 
+    /// Length in bytes (in-memory; bounded by construction).
     #[must_use]
     pub const fn len(&self) -> usize {
         self.0.len()
@@ -80,11 +84,8 @@ impl RawRow {
         self.0.is_empty()
     }
 
+    /// Decode into an entity.
     pub fn try_decode<E: EntityKind>(&self) -> Result<E, RowDecodeError> {
-        if self.0.len() > MAX_ROW_BYTES as usize {
-            return Err(RowDecodeError::TooLarge { len: self.0.len() });
-        }
-
         deserialize::<E>(&self.0).map_err(|_| RowDecodeError::Deserialize)
     }
 }
@@ -95,6 +96,7 @@ impl Storable for RawRow {
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
+        // Trusted store boundary: bounded by BOUND
         Self(bytes.into_owned())
     }
 
@@ -108,9 +110,9 @@ impl Storable for RawRow {
     };
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {

@@ -4,14 +4,17 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 ///
 /// WriteUnit
 ///
+/// Atomic write scope with rollback-on-failure semantics.
+/// Rollbacks are best-effort and must never panic the executor.
+///
 
+#[allow(dead_code)]
 pub struct WriteUnit {
     label: &'static str,
     applied: bool,
     rollbacks: Vec<Box<dyn FnOnce()>>,
 }
 
-#[expect(dead_code)]
 impl WriteUnit {
     pub(crate) const fn new(label: &'static str) -> Self {
         Self {
@@ -21,51 +24,47 @@ impl WriteUnit {
         }
     }
 
-    pub(crate) fn run<T>(
-        &mut self,
-        step: impl FnOnce() -> Result<T, InternalError>,
-    ) -> Result<T, InternalError> {
-        match step() {
-            Ok(value) => Ok(value),
-            Err(err) => {
-                self.rollback();
-                Err(err)
-            }
-        }
-    }
-
     pub(crate) fn record_rollback(&mut self, rollback: impl FnOnce() + 'static) {
         self.rollbacks.push(Box::new(rollback));
     }
 
+    #[cfg(test)]
     pub(crate) fn checkpoint(&mut self, label: &'static str) -> Result<(), InternalError> {
         if should_fail_checkpoint(label) {
             self.rollback();
             return Err(InternalError::new(
-                ErrorClass::Internal,
+                ErrorClass::InvariantViolation,
                 ErrorOrigin::Executor,
-                format!("forced failure: {} ({label})", self.label),
+                format!("forced write-unit failure: {} ({label})", self.label),
             ));
         }
         Ok(())
     }
 
-    pub(crate) fn commit(mut self) {
-        // Internal invariant: a write unit can only be committed once.
-        assert!(
-            !self.applied,
-            "write unit invariant violated: commit called twice"
-        );
+    pub(crate) fn commit(mut self) -> Result<(), InternalError> {
+        if self.applied {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
+                "write unit invariant violated: commit called twice",
+            ));
+        }
+
         self.applied = true;
         self.rollbacks.clear();
+        Ok(())
     }
 
     pub(crate) fn rollback(&mut self) {
-        // Internal invariant: rollbacks must not run after commit.
-        assert!(
-            !self.applied,
-            "write unit invariant violated: rollback called after commit"
-        );
+        if self.applied {
+            // Defensive: rollback after commit is a logic error,
+            // but must never panic the executor.
+            return;
+        }
+
+        // Rollbacks are best-effort:
+        // - must run in reverse order
+        // - must never unwind past this boundary
         while let Some(rollback) = self.rollbacks.pop() {
             let _ = catch_unwind(AssertUnwindSafe(rollback));
         }
@@ -79,6 +78,10 @@ impl Drop for WriteUnit {
         }
     }
 }
+
+//
+// TEST FAIL INJECTION
+//
 
 #[cfg(test)]
 thread_local! {
@@ -97,8 +100,8 @@ pub fn fail_checkpoint_label(label: &'static str) {
     FAIL_CHECKPOINT_LABEL.with(|slot| slot.set(Some(label)));
 }
 
+#[cfg(test)]
 #[allow(clippy::missing_const_for_fn)]
-#[allow(unused_variables)]
 fn should_fail_checkpoint(label: &'static str) -> bool {
     #[cfg(test)]
     {

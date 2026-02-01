@@ -1,3 +1,4 @@
+#![expect(clippy::cast_possible_truncation)]
 use crate::{
     db::identity::{EntityName, IdentityDecodeError},
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -13,6 +14,7 @@ use thiserror::Error as ThisError;
 
 ///
 /// DataKeyEncodeError
+/// (serialize boundary)
 ///
 
 #[derive(Debug, ThisError)]
@@ -35,7 +37,25 @@ impl From<DataKeyEncodeError> for InternalError {
 }
 
 ///
+/// KeyDecodeError
+/// (decode / corruption boundary)
+///
+
+#[derive(Debug, ThisError)]
+pub enum KeyDecodeError {
+    #[error("invalid primary key encoding")]
+    InvalidEncoding,
+}
+
+impl From<&'static str> for KeyDecodeError {
+    fn from(_: &'static str) -> Self {
+        Self::InvalidEncoding
+    }
+}
+
+///
 /// DataKeyDecodeError
+/// (decode / corruption boundary)
 ///
 
 #[derive(Debug, ThisError)]
@@ -43,8 +63,8 @@ pub enum DataKeyDecodeError {
     #[error("invalid entity name")]
     Entity(#[from] IdentityDecodeError),
 
-    #[error("invalid primary key: {0}")]
-    Key(&'static str),
+    #[error("invalid primary key")]
+    Key(#[from] KeyDecodeError),
 }
 
 ///
@@ -57,7 +77,6 @@ pub struct DataKey {
     key: Key,
 }
 
-#[expect(clippy::cast_possible_truncation)]
 impl DataKey {
     /// Fixed on-disk size in bytes (stable, protocol-level)
     pub const STORED_SIZE_BYTES: u64 = EntityName::STORED_SIZE_BYTES + Key::STORED_SIZE_BYTES;
@@ -65,41 +84,49 @@ impl DataKey {
     /// Fixed in-memory size (for buffers and arrays only)
     pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
 
-    /// Build a data key for the given entity type and primary key.
+    // ------------------------------------------------------------------
+    // Constructors
+    // ------------------------------------------------------------------
+
+    /// Construct using compile-time entity metadata.
+    ///
+    /// This cannot fail in practice: `ENTITY_NAME` is generated and validated
+    /// at compile time. If it is ever invalid, that is a programmer error.
     #[must_use]
     pub fn new<E: EntityKind>(key: impl Into<Key>) -> Self {
-        let entity = EntityName::try_from_str(E::ENTITY_NAME)
-            .expect("ENTITY_NAME must be a valid ASCII identifier");
-
         Self {
-            entity,
+            entity: Self::entity_for::<E>(),
             key: key.into(),
         }
     }
 
     #[must_use]
     pub fn lower_bound<E: EntityKind>() -> Self {
-        let entity = EntityName::try_from_str(E::ENTITY_NAME)
-            .expect("ENTITY_NAME must be a valid ASCII identifier");
-
         Self {
-            entity,
+            entity: Self::entity_for::<E>(),
             key: Key::MIN,
         }
     }
 
     #[must_use]
     pub fn upper_bound<E: EntityKind>() -> Self {
-        let entity = EntityName::try_from_str(E::ENTITY_NAME)
-            .expect("ENTITY_NAME must be a valid ASCII identifier");
-
         Self {
-            entity,
+            entity: Self::entity_for::<E>(),
             key: Key::upper_bound(),
         }
     }
 
-    /// Return the primary key component.
+    #[inline]
+    fn entity_for<E: EntityKind>() -> EntityName {
+        // SAFETY: ENTITY_NAME is generated code and guaranteed valid.
+        // A failure here indicates a schema/codegen bug, not runtime input.
+        EntityName::try_from_str(E::ENTITY_NAME).unwrap()
+    }
+
+    // ------------------------------------------------------------------
+    // Accessors
+    // ------------------------------------------------------------------
+
     #[must_use]
     pub const fn key(&self) -> Key {
         self.key
@@ -123,6 +150,10 @@ impl DataKey {
             key: Key::max_storable(),
         }
     }
+
+    // ------------------------------------------------------------------
+    // Encoding / decoding
+    // ------------------------------------------------------------------
 
     /// Encode into fixed-size on-disk representation.
     pub fn to_raw(&self) -> Result<RawDataKey, InternalError> {
@@ -149,8 +180,9 @@ impl DataKey {
         let bytes = &raw.0;
 
         let entity = EntityName::from_bytes(&bytes[..EntityName::STORED_SIZE_USIZE])?;
+
         let key = Key::try_from_bytes(&bytes[EntityName::STORED_SIZE_USIZE..])
-            .map_err(DataKeyDecodeError::Key)?;
+            .map_err(KeyDecodeError::from)?;
 
         Ok(Self { entity, key })
     }
@@ -199,16 +231,15 @@ impl Storable for RawDataKey {
         self.0.to_vec()
     }
 
-    #[expect(clippy::cast_possible_truncation)]
     const BOUND: Bound = Bound::Bounded {
         max_size: DataKey::STORED_SIZE_BYTES as u32,
         is_fixed_size: true,
     };
 }
 
-//
-// TESTS
-//
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {
