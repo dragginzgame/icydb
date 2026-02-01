@@ -22,14 +22,7 @@ pub use std::{
     str::FromStr,
 };
 
-use crate::{
-    error::{ErrorClass, ErrorOrigin, InternalError},
-    key::RawKey,
-    model::field::EntityFieldKind,
-    prelude::*,
-    value::ValueEnum,
-    visitor::VisitorContext,
-};
+use crate::{prelude::*, value::ValueEnum, visitor::VisitorContext};
 
 /// ------------------------
 /// KIND TRAITS
@@ -59,11 +52,17 @@ pub trait DataStoreKind: Kind {
 }
 
 ///
+/// EntityId
+///
+
+pub trait EntityId: Copy + Debug + Eq + Ord + Hash + 'static {}
+
+///
 /// EntityKind
 ///
 
 pub trait EntityKind: Kind + TypeKind + FieldValues {
-    type PrimaryKey: Copy + Eq + Hash;
+    type Id: EntityId;
     type DataStore: DataStoreKind;
     type Canister: CanisterKind; // Self::Store::Canister shortcut
 
@@ -73,9 +72,8 @@ pub trait EntityKind: Kind + TypeKind + FieldValues {
     const INDEXES: &'static [&'static IndexModel];
     const MODEL: &'static crate::model::entity::EntityModel;
 
-    fn key(&self) -> Self::PrimaryKey;
-    fn primary_key(&self) -> Self::PrimaryKey;
-    fn set_primary_key(&mut self, key: Self::PrimaryKey);
+    fn id(&self) -> Self::Id;
+    fn set_id(&mut self, id: Self::Id);
 }
 
 ///
@@ -143,115 +141,6 @@ pub trait FieldValues {
 }
 
 ///
-/// EntityRef
-///
-/// Concrete reference extracted from an entity instance.
-/// Carries the target entity path and the referenced key value.
-/// Produced by [`EntityReferences`] during pre-commit planning.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct EntityRef {
-    pub target_path: &'static str,
-    key: RawKey,
-}
-
-impl EntityRef {
-    pub(crate) const fn raw_key(&self) -> RawKey {
-        self.key
-    }
-}
-
-///
-/// EntityReferences
-///
-/// Extract typed entity references from a concrete entity instance.
-/// This is a pure helper for pre-commit planning and RI checks.
-/// Only direct `Ref<T>` and `Option<Ref<T>>` fields are strong in 0.6.
-/// Nested and collection references are treated as weak and ignored.
-/// This is a shallow walk over entity fields only; no recursive traversal occurs.
-///
-pub trait EntityReferences {
-    /// Return all concrete references currently present on this entity.
-    fn entity_refs(&self) -> Result<Vec<EntityRef>, InternalError>;
-}
-
-impl<E> EntityReferences for E
-where
-    E: EntityKind,
-{
-    fn entity_refs(&self) -> Result<Vec<EntityRef>, InternalError> {
-        let mut refs = Vec::with_capacity(E::MODEL.fields.len());
-
-        for field in E::MODEL.fields {
-            // Phase 1: identify strong reference fields; weak shapes are ignored.
-            let target_path = match &field.kind {
-                &EntityFieldKind::Ref { target_path, .. } => target_path,
-                &EntityFieldKind::List(inner) | &EntityFieldKind::Set(inner) => {
-                    if matches!(inner, &EntityFieldKind::Ref { .. }) {
-                        // Weak references: collection refs are allowed but not validated in 0.6.
-                        continue;
-                    }
-                    continue;
-                }
-                &EntityFieldKind::Map { key, value } => {
-                    if matches!(key, &EntityFieldKind::Ref { .. })
-                        || matches!(value, &EntityFieldKind::Ref { .. })
-                    {
-                        // Weak references: map refs are allowed but not validated in 0.6.
-                        continue;
-                    }
-                    continue;
-                }
-                _ => continue,
-            };
-
-            // Phase 2: fetch the field value and skip absent references.
-            let Some(value) = self.get_value(field.name) else {
-                return Err(InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Executor,
-                    format!("reference field missing: {} field={}", E::PATH, field.name),
-                ));
-            };
-
-            if matches!(value, Value::None) {
-                continue;
-            }
-
-            if matches!(value, Value::Unsupported) {
-                return Err(InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Executor,
-                    format!(
-                        "reference field value is unsupported: {} field={}",
-                        E::PATH,
-                        field.name
-                    ),
-                ));
-            }
-
-            // Phase 3: normalize into a concrete key and record the reference.
-            let Some(key) = value.as_key() else {
-                return Err(InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Executor,
-                    format!(
-                        "reference field value is not a key: {} field={}",
-                        E::PATH,
-                        field.name
-                    ),
-                ));
-            };
-
-            refs.push(EntityRef { target_path, key });
-        }
-
-        Ok(refs)
-    }
-}
-
-///
 /// FieldValue
 ///
 /// Conversion boundary for values used in query predicates.
@@ -287,15 +176,6 @@ impl FieldValue for &str {
 impl FieldValue for String {
     fn to_value(&self) -> Value {
         Value::Text(self.clone())
-    }
-}
-
-impl<T> FieldValue for &'_ T
-where
-    T: FieldValue + Copy,
-{
-    fn to_value(&self) -> Value {
-        (*self).to_value()
     }
 }
 
@@ -413,6 +293,3 @@ pub trait Sanitizer<T> {
 pub trait Validator<T: ?Sized> {
     fn validate(&self, value: &T, ctx: &mut dyn VisitorContext);
 }
-
-#[cfg(test)]
-mod tests;

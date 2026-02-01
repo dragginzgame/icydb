@@ -6,8 +6,8 @@ use crate::{
             IndexEntry, IndexEntryCorruption, IndexId, IndexKey, MAX_INDEX_ENTRY_BYTES,
             MAX_INDEX_ENTRY_KEYS, RawIndexEntry, RawIndexKey,
         },
+        store::StorageKey,
     },
-    key::Key,
     traits::Storable,
 };
 use std::borrow::Cow;
@@ -17,10 +17,7 @@ fn index_key_rejects_undersized_bytes() {
     let buf = vec![0u8; IndexKey::STORED_SIZE_USIZE - 1];
     let raw = RawIndexKey::from_bytes(Cow::Borrowed(&buf));
     let err = IndexKey::try_from_raw(&raw).unwrap_err();
-    assert!(
-        err.contains("corrupted"),
-        "expected corruption error, got: {err}"
-    );
+    assert!(err.contains("corrupted"));
 }
 
 #[test]
@@ -28,10 +25,7 @@ fn index_key_rejects_oversized_bytes() {
     let buf = vec![0u8; IndexKey::STORED_SIZE_USIZE + 1];
     let raw = RawIndexKey::from_bytes(Cow::Borrowed(&buf));
     let err = IndexKey::try_from_raw(&raw).unwrap_err();
-    assert!(
-        err.contains("corrupted"),
-        "expected corruption error, got: {err}"
-    );
+    assert!(err.contains("corrupted"));
 }
 
 #[test]
@@ -44,10 +38,7 @@ fn index_key_rejects_len_over_max() {
     bytes[len_offset] = (MAX_INDEX_FIELDS as u8) + 1;
     let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
     let err = IndexKey::try_from_raw(&raw).unwrap_err();
-    assert!(
-        err.contains("corrupted"),
-        "expected corruption error, got: {err}"
-    );
+    assert!(err.contains("corrupted"));
 }
 
 #[test]
@@ -59,10 +50,7 @@ fn index_key_rejects_invalid_index_name() {
     bytes[1] = 0;
     let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
     let err = IndexKey::try_from_raw(&raw).unwrap_err();
-    assert!(
-        err.contains("corrupted"),
-        "expected corruption error, got: {err}"
-    );
+    assert!(err.contains("corrupted"));
 }
 
 #[test]
@@ -74,29 +62,22 @@ fn index_key_rejects_fingerprint_padding() {
     bytes[values_offset] = 1;
     let raw = RawIndexKey::from_bytes(Cow::Owned(bytes));
     let err = IndexKey::try_from_raw(&raw).unwrap_err();
-    assert!(
-        err.contains("corrupted"),
-        "expected corruption error, got: {err}"
-    );
+    assert!(err.contains("corrupted"));
 }
 
 #[test]
 #[expect(clippy::large_types_passed_by_value)]
 fn index_key_ordering_matches_bytes() {
     fn make_key(index_id: IndexId, value_count: u8, first: u8, second: u8) -> IndexKey {
-        // Build raw bytes directly (this is a decode-boundary test)
         let mut bytes = [0u8; IndexKey::STORED_SIZE_USIZE];
 
-        // 1. Index name (canonical bytes)
         let name_bytes = index_id.0.to_bytes();
         bytes[..name_bytes.len()].copy_from_slice(&name_bytes);
 
-        // 2. Value count
         let mut offset = IndexName::STORED_SIZE_USIZE;
         bytes[offset] = value_count;
         offset += 1;
 
-        // 3. Value slots (fixed-width, canonical)
         let mut values = [[0u8; 16]; MAX_INDEX_FIELDS];
         values[0] = [first; 16];
         values[1] = [second; 16];
@@ -128,29 +109,26 @@ fn index_key_ordering_matches_bytes() {
     let mut sorted_by_bytes = keys;
     sorted_by_bytes.sort_by(|a, b| a.to_raw().as_bytes().cmp(b.to_raw().as_bytes()));
 
-    assert_eq!(
-        sorted_by_ord, sorted_by_bytes,
-        "IndexKey Ord and byte ordering diverged"
-    );
+    assert_eq!(sorted_by_ord, sorted_by_bytes);
 }
 
 #[test]
 fn raw_index_entry_round_trip() {
-    let mut entry = IndexEntry::new_raw(Key::Int(1));
-    entry.insert_raw(Key::Uint(2));
+    let mut entry = IndexEntry::new_raw(StorageKey::Int(1));
+    entry.insert_raw(StorageKey::Uint(2));
 
     let raw = RawIndexEntry::try_from_entry(&entry).expect("encode index entry");
     let decoded = raw.try_decode().expect("decode index entry");
 
     assert_eq!(decoded.len(), entry.len());
-    assert!(decoded.contains_raw(Key::Int(1)));
-    assert!(decoded.contains_raw(Key::Uint(2)));
+    assert!(decoded.contains_raw(StorageKey::Int(1)));
+    assert!(decoded.contains_raw(StorageKey::Uint(2)));
 }
 
 #[test]
 fn raw_index_entry_roundtrip_via_bytes() {
-    let mut entry = IndexEntry::new_raw(Key::Int(9));
-    entry.insert_raw(Key::Uint(10));
+    let mut entry = IndexEntry::new_raw(StorageKey::Int(9));
+    entry.insert_raw(StorageKey::Uint(10));
 
     let raw = RawIndexEntry::try_from_entry(&entry).expect("encode index entry");
     let encoded = Storable::to_bytes(&raw);
@@ -158,8 +136,8 @@ fn raw_index_entry_roundtrip_via_bytes() {
     let decoded = raw.try_decode().expect("decode index entry");
 
     assert_eq!(decoded.len(), entry.len());
-    assert!(decoded.contains_raw(Key::Int(9)));
-    assert!(decoded.contains_raw(Key::Uint(10)));
+    assert!(decoded.contains_raw(StorageKey::Int(9)));
+    assert!(decoded.contains_raw(StorageKey::Uint(10)));
 }
 
 #[test]
@@ -174,11 +152,12 @@ fn raw_index_entry_rejects_empty() {
 
 #[test]
 fn raw_index_entry_rejects_truncated_payload() {
-    let key = Key::Int(1);
+    let key = StorageKey::Int(1);
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&1u32.to_be_bytes());
-    bytes.extend_from_slice(&key.to_bytes().expect("key encode"));
+    bytes.extend_from_slice(&key.to_bytes().expect("encode"));
     bytes.truncate(bytes.len() - 1);
+
     let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
     assert!(matches!(
         raw.try_decode(),
@@ -209,11 +188,12 @@ fn raw_index_entry_rejects_corrupted_length_field() {
 
 #[test]
 fn raw_index_entry_rejects_duplicate_keys() {
-    let key = Key::Int(1);
+    let key = StorageKey::Int(1);
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&2u32.to_be_bytes());
-    bytes.extend_from_slice(&key.to_bytes().expect("key encode"));
-    bytes.extend_from_slice(&key.to_bytes().expect("key encode"));
+    bytes.extend_from_slice(&key.to_bytes().expect("encode"));
+    bytes.extend_from_slice(&key.to_bytes().expect("encode"));
+
     let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
     assert!(matches!(
         raw.try_decode(),
@@ -237,11 +217,7 @@ fn index_key_decode_fuzz_roundtrip_is_canonical() {
         let raw = RawIndexKey::from_bytes(Cow::Borrowed(&bytes));
         if let Ok(decoded) = IndexKey::try_from_raw(&raw) {
             let re = decoded.to_raw();
-            assert_eq!(
-                raw.as_bytes(),
-                re.as_bytes(),
-                "decoded IndexKey must be canonical"
-            );
+            assert_eq!(raw.as_bytes(), re.as_bytes());
         }
     }
 }

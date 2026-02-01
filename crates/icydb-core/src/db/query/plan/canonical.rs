@@ -24,7 +24,7 @@ use std::cmp::Ordering;
 /// It must not filter, merge, or otherwise modify plan structure.
 pub(crate) fn canonicalize_access_plans<K>(plans: &mut [AccessPlan<K>])
 where
-    K: Copy + FieldValue,
+    K: Copy,
 {
     plans.sort_by(canonical_cmp_access_plan);
 }
@@ -34,7 +34,7 @@ where
 /// This is intended for invariant checks and debug assertions.
 pub(crate) fn is_canonical_sorted<K>(plans: &[AccessPlan<K>]) -> bool
 where
-    K: Copy + FieldValue,
+    K: Copy,
 {
     plans
         .windows(2)
@@ -48,7 +48,7 @@ where
 /// 2. Within the same kind, compare contents recursively
 fn canonical_cmp_access_plan<K>(left: &AccessPlan<K>, right: &AccessPlan<K>) -> Ordering
 where
-    K: Copy + FieldValue,
+    K: Copy,
 {
     match (left, right) {
         (AccessPlan::Path(left), AccessPlan::Path(right)) => canonical_cmp_access_path(left, right),
@@ -76,7 +76,7 @@ const fn canonical_access_plan_rank<K>(plan: &AccessPlan<K>) -> u8 {
 /// Used for Intersection and Union variants.
 fn canonical_cmp_plan_list<K>(left: &[AccessPlan<K>], right: &[AccessPlan<K>]) -> Ordering
 where
-    K: Copy + FieldValue,
+    K: Copy,
 {
     let limit = left.len().min(right.len());
     for (left, right) in left.iter().take(limit).zip(right.iter().take(limit)) {
@@ -95,7 +95,7 @@ where
 /// 2. Path-specific fields
 fn canonical_cmp_access_path<K>(left: &AccessPath<K>, right: &AccessPath<K>) -> Ordering
 where
-    K: Copy + FieldValue,
+    K: Copy,
 {
     let rank = canonical_access_path_rank(left).cmp(&canonical_access_path_rank(right));
     if rank != Ordering::Equal {
@@ -184,7 +184,7 @@ struct AccessPathRank {
 /// Lexicographic comparison of key lists.
 fn canonical_cmp_key_list<K>(left: &[K], right: &[K]) -> Ordering
 where
-    K: Copy + FieldValue,
+    K: Copy,
 {
     let limit = left.len().min(right.len());
     for (left, right) in left.iter().take(limit).zip(right.iter().take(limit)) {
@@ -198,7 +198,7 @@ where
 
 fn canonical_cmp_key<K>(left: &K, right: &K) -> Ordering
 where
-    K: Copy + FieldValue,
+    K: Copy,
 {
     let left_value = left.to_value();
     let right_value = right.to_value();

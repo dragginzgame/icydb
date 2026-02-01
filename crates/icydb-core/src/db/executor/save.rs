@@ -12,16 +12,19 @@ use crate::{
             IndexKey, IndexStore, RawIndexEntry, RawIndexKey,
             plan::{IndexApplyPlan, plan_index_mutation_for_entity},
         },
-        query::SaveMode,
-        query::predicate::validate::{SchemaInfo, literal_matches_type},
-        store::{DataKey, DataStore, RawDataKey, RawRow},
+        query::{
+            SaveMode,
+            plan::refs::EntityReferences,
+            predicate::validate::{SchemaInfo, literal_matches_type},
+        },
+        store::{DataKey, DataStore, EntityRef, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::field::EntityFieldKind,
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::serialize,
-    traits::{EntityKind, EntityRef, EntityReferences, FieldValue, Path, Storable},
+    traits::{EntityKind, FieldValue, Path, Storable},
     types::Ref,
     validate::validate,
     value::Value,
@@ -419,7 +422,7 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> SaveExecutor<E> {
                     )
                 })?;
 
-                if data_key.raw_key() == reference.raw_key() {
+                if data_key.storage_key() == reference.key {
                     return Ok(true);
                 }
             }
@@ -434,7 +437,7 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> SaveExecutor<E> {
                 format!(
                     "missing referenced entity: {} key={}",
                     reference.target_path,
-                    reference.raw_key()
+                    reference.storage_key()
                 ),
             ));
         }

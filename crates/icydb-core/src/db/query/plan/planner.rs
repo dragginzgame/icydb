@@ -25,7 +25,7 @@ pub(crate) use tests::PlannerEntity;
 
 impl<K> AccessPlan<K>
 where
-    K: Copy + FieldValue + PartialEq,
+    K: Copy + PartialEq,
 {
     fn normalize(self) -> Self {
         match self {
@@ -300,7 +300,7 @@ fn better_index(
 
 fn normalize_union<K>(children: Vec<AccessPlan<K>>) -> AccessPlan<K>
 where
-    K: Copy + FieldValue + PartialEq,
+    K: Copy + PartialEq,
 {
     let mut out = Vec::new();
 
@@ -333,7 +333,7 @@ where
 
 fn normalize_intersection<K>(children: Vec<AccessPlan<K>>) -> AccessPlan<K>
 where
-    K: Copy + FieldValue + PartialEq,
+    K: Copy + PartialEq,
 {
     let mut out = Vec::new();
 

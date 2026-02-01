@@ -4,6 +4,7 @@ mod family;
 mod tests;
 
 use crate::{
+    db::store::StorageKey,
     prelude::*,
     traits::{EnumValue, FieldValue, NumFromPrimitive},
     types::*,
@@ -164,20 +165,21 @@ impl Value {
     /// CONVERSION
     ///
 
-    /// NOTE: `Unit` is intentionally treated as a valid key and indexable,
-    /// used for tables with exactly one row or synthetic “single identity”
-    /// entities. Only `None` and `Unsupported` are non-indexable.
+    /// NOTE:
+    /// `Unit` is intentionally treated as a valid storage key and indexable,
+    /// used for singleton tables and synthetic identity entities.
+    /// Only `None` and `Unsupported` are non-indexable.
     #[must_use]
-    pub const fn as_key(&self) -> Option<Key> {
+    pub const fn as_storage_key(&self) -> Option<StorageKey> {
         match self {
-            Self::Account(v) => Some(Key::Account(*v)),
-            Self::Int(v) => Some(Key::Int(*v)),
-            Self::Uint(v) => Some(Key::Uint(*v)),
-            Self::Principal(v) => Some(Key::Principal(*v)),
-            Self::Subaccount(v) => Some(Key::Subaccount(*v)),
-            Self::Timestamp(v) => Some(Key::Timestamp(*v)),
-            Self::Ulid(v) => Some(Key::Ulid(*v)),
-            Self::Unit => Some(Key::Unit),
+            Self::Account(v) => Some(StorageKey::Account(*v)),
+            Self::Int(v) => Some(StorageKey::Int(*v)),
+            Self::Uint(v) => Some(StorageKey::Uint(*v)),
+            Self::Principal(v) => Some(StorageKey::Principal(*v)),
+            Self::Subaccount(v) => Some(StorageKey::Subaccount(*v)),
+            Self::Timestamp(v) => Some(StorageKey::Timestamp(*v)),
+            Self::Ulid(v) => Some(StorageKey::Ulid(*v)),
+            Self::Unit => Some(StorageKey::Unit),
             _ => None,
         }
     }

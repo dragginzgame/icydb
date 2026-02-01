@@ -1,10 +1,14 @@
 mod data;
-mod key;
+mod data_key;
+mod entity_ref;
 mod row;
+mod storage_key;
 
 pub use data::*;
-pub use key::*;
+pub use data_key::*;
+pub use entity_ref::*;
 pub use row::*;
+pub use storage_key::*;
 
 use crate::error::{ErrorClass, ErrorOrigin, InternalError};
 use std::{cell::RefCell, collections::HashMap, thread::LocalKey};

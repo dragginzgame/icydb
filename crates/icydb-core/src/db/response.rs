@@ -1,15 +1,14 @@
-use crate::{prelude::*, types::Ref, view::View};
+use crate::{prelude::*, view::View};
 use thiserror::Error as ThisError;
 
 ///
 /// Row
 ///
 
-pub type Row<E> = (<E as EntityKind>::PrimaryKey, E);
+pub type Row<E> = (<E as EntityKind>::Id, E);
 
 ///
 /// ResponseError
-/// Errors related to interpreting a materialized response.
 ///
 
 #[derive(Debug, ThisError)]
@@ -37,61 +36,51 @@ impl ResponseError {
 ///
 /// Response
 ///
-/// Materialized query result: ordered `(Key, Entity)` pairs.
-///
-/// Invariants:
-/// - Rows are already ordered according to the query plan.
-/// - Cardinality is not enforced unless explicitly requested.
-/// - This type performs no lazy evaluation.
+/// Materialized query result: ordered `(Id, Entity)` pairs.
 ///
 
 #[derive(Debug)]
-pub struct Response<E: EntityKind<PrimaryKey = Ref<E>>>(pub Vec<Row<E>>);
+pub struct Response<E: EntityKind>(pub Vec<Row<E>>);
 
-impl<E: EntityKind<PrimaryKey = Ref<E>>> Response<E> {
+impl<E: EntityKind> Response<E> {
     // ------------------------------------------------------------------
     // Introspection
     // ------------------------------------------------------------------
 
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    pub const fn count(&self) -> u32 {
+    pub fn count(&self) -> u32 {
         self.0.len() as u32
     }
 
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
     // ------------------------------------------------------------------
-    // Cardinality enforcement (domain-level)
+    // Cardinality enforcement
     // ------------------------------------------------------------------
 
-    pub const fn require_one(&self) -> Result<(), ResponseError> {
+    pub fn require_one(&self) -> Result<(), ResponseError> {
         match self.count() {
             1 => Ok(()),
-            0 => Err(ResponseError::NotFound { entity: E::PATH }),
-            n => Err(ResponseError::NotUnique {
-                entity: E::PATH,
-                count: n,
-            }),
+            0 => Err(ResponseError::not_found::<E>()),
+            n => Err(ResponseError::not_unique::<E>(n)),
         }
     }
 
-    pub const fn require_some(&self) -> Result<(), ResponseError> {
+    pub fn require_some(&self) -> Result<(), ResponseError> {
         if self.is_empty() {
-            Err(ResponseError::NotFound { entity: E::PATH })
+            Err(ResponseError::not_found::<E>())
         } else {
             Ok(())
         }
     }
 
     // ------------------------------------------------------------------
-    // Rows (primitive: try_row)
+    // Rows
     // ------------------------------------------------------------------
 
-    #[allow(clippy::cast_possible_truncation)]
     pub fn try_row(self) -> Result<Option<Row<E>>, ResponseError> {
         match self.0.len() {
             0 => Ok(None),
@@ -104,7 +93,6 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> Response<E> {
         self.try_row()?.ok_or_else(ResponseError::not_found::<E>)
     }
 
-    #[must_use]
     pub fn rows(self) -> Vec<Row<E>> {
         self.0
     }
@@ -121,57 +109,32 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> Response<E> {
         self.row().map(|(_, e)| e)
     }
 
-    #[must_use]
     pub fn entities(self) -> Vec<E> {
         self.0.into_iter().map(|(_, e)| e).collect()
     }
 
     // ------------------------------------------------------------------
-    // Store keys (delete ergonomics)
+    // Ids (identity-level)
     // ------------------------------------------------------------------
 
-    #[must_use]
-    pub fn key(&self) -> Option<E::PrimaryKey> {
-        self.0.first().map(|(k, _)| *k)
+    pub fn id(&self) -> Option<E::Id> {
+        self.0.first().map(|(id, _)| *id)
     }
 
-    pub fn key_strict(self) -> Result<E::PrimaryKey, ResponseError> {
-        self.row().map(|(k, _)| k)
+    pub fn id_strict(self) -> Result<E::Id, ResponseError> {
+        self.row().map(|(id, _)| id)
     }
 
-    pub fn try_key(self) -> Result<Option<E::PrimaryKey>, ResponseError> {
-        Ok(self.try_row()?.map(|(k, _)| k))
+    pub fn ids(&self) -> Vec<E::Id> {
+        self.0.iter().map(|(id, _)| *id).collect()
     }
 
-    #[must_use]
-    pub fn keys(&self) -> Vec<E::PrimaryKey> {
-        self.0.iter().map(|(k, _)| *k).collect()
-    }
-
-    #[must_use]
-    pub fn contains_key(&self, key: &E::PrimaryKey) -> bool {
-        self.0.iter().any(|(k, _)| k == key)
+    pub fn contains_id(&self, id: &E::Id) -> bool {
+        self.0.iter().any(|(k, _)| k == id)
     }
 
     // ------------------------------------------------------------------
-    // Primary keys (domain-level, strict)
-    // ------------------------------------------------------------------
-
-    pub fn primary_key(self) -> Result<E::PrimaryKey, ResponseError> {
-        Ok(self.entity()?.primary_key())
-    }
-
-    pub fn try_primary_key(self) -> Result<Option<E::PrimaryKey>, ResponseError> {
-        Ok(self.try_entity()?.map(|e| e.primary_key()))
-    }
-
-    #[must_use]
-    pub fn primary_keys(self) -> Vec<E::PrimaryKey> {
-        self.0.into_iter().map(|(_, e)| e.primary_key()).collect()
-    }
-
-    // ------------------------------------------------------------------
-    // Views (first-class, canonical)
+    // Views
     // ------------------------------------------------------------------
 
     pub fn view(&self) -> Result<View<E>, ResponseError> {
@@ -187,13 +150,12 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> Response<E> {
         }
     }
 
-    #[must_use]
     pub fn views(&self) -> Vec<View<E>> {
         self.0.iter().map(|(_, e)| e.to_view()).collect()
     }
 }
 
-impl<E: EntityKind<PrimaryKey = Ref<E>>> IntoIterator for Response<E> {
+impl<E: EntityKind> IntoIterator for Response<E> {
     type Item = Row<E>;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 

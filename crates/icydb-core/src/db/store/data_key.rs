@@ -1,8 +1,10 @@
 #![expect(clippy::cast_possible_truncation)]
 use crate::{
-    db::identity::{EntityName, IdentityDecodeError},
+    db::{
+        identity::{EntityName, IdentityDecodeError},
+        store::storage_key::{StorageKey, StorageKeyEncodeError},
+    },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    key::{Key, KeyEncodeError, RawKey},
     traits::{EntityKind, Storable},
     types::Ref,
 };
@@ -23,7 +25,7 @@ pub enum DataKeyEncodeError {
     #[error("data key encoding failed for {key}: {source}")]
     KeyEncoding {
         key: DataKey,
-        source: KeyEncodeError,
+        source: StorageKeyEncodeError,
     },
 }
 
@@ -75,12 +77,13 @@ pub enum DataKeyDecodeError {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DataKey {
     entity: EntityName,
-    key: RawKey,
+    key: StorageKey,
 }
 
 impl DataKey {
     /// Fixed on-disk size in bytes (stable, protocol-level)
-    pub const STORED_SIZE_BYTES: u64 = EntityName::STORED_SIZE_BYTES + Key::STORED_SIZE_BYTES;
+    pub const STORED_SIZE_BYTES: u64 =
+        EntityName::STORED_SIZE_BYTES + StorageKey::STORED_SIZE_BYTES;
 
     /// Fixed in-memory size (for buffers and arrays only)
     pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
@@ -105,7 +108,7 @@ impl DataKey {
     pub fn lower_bound<E: EntityKind>() -> Self {
         Self {
             entity: Self::entity_for::<E>(),
-            key: Key::MIN,
+            key: StorageKey::MIN,
         }
     }
 
@@ -113,7 +116,7 @@ impl DataKey {
     pub fn upper_bound<E: EntityKind>() -> Self {
         Self {
             entity: Self::entity_for::<E>(),
-            key: Key::upper_bound(),
+            key: StorageKey::upper_bound(),
         }
     }
 
@@ -139,7 +142,7 @@ impl DataKey {
     }
 
     #[must_use]
-    pub(crate) const fn raw_key(&self) -> RawKey {
+    pub(crate) const fn storage_key(&self) -> StorageKey {
         self.key
     }
 
@@ -153,7 +156,7 @@ impl DataKey {
     pub fn max_storable() -> Self {
         Self {
             entity: EntityName::max_storable(),
-            key: Key::max_storable(),
+            key: StorageKey::max_storable(),
         }
     }
 
@@ -177,7 +180,7 @@ impl DataKey {
             })?;
 
         let key_offset = EntityName::STORED_SIZE_USIZE;
-        buf[key_offset..key_offset + Key::STORED_SIZE_USIZE].copy_from_slice(&key_bytes);
+        buf[key_offset..key_offset + StorageKey::STORED_SIZE_USIZE].copy_from_slice(&key_bytes);
 
         Ok(RawDataKey(buf))
     }
@@ -187,7 +190,7 @@ impl DataKey {
 
         let entity = EntityName::from_bytes(&bytes[..EntityName::STORED_SIZE_USIZE])?;
 
-        let key = Key::try_from_bytes(&bytes[EntityName::STORED_SIZE_USIZE..])
+        let key = StorageKey::try_from_bytes(&bytes[EntityName::STORED_SIZE_USIZE..])
             .map_err(KeyDecodeError::from)?;
 
         Ok(Self { entity, key })
@@ -258,19 +261,19 @@ mod tests {
         let keys = vec![
             DataKey {
                 entity: EntityName::try_from_str("a").unwrap(),
-                key: Key::Int(0),
+                key: StorageKey::Int(0),
             },
             DataKey {
                 entity: EntityName::try_from_str("aa").unwrap(),
-                key: Key::Int(0),
+                key: StorageKey::Int(0),
             },
             DataKey {
                 entity: EntityName::try_from_str("b").unwrap(),
-                key: Key::Int(0),
+                key: StorageKey::Int(0),
             },
             DataKey {
                 entity: EntityName::try_from_str("a").unwrap(),
-                key: Key::Uint(1),
+                key: StorageKey::Uint(1),
             },
         ];
 

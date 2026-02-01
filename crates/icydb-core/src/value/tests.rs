@@ -2,7 +2,6 @@
 /// TESTS
 ///
 use crate::{
-    prelude::*,
     traits::{FieldValue, NumFromPrimitive},
     types::{Decimal, E8s, E18s, Float32 as F32, Float64 as F64, Ulid},
     value::{TextMode, Value},
@@ -41,29 +40,42 @@ fn vec_box_value_field_value() {
 // ---- keys --------------------------------------------------------------
 
 #[test]
-fn as_key_some_for_orderable_variants() {
-    assert_eq!(Value::Int(7).as_key(), Some(Key::Int(7)));
-    assert_eq!(Value::Uint(7).as_key(), Some(Key::Uint(7)));
-    assert_eq!(Value::Ulid(Ulid::MIN).as_key(), Some(Key::Ulid(Ulid::MIN)));
-    assert_eq!(Value::Unit.as_key(), Some(Key::Unit));
-    // Non-orderable / non-key variants
-    assert!(v_txt("x").as_key().is_none());
-    assert!(Value::Decimal(Decimal::new(1, 0)).as_key().is_none());
-    assert!(Value::List(vec![]).as_key().is_none());
-    assert!(Value::None.as_key().is_none());
+fn as_storage_key_some_for_keyable_variants() {
+    assert!(Value::Int(7).as_storage_key().is_some());
+    assert!(Value::Uint(7).as_storage_key().is_some());
+    assert!(Value::Ulid(Ulid::MIN).as_storage_key().is_some());
+    assert!(Value::Unit.as_storage_key().is_some());
+
+    // Non-key / non-orderable variants
+    assert!(v_txt("x").as_storage_key().is_none());
+    assert!(
+        Value::Decimal(Decimal::new(1, 0))
+            .as_storage_key()
+            .is_none()
+    );
+    assert!(Value::List(vec![]).as_storage_key().is_none());
+    assert!(Value::None.as_storage_key().is_none());
 }
 
 #[test]
-fn from_key_round_trips() {
-    let ks = [Key::Int(-9), Key::Uint(9), Key::Ulid(Ulid::MAX), Key::Unit];
-    for k in ks {
-        let v = k.to_value();
-        let back = v
-            .as_key()
-            .expect("as_key should succeed for orderable variants");
+fn storage_key_round_trips_through_value() {
+    let values = [
+        Value::Int(-9),
+        Value::Uint(9),
+        Value::Ulid(Ulid::MAX),
+        Value::Unit,
+    ];
+
+    for v in values {
+        let key = v
+            .as_storage_key()
+            .expect("value should be convertible to storage key");
+
+        let back = key.as_value();
+
         assert_eq!(
-            k, back,
-            "Value <-> Key round trip failed: {k:?} -> {v:?} -> {back:?}"
+            v, back,
+            "Value <-> StorageKey round trip failed: {v:?} -> {key:?} -> {back:?}"
         );
     }
 }

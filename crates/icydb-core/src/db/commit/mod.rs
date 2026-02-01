@@ -194,7 +194,7 @@ mod tests {
         db::{
             Db,
             index::{IndexEntry, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
-            store::{DataKey, DataStore, DataStoreRegistry, RawRow},
+            store::{DataKey, DataStore, DataStoreRegistry, RawRow, StorageKey},
         },
         error::{ErrorClass, ErrorOrigin},
         model::{
@@ -204,7 +204,7 @@ mod tests {
         },
         serialize::serialize,
         traits::{
-            CanisterKind, DataStoreKind, EntityKind, FieldValue, FieldValues, Path, SanitizeAuto,
+            CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto,
             SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
         },
         types::{Ref, Ulid},
@@ -213,6 +213,10 @@ mod tests {
     use canic_memory::runtime::registry::MemoryRegistryRuntime;
     use serde::{Deserialize, Serialize};
     use std::{cell::RefCell, sync::Once};
+
+    // ---------------------------------------------------------------------
+    // Schema
+    // ---------------------------------------------------------------------
 
     const CANISTER_PATH: &str = "commit_test::TestCanister";
     const DATA_STORE_PATH: &str = "commit_test::TestDataStore";
@@ -227,6 +231,7 @@ mod tests {
         true,
     );
     const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
+
     const TEST_FIELDS: [EntityFieldModel; 2] = [
         EntityFieldModel {
             name: "id",
@@ -237,6 +242,7 @@ mod tests {
             kind: EntityFieldKind::Text,
         },
     ];
+
     const TEST_MODEL: EntityModel = EntityModel {
         path: ENTITY_PATH,
         entity_name: "TestEntity",
@@ -244,6 +250,10 @@ mod tests {
         fields: &TEST_FIELDS,
         indexes: &INDEXES,
     };
+
+    // ---------------------------------------------------------------------
+    // Entity
+    // ---------------------------------------------------------------------
 
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     struct TestEntity {
@@ -276,12 +286,16 @@ mod tests {
     impl FieldValues for TestEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(self.id.to_value()),
+                "id" => Some(self.id.as_value()),
                 "name" => Some(Value::Text(self.name.clone())),
                 _ => None,
             }
         }
     }
+
+    // ---------------------------------------------------------------------
+    // Identity & Kind
+    // ---------------------------------------------------------------------
 
     #[derive(Clone, Copy)]
     struct TestCanister;
@@ -303,7 +317,7 @@ mod tests {
     }
 
     impl EntityKind for TestEntity {
-        type PrimaryKey = Ref<Self>;
+        type Id = StorageKey;
         type DataStore = TestStore;
         type Canister = TestCanister;
 
@@ -313,18 +327,18 @@ mod tests {
         const INDEXES: &'static [&'static IndexModel] = &INDEXES;
         const MODEL: &'static EntityModel = &TEST_MODEL;
 
-        fn key(&self) -> Self::PrimaryKey {
-            self.id
+        fn id(&self) -> Self::Id {
+            self.id.raw()
         }
 
-        fn primary_key(&self) -> Self::PrimaryKey {
-            self.id
-        }
-
-        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-            self.id = key;
+        fn set_id(&mut self, id: Self::Id) {
+            self.id = Ref::from_raw(id);
         }
     }
+
+    // ---------------------------------------------------------------------
+    // Stores & DB
+    // ---------------------------------------------------------------------
 
     canic_memory::eager_static! {
         static TEST_DATA_STORE: RefCell<DataStore> =
@@ -355,6 +369,10 @@ mod tests {
 
     static DB: Db<TestCanister> = Db::new(&DATA_REGISTRY, &INDEX_REGISTRY, &[]);
 
+    // ---------------------------------------------------------------------
+    // Test helpers
+    // ---------------------------------------------------------------------
+
     canic_memory::eager_init!({
         canic_memory::ic_memory_range!(0, 20);
     });
@@ -378,16 +396,20 @@ mod tests {
         });
     }
 
+    // ---------------------------------------------------------------------
+    // Tests
+    // ---------------------------------------------------------------------
+
     #[test]
     fn commit_marker_recovery_rejects_corrupted_index_key() {
         reset_stores();
 
-        // Stage 1: build a valid commit marker payload.
         let entity = TestEntity {
-            id: Ref::new(Ulid::from_u128(7)),
+            id: Ref::new(StorageKey::Ulid(Ulid::from_u128(7))),
             name: "alpha".to_string(),
         };
-        let data_key = DataKey::new::<TestEntity>(entity.id);
+
+        let data_key = DataKey::new::<TestEntity>(entity.id());
         let raw_data_key = data_key.to_raw().expect("data key encode");
         let raw_row = RawRow::try_new(serialize(&entity).unwrap()).unwrap();
 
@@ -395,7 +417,8 @@ mod tests {
             .expect("index key")
             .expect("index key missing");
         let raw_index_key = index_key.to_raw();
-        let entry = IndexEntry::new(entity.key());
+
+        let entry = IndexEntry::new(entity.id());
         let raw_index_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
 
         let mut marker = CommitMarker::new(
@@ -413,24 +436,19 @@ mod tests {
         )
         .unwrap();
 
-        // Stage 2: corrupt the stored index key bytes.
-        if let Some(last) = marker.index_ops[0].key.last_mut() {
-            *last ^= 0xFF;
-        }
+        // Corrupt the index key
+        marker.index_ops[0]
+            .key
+            .last_mut()
+            .unwrap()
+            .bitxor_assign(0xFF);
 
         let _guard = begin_commit(marker).unwrap();
-        assert!(crate::db::commit::store::commit_marker_present().unwrap());
-
-        // Stage 3: recovery should fail with a corruption error.
         force_recovery_for_tests();
-        let err = ensure_recovered(&DB).expect_err("corrupted marker should fail recovery");
+
+        let err = ensure_recovered(&DB).expect_err("corrupted marker should fail");
         assert_eq!(err.class, ErrorClass::Corruption);
         assert_eq!(err.origin, ErrorOrigin::Index);
-
-        let _ = with_commit_store(|store| {
-            store.clear_infallible();
-            Ok(())
-        });
     }
 
     #[test]
@@ -438,16 +456,17 @@ mod tests {
         reset_stores();
 
         let entity = TestEntity {
-            id: Ref::new(Ulid::from_u128(8)),
+            id: Ref::new(StorageKey::Ulid(Ulid::from_u128(8))),
             name: "alpha".to_string(),
         };
-        let data_key = DataKey::new::<TestEntity>(entity.id);
+
+        let data_key = DataKey::new::<TestEntity>(entity.id());
         let raw_data_key = data_key.to_raw().expect("data key encode");
         let raw_row = RawRow::try_new(serialize(&entity).unwrap()).unwrap();
 
         let marker = CommitMarker::new(
             CommitKind::Delete,
-            Vec::new(),
+            vec![],
             vec![CommitDataOp {
                 store: DATA_STORE_PATH.to_string(),
                 key: raw_data_key.as_bytes().to_vec(),
@@ -457,16 +476,10 @@ mod tests {
         .unwrap();
 
         let _guard = begin_commit(marker).unwrap();
-        assert!(crate::db::commit::store::commit_marker_present().unwrap());
-
         force_recovery_for_tests();
-        let err = ensure_recovered(&DB).expect_err("delete marker payload should fail recovery");
+
+        let err = ensure_recovered(&DB).expect_err("delete payload should fail");
         assert_eq!(err.class, ErrorClass::Corruption);
         assert_eq!(err.origin, ErrorOrigin::Store);
-
-        let _ = with_commit_store(|store| {
-            store.clear_infallible();
-            Ok(())
-        });
     }
 }

@@ -151,7 +151,7 @@ pub enum ExplainDeleteLimit {
 
 impl<K> LogicalPlan<K>
 where
-    K: Copy + FieldValue,
+    K: Copy,
 {
     /// Produce a stable, deterministic explanation of this logical plan.
     #[must_use]
@@ -180,7 +180,7 @@ where
 impl ExplainAccessPath {
     fn from_access_plan<K>(access: &AccessPlan<K>) -> Self
     where
-        K: Copy + FieldValue,
+        K: Copy,
     {
         match access {
             AccessPlan::Path(path) => Self::from_path(path),
@@ -195,7 +195,7 @@ impl ExplainAccessPath {
 
     fn from_path<K>(path: &AccessPath<K>) -> Self
     where
-        K: Copy + FieldValue,
+        K: Copy,
     {
         match path {
             AccessPath::ByKey(key) => Self::ByKey {

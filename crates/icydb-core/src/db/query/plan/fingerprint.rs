@@ -44,7 +44,7 @@ impl std::fmt::Display for PlanFingerprint {
 
 impl<K> super::LogicalPlan<K>
 where
-    K: Copy + FieldValue,
+    K: Copy,
 {
     /// Compute a stable fingerprint for this logical plan.
     #[must_use]

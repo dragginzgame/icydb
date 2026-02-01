@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub fn rebuild_indexes_for_entity<E>(db: &Db<E::Canister>) -> Result<(), InternalError>
 where
     E: EntityKind<PrimaryKey = Ref<E>>,
+    E::PrimaryKey: Copy,
 {
     // Phase 1: recovery guard to avoid rebuilding from partial commit state.
     ensure_recovered(db)?;

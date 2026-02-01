@@ -31,9 +31,9 @@ mod prelude {
         trait_kind::{TraitBuilder, TraitKind, TraitSet},
         types::TraitStrategy,
     };
-    pub use icydb_schema::types::{Cardinality, Primitive};
     pub use icydb_schema::{
         MAX_ENTITY_NAME_LEN, MAX_FIELD_NAME_LEN, MAX_INDEX_FIELDS, MAX_INDEX_NAME_LEN,
+        types::{Cardinality, Primitive},
     };
 
     // proc-macro essentials

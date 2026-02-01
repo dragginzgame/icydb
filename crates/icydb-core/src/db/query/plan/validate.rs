@@ -90,7 +90,7 @@ pub(crate) fn validate_plan_with_schema_info<K>(
     plan: &LogicalPlan<K>,
 ) -> Result<(), PlanError>
 where
-    K: Copy + Ord + FieldValue,
+    K: Copy + Ord,
 {
     validate_logical_plan(schema, model, plan)
 }
@@ -104,7 +104,7 @@ pub(crate) fn validate_plan_with_model<K>(
     model: &EntityModel,
 ) -> Result<(), PlanError>
 where
-    K: Copy + Ord + FieldValue,
+    K: Copy + Ord,
 {
     let schema = SchemaInfo::from_entity_model(model)?;
     validate_plan_with_schema_info(&schema, model, plan)
@@ -117,7 +117,7 @@ pub(crate) fn validate_logical_plan<K>(
     plan: &LogicalPlan<K>,
 ) -> Result<(), PlanError>
 where
-    K: Copy + Ord + FieldValue,
+    K: Copy + Ord,
 {
     if let Some(predicate) = &plan.predicate {
         predicate::validate(schema, predicate)?;
@@ -136,7 +136,7 @@ where
 /// Validate plan-level invariants not covered by schema checks.
 fn validate_plan_semantics<K>(plan: &LogicalPlan<K>) -> Result<(), PlanError>
 where
-    K: Copy + Ord + FieldValue,
+    K: Copy + Ord,
 {
     if let Some(order) = &plan.order
         && order.fields.is_empty()
@@ -205,6 +205,7 @@ pub(crate) fn validate_executor_plan<E: EntityKind<PrimaryKey = Ref<E>>>(
             err.to_string(),
         )
     })?;
+
     validate_plan_semantics(plan).map_err(|err| {
         InternalError::new(
             ErrorClass::InvariantViolation,
@@ -252,7 +253,7 @@ pub(crate) fn validate_access_plan<K>(
     access: &AccessPlan<K>,
 ) -> Result<(), PlanError>
 where
-    K: Copy + Ord + FieldValue,
+    K: Copy + Ord,
 {
     match access {
         AccessPlan::Path(path) => validate_access_path(schema, model, path),
@@ -271,7 +272,7 @@ fn validate_access_path<K>(
     access: &AccessPath<K>,
 ) -> Result<(), PlanError>
 where
-    K: Copy + Ord + FieldValue,
+    K: Copy + Ord,
 {
     match access {
         AccessPath::ByKey(key) => validate_pk_key(schema, model, key),
@@ -303,7 +304,7 @@ where
 /// Validate that a key matches the entity's primary key type.
 fn validate_pk_key<K>(schema: &SchemaInfo, model: &EntityModel, key: &K) -> Result<(), PlanError>
 where
-    K: Copy + FieldValue,
+    K: Copy,
 {
     let field = model.primary_key.name;
 

@@ -2,7 +2,6 @@
 //! the ergonomics exported via the `prelude`.
 pub mod db;
 pub mod error;
-pub mod key;
 pub mod model;
 pub mod obs;
 pub mod sanitize;
@@ -33,7 +32,6 @@ pub const MAX_INDEX_FIELDS: usize = 4;
 
 pub mod prelude {
     pub use crate::{
-        key::Key,
         model::index::IndexModel,
         traits::{EntityKind, Path},
         value::Value,

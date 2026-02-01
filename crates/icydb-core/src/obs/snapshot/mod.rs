@@ -1,8 +1,12 @@
 use crate::{
-    db::{Db, ensure_recovered, identity::EntityName, index::IndexKey, store::DataKey},
+    db::{
+        Db, ensure_recovered,
+        identity::EntityName,
+        index::IndexKey,
+        store::{DataKey, StorageKey},
+    },
     error::InternalError,
-    key::RawKey,
-    traits::{CanisterKind, FieldValue},
+    traits::CanisterKind,
     value::Value,
 };
 use candid::CandidType;
@@ -77,8 +81,8 @@ pub struct EntitySnapshot {
 struct EntityStats {
     entries: u64,
     memory_bytes: u64,
-    min_key: Option<RawKey>,
-    max_key: Option<RawKey>,
+    min_key: Option<StorageKey>,
+    max_key: Option<StorageKey>,
 }
 
 impl EntityStats {
@@ -88,7 +92,7 @@ impl EntityStats {
             .memory_bytes
             .saturating_add(DataKey::entry_size_bytes(value_len));
 
-        let k = dk.raw_key();
+        let k = dk.storage_key();
 
         match &mut self.min_key {
             Some(min) if k < *min => *min = k,
@@ -150,8 +154,8 @@ pub fn storage_report<C: CanisterKind>(
                     path: path_name.to_string(),
                     entries: stats.entries,
                     memory_bytes: stats.memory_bytes,
-                    min_key: stats.min_key.map(|key| key.to_value()),
-                    max_key: stats.max_key.map(|key| key.to_value()),
+                    min_key: stats.min_key.map(|key| key.as_value()),
+                    max_key: stats.max_key.map(|key| key.as_value()),
                 });
             }
         });

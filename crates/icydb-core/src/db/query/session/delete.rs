@@ -10,7 +10,6 @@ use crate::{
         response::Response,
     },
     traits::{CanisterKind, EntityKind, UnitKey},
-    types::Ref,
 };
 
 ///
@@ -21,14 +20,19 @@ use crate::{
 /// All result projection and cardinality handling lives on `Response<E>`.
 ///
 
-pub struct SessionDeleteQuery<'a, C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>>>
+pub struct SessionDeleteQuery<'a, C, E>
+where
+    C: CanisterKind,
+    E: EntityKind<Canister = C>,
 {
     session: &'a DbSession<C>,
     query: Query<E>,
 }
 
-impl<'a, C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>>>
-    SessionDeleteQuery<'a, C, E>
+impl<'a, C, E> SessionDeleteQuery<'a, C, E>
+where
+    C: CanisterKind,
+    E: EntityKind<Canister = C>,
 {
     pub(crate) const fn new(session: &'a DbSession<C>, query: Query<E>) -> Self {
         Self { session, query }
@@ -48,7 +52,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>>>
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub fn by_key(mut self, key: E::PrimaryKey) -> Self {
+    pub fn by_key(mut self, key: E::Id) -> Self {
         self.query = self.query.by_key(key);
         self
     }
@@ -56,7 +60,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>>>
     #[must_use]
     pub fn many<I>(mut self, keys: I) -> Self
     where
-        I: IntoIterator<Item = E::PrimaryKey>,
+        I: IntoIterator<Item = E::Id>,
     {
         self.query = self.query.by_keys(keys);
         self
@@ -140,8 +144,10 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>>>
     }
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C, PrimaryKey = Ref<E>> + UnitKey>
-    SessionDeleteQuery<'_, C, E>
+impl<C, E> SessionDeleteQuery<'_, C, E>
+where
+    C: CanisterKind,
+    E: EntityKind<Canister = C> + UnitKey,
 {
     /// Delete the singleton entity identified by the unit primary key `()`.
     #[must_use]

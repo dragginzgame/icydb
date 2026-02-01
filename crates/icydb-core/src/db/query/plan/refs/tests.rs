@@ -5,8 +5,8 @@ use crate::{
         index::IndexModel,
     },
     traits::{
-        CanisterKind, DataStoreKind, EntityKind, EntityReferences, FieldValue, FieldValues, Path,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
+        CanisterKind, DataStoreKind, EntityKind, FieldValue, FieldValues, Path, SanitizeAuto,
+        SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::{Ref, Ulid},
     value::Value,
@@ -307,7 +307,7 @@ fn entity_refs_collect_optional_reference() {
 
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].target_path, OWNER_PATH);
-    assert_eq!(refs[0].raw_key(), Ref::<OwnerEntity>::new(owner_id).raw());
+    assert_eq!(refs[0].value(), Ref::<OwnerEntity>::new(owner_id).raw());
 }
 
 #[test]
