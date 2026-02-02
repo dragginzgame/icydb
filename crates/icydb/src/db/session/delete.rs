@@ -9,7 +9,7 @@ use crate::{
         response::{Response, map_response_error},
     },
     error::Error,
-    traits::{CanisterKind, EntityKind, SingletonEntity},
+    traits::{CanisterKind, EntityValue, SingletonEntity},
     view::View,
 };
 use icydb_core as core;
@@ -21,11 +21,11 @@ use std::borrow::Borrow;
 /// Session-bound fluent wrapper for delete queries.
 ///
 
-pub struct SessionDeleteQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
+pub struct SessionDeleteQuery<'a, C: CanisterKind, E: EntityValue<Canister = C>> {
     pub(crate) inner: core::db::query::SessionDeleteQuery<'a, C, E>,
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> {
+impl<C: CanisterKind, E: EntityValue<Canister = C>> SessionDeleteQuery<'_, C, E> {
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------

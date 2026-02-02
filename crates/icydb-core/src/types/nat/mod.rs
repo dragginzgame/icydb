@@ -10,7 +10,7 @@ use crate::{
     value::Value,
 };
 use candid::{CandidType, Nat as WrappedNat};
-use derive_more::{Add, AddAssign, Deref, DerefMut, Display, FromStr, Sub, SubAssign};
+use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
 use std::iter::Sum;
 
@@ -25,8 +25,6 @@ use std::iter::Sum;
     Clone,
     Debug,
     Default,
-    Deref,
-    DerefMut,
     Display,
     Eq,
     PartialEq,
@@ -43,10 +41,17 @@ pub struct Nat(WrappedNat);
 
 impl Nat {
     #[must_use]
+    pub fn to_u128(&self) -> Option<u128> {
+        let big = &self.0.0;
+
+        u128::try_from(big).ok()
+    }
+
+    #[must_use]
     /// Serialize the arbitrary-precision natural to LEB128 bytes.
     pub fn to_leb128(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        self.encode(&mut out).expect("Nat LEB128 encode");
+        self.0.encode(&mut out).expect("Nat LEB128 encode");
 
         out
     }

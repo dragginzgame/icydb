@@ -10,7 +10,6 @@ use crate::{
     types::*,
 };
 use candid::CandidType;
-use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
@@ -212,11 +211,11 @@ impl Value {
             Self::Float32(f) => Decimal::from_f32(f.get()),
             Self::Int(i) => Decimal::from_i64(*i),
             Self::Int128(i) => Decimal::from_i128(i.get()),
-            Self::IntBig(i) => i.0.to_i128().and_then(Decimal::from_i128),
+            Self::IntBig(i) => i.to_i128().and_then(Decimal::from_i128),
             Self::Timestamp(t) => Decimal::from_u64(t.get()),
             Self::Uint(u) => Decimal::from_u64(*u),
             Self::Uint128(u) => Decimal::from_u128(u.get()),
-            Self::UintBig(u) => u.0.to_u128().and_then(Decimal::from_u128),
+            Self::UintBig(u) => u.to_u128().and_then(Decimal::from_u128),
 
             _ => None,
         }
@@ -233,7 +232,7 @@ impl Value {
             Self::Int128(i) if (-F64_SAFE_I128..=F64_SAFE_I128).contains(&i.get()) => {
                 Some(i.get() as f64)
             }
-            Self::IntBig(i) => i.0.to_i128().and_then(|v| {
+            Self::IntBig(i) => i.to_i128().and_then(|v| {
                 (-F64_SAFE_I128..=F64_SAFE_I128)
                     .contains(&v)
                     .then_some(v as f64)
@@ -241,10 +240,9 @@ impl Value {
             Self::Timestamp(t) if t.get() <= F64_SAFE_U64 => Some(t.get() as f64),
             Self::Uint(u) if *u <= F64_SAFE_U64 => Some(*u as f64),
             Self::Uint128(u) if u.get() <= F64_SAFE_U128 => Some(u.get() as f64),
-            Self::UintBig(u) => {
-                u.0.to_u128()
-                    .and_then(|v| (v <= F64_SAFE_U128).then_some(v as f64))
-            }
+            Self::UintBig(u) => u
+                .to_u128()
+                .and_then(|v| (v <= F64_SAFE_U128).then_some(v as f64)),
 
             _ => None,
         }

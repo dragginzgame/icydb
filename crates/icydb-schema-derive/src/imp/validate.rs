@@ -106,7 +106,8 @@ impl ValidateAutoFn for List {
                 .map(|block| {
                     let item_ident = format_ident!("__item");
                     quote! {
-                        for (i, #item_ident) in self.0.iter().enumerate() {
+                        use ::icydb::traits::CollectionValue;
+                        for (i, #item_ident) in self.iter().enumerate() {
                             let item = #item_ident;
                             let mut item_ctx = ::icydb::visitor::ScopedContext::new(
                                 ctx,
@@ -194,7 +195,8 @@ impl ValidateAutoFn for Set {
                 .map(|block| {
                     let item_ident = format_ident!("__item");
                     quote! {
-                        for (i, #item_ident) in self.0.iter().enumerate() {
+                        use ::icydb::traits::CollectionValue;
+                        for (i, #item_ident) in self.iter().enumerate() {
                             let item = #item_ident;
                             let mut item_ctx = ::icydb::visitor::ScopedContext::new(
                                 ctx,

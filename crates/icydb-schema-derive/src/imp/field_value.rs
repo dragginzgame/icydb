@@ -81,6 +81,7 @@ impl Imp<List> for FieldValueTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
         let q = quote! {
             fn to_value(&self) -> ::icydb::value::Value {
+                use ::icydb::traits::CollectionValue;
                 ::icydb::value::Value::List(
                     self.iter()
                         .map(::icydb::traits::FieldValue::to_value)
@@ -125,6 +126,7 @@ impl Imp<Set> for FieldValueTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
         let q = quote! {
             fn to_value(&self) -> ::icydb::value::Value {
+                use ::icydb::traits::CollectionValue;
                 ::icydb::value::Value::List(
                     self.iter()
                         .map(::icydb::traits::FieldValue::to_value)

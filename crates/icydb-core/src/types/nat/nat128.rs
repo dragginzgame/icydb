@@ -6,7 +6,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use derive_more::{Add, AddAssign, Deref, DerefMut, Display, FromStr, Sub, SubAssign, Sum};
+use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign, Sum};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
@@ -22,8 +22,6 @@ use std::cmp::Ordering;
     Copy,
     Debug,
     Default,
-    Deref,
-    DerefMut,
     Display,
     Eq,
     PartialEq,

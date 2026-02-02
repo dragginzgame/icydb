@@ -6,13 +6,29 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use derive_more::{Add, AddAssign, Deref, DerefMut, Display, FromStr, Rem, Sub, SubAssign, Sum};
+use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign, Sum};
 use rust_decimal::{Decimal as WrappedDecimal, MathematicalOps};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
-    ops::{Div, Mul},
+    ops::{Div, DivAssign, Mul, MulAssign, Rem},
 };
+
+///
+/// DecimalParts
+///
+/// Canonical decomposition of a Decimal.
+///
+/// Invariant:
+/// - value == mantissa * 10^-scale
+/// - mantissa carries the sign
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DecimalParts {
+    pub mantissa: i128,
+    pub scale: u32,
+}
 
 ///
 /// Decimal
@@ -25,8 +41,6 @@ use std::{
     Copy,
     Debug,
     Default,
-    Deref,
-    DerefMut,
     Display,
     Eq,
     FromStr,
@@ -35,7 +49,6 @@ use std::{
     Hash,
     Ord,
     PartialOrd,
-    Rem,
     Sub,
     SubAssign,
 )]
@@ -50,10 +63,45 @@ impl Decimal {
         Self(WrappedDecimal::new(num, scale))
     }
 
-    // NumCast::from gives a disambiguation
     /// Fallible conversion from common numeric types.
     pub fn from_num<N: NumCast>(n: N) -> Option<Self> {
         <Self as NumCast>::from(n)
+    }
+
+    ///
+    /// PARTS
+    ///
+
+    /// Decompose into mantissa and scale.
+    #[must_use]
+    pub const fn parts(&self) -> DecimalParts {
+        DecimalParts {
+            mantissa: self.0.mantissa(),
+            scale: self.0.scale(),
+        }
+    }
+
+    /// Returns true if the decimal has no fractional component.
+    #[must_use]
+    pub const fn is_integer(&self) -> bool {
+        self.0.scale() == 0
+    }
+
+    /// Scale by 10^target_scale and require an integer result.
+    ///
+    /// Returns `None` if:
+    /// - fractional precision would be lost
+    /// - integer overflow occurs
+    #[must_use]
+    pub fn scale_to_integer(&self, target_scale: u32) -> Option<i128> {
+        let parts = self.parts();
+
+        if parts.scale > target_scale {
+            return None; // fractional remainder
+        }
+
+        let factor = 10i128.checked_pow(target_scale - parts.scale)?;
+        parts.mantissa.checked_mul(factor)
     }
 
     ///
@@ -68,10 +116,9 @@ impl Decimal {
 
     /// Checked remainder; returns `None` on division by zero.
     pub fn checked_rem(self, rhs: Self) -> Option<Self> {
-        self.0.checked_rem(*rhs).map(Self)
+        self.0.checked_rem(rhs.0).map(Self)
     }
 
-    // via the MathematicalOps trait
     #[must_use]
     /// Integer exponentiation.
     pub fn powu(&self, exp: u64) -> Self {
@@ -88,6 +135,30 @@ impl Decimal {
     /// Normalize trailing zeros.
     pub fn normalize(&self) -> Self {
         Self(self.0.normalize())
+    }
+
+    /// Returns `true` if the value is negative.
+    #[must_use]
+    pub const fn is_sign_negative(&self) -> bool {
+        self.0.is_sign_negative()
+    }
+
+    /// Returns the number of fractional decimal places.
+    #[must_use]
+    pub const fn scale(&self) -> u32 {
+        self.0.scale()
+    }
+
+    /// Returns the mantissa component.
+    #[must_use]
+    pub const fn mantissa(&self) -> i128 {
+        self.0.mantissa()
+    }
+
+    /// Returns `true` if the value is zero.
+    #[must_use]
+    pub const fn is_zero(&self) -> bool {
+        self.0.is_zero()
     }
 }
 
@@ -125,15 +196,6 @@ impl<'de> Deserialize<'de> for Decimal {
         s.parse::<WrappedDecimal>()
             .map(Decimal)
             .map_err(serde::de::Error::custom)
-    }
-}
-
-impl<D: Into<Self>> Div<D> for Decimal {
-    type Output = Self;
-
-    fn div(self, d: D) -> Self::Output {
-        let rhs: Self = d.into();
-        Self(self.0 / rhs.0)
     }
 }
 
@@ -218,6 +280,38 @@ impl<D: Into<Self>> Mul<D> for Decimal {
     fn mul(self, d: D) -> Self::Output {
         let rhs: Self = d.into();
         Self(self.0 * rhs.0)
+    }
+}
+
+impl<D: Into<Self>> MulAssign<D> for Decimal {
+    fn mul_assign(&mut self, d: D) {
+        let rhs: Self = d.into();
+        self.0 *= rhs.0;
+    }
+}
+
+impl<D: Into<Self>> Div<D> for Decimal {
+    type Output = Self;
+
+    fn div(self, d: D) -> Self::Output {
+        let rhs: Self = d.into();
+        Self(self.0 / rhs.0)
+    }
+}
+
+impl<D: Into<Self>> DivAssign<D> for Decimal {
+    fn div_assign(&mut self, d: D) {
+        let rhs: Self = d.into();
+        self.0 /= rhs.0;
+    }
+}
+
+impl<D: Into<Self>> Rem<D> for Decimal {
+    type Output = Self;
+
+    fn rem(self, d: D) -> Self::Output {
+        let rhs: Self = d.into();
+        Self(self.0 % rhs.0)
     }
 }
 

@@ -15,13 +15,11 @@ pub use num_traits::{FromPrimitive as NumFromPrimitive, NumCast, ToPrimitive as 
 pub use serde::{Deserialize, Serialize, de::DeserializeOwned};
 pub use std::{
     cmp::{Eq, Ordering, PartialEq},
-    convert::{AsRef, From, Into},
+    convert::From,
     default::Default,
-    fmt::{Debug, Display},
+    fmt::Debug,
     hash::Hash,
-    iter::IntoIterator,
-    ops::{Add, AddAssign, Deref, DerefMut, Mul, MulAssign, Sub, SubAssign},
-    str::FromStr,
+    ops::{Add, AddAssign, Deref, DerefMut, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign},
 };
 
 use crate::{prelude::*, value::ValueEnum, visitor::VisitorContext};
@@ -194,6 +192,19 @@ pub trait EnumValue {
 ///
 pub trait FieldValues {
     fn get_value(&self, field: &str) -> Option<Value>;
+}
+
+///
+/// CollectionValue
+///
+/// Explicit iteration contract for list/set wrapper types.
+/// Avoids implicit deref-based access to inner collections.
+///
+pub trait CollectionValue {
+    type Item;
+
+    fn iter(&self) -> impl Iterator<Item = &Self::Item>;
+    fn len(&self) -> usize;
 }
 
 ///

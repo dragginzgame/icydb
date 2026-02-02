@@ -85,11 +85,6 @@ impl Primitive {
     }
 
     #[must_use]
-    pub const fn supports_display(self) -> bool {
-        !matches!(self, Self::Blob | Self::Unit)
-    }
-
-    #[must_use]
     pub const fn supports_hash(self) -> bool {
         !matches!(self, Self::Blob | Self::Unit)
     }

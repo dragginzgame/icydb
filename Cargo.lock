@@ -810,6 +810,7 @@ dependencies = [
  "derive_more",
  "icydb-build",
  "icydb-core",
+ "icydb-derive",
  "icydb-schema",
  "icydb-schema-derive",
  "num-traits",
@@ -839,6 +840,7 @@ dependencies = [
  "canic-utils",
  "chrono",
  "derive_more",
+ "icydb-derive",
  "icydb-schema",
  "num-traits",
  "proptest",
@@ -851,6 +853,15 @@ dependencies = [
  "thiserror 2.0.18",
  "trybuild",
  "ulid",
+]
+
+[[package]]
+name = "icydb-derive"
+version = "0.6.4"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.114",
 ]
 
 [[package]]

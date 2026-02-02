@@ -5,6 +5,36 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.6.5] – 2026-02-02 - Explicit Arithmetic Derives
+
+### 🍉 Added
+
+* Added the `icydb-derive` proc-macro crate with `Add`, `AddAssign`, `Sub`, `SubAssign`, `Mul`, `MulAssign`, `Div`, `DivAssign`, and `Sum` derives for tuple newtypes.
+* Added a `Rem` derive for tuple newtypes and re-exported the `Rem` trait from `traits`.
+* Added a `PartialOrd` derive in `icydb-derive` and routed schema-generated types to it.
+* Added `Decimal` helpers `is_sign_negative`, `scale`, and `mantissa` for explicit access without deref.
+* Added `MulAssign` and `DivAssign` impls for `Decimal` to match arithmetic derives.
+* Added `Blob::as_slice` for explicit byte access in validators.
+* Added `Mul`/`Div` and assignment ops for `E8s` and `E18s` to satisfy fixed-point newtype arithmetic derives.
+* Added `CollectionValue` and wired list/set wrapper types to explicit iteration and length access without deref.
+
+### 🧭 Changed
+
+* Newtype arithmetic derives now route through `icydb-derive` (including `Div`/`DivAssign`) instead of `derive_more`.
+* `test_entity!` now requires an explicit `struct` block and derives `EntityKind::Id` from the primary key field’s Rust type, failing at compile time if the PK is missing from the struct or `fields {}`.
+* `FieldValues` is now derived via `icydb-derive` and no longer implemented by schema-specific `imp` code.
+
+### 🪂 Removed
+
+* Removed schema-derive `imp` implementations for `Add`/`AddAssign`/`Sub`/`SubAssign` in favor of derives.
+* Removed `Display` trait from schema-derive
+
+### 🧵 Fixed
+
+* Exported `Div`/`DivAssign` through `traits` so generated arithmetic derives resolve cleanly.
+
+---
+
 ## [0.6.4] – 2026-02-01 - Explicit Key Boundaries
 
 ### 🧱 Changed

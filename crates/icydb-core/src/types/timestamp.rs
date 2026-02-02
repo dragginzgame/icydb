@@ -8,7 +8,7 @@ use crate::{
 use candid::CandidType;
 use canic_cdk::utils::time::now_secs;
 use chrono::DateTime;
-use derive_more::{Add, AddAssign, Deref, DerefMut, Display, FromStr, Sub, SubAssign};
+use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
 
 ///
@@ -24,8 +24,6 @@ use serde::{Deserialize, Serialize};
     Copy,
     Debug,
     Default,
-    Deref,
-    DerefMut,
     Display,
     Eq,
     FromStr,

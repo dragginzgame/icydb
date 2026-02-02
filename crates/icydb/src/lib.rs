@@ -88,6 +88,7 @@ pub mod __reexports {
     pub use canic_memory;
     pub use ctor;
     pub use derive_more;
+    pub use icydb_derive;
     pub use num_traits;
     pub use remain;
 }

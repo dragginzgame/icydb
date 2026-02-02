@@ -61,13 +61,7 @@ impl HasSchemaPart for Map {
 impl HasTraits for Map {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
-
         traits.add(TraitKind::Inherent);
-        traits.extend(vec![
-            TraitKind::Deref,
-            TraitKind::DerefMut,
-            TraitKind::IntoIterator,
-        ]);
 
         traits.into_vec()
     }

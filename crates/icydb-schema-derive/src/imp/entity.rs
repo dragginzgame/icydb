@@ -39,7 +39,7 @@ impl Imp<Entity> for EntityKindTrait {
             .map(Index::runtime_part)
             .collect::<Vec<_>>();
 
-        let mut q = quote! {
+        let q = quote! {
             type Id = #id_type;
             type DataStore = #store;
             type Canister =
@@ -56,13 +56,11 @@ impl Imp<Entity> for EntityKindTrait {
                 &Self::__ENTITY_MODEL;
         };
 
-        q.extend(id_accessors(pk_ident));
-
         let mut tokens = Implementor::new(&node.def, TraitKind::EntityKind)
             .set_tokens(q)
             .to_token_stream();
 
-        // Test remains valid
+        // Existing consistency test stays valid
         let ident = node.def.ident();
         let test_mod = format_ident!("__entity_model_test_{ident}");
         tokens.extend(quote! {
@@ -88,7 +86,7 @@ impl Imp<Entity> for EntityKindTrait {
             }
         });
 
-        // Unit-key logic now applies to EntityId
+        // Unit-key logic remains tied to EntityKind
         if matches!(
             pk_entry.value.item.target(),
             ItemTarget::Primitive(Primitive::Unit)
@@ -102,14 +100,30 @@ impl Imp<Entity> for EntityKindTrait {
     }
 }
 
-fn id_accessors(pk: &Ident) -> TokenStream {
-    quote! {
-        fn id(&self) -> Self::Id {
-            self.#pk
-        }
+///
+/// EntityValueTrait
+///
 
-        fn set_id(&mut self, id: Self::Id) {
-            self.#pk = id;
-        }
+pub struct EntityValueTrait {}
+
+impl Imp<Entity> for EntityValueTrait {
+    fn strategy(node: &Entity) -> Option<TraitStrategy> {
+        let pk_ident = &node.primary_key;
+
+        let q = quote! {
+            fn id(&self) -> Self::Id {
+                self.#pk_ident
+            }
+
+            fn set_id(&mut self, id: Self::Id) {
+                self.#pk_ident = id;
+            }
+        };
+
+        let tokens = Implementor::new(&node.def, TraitKind::EntityValue)
+            .set_tokens(q)
+            .to_token_stream();
+
+        Some(TraitStrategy::from_impl(tokens))
     }
 }

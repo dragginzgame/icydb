@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Db,
+        commit::{CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, with_commit_store},
         index::{IndexEntry, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
         store::{DataKey, DataStore, DataStoreRegistry, RawRow},
     },
@@ -8,8 +9,8 @@ use crate::{
     serialize::serialize,
     test_support::{TEST_DATA_STORE_PATH, TEST_INDEX_STORE_PATH, TestCanister},
     traits::{
-        EntityValue, FieldValues, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View,
-        Visitable,
+        EntityKind, EntityValue, FieldValues, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
     types::Ulid,
     value::Value,
@@ -29,38 +30,35 @@ const INDEX_STORE_PATH: &str = TEST_INDEX_STORE_PATH;
 // Entity
 // ---------------------------------------------------------------------
 
-///
-/// TestEntity
-///
-
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-struct TestEntity {
-    id: Ulid,
-    name: String,
-}
-
 crate::test_entity! {
-    entity TestEntity {
-        path: "commit_test::TestEntity",
-        pk: id,
+    ///
+    /// TestEntity
+    ///
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    struct TestEntity {
+        id: Ulid,
+        name: String,
+    }
 
-        fields {
-            id: Ulid,
-            name: Text,
-        }
+    path: "commit_test::TestEntity",
+    pk: id,
 
-        indexes {
-            index idx_0(name) unique;
-        }
+    fields {
+        id: Ulid,
+        name: Text,
+    }
 
-        impls {
-            ViewClone,
-            SanitizeAuto,
-            SanitizeCustom,
-            ValidateAuto,
-            ValidateCustom,
-            Visitable,
-        }
+    indexes {
+        index idx_0(name) unique;
+    }
+
+    impls {
+        ViewClone,
+        SanitizeAuto,
+        SanitizeCustom,
+        ValidateAuto,
+        ValidateCustom,
+        Visitable,
     }
 }
 

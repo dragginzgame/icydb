@@ -5,7 +5,7 @@ use crate::{
         response::{Response, map_response_error},
     },
     error::Error,
-    traits::{CanisterKind, EntityKind, SingletonEntity},
+    traits::{CanisterKind, EntityValue, SingletonEntity},
     view::View,
 };
 use icydb_core as core;
@@ -17,11 +17,11 @@ use std::{borrow::Borrow, collections::HashMap, hash::Hash};
 /// Session-bound fluent wrapper for load queries.
 ///
 
-pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
+pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityValue<Canister = C>> {
     pub(crate) inner: core::db::query::SessionLoadQuery<'a, C, E>,
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
+impl<C: CanisterKind, E: EntityValue<Canister = C>> SessionLoadQuery<'_, C, E> {
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------
@@ -228,7 +228,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     }
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C> + SingletonEntity> SessionLoadQuery<'_, C, E> {
+impl<C: CanisterKind, E: EntityValue<Canister = C> + SingletonEntity> SessionLoadQuery<'_, C, E> {
     /// Load the singleton entity identified by an explicit ID.
     #[must_use]
     pub fn only(mut self, id: E::Id) -> Self {

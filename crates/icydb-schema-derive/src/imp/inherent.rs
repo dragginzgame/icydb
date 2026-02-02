@@ -131,6 +131,8 @@ impl Imp<Newtype> for InherentTrait {
 
 impl Imp<List> for InherentTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
+        let ident = node.def.ident();
+        let item = node.item.type_expr();
         let item_kind = model_kind_from_item(&node.item);
         let kind = quote!(::icydb::model::field::EntityFieldKind::List(&#item_kind));
         let tokens = quote! {
@@ -141,12 +143,30 @@ impl Imp<List> for InherentTrait {
             .set_tokens(tokens)
             .to_token_stream();
 
-        Some(TraitStrategy::from_impl(tokens))
+        let collection_impl = quote! {
+            impl ::icydb::traits::CollectionValue for #ident {
+                type Item = #item;
+
+                fn iter(&self) -> impl ::std::iter::Iterator<Item = &Self::Item> {
+                    self.0.iter()
+                }
+
+                fn len(&self) -> usize {
+                    self.0.len()
+                }
+            }
+        };
+
+        Some(TraitStrategy::from_impl(
+            quote! { #tokens #collection_impl },
+        ))
     }
 }
 
 impl Imp<Set> for InherentTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
+        let ident = node.def.ident();
+        let item = node.item.type_expr();
         let item_kind = model_kind_from_item(&node.item);
         let kind = quote!(::icydb::model::field::EntityFieldKind::Set(&#item_kind));
         let tokens = quote! {
@@ -157,7 +177,23 @@ impl Imp<Set> for InherentTrait {
             .set_tokens(tokens)
             .to_token_stream();
 
-        Some(TraitStrategy::from_impl(tokens))
+        let collection_impl = quote! {
+            impl ::icydb::traits::CollectionValue for #ident {
+                type Item = #item;
+
+                fn iter(&self) -> impl ::std::iter::Iterator<Item = &Self::Item> {
+                    self.0.iter()
+                }
+
+                fn len(&self) -> usize {
+                    self.0.len()
+                }
+            }
+        };
+
+        Some(TraitStrategy::from_impl(
+            quote! { #tokens #collection_impl },
+        ))
     }
 }
 

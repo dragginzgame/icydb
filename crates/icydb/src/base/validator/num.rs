@@ -124,7 +124,7 @@ impl<N: NumCast + Clone> Validator<N> for MultipleOf {
             return;
         };
 
-        if !(*v % *self.target).is_zero() {
+        if !(v % self.target).is_zero() {
             ctx.issue(format!("{v} is not a multiple of {}", self.target));
         }
     }

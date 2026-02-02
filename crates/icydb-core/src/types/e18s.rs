@@ -9,7 +9,10 @@ use crate::{
 use candid::CandidType;
 use derive_more::{Add, AddAssign, FromStr, Sub, SubAssign, Sum};
 use serde::{Deserialize, Serialize};
-use std::fmt::{self, Display};
+use std::{
+    fmt::{self, Display},
+    ops::{Div, DivAssign, Mul, MulAssign},
+};
 
 ///
 /// E18s
@@ -70,8 +73,23 @@ impl E18s {
     /// is negative, or out of range for `u128`.
     #[must_use]
     pub fn from_decimal(value: Decimal) -> Option<Self> {
-        let scaled = value * Self::SCALE;
-        scaled.to_u128().map(Self)
+        let parts = value.parts();
+
+        // Reject negative values
+        if parts.mantissa < 0 {
+            return None;
+        }
+
+        // Reject excess fractional precision
+        if parts.scale > 18 {
+            return None;
+        }
+
+        // Scale mantissa to fixed-point
+        let factor = 10u128.checked_pow(18 - parts.scale)?;
+        let scaled = u128::try_from(parts.mantissa).ok()?.checked_mul(factor)?;
+
+        Some(Self(scaled))
     }
 
     /// ⚠️ Non-critical float conversions only. Prefer the Decimal-based API.
@@ -113,6 +131,36 @@ impl E18s {
     #[must_use]
     pub const fn to_be_bytes(self) -> [u8; 16] {
         self.0.to_be_bytes()
+    }
+}
+
+impl Mul for E18s {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+        let raw = self.0.saturating_mul(other.0) / Self::SCALE;
+        Self(raw)
+    }
+}
+
+impl MulAssign for E18s {
+    fn mul_assign(&mut self, other: Self) {
+        *self = *self * other;
+    }
+}
+
+impl Div for E18s {
+    type Output = Self;
+
+    fn div(self, other: Self) -> Self::Output {
+        let raw = self.0.saturating_mul(Self::SCALE) / other.0;
+        Self(raw)
+    }
+}
+
+impl DivAssign for E18s {
+    fn div_assign(&mut self, other: Self) {
+        *self = *self / other;
     }
 }
 

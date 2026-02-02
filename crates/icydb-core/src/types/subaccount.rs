@@ -8,7 +8,6 @@ use crate::{
 };
 use candid::CandidType;
 use canic_utils::rand::next_u128;
-use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 
@@ -24,8 +23,6 @@ type SubaccountBytes = [u8; 32];
     Copy,
     Default,
     Debug,
-    Deref,
-    DerefMut,
     Eq,
     PartialEq,
     Hash,
@@ -92,6 +89,11 @@ impl Subaccount {
         bytes[16..].copy_from_slice(&lo);
 
         Self::from_array(bytes)
+    }
+
+    #[must_use]
+    pub const fn as_slice(&self) -> &[u8] {
+        &self.0
     }
 
     #[must_use]

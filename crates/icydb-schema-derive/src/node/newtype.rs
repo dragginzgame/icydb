@@ -80,12 +80,8 @@ impl HasTraits for Newtype {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
 
-        traits.add(TraitKind::Inherent);
-        traits.extend(vec![
-            TraitKind::Deref,
-            TraitKind::DerefMut,
-            TraitKind::Inner,
-        ]);
+        // all newtypes
+        traits.extend(vec![TraitKind::Inherent, TraitKind::Inner]);
 
         // primitive traits
         if let Some(primitive) = self.primitive {
@@ -93,6 +89,8 @@ impl HasTraits for Newtype {
                 traits.extend(vec![
                     TraitKind::Add,
                     TraitKind::AddAssign,
+                    TraitKind::Div,
+                    TraitKind::DivAssign,
                     TraitKind::Mul,
                     TraitKind::MulAssign,
                     TraitKind::Sub,
@@ -102,9 +100,6 @@ impl HasTraits for Newtype {
             }
             if primitive.supports_copy() {
                 traits.add(TraitKind::Copy);
-            }
-            if primitive.supports_display() {
-                traits.add(TraitKind::Display);
             }
             if primitive.supports_hash() {
                 traits.add(TraitKind::Hash);
@@ -131,8 +126,6 @@ impl HasTraits for Newtype {
             TraitKind::PartialEq => PartialEqTrait::strategy(self).map(|s| s.with_derive(t)),
             TraitKind::PartialOrd => PartialOrdTrait::strategy(self).map(|s| s.with_derive(t)),
 
-            TraitKind::Add => AddTrait::strategy(self),
-            TraitKind::AddAssign => AddAssignTrait::strategy(self),
             TraitKind::Default => DefaultTrait::strategy(self),
             TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
@@ -141,8 +134,6 @@ impl HasTraits for Newtype {
             TraitKind::NumToPrimitive => NumToPrimitiveTrait::strategy(self),
             TraitKind::NumFromPrimitive => NumFromPrimitiveTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
-            TraitKind::Sub => SubTrait::strategy(self),
-            TraitKind::SubAssign => SubAssignTrait::strategy(self),
             TraitKind::UpdateView => UpdateViewTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::View => ViewTrait::strategy(self),

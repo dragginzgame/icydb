@@ -6,7 +6,6 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use std::fmt::{self, Display};
@@ -17,19 +16,7 @@ use std::fmt::{self, Display};
 ///
 
 #[derive(
-    CandidType,
-    Clone,
-    Debug,
-    Default,
-    Deref,
-    DerefMut,
-    Eq,
-    PartialEq,
-    Hash,
-    Ord,
-    PartialOrd,
-    Serialize,
-    Deserialize,
+    CandidType, Clone, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize,
 )]
 pub struct Blob(ByteBuf);
 
@@ -38,6 +25,12 @@ impl Blob {
     /// Length of the blob in bytes.
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    #[must_use]
+    /// View the blob as a byte slice.
+    pub fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
     }
 
     #[must_use]
@@ -55,7 +48,7 @@ impl Display for Blob {
 
 impl FieldValue for Blob {
     fn to_value(&self) -> Value {
-        Value::Blob(self.to_vec())
+        Value::Blob(self.0.to_vec())
     }
 }
 

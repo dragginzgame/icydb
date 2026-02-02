@@ -74,21 +74,19 @@ fn test_index_model() -> IndexModel {
     *<TestEntity as EntityKind>::INDEXES[0]
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-struct TestEntity {
-    id: Ulid,
-    name: String,
-}
-
 crate::test_entity! {
-    entity TestEntity {
-        path: "write_unit_test::TestEntity",
-        pk: id: Ulid,
-
-        fields { id: Ulid, name: Text }
-
-        indexes { index index_name(name) unique; }
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    struct TestEntity {
+        id: Ulid,
+        name: String,
     }
+
+    path: "write_unit_test::TestEntity",
+    pk: id,
+
+    fields { id: Ulid, name: Text }
+
+    indexes { index index_name(name) unique; }
 }
 
 impl View for TestEntity {
@@ -119,18 +117,16 @@ impl FieldValues for TestEntity {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-struct OwnerEntity {
-    id: Ulid,
-}
-
 crate::test_entity! {
-    entity OwnerEntity {
-        path: "write_unit_test::OwnerEntity",
-        pk: id: Ulid,
-
-        fields { id: Ulid }
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    struct OwnerEntity {
+        id: Ulid,
     }
+
+    path: "write_unit_test::OwnerEntity",
+    pk: id,
+
+    fields { id: Ulid }
 }
 
 impl View for OwnerEntity {
@@ -160,19 +156,17 @@ impl FieldValues for OwnerEntity {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-struct DirectRefEntity {
-    id: Ulid,
-    owner: Option<Ref<OwnerEntity>>,
-}
-
 crate::test_entity! {
-    entity DirectRefEntity {
-        path: "write_unit_test::DirectRefEntity",
-        pk: id: Ulid,
-
-        fields { id: Ulid, owner: Ref<OwnerEntity> }
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    struct DirectRefEntity {
+        id: Ulid,
+        owner: Option<Ref<OwnerEntity>>,
     }
+
+    path: "write_unit_test::DirectRefEntity",
+    pk: id,
+
+    fields { id: Ulid, owner: Ref<OwnerEntity> }
 }
 
 impl View for DirectRefEntity {
@@ -208,19 +202,17 @@ struct RecordRefPayload {
     owner: Ref<OwnerEntity>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-struct RecordRefEntity {
-    id: Ulid,
-    profile: RecordRefPayload,
-}
-
 crate::test_entity! {
-    entity RecordRefEntity {
-        path: "write_unit_test::RecordRefEntity",
-        pk: id: Ulid,
-
-        fields { id: Ulid, profile: Unsupported }
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    struct RecordRefEntity {
+        id: Ulid,
+        profile: RecordRefPayload,
     }
+
+    path: "write_unit_test::RecordRefEntity",
+    pk: id,
+
+    fields { id: Ulid, profile: Unsupported }
 }
 
 impl View for RecordRefEntity {
@@ -262,19 +254,17 @@ impl Path for RefEnum {
     const PATH: &'static str = "write_unit_test::RefEnum";
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-struct EnumRefEntity {
-    id: Ulid,
-    status: RefEnum,
-}
-
 crate::test_entity! {
-    entity EnumRefEntity {
-        path: "write_unit_test::EnumRefEntity",
-        pk: id: Ulid,
-
-        fields { id: Ulid, status: Enum }
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    struct EnumRefEntity {
+        id: Ulid,
+        status: RefEnum,
     }
+
+    path: "write_unit_test::EnumRefEntity",
+    pk: id,
+
+    fields { id: Ulid, status: Enum }
 }
 
 impl View for EnumRefEntity {
@@ -310,19 +300,17 @@ impl FieldValues for EnumRefEntity {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-struct CollectionRefEntity {
-    id: Ulid,
-    owners: Vec<Ref<OwnerEntity>>,
-}
-
 crate::test_entity! {
-    entity CollectionRefEntity {
-        path: "write_unit_test::CollectionRefEntity",
-        pk: id: Ulid,
-
-        fields { id: Ulid, owners: List<Ref<OwnerEntity>> }
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    struct CollectionRefEntity {
+        id: Ulid,
+        owners: Vec<Ref<OwnerEntity>>,
     }
+
+    path: "write_unit_test::CollectionRefEntity",
+    pk: id,
+
+    fields { id: Ulid, owners: List<Ref<OwnerEntity>> }
 }
 
 impl View for CollectionRefEntity {
@@ -355,20 +343,18 @@ impl FieldValues for CollectionRefEntity {
     }
 }
 
-/// UnitEntity
-/// Test-only singleton entity with a unit primary key.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-struct UnitEntity {
-    id: Unit,
-}
-
 crate::test_entity! {
-    entity UnitEntity {
-        path: "write_unit_test::UnitEntity",
-        pk: id: Unit,
-
-        fields { id: Unit }
+    /// UnitEntity
+    /// Test-only singleton entity with a unit primary key.
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    struct UnitEntity {
+        id: Unit,
     }
+
+    path: "write_unit_test::UnitEntity",
+    pk: id,
+
+    fields { id: Unit }
 }
 
 impl View for UnitEntity {
@@ -398,20 +384,18 @@ impl FieldValues for UnitEntity {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-struct OrderEntity {
-    id: Ulid,
-    primary: Value,
-    secondary: i64,
-}
-
 crate::test_entity! {
-    entity OrderEntity {
-        path: "write_unit_test::OrderEntity",
-        pk: id: Ulid,
-
-        fields { id: Ulid, primary: Int, secondary: Int }
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+    struct OrderEntity {
+        id: Ulid,
+        primary: Value,
+        secondary: i64,
     }
+
+    path: "write_unit_test::OrderEntity",
+    pk: id,
+
+    fields { id: Ulid, primary: Int, secondary: Int }
 }
 
 impl Default for OrderEntity {
@@ -453,19 +437,17 @@ impl FieldValues for OrderEntity {
     }
 }
 
-// Timestamp-typed entity used to verify ByKey planning and strict consistency behavior.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-struct TimestampEntity {
-    id: Timestamp,
-}
-
 crate::test_entity! {
-    entity TimestampEntity {
-        path: "write_unit_test::TimestampEntity",
-        pk: id: Timestamp,
-
-        fields { id: Timestamp }
+    // Timestamp-typed entity used to verify ByKey planning and strict consistency behavior.
+    #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+    struct TimestampEntity {
+        id: Timestamp,
     }
+
+    path: "write_unit_test::TimestampEntity",
+    pk: id,
+
+    fields { id: Timestamp }
 }
 
 impl View for TimestampEntity {

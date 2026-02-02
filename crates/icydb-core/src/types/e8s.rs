@@ -9,7 +9,10 @@ use crate::{
 use candid::CandidType;
 use derive_more::{Add, AddAssign, FromStr, Sub, SubAssign, Sum};
 use serde::{Deserialize, Serialize};
-use std::fmt::{self, Display};
+use std::{
+    fmt::{self, Display},
+    ops::{Div, DivAssign, Mul, MulAssign},
+};
 
 ///
 /// E8s
@@ -67,26 +70,55 @@ impl E8s {
         Self(units.saturating_mul(Self::SCALE))
     }
 
-    /// Exact decimal → fixed‑point, fails if more than 8 fractional digits.
+    /// Exact decimal → fixed-point, fails if more than 8 fractional digits.
     #[must_use]
     pub fn try_from_decimal_exact(d: Decimal) -> Option<Self> {
-        // multiply and require integer result (no leftover fractional part)
-        let scaled: Decimal = d * Self::SCALE;
+        let parts = d.parts();
 
-        // require exact integer: normalized equality with its 0dp rounding
-        if scaled == scaled.round_dp(0) {
-            scaled.to_u64().map(Self)
-        } else {
-            None
+        // Reject negative values
+        if parts.mantissa < 0 {
+            return None;
         }
+
+        // Reject excess fractional precision
+        if parts.scale > 8 {
+            return None;
+        }
+
+        // Scale mantissa to fixed-point
+        let factor = 10u64.checked_pow(8 - parts.scale)?;
+        let scaled = u64::try_from(parts.mantissa).ok()?.checked_mul(factor)?;
+
+        Some(Self(scaled))
     }
 
-    /// Decimal → fixed‑point with rounding to 8dp.
+    /// Decimal → fixed-point with rounding to 8dp.
     #[must_use]
     pub fn from_decimal_round(d: Decimal) -> Option<Self> {
-        let scaled = (d * Self::SCALE).round_dp(0);
+        let parts = d.parts();
 
-        scaled.to_u64().map(E8s)
+        // Reject negative values
+        if parts.mantissa < 0 {
+            return None;
+        }
+
+        let target_scale = 8;
+
+        let scaled_mantissa = if parts.scale <= target_scale {
+            // Scale up exactly
+            let factor = 10i128.checked_pow(target_scale - parts.scale)?;
+            parts.mantissa.checked_mul(factor)?
+        } else {
+            // Scale down with rounding
+            let divisor = 10i128.checked_pow(parts.scale - target_scale)?;
+            let half = divisor / 2;
+
+            // round half up
+            (parts.mantissa + half) / divisor
+        };
+
+        let value = u64::try_from(scaled_mantissa).ok()?;
+        Some(Self(value))
     }
 
     ///
@@ -115,6 +147,40 @@ impl E8s {
     /// Convert the fixed-point value into a normalized `Decimal`.
     pub fn to_decimal(self) -> Decimal {
         Decimal::from_i128_with_scale(self.0.into(), Self::DECIMALS).normalize()
+    }
+}
+
+impl Mul for E8s {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+        let raw = (self.0 as u128 * other.0 as u128) / Self::SCALE as u128;
+        let value = u64::try_from(raw).unwrap_or(u64::MAX);
+
+        Self(value)
+    }
+}
+
+impl MulAssign for E8s {
+    fn mul_assign(&mut self, other: Self) {
+        *self = *self * other;
+    }
+}
+
+impl Div for E8s {
+    type Output = Self;
+
+    fn div(self, other: Self) -> Self::Output {
+        let raw = (self.0 as u128 * Self::SCALE as u128) / other.0 as u128;
+        let value = u64::try_from(raw).unwrap_or(u64::MAX);
+
+        Self(value)
+    }
+}
+
+impl DivAssign for E8s {
+    fn div_assign(&mut self, other: Self) {
+        *self = *self / other;
     }
 }
 

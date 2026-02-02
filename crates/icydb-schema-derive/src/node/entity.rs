@@ -171,6 +171,7 @@ impl HasTraits for Entity {
             TraitKind::Inherent,
             TraitKind::CreateView,
             TraitKind::EntityKind,
+            TraitKind::EntityValue,
             TraitKind::FieldValues,
         ]);
 
@@ -184,7 +185,7 @@ impl HasTraits for Entity {
             TraitKind::Default => DefaultTrait::strategy(self),
             TraitKind::UpdateView => UpdateViewTrait::strategy(self),
             TraitKind::EntityKind => EntityKindTrait::strategy(self),
-            TraitKind::FieldValues => FieldValuesTrait::strategy(self),
+            TraitKind::EntityValue => EntityValueTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::View => ViewTrait::strategy(self),

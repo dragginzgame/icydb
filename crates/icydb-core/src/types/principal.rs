@@ -6,7 +6,7 @@ use crate::{
     value::Value,
 };
 use canic_cdk::candid::{CandidType, Principal as WrappedPrincipal};
-use derive_more::{Deref, DerefMut, Display};
+use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error as ThisError;
@@ -30,8 +30,6 @@ pub enum PrincipalError {
     Clone,
     Copy,
     Debug,
-    Deref,
-    DerefMut,
     Display,
     Eq,
     PartialEq,
@@ -65,6 +63,11 @@ impl Principal {
     #[must_use]
     pub const fn from_slice(slice: &[u8]) -> Self {
         Self(WrappedPrincipal::from_slice(slice))
+    }
+
+    #[must_use]
+    pub fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
     }
 
     /// Encode this principal into bytes, enforcing the max-length invariant.
@@ -170,7 +173,7 @@ impl From<&WrappedPrincipal> for Principal {
 
 impl From<Principal> for WrappedPrincipal {
     fn from(p: Principal) -> Self {
-        *p
+        p.0
     }
 }
 
@@ -252,7 +255,7 @@ mod tests {
     #[test]
     fn principal_max_size_is_bounded() {
         let principal = Principal::max_storable();
-        let size = principal.as_slice().len();
+        let size = principal.0.as_slice().len();
 
         assert!(
             size <= Principal::MAX_LENGTH_IN_BYTES as usize,

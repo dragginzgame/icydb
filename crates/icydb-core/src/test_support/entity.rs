@@ -3,8 +3,8 @@ use crate::model::{entity::EntityModel, field::EntityFieldModel, index::IndexMod
 ///
 /// EntitySpec
 ///
-/// Runtime-only entity description used by test-only helpers.
-/// This keeps test models centralized and consistent with EntityKind metadata.
+/// Compile-time scaffolding for building an EntityModel in tests.
+/// Not used at runtime.
 ///
 
 pub struct EntitySpec {
@@ -66,11 +66,11 @@ pub const fn __test_entity_pk_index(fields: &[&str], pk: &str) -> usize {
 #[macro_export]
 macro_rules! test_entity {
     // =============================================================
-    // Entry: define struct + entity
+    // Entry: struct + entity
     // =============================================================
     (
         $(#[$meta:meta])*
-        struct $entity:ident {
+        $vis:vis struct $entity:ident {
             $($struct_field:ident : $struct_ty:ty),* $(,)?
         }
 
@@ -83,34 +83,11 @@ macro_rules! test_entity {
         $(impls { $($impls:tt),* $(,)? })?
     ) => {
         $(#[$meta])*
-        struct $entity {
+        #[derive(::icydb_derive::FieldValues)]
+        $vis struct $entity {
             $($struct_field : $struct_ty),*
         }
 
-        $crate::test_entity! {
-            entity $entity {
-                path: $path,
-                pk: $pk,
-                fields { $($field : $kind),* }
-                $(indexes { $($indexes)* })?
-                $(impls { $($impls),* })?
-            }
-        }
-    };
-
-    // =============================================================
-    // Entry: entity only
-    // =============================================================
-    (
-        entity $entity:ident {
-            path: $path:literal,
-            pk: $pk:ident,
-            fields { $($field:ident : $kind:tt),* $(,)? }
-            $(indexes { $($indexes:tt)* })?
-            $(impls { $($impls:tt),* $(,)? })?
-            $(,)?
-        }
-    ) => {
         impl $entity {
             const __TEST_FIELD_NAMES: [&'static str;
                 $crate::test_entity!(@count $($field),*)
@@ -136,6 +113,19 @@ macro_rules! test_entity {
                 )
             };
 
+            const __TEST_STRUCT_FIELD_NAMES: [&'static str;
+                $crate::test_entity!(@count $($struct_field),*)
+            ] = [
+                $( stringify!($struct_field) ),*
+            ];
+
+            const __TEST_STRUCT_PK_INDEX: usize = {
+                $crate::test_support::entity::__test_entity_pk_index(
+                    &Self::__TEST_STRUCT_FIELD_NAMES,
+                    stringify!($pk),
+                )
+            };
+
             $crate::test_entity!(@indexes $path, $($($indexes)*)?);
 
             const __TEST_SPEC: $crate::test_support::entity::EntitySpec =
@@ -157,19 +147,44 @@ macro_rules! test_entity {
             const PATH: &'static str = $path;
         }
 
-        impl $crate::traits::EntityKind for $entity {
-            type Id = Ulid; // see note below
-            type DataStore = $crate::test_support::TestDataStore;
-            type Canister = $crate::test_support::TestCanister;
+        const _: () = {
+            const _: usize = $entity::__TEST_STRUCT_PK_INDEX;
 
-            const ENTITY_NAME: &'static str = stringify!($entity);
-            const PRIMARY_KEY: &'static str = stringify!($pk);
-            const FIELDS: &'static [&'static str] = &Self::__TEST_FIELD_NAMES;
-            const INDEXES: &'static [&'static $crate::model::index::IndexModel] =
-                &Self::__TEST_INDEXES;
-            const MODEL: &'static $crate::model::entity::EntityModel =
-                &Self::__TEST_MODEL;
-        }
+            /// Maps struct field idents to their Rust types for PK extraction.
+            #[allow(non_camel_case_types)]
+            trait __TestEntityStructFields {
+                $( type $struct_field; )*
+            }
+
+            #[allow(non_camel_case_types)]
+            impl __TestEntityStructFields for $entity {
+                $( type $struct_field = $struct_ty; )*
+            }
+
+            impl $crate::traits::EntityKind for $entity {
+                type Id = <Self as __TestEntityStructFields>::$pk;
+                type DataStore = $crate::test_support::TestDataStore;
+                type Canister = $crate::test_support::TestCanister;
+
+                const ENTITY_NAME: &'static str = stringify!($entity);
+                const PRIMARY_KEY: &'static str = stringify!($pk);
+                const FIELDS: &'static [&'static str] = &Self::__TEST_FIELD_NAMES;
+                const INDEXES: &'static [&'static $crate::model::index::IndexModel] =
+                    &Self::__TEST_INDEXES;
+                const MODEL: &'static $crate::model::entity::EntityModel =
+                    &Self::__TEST_MODEL;
+            }
+
+            impl $crate::traits::EntityValue for $entity {
+                fn id(&self) -> Self::Id {
+                    self.$pk
+                }
+
+                fn set_id(&mut self, id: Self::Id) {
+                    self.$pk = id;
+                }
+            }
+        };
 
         $(
             $crate::test_entity!(@emit_impls $entity, $($impls),*);
