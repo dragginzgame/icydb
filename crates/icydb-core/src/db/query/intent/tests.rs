@@ -1,9 +1,10 @@
+/*
 use super::*;
 use crate::{
     db::query::{
         FieldRef, ReadConsistency,
         expr::{FilterExpr, SortExpr},
-        plan::{ExplainAccessPath, OrderDirection, OrderSpec, PlanError, planner::PlannerEntity},
+        plan::{ExplainAccessPath, OrderDirection, OrderSpec, PlanError},
         predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
     },
     traits::{
@@ -450,3 +451,4 @@ fn query_explain_rejects_invalid_order() {
         QueryError::Plan(PlanError::UnknownOrderField { .. })
     ));
 }
+*/

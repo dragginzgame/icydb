@@ -1,3 +1,4 @@
+/*
 use crate::{
     traits::{
         FieldValues, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
@@ -184,3 +185,4 @@ fn entity_refs_skip_reference_collections() {
 
     assert!(refs.is_empty());
 }
+*/

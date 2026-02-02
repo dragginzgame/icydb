@@ -8,9 +8,14 @@ mod invariants;
 pub(crate) mod logical;
 pub mod planner;
 pub mod refs;
+#[cfg(test)]
+mod tests;
 mod types;
 pub mod validate;
 
+///
+/// Re-Exports
+///
 pub use executable::ExecutablePlan;
 pub use explain::{
     ExplainAccessPath, ExplainDeleteLimit, ExplainOrder, ExplainOrderBy, ExplainPagination,
