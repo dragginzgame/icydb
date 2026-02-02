@@ -94,7 +94,8 @@ impl<T> EntityKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static 
 ///
 /// It intentionally does NOT imply how the ID is stored.
 ///
-pub trait EntityKind: Kind + TypeKind + FieldValues {
+
+pub trait EntityKind: Kind + TypeKind {
     /// Entity primary key type.
     ///
     /// Invariants:
@@ -110,7 +111,13 @@ pub trait EntityKind: Kind + TypeKind + FieldValues {
     const FIELDS: &'static [&'static str];
     const INDEXES: &'static [&'static IndexModel];
     const MODEL: &'static EntityModel;
+}
 
+///
+/// EntityValue
+///
+
+pub trait EntityValue: EntityKind + FieldValues {
     fn id(&self) -> Self::Id;
     fn set_id(&mut self, id: Self::Id);
 }
@@ -127,7 +134,7 @@ pub trait EntityKind: Kind + TypeKind + FieldValues {
 /// Entity with exactly one logical row.
 ///
 
-pub trait SingletonEntity: EntityKind {}
+pub trait SingletonEntity: EntityValue {}
 
 /// ============================================================================
 /// TYPE SYSTEM

@@ -9,7 +9,7 @@ use crate::{
         },
         response::Response,
     },
-    traits::{CanisterKind, EntityKind, SingletonEntity},
+    traits::{CanisterKind, EntityValue, SingletonEntity},
 };
 
 ///
@@ -23,7 +23,7 @@ use crate::{
 pub struct SessionLoadQuery<'a, C, E>
 where
     C: CanisterKind,
-    E: EntityKind<Canister = C>,
+    E: EntityValue<Canister = C>,
 {
     session: &'a DbSession<C>,
     query: Query<E>,
@@ -32,7 +32,7 @@ where
 impl<'a, C, E> SessionLoadQuery<'a, C, E>
 where
     C: CanisterKind,
-    E: EntityKind<Canister = C>,
+    E: EntityValue<Canister = C>,
 {
     pub(crate) const fn new(session: &'a DbSession<C>, query: Query<E>) -> Self {
         Self { session, query }

@@ -9,7 +9,7 @@ use crate::{
         store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorOrigin, InternalError},
-    traits::{EntityKind, Path},
+    traits::{EntityValue, Path},
 };
 use std::{collections::BTreeSet, marker::PhantomData, ops::Bound};
 
@@ -17,14 +17,14 @@ use std::{collections::BTreeSet, marker::PhantomData, ops::Bound};
 /// Context
 ///
 
-pub struct Context<'a, E: EntityKind> {
+pub struct Context<'a, E: EntityValue> {
     pub db: &'a Db<E::Canister>,
     _marker: PhantomData<E>,
 }
 
 impl<'a, E> Context<'a, E>
 where
-    E: EntityKind,
+    E: EntityValue,
 {
     #[must_use]
     pub const fn new(db: &'a Db<E::Canister>) -> Self {
@@ -82,7 +82,7 @@ where
         access: &AccessPath<E::Id>,
     ) -> Result<Vec<DataKey>, InternalError>
     where
-        E: EntityKind,
+        E: EntityValue,
     {
         let is_index_path = matches!(access, AccessPath::IndexPrefix { .. });
 
@@ -136,7 +136,7 @@ where
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError>
     where
-        E: EntityKind,
+        E: EntityValue,
     {
         match access {
             AccessPath::ByKey(key) => {
@@ -185,7 +185,7 @@ where
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError>
     where
-        E: EntityKind,
+        E: EntityValue,
     {
         match access {
             AccessPlan::Path(path) => self.rows_from_access(path, consistency),
@@ -203,7 +203,7 @@ where
 
     fn data_key_from_id(id: E::Id) -> Result<DataKey, InternalError>
     where
-        E: EntityKind,
+        E: EntityValue,
     {
         DataKey::try_new::<E>(id)
     }
@@ -253,7 +253,7 @@ where
         plan: &AccessPlan<E::Id>,
     ) -> Result<BTreeSet<DataKey>, InternalError>
     where
-        E: EntityKind,
+        E: EntityValue,
     {
         match plan {
             AccessPlan::Path(path) => {
@@ -294,7 +294,7 @@ where
 
     pub fn deserialize_rows(rows: Vec<DataRow>) -> Result<Vec<(E::Id, E)>, InternalError>
     where
-        E: EntityKind,
+        E: EntityValue,
     {
         rows.into_iter()
             .map(|(key, row)| {

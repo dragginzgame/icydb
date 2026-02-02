@@ -14,7 +14,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,
     obs::sink::{self, MetricsEvent},
-    traits::{EntityKind, FieldValue, Storable},
+    traits::{EntityValue, FieldValue, Storable},
 };
 use std::{cell::RefCell, collections::BTreeMap, thread::LocalKey};
 
@@ -47,13 +47,13 @@ pub struct IndexMutationPlan {
 ///
 /// All fallible work happens here. The returned plan is safe to apply
 /// infallibly after a commit marker is written.
-pub fn plan_index_mutation_for_entity<E: EntityKind>(
+pub fn plan_index_mutation_for_entity<E: EntityValue>(
     db: &crate::db::Db<E::Canister>,
     old: Option<&E>,
     new: Option<&E>,
 ) -> Result<IndexMutationPlan, InternalError> {
-    let old_entity_key = old.map(EntityKind::id);
-    let new_entity_key = new.map(EntityKind::id);
+    let old_entity_key = old.map(EntityValue::id);
+    let new_entity_key = new.map(EntityValue::id);
 
     let mut apply = Vec::with_capacity(E::INDEXES.len());
     let mut commit_ops = Vec::new();
@@ -147,7 +147,7 @@ pub fn plan_index_mutation_for_entity<E: EntityKind>(
     Ok(IndexMutationPlan { apply, commit_ops })
 }
 
-fn load_existing_entry<E: EntityKind>(
+fn load_existing_entry<E: EntityValue>(
     store: &'static LocalKey<RefCell<IndexStore>>,
     index: &'static IndexModel,
     entity: Option<&E>,
@@ -184,7 +184,7 @@ fn load_existing_entry<E: EntityKind>(
 /// - Index corruption (multiple keys in a unique entry)
 /// - Uniqueness violations (conflicting key ownership)
 #[expect(clippy::too_many_lines)]
-fn validate_unique_constraint<E: EntityKind>(
+fn validate_unique_constraint<E: EntityValue>(
     db: &crate::db::Db<E::Canister>,
     index: &IndexModel,
     entry: Option<&IndexEntry<E>>,
@@ -314,7 +314,7 @@ fn validate_unique_constraint<E: EntityKind>(
 /// Correctly handles old/new key overlap and guarantees that
 /// apply-time mutations cannot fail except by invariant violation.
 #[allow(clippy::too_many_arguments)]
-fn build_commit_ops_for_index<E: EntityKind>(
+fn build_commit_ops_for_index<E: EntityValue>(
     commit_ops: &mut Vec<CommitIndexOp>,
     index: &'static IndexModel,
     old_key: Option<IndexKey>,

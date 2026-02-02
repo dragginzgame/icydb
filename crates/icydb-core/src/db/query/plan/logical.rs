@@ -7,7 +7,7 @@ use crate::db::query::{
 };
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::EntityKind,
+    traits::EntityValue,
 };
 use std::cmp::Ordering;
 
@@ -59,11 +59,11 @@ pub struct LogicalPlan<K> {
 }
 
 /// Row abstraction for applying plan semantics to executor rows.
-pub trait PlanRow<E: EntityKind> {
+pub trait PlanRow<E: EntityValue> {
     fn entity(&self) -> &E;
 }
 
-impl<E: EntityKind> PlanRow<E> for (E::Id, E) {
+impl<E: EntityValue> PlanRow<E> for (E::Id, E) {
     fn entity(&self) -> &E {
         &self.1
     }
@@ -109,7 +109,7 @@ impl<K> LogicalPlan<K> {
         rows: &mut Vec<R>,
     ) -> Result<PostAccessStats, InternalError>
     where
-        E: EntityKind,
+        E: EntityValue,
         R: PlanRow<E>,
     {
         if self.mode.is_delete() && self.page.is_some() {
@@ -208,7 +208,7 @@ impl<K> LogicalPlan<K> {
 // Sort rows by the configured order spec, using entity field values.
 fn apply_order_spec<E, R>(rows: &mut Vec<R>, order: &OrderSpec)
 where
-    E: EntityKind,
+    E: EntityValue,
     R: PlanRow<E>,
 {
     // Phase 1: tag rows with their original position to preserve stability.
@@ -232,7 +232,7 @@ where
 }
 
 // Compare two entities according to the order spec, returning the first non-equal field ordering.
-fn compare_entities<E: EntityKind>(left: &E, right: &E, order: &OrderSpec) -> Ordering {
+fn compare_entities<E: EntityValue>(left: &E, right: &E, order: &OrderSpec) -> Ordering {
     for (field, direction) in &order.fields {
         let left_value = left.get_value(field);
         let right_value = right.get_value(field);

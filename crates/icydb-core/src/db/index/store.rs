@@ -8,8 +8,9 @@ use crate::{
         store::{DataKey, StoreRegistry},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    prelude::{EntityKind, IndexModel, Value},
-    traits::Storable,
+    model::index::IndexModel,
+    traits::{EntityValue, Storable},
+    value::Value,
 };
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory, storable::Bound};
 use canic_utils::hash::Xxh3;
@@ -163,7 +164,7 @@ impl IndexStore {
         self.fingerprint_map().clear();
     }
 
-    pub(crate) fn resolve_data_values<E: EntityKind>(
+    pub(crate) fn resolve_data_values<E: EntityValue>(
         &self,
         index: &IndexModel,
         prefix: &[Value],
