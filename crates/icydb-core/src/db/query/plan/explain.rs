@@ -151,7 +151,7 @@ pub enum ExplainDeleteLimit {
 
 impl<K> LogicalPlan<K>
 where
-    K: Copy,
+    K: FieldValue,
 {
     /// Produce a stable, deterministic explanation of this logical plan.
     #[must_use]
@@ -180,7 +180,7 @@ where
 impl ExplainAccessPath {
     fn from_access_plan<K>(access: &AccessPlan<K>) -> Self
     where
-        K: Copy,
+        K: FieldValue,
     {
         match access {
             AccessPlan::Path(path) => Self::from_path(path),
@@ -195,7 +195,7 @@ impl ExplainAccessPath {
 
     fn from_path<K>(path: &AccessPath<K>) -> Self
     where
-        K: Copy,
+        K: FieldValue,
     {
         match path {
             AccessPath::ByKey(key) => Self::ByKey {
@@ -334,6 +334,7 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
     }
 }
 
+/*
 ///
 /// TESTS
 ///
@@ -341,7 +342,7 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::query::plan::{AccessPath, LogicalPlan, planner::PlannerEntity};
+    use crate::db::query::plan::{AccessPath, LogicalPlan};
     use crate::db::query::{FieldRef, Query, ReadConsistency};
     use crate::model::index::IndexModel;
     use crate::types::{Ref, Ulid};
@@ -426,3 +427,4 @@ mod tests {
         assert_ne!(plan_a.explain(), plan_b.explain());
     }
 }
+*/

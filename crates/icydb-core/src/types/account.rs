@@ -186,6 +186,13 @@ impl FieldValue for Account {
     fn to_value(&self) -> Value {
         Value::Account(*self)
     }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Account(v) => Some(*v),
+            _ => None,
+        }
+    }
 }
 
 impl From<Account> for IcrcAccount {

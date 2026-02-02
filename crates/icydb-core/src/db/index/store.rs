@@ -10,7 +10,6 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     prelude::{EntityKind, IndexModel, Value},
     traits::Storable,
-    types::Ref,
 };
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory, storable::Bound};
 use canic_utils::hash::Xxh3;
@@ -209,6 +208,7 @@ impl IndexStore {
                 panic!("index fingerprint verification failed: {err:?} (debug-only)");
             }
 
+            // Validate index key structure
             IndexKey::try_from_raw(raw_key).map_err(|err| {
                 InternalError::new(
                     ErrorClass::Corruption,
@@ -217,11 +217,12 @@ impl IndexStore {
                 )
             })?;
 
-            let decoded = raw_entry.try_decode().map_err(|err| {
+            // Decode storage keys
+            let storage_keys = raw_entry.decode_keys().map_err(|err| {
                 InternalError::new(ErrorClass::Corruption, ErrorOrigin::Index, err.to_string())
             })?;
 
-            if index.unique && decoded.len() != 1 {
+            if index.unique && storage_keys.len() != 1 {
                 return Err(InternalError::new(
                     ErrorClass::Corruption,
                     ErrorOrigin::Index,
@@ -229,10 +230,11 @@ impl IndexStore {
                 ));
             }
 
+            // Convert to DataKeys (storage boundary — no typed IDs)
             out.extend(
-                decoded
-                    .iter_raw_keys()
-                    .map(|k| DataKey::new::<E>(Ref::from_raw(k))),
+                storage_keys
+                    .into_iter()
+                    .map(|sk| DataKey::from_storage_key::<E>(sk)),
             );
         }
 

@@ -28,6 +28,7 @@ pub(super) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, InternalErro
             format!("commit marker index key corrupted: {err}"),
         )
     })?;
+
     Ok(raw)
 }
 
@@ -42,13 +43,14 @@ pub(super) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, Internal
     }
 
     let raw = <RawIndexEntry as Storable>::from_bytes(Cow::Borrowed(bytes));
-    raw.try_decode().map_err(|err| {
+    raw.validate().map_err(|err| {
         InternalError::new(
             ErrorClass::Corruption,
             ErrorOrigin::Index,
             format!("commit marker index entry corrupted: {err}"),
         )
     })?;
+
     Ok(raw)
 }
 
@@ -70,5 +72,6 @@ pub(super) fn decode_data_key(bytes: &[u8]) -> Result<RawDataKey, InternalError>
             format!("commit marker data key corrupted: {err}"),
         )
     })?;
+
     Ok(raw)
 }

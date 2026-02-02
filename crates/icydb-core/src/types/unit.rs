@@ -34,11 +34,19 @@ impl FieldValue for () {
     fn to_value(&self) -> Value {
         Value::Unit
     }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        matches!(value, Value::Unit).then_some(())
+    }
 }
 
 impl FieldValue for Unit {
     fn to_value(&self) -> Value {
         Value::Unit
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        matches!(value, Value::Unit).then_some(Self)
     }
 }
 

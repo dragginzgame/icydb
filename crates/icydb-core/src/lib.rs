@@ -32,7 +32,7 @@ pub const MAX_INDEX_FIELDS: usize = 4;
 
 pub mod prelude {
     pub use crate::{
-        model::index::IndexModel,
+        model::{entity::EntityModel, index::IndexModel},
         traits::{EntityKind, Path},
         value::Value,
     };

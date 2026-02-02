@@ -9,7 +9,7 @@ use crate::{
         },
         response::Response,
     },
-    traits::{CanisterKind, EntityKind, UnitKey},
+    traits::{CanisterKind, EntityKind, SingletonEntity},
 };
 
 ///
@@ -155,12 +155,11 @@ where
 impl<C, E> SessionLoadQuery<'_, C, E>
 where
     C: CanisterKind,
-    E: EntityKind<Canister = C> + UnitKey,
+    E: SingletonEntity<Canister = C>,
 {
-    /// Load the singleton entity identified by the unit primary key `()`.
     #[must_use]
-    pub fn only(mut self) -> Self {
-        self.query = self.query.only();
+    pub fn only(mut self, id: E::Id) -> Self {
+        self.query = self.query.only(id);
         self
     }
 }

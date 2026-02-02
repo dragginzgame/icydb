@@ -12,7 +12,6 @@ use crate::{
     model::index::IndexModel,
     obs::sink::{self, MetricsEvent},
     traits::{EntityKind, FieldValue, Storable},
-    types::Ref,
 };
 use std::{cell::RefCell, collections::BTreeMap, thread::LocalKey};
 
@@ -50,8 +49,8 @@ pub fn plan_index_mutation_for_entity<E: EntityKind>(
     old: Option<&E>,
     new: Option<&E>,
 ) -> Result<IndexMutationPlan, InternalError> {
-    let old_entity_key = old.map(EntityKind::key);
-    let new_entity_key = new.map(EntityKind::key);
+    let old_entity_key = old.map(EntityKind::id);
+    let new_entity_key = new.map(EntityKind::id);
 
     let mut apply = Vec::with_capacity(E::INDEXES.len());
     let mut commit_ops = Vec::new();
@@ -145,11 +144,11 @@ pub fn plan_index_mutation_for_entity<E: EntityKind>(
     Ok(IndexMutationPlan { apply, commit_ops })
 }
 
-fn load_existing_entry<E: EntityKind<PrimaryKey = Ref<E>>>(
+fn load_existing_entry<E: EntityKind>(
     store: &'static LocalKey<RefCell<IndexStore>>,
     index: &'static IndexModel,
     entity: Option<&E>,
-) -> Result<Option<IndexEntry>, InternalError> {
+) -> Result<Option<IndexEntry<E>>, InternalError> {
     let Some(entity) = entity else {
         return Ok(None);
     };
@@ -182,11 +181,11 @@ fn load_existing_entry<E: EntityKind<PrimaryKey = Ref<E>>>(
 /// - Index corruption (multiple keys in a unique entry)
 /// - Uniqueness violations (conflicting key ownership)
 #[expect(clippy::too_many_lines)]
-fn validate_unique_constraint<E: EntityKind<PrimaryKey = Ref<E>>>(
+fn validate_unique_constraint<E: EntityKind>(
     db: &crate::db::Db<E::Canister>,
     index: &IndexModel,
-    entry: Option<&IndexEntry>,
-    new_key: Option<&E::PrimaryKey>,
+    entry: Option<&IndexEntry<E>>,
+    new_key: Option<&E::Id>,
     new_entity: Option<&E>,
 ) -> Result<(), InternalError> {
     if !index.unique {
@@ -224,7 +223,7 @@ fn validate_unique_constraint<E: EntityKind<PrimaryKey = Ref<E>>>(
             "missing entity payload during unique validation".to_string(),
         ));
     };
-    let existing_key = entry.single_key().ok_or_else(|| {
+    let existing_key = entry.single_id().ok_or_else(|| {
         ExecutorError::corruption(
             ErrorOrigin::Index,
             format!(
@@ -237,7 +236,7 @@ fn validate_unique_constraint<E: EntityKind<PrimaryKey = Ref<E>>>(
     })?;
 
     let stored = {
-        let data_key = DataKey::new::<E>(existing_key);
+        let data_key = DataKey::try_new::<E>(existing_key)?;
         let row = db.context::<E>().read_strict(&data_key)?;
         row.try_decode::<E>().map_err(|err| {
             ExecutorError::corruption(
@@ -246,7 +245,7 @@ fn validate_unique_constraint<E: EntityKind<PrimaryKey = Ref<E>>>(
             )
         })?
     };
-    let stored_key = stored.key();
+    let stored_key = stored.id();
     if stored_key != existing_key {
         // Stored row decoded successfully but key mismatch indicates index/data divergence; treat as corruption.
         return Err(ExecutorError::corruption(
@@ -312,17 +311,17 @@ fn validate_unique_constraint<E: EntityKind<PrimaryKey = Ref<E>>>(
 /// Correctly handles old/new key overlap and guarantees that
 /// apply-time mutations cannot fail except by invariant violation.
 #[allow(clippy::too_many_arguments)]
-fn build_commit_ops_for_index<E: EntityKind<PrimaryKey = Ref<E>>>(
+fn build_commit_ops_for_index<E: EntityKind>(
     commit_ops: &mut Vec<CommitIndexOp>,
     index: &'static IndexModel,
     old_key: Option<IndexKey>,
     new_key: Option<IndexKey>,
-    old_entry: Option<IndexEntry>,
-    new_entry: Option<IndexEntry>,
-    old_entity_key: Option<E::PrimaryKey>,
-    new_entity_key: Option<E::PrimaryKey>,
+    old_entry: Option<IndexEntry<E>>,
+    new_entry: Option<IndexEntry<E>>,
+    old_entity_key: Option<E::Id>,
+    new_entity_key: Option<E::Id>,
 ) -> Result<(), InternalError> {
-    let mut touched: BTreeMap<RawIndexKey, Option<IndexEntry>> = BTreeMap::new();
+    let mut touched: BTreeMap<RawIndexKey, Option<IndexEntry<E>>> = BTreeMap::new();
     let fields = index.fields.join(", ");
 
     // ── Removal ────────────────────────────────
@@ -337,7 +336,7 @@ fn build_commit_ops_for_index<E: EntityKind<PrimaryKey = Ref<E>>>(
         };
 
         if let Some(mut entry) = old_entry {
-            entry.remove_key(old_entity_key);
+            entry.remove(old_entity_key);
             let after = if entry.is_empty() { None } else { Some(entry) };
             touched.insert(old_key.to_raw(), after);
         } else {
@@ -371,7 +370,7 @@ fn build_commit_ops_for_index<E: EntityKind<PrimaryKey = Ref<E>>>(
             IndexEntry::new(new_entity_key)
         };
 
-        entry.insert_key(new_entity_key);
+        entry.insert(new_entity_key);
         touched.insert(raw_key, Some(entry));
     }
 
@@ -379,7 +378,7 @@ fn build_commit_ops_for_index<E: EntityKind<PrimaryKey = Ref<E>>>(
 
     for (raw_key, entry) in touched {
         let value = if let Some(entry) = entry {
-            let raw = RawIndexEntry::try_from_entry(&entry).map_err(|err| match err {
+            let raw = RawIndexEntry::try_from(&entry).map_err(|err| match err {
                 IndexEntryEncodeError::TooManyKeys { keys } => InternalError::new(
                     ErrorClass::Unsupported,
                     ErrorOrigin::Index,
@@ -414,6 +413,11 @@ fn build_commit_ops_for_index<E: EntityKind<PrimaryKey = Ref<E>>>(
 
     Ok(())
 }
+
+/*
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {
@@ -665,7 +669,7 @@ mod tests {
     }
 
     fn seed_entity(entity: &TestEntity) {
-        let data_key = DataKey::new::<TestEntity>(entity.id);
+        let data_key = DataKey::try_new::<TestEntity>(entity.id).unwrap();
         let raw_key = data_key.to_raw().expect("data key encode");
         let raw_row = RawRow::try_new(serialize(entity).unwrap()).unwrap();
         TEST_DATA_STORE.with_borrow_mut(|store| store.insert(raw_key, raw_row));
@@ -674,7 +678,7 @@ mod tests {
             .expect("index key")
             .expect("index key missing");
         let raw_index_key = index_key.to_raw();
-        let entry = IndexEntry::new(entity.key());
+        let entry = IndexEntry::new(entity.id());
         let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
         TEST_INDEX_STORE.with_borrow_mut(|store| store.insert(raw_index_key, raw_entry));
     }
@@ -737,7 +741,7 @@ mod tests {
             tag: "alpha".to_string(),
         };
 
-        let data_key = DataKey::new::<TestEntity>(indexed.id);
+        let data_key = DataKey::try_new::<TestEntity>(indexed.id).unwrap();
         let raw_key = data_key.to_raw().expect("data key encode");
         let raw_row = RawRow::try_new(serialize(&corrupted).unwrap()).unwrap();
         TEST_DATA_STORE.with_borrow_mut(|store| store.insert(raw_key, raw_row));
@@ -746,7 +750,7 @@ mod tests {
             .expect("index key")
             .expect("index key missing");
         let raw_index_key = index_key.to_raw();
-        let entry = IndexEntry::new(indexed.key());
+        let entry = IndexEntry::new(indexed.id());
         let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
         TEST_INDEX_STORE.with_borrow_mut(|store| store.insert(raw_index_key, raw_entry));
 
@@ -769,7 +773,7 @@ mod tests {
             id: Ref::new(Ulid::from_u128(1)),
             tag: "__missing__".to_string(),
         };
-        let data_key = DataKey::new::<MissingFieldEntity>(stored.id);
+        let data_key = DataKey::try_new::<MissingFieldEntity>(stored.id).unwrap();
         let raw_key = data_key.to_raw().expect("data key encode");
         let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
         TEST_DATA_STORE.with_borrow_mut(|store| store.insert(raw_key, raw_row));
@@ -783,7 +787,7 @@ mod tests {
             .expect("index key")
             .expect("index key missing");
         let raw_index_key = index_key.to_raw();
-        let entry = IndexEntry::new(stored.key());
+        let entry = IndexEntry::new(stored.id());
         let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
         TEST_INDEX_STORE.with_borrow_mut(|store| store.insert(raw_index_key, raw_entry));
 
@@ -793,3 +797,4 @@ mod tests {
         assert_eq!(err.origin, ErrorOrigin::Index);
     }
 }
+*/

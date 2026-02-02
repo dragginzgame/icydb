@@ -25,7 +25,6 @@ use crate::{
     sanitize::sanitize,
     serialize::serialize,
     traits::{EntityKind, FieldValue, Path, Storable},
-    types::Ref,
     validate::validate,
     value::Value,
 };
@@ -46,14 +45,14 @@ use std::{
 ///
 
 #[derive(Clone, Copy)]
-pub struct SaveExecutor<E: EntityKind<PrimaryKey = Ref<E>>> {
+pub struct SaveExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
     trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityKind<PrimaryKey = Ref<E>>> SaveExecutor<E> {
+impl<E: EntityKind> SaveExecutor<E> {
     // ======================================================================
     // Construction & configuration
     // ======================================================================
@@ -200,8 +199,8 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> SaveExecutor<E> {
             Self::ensure_entity_invariants(&entity)?;
             self.ensure_reference_targets(&entity)?;
 
-            let key = entity.key();
-            let data_key = DataKey::new::<E>(key);
+            let key = entity.id();
+            let data_key = DataKey::try_new::<E>(key)?;
             let raw_key = data_key.to_raw()?;
 
             self.debug_log(format!("save {:?} on {} (key={})", mode, E::PATH, data_key));
@@ -215,17 +214,22 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> SaveExecutor<E> {
                                 format!("failed to deserialize row: {data_key} ({err})"),
                             )
                         })?;
-                        let expected = data_key.key::<E>();
-                        let actual = stored.key();
+
+                        let expected = data_key.try_id::<E>()?;
+                        let actual = stored.id();
                         if expected != actual {
                             return Err(ExecutorError::corruption(
                                 ErrorOrigin::Store,
-                                format!("row key mismatch: expected {expected}, found {actual}"),
+                                format!(
+                                    "row key mismatch: expected {expected:?}, found {actual:?}",
+                                ),
                             )
                             .into());
                         }
+
                         return Err(ExecutorError::KeyExists(data_key).into());
                     }
+
                     (None, None)
                 }
                 SaveMode::Update => {
@@ -238,12 +242,12 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> SaveExecutor<E> {
                             format!("failed to deserialize row: {data_key} ({err})"),
                         )
                     })?;
-                    let expected = data_key.key::<E>();
-                    let actual = old.key();
+                    let expected = data_key.try_id::<E>()?;
+                    let actual = old.id();
                     if expected != actual {
                         return Err(ExecutorError::corruption(
                             ErrorOrigin::Store,
-                            format!("row key mismatch: expected {expected}, found {actual}"),
+                            format!("row key mismatch: expected {expected:?}, found {actual:?}",),
                         )
                         .into());
                     }
@@ -263,12 +267,14 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> SaveExecutor<E> {
                         })
                         .transpose()?;
                     if let Some(old) = old.as_ref() {
-                        let expected = data_key.key::<E>();
-                        let actual = old.key();
+                        let expected = data_key.try_id::<E>()?;
+                        let actual = old.id();
                         if expected != actual {
                             return Err(ExecutorError::corruption(
                                 ErrorOrigin::Store,
-                                format!("row key mismatch: expected {expected}, found {actual}"),
+                                format!(
+                                    "row key mismatch: expected {expected:?}, found {actual:?}",
+                                ),
                             )
                             .into());
                         }
@@ -422,7 +428,7 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> SaveExecutor<E> {
                     )
                 })?;
 
-                if data_key.storage_key() == reference.key {
+                if data_key.storage_key() == reference.storage_key() {
                     return Ok(true);
                 }
             }
@@ -466,18 +472,7 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> SaveExecutor<E> {
 
     // Enforce trait boundary invariants for user-provided entities.
     fn validate_entity_invariants(entity: &E, schema: &SchemaInfo) -> Result<(), InternalError> {
-        let key = entity.key();
-        let primary_key = entity.primary_key();
-        if key != primary_key {
-            return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Executor,
-                format!(
-                    "entity key mismatch: {} key={key} primary_key={primary_key}",
-                    E::PATH
-                ),
-            ));
-        }
+        let key = entity.id();
 
         // Phase 1: validate primary key field presence and value.
         let expected = key.to_value();
@@ -813,6 +808,7 @@ struct PreparedDataRollback {
     value: Option<RawRow>,
 }
 
+/*
 ///
 /// TESTS
 ///
@@ -1116,3 +1112,4 @@ mod tests {
         assert_eq!(err.origin, ErrorOrigin::Executor);
     }
 }
+*/

@@ -60,6 +60,7 @@ impl IndexId {
 pub enum IndexIdError {
     #[error("entity name invalid: {0}")]
     EntityName(#[from] EntityNameError),
+
     #[error("index name invalid: {0}")]
     IndexName(#[from] IndexNameError),
 }

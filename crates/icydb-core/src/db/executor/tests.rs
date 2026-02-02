@@ -1,3 +1,4 @@
+/*
 use super::trace::{QueryTraceEvent, QueryTraceSink, TraceAccess, TraceExecutorKind, TracePhase};
 use super::{DeleteExecutor, LoadExecutor, SaveExecutor};
 use crate::{
@@ -29,13 +30,14 @@ use crate::{
     },
     serialize::serialize,
     traits::{
-        CanisterKind, DataStoreKind, EntityKind, FieldValue, FieldValues, Path, SanitizeAuto,
+        CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto,
         SanitizeCustom, UnitKey, ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::{Ref, Timestamp, Ulid, Unit},
     value::{Value, ValueEnum},
 };
 use canic_memory::runtime::registry::MemoryRegistryRuntime;
+use icydb_test_macros::test_entity;
 use icydb_schema::{
     build::schema_write,
     node::{
@@ -80,54 +82,32 @@ const TEST_MODEL: EntityModel = EntityModel {
 };
 
 const ORDER_ENTITY_PATH: &str = "write_unit_test::OrderEntity";
-const ORDER_FIELDS: [&str; 3] = ["id", "primary", "secondary"];
-const ORDER_FIELD_MODELS: [EntityFieldModel; 3] = [
-    EntityFieldModel {
-        name: "id",
-        kind: EntityFieldKind::Ulid,
-    },
-    EntityFieldModel {
-        name: "primary",
-        kind: EntityFieldKind::Int,
-    },
-    EntityFieldModel {
-        name: "secondary",
-        kind: EntityFieldKind::Int,
-    },
-];
-const ORDER_MODEL: EntityModel = EntityModel {
-    path: ORDER_ENTITY_PATH,
-    entity_name: "OrderEntity",
-    primary_key: &ORDER_FIELD_MODELS[0],
-    fields: &ORDER_FIELD_MODELS,
-    indexes: &[],
-};
 
 const TIMESTAMP_ENTITY_PATH: &str = "write_unit_test::TimestampEntity";
-const TIMESTAMP_FIELDS: [&str; 1] = ["id"];
-const TIMESTAMP_FIELD_MODELS: [EntityFieldModel; 1] = [EntityFieldModel {
+
+const UNIT_ENTITY_PATH: &str = "write_unit_test::UnitEntity";
+
+const TIMESTAMP_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
     name: "id",
     kind: EntityFieldKind::Timestamp,
 }];
 const TIMESTAMP_MODEL: EntityModel = EntityModel {
     path: TIMESTAMP_ENTITY_PATH,
     entity_name: "TimestampEntity",
-    primary_key: &TIMESTAMP_FIELD_MODELS[0],
-    fields: &TIMESTAMP_FIELD_MODELS,
+    primary_key: &TIMESTAMP_FIELDS[0],
+    fields: &TIMESTAMP_FIELDS,
     indexes: &[],
 };
 
-const UNIT_ENTITY_PATH: &str = "write_unit_test::UnitEntity";
-const UNIT_FIELDS: [&str; 1] = ["id"];
-const UNIT_FIELD_MODELS: [EntityFieldModel; 1] = [EntityFieldModel {
+const UNIT_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
     name: "id",
     kind: EntityFieldKind::Unit,
 }];
 const UNIT_MODEL: EntityModel = EntityModel {
     path: UNIT_ENTITY_PATH,
     entity_name: "UnitEntity",
-    primary_key: &UNIT_FIELD_MODELS[0],
-    fields: &UNIT_FIELD_MODELS,
+    primary_key: &UNIT_FIELDS[0],
+    fields: &UNIT_FIELDS,
     indexes: &[],
 };
 
@@ -136,95 +116,6 @@ const DIRECT_REF_ENTITY_PATH: &str = "write_unit_test::DirectRefEntity";
 const RECORD_REF_ENTITY_PATH: &str = "write_unit_test::RecordRefEntity";
 const ENUM_REF_ENTITY_PATH: &str = "write_unit_test::EnumRefEntity";
 const COLLECTION_REF_ENTITY_PATH: &str = "write_unit_test::CollectionRefEntity";
-
-const OWNER_KEY_KIND: EntityFieldKind = EntityFieldKind::Ulid;
-
-const OWNER_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
-    name: "id",
-    kind: EntityFieldKind::Ulid,
-}];
-const DIRECT_REF_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
-        name: "id",
-        kind: EntityFieldKind::Ulid,
-    },
-    EntityFieldModel {
-        name: "owner",
-        kind: EntityFieldKind::Ref {
-            target_path: OWNER_ENTITY_PATH,
-            key_kind: &OWNER_KEY_KIND,
-        },
-    },
-];
-const RECORD_REF_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
-        name: "id",
-        kind: EntityFieldKind::Ulid,
-    },
-    EntityFieldModel {
-        name: "profile",
-        kind: EntityFieldKind::Unsupported,
-    },
-];
-const ENUM_REF_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
-        name: "id",
-        kind: EntityFieldKind::Ulid,
-    },
-    EntityFieldModel {
-        name: "status",
-        kind: EntityFieldKind::Enum,
-    },
-];
-const COLLECTION_REF_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
-        name: "id",
-        kind: EntityFieldKind::Ulid,
-    },
-    EntityFieldModel {
-        name: "owners",
-        kind: EntityFieldKind::List(&EntityFieldKind::Ref {
-            target_path: OWNER_ENTITY_PATH,
-            key_kind: &OWNER_KEY_KIND,
-        }),
-    },
-];
-
-const OWNER_MODEL: EntityModel = EntityModel {
-    path: OWNER_ENTITY_PATH,
-    entity_name: "OwnerEntity",
-    primary_key: &OWNER_FIELDS[0],
-    fields: &OWNER_FIELDS,
-    indexes: &[],
-};
-const DIRECT_REF_MODEL: EntityModel = EntityModel {
-    path: DIRECT_REF_ENTITY_PATH,
-    entity_name: "DirectRefEntity",
-    primary_key: &DIRECT_REF_FIELDS[0],
-    fields: &DIRECT_REF_FIELDS,
-    indexes: &[],
-};
-const RECORD_REF_MODEL: EntityModel = EntityModel {
-    path: RECORD_REF_ENTITY_PATH,
-    entity_name: "RecordRefEntity",
-    primary_key: &RECORD_REF_FIELDS[0],
-    fields: &RECORD_REF_FIELDS,
-    indexes: &[],
-};
-const ENUM_REF_MODEL: EntityModel = EntityModel {
-    path: ENUM_REF_ENTITY_PATH,
-    entity_name: "EnumRefEntity",
-    primary_key: &ENUM_REF_FIELDS[0],
-    fields: &ENUM_REF_FIELDS,
-    indexes: &[],
-};
-const COLLECTION_REF_MODEL: EntityModel = EntityModel {
-    path: COLLECTION_REF_ENTITY_PATH,
-    entity_name: "CollectionRefEntity",
-    primary_key: &COLLECTION_REF_FIELDS[0],
-    fields: &COLLECTION_REF_FIELDS,
-    indexes: &[],
-};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct TestEntity {
@@ -257,7 +148,7 @@ impl Visitable for TestEntity {}
 impl FieldValues for TestEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
+            "id" => Some(self.id.as_value()),
             "name" => Some(Value::Text(self.name.clone())),
             _ => None,
         }
@@ -265,12 +156,17 @@ impl FieldValues for TestEntity {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[test_entity(
+    crate = crate,
+    entity_name = "OwnerEntity",
+    path = "write_unit_test::OwnerEntity",
+    datastore = TestDataStore,
+    canister = TestCanister,
+    primary_key = id,
+    fields = ["id"],
+)]
 struct OwnerEntity {
     id: Ref<Self>,
-}
-
-impl Path for OwnerEntity {
-    const PATH: &'static str = OWNER_ENTITY_PATH;
 }
 
 impl View for OwnerEntity {
@@ -294,20 +190,25 @@ impl Visitable for OwnerEntity {}
 impl FieldValues for OwnerEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
+            "id" => Some(self.id.as_value()),
             _ => None,
         }
     }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[test_entity(
+    crate = crate,
+    entity_name = "DirectRefEntity",
+    path = "write_unit_test::DirectRefEntity",
+    datastore = TestDataStore,
+    canister = TestCanister,
+    primary_key = id,
+    fields = ["id", "owner"],
+)]
 struct DirectRefEntity {
     id: Ref<Self>,
     owner: Option<Ref<OwnerEntity>>,
-}
-
-impl Path for DirectRefEntity {
-    const PATH: &'static str = DIRECT_REF_ENTITY_PATH;
 }
 
 impl View for DirectRefEntity {
@@ -331,8 +232,8 @@ impl Visitable for DirectRefEntity {}
 impl FieldValues for DirectRefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
-            "owner" => Some(self.owner.to_value()),
+            "id" => Some(self.id.as_value()),
+            "owner" => Some(self.owner.map_or(Value::None, |owner| owner.as_value())),
             _ => None,
         }
     }
@@ -344,13 +245,18 @@ struct RecordRefPayload {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[test_entity(
+    crate = crate,
+    entity_name = "RecordRefEntity",
+    path = "write_unit_test::RecordRefEntity",
+    datastore = TestDataStore,
+    canister = TestCanister,
+    primary_key = id,
+    fields = ["id", "profile"],
+)]
 struct RecordRefEntity {
     id: Ref<Self>,
     profile: RecordRefPayload,
-}
-
-impl Path for RecordRefEntity {
-    const PATH: &'static str = RECORD_REF_ENTITY_PATH;
 }
 
 impl View for RecordRefEntity {
@@ -374,7 +280,7 @@ impl Visitable for RecordRefEntity {}
 impl FieldValues for RecordRefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
+            "id" => Some(self.id.as_value()),
             "profile" => Some(Value::Unsupported),
             _ => None,
         }
@@ -393,13 +299,18 @@ impl Path for RefEnum {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[test_entity(
+    crate = crate,
+    entity_name = "EnumRefEntity",
+    path = "write_unit_test::EnumRefEntity",
+    datastore = TestDataStore,
+    canister = TestCanister,
+    primary_key = id,
+    fields = ["id", "status"],
+)]
 struct EnumRefEntity {
     id: Ref<Self>,
     status: RefEnum,
-}
-
-impl Path for EnumRefEntity {
-    const PATH: &'static str = ENUM_REF_ENTITY_PATH;
 }
 
 impl View for EnumRefEntity {
@@ -423,10 +334,10 @@ impl Visitable for EnumRefEntity {}
 impl FieldValues for EnumRefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
+            "id" => Some(self.id.as_value()),
             "status" => Some(Value::Enum(match &self.status {
                 RefEnum::Missing(owner) => {
-                    ValueEnum::strict::<RefEnum>("Missing").with_payload(owner.to_value())
+                    ValueEnum::strict::<RefEnum>("Missing").with_payload(owner.as_value())
                 }
                 RefEnum::Empty => ValueEnum::strict::<RefEnum>("Empty"),
             })),
@@ -436,13 +347,18 @@ impl FieldValues for EnumRefEntity {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[test_entity(
+    crate = crate,
+    entity_name = "CollectionRefEntity",
+    path = "write_unit_test::CollectionRefEntity",
+    datastore = TestDataStore,
+    canister = TestCanister,
+    primary_key = id,
+    fields = ["id", "owners"],
+)]
 struct CollectionRefEntity {
     id: Ref<Self>,
     owners: Vec<Ref<OwnerEntity>>,
-}
-
-impl Path for CollectionRefEntity {
-    const PATH: &'static str = COLLECTION_REF_ENTITY_PATH;
 }
 
 impl View for CollectionRefEntity {
@@ -466,8 +382,10 @@ impl Visitable for CollectionRefEntity {}
 impl FieldValues for CollectionRefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
-            "owners" => Some(self.owners.to_value()),
+            "id" => Some(self.id.as_value()),
+            "owners" => Some(Value::List(
+                self.owners.iter().map(|owner| owner.as_value()).collect(),
+            )),
             _ => None,
         }
     }
@@ -493,7 +411,7 @@ impl DataStoreKind for TestDataStore {
 }
 
 impl EntityKind for TestEntity {
-    type PrimaryKey = Ref<Self>;
+    type Id = Ref<Self>;
     type DataStore = TestDataStore;
     type Canister = TestCanister;
 
@@ -503,136 +421,12 @@ impl EntityKind for TestEntity {
     const INDEXES: &'static [&'static IndexModel] = &INDEXES;
     const MODEL: &'static EntityModel = &TEST_MODEL;
 
-    fn key(&self) -> Self::PrimaryKey {
+    fn id(&self) -> Self::Id {
         self.id
     }
 
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
-    }
-}
-
-impl EntityKind for OwnerEntity {
-    type PrimaryKey = Ref<Self>;
-    type DataStore = TestDataStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "OwnerEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id"];
-    const INDEXES: &'static [&'static IndexModel] = &[];
-    const MODEL: &'static EntityModel = &OWNER_MODEL;
-
-    fn key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
-    }
-}
-
-impl EntityKind for DirectRefEntity {
-    type PrimaryKey = Ref<Self>;
-    type DataStore = TestDataStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "DirectRefEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id", "owner"];
-    const INDEXES: &'static [&'static IndexModel] = &[];
-    const MODEL: &'static EntityModel = &DIRECT_REF_MODEL;
-
-    fn key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
-    }
-}
-
-impl EntityKind for RecordRefEntity {
-    type PrimaryKey = Ref<Self>;
-    type DataStore = TestDataStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "RecordRefEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id", "profile"];
-    const INDEXES: &'static [&'static IndexModel] = &[];
-    const MODEL: &'static EntityModel = &RECORD_REF_MODEL;
-
-    fn key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
-    }
-}
-
-impl EntityKind for EnumRefEntity {
-    type PrimaryKey = Ref<Self>;
-    type DataStore = TestDataStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "EnumRefEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id", "status"];
-    const INDEXES: &'static [&'static IndexModel] = &[];
-    const MODEL: &'static EntityModel = &ENUM_REF_MODEL;
-
-    fn key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
-    }
-}
-
-impl EntityKind for CollectionRefEntity {
-    type PrimaryKey = Ref<Self>;
-    type DataStore = TestDataStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "CollectionRefEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id", "owners"];
-    const INDEXES: &'static [&'static IndexModel] = &[];
-    const MODEL: &'static EntityModel = &COLLECTION_REF_MODEL;
-
-    fn key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
+    fn set_id(&mut self, id: Self::Id) {
+        self.id = id;
     }
 }
 
@@ -668,39 +462,44 @@ impl Visitable for UnitEntity {}
 impl FieldValues for UnitEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
+            "id" => Some(self.id.as_value()),
             _ => None,
         }
     }
 }
 
 impl EntityKind for UnitEntity {
-    type PrimaryKey = Ref<Self>;
+    type Id = Ref<Self>;
     type DataStore = TestDataStore;
     type Canister = TestCanister;
 
     const ENTITY_NAME: &'static str = "UnitEntity";
     const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &UNIT_FIELDS;
+    const FIELDS: &'static [&'static str] = &["id"];
     const INDEXES: &'static [&'static IndexModel] = &[];
     const MODEL: &'static EntityModel = &UNIT_MODEL;
 
-    fn key(&self) -> Self::PrimaryKey {
+    fn id(&self) -> Self::Id {
         self.id
     }
 
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
+    fn set_id(&mut self, id: Self::Id) {
+        self.id = id;
     }
 }
 
 impl UnitKey for UnitEntity {}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[test_entity(
+    crate = crate,
+    entity_name = "OrderEntity",
+    path = "write_unit_test::OrderEntity",
+    datastore = TestDataStore,
+    canister = TestCanister,
+    primary_key = id,
+    fields = ["id", "primary", "secondary"],
+)]
 struct OrderEntity {
     id: Ref<Self>,
     primary: Value,
@@ -717,9 +516,6 @@ impl Default for OrderEntity {
     }
 }
 
-impl Path for OrderEntity {
-    const PATH: &'static str = ORDER_ENTITY_PATH;
-}
 
 impl View for OrderEntity {
     type ViewType = Self;
@@ -742,35 +538,11 @@ impl Visitable for OrderEntity {}
 impl FieldValues for OrderEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
+            "id" => Some(self.id.as_value()),
             "primary" => Some(self.primary.clone()),
             "secondary" => Some(Value::Int(self.secondary)),
             _ => None,
         }
-    }
-}
-
-impl EntityKind for OrderEntity {
-    type PrimaryKey = Ref<Self>;
-    type DataStore = TestDataStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "OrderEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &ORDER_FIELDS;
-    const INDEXES: &'static [&'static IndexModel] = &[];
-    const MODEL: &'static EntityModel = &ORDER_MODEL;
-
-    fn key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
     }
 }
 
@@ -805,33 +577,29 @@ impl Visitable for TimestampEntity {}
 impl FieldValues for TimestampEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
+            "id" => Some(self.id.as_value()),
             _ => None,
         }
     }
 }
 
 impl EntityKind for TimestampEntity {
-    type PrimaryKey = Ref<Self>;
+    type Id = Ref<Self>;
     type DataStore = TestDataStore;
     type Canister = TestCanister;
 
     const ENTITY_NAME: &'static str = "TimestampEntity";
     const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &TIMESTAMP_FIELDS;
+    const FIELDS: &'static [&'static str] = &["id"];
     const INDEXES: &'static [&'static IndexModel] = &[];
     const MODEL: &'static EntityModel = &TIMESTAMP_MODEL;
 
-    fn key(&self) -> Self::PrimaryKey {
+    fn id(&self) -> Self::Id {
         self.id
     }
 
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
+    fn set_id(&mut self, id: Self::Id) {
+        self.id = id;
     }
 }
 
@@ -1149,7 +917,7 @@ fn assert_commit_marker_clear() {
 
 // Build a commit marker that inserts a single entity row and index entry.
 fn commit_marker_for_entity(entity: &TestEntity) -> CommitMarker {
-    let data_key = DataKey::new::<TestEntity>(entity.id);
+    let data_key = DataKey::try_new::<TestEntity>(entity.id).unwrap();
     let raw_data_key = data_key.to_raw().expect("data key encode");
     let raw_row = RawRow::try_new(serialize(entity).unwrap()).unwrap();
 
@@ -1157,7 +925,7 @@ fn commit_marker_for_entity(entity: &TestEntity) -> CommitMarker {
         .expect("index key")
         .expect("index key missing");
     let raw_index_key = index_key.to_raw();
-    let entry = IndexEntry::new(entity.key());
+    let entry = IndexEntry::new(entity.id());
     let raw_index_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
 
     CommitMarker::new(
@@ -1177,7 +945,7 @@ fn commit_marker_for_entity(entity: &TestEntity) -> CommitMarker {
 }
 
 fn assert_entity_present(entity: &TestEntity) {
-    let data_key = DataKey::new::<TestEntity>(entity.id);
+    let data_key = DataKey::try_new::<TestEntity>(entity.id).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let data_present = DB
         .context::<TestEntity>()
@@ -1195,22 +963,22 @@ fn assert_entity_present(entity: &TestEntity) {
     assert!(index_present.is_some());
 }
 
-fn assert_row_present<E: EntityKind<PrimaryKey = Ref<E>>>(db: Db<E::Canister>, key: E::PrimaryKey) {
-    let data_key = DataKey::new::<E>(key);
+fn assert_row_present<E: EntityKind<Id = Ref<E>>>(db: Db<E::Canister>, key: E::Id) {
+    let data_key = DataKey::try_new::<E>(key).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let data_present = db.context::<E>().with_store(|s| s.get(&raw_key)).unwrap();
     assert!(data_present.is_some());
 }
 
-fn assert_row_missing<E: EntityKind<PrimaryKey = Ref<E>>>(db: Db<E::Canister>, key: E::PrimaryKey) {
-    let data_key = DataKey::new::<E>(key);
+fn assert_row_missing<E: EntityKind<Id = Ref<E>>>(db: Db<E::Canister>, key: E::Id) {
+    let data_key = DataKey::try_new::<E>(key).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let data_present = db.context::<E>().with_store(|s| s.get(&raw_key)).unwrap();
     assert!(data_present.is_none());
 }
 
 fn assert_entity_missing(entity: &TestEntity) {
-    let data_key = DataKey::new::<TestEntity>(entity.id);
+    let data_key = DataKey::try_new::<TestEntity>(entity.id).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let data_present = DB
         .context::<TestEntity>()
@@ -1314,7 +1082,7 @@ fn save_rolls_back_on_forced_failure() {
     let result = saver.insert(entity.clone());
     assert!(result.is_err());
 
-    let data_key = DataKey::new::<TestEntity>(entity.id);
+    let data_key = DataKey::try_new::<TestEntity>(entity.id).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let data_present = DB
         .context::<TestEntity>()
@@ -1340,7 +1108,7 @@ fn save_update_rejects_row_key_mismatch() {
         id: Ref::new(Ulid::from_u128(1)),
         name: "alpha".to_string(),
     };
-    let data_key = DataKey::new::<TestEntity>(Ref::new(Ulid::from_u128(2)));
+    let data_key = DataKey::try_new::<TestEntity>(Ref::new(Ulid::from_u128(2))).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
     DB.context::<TestEntity>()
@@ -1365,7 +1133,7 @@ fn save_insert_rejects_row_key_mismatch() {
         id: Ref::new(Ulid::from_u128(1)),
         name: "alpha".to_string(),
     };
-    let data_key = DataKey::new::<TestEntity>(Ref::new(Ulid::from_u128(2)));
+    let data_key = DataKey::try_new::<TestEntity>(Ref::new(Ulid::from_u128(2))).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
     DB.context::<TestEntity>()
@@ -1390,7 +1158,7 @@ fn save_replace_rejects_row_key_mismatch() {
         id: Ref::new(Ulid::from_u128(3)),
         name: "alpha".to_string(),
     };
-    let data_key = DataKey::new::<TestEntity>(Ref::new(Ulid::from_u128(4)));
+    let data_key = DataKey::try_new::<TestEntity>(Ref::new(Ulid::from_u128(4))).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
     DB.context::<TestEntity>()
@@ -1439,7 +1207,7 @@ fn context_reads_enforce_recovery() {
         id: Ref::new(Ulid::from_u128(12)),
         name: "alpha".to_string(),
     };
-    let data_key = DataKey::new::<TestEntity>(entity.id);
+    let data_key = DataKey::try_new::<TestEntity>(entity.id).unwrap();
 
     let _guard = begin_commit(commit_marker_for_entity(&entity)).unwrap();
     assert!(commit_marker_present().unwrap());
@@ -2956,3 +2724,4 @@ fn delete_ignores_references() {
     assert_row_present::<DirectRefEntity>(RI_DB, ref_entity.id);
     assert_commit_marker_clear();
 }
+*/

@@ -6,8 +6,10 @@ mod visitor;
 pub use view::*;
 pub use visitor::*;
 
-// re-exports of other traits
-// for the standard traits::X pattern
+// -----------------------------------------------------------------------------
+// Standard re-exports for `traits::X` ergonomics
+// -----------------------------------------------------------------------------
+
 pub use canic_cdk::structures::storable::Storable;
 pub use num_traits::{FromPrimitive as NumFromPrimitive, NumCast, ToPrimitive as NumToPrimitive};
 pub use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -24,82 +26,118 @@ pub use std::{
 
 use crate::{prelude::*, value::ValueEnum, visitor::VisitorContext};
 
-/// ------------------------
-/// KIND TRAITS
-/// the Schema uses the term "Node" but when they're built it's "Kind"
-/// ------------------------
+/// ============================================================================
+/// KIND HIERARCHY
+/// ============================================================================
+///
+/// In schema terminology these are "nodes".
+/// In runtime terminology these are "kinds".
+///
 
 ///
 /// Kind
 ///
-
 pub trait Kind: Path + 'static {}
-
 impl<T> Kind for T where T: Path + 'static {}
 
 ///
 /// CanisterKind
 ///
-
 pub trait CanisterKind: Kind {}
 
 ///
 /// DataStoreKind
 ///
-
 pub trait DataStoreKind: Kind {
     type Canister: CanisterKind;
 }
 
 ///
-/// EntityId
+/// IndexStoreKind
+///
+pub trait IndexStoreKind: Kind {
+    type Canister: CanisterKind;
+}
+
+/// ============================================================================
+/// IDENTITY TRAITS
+/// ============================================================================
+///
+/// Identity traits describe *who* an entity is, not how it is stored.
+/// No persistence assumptions are allowed here.
 ///
 
-pub trait EntityId: Copy + Debug + Eq + Ord + Hash + 'static {}
+///
+/// EntityKey
+///
+/// Marker trait for entity identity types.
+///
+/// Identity types must be:
+/// - Copy
+/// - Comparable
+///
+/// They are NOT required to be persistable.
+///
+pub trait EntityKey: Copy + Debug + Eq + Ord + FieldValue + 'static {}
+
+impl<T> EntityKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static {}
 
 ///
 /// EntityKind
 ///
-
+/// Describes a concrete entity type.
+///
+/// This trait binds together:
+/// - Identity (`Id`)
+/// - Schema metadata
+/// - Store and canister placement
+///
+/// It intentionally does NOT imply how the ID is stored.
+///
 pub trait EntityKind: Kind + TypeKind + FieldValues {
-    type Id: EntityId;
+    /// Entity primary key type.
+    ///
+    /// Invariants:
+    /// - Must be representable as a `Value`
+    /// - Must be totally ordered for range validation
+    /// - Must be schema-compatible with the declared primary key field
+    type Id: EntityKey;
     type DataStore: DataStoreKind;
-    type Canister: CanisterKind; // Self::Store::Canister shortcut
+    type Canister: CanisterKind;
 
     const ENTITY_NAME: &'static str;
     const PRIMARY_KEY: &'static str;
     const FIELDS: &'static [&'static str];
     const INDEXES: &'static [&'static IndexModel];
-    const MODEL: &'static crate::model::entity::EntityModel;
+    const MODEL: &'static EntityModel;
 
     fn id(&self) -> Self::Id;
     fn set_id(&mut self, id: Self::Id);
 }
 
+/// ============================================================================
+/// PERSISTENCE CAPABILITIES
+/// ============================================================================
 ///
-/// IndexStoreKind
-///
-
-pub trait IndexStoreKind: Kind {
-    type Canister: CanisterKind;
-}
-
-///
-/// UnitKey
-/// Marker trait for unit-valued primary keys used by singleton entities.
+/// These traits explicitly grant permission to cross into storage concerns.
 ///
 
-pub trait UnitKey {}
+///
+/// SingletonEntity
+/// Entity with exactly one logical row.
+///
 
-/// ------------------------
-/// TYPE TRAITS
-/// ------------------------
+pub trait SingletonEntity: EntityKind {}
+
+/// ============================================================================
+/// TYPE SYSTEM
+/// ============================================================================
 
 ///
 /// TypeKind
-/// any data type
 ///
-
+/// Any schema-defined data type.
+///
 pub trait TypeKind:
     Kind
     + View
@@ -128,14 +166,25 @@ impl<T> TypeKind for T where
 {
 }
 
-/// ------------------------
-/// OTHER TRAITS
-/// ------------------------
+/// ============================================================================
+/// QUERY VALUE BOUNDARIES
+/// ============================================================================
+
+///
+/// EnumValue
+///
+/// Explicit conversion boundary for domain enums.
+///
+
+pub trait EnumValue {
+    fn to_value_enum(&self) -> ValueEnum;
+}
 
 ///
 /// FieldValues
 ///
-
+/// Read access to entity fields by name.
+///
 pub trait FieldValues {
     fn get_value(&self, field: &str) -> Option<Value>;
 }
@@ -145,26 +194,20 @@ pub trait FieldValues {
 ///
 /// Conversion boundary for values used in query predicates.
 ///
-/// `FieldValue` represents any value that can appear on the *right-hand side*
-/// of a predicate (e.g. `field == value`, `field IN values`). Implementations
-/// convert Rust values into owned [`Value`] instances that are stored inside
-/// query plans and executed later.
+/// Represents values that can appear on the *right-hand side* of predicates.
 ///
-
 pub trait FieldValue {
     fn to_value(&self) -> Value {
         Value::Unsupported
     }
-}
 
-///
-/// EnumValue
-/// Explicit conversion boundary for domain enums used in query values.
-///
-
-pub trait EnumValue {
-    /// Convert this enum into a strict [`ValueEnum`] with its canonical path.
-    fn to_value_enum(&self) -> ValueEnum;
+    #[must_use]
+    fn from_value(_value: &Value) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        None
+    }
 }
 
 impl FieldValue for &str {
@@ -209,6 +252,13 @@ macro_rules! impl_field_value {
                 fn to_value(&self) -> Value {
                     Value::$variant((*self).into())
                 }
+
+                fn from_value(value: &Value) -> Option<Self> {
+                    match value {
+                        Value::$variant(v) => (*v).try_into().ok(),
+                        _ => None,
+                    }
+                }
             }
         )*
     };
@@ -226,14 +276,15 @@ impl_field_value!(
     bool => Bool,
 );
 
+/// ============================================================================
+/// MISC HELPERS
+/// ============================================================================
+
 ///
 /// Inner
-/// for Newtypes to get the innermost value
 ///
-/// DO NOT REMOVE - its been added and removed twice already, NumCast
-/// is a pain to use and won't work for half our types
+/// For newtypes to expose their innermost value.
 ///
-
 pub trait Inner<T> {
     fn inner(&self) -> &T;
     fn into_inner(self) -> T;
@@ -263,33 +314,30 @@ impl_inner!(
 ///
 /// Path
 ///
-/// any node created via a macro has a Path
-/// ie. design::game::rarity::Rarity
+/// Fully-qualified schema path.
 ///
-
 pub trait Path {
     const PATH: &'static str;
 }
 
+/// ============================================================================
+/// SANITIZATION / VALIDATION
+/// ============================================================================
+
 ///
 /// Sanitizer
-/// transforms a value into a sanitized version
 ///
-
+/// Transforms a value into a sanitized version.
+///
 pub trait Sanitizer<T> {
-    /// Apply in-place sanitization.
-    ///
-    /// - `Ok(())` means success (possibly with issues recorded by the caller)
-    /// - `Err(String)` means a fatal sanitization failure
     fn sanitize(&self, value: &mut T) -> Result<(), String>;
 }
 
 ///
 /// Validator
-/// allows a node to validate different types of primitives
-/// ?Sized so we can operate on str
 ///
-
+/// Allows a node to validate values.
+///
 pub trait Validator<T: ?Sized> {
     fn validate(&self, value: &T, ctx: &mut dyn VisitorContext);
 }

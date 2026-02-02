@@ -48,12 +48,13 @@ impl<E: EntityKind> Response<E> {
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub fn count(&self) -> u32 {
+    #[expect(clippy::cast_possible_truncation)]
+    pub const fn count(&self) -> u32 {
         self.0.len() as u32
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
@@ -61,7 +62,7 @@ impl<E: EntityKind> Response<E> {
     // Cardinality enforcement
     // ------------------------------------------------------------------
 
-    pub fn require_one(&self) -> Result<(), ResponseError> {
+    pub const fn require_one(&self) -> Result<(), ResponseError> {
         match self.count() {
             1 => Ok(()),
             0 => Err(ResponseError::not_found::<E>()),
@@ -69,7 +70,7 @@ impl<E: EntityKind> Response<E> {
         }
     }
 
-    pub fn require_some(&self) -> Result<(), ResponseError> {
+    pub const fn require_some(&self) -> Result<(), ResponseError> {
         if self.is_empty() {
             Err(ResponseError::not_found::<E>())
         } else {
@@ -81,6 +82,7 @@ impl<E: EntityKind> Response<E> {
     // Rows
     // ------------------------------------------------------------------
 
+    #[expect(clippy::cast_possible_truncation)]
     pub fn try_row(self) -> Result<Option<Row<E>>, ResponseError> {
         match self.0.len() {
             0 => Ok(None),
@@ -93,6 +95,7 @@ impl<E: EntityKind> Response<E> {
         self.try_row()?.ok_or_else(ResponseError::not_found::<E>)
     }
 
+    #[must_use]
     pub fn rows(self) -> Vec<Row<E>> {
         self.0
     }
@@ -109,6 +112,7 @@ impl<E: EntityKind> Response<E> {
         self.row().map(|(_, e)| e)
     }
 
+    #[must_use]
     pub fn entities(self) -> Vec<E> {
         self.0.into_iter().map(|(_, e)| e).collect()
     }
@@ -117,6 +121,7 @@ impl<E: EntityKind> Response<E> {
     // Ids (identity-level)
     // ------------------------------------------------------------------
 
+    #[must_use]
     pub fn id(&self) -> Option<E::Id> {
         self.0.first().map(|(id, _)| *id)
     }
@@ -125,6 +130,7 @@ impl<E: EntityKind> Response<E> {
         self.row().map(|(id, _)| id)
     }
 
+    #[must_use]
     pub fn ids(&self) -> Vec<E::Id> {
         self.0.iter().map(|(id, _)| *id).collect()
     }
@@ -150,6 +156,7 @@ impl<E: EntityKind> Response<E> {
         }
     }
 
+    #[must_use]
     pub fn views(&self) -> Vec<View<E>> {
         self.0.iter().map(|(_, e)| e.to_view()).collect()
     }

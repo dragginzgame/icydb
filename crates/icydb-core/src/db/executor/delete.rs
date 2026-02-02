@@ -60,7 +60,10 @@ struct PreparedDataRollback {
 /// Row wrapper used during delete planning and execution.
 ///
 
-struct DeleteRow<E> {
+struct DeleteRow<E>
+where
+    E: EntityKind,
+{
     key: DataKey,
     raw: Option<RawRow>,
     entity: E,
@@ -83,14 +86,20 @@ impl<E: EntityKind> crate::db::query::plan::logical::PlanRow<E> for DeleteRow<E>
 ///
 
 #[derive(Clone, Copy)]
-pub struct DeleteExecutor<E: EntityKind> {
+pub struct DeleteExecutor<E>
+where
+    E: EntityKind,
+{
     db: Db<E::Canister>,
     debug: bool,
     trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityKind> DeleteExecutor<E> {
+impl<E> DeleteExecutor<E>
+where
+    E: EntityKind,
+{
     // Debug is session-scoped via DbSession and propagated into executors;
     // executors do not expose independent debug control.
     #[must_use]
@@ -301,8 +310,8 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
             let res = rows
                 .into_iter()
-                .map(|row| (row.key.key::<E>(), row.entity))
-                .collect::<Vec<_>>();
+                .map(|row| Ok((row.key.try_id::<E>()?, row.entity)))
+                .collect::<Result<Vec<_>, InternalError>>()?;
             set_rows_from_len(&mut span, res.len());
             self.debug_log(format!("Delete committed -> {} rows", res.len()));
 
@@ -506,7 +515,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
             let fields = plan.index.fields.join(", ");
 
             // Map raw index keys → updated entry (or None if fully removed).
-            let mut entries: BTreeMap<RawIndexKey, Option<IndexEntry>> = BTreeMap::new();
+            let mut entries: BTreeMap<RawIndexKey, Option<IndexEntry<E>>> = BTreeMap::new();
 
             // Fold entity deletions into per-key index entry updates.
             for entity in entities {
@@ -514,30 +523,31 @@ impl<E: EntityKind> DeleteExecutor<E> {
                     continue;
                 };
                 let raw_key = key.to_raw();
-                let entity_key = entity.key();
+                let entity_id = entity.id();
 
                 // Lazily load and decode the existing index entry once per key.
                 let entry = match entries.entry(raw_key) {
                     std::collections::btree_map::Entry::Vacant(slot) => {
-                        let decoded = plan
-                            .store
-                            .with_borrow(|s| s.get(&raw_key))
-                            .map(|raw| {
-                                raw.try_decode().map_err(|err| {
-                                    ExecutorError::corruption(
-                                        ErrorOrigin::Index,
-                                        format!(
-                                            "index corrupted: {} ({}) -> {}",
-                                            E::PATH,
-                                            fields,
-                                            err
-                                        ),
-                                    )
+                        let decoded = plan.store.with_borrow(|s| {
+                            s.get(&raw_key)
+                                .map(|raw| {
+                                    raw.try_decode::<E>().map_err(|err| {
+                                        ExecutorError::corruption(
+                                            ErrorOrigin::Index,
+                                            format!(
+                                                "index corrupted: {} ({}) -> {}",
+                                                E::PATH,
+                                                fields,
+                                                err
+                                            ),
+                                        )
+                                    })
                                 })
-                            })
-                            .transpose()?;
+                                .transpose()
+                        })?;
                         slot.insert(decoded)
                     }
+
                     std::collections::btree_map::Entry::Occupied(slot) => slot.into_mut(),
                 };
 
@@ -549,7 +559,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                             "index corrupted: {} ({}) -> {}",
                             E::PATH,
                             fields,
-                            IndexEntryCorruption::missing_key(raw_key, entity_key),
+                            IndexEntryCorruption::missing_key(raw_key, entity_id),
                         ),
                     )
                     .into());
@@ -568,14 +578,14 @@ impl<E: EntityKind> DeleteExecutor<E> {
                     .into());
                 }
 
-                if !e.contains(entity_key) {
+                if !e.contains(entity_id) {
                     return Err(ExecutorError::corruption(
                         ErrorOrigin::Index,
                         format!(
                             "index corrupted: {} ({}) -> {}",
                             E::PATH,
                             fields,
-                            IndexEntryCorruption::missing_key(raw_key, entity_key),
+                            IndexEntryCorruption::missing_key(raw_key, entity_id),
                         ),
                     )
                     .into());
@@ -584,7 +594,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
 
                 // Remove this entity’s key from the index entry.
                 if let Some(e) = entry.as_mut() {
-                    e.remove_key(entity_key);
+                    e.remove(entity_id);
                     if e.is_empty() {
                         *entry = None;
                     }
@@ -594,7 +604,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
             // Emit commit ops for each touched index key.
             for (raw_key, entry) in entries {
                 let value = if let Some(entry) = entry {
-                    let raw = RawIndexEntry::try_from_entry(&entry).map_err(|err| match err {
+                    let raw = RawIndexEntry::try_from(&entry).map_err(|err| match err {
                         crate::db::index::entry::IndexEntryEncodeError::TooManyKeys { keys } => {
                             InternalError::new(
                                 ErrorClass::Corruption,
@@ -618,6 +628,7 @@ impl<E: EntityKind> DeleteExecutor<E> {
                             )
                         }
                     })?;
+
                     Some(raw.as_bytes().to_vec())
                 } else {
                     // None means the index entry is fully removed.
@@ -678,12 +689,12 @@ fn decode_rows<E: EntityKind>(rows: Vec<DataRow>) -> Result<Vec<DeleteRow<E>>, I
                 )
             })?;
 
-            let expected = dk.key::<E>();
-            let actual = entity.key();
+            let expected = dk.try_id::<E>()?;
+            let actual = entity.id();
             if expected != actual {
                 return Err(ExecutorError::corruption(
                     ErrorOrigin::Store,
-                    format!("row key mismatch: expected {expected}, found {actual}"),
+                    format!("row key mismatch: expected {expected:?}, found {actual:?}"),
                 )
                 .into());
             }

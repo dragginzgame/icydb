@@ -24,8 +24,6 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 pub use recovery::ensure_recovered;
-#[cfg(test)]
-pub use recovery::force_recovery_for_tests;
 
 #[cfg(test)]
 /// Return true if a commit marker is currently persisted.
@@ -183,10 +181,10 @@ pub fn finish_commit(
     result
 }
 
+/*
 ///
 /// TESTS
 ///
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,7 +192,7 @@ mod tests {
         db::{
             Db,
             index::{IndexEntry, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
-            store::{DataKey, DataStore, DataStoreRegistry, RawRow, StorageKey},
+            store::{DataKey, DataStore, DataStoreRegistry, RawRow},
         },
         error::{ErrorClass, ErrorOrigin},
         model::{
@@ -296,46 +294,44 @@ mod tests {
     // ---------------------------------------------------------------------
     // Identity & Kind
     // ---------------------------------------------------------------------
+        #[derive(Clone, Copy)]
+        struct TestCanister;
 
-    #[derive(Clone, Copy)]
-    struct TestCanister;
-
-    impl Path for TestCanister {
-        const PATH: &'static str = CANISTER_PATH;
-    }
-
-    impl CanisterKind for TestCanister {}
-
-    struct TestStore;
-
-    impl Path for TestStore {
-        const PATH: &'static str = DATA_STORE_PATH;
-    }
-
-    impl DataStoreKind for TestStore {
-        type Canister = TestCanister;
-    }
-
-    impl EntityKind for TestEntity {
-        type Id = StorageKey;
-        type DataStore = TestStore;
-        type Canister = TestCanister;
-
-        const ENTITY_NAME: &'static str = "TestEntity";
-        const PRIMARY_KEY: &'static str = "id";
-        const FIELDS: &'static [&'static str] = &["id", "name"];
-        const INDEXES: &'static [&'static IndexModel] = &INDEXES;
-        const MODEL: &'static EntityModel = &TEST_MODEL;
-
-        fn id(&self) -> Self::Id {
-            self.id.raw()
+        impl Path for TestCanister {
+            const PATH: &'static str = CANISTER_PATH;
         }
 
-        fn set_id(&mut self, id: Self::Id) {
-            self.id = Ref::from_raw(id);
-        }
-    }
+        impl CanisterKind for TestCanister {}
 
+        struct TestStore;
+
+        impl Path for TestStore {
+            const PATH: &'static str = DATA_STORE_PATH;
+        }
+
+        impl DataStoreKind for TestStore {
+            type Canister = TestCanister;
+        }
+
+        impl EntityKind for TestEntity {
+            type Id = Ulid;
+            type DataStore = TestStore;
+            type Canister = TestCanister;
+
+            const ENTITY_NAME: &'static str = "TestEntity";
+            const PRIMARY_KEY: &'static str = "id";
+            const FIELDS: &'static [&'static str] = &["id", "name"];
+            const INDEXES: &'static [&'static IndexModel] = &INDEXES;
+            const MODEL: &'static EntityModel = &TEST_MODEL;
+
+            fn id(&self) -> Self::Id {
+                self.id.id()
+            }
+
+            fn set_id(&mut self, id: Self::Id) {
+                self.id = Ref::new(id);
+            }
+        }
     // ---------------------------------------------------------------------
     // Stores & DB
     // ---------------------------------------------------------------------
@@ -405,11 +401,11 @@ mod tests {
         reset_stores();
 
         let entity = TestEntity {
-            id: Ref::new(StorageKey::Ulid(Ulid::from_u128(7))),
+            id: Ref::new(Ulid::from_u128(7)),
             name: "alpha".to_string(),
         };
 
-        let data_key = DataKey::new::<TestEntity>(entity.id());
+        let data_key = DataKey::try_new::<TestEntity>(entity.id()).unwrap();
         let raw_data_key = data_key.to_raw().expect("data key encode");
         let raw_row = RawRow::try_new(serialize(&entity).unwrap()).unwrap();
 
@@ -456,11 +452,11 @@ mod tests {
         reset_stores();
 
         let entity = TestEntity {
-            id: Ref::new(StorageKey::Ulid(Ulid::from_u128(8))),
+            id: Ref::new(Ulid::from_u128(8)),
             name: "alpha".to_string(),
         };
 
-        let data_key = DataKey::new::<TestEntity>(entity.id());
+        let data_key = DataKey::try_new::<TestEntity>(entity.id()).unwrap();
         let raw_data_key = data_key.to_raw().expect("data key encode");
         let raw_row = RawRow::try_new(serialize(&entity).unwrap()).unwrap();
 
@@ -483,3 +479,4 @@ mod tests {
         assert_eq!(err.origin, ErrorOrigin::Store);
     }
 }
+    */

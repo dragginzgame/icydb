@@ -3,8 +3,8 @@ use crate::{
     db::{
         identity::{EntityName, IndexName},
         index::{
-            IndexEntry, IndexEntryCorruption, IndexId, IndexKey, MAX_INDEX_ENTRY_BYTES,
-            MAX_INDEX_ENTRY_KEYS, RawIndexEntry, RawIndexKey,
+            IndexEntryCorruption, IndexId, IndexKey, MAX_INDEX_ENTRY_BYTES, MAX_INDEX_ENTRY_KEYS,
+            RawIndexEntry, RawIndexKey,
         },
         store::StorageKey,
     },
@@ -114,30 +114,28 @@ fn index_key_ordering_matches_bytes() {
 
 #[test]
 fn raw_index_entry_round_trip() {
-    let mut entry = IndexEntry::new_raw(StorageKey::Int(1));
-    entry.insert_raw(StorageKey::Uint(2));
+    let keys = vec![StorageKey::Int(1), StorageKey::Uint(2)];
 
-    let raw = RawIndexEntry::try_from_entry(&entry).expect("encode index entry");
-    let decoded = raw.try_decode().expect("decode index entry");
+    let raw = RawIndexEntry::try_from_storage_keys(keys.clone()).expect("encode index entry");
+    let decoded = raw.decode_keys().expect("decode index entry");
 
-    assert_eq!(decoded.len(), entry.len());
-    assert!(decoded.contains_raw(StorageKey::Int(1)));
-    assert!(decoded.contains_raw(StorageKey::Uint(2)));
+    assert_eq!(decoded.len(), keys.len());
+    assert!(decoded.contains(&StorageKey::Int(1)));
+    assert!(decoded.contains(&StorageKey::Uint(2)));
 }
 
 #[test]
 fn raw_index_entry_roundtrip_via_bytes() {
-    let mut entry = IndexEntry::new_raw(StorageKey::Int(9));
-    entry.insert_raw(StorageKey::Uint(10));
+    let keys = vec![StorageKey::Int(9), StorageKey::Uint(10)];
 
-    let raw = RawIndexEntry::try_from_entry(&entry).expect("encode index entry");
+    let raw = RawIndexEntry::try_from_storage_keys(keys.clone()).expect("encode index entry");
     let encoded = Storable::to_bytes(&raw);
     let raw = RawIndexEntry::from_bytes(encoded);
-    let decoded = raw.try_decode().expect("decode index entry");
+    let decoded = raw.decode_keys().expect("decode index entry");
 
-    assert_eq!(decoded.len(), entry.len());
-    assert!(decoded.contains_raw(StorageKey::Int(9)));
-    assert!(decoded.contains_raw(StorageKey::Uint(10)));
+    assert_eq!(decoded.len(), keys.len());
+    assert!(decoded.contains(&StorageKey::Int(9)));
+    assert!(decoded.contains(&StorageKey::Uint(10)));
 }
 
 #[test]
@@ -145,7 +143,7 @@ fn raw_index_entry_rejects_empty() {
     let bytes = vec![0, 0, 0, 0];
     let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
     assert!(matches!(
-        raw.try_decode(),
+        raw.decode_keys(),
         Err(IndexEntryCorruption::EmptyEntry)
     ));
 }
@@ -160,7 +158,7 @@ fn raw_index_entry_rejects_truncated_payload() {
 
     let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
     assert!(matches!(
-        raw.try_decode(),
+        raw.decode_keys(),
         Err(IndexEntryCorruption::LengthMismatch)
     ));
 }
@@ -170,7 +168,7 @@ fn raw_index_entry_rejects_oversized_payload() {
     let bytes = vec![0u8; MAX_INDEX_ENTRY_BYTES as usize + 1];
     let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
     assert!(matches!(
-        raw.try_decode(),
+        raw.decode_keys(),
         Err(IndexEntryCorruption::TooLarge { .. })
     ));
 }
@@ -181,7 +179,7 @@ fn raw_index_entry_rejects_corrupted_length_field() {
     let count = (MAX_INDEX_ENTRY_KEYS + 1) as u32;
     let raw = RawIndexEntry::from_bytes(Cow::Owned(count.to_be_bytes().to_vec()));
     assert!(matches!(
-        raw.try_decode(),
+        raw.decode_keys(),
         Err(IndexEntryCorruption::TooManyKeys { .. })
     ));
 }
@@ -196,7 +194,7 @@ fn raw_index_entry_rejects_duplicate_keys() {
 
     let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
     assert!(matches!(
-        raw.try_decode(),
+        raw.decode_keys(),
         Err(IndexEntryCorruption::DuplicateKey)
     ));
 }
@@ -240,6 +238,6 @@ fn raw_index_entry_decode_fuzz_does_not_panic() {
         }
 
         let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
-        let _ = raw.try_decode();
+        let _ = raw.decode_keys();
     }
 }

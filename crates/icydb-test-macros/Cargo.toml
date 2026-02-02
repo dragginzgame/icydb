@@ -1,5 +1,5 @@
 [package]
-name = "icydb-schema-derive"
+name = "icydb-test-macros"
 edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -12,18 +12,9 @@ authors = { workspace = true }
 proc-macro = true
 
 [dependencies]
-canic-utils = { workspace = true }
-darling = { workspace = true }
-derive_more = { workspace = true }
-icydb-schema = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
-remain = { workspace = true }
-serde = { workspace = true }
 syn = { workspace = true }
-
-[dev-dependencies]
-trybuild = { workspace = true }
 
 [lints]
 workspace = true

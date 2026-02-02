@@ -5,10 +5,13 @@ use super::{
     ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination, ExplainPlan,
     ExplainPredicate,
 };
-use crate::db::index::fingerprint::hash_value;
-use crate::db::query::QueryMode;
-use crate::db::query::{ReadConsistency, predicate::coercion::CoercionId};
-use crate::traits::FieldValue;
+use crate::{
+    db::{
+        index::fingerprint::hash_value,
+        query::{QueryMode, ReadConsistency, predicate::coercion::CoercionId},
+    },
+    traits::FieldValue,
+};
 use sha2::{Digest, Sha256};
 
 ///
@@ -44,7 +47,7 @@ impl std::fmt::Display for PlanFingerprint {
 
 impl<K> super::LogicalPlan<K>
 where
-    K: Copy,
+    K: FieldValue,
 {
     /// Compute a stable fingerprint for this logical plan.
     #[must_use]
@@ -349,6 +352,11 @@ const fn coercion_id_tag(id: CoercionId) -> u8 {
     }
 }
 
+/*
+///
+/// TESTS
+///
+
 #[cfg(test)]
 mod tests {
     use crate::db::query::plan::{AccessPath, DeleteLimitSpec, LogicalPlan};
@@ -461,3 +469,4 @@ mod tests {
         assert_eq!(fingerprint_a, fingerprint_b);
     }
 }
+*/

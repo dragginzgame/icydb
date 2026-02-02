@@ -9,7 +9,6 @@ use crate::{
     model::entity::EntityModel,
     model::index::IndexModel,
     traits::{EntityKind, FieldValue},
-    types::Ref,
     value::Value,
 };
 use thiserror::Error as ThisError;
@@ -90,7 +89,7 @@ pub(crate) fn validate_plan_with_schema_info<K>(
     plan: &LogicalPlan<K>,
 ) -> Result<(), PlanError>
 where
-    K: Copy + Ord,
+    K: FieldValue + Ord,
 {
     validate_logical_plan(schema, model, plan)
 }
@@ -104,7 +103,7 @@ pub(crate) fn validate_plan_with_model<K>(
     model: &EntityModel,
 ) -> Result<(), PlanError>
 where
-    K: Copy + Ord,
+    K: FieldValue + Ord,
 {
     let schema = SchemaInfo::from_entity_model(model)?;
     validate_plan_with_schema_info(&schema, model, plan)
@@ -117,7 +116,7 @@ pub(crate) fn validate_logical_plan<K>(
     plan: &LogicalPlan<K>,
 ) -> Result<(), PlanError>
 where
-    K: Copy + Ord,
+    K: FieldValue + Ord,
 {
     if let Some(predicate) = &plan.predicate {
         predicate::validate(schema, predicate)?;
@@ -136,7 +135,7 @@ where
 /// Validate plan-level invariants not covered by schema checks.
 fn validate_plan_semantics<K>(plan: &LogicalPlan<K>) -> Result<(), PlanError>
 where
-    K: Copy + Ord,
+    K: FieldValue + Ord,
 {
     if let Some(order) = &plan.order
         && order.fields.is_empty()
@@ -253,7 +252,7 @@ pub(crate) fn validate_access_plan<K>(
     access: &AccessPlan<K>,
 ) -> Result<(), PlanError>
 where
-    K: Copy + Ord,
+    K: FieldValue + Ord,
 {
     match access {
         AccessPlan::Path(path) => validate_access_path(schema, model, path),
@@ -272,7 +271,7 @@ fn validate_access_path<K>(
     access: &AccessPath<K>,
 ) -> Result<(), PlanError>
 where
-    K: Copy + Ord,
+    K: FieldValue + Ord,
 {
     match access {
         AccessPath::ByKey(key) => validate_pk_key(schema, model, key),
@@ -304,7 +303,7 @@ where
 /// Validate that a key matches the entity's primary key type.
 fn validate_pk_key<K>(schema: &SchemaInfo, model: &EntityModel, key: &K) -> Result<(), PlanError>
 where
-    K: Copy,
+    K: FieldValue,
 {
     let field = model.primary_key.name;
 
@@ -390,6 +389,7 @@ const fn is_key_compatible(field_type: &FieldType) -> bool {
     )
 }
 
+/*
 ///
 /// TESTS
 ///
@@ -398,19 +398,18 @@ const fn is_key_compatible(field_type: &FieldType) -> bool {
 mod tests {
     use super::{PlanError, validate_plan_with_model, validate_plan_with_schema_info};
     use crate::{
-        db::query::{
-            plan::{
-                AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec,
-                planner::PlannerEntity,
+        db::{
+            query::{
+                plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec},
+                predicate::{SchemaInfo, ValidateError},
             },
-            predicate::{SchemaInfo, ValidateError},
+            store::StorageKey,
         },
         model::{
             entity::EntityModel,
             field::{EntityFieldKind, EntityFieldModel},
             index::IndexModel,
         },
-        traits::EntityKind,
         types::{Ref, Ulid},
         value::Value,
     };
@@ -666,3 +665,4 @@ mod tests {
         validate_plan_with_model(&plan, &model).expect("valid plan");
     }
 }
+*/

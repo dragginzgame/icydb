@@ -18,15 +18,7 @@ impl View for EntityView<'_> {
         let node = self.0;
         let node_ident = node.def().ident();
         let view_ident = node.view_ident();
-        let primary_key = &node.primary_key;
-        let fields = node.fields.iter().filter_map(|f| {
-            let ident = &f.ident;
-            if ident == primary_key {
-                Some(quote!(pub #ident: ::icydb::types::Ref<#node_ident>))
-            } else {
-                FieldView(f).expr()
-            }
-        });
+        let fields = node.fields.iter().filter_map(|f| FieldView(f).expr());
 
         // all traits are derived for now
         let derives = self.traits();

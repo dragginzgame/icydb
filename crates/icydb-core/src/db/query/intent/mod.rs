@@ -1,19 +1,23 @@
+#[cfg(test)]
+mod tests;
+
 use crate::{
-    db::query::{
-        ReadConsistency,
-        expr::{FilterExpr, SortExpr, SortLowerError},
-        plan::{
-            AccessPath, AccessPlan, DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan,
-            OrderDirection, OrderSpec, PageSpec, PlanError,
-            planner::{PlannerError, plan_access},
-            validate::{validate_access_plan, validate_logical_plan, validate_order},
+    db::{
+        query::{
+            ReadConsistency,
+            expr::{FilterExpr, SortExpr, SortLowerError},
+            plan::{
+                AccessPath, AccessPlan, DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan,
+                OrderDirection, OrderSpec, PageSpec, PlanError,
+                planner::{PlannerError, plan_access},
+                validate::{validate_access_plan, validate_logical_plan, validate_order},
+            },
+            predicate::{Predicate, SchemaInfo, ValidateError, normalize, validate},
         },
-        predicate::{Predicate, SchemaInfo, ValidateError, normalize, validate},
+        response::ResponseError,
     },
-    db::response::ResponseError,
     error::InternalError,
-    traits::{EntityKind, UnitKey},
-    types::Ref,
+    traits::{EntityKind, SingletonEntity},
 };
 use std::marker::PhantomData;
 use thiserror::Error as ThisError;
@@ -105,17 +109,17 @@ impl DeleteSpec {
 ///
 
 #[derive(Debug)]
-pub struct Query<E: EntityKind<PrimaryKey = Ref<E>>> {
+pub struct Query<E: EntityKind> {
     mode: QueryMode,
     predicate: Option<Predicate>,
-    key_access: Option<KeyAccessState<E::PrimaryKey>>,
+    key_access: Option<KeyAccessState<E::Id>>,
     key_access_conflict: bool,
     order: Option<OrderSpec>,
     consistency: ReadConsistency,
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityKind<PrimaryKey = Ref<E>>> Query<E> {
+impl<E: EntityKind> Query<E> {
     /// Create a new intent with an explicit missing-row policy.
     /// MissingOk favors idempotency and may mask index/data divergence on deletes.
     /// Use Strict to surface missing rows during scan/delete execution.
@@ -191,7 +195,7 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> Query<E> {
     }
 
     /// Track key-only access paths and detect conflicting key intents.
-    fn set_key_access(mut self, kind: KeyAccessKind, access: KeyAccess<E::PrimaryKey>) -> Self {
+    fn set_key_access(mut self, kind: KeyAccessKind, access: KeyAccess<E::Id>) -> Self {
         if let Some(existing) = &self.key_access
             && existing.kind != kind
         {
@@ -204,14 +208,14 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> Query<E> {
     }
 
     /// Set the access path to a single primary key lookup.
-    pub(crate) fn by_key(self, key: E::PrimaryKey) -> Self {
+    pub(crate) fn by_key(self, key: E::Id) -> Self {
         self.set_key_access(KeyAccessKind::Single, KeyAccess::Single(key))
     }
 
     /// Set the access path to a primary key batch lookup.
     pub(crate) fn by_keys<I>(self, keys: I) -> Self
     where
-        I: IntoIterator<Item = E::PrimaryKey>,
+        I: IntoIterator<Item = E::Id>,
     {
         self.set_key_access(
             KeyAccessKind::Many,
@@ -271,7 +275,7 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> Query<E> {
     }
 
     // Build a logical plan for the current intent.
-    fn build_plan(&self) -> Result<LogicalPlan<E::PrimaryKey>, QueryError> {
+    fn build_plan(&self) -> Result<LogicalPlan<E::Id>, QueryError> {
         // Phase 1: schema surface and intent validation.
         let model = E::MODEL;
         let schema_info = SchemaInfo::from_entity_model(model)?;
@@ -363,10 +367,13 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> Query<E> {
     }
 }
 
-impl<E: EntityKind<PrimaryKey = Ref<E>> + UnitKey> Query<E> {
-    /// Set the access path to the singleton unit primary key.
-    pub(crate) fn only(self) -> Self {
-        self.set_key_access(KeyAccessKind::Only, KeyAccess::Single(Ref::new(())))
+impl<E> Query<E>
+where
+    E: EntityKind + SingletonEntity,
+{
+    /// Set the access path to the singleton primary key.
+    pub(crate) fn only(self, id: E::Id) -> Self {
+        self.set_key_access(KeyAccessKind::Only, KeyAccess::Single(id))
     }
 }
 
@@ -423,14 +430,22 @@ pub enum IntentError {
     KeyAccessConflict,
 }
 
+///
+/// KeyAccess
 /// Primary-key-only access hints for query planning.
+///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum KeyAccess<K> {
     Single(K),
     Many(Vec<K>),
 }
 
-// Identifies which key-only builder set the access path.
+///
+/// KeyAccessKind
+/// Identifies which key-only builder set the access path.
+///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum KeyAccessKind {
     Single,
@@ -438,7 +453,11 @@ enum KeyAccessKind {
     Only,
 }
 
-// Tracks key-only access plus its origin for intent validation.
+///
+/// KeyAccessState
+/// Tracks key-only access plus its origin for intent validation.
+///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct KeyAccessState<K> {
     kind: KeyAccessKind,
@@ -448,7 +467,7 @@ struct KeyAccessState<K> {
 // Build a key-only access plan without predicate-based planning.
 fn access_plan_from_keys<K>(access: &KeyAccess<K>) -> AccessPlan<K>
 where
-    K: Copy,
+    K: Copy + Ord,
 {
     match access {
         KeyAccess::Single(key) => AccessPlan::Path(AccessPath::ByKey(*key)),
@@ -476,6 +495,3 @@ fn push_order(order: Option<OrderSpec>, field: &str, direction: OrderDirection) 
         },
     }
 }
-
-#[cfg(test)]
-mod tests;

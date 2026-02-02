@@ -5,8 +5,7 @@ use crate::{
         store::storage_key::{StorageKey, StorageKeyEncodeError},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::{EntityKind, Storable},
-    types::Ref,
+    traits::{EntityKind, FieldValue, Storable},
 };
 use canic_cdk::structures::storable::Bound;
 use std::{
@@ -94,18 +93,64 @@ impl DataKey {
 
     /// Construct using compile-time entity metadata.
     ///
-    /// This cannot fail in practice: `ENTITY_NAME` is generated and validated
-    /// at compile time. If it is ever invalid, that is a programmer error.
+    /// This requires that the entity ID is persistable.
+    pub fn try_new<E>(id: E::Id) -> Result<Self, InternalError>
+    where
+        E: EntityKind,
+    {
+        let value = id.to_value();
+        let key = StorageKey::try_from_value(&value)?;
+
+        Ok(Self {
+            entity: Self::entity_for::<E>(),
+            key,
+        })
+    }
+
+    /// Decode a semantic identity from this data key.
+    ///
+    /// This is a fallible boundary that validates entity identity and
+    /// key compatibility against the target entity type.
+    pub fn try_id<E>(&self) -> Result<E::Id, InternalError>
+    where
+        E: EntityKind,
+    {
+        let expected = Self::entity_for::<E>();
+        if self.entity != expected {
+            return Err(InternalError::new(
+                ErrorClass::Corruption,
+                ErrorOrigin::Store,
+                format!(
+                    "data key entity mismatch: expected {}, found {}",
+                    expected, self.entity
+                ),
+            ));
+        }
+
+        let value = self.key.as_value();
+        <E::Id as FieldValue>::from_value(&value).ok_or_else(|| {
+            InternalError::new(
+                ErrorClass::Corruption,
+                ErrorOrigin::Store,
+                format!("data key primary key decode failed: {value:?}"),
+            )
+        })
+    }
+
+    /// Construct a DataKey from a raw StorageKey using entity metadata.
     #[must_use]
-    pub fn new<E: EntityKind>(key: E::Id) -> Self {
+    pub fn from_storage_key<E: EntityKind>(key: StorageKey) -> Self {
         Self {
             entity: Self::entity_for::<E>(),
-            key: key.raw(),
+            key,
         }
     }
 
     #[must_use]
-    pub fn lower_bound<E: EntityKind>() -> Self {
+    pub fn lower_bound<E>() -> Self
+    where
+        E: EntityKind,
+    {
         Self {
             entity: Self::entity_for::<E>(),
             key: StorageKey::MIN,
@@ -113,7 +158,10 @@ impl DataKey {
     }
 
     #[must_use]
-    pub fn upper_bound<E: EntityKind>() -> Self {
+    pub fn upper_bound<E>() -> Self
+    where
+        E: EntityKind,
+    {
         Self {
             entity: Self::entity_for::<E>(),
             key: StorageKey::upper_bound(),
@@ -130,11 +178,6 @@ impl DataKey {
     // ------------------------------------------------------------------
     // Accessors
     // ------------------------------------------------------------------
-
-    #[must_use]
-    pub const fn key<E: EntityKind>(&self) -> Ref<E> {
-        Ref::from_raw(self.key)
-    }
 
     #[must_use]
     pub const fn entity_name(&self) -> &EntityName {

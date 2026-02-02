@@ -141,6 +141,13 @@ impl FieldValue for Principal {
     fn to_value(&self) -> Value {
         Value::Principal(*self)
     }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Principal(v) => Some(*v),
+            _ => None,
+        }
+    }
 }
 
 impl FieldValue for WrappedPrincipal {

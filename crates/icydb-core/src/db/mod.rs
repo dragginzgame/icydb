@@ -249,6 +249,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C>,
     {
         let plan = query.plan()?;
+
         let result = match query.mode() {
             QueryMode::Load(_) => self.with_metrics(|| self.load_executor::<E>().execute(plan)),
             QueryMode::Delete(_) => self.with_metrics(|| self.delete_executor::<E>().execute(plan)),

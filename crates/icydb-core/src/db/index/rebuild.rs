@@ -18,17 +18,21 @@ pub fn rebuild_indexes_for_entity<E>(db: &Db<E::Canister>) -> Result<(), Interna
 where
     E: EntityKind,
 {
-    // Phase 1: recovery guard to avoid rebuilding from partial commit state.
+    // ------------------------------------------------------------------
+    // Phase 1: recovery guard
+    // ------------------------------------------------------------------
     ensure_recovered(db)?;
 
-    // Phase 2: load authoritative entity rows from the data store.
+    // ------------------------------------------------------------------
+    // Phase 2: load authoritative rows
+    // ------------------------------------------------------------------
     let ctx = Context::<E>::new(db);
     let rows = ctx.rows_from_access(&AccessPath::FullScan, ReadConsistency::MissingOk)?;
-    let entities = ctx.deserialize_rows(rows)?;
+    let entities = Context::<E>::deserialize_rows(rows)?;
 
-    // Phase 3: clear index stores (entry + fingerprint) before rebuild.
-    // When fingerprint derivation changes, rebuild is mandatory; old fingerprints
-    // must not be reused or partially updated.
+    // ------------------------------------------------------------------
+    // Phase 3: clear all index stores
+    // ------------------------------------------------------------------
     let mut cleared = BTreeSet::new();
     for index in E::INDEXES {
         if cleared.insert(index.store) {
@@ -37,21 +41,27 @@ where
         }
     }
 
-    // Phase 4: rebuild entries and fingerprints for each index.
+    // ------------------------------------------------------------------
+    // Phase 4: rebuild each index
+    // ------------------------------------------------------------------
     for index in E::INDEXES {
-        let mut entries: BTreeMap<RawIndexKey, IndexEntry> = BTreeMap::new();
-        for (key, entity) in &entities {
+        // Collect index entries per RawIndexKey
+        let mut entries: BTreeMap<RawIndexKey, IndexEntry<E>> = BTreeMap::new();
+
+        for (id, entity) in &entities {
             let Some(index_key) = IndexKey::new(entity, index)? else {
                 continue;
             };
+
             let raw_key = index_key.to_raw();
             entries
                 .entry(raw_key)
-                .and_modify(|entry| entry.insert_key(*key))
-                .or_insert_with(|| IndexEntry::new(*key));
+                .and_modify(|entry| entry.insert(*id))
+                .or_insert_with(|| IndexEntry::new(*id));
         }
 
         let mut writes = Vec::with_capacity(entries.len());
+
         for (raw_key, entry) in entries {
             if index.unique && entry.len() > 1 {
                 return Err(InternalError::new(
@@ -64,7 +74,8 @@ where
                     ),
                 ));
             }
-            let raw_entry = RawIndexEntry::try_from_entry(&entry).map_err(|err| match err {
+
+            let raw_entry = RawIndexEntry::try_from(&entry).map_err(|err| match err {
                 IndexEntryEncodeError::TooManyKeys { keys } => InternalError::new(
                     ErrorClass::Unsupported,
                     ErrorOrigin::Index,
@@ -85,13 +96,13 @@ where
                     ),
                 ),
             })?;
+
             writes.push((raw_key, raw_entry));
         }
 
         let store = db.with_index(|reg| reg.try_get_store(index.store))?;
         store.with_borrow_mut(|s| {
-            // Use the normal insert path so fingerprints are regenerated using
-            // the same helper as live mutations.
+            // Use the normal insert path so fingerprints are regenerated
             for (raw_key, raw_entry) in writes {
                 let _ = s.insert(raw_key, raw_entry);
             }

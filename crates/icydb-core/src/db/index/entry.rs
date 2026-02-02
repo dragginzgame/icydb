@@ -4,11 +4,9 @@ use crate::{
         store::{StorageKey, StorageKeyEncodeError},
     },
     traits::{EntityKind, FieldValue, Storable},
-    types::Ref,
     value::Value,
 };
 use canic_cdk::structures::storable::Bound;
-use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, collections::BTreeSet};
 use thiserror::Error as ThisError;
 
@@ -151,6 +149,10 @@ impl<E: EntityKind> IndexEntry<E> {
             None
         }
     }
+
+    pub fn try_to_raw(&self) -> Result<RawIndexEntry, IndexEntryEncodeError> {
+        RawIndexEntry::try_from_entry(self)
+    }
 }
 
 ///
@@ -164,27 +166,86 @@ impl RawIndexEntry {
     pub fn try_from_entry<E: EntityKind>(
         entry: &IndexEntry<E>,
     ) -> Result<Self, IndexEntryEncodeError> {
-        let keys = entry.len();
-        if keys > MAX_INDEX_ENTRY_KEYS {
-            return Err(IndexEntryEncodeError::TooManyKeys { keys });
+        let mut keys = Vec::with_capacity(entry.ids.len());
+        for id in &entry.ids {
+            let value = id.to_value();
+            let key = StorageKey::try_from_value(&value)?;
+            keys.push(key);
+        }
+
+        Self::try_from_storage_keys(keys)
+    }
+
+    pub fn try_decode<E: EntityKind>(&self) -> Result<IndexEntry<E>, IndexEntryCorruption> {
+        let storage_keys = self.decode_keys()?;
+        let mut ids = BTreeSet::new();
+
+        for key in storage_keys {
+            let value = key.as_value();
+            let Some(id) = <E::Id as FieldValue>::from_value(&value) else {
+                return Err(IndexEntryCorruption::InvalidKey);
+            };
+            ids.insert(id);
+        }
+
+        if ids.is_empty() {
+            return Err(IndexEntryCorruption::EmptyEntry);
+        }
+
+        Ok(IndexEntry { ids })
+    }
+
+    pub fn try_from_storage_keys<I>(keys: I) -> Result<Self, IndexEntryEncodeError>
+    where
+        I: IntoIterator<Item = StorageKey>,
+    {
+        let keys: Vec<StorageKey> = keys.into_iter().collect();
+        let count = keys.len();
+
+        if count > MAX_INDEX_ENTRY_KEYS {
+            return Err(IndexEntryEncodeError::TooManyKeys { keys: count });
         }
 
         let mut out =
-            Vec::with_capacity(INDEX_ENTRY_LEN_BYTES + (keys * StorageKey::STORED_SIZE_USIZE));
+            Vec::with_capacity(INDEX_ENTRY_LEN_BYTES + count * StorageKey::STORED_SIZE_USIZE);
 
-        let count = u32::try_from(keys).map_err(|_| IndexEntryEncodeError::TooManyKeys { keys })?;
-        out.extend_from_slice(&count.to_be_bytes());
+        let count_u32 =
+            u32::try_from(count).map_err(|_| IndexEntryEncodeError::TooManyKeys { keys: count })?;
+        out.extend_from_slice(&count_u32.to_be_bytes());
 
-        for id in entry.iter_ids() {
-            let sk = E::id_to_storage_key(id);
-            let bytes = sk.to_bytes()?;
-            out.extend_from_slice(&bytes);
+        for sk in keys {
+            out.extend_from_slice(&sk.to_bytes()?);
         }
 
         Ok(Self(out))
     }
 
-    pub fn try_decode<E: EntityKind>(&self) -> Result<IndexEntry<E>, IndexEntryCorruption> {
+    pub fn decode_keys(&self) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
+        self.validate()?;
+
+        let bytes = self.0.as_slice();
+
+        let mut len_buf = [0u8; INDEX_ENTRY_LEN_BYTES];
+        len_buf.copy_from_slice(&bytes[..INDEX_ENTRY_LEN_BYTES]);
+        let count = u32::from_be_bytes(len_buf) as usize;
+
+        let mut keys = Vec::with_capacity(count);
+        let mut offset = INDEX_ENTRY_LEN_BYTES;
+
+        for _ in 0..count {
+            let end = offset + StorageKey::STORED_SIZE_USIZE;
+            let sk = StorageKey::try_from(&bytes[offset..end])
+                .map_err(|_| IndexEntryCorruption::InvalidKey)?;
+
+            keys.push(sk);
+            offset = end;
+        }
+
+        Ok(keys)
+    }
+
+    /// Validate the raw index entry structure without binding to an entity.
+    pub fn validate(&self) -> Result<(), IndexEntryCorruption> {
         let bytes = self.0.as_slice();
 
         if bytes.len() > MAX_INDEX_ENTRY_BYTES as usize {
@@ -214,24 +275,24 @@ impl RawIndexEntry {
             return Err(IndexEntryCorruption::LengthMismatch);
         }
 
-        let mut ids = BTreeSet::new();
+        // Validate each StorageKey structurally and detect duplicates
+        let mut keys = BTreeSet::new();
         let mut offset = INDEX_ENTRY_LEN_BYTES;
 
         for _ in 0..count {
             let end = offset + StorageKey::STORED_SIZE_USIZE;
+
             let sk = StorageKey::try_from(&bytes[offset..end])
                 .map_err(|_| IndexEntryCorruption::InvalidKey)?;
 
-            let id = E::id_from_storage_key(sk).map_err(|_| IndexEntryCorruption::InvalidKey)?;
-
-            if !ids.insert(id) {
+            if !keys.insert(sk) {
                 return Err(IndexEntryCorruption::DuplicateKey);
             }
 
             offset = end;
         }
 
-        Ok(IndexEntry { ids })
+        Ok(())
     }
 
     #[must_use]
@@ -247,6 +308,14 @@ impl RawIndexEntry {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+}
+
+impl<E: EntityKind> TryFrom<&IndexEntry<E>> for RawIndexEntry {
+    type Error = IndexEntryEncodeError;
+
+    fn try_from(entry: &IndexEntry<E>) -> Result<Self, Self::Error> {
+        Self::try_from_entry(entry)
     }
 }
 

@@ -108,6 +108,13 @@ impl FieldValue for Timestamp {
     fn to_value(&self) -> Value {
         Value::Timestamp(*self)
     }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Timestamp(v) => Some(*v),
+            _ => None,
+        }
+    }
 }
 
 impl From<u64> for Timestamp {

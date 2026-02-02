@@ -208,12 +208,9 @@ impl HasType for Entity {
         let primary_key = &self.primary_key;
         let fields = self.fields.iter().map(|field| {
             let field_ident = &field.ident;
-            if field_ident == primary_key {
-                quote!(pub #field_ident: ::icydb::types::Ref<#ident>)
-            } else {
-                let value = field.value.type_expr();
-                quote!(pub #field_ident: #value)
-            }
+            let value = field.value.type_expr();
+
+            quote!(pub #field_ident: #value)
         });
 
         quote! {

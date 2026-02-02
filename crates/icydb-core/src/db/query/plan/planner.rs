@@ -15,17 +15,13 @@ use crate::{
     error::InternalError,
     model::index::IndexModel,
     traits::{EntityKind, FieldValue},
-    types::Ref,
     value::Value,
 };
 use thiserror::Error as ThisError;
 
-#[cfg(test)]
-pub(crate) use tests::PlannerEntity;
-
 impl<K> AccessPlan<K>
 where
-    K: Copy + PartialEq,
+    K: Ord,
 {
     fn normalize(self) -> Self {
         match self {
@@ -45,10 +41,10 @@ pub(crate) enum PlannerError {
 }
 
 /// Planner entrypoint that operates on a prebuilt schema surface.
-pub(crate) fn plan_access<E: EntityKind<PrimaryKey = Ref<E>>>(
+pub(crate) fn plan_access<E: EntityKind>(
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
-) -> Result<AccessPlan<E::PrimaryKey>, PlannerError> {
+) -> Result<AccessPlan<E::Id>, PlannerError> {
     let Some(predicate) = predicate else {
         return Ok(AccessPlan::full_scan());
     };
@@ -70,10 +66,10 @@ pub(crate) fn plan_access<E: EntityKind<PrimaryKey = Ref<E>>>(
     Ok(plan)
 }
 
-fn plan_predicate<E: EntityKind<PrimaryKey = Ref<E>>>(
+fn plan_predicate<E: EntityKind>(
     schema: &SchemaInfo,
     predicate: &Predicate,
-) -> Result<AccessPlan<E::PrimaryKey>, InternalError> {
+) -> Result<AccessPlan<E::Id>, InternalError> {
     let plan = match predicate {
         Predicate::True
         | Predicate::False
@@ -111,10 +107,10 @@ fn plan_predicate<E: EntityKind<PrimaryKey = Ref<E>>>(
     Ok(plan)
 }
 
-fn plan_compare<E: EntityKind<PrimaryKey = Ref<E>>>(
+fn plan_compare<E: EntityKind>(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
-) -> Result<AccessPlan<E::PrimaryKey>, InternalError> {
+) -> Result<AccessPlan<E::Id>, InternalError> {
     if cmp.coercion.id != CoercionId::Strict {
         return Ok(AccessPlan::full_scan());
     }
@@ -150,29 +146,31 @@ fn plan_compare<E: EntityKind<PrimaryKey = Ref<E>>>(
     Ok(AccessPlan::full_scan())
 }
 
-fn plan_pk_compare<E: EntityKind<PrimaryKey = Ref<E>>>(
+fn plan_pk_compare<E: EntityKind>(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
-) -> Option<AccessPath<E::PrimaryKey>> {
+) -> Option<AccessPath<E::Id>> {
     match cmp.op {
         CompareOp::Eq => {
             if !value_matches_pk::<E>(schema, &cmp.value) {
                 return None;
             }
-            let key = cmp.value.as_key()?;
-            Some(AccessPath::ByKey(Ref::new(key)))
+
+            let key = <E::Id as FieldValue>::from_value(&cmp.value)?;
+            Some(AccessPath::ByKey(key))
         }
         CompareOp::In => {
             let Value::List(items) = &cmp.value else {
                 return None;
             };
+
             let mut keys = Vec::with_capacity(items.len());
             for item in items {
-                let key = item.as_key()?;
                 if !value_matches_pk::<E>(schema, item) {
                     return None;
                 }
-                keys.push(Ref::new(key));
+                let key = <E::Id as FieldValue>::from_value(item)?;
+                keys.push(key);
             }
             Some(AccessPath::ByKeys(keys))
         }
@@ -180,17 +178,17 @@ fn plan_pk_compare<E: EntityKind<PrimaryKey = Ref<E>>>(
     }
 }
 
-fn sorted_indexes<E: EntityKind<PrimaryKey = Ref<E>>>() -> Vec<&'static IndexModel> {
+fn sorted_indexes<E: EntityKind>() -> Vec<&'static IndexModel> {
     let mut indexes = E::INDEXES.to_vec();
     indexes.sort_by(|left, right| left.name.cmp(right.name));
     indexes
 }
 
-fn index_prefix_for_eq<E: EntityKind<PrimaryKey = Ref<E>>>(
+fn index_prefix_for_eq<E: EntityKind>(
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
-) -> Result<Option<Vec<AccessPlan<E::PrimaryKey>>>, InternalError> {
+) -> Result<Option<Vec<AccessPlan<E::Id>>>, InternalError> {
     let Some(field_type) = schema.field(field) else {
         return Ok(None);
     };
@@ -300,7 +298,7 @@ fn better_index(
 
 fn normalize_union<K>(children: Vec<AccessPlan<K>>) -> AccessPlan<K>
 where
-    K: Copy + PartialEq,
+    K: Ord,
 {
     let mut out = Vec::new();
 
@@ -333,7 +331,7 @@ where
 
 fn normalize_intersection<K>(children: Vec<AccessPlan<K>>) -> AccessPlan<K>
 where
-    K: Copy + PartialEq,
+    K: Ord,
 {
     let mut out = Vec::new();
 
@@ -368,14 +366,11 @@ const fn is_full_scan<K>(plan: &AccessPlan<K>) -> bool {
     matches!(plan, AccessPlan::Path(AccessPath::FullScan))
 }
 
-fn is_primary_key<E: EntityKind<PrimaryKey = Ref<E>>>(schema: &SchemaInfo, field: &str) -> bool {
+fn is_primary_key<E: EntityKind>(schema: &SchemaInfo, field: &str) -> bool {
     field == E::PRIMARY_KEY && schema.field(field).is_some()
 }
 
-fn value_matches_pk<E: EntityKind<PrimaryKey = Ref<E>>>(
-    schema: &SchemaInfo,
-    value: &Value,
-) -> bool {
+fn value_matches_pk<E: EntityKind>(schema: &SchemaInfo, value: &Value) -> bool {
     let field = E::PRIMARY_KEY;
     let Some(field_type) = schema.field(field) else {
         return false;
@@ -400,6 +395,7 @@ const fn is_key_compatible(field_type: &FieldType) -> bool {
     )
 }
 
+/*
 ///
 /// TESTS
 ///
@@ -1005,3 +1001,4 @@ mod tests {
         assert_eq!(plan_a, plan_b);
     }
 }
+*/

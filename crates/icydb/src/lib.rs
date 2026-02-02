@@ -63,7 +63,7 @@ pub use icydb_schema as schema;
 pub use icydb_schema_derive as macros;
 
 // core modules
-pub use icydb_core::{key, model, obs, traits, types, value, view, visitor};
+pub use icydb_core::{model, obs, traits, types, value, view, visitor};
 
 // canic modules
 pub mod base;
@@ -104,7 +104,6 @@ pub mod prelude {
             query,
             query::{FilterExpr, SortExpr, builder::FieldRef, predicate::Predicate},
         },
-        key::Key,
         traits::{
             CreateView as _, EntityKind as _, Inner as _, Path as _, UpdateView as _, View as _,
         },
@@ -129,7 +128,6 @@ pub mod design {
         pub use crate::{
             base, db,
             db::query::builder::FieldRef,
-            key::Key,
             macros::*,
             traits::{
                 EntityKind, FieldValue as _, Inner as _, Path as _, Sanitize as _, Sanitizer,

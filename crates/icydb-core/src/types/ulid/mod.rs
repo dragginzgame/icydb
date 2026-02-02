@@ -148,6 +148,13 @@ impl FieldValue for Ulid {
     fn to_value(&self) -> Value {
         Value::Ulid(*self)
     }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Ulid(v) => Some(*v),
+            _ => None,
+        }
+    }
 }
 
 impl From<WrappedUlid> for Ulid {

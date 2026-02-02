@@ -6,6 +6,7 @@ members = [
     "crates/icydb-schema",
     "crates/icydb-schema-derive",
     # Test-only crates
+    "crates/icydb-test-macros",
     "crates/test",
     "crates/test_design",
 ]
@@ -22,6 +23,7 @@ license = "Apache-2.0 OR MIT"
 repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
+bencher = "0.1.5"
 candid = "0.10"
 canic-cdk = "0.9.14"
 canic-memory = "0.9.14"
@@ -36,8 +38,10 @@ icydb-build = { path = "crates/icydb-build", version = "0.6.4" }
 icydb-core = { path = "crates/icydb-core", version = "0.6.4" }
 icydb-schema = { path = "crates/icydb-schema", version = "0.6.4" }
 icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.6.4" }
+icydb-test-macros = { path = "crates/icydb-test-macros", version = "0.6.4" }
 num-traits = { version = "0.2", default-features = false }
 proc-macro2 = "1.0"
+proptest = "1.9.0"
 quote = "1.0"
 remain = "0.2"
 rust_decimal = { version = "1.37", default-features = false, features = [
@@ -47,12 +51,14 @@ rust_decimal = { version = "1.37", default-features = false, features = [
 serde = { version = "1.0", default-features = false }
 serde_bytes = "0.11"
 serde_cbor = "0.11"
+serde_json = "1.0"
 sha2 = "0.10"
 syn = "2.0"
 # Test harnesses
 test = { path = "crates/test" }
 test_design = { path = "crates/test_design" }
 thiserror = "2.0"
+trybuild = "1.0"
 # removed std because it imports rand; serde feature doesn't compile with std
 ulid = { version = "1.2", default-features = false }
 

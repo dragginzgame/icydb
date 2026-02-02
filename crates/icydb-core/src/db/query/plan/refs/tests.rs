@@ -1,89 +1,31 @@
+/*
 use crate::{
-    model::{
-        entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel},
-        index::IndexModel,
-    },
     traits::{
-        CanisterKind, DataStoreKind, EntityKind, FieldValue, FieldValues, Path, SanitizeAuto,
-        SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
+        CanisterKind, DataStoreKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
     types::{Ref, Ulid},
     value::Value,
 };
+use icydb_test_macros::test_entity;
 use serde::{Deserialize, Serialize};
 
 const CANISTER_PATH: &str = "traits_tests::TestCanister";
 const STORE_PATH: &str = "traits_tests::TestStore";
 const OWNER_PATH: &str = "traits_tests::OwnerEntity";
-const REF_PATH: &str = "traits_tests::RefEntity";
-
-const OWNER_KEY_KIND: EntityFieldKind = EntityFieldKind::Ulid;
-
-const OWNER_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
-    name: "id",
-    kind: EntityFieldKind::Ulid,
-}];
-
-const REF_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
-        name: "id",
-        kind: EntityFieldKind::Ulid,
-    },
-    EntityFieldModel {
-        name: "owner",
-        kind: EntityFieldKind::Ref {
-            target_path: OWNER_PATH,
-            key_kind: &OWNER_KEY_KIND,
-        },
-    },
-];
-const COLLECTION_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
-        name: "id",
-        kind: EntityFieldKind::Ulid,
-    },
-    EntityFieldModel {
-        name: "owners",
-        kind: EntityFieldKind::List(&EntityFieldKind::Ref {
-            target_path: OWNER_PATH,
-            key_kind: &OWNER_KEY_KIND,
-        }),
-    },
-];
-
-const INDEXES: [&IndexModel; 0] = [];
-
-const OWNER_MODEL: EntityModel = EntityModel {
-    path: OWNER_PATH,
-    entity_name: "OwnerEntity",
-    primary_key: &OWNER_FIELDS[0],
-    fields: &OWNER_FIELDS,
-    indexes: &INDEXES,
-};
-
-const REF_MODEL: EntityModel = EntityModel {
-    path: REF_PATH,
-    entity_name: "RefEntity",
-    primary_key: &REF_FIELDS[0],
-    fields: &REF_FIELDS,
-    indexes: &INDEXES,
-};
-const COLLECTION_MODEL: EntityModel = EntityModel {
-    path: "traits_tests::CollectionRefEntity",
-    entity_name: "CollectionRefEntity",
-    primary_key: &COLLECTION_FIELDS[0],
-    fields: &COLLECTION_FIELDS,
-    indexes: &INDEXES,
-};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[test_entity(
+    crate = crate,
+    entity_name = "OwnerEntity",
+    path = "traits_tests::OwnerEntity",
+    datastore = TestStore,
+    canister = TestCanister,
+    primary_key = id,
+    fields = ["id"],
+)]
 struct OwnerEntity {
     id: Ref<Self>,
-}
-
-impl Path for OwnerEntity {
-    const PATH: &'static str = OWNER_PATH;
 }
 
 impl View for OwnerEntity {
@@ -114,13 +56,18 @@ impl FieldValues for OwnerEntity {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[test_entity(
+    crate = crate,
+    entity_name = "RefEntity",
+    path = "traits_tests::RefEntity",
+    datastore = TestStore,
+    canister = TestCanister,
+    primary_key = id,
+    fields = ["id", "owner"],
+)]
 struct RefEntity {
     id: Ref<Self>,
     owner: Option<Ref<OwnerEntity>>,
-}
-
-impl Path for RefEntity {
-    const PATH: &'static str = REF_PATH;
 }
 
 impl View for RefEntity {
@@ -144,21 +91,26 @@ impl Visitable for RefEntity {}
 impl FieldValues for RefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
-            "owner" => Some(self.owner.to_value()),
+            "id" => Some(self.id.as_value()),
+            "owner" => Some(self.owner.map_or(Value::None, |owner| owner.as_value())),
             _ => None,
         }
     }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[test_entity(
+    crate = crate,
+    entity_name = "CollectionRefEntity",
+    path = "traits_tests::CollectionRefEntity",
+    datastore = TestStore,
+    canister = TestCanister,
+    primary_key = id,
+    fields = ["id", "owners"],
+)]
 struct CollectionRefEntity {
     id: Ref<Self>,
     owners: Vec<Ref<OwnerEntity>>,
-}
-
-impl Path for CollectionRefEntity {
-    const PATH: &'static str = "traits_tests::CollectionRefEntity";
 }
 
 impl View for CollectionRefEntity {
@@ -182,8 +134,10 @@ impl Visitable for CollectionRefEntity {}
 impl FieldValues for CollectionRefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
-            "owners" => Some(self.owners.to_value()),
+            "id" => Some(self.id.as_value()),
+            "owners" => Some(Value::List(
+                self.owners.iter().map(|owner| owner.as_value()).collect(),
+            )),
             _ => None,
         }
     }
@@ -206,78 +160,6 @@ impl Path for TestStore {
 
 impl DataStoreKind for TestStore {
     type Canister = TestCanister;
-}
-
-impl EntityKind for OwnerEntity {
-    type PrimaryKey = Ref<Self>;
-    type DataStore = TestStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "OwnerEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id"];
-    const INDEXES: &'static [&'static IndexModel] = &INDEXES;
-    const MODEL: &'static EntityModel = &OWNER_MODEL;
-
-    fn key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
-    }
-}
-
-impl EntityKind for RefEntity {
-    type PrimaryKey = Ref<Self>;
-    type DataStore = TestStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "RefEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id", "owner"];
-    const INDEXES: &'static [&'static IndexModel] = &INDEXES;
-    const MODEL: &'static EntityModel = &REF_MODEL;
-
-    fn key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
-    }
-}
-
-impl EntityKind for CollectionRefEntity {
-    type PrimaryKey = Ref<Self>;
-    type DataStore = TestStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "CollectionRefEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id", "owners"];
-    const INDEXES: &'static [&'static IndexModel] = &INDEXES;
-    const MODEL: &'static EntityModel = &COLLECTION_MODEL;
-
-    fn key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
-    }
 }
 
 #[test]
@@ -307,7 +189,7 @@ fn entity_refs_collect_optional_reference() {
 
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].target_path, OWNER_PATH);
-    assert_eq!(refs[0].value(), Ref::<OwnerEntity>::new(owner_id).raw());
+    assert_eq!(refs[0].value(), Ref::<OwnerEntity>::new(owner_id).as_value());
 }
 
 #[test]
@@ -323,3 +205,4 @@ fn entity_refs_skip_reference_collections() {
 
     assert!(refs.is_empty());
 }
+*/

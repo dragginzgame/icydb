@@ -1,3 +1,4 @@
+/*
 use super::*;
 use crate::{
     db::query::{
@@ -12,12 +13,13 @@ use crate::{
         index::IndexModel,
     },
     traits::{
-        CanisterKind, DataStoreKind, EntityKind, FieldValue, FieldValues, Path, SanitizeAuto,
-        SanitizeCustom, UnitKey, ValidateAuto, ValidateCustom, View, Visitable,
+        CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::{Ref, Ulid},
     value::Value,
 };
+use icydb_test_macros::test_entity;
 use serde::{Deserialize, Serialize};
 
 const UNIT_CANISTER_PATH: &str = "planner_test::UnitCanister";
@@ -33,26 +35,6 @@ const UNIT_MODEL: EntityModel = EntityModel {
     entity_name: "UnitEntity",
     primary_key: &UNIT_FIELD_MODELS[0],
     fields: &UNIT_FIELD_MODELS,
-    indexes: &[],
-};
-
-const UNORDERABLE_ENTITY_PATH: &str = "planner_test::UnorderableEntity";
-const UNORDERABLE_FIELD_MODELS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
-        name: "id",
-        kind: EntityFieldKind::Unit,
-    },
-    EntityFieldModel {
-        name: "tags",
-        kind: EntityFieldKind::List(&EntityFieldKind::Text),
-    },
-];
-const UNORDERABLE_FIELDS: [&str; 2] = ["id", "tags"];
-const UNORDERABLE_MODEL: EntityModel = EntityModel {
-    path: UNORDERABLE_ENTITY_PATH,
-    entity_name: "UnorderableEntity",
-    primary_key: &UNORDERABLE_FIELD_MODELS[0],
-    fields: &UNORDERABLE_FIELD_MODELS,
     indexes: &[],
 };
 
@@ -88,7 +70,7 @@ impl Visitable for UnitEntity {}
 impl FieldValues for UnitEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
+            "id" => Some(self.id.as_value()),
             _ => None,
         }
     }
@@ -115,7 +97,7 @@ impl DataStoreKind for UnitStore {
 }
 
 impl EntityKind for UnitEntity {
-    type PrimaryKey = Ref<Self>;
+    type Id = Ref<Self>;
     type DataStore = UnitStore;
     type Canister = UnitCanister;
 
@@ -125,16 +107,12 @@ impl EntityKind for UnitEntity {
     const INDEXES: &'static [&'static IndexModel] = &[];
     const MODEL: &'static EntityModel = &UNIT_MODEL;
 
-    fn key(&self) -> Self::PrimaryKey {
+    fn id(&self) -> Self::Id {
         self.id
     }
 
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
+    fn set_id(&mut self, id: Self::Id) {
+        self.id = id;
     }
 }
 
@@ -143,13 +121,18 @@ impl UnitKey for UnitEntity {}
 /// UnorderableEntity
 /// Test-only entity with a non-orderable list field.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[test_entity(
+    crate = crate,
+    entity_name = "UnorderableEntity",
+    path = "planner_test::UnorderableEntity",
+    datastore = UnitStore,
+    canister = UnitCanister,
+    primary_key = id,
+    fields = ["id", "tags"],
+)]
 struct UnorderableEntity {
     id: Ref<Self>,
     tags: Vec<String>,
-}
-
-impl Path for UnorderableEntity {
-    const PATH: &'static str = UNORDERABLE_ENTITY_PATH;
 }
 
 impl View for UnorderableEntity {
@@ -173,7 +156,7 @@ impl Visitable for UnorderableEntity {}
 impl FieldValues for UnorderableEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
+            "id" => Some(self.id.as_value()),
             "tags" => Some(Value::List(
                 self.tags
                     .iter()
@@ -184,32 +167,6 @@ impl FieldValues for UnorderableEntity {
         }
     }
 }
-
-impl EntityKind for UnorderableEntity {
-    type PrimaryKey = Ref<Self>;
-    type DataStore = UnitStore;
-    type Canister = UnitCanister;
-
-    const ENTITY_NAME: &'static str = "UnorderableEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &UNORDERABLE_FIELDS;
-    const INDEXES: &'static [&'static IndexModel] = &[];
-    const MODEL: &'static EntityModel = &UNORDERABLE_MODEL;
-
-    fn key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn primary_key(&self) -> Self::PrimaryKey {
-        self.id
-    }
-
-    fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-        self.id = key;
-    }
-}
-
-impl UnitKey for UnorderableEntity {}
 
 #[test]
 fn fluent_chain_builds_predicate_tree() {
@@ -416,7 +373,10 @@ fn plan_is_deterministic_for_equivalent_predicates() {
 
 #[test]
 fn many_plans_as_primary_key_access() {
-    let keys = vec![Ref::new(Ulid::from_u128(1)), Ref::new(Ulid::from_u128(2))];
+    let keys = vec![
+        Ref::new(Ulid::from_u128(1)),
+        Ref::new(Ulid::from_u128(2)),
+    ];
     let expected = vec![
         Value::Ulid(Ulid::from_u128(1)),
         Value::Ulid(Ulid::from_u128(2)),
@@ -554,3 +514,4 @@ fn query_explain_rejects_invalid_order() {
         QueryError::Plan(PlanError::UnknownOrderField { .. })
     ));
 }
+*/

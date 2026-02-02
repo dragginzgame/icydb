@@ -20,27 +20,6 @@ use std::cmp::Ordering;
 use thiserror::Error as ThisError;
 
 ///
-/// StorageKey
-///
-/// Storage-normalized scalar key used by persistence and indexing.
-///
-/// This type defines the *only* on-disk representation for scalar keys.
-/// It is deliberately separated from typed identity (`Ref<E>`).
-///
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, Hash, PartialEq, Serialize)]
-pub(crate) enum StorageKey {
-    Account(Account),
-    Int(i64),
-    Principal(Principal),
-    Subaccount(Subaccount),
-    Timestamp(Timestamp),
-    Uint(u64),
-    Ulid(Ulid),
-    Unit,
-}
-
-///
 /// StorageKeyEncodeError
 /// Errors returned when encoding a storage key for persistence.
 ///
@@ -65,6 +44,27 @@ impl From<StorageKeyEncodeError> for InternalError {
             err.to_string(),
         )
     }
+}
+
+///
+/// StorageKey
+///
+/// Storage-normalized scalar key used by persistence and indexing.
+///
+/// This type defines the *only* on-disk representation for scalar keys.
+/// It is deliberately separated from typed identity (`Ref<E>`).
+///
+
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, Hash, PartialEq, Serialize)]
+pub enum StorageKey {
+    Account(Account),
+    Int(i64),
+    Principal(Principal),
+    Subaccount(Subaccount),
+    Timestamp(Timestamp),
+    Uint(u64),
+    Ulid(Ulid),
+    Unit,
 }
 
 impl StorageKey {
@@ -96,6 +96,27 @@ impl StorageKey {
     pub(crate) const SUBACCOUNT_SIZE: usize = 32;
     const ACCOUNT_MAX_SIZE: usize = 62;
 
+    pub const fn try_from_value(value: &Value) -> Result<Self, StorageKeyEncodeError> {
+        match value {
+            Value::Account(v) => Ok(Self::Account(*v)),
+            Value::Int(v) => Ok(Self::Int(*v)),
+            Value::Principal(v) => Ok(Self::Principal(*v)),
+            Value::Subaccount(v) => Ok(Self::Subaccount(*v)),
+            Value::Timestamp(v) => Ok(Self::Timestamp(*v)),
+            Value::Uint(v) => Ok(Self::Uint(*v)),
+            Value::Ulid(v) => Ok(Self::Ulid(*v)),
+            Value::Unit => Ok(Self::Unit),
+
+            // Everything else is *not* storage-key compatible
+            _ => Err(StorageKeyEncodeError::AccountLengthMismatch {
+                // pick a better error variant if you want;
+                // or introduce a new UnsupportedValue variant
+                len: 0,
+                expected: 0,
+            }),
+        }
+    }
+
     const fn tag(&self) -> u8 {
         match self {
             Self::Account(_) => Self::TAG_ACCOUNT,
@@ -110,6 +131,7 @@ impl StorageKey {
     }
 
     /// Sentinel key representing the maximum storable value.
+    #[must_use]
     pub fn max_storable() -> Self {
         Self::Account(Account::max_storable())
     }
@@ -120,10 +142,12 @@ impl StorageKey {
         subaccount: None,
     });
 
+    #[must_use]
     pub const fn lower_bound() -> Self {
         Self::MIN
     }
 
+    #[must_use]
     pub const fn upper_bound() -> Self {
         Self::Unit
     }
@@ -150,12 +174,12 @@ impl StorageKey {
                 payload[..bytes.len()].copy_from_slice(&bytes);
             }
             Self::Int(v) => {
-                let biased = (*v as u64) ^ (1u64 << 63);
+                let biased = (*v).cast_unsigned() ^ (1u64 << 63);
                 payload[..Self::INT_SIZE].copy_from_slice(&biased.to_be_bytes());
             }
             Self::Uint(v) => payload[..Self::UINT_SIZE].copy_from_slice(&v.to_be_bytes()),
             Self::Timestamp(v) => {
-                payload[..Self::TIMESTAMP_SIZE].copy_from_slice(&v.get().to_be_bytes())
+                payload[..Self::TIMESTAMP_SIZE].copy_from_slice(&v.get().to_be_bytes());
             }
             Self::Principal(v) => {
                 let bytes = v.to_bytes()?;
@@ -212,7 +236,9 @@ impl StorageKey {
                 let mut buf = [0u8; Self::INT_SIZE];
                 buf.copy_from_slice(&payload[..Self::INT_SIZE]);
                 ensure_zero_padding(Self::INT_SIZE, "int")?;
-                Ok(Self::Int((u64::from_be_bytes(buf) ^ (1u64 << 63)) as i64))
+                Ok(Self::Int(
+                    (u64::from_be_bytes(buf) ^ (1u64 << 63)).cast_signed(),
+                ))
             }
             Self::TAG_PRINCIPAL => {
                 let len = payload[0] as usize;
@@ -259,7 +285,7 @@ impl StorageKey {
     /// Intended ONLY for diagnostics, explain output, planner invariants,
     /// and fingerprinting. Must not be used for query semantics.
     #[must_use]
-    pub fn as_value(&self) -> Value {
+    pub const fn as_value(&self) -> Value {
         match self {
             Self::Account(v) => Value::Account(*v),
             Self::Int(v) => Value::Int(*v),

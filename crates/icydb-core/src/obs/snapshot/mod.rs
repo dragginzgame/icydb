@@ -174,7 +174,7 @@ pub fn storage_report<C: CanisterKind>(
                     corrupted_entries = corrupted_entries.saturating_add(1);
                     continue;
                 }
-                if value.try_decode().is_err() {
+                if value.validate().is_err() {
                     corrupted_entries = corrupted_entries.saturating_add(1);
                 }
             }

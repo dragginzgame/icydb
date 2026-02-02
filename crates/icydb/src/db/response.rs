@@ -1,7 +1,6 @@
 use crate::{
     error::{Error, ErrorClass, ErrorOrigin},
     traits::EntityKind,
-    types::Ref,
     view::View,
 };
 use icydb_core::db::response::{Response as CoreResponse, ResponseError};
@@ -14,11 +13,11 @@ use icydb_core::db::response::{Response as CoreResponse, ResponseError};
 ///
 
 #[derive(Debug)]
-pub struct Response<E: EntityKind<PrimaryKey = Ref<E>>> {
+pub struct Response<E: EntityKind> {
     inner: CoreResponse<E>,
 }
 
-impl<E: EntityKind<PrimaryKey = Ref<E>>> Response<E> {
+impl<E: EntityKind> Response<E> {
     /// Construct a facade response from a core response.
     #[must_use]
     pub const fn from_core(inner: CoreResponse<E>) -> Self {
@@ -32,7 +31,7 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> Response<E> {
 
     #[must_use]
     pub const fn exists(&self) -> bool {
-        self.count() != 0
+        !self.inner.is_empty()
     }
 
     // ------------------------------------------------------------------
@@ -90,23 +89,28 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> Response<E> {
     }
 
     // ------------------------------------------------------------------
-    // Primary keys
+    // Identity (facade-friendly naming)
     // ------------------------------------------------------------------
 
     /// Return the single primary key.
-    pub fn primary_key(self) -> Result<E::PrimaryKey, Error> {
-        self.inner.primary_key().map_err(map_response_error)
+    pub fn primary_key(self) -> Result<E::Id, Error> {
+        self.inner.id_strict().map_err(map_response_error)
     }
 
     /// Return zero or one primary key.
-    pub fn try_primary_key(self) -> Result<Option<E::PrimaryKey>, Error> {
-        self.inner.try_primary_key().map_err(map_response_error)
+    pub fn try_primary_key(self) -> Result<Option<E::Id>, Error> {
+        Ok(self.inner.id())
     }
 
     /// Return all primary keys.
     #[must_use]
-    pub fn primary_keys(self) -> Vec<E::PrimaryKey> {
-        self.inner.primary_keys()
+    pub fn primary_keys(&self) -> Vec<E::Id> {
+        self.inner.ids()
+    }
+
+    /// Check whether the response contains the given primary key.
+    pub fn contains_key(&self, id: &E::Id) -> bool {
+        self.inner.contains_id(id)
     }
 }
 
