@@ -11,7 +11,6 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     traits::EntityKind,
-    types::Ref,
 };
 use std::marker::PhantomData;
 
@@ -20,14 +19,14 @@ use std::marker::PhantomData;
 ///
 
 #[derive(Clone)]
-pub struct LoadExecutor<E: EntityKind<PrimaryKey = Ref<E>>> {
+pub struct LoadExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
     trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityKind<PrimaryKey = Ref<E>>> LoadExecutor<E> {
+impl<E: EntityKind> LoadExecutor<E> {
     // ======================================================================
     // Construction & diagnostics
     // ======================================================================

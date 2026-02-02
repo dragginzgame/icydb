@@ -45,7 +45,7 @@ pub struct IndexMutationPlan {
 ///
 /// All fallible work happens here. The returned plan is safe to apply
 /// infallibly after a commit marker is written.
-pub fn plan_index_mutation_for_entity<E: EntityKind<PrimaryKey = Ref<E>>>(
+pub fn plan_index_mutation_for_entity<E: EntityKind>(
     db: &crate::db::Db<E::Canister>,
     old: Option<&E>,
     new: Option<&E>,

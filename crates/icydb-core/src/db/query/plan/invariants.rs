@@ -1,5 +1,9 @@
 //! Planner invariants and assertions; must not surface user-facing errors.
 
+use super::{
+    canonical,
+    types::{AccessPath, AccessPlan},
+};
 use crate::{
     db::query::predicate::{
         CoercionId, CompareOp, Predicate, SchemaInfo,
@@ -7,17 +11,11 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, FieldValue},
-    types::Ref,
     value::Value,
 };
 
-use super::{
-    canonical,
-    types::{AccessPath, AccessPlan},
-};
-
-pub fn validate_plan_invariants<E: EntityKind<PrimaryKey = Ref<E>>>(
-    plan: &AccessPlan<E::PrimaryKey>,
+pub fn validate_plan_invariants<E: EntityKind>(
+    plan: &AccessPlan<E::Id>,
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
 ) -> Result<(), InternalError> {
@@ -36,10 +34,7 @@ struct StrictPredicateInfo {
 }
 
 impl StrictPredicateInfo {
-    fn from_predicate<E: EntityKind<PrimaryKey = Ref<E>>>(
-        schema: &SchemaInfo,
-        predicate: Option<&Predicate>,
-    ) -> Self {
+    fn from_predicate<E: EntityKind>(schema: &SchemaInfo, predicate: Option<&Predicate>) -> Self {
         let mut info = Self::default();
         if let Some(predicate) = predicate {
             collect_strict_predicate_info::<E>(schema, predicate, false, &mut info);
@@ -54,7 +49,7 @@ impl StrictPredicateInfo {
     }
 }
 
-fn collect_strict_predicate_info<E: EntityKind<PrimaryKey = Ref<E>>>(
+fn collect_strict_predicate_info<E: EntityKind>(
     schema: &SchemaInfo,
     predicate: &Predicate,
     negated: bool,
@@ -112,8 +107,8 @@ fn collect_strict_predicate_info<E: EntityKind<PrimaryKey = Ref<E>>>(
     }
 }
 
-fn validate_access_plan<E: EntityKind<PrimaryKey = Ref<E>>>(
-    plan: &AccessPlan<E::PrimaryKey>,
+fn validate_access_plan<E: EntityKind>(
+    plan: &AccessPlan<E::Id>,
     schema: &SchemaInfo,
     info: &StrictPredicateInfo,
 ) -> Result<(), InternalError> {
@@ -142,8 +137,8 @@ fn validate_access_plan<E: EntityKind<PrimaryKey = Ref<E>>>(
     }
 }
 
-fn validate_access_path<E: EntityKind<PrimaryKey = Ref<E>>>(
-    path: &AccessPath<E::PrimaryKey>,
+fn validate_access_path<E: EntityKind>(
+    path: &AccessPath<E::Id>,
     schema: &SchemaInfo,
     info: &StrictPredicateInfo,
 ) -> Result<(), InternalError> {
@@ -217,7 +212,7 @@ const fn is_full_scan<K>(plan: &AccessPlan<K>) -> bool {
     matches!(plan, AccessPlan::Path(AccessPath::FullScan))
 }
 
-fn is_primary_key<E: EntityKind<PrimaryKey = Ref<E>>>(schema: &SchemaInfo, field: &str) -> bool {
+fn is_primary_key<E: EntityKind>(schema: &SchemaInfo, field: &str) -> bool {
     field == E::PRIMARY_KEY && schema.field(field).is_some()
 }
 
@@ -234,10 +229,7 @@ fn ensure_invariant(condition: bool, message: &str) -> Result<(), InternalError>
     }
 }
 
-fn value_matches_pk<E: EntityKind<PrimaryKey = Ref<E>>>(
-    schema: &SchemaInfo,
-    value: &Value,
-) -> bool {
+fn value_matches_pk<E: EntityKind>(schema: &SchemaInfo, value: &Value) -> bool {
     let field = E::PRIMARY_KEY;
     let Some(field_type) = schema.field(field) else {
         return false;

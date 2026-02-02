@@ -107,7 +107,7 @@ impl Visitable for OwnerEntity {}
 impl FieldValues for OwnerEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.to_value()),
+            "id" => Some(self.id.as_value()),
             _ => None,
         }
     }

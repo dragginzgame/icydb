@@ -4,7 +4,6 @@ use crate::{
         plan::{ExplainPlan, LogicalPlan, PlanFingerprint},
     },
     traits::EntityKind,
-    types::Ref,
 };
 use std::marker::PhantomData;
 
@@ -15,13 +14,13 @@ use std::marker::PhantomData;
 ///
 
 #[derive(Debug)]
-pub struct ExecutablePlan<E: EntityKind<PrimaryKey = Ref<E>>> {
-    plan: LogicalPlan<E::PrimaryKey>,
+pub struct ExecutablePlan<E: EntityKind> {
+    plan: LogicalPlan<E::Id>,
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityKind<PrimaryKey = Ref<E>>> ExecutablePlan<E> {
-    pub(crate) const fn new(plan: LogicalPlan<E::PrimaryKey>) -> Self {
+impl<E: EntityKind> ExecutablePlan<E> {
+    pub(crate) const fn new(plan: LogicalPlan<E::Id>) -> Self {
         Self {
             plan,
             _marker: PhantomData,
@@ -46,11 +45,11 @@ impl<E: EntityKind<PrimaryKey = Ref<E>>> ExecutablePlan<E> {
         self.plan.mode
     }
 
-    pub(crate) const fn access(&self) -> &crate::db::query::plan::AccessPlan<E::PrimaryKey> {
+    pub(crate) const fn access(&self) -> &crate::db::query::plan::AccessPlan<E::Id> {
         &self.plan.access
     }
 
-    pub(crate) fn into_inner(self) -> LogicalPlan<E::PrimaryKey> {
+    pub(crate) fn into_inner(self) -> LogicalPlan<E::Id> {
         self.plan
     }
 }

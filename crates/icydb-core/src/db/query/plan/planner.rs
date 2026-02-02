@@ -221,10 +221,10 @@ fn index_prefix_for_eq<E: EntityKind<PrimaryKey = Ref<E>>>(
     }
 }
 
-fn index_prefix_from_and<E: EntityKind<PrimaryKey = Ref<E>>>(
+fn index_prefix_from_and<E: EntityKind>(
     schema: &SchemaInfo,
     children: &[Predicate],
-) -> Result<Option<AccessPath<E::PrimaryKey>>, InternalError> {
+) -> Result<Option<AccessPath<E::Id>>, InternalError> {
     let mut field_values = Vec::new();
 
     for child in children {

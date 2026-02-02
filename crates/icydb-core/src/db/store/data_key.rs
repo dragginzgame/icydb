@@ -97,7 +97,7 @@ impl DataKey {
     /// This cannot fail in practice: `ENTITY_NAME` is generated and validated
     /// at compile time. If it is ever invalid, that is a programmer error.
     #[must_use]
-    pub fn new<E: EntityKind>(key: Ref<E>) -> Self {
+    pub fn new<E: EntityKind>(key: E::Id) -> Self {
         Self {
             entity: Self::entity_for::<E>(),
             key: key.raw(),

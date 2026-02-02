@@ -6,7 +6,6 @@ use crate::{
     db::query::plan::{AccessPath, AccessPlan, ExecutablePlan, PlanFingerprint},
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
-    types::Ref,
 };
 use sha2::{Digest, Sha256};
 
@@ -152,7 +151,7 @@ impl TraceScope {
     }
 }
 
-pub fn start_plan_trace<E: EntityKind<PrimaryKey = Ref<E>>>(
+pub fn start_plan_trace<E: EntityKind>(
     sink: Option<&'static dyn QueryTraceSink>,
     executor: TraceExecutorKind,
     plan: &ExecutablePlan<E>,

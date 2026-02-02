@@ -19,7 +19,6 @@ use crate::{
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     traits::{EntityKind, Path, Storable},
-    types::Ref,
 };
 use std::{
     borrow::Cow, cell::RefCell, collections::BTreeMap, marker::PhantomData, thread::LocalKey,
@@ -35,20 +34,32 @@ struct IndexPlan {
     store: &'static LocalKey<RefCell<IndexStore>>,
 }
 
-// Prevalidated rollback mutation for index entries.
+///
+/// PreparedIndexRollback
+/// Prevalidated rollback mutation for index entries.
+///
+
 struct PreparedIndexRollback {
     store: &'static LocalKey<RefCell<IndexStore>>,
     key: RawIndexKey,
     value: Option<RawIndexEntry>,
 }
 
-// Prevalidated rollback mutation for data rows.
+///
+/// PreparedDataRollback
+/// Prevalidated rollback mutation for data rows.
+///
+
 struct PreparedDataRollback {
     key: RawDataKey,
     value: RawRow,
 }
 
-// Row wrapper used during delete planning and execution.
+///
+/// DeleteRow
+/// Row wrapper used during delete planning and execution.
+///
+
 struct DeleteRow<E> {
     key: DataKey,
     raw: Option<RawRow>,
@@ -70,15 +81,16 @@ impl<E: EntityKind> crate::db::query::plan::logical::PlanRow<E> for DeleteRow<E>
 /// prevalidated commit marker. Rollback exists as a safety net but is
 /// not relied upon for correctness.
 ///
+
 #[derive(Clone, Copy)]
-pub struct DeleteExecutor<E: EntityKind<PrimaryKey = Ref<E>>> {
+pub struct DeleteExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
     trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityKind<PrimaryKey = Ref<E>>> DeleteExecutor<E> {
+impl<E: EntityKind> DeleteExecutor<E> {
     // Debug is session-scoped via DbSession and propagated into executors;
     // executors do not expose independent debug control.
     #[must_use]
@@ -655,9 +667,7 @@ const fn yes_no(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
 }
 
-fn decode_rows<E: EntityKind<PrimaryKey = Ref<E>>>(
-    rows: Vec<DataRow>,
-) -> Result<Vec<DeleteRow<E>>, InternalError> {
+fn decode_rows<E: EntityKind>(rows: Vec<DataRow>) -> Result<Vec<DeleteRow<E>>, InternalError> {
     rows.into_iter()
         .map(|(dk, raw)| {
             let dk_for_err = dk.clone();

@@ -63,7 +63,7 @@ pub trait PlanRow<E: EntityKind> {
     fn entity(&self) -> &E;
 }
 
-impl<E: EntityKind> PlanRow<E> for (E::PrimaryKey, E) {
+impl<E: EntityKind> PlanRow<E> for (E::Id, E) {
     fn entity(&self) -> &E {
         &self.1
     }

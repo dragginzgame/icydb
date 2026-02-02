@@ -167,8 +167,8 @@ where
 }
 
 /// Validate plans at executor boundaries and surface invariant violations.
-pub(crate) fn validate_executor_plan<E: EntityKind<PrimaryKey = Ref<E>>>(
-    plan: &LogicalPlan<E::PrimaryKey>,
+pub(crate) fn validate_executor_plan<E: EntityKind>(
+    plan: &LogicalPlan<E::Id>,
 ) -> Result<(), InternalError> {
     let schema = SchemaInfo::from_entity_model(E::MODEL).map_err(|err| {
         InternalError::new(
