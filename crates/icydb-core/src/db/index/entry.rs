@@ -7,7 +7,6 @@ use crate::{
     types::Ref,
     value::Value,
 };
-use candid::CandidType;
 use canic_cdk::structures::storable::Bound;
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, collections::BTreeSet};
@@ -104,69 +103,50 @@ impl IndexEntryEncodeError {
 /// IndexEntry
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
-pub struct IndexEntry {
-    keys: BTreeSet<StorageKey>,
+#[derive(Clone, Debug)]
+pub struct IndexEntry<E: EntityKind> {
+    ids: BTreeSet<E::Id>,
 }
 
-impl IndexEntry {
+impl<E: EntityKind> IndexEntry<E> {
     #[must_use]
-    pub fn new<E: EntityKind>(key: Ref<E>) -> Self {
-        Self::new_raw(key.raw())
+    pub fn new(id: E::Id) -> Self {
+        let mut ids = BTreeSet::new();
+        ids.insert(id);
+        Self { ids }
     }
 
-    #[must_use]
-    pub(crate) fn new_raw(key: StorageKey) -> Self {
-        let mut keys = BTreeSet::new();
-        keys.insert(key);
-        Self { keys }
+    pub fn insert(&mut self, id: E::Id) {
+        self.ids.insert(id);
     }
 
-    pub fn insert_key<E: EntityKind>(&mut self, key: Ref<E>) {
-        self.keys.insert(key.raw());
-    }
-
-    pub fn remove_key<E: EntityKind>(&mut self, key: Ref<E>) {
-        self.keys.remove(&key.raw());
+    pub fn remove(&mut self, id: E::Id) {
+        self.ids.remove(&id);
     }
 
     #[must_use]
-    pub fn contains<E: EntityKind>(&self, key: Ref<E>) -> bool {
-        self.keys.contains(&key.raw())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn insert_raw(&mut self, key: StorageKey) {
-        self.keys.insert(key);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn contains_raw(&self, key: StorageKey) -> bool {
-        self.keys.contains(&key)
+    pub fn contains(&self, id: E::Id) -> bool {
+        self.ids.contains(&id)
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.keys.is_empty()
+        self.ids.is_empty()
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.keys.len()
+        self.ids.len()
     }
 
-    pub fn iter_keys<E: EntityKind>(&self) -> impl Iterator<Item = Ref<E>> + '_ {
-        self.keys.iter().copied().map(Ref::from_raw)
-    }
-
-    pub(crate) fn iter_raw_keys(&self) -> impl Iterator<Item = StorageKey> + '_ {
-        self.keys.iter().copied()
+    pub fn iter_ids(&self) -> impl Iterator<Item = E::Id> + '_ {
+        self.ids.iter().copied()
     }
 
     #[must_use]
-    pub fn single_key<E: EntityKind>(&self) -> Option<Ref<E>> {
-        if self.keys.len() == 1 {
-            self.keys.iter().copied().map(Ref::from_raw).next()
+    pub fn single_id(&self) -> Option<E::Id> {
+        if self.ids.len() == 1 {
+            self.ids.iter().copied().next()
         } else {
             None
         }
@@ -181,7 +161,9 @@ impl IndexEntry {
 pub struct RawIndexEntry(Vec<u8>);
 
 impl RawIndexEntry {
-    pub fn try_from_entry(entry: &IndexEntry) -> Result<Self, IndexEntryEncodeError> {
+    pub fn try_from_entry<E: EntityKind>(
+        entry: &IndexEntry<E>,
+    ) -> Result<Self, IndexEntryEncodeError> {
         let keys = entry.len();
         if keys > MAX_INDEX_ENTRY_KEYS {
             return Err(IndexEntryEncodeError::TooManyKeys { keys });
@@ -193,15 +175,16 @@ impl RawIndexEntry {
         let count = u32::try_from(keys).map_err(|_| IndexEntryEncodeError::TooManyKeys { keys })?;
         out.extend_from_slice(&count.to_be_bytes());
 
-        for key in entry.iter_raw_keys() {
-            let bytes = key.to_bytes()?;
+        for id in entry.iter_ids() {
+            let sk = E::id_to_storage_key(id);
+            let bytes = sk.to_bytes()?;
             out.extend_from_slice(&bytes);
         }
 
         Ok(Self(out))
     }
 
-    pub fn try_decode(&self) -> Result<IndexEntry, IndexEntryCorruption> {
+    pub fn try_decode<E: EntityKind>(&self) -> Result<IndexEntry<E>, IndexEntryCorruption> {
         let bytes = self.0.as_slice();
 
         if bytes.len() > MAX_INDEX_ENTRY_BYTES as usize {
@@ -231,22 +214,24 @@ impl RawIndexEntry {
             return Err(IndexEntryCorruption::LengthMismatch);
         }
 
-        let mut keys = BTreeSet::new();
+        let mut ids = BTreeSet::new();
         let mut offset = INDEX_ENTRY_LEN_BYTES;
 
         for _ in 0..count {
             let end = offset + StorageKey::STORED_SIZE_USIZE;
-            let key = StorageKey::try_from(&bytes[offset..end])
+            let sk = StorageKey::try_from(&bytes[offset..end])
                 .map_err(|_| IndexEntryCorruption::InvalidKey)?;
 
-            if !keys.insert(key) {
+            let id = E::id_from_storage_key(sk).map_err(|_| IndexEntryCorruption::InvalidKey)?;
+
+            if !ids.insert(id) {
                 return Err(IndexEntryCorruption::DuplicateKey);
             }
 
             offset = end;
         }
 
-        Ok(IndexEntry { keys })
+        Ok(IndexEntry { ids })
     }
 
     #[must_use]
