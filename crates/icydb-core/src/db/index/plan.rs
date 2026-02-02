@@ -414,7 +414,6 @@ fn build_commit_ops_for_index<E: EntityKind>(
     Ok(())
 }
 
-/*
 ///
 /// TESTS
 ///
@@ -430,70 +429,36 @@ mod tests {
             store::{DataStore, DataStoreRegistry, RawRow},
         },
         error::{ErrorClass, ErrorOrigin},
-        model::{
-            entity::EntityModel,
-            field::{EntityFieldKind, EntityFieldModel},
-            index::IndexModel,
-        },
         serialize::serialize,
+        test_support::{TEST_DATA_STORE_PATH, TEST_INDEX_STORE_PATH, TestCanister},
         traits::{
-            CanisterKind, DataStoreKind, EntityKind, FieldValue, FieldValues, Path, SanitizeAuto,
-            SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
+            EntityKind, FieldValues, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+            View, Visitable,
         },
-        types::{Ref, Ulid},
+        types::Ulid,
         value::Value,
     };
     use serde::{Deserialize, Serialize};
     use std::cell::RefCell;
 
-    const CANISTER_PATH: &str = "index_plan_test::TestCanister";
-    const DATA_STORE_PATH: &str = "index_plan_test::TestDataStore";
-    const INDEX_STORE_PATH: &str = "index_plan_test::TestIndexStore";
-    const ENTITY_PATH: &str = "index_plan_test::TestEntity";
-
-    const INDEX_FIELDS: [&str; 1] = ["tag"];
-    const INDEX_MODEL: IndexModel = IndexModel::new(
-        "index_plan_test::idx_tag",
-        INDEX_STORE_PATH,
-        &INDEX_FIELDS,
-        true,
-    );
-    const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
-
-    const TEST_FIELDS: [EntityFieldModel; 2] = [
-        EntityFieldModel {
-            name: "id",
-            kind: EntityFieldKind::Ulid,
-        },
-        EntityFieldModel {
-            name: "tag",
-            kind: EntityFieldKind::Text,
-        },
-    ];
-    const TEST_MODEL: EntityModel = EntityModel {
-        path: ENTITY_PATH,
-        entity_name: "TestEntity",
-        primary_key: &TEST_FIELDS[0],
-        fields: &TEST_FIELDS,
-        indexes: &INDEXES,
-    };
-    const MISSING_ENTITY_PATH: &str = "index_plan_test::MissingFieldEntity";
-    const MISSING_MODEL: EntityModel = EntityModel {
-        path: MISSING_ENTITY_PATH,
-        entity_name: "MissingFieldEntity",
-        primary_key: &TEST_FIELDS[0],
-        fields: &TEST_FIELDS,
-        indexes: &INDEXES,
-    };
+    const DATA_STORE_PATH: &str = TEST_DATA_STORE_PATH;
+    const INDEX_STORE_PATH: &str = TEST_INDEX_STORE_PATH;
 
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     struct TestEntity {
-        id: Ref<Self>,
+        id: Ulid,
         tag: String,
     }
 
-    impl Path for TestEntity {
-        const PATH: &'static str = ENTITY_PATH;
+    crate::test_entity! {
+        entity TestEntity {
+            path: "index_plan_test::TestEntity",
+            pk: id: Ulid,
+
+            fields { id: Ulid, tag: Text }
+
+            indexes { index idx_tag(tag) unique; }
+        }
     }
 
     impl View for TestEntity {
@@ -517,7 +482,7 @@ mod tests {
     impl FieldValues for TestEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(self.id.to_value()),
+                "id" => Some(Value::Ulid(self.id)),
                 "tag" => Some(Value::Text(self.tag.clone())),
                 _ => None,
             }
@@ -526,12 +491,19 @@ mod tests {
 
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     struct MissingFieldEntity {
-        id: Ref<Self>,
+        id: Ulid,
         tag: String,
     }
 
-    impl Path for MissingFieldEntity {
-        const PATH: &'static str = MISSING_ENTITY_PATH;
+    crate::test_entity! {
+        entity MissingFieldEntity {
+            path: "index_plan_test::MissingFieldEntity",
+            pk: id: Ulid,
+
+            fields { id: Ulid, tag: Text }
+
+            indexes { index idx_tag(tag) unique; }
+        }
     }
 
     impl View for MissingFieldEntity {
@@ -555,78 +527,11 @@ mod tests {
     impl FieldValues for MissingFieldEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(self.id.to_value()),
+                "id" => Some(Value::Ulid(self.id)),
                 "tag" if self.tag == "__missing__" => None,
                 "tag" => Some(Value::Text(self.tag.clone())),
                 _ => None,
             }
-        }
-    }
-
-    #[derive(Clone, Copy)]
-    struct TestCanister;
-
-    impl Path for TestCanister {
-        const PATH: &'static str = CANISTER_PATH;
-    }
-
-    impl CanisterKind for TestCanister {}
-
-    struct TestStore;
-
-    impl Path for TestStore {
-        const PATH: &'static str = DATA_STORE_PATH;
-    }
-
-    impl DataStoreKind for TestStore {
-        type Canister = TestCanister;
-    }
-
-    impl EntityKind for TestEntity {
-        type PrimaryKey = Ref<Self>;
-        type DataStore = TestStore;
-        type Canister = TestCanister;
-
-        const ENTITY_NAME: &'static str = "TestEntity";
-        const PRIMARY_KEY: &'static str = "id";
-        const FIELDS: &'static [&'static str] = &["id", "tag"];
-        const INDEXES: &'static [&'static IndexModel] = &INDEXES;
-        const MODEL: &'static EntityModel = &TEST_MODEL;
-
-        fn key(&self) -> Self::PrimaryKey {
-            self.id
-        }
-
-        fn primary_key(&self) -> Self::PrimaryKey {
-            self.id
-        }
-
-        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-            self.id = key;
-        }
-    }
-
-    impl EntityKind for MissingFieldEntity {
-        type PrimaryKey = Ref<Self>;
-        type DataStore = TestStore;
-        type Canister = TestCanister;
-
-        const ENTITY_NAME: &'static str = "MissingFieldEntity";
-        const PRIMARY_KEY: &'static str = "id";
-        const FIELDS: &'static [&'static str] = &["id", "tag"];
-        const INDEXES: &'static [&'static IndexModel] = &INDEXES;
-        const MODEL: &'static EntityModel = &MISSING_MODEL;
-
-        fn key(&self) -> Self::PrimaryKey {
-            self.id
-        }
-
-        fn primary_key(&self) -> Self::PrimaryKey {
-            self.id
-        }
-
-        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-            self.id = key;
         }
     }
 
@@ -674,11 +579,11 @@ mod tests {
         let raw_row = RawRow::try_new(serialize(entity).unwrap()).unwrap();
         TEST_DATA_STORE.with_borrow_mut(|store| store.insert(raw_key, raw_row));
 
-        let index_key = IndexKey::new(entity, &INDEX_MODEL)
+        let index_key = IndexKey::new(entity, <TestEntity as EntityKind>::INDEXES[0])
             .expect("index key")
             .expect("index key missing");
         let raw_index_key = index_key.to_raw();
-        let entry = IndexEntry::new(entity.id());
+        let entry = IndexEntry::new(entity.id);
         let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
         TEST_INDEX_STORE.with_borrow_mut(|store| store.insert(raw_index_key, raw_entry));
     }
@@ -689,13 +594,13 @@ mod tests {
             reset_stores();
 
             let existing = TestEntity {
-                id: Ref::new(Ulid::from_u128(1)),
+                id: Ulid::from_u128(1),
                 tag: "alpha".to_string(),
             };
             seed_entity(&existing);
 
             let incoming = TestEntity {
-                id: Ref::new(Ulid::from_u128(2)),
+                id: Ulid::from_u128(2),
                 tag: "alpha".to_string(),
             };
 
@@ -711,13 +616,13 @@ mod tests {
             reset_stores();
 
             let existing = TestEntity {
-                id: Ref::new(Ulid::from_u128(1)),
+                id: Ulid::from_u128(1),
                 tag: "alpha".to_string(),
             };
             seed_entity(&existing);
 
             let incoming = TestEntity {
-                id: Ref::new(Ulid::from_u128(2)),
+                id: Ulid::from_u128(2),
                 tag: "beta".to_string(),
             };
 
@@ -733,11 +638,11 @@ mod tests {
         reset_stores();
 
         let indexed = TestEntity {
-            id: Ref::new(Ulid::from_u128(1)),
+            id: Ulid::from_u128(1),
             tag: "alpha".to_string(),
         };
         let corrupted = TestEntity {
-            id: Ref::new(Ulid::from_u128(2)),
+            id: Ulid::from_u128(2),
             tag: "alpha".to_string(),
         };
 
@@ -746,16 +651,16 @@ mod tests {
         let raw_row = RawRow::try_new(serialize(&corrupted).unwrap()).unwrap();
         TEST_DATA_STORE.with_borrow_mut(|store| store.insert(raw_key, raw_row));
 
-        let index_key = IndexKey::new(&indexed, &INDEX_MODEL)
+        let index_key = IndexKey::new(&indexed, <TestEntity as EntityKind>::INDEXES[0])
             .expect("index key")
             .expect("index key missing");
         let raw_index_key = index_key.to_raw();
-        let entry = IndexEntry::new(indexed.id());
+        let entry = IndexEntry::new(indexed.id);
         let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
         TEST_INDEX_STORE.with_borrow_mut(|store| store.insert(raw_index_key, raw_entry));
 
         let incoming = TestEntity {
-            id: Ref::new(Ulid::from_u128(3)),
+            id: Ulid::from_u128(3),
             tag: "alpha".to_string(),
         };
 
@@ -770,7 +675,7 @@ mod tests {
         reset_stores();
 
         let stored = MissingFieldEntity {
-            id: Ref::new(Ulid::from_u128(1)),
+            id: Ulid::from_u128(1),
             tag: "__missing__".to_string(),
         };
         let data_key = DataKey::try_new::<MissingFieldEntity>(stored.id).unwrap();
@@ -779,15 +684,15 @@ mod tests {
         TEST_DATA_STORE.with_borrow_mut(|store| store.insert(raw_key, raw_row));
 
         let incoming = MissingFieldEntity {
-            id: Ref::new(Ulid::from_u128(2)),
+            id: Ulid::from_u128(2),
             tag: "alpha".to_string(),
         };
 
-        let index_key = IndexKey::new(&incoming, &INDEX_MODEL)
+        let index_key = IndexKey::new(&incoming, <MissingFieldEntity as EntityKind>::INDEXES[0])
             .expect("index key")
             .expect("index key missing");
         let raw_index_key = index_key.to_raw();
-        let entry = IndexEntry::new(stored.id());
+        let entry = IndexEntry::new(stored.id);
         let raw_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
         TEST_INDEX_STORE.with_borrow_mut(|store| store.insert(raw_index_key, raw_entry));
 
@@ -797,4 +702,3 @@ mod tests {
         assert_eq!(err.origin, ErrorOrigin::Index);
     }
 }
-*/

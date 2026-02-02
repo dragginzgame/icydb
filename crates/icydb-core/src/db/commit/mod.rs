@@ -181,7 +181,6 @@ pub fn finish_commit(
     result
 }
 
-/*
 ///
 /// TESTS
 ///
@@ -195,17 +194,13 @@ mod tests {
             store::{DataKey, DataStore, DataStoreRegistry, RawRow},
         },
         error::{ErrorClass, ErrorOrigin},
-        model::{
-            entity::EntityModel,
-            field::{EntityFieldKind, EntityFieldModel},
-            index::IndexModel,
-        },
         serialize::serialize,
+        test_support::{TEST_DATA_STORE_PATH, TEST_INDEX_STORE_PATH, TestCanister},
         traits::{
-            CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto,
-            SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
+            EntityKind, FieldValues, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+            View, Visitable,
         },
-        types::{Ref, Ulid},
+        types::Ulid,
         value::Value,
     };
     use canic_memory::runtime::registry::MemoryRegistryRuntime;
@@ -216,38 +211,8 @@ mod tests {
     // Schema
     // ---------------------------------------------------------------------
 
-    const CANISTER_PATH: &str = "commit_test::TestCanister";
-    const DATA_STORE_PATH: &str = "commit_test::TestDataStore";
-    const INDEX_STORE_PATH: &str = "commit_test::TestIndexStore";
-    const ENTITY_PATH: &str = "commit_test::TestEntity";
-
-    const INDEX_FIELDS: [&str; 1] = ["name"];
-    const INDEX_MODEL: IndexModel = IndexModel::new(
-        "commit_test::index_name",
-        INDEX_STORE_PATH,
-        &INDEX_FIELDS,
-        true,
-    );
-    const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
-
-    const TEST_FIELDS: [EntityFieldModel; 2] = [
-        EntityFieldModel {
-            name: "id",
-            kind: EntityFieldKind::Ulid,
-        },
-        EntityFieldModel {
-            name: "name",
-            kind: EntityFieldKind::Text,
-        },
-    ];
-
-    const TEST_MODEL: EntityModel = EntityModel {
-        path: ENTITY_PATH,
-        entity_name: "TestEntity",
-        primary_key: &TEST_FIELDS[0],
-        fields: &TEST_FIELDS,
-        indexes: &INDEXES,
-    };
+    const DATA_STORE_PATH: &str = TEST_DATA_STORE_PATH;
+    const INDEX_STORE_PATH: &str = TEST_INDEX_STORE_PATH;
 
     // ---------------------------------------------------------------------
     // Entity
@@ -255,12 +220,19 @@ mod tests {
 
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     struct TestEntity {
-        id: Ref<Self>,
+        id: Ulid,
         name: String,
     }
 
-    impl Path for TestEntity {
-        const PATH: &'static str = ENTITY_PATH;
+    crate::test_entity! {
+        entity TestEntity {
+            path: "commit_test::TestEntity",
+            pk: id: Ulid,
+
+            fields { id: Ulid, name: Text }
+
+            indexes { index index_name(name) unique; }
+        }
     }
 
     impl View for TestEntity {
@@ -284,54 +256,13 @@ mod tests {
     impl FieldValues for TestEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(self.id.as_value()),
+                "id" => Some(Value::Ulid(self.id)),
                 "name" => Some(Value::Text(self.name.clone())),
                 _ => None,
             }
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Identity & Kind
-    // ---------------------------------------------------------------------
-        #[derive(Clone, Copy)]
-        struct TestCanister;
-
-        impl Path for TestCanister {
-            const PATH: &'static str = CANISTER_PATH;
-        }
-
-        impl CanisterKind for TestCanister {}
-
-        struct TestStore;
-
-        impl Path for TestStore {
-            const PATH: &'static str = DATA_STORE_PATH;
-        }
-
-        impl DataStoreKind for TestStore {
-            type Canister = TestCanister;
-        }
-
-        impl EntityKind for TestEntity {
-            type Id = Ulid;
-            type DataStore = TestStore;
-            type Canister = TestCanister;
-
-            const ENTITY_NAME: &'static str = "TestEntity";
-            const PRIMARY_KEY: &'static str = "id";
-            const FIELDS: &'static [&'static str] = &["id", "name"];
-            const INDEXES: &'static [&'static IndexModel] = &INDEXES;
-            const MODEL: &'static EntityModel = &TEST_MODEL;
-
-            fn id(&self) -> Self::Id {
-                self.id.id()
-            }
-
-            fn set_id(&mut self, id: Self::Id) {
-                self.id = Ref::new(id);
-            }
-        }
     // ---------------------------------------------------------------------
     // Stores & DB
     // ---------------------------------------------------------------------
@@ -401,20 +332,20 @@ mod tests {
         reset_stores();
 
         let entity = TestEntity {
-            id: Ref::new(Ulid::from_u128(7)),
+            id: Ulid::from_u128(7),
             name: "alpha".to_string(),
         };
 
-        let data_key = DataKey::try_new::<TestEntity>(entity.id()).unwrap();
+        let data_key = DataKey::try_new::<TestEntity>(entity.id).unwrap();
         let raw_data_key = data_key.to_raw().expect("data key encode");
         let raw_row = RawRow::try_new(serialize(&entity).unwrap()).unwrap();
 
-        let index_key = IndexKey::new(&entity, &INDEX_MODEL)
+        let index_key = IndexKey::new(&entity, <TestEntity as EntityKind>::INDEXES[0])
             .expect("index key")
             .expect("index key missing");
         let raw_index_key = index_key.to_raw();
 
-        let entry = IndexEntry::new(entity.id());
+        let entry = IndexEntry::new(entity.id);
         let raw_index_entry = RawIndexEntry::try_from_entry(&entry).unwrap();
 
         let mut marker = CommitMarker::new(
@@ -452,11 +383,11 @@ mod tests {
         reset_stores();
 
         let entity = TestEntity {
-            id: Ref::new(Ulid::from_u128(8)),
+            id: Ulid::from_u128(8),
             name: "alpha".to_string(),
         };
 
-        let data_key = DataKey::try_new::<TestEntity>(entity.id()).unwrap();
+        let data_key = DataKey::try_new::<TestEntity>(entity.id).unwrap();
         let raw_data_key = data_key.to_raw().expect("data key encode");
         let raw_row = RawRow::try_new(serialize(&entity).unwrap()).unwrap();
 
@@ -479,4 +410,3 @@ mod tests {
         assert_eq!(err.origin, ErrorOrigin::Store);
     }
 }
-    */

@@ -6,7 +6,6 @@ members = [
     "crates/icydb-schema",
     "crates/icydb-schema-derive",
     # Test-only crates
-    "crates/icydb-test-macros",
     "crates/test",
     "crates/test_design",
 ]
@@ -38,7 +37,6 @@ icydb-build = { path = "crates/icydb-build", version = "0.6.4" }
 icydb-core = { path = "crates/icydb-core", version = "0.6.4" }
 icydb-schema = { path = "crates/icydb-schema", version = "0.6.4" }
 icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.6.4" }
-icydb-test-macros = { path = "crates/icydb-test-macros", version = "0.6.4" }
 num-traits = { version = "0.2", default-features = false }
 proc-macro2 = "1.0"
 proptest = "1.9.0"

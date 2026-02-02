@@ -395,7 +395,6 @@ const fn is_key_compatible(field_type: &FieldType) -> bool {
     )
 }
 
-/*
 ///
 /// TESTS
 ///
@@ -406,69 +405,33 @@ mod tests {
     use crate::{
         db::query::predicate::SchemaInfo,
         db::query::predicate::coercion::CoercionSpec,
-        model::{
-            entity::EntityModel,
-            field::{EntityFieldKind, EntityFieldModel},
-        },
-        prelude::IndexModel,
+        model::index::IndexModel,
         traits::{
-            CanisterKind, DataStoreKind, FieldValue, FieldValues, Path, SanitizeAuto,
-            SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
+            EntityKind, FieldValues, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+            View, Visitable,
         },
         types::Ulid,
         value::Value,
     };
     use serde::{Deserialize, Serialize};
 
-    const CANISTER_PATH: &str = "planner_test::PlannerCanister";
-    const DATA_STORE_PATH: &str = "planner_test::PlannerData";
-    const INDEX_STORE_PATH: &str = "planner_test::PlannerIndex";
-    const ENTITY_PATH: &str = "planner_test::PlannerEntity";
-
-    const INDEX_FIELDS: [&str; 2] = ["idx_a", "idx_b"];
-    const INDEX_MODEL: IndexModel = IndexModel::new(
-        "planner_test::idx_a_idx_b",
-        INDEX_STORE_PATH,
-        &INDEX_FIELDS,
-        false,
-    );
-    const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
-    const PLANNER_FIELDS: [EntityFieldModel; 4] = [
-        EntityFieldModel {
-            name: "id",
-            kind: EntityFieldKind::Ulid,
-        },
-        EntityFieldModel {
-            name: "idx_a",
-            kind: EntityFieldKind::Text,
-        },
-        EntityFieldModel {
-            name: "idx_b",
-            kind: EntityFieldKind::Text,
-        },
-        EntityFieldModel {
-            name: "other",
-            kind: EntityFieldKind::Text,
-        },
-    ];
-    const PLANNER_MODEL: EntityModel = EntityModel {
-        path: ENTITY_PATH,
-        entity_name: "PlannerEntity",
-        primary_key: &PLANNER_FIELDS[0],
-        fields: &PLANNER_FIELDS,
-        indexes: &INDEXES,
-    };
-
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     pub struct PlannerEntity {
-        id: Ref<Self>,
+        id: Ulid,
         idx_a: String,
         idx_b: String,
         other: String,
     }
 
-    impl Path for PlannerEntity {
-        const PATH: &'static str = ENTITY_PATH;
+    crate::test_entity! {
+        entity PlannerEntity {
+            path: "planner_test::PlannerEntity",
+            pk: id: Ulid,
+
+            fields { id: Ulid, idx_a: Text, idx_b: Text, other: Text }
+
+            indexes { index idx_a_idx_b(idx_a, idx_b); }
+        }
     }
 
     impl View for PlannerEntity {
@@ -492,7 +455,7 @@ mod tests {
     impl FieldValues for PlannerEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(self.id.to_value()),
+                "id" => Some(Value::Ulid(self.id)),
                 "idx_a" => Some(Value::Text(self.idx_a.clone())),
                 "idx_b" => Some(Value::Text(self.idx_b.clone())),
                 "other" => Some(Value::Text(self.other.clone())),
@@ -501,104 +464,26 @@ mod tests {
         }
     }
 
-    pub struct PlannerCanister;
-
-    impl Path for PlannerCanister {
-        const PATH: &'static str = CANISTER_PATH;
-    }
-
-    impl CanisterKind for PlannerCanister {}
-
-    pub struct PlannerStore;
-
-    impl Path for PlannerStore {
-        const PATH: &'static str = DATA_STORE_PATH;
-    }
-
-    impl DataStoreKind for PlannerStore {
-        type Canister = PlannerCanister;
-    }
-
-    impl EntityKind for PlannerEntity {
-        type PrimaryKey = Ref<Self>;
-        type DataStore = PlannerStore;
-        type Canister = PlannerCanister;
-
-        const ENTITY_NAME: &'static str = "PlannerEntity";
-        const PRIMARY_KEY: &'static str = "id";
-        const FIELDS: &'static [&'static str] = &["id", "idx_a", "idx_b", "other"];
-        const INDEXES: &'static [&'static IndexModel] = &INDEXES;
-        const MODEL: &'static EntityModel = &PLANNER_MODEL;
-
-        fn key(&self) -> Self::PrimaryKey {
-            self.id
-        }
-
-        fn primary_key(&self) -> Self::PrimaryKey {
-            self.id
-        }
-
-        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-            self.id = key;
-        }
-    }
-
-    const MULTI_ENTITY_PATH: &str = "planner_test::MultiIndexEntity";
-
-    const MULTI_INDEX_FIELDS_A: [&str; 1] = ["idx_a"];
-    const MULTI_INDEX_FIELDS_AB: [&str; 2] = ["idx_a", "idx_b"];
-
-    const MULTI_INDEX_A: IndexModel = IndexModel::new(
-        "planner_test::idx_a",
-        INDEX_STORE_PATH,
-        &MULTI_INDEX_FIELDS_A,
-        false,
-    );
-    const MULTI_INDEX_A_ALT: IndexModel = IndexModel::new(
-        "planner_test::idx_a_alt",
-        INDEX_STORE_PATH,
-        &MULTI_INDEX_FIELDS_A,
-        false,
-    );
-    const MULTI_INDEX_AB: IndexModel = IndexModel::new(
-        "planner_test::idx_a_b",
-        INDEX_STORE_PATH,
-        &MULTI_INDEX_FIELDS_AB,
-        false,
-    );
-    const MULTI_INDEXES: [&IndexModel; 3] = [&MULTI_INDEX_AB, &MULTI_INDEX_A_ALT, &MULTI_INDEX_A];
-
-    const MULTI_FIELDS: [EntityFieldModel; 3] = [
-        EntityFieldModel {
-            name: "id",
-            kind: EntityFieldKind::Ulid,
-        },
-        EntityFieldModel {
-            name: "idx_a",
-            kind: EntityFieldKind::Text,
-        },
-        EntityFieldModel {
-            name: "idx_b",
-            kind: EntityFieldKind::Text,
-        },
-    ];
-    const MULTI_MODEL: EntityModel = EntityModel {
-        path: MULTI_ENTITY_PATH,
-        entity_name: "MultiIndexEntity",
-        primary_key: &MULTI_FIELDS[0],
-        fields: &MULTI_FIELDS,
-        indexes: &MULTI_INDEXES,
-    };
-
     #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
     struct MultiIndexEntity {
-        id: Ref<Self>,
+        id: Ulid,
         idx_a: String,
         idx_b: String,
     }
 
-    impl Path for MultiIndexEntity {
-        const PATH: &'static str = MULTI_ENTITY_PATH;
+    crate::test_entity! {
+        entity MultiIndexEntity {
+            path: "planner_test::MultiIndexEntity",
+            pk: id: Ulid,
+
+            fields { id: Ulid, idx_a: Text, idx_b: Text }
+
+            indexes {
+                index idx_a_b(idx_a, idx_b);
+                index idx_a_alt(idx_a);
+                index idx_a(idx_a);
+            }
+        }
     }
 
     impl View for MultiIndexEntity {
@@ -622,7 +507,7 @@ mod tests {
     impl FieldValues for MultiIndexEntity {
         fn get_value(&self, field: &str) -> Option<Value> {
             match field {
-                "id" => Some(self.id.to_value()),
+                "id" => Some(Value::Ulid(self.id)),
                 "idx_a" => Some(Value::Text(self.idx_a.clone())),
                 "idx_b" => Some(Value::Text(self.idx_b.clone())),
                 _ => None,
@@ -630,32 +515,12 @@ mod tests {
         }
     }
 
-    impl EntityKind for MultiIndexEntity {
-        type PrimaryKey = Ref<Self>;
-        type DataStore = PlannerStore;
-        type Canister = PlannerCanister;
-
-        const ENTITY_NAME: &'static str = "MultiIndexEntity";
-        const PRIMARY_KEY: &'static str = "id";
-        const FIELDS: &'static [&'static str] = &["id", "idx_a", "idx_b"];
-        const INDEXES: &'static [&'static IndexModel] = &MULTI_INDEXES;
-        const MODEL: &'static EntityModel = &MULTI_MODEL;
-
-        fn key(&self) -> Self::PrimaryKey {
-            self.id
-        }
-
-        fn primary_key(&self) -> Self::PrimaryKey {
-            self.id
-        }
-
-        fn set_primary_key(&mut self, key: Self::PrimaryKey) {
-            self.id = key;
-        }
-    }
-
     fn model_schema() -> SchemaInfo {
         SchemaInfo::from_entity_model(PlannerEntity::MODEL).expect("valid model")
+    }
+
+    fn planner_index() -> IndexModel {
+        *<PlannerEntity as EntityKind>::INDEXES[0]
     }
 
     fn strict() -> CoercionSpec {
@@ -695,7 +560,7 @@ mod tests {
         let predicate = eq("id", Value::Ulid(id), strict());
         let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
-        assert_eq!(plan, AccessPlan::Path(AccessPath::ByKey(Ref::new(id))));
+        assert_eq!(plan, AccessPlan::Path(AccessPath::ByKey(id)));
     }
 
     #[test]
@@ -706,10 +571,7 @@ mod tests {
         let predicate = in_list("id", vec![Value::Ulid(a), Value::Ulid(b)], strict());
         let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
-        assert_eq!(
-            plan,
-            AccessPlan::Path(AccessPath::ByKeys(vec![Ref::new(a), Ref::new(b)]))
-        );
+        assert_eq!(plan, AccessPlan::Path(AccessPath::ByKeys(vec![a, b])));
     }
 
     #[test]
@@ -730,7 +592,7 @@ mod tests {
         assert_eq!(
             plan,
             AccessPlan::Path(AccessPath::IndexPrefix {
-                index: INDEX_MODEL,
+                index: planner_index(),
                 values: vec![v_text("alpha")],
             })
         );
@@ -746,11 +608,11 @@ mod tests {
             plan,
             AccessPlan::Union(vec![
                 AccessPlan::Path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: planner_index(),
                     values: vec![v_text("a")],
                 }),
                 AccessPlan::Path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: planner_index(),
                     values: vec![v_text("b")],
                 }),
             ])
@@ -788,9 +650,9 @@ mod tests {
         assert_eq!(
             plan,
             AccessPlan::Intersection(vec![
-                AccessPlan::Path(AccessPath::ByKey(Ref::new(id))),
+                AccessPlan::Path(AccessPath::ByKey(id)),
                 AccessPlan::Path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: planner_index(),
                     values: vec![v_text("alpha")],
                 }),
             ])
@@ -807,7 +669,7 @@ mod tests {
         ]);
         let plan = plan_access::<PlannerEntity>(&schema, Some(&predicate)).unwrap();
 
-        assert_eq!(plan, AccessPlan::Path(AccessPath::ByKey(Ref::new(id))));
+        assert_eq!(plan, AccessPlan::Path(AccessPath::ByKey(id)));
     }
 
     #[test]
@@ -847,11 +709,11 @@ mod tests {
             plan,
             AccessPlan::Intersection(vec![
                 AccessPlan::Path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: planner_index(),
                     values: vec![v_text("a"), v_text("b")],
                 }),
                 AccessPlan::Path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: planner_index(),
                     values: vec![v_text("a")],
                 }),
             ])
@@ -867,7 +729,7 @@ mod tests {
         assert_eq!(
             non_strict_plan,
             AccessPlan::Path(AccessPath::IndexPrefix {
-                index: INDEX_MODEL,
+                index: planner_index(),
                 values: vec![v_text("a")],
             })
         );
@@ -892,7 +754,7 @@ mod tests {
         let AccessPath::IndexPrefix { index, values } = first else {
             panic!("expected index prefix path");
         };
-        assert_eq!(index.name, "planner_test::idx_a_b");
+        assert_eq!(index.name, "planner_test::MultiIndexEntity::idx_a_b");
         assert_eq!(values, vec![v_text("alpha"), v_text("beta")]);
 
         let children = vec![eq("idx_a", v_text("alpha"), strict())];
@@ -903,7 +765,7 @@ mod tests {
         else {
             panic!("expected index prefix path");
         };
-        assert_eq!(index.name, "planner_test::idx_a");
+        assert_eq!(index.name, "planner_test::MultiIndexEntity::idx_a");
     }
 
     #[test]
@@ -919,9 +781,9 @@ mod tests {
         assert_eq!(
             plan,
             AccessPlan::Union(vec![
-                AccessPlan::Path(AccessPath::ByKey(Ref::new(id))),
+                AccessPlan::Path(AccessPath::ByKey(id)),
                 AccessPlan::Path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
+                    index: planner_index(),
                     values: vec![v_text("alpha")],
                 }),
             ])
@@ -1001,4 +863,3 @@ mod tests {
         assert_eq!(plan_a, plan_b);
     }
 }
-*/

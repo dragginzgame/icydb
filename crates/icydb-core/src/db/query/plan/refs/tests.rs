@@ -1,31 +1,26 @@
-/*
 use crate::{
     traits::{
-        CanisterKind, DataStoreKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        FieldValues, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::{Ref, Ulid},
     value::Value,
 };
-use icydb_test_macros::test_entity;
 use serde::{Deserialize, Serialize};
 
-const CANISTER_PATH: &str = "traits_tests::TestCanister";
-const STORE_PATH: &str = "traits_tests::TestStore";
 const OWNER_PATH: &str = "traits_tests::OwnerEntity";
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[test_entity(
-    crate = crate,
-    entity_name = "OwnerEntity",
-    path = "traits_tests::OwnerEntity",
-    datastore = TestStore,
-    canister = TestCanister,
-    primary_key = id,
-    fields = ["id"],
-)]
 struct OwnerEntity {
-    id: Ref<Self>,
+    id: Ulid,
+}
+
+crate::test_entity! {
+    entity OwnerEntity {
+        path: "traits_tests::OwnerEntity",
+        pk: id: Ulid,
+
+        fields { id: Ulid }
+    }
 }
 
 impl View for OwnerEntity {
@@ -49,25 +44,25 @@ impl Visitable for OwnerEntity {}
 impl FieldValues for OwnerEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Ulid(self.id)),
             _ => None,
         }
     }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[test_entity(
-    crate = crate,
-    entity_name = "RefEntity",
-    path = "traits_tests::RefEntity",
-    datastore = TestStore,
-    canister = TestCanister,
-    primary_key = id,
-    fields = ["id", "owner"],
-)]
 struct RefEntity {
-    id: Ref<Self>,
+    id: Ulid,
     owner: Option<Ref<OwnerEntity>>,
+}
+
+crate::test_entity! {
+    entity RefEntity {
+        path: "traits_tests::RefEntity",
+        pk: id: Ulid,
+
+        fields { id: Ulid, owner: Ref<OwnerEntity> }
+    }
 }
 
 impl View for RefEntity {
@@ -91,7 +86,7 @@ impl Visitable for RefEntity {}
 impl FieldValues for RefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Ulid(self.id)),
             "owner" => Some(self.owner.map_or(Value::None, |owner| owner.as_value())),
             _ => None,
         }
@@ -99,18 +94,18 @@ impl FieldValues for RefEntity {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[test_entity(
-    crate = crate,
-    entity_name = "CollectionRefEntity",
-    path = "traits_tests::CollectionRefEntity",
-    datastore = TestStore,
-    canister = TestCanister,
-    primary_key = id,
-    fields = ["id", "owners"],
-)]
 struct CollectionRefEntity {
-    id: Ref<Self>,
+    id: Ulid,
     owners: Vec<Ref<OwnerEntity>>,
+}
+
+crate::test_entity! {
+    entity CollectionRefEntity {
+        path: "traits_tests::CollectionRefEntity",
+        pk: id: Ulid,
+
+        fields { id: Ulid, owners: List<Ref<OwnerEntity>> }
+    }
 }
 
 impl View for CollectionRefEntity {
@@ -134,7 +129,7 @@ impl Visitable for CollectionRefEntity {}
 impl FieldValues for CollectionRefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Ulid(self.id)),
             "owners" => Some(Value::List(
                 self.owners.iter().map(|owner| owner.as_value()).collect(),
             )),
@@ -143,29 +138,10 @@ impl FieldValues for CollectionRefEntity {
     }
 }
 
-#[derive(Clone, Copy)]
-struct TestCanister;
-
-impl Path for TestCanister {
-    const PATH: &'static str = CANISTER_PATH;
-}
-
-impl CanisterKind for TestCanister {}
-
-struct TestStore;
-
-impl Path for TestStore {
-    const PATH: &'static str = STORE_PATH;
-}
-
-impl DataStoreKind for TestStore {
-    type Canister = TestCanister;
-}
-
 #[test]
 fn entity_refs_empty_for_non_reference_entity() {
     let owner = OwnerEntity {
-        id: Ref::new(Ulid::generate()),
+        id: Ulid::generate(),
     };
 
     let refs = owner
@@ -179,7 +155,7 @@ fn entity_refs_empty_for_non_reference_entity() {
 fn entity_refs_collect_optional_reference() {
     let owner_id = Ulid::generate();
     let entity = RefEntity {
-        id: Ref::new(Ulid::generate()),
+        id: Ulid::generate(),
         owner: Some(Ref::new(owner_id)),
     };
 
@@ -189,13 +165,16 @@ fn entity_refs_collect_optional_reference() {
 
     assert_eq!(refs.len(), 1);
     assert_eq!(refs[0].target_path, OWNER_PATH);
-    assert_eq!(refs[0].value(), Ref::<OwnerEntity>::new(owner_id).as_value());
+    assert_eq!(
+        refs[0].value(),
+        Ref::<OwnerEntity>::new(owner_id).as_value()
+    );
 }
 
 #[test]
 fn entity_refs_skip_reference_collections() {
     let entity = CollectionRefEntity {
-        id: Ref::new(Ulid::generate()),
+        id: Ulid::generate(),
         owners: vec![Ref::new(Ulid::generate())],
     };
 
@@ -205,4 +184,3 @@ fn entity_refs_skip_reference_collections() {
 
     assert!(refs.is_empty());
 }
-*/

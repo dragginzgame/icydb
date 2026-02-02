@@ -13,6 +13,9 @@ pub mod value;
 pub mod view;
 pub mod visitor;
 
+#[cfg(test)]
+pub mod test_support;
+
 ///
 /// CONSTANTS
 ///

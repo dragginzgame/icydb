@@ -1,4 +1,3 @@
-/*
 use super::trace::{QueryTraceEvent, QueryTraceSink, TraceAccess, TraceExecutorKind, TracePhase};
 use super::{DeleteExecutor, LoadExecutor, SaveExecutor};
 use crate::{
@@ -23,21 +22,17 @@ use crate::{
         write::{fail_checkpoint_label, fail_next_checkpoint},
     },
     error::{ErrorClass, ErrorOrigin},
-    model::{
-        entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel},
-        index::IndexModel,
-    },
+    model::index::IndexModel,
     serialize::serialize,
+    test_support::{TEST_CANISTER_PATH, TEST_DATA_STORE_PATH, TEST_INDEX_STORE_PATH, TestCanister},
     traits::{
-        CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto,
-        SanitizeCustom, UnitKey, ValidateAuto, ValidateCustom, View, Visitable,
+        EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        View, Visitable,
     },
     types::{Ref, Timestamp, Ulid, Unit},
     value::{Value, ValueEnum},
 };
 use canic_memory::runtime::registry::MemoryRegistryRuntime;
-use icydb_test_macros::test_entity;
 use icydb_schema::{
     build::schema_write,
     node::{
@@ -54,32 +49,12 @@ use std::{
     sync::{Mutex, Once},
 };
 
-const CANISTER_PATH: &str = "write_unit_test::TestCanister";
-const DATA_STORE_PATH: &str = "write_unit_test::TestDataStore";
-const INDEX_STORE_PATH: &str = "write_unit_test::TestIndexStore";
+const CANISTER_PATH: &str = TEST_CANISTER_PATH;
+const DATA_STORE_PATH: &str = TEST_DATA_STORE_PATH;
+const INDEX_STORE_PATH: &str = TEST_INDEX_STORE_PATH;
 const ENTITY_PATH: &str = "write_unit_test::TestEntity";
 
 const INDEX_FIELDS: [&str; 1] = ["name"];
-const INDEX_MODEL: IndexModel =
-    IndexModel::new("test::index_name", INDEX_STORE_PATH, &INDEX_FIELDS, true);
-const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
-const TEST_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
-        name: "id",
-        kind: EntityFieldKind::Ulid,
-    },
-    EntityFieldModel {
-        name: "name",
-        kind: EntityFieldKind::Text,
-    },
-];
-const TEST_MODEL: EntityModel = EntityModel {
-    path: ENTITY_PATH,
-    entity_name: "TestEntity",
-    primary_key: &TEST_FIELDS[0],
-    fields: &TEST_FIELDS,
-    indexes: &INDEXES,
-};
 
 const ORDER_ENTITY_PATH: &str = "write_unit_test::OrderEntity";
 
@@ -87,44 +62,31 @@ const TIMESTAMP_ENTITY_PATH: &str = "write_unit_test::TimestampEntity";
 
 const UNIT_ENTITY_PATH: &str = "write_unit_test::UnitEntity";
 
-const TIMESTAMP_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
-    name: "id",
-    kind: EntityFieldKind::Timestamp,
-}];
-const TIMESTAMP_MODEL: EntityModel = EntityModel {
-    path: TIMESTAMP_ENTITY_PATH,
-    entity_name: "TimestampEntity",
-    primary_key: &TIMESTAMP_FIELDS[0],
-    fields: &TIMESTAMP_FIELDS,
-    indexes: &[],
-};
-
-const UNIT_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
-    name: "id",
-    kind: EntityFieldKind::Unit,
-}];
-const UNIT_MODEL: EntityModel = EntityModel {
-    path: UNIT_ENTITY_PATH,
-    entity_name: "UnitEntity",
-    primary_key: &UNIT_FIELDS[0],
-    fields: &UNIT_FIELDS,
-    indexes: &[],
-};
-
 const OWNER_ENTITY_PATH: &str = "write_unit_test::OwnerEntity";
 const DIRECT_REF_ENTITY_PATH: &str = "write_unit_test::DirectRefEntity";
 const RECORD_REF_ENTITY_PATH: &str = "write_unit_test::RecordRefEntity";
 const ENUM_REF_ENTITY_PATH: &str = "write_unit_test::EnumRefEntity";
 const COLLECTION_REF_ENTITY_PATH: &str = "write_unit_test::CollectionRefEntity";
 
+fn test_index_model() -> IndexModel {
+    *<TestEntity as EntityKind>::INDEXES[0]
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct TestEntity {
-    id: Ref<Self>,
+    id: Ulid,
     name: String,
 }
 
-impl Path for TestEntity {
-    const PATH: &'static str = ENTITY_PATH;
+crate::test_entity! {
+    entity TestEntity {
+        path: "write_unit_test::TestEntity",
+        pk: id: Ulid,
+
+        fields { id: Ulid, name: Text }
+
+        indexes { index index_name(name) unique; }
+    }
 }
 
 impl View for TestEntity {
@@ -148,7 +110,7 @@ impl Visitable for TestEntity {}
 impl FieldValues for TestEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Ulid(self.id)),
             "name" => Some(Value::Text(self.name.clone())),
             _ => None,
         }
@@ -156,17 +118,17 @@ impl FieldValues for TestEntity {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[test_entity(
-    crate = crate,
-    entity_name = "OwnerEntity",
-    path = "write_unit_test::OwnerEntity",
-    datastore = TestDataStore,
-    canister = TestCanister,
-    primary_key = id,
-    fields = ["id"],
-)]
 struct OwnerEntity {
-    id: Ref<Self>,
+    id: Ulid,
+}
+
+crate::test_entity! {
+    entity OwnerEntity {
+        path: "write_unit_test::OwnerEntity",
+        pk: id: Ulid,
+
+        fields { id: Ulid }
+    }
 }
 
 impl View for OwnerEntity {
@@ -190,25 +152,25 @@ impl Visitable for OwnerEntity {}
 impl FieldValues for OwnerEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Ulid(self.id)),
             _ => None,
         }
     }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[test_entity(
-    crate = crate,
-    entity_name = "DirectRefEntity",
-    path = "write_unit_test::DirectRefEntity",
-    datastore = TestDataStore,
-    canister = TestCanister,
-    primary_key = id,
-    fields = ["id", "owner"],
-)]
 struct DirectRefEntity {
-    id: Ref<Self>,
+    id: Ulid,
     owner: Option<Ref<OwnerEntity>>,
+}
+
+crate::test_entity! {
+    entity DirectRefEntity {
+        path: "write_unit_test::DirectRefEntity",
+        pk: id: Ulid,
+
+        fields { id: Ulid, owner: Ref<OwnerEntity> }
+    }
 }
 
 impl View for DirectRefEntity {
@@ -232,7 +194,7 @@ impl Visitable for DirectRefEntity {}
 impl FieldValues for DirectRefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Ulid(self.id)),
             "owner" => Some(self.owner.map_or(Value::None, |owner| owner.as_value())),
             _ => None,
         }
@@ -245,18 +207,18 @@ struct RecordRefPayload {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[test_entity(
-    crate = crate,
-    entity_name = "RecordRefEntity",
-    path = "write_unit_test::RecordRefEntity",
-    datastore = TestDataStore,
-    canister = TestCanister,
-    primary_key = id,
-    fields = ["id", "profile"],
-)]
 struct RecordRefEntity {
-    id: Ref<Self>,
+    id: Ulid,
     profile: RecordRefPayload,
+}
+
+crate::test_entity! {
+    entity RecordRefEntity {
+        path: "write_unit_test::RecordRefEntity",
+        pk: id: Ulid,
+
+        fields { id: Ulid, profile: Unsupported }
+    }
 }
 
 impl View for RecordRefEntity {
@@ -280,7 +242,7 @@ impl Visitable for RecordRefEntity {}
 impl FieldValues for RecordRefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Ulid(self.id)),
             "profile" => Some(Value::Unsupported),
             _ => None,
         }
@@ -299,18 +261,18 @@ impl Path for RefEnum {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[test_entity(
-    crate = crate,
-    entity_name = "EnumRefEntity",
-    path = "write_unit_test::EnumRefEntity",
-    datastore = TestDataStore,
-    canister = TestCanister,
-    primary_key = id,
-    fields = ["id", "status"],
-)]
 struct EnumRefEntity {
-    id: Ref<Self>,
+    id: Ulid,
     status: RefEnum,
+}
+
+crate::test_entity! {
+    entity EnumRefEntity {
+        path: "write_unit_test::EnumRefEntity",
+        pk: id: Ulid,
+
+        fields { id: Ulid, status: Enum }
+    }
 }
 
 impl View for EnumRefEntity {
@@ -334,7 +296,7 @@ impl Visitable for EnumRefEntity {}
 impl FieldValues for EnumRefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Ulid(self.id)),
             "status" => Some(Value::Enum(match &self.status {
                 RefEnum::Missing(owner) => {
                     ValueEnum::strict::<RefEnum>("Missing").with_payload(owner.as_value())
@@ -347,18 +309,18 @@ impl FieldValues for EnumRefEntity {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[test_entity(
-    crate = crate,
-    entity_name = "CollectionRefEntity",
-    path = "write_unit_test::CollectionRefEntity",
-    datastore = TestDataStore,
-    canister = TestCanister,
-    primary_key = id,
-    fields = ["id", "owners"],
-)]
 struct CollectionRefEntity {
-    id: Ref<Self>,
+    id: Ulid,
     owners: Vec<Ref<OwnerEntity>>,
+}
+
+crate::test_entity! {
+    entity CollectionRefEntity {
+        path: "write_unit_test::CollectionRefEntity",
+        pk: id: Ulid,
+
+        fields { id: Ulid, owners: List<Ref<OwnerEntity>> }
+    }
 }
 
 impl View for CollectionRefEntity {
@@ -382,7 +344,7 @@ impl Visitable for CollectionRefEntity {}
 impl FieldValues for CollectionRefEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Ulid(self.id)),
             "owners" => Some(Value::List(
                 self.owners.iter().map(|owner| owner.as_value()).collect(),
             )),
@@ -391,54 +353,20 @@ impl FieldValues for CollectionRefEntity {
     }
 }
 
-#[derive(Clone, Copy)]
-struct TestCanister;
-
-impl Path for TestCanister {
-    const PATH: &'static str = CANISTER_PATH;
-}
-
-impl CanisterKind for TestCanister {}
-
-struct TestDataStore;
-
-impl Path for TestDataStore {
-    const PATH: &'static str = DATA_STORE_PATH;
-}
-
-impl DataStoreKind for TestDataStore {
-    type Canister = TestCanister;
-}
-
-impl EntityKind for TestEntity {
-    type Id = Ref<Self>;
-    type DataStore = TestDataStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "TestEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id", "name"];
-    const INDEXES: &'static [&'static IndexModel] = &INDEXES;
-    const MODEL: &'static EntityModel = &TEST_MODEL;
-
-    fn id(&self) -> Self::Id {
-        self.id
-    }
-
-    fn set_id(&mut self, id: Self::Id) {
-        self.id = id;
-    }
-}
-
 /// UnitEntity
 /// Test-only singleton entity with a unit primary key.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct UnitEntity {
-    id: Ref<Self>,
+    id: Unit,
 }
 
-impl Path for UnitEntity {
-    const PATH: &'static str = UNIT_ENTITY_PATH;
+crate::test_entity! {
+    entity UnitEntity {
+        path: "write_unit_test::UnitEntity",
+        pk: id: Unit,
+
+        fields { id: Unit }
+    }
 }
 
 impl View for UnitEntity {
@@ -462,60 +390,37 @@ impl Visitable for UnitEntity {}
 impl FieldValues for UnitEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Unit),
             _ => None,
         }
     }
 }
 
-impl EntityKind for UnitEntity {
-    type Id = Ref<Self>;
-    type DataStore = TestDataStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "UnitEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id"];
-    const INDEXES: &'static [&'static IndexModel] = &[];
-    const MODEL: &'static EntityModel = &UNIT_MODEL;
-
-    fn id(&self) -> Self::Id {
-        self.id
-    }
-
-    fn set_id(&mut self, id: Self::Id) {
-        self.id = id;
-    }
-}
-
-impl UnitKey for UnitEntity {}
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[test_entity(
-    crate = crate,
-    entity_name = "OrderEntity",
-    path = "write_unit_test::OrderEntity",
-    datastore = TestDataStore,
-    canister = TestCanister,
-    primary_key = id,
-    fields = ["id", "primary", "secondary"],
-)]
 struct OrderEntity {
-    id: Ref<Self>,
+    id: Ulid,
     primary: Value,
     secondary: i64,
+}
+
+crate::test_entity! {
+    entity OrderEntity {
+        path: "write_unit_test::OrderEntity",
+        pk: id: Ulid,
+
+        fields { id: Ulid, primary: Int, secondary: Int }
+    }
 }
 
 impl Default for OrderEntity {
     fn default() -> Self {
         Self {
-            id: Ref::new(Ulid::nil()),
+            id: Ulid::nil(),
             primary: Value::None,
             secondary: 0,
         }
     }
 }
-
 
 impl View for OrderEntity {
     type ViewType = Self;
@@ -538,7 +443,7 @@ impl Visitable for OrderEntity {}
 impl FieldValues for OrderEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Ulid(self.id)),
             "primary" => Some(self.primary.clone()),
             "secondary" => Some(Value::Int(self.secondary)),
             _ => None,
@@ -549,11 +454,16 @@ impl FieldValues for OrderEntity {
 // Timestamp-typed entity used to verify ByKey planning and strict consistency behavior.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct TimestampEntity {
-    id: Ref<Self>,
+    id: Timestamp,
 }
 
-impl Path for TimestampEntity {
-    const PATH: &'static str = TIMESTAMP_ENTITY_PATH;
+crate::test_entity! {
+    entity TimestampEntity {
+        path: "write_unit_test::TimestampEntity",
+        pk: id: Timestamp,
+
+        fields { id: Timestamp }
+    }
 }
 
 impl View for TimestampEntity {
@@ -577,29 +487,9 @@ impl Visitable for TimestampEntity {}
 impl FieldValues for TimestampEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Timestamp(self.id)),
             _ => None,
         }
-    }
-}
-
-impl EntityKind for TimestampEntity {
-    type Id = Ref<Self>;
-    type DataStore = TestDataStore;
-    type Canister = TestCanister;
-
-    const ENTITY_NAME: &'static str = "TimestampEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &["id"];
-    const INDEXES: &'static [&'static IndexModel] = &[];
-    const MODEL: &'static EntityModel = &TIMESTAMP_MODEL;
-
-    fn id(&self) -> Self::Id {
-        self.id
-    }
-
-    fn set_id(&mut self, id: Self::Id) {
-        self.id = id;
     }
 }
 
@@ -921,7 +811,7 @@ fn commit_marker_for_entity(entity: &TestEntity) -> CommitMarker {
     let raw_data_key = data_key.to_raw().expect("data key encode");
     let raw_row = RawRow::try_new(serialize(entity).unwrap()).unwrap();
 
-    let index_key = IndexKey::new(entity, &INDEX_MODEL)
+    let index_key = IndexKey::new(entity, <TestEntity as EntityKind>::INDEXES[0])
         .expect("index key")
         .expect("index key missing");
     let raw_index_key = index_key.to_raw();
@@ -953,7 +843,7 @@ fn assert_entity_present(entity: &TestEntity) {
         .unwrap();
     assert!(data_present.is_some());
 
-    let index_key = IndexKey::new(entity, &INDEX_MODEL)
+    let index_key = IndexKey::new(entity, <TestEntity as EntityKind>::INDEXES[0])
         .expect("index key")
         .expect("index key missing");
     let raw_index_key = index_key.to_raw();
@@ -963,14 +853,14 @@ fn assert_entity_present(entity: &TestEntity) {
     assert!(index_present.is_some());
 }
 
-fn assert_row_present<E: EntityKind<Id = Ref<E>>>(db: Db<E::Canister>, key: E::Id) {
+fn assert_row_present<E: EntityKind>(db: Db<E::Canister>, key: E::Id) {
     let data_key = DataKey::try_new::<E>(key).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let data_present = db.context::<E>().with_store(|s| s.get(&raw_key)).unwrap();
     assert!(data_present.is_some());
 }
 
-fn assert_row_missing<E: EntityKind<Id = Ref<E>>>(db: Db<E::Canister>, key: E::Id) {
+fn assert_row_missing<E: EntityKind>(db: Db<E::Canister>, key: E::Id) {
     let data_key = DataKey::try_new::<E>(key).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let data_present = db.context::<E>().with_store(|s| s.get(&raw_key)).unwrap();
@@ -986,7 +876,7 @@ fn assert_entity_missing(entity: &TestEntity) {
         .unwrap();
     assert!(data_present.is_none());
 
-    let index_key = IndexKey::new(entity, &INDEX_MODEL)
+    let index_key = IndexKey::new(entity, <TestEntity as EntityKind>::INDEXES[0])
         .expect("index key")
         .expect("index key missing");
     let raw_index_key = index_key.to_raw();
@@ -1003,11 +893,11 @@ fn debug_index_fingerprint_flow_demo() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity_a = TestEntity {
-        id: Ref::new(Ulid::from_u128(100)),
+        id: Ulid::from_u128(100),
         name: "alpha".to_string(),
     };
     let entity_b = TestEntity {
-        id: Ref::new(Ulid::from_u128(101)),
+        id: Ulid::from_u128(101),
         name: "bravo".to_string(),
     };
 
@@ -1038,10 +928,10 @@ fn debug_index_fingerprint_flow_demo() {
     saver.insert(entity_a.clone()).unwrap();
     saver.insert(entity_b.clone()).unwrap();
 
-    let key_a = IndexKey::new(&entity_a, &INDEX_MODEL)
+    let key_a = IndexKey::new(&entity_a, <TestEntity as EntityKind>::INDEXES[0])
         .expect("index key")
         .expect("index key missing");
-    let key_b = IndexKey::new(&entity_b, &INDEX_MODEL)
+    let key_b = IndexKey::new(&entity_b, <TestEntity as EntityKind>::INDEXES[0])
         .expect("index key")
         .expect("index key missing");
     let raw_key_a = key_a.to_raw();
@@ -1074,7 +964,7 @@ fn save_rolls_back_on_forced_failure() {
     fail_next_checkpoint();
 
     let entity = TestEntity {
-        id: Ref::new(Ulid::nil()),
+        id: Ulid::nil(),
         name: "alpha".to_string(),
     };
 
@@ -1090,7 +980,7 @@ fn save_rolls_back_on_forced_failure() {
         .unwrap();
     assert!(data_present.is_none());
 
-    let index_key = IndexKey::new(&entity, &INDEX_MODEL)
+    let index_key = IndexKey::new(&entity, <TestEntity as EntityKind>::INDEXES[0])
         .expect("index key")
         .expect("index key missing");
     let raw_index_key = index_key.to_raw();
@@ -1105,10 +995,10 @@ fn save_update_rejects_row_key_mismatch() {
     setup_schema();
 
     let stored = TestEntity {
-        id: Ref::new(Ulid::from_u128(1)),
+        id: Ulid::from_u128(1),
         name: "alpha".to_string(),
     };
-    let data_key = DataKey::try_new::<TestEntity>(Ref::new(Ulid::from_u128(2))).unwrap();
+    let data_key = DataKey::try_new::<TestEntity>(Ulid::from_u128(2)).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
     DB.context::<TestEntity>()
@@ -1117,7 +1007,7 @@ fn save_update_rejects_row_key_mismatch() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(2)),
+        id: Ulid::from_u128(2),
         name: "beta".to_string(),
     };
     let err = saver.update(entity).unwrap_err();
@@ -1130,10 +1020,10 @@ fn save_insert_rejects_row_key_mismatch() {
     setup_schema();
 
     let stored = TestEntity {
-        id: Ref::new(Ulid::from_u128(1)),
+        id: Ulid::from_u128(1),
         name: "alpha".to_string(),
     };
-    let data_key = DataKey::try_new::<TestEntity>(Ref::new(Ulid::from_u128(2))).unwrap();
+    let data_key = DataKey::try_new::<TestEntity>(Ulid::from_u128(2)).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
     DB.context::<TestEntity>()
@@ -1142,7 +1032,7 @@ fn save_insert_rejects_row_key_mismatch() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(2)),
+        id: Ulid::from_u128(2),
         name: "beta".to_string(),
     };
     let err = saver.insert(entity).unwrap_err();
@@ -1155,10 +1045,10 @@ fn save_replace_rejects_row_key_mismatch() {
     setup_schema();
 
     let stored = TestEntity {
-        id: Ref::new(Ulid::from_u128(3)),
+        id: Ulid::from_u128(3),
         name: "alpha".to_string(),
     };
-    let data_key = DataKey::try_new::<TestEntity>(Ref::new(Ulid::from_u128(4))).unwrap();
+    let data_key = DataKey::try_new::<TestEntity>(Ulid::from_u128(4)).unwrap();
     let raw_key = data_key.to_raw().expect("data key encode");
     let raw_row = RawRow::try_new(serialize(&stored).unwrap()).unwrap();
     DB.context::<TestEntity>()
@@ -1167,7 +1057,7 @@ fn save_replace_rejects_row_key_mismatch() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(4)),
+        id: Ulid::from_u128(4),
         name: "beta".to_string(),
     };
     let err = saver.replace(entity).unwrap_err();
@@ -1180,7 +1070,7 @@ fn load_recovers_when_commit_marker_present() {
     setup_schema();
 
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(9)),
+        id: Ulid::from_u128(9),
         name: "alpha".to_string(),
     };
 
@@ -1204,7 +1094,7 @@ fn context_reads_enforce_recovery() {
     setup_schema();
 
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(12)),
+        id: Ulid::from_u128(12),
         name: "alpha".to_string(),
     };
     let data_key = DataKey::try_new::<TestEntity>(entity.id).unwrap();
@@ -1231,7 +1121,7 @@ fn context_reads_enforce_recovery() {
 
     let ctx = DB.recovered_context::<TestEntity>().unwrap();
     let access = AccessPath::IndexPrefix {
-        index: INDEX_MODEL,
+        index: test_index_model(),
         values: vec![Value::Text(entity.name.clone())],
     };
     let rows = ctx
@@ -1249,11 +1139,11 @@ fn delete_scan_rolls_back_after_data_removal() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity_a = TestEntity {
-        id: Ref::new(Ulid::from_u128(10)),
+        id: Ulid::from_u128(10),
         name: "alpha".to_string(),
     };
     let entity_b = TestEntity {
-        id: Ref::new(Ulid::from_u128(11)),
+        id: Ulid::from_u128(11),
         name: "beta".to_string(),
     };
     saver.insert(entity_a.clone()).unwrap();
@@ -1295,19 +1185,19 @@ fn delete_limit_deletes_oldest_rows() {
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entities = vec![
         TestEntity {
-            id: Ref::new(Ulid::from_u128(1)),
+            id: Ulid::from_u128(1),
             name: "delta".to_string(),
         },
         TestEntity {
-            id: Ref::new(Ulid::from_u128(2)),
+            id: Ulid::from_u128(2),
             name: "alpha".to_string(),
         },
         TestEntity {
-            id: Ref::new(Ulid::from_u128(3)),
+            id: Ulid::from_u128(3),
             name: "charlie".to_string(),
         },
         TestEntity {
-            id: Ref::new(Ulid::from_u128(4)),
+            id: Ulid::from_u128(4),
             name: "bravo".to_string(),
         },
     ];
@@ -1366,7 +1256,7 @@ fn load_by_key_missing_is_ok() {
     setup_schema();
 
     let plan = ExecutablePlan::new(LogicalPlan::new(
-        AccessPath::ByKey(Ref::new(Ulid::from_u128(1))),
+        AccessPath::ByKey(Ulid::from_u128(1)),
         ReadConsistency::MissingOk,
     ));
     let loader = LoadExecutor::<TestEntity>::new(DB, false);
@@ -1381,7 +1271,7 @@ fn load_by_keys_dedups_duplicates() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(7)),
+        id: Ulid::from_u128(7),
         name: "alpha".to_string(),
     };
     saver.insert(entity.clone()).unwrap();
@@ -1403,17 +1293,17 @@ fn load_by_keys_skips_missing_after_dedup() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(1)),
+        id: Ulid::from_u128(1),
         name: "alpha".to_string(),
     };
     saver.insert(entity.clone()).unwrap();
 
     let plan = ExecutablePlan::new(LogicalPlan::new(
         AccessPath::ByKeys(vec![
-            Ref::new(Ulid::from_u128(1)),
-            Ref::new(Ulid::from_u128(2)),
-            Ref::new(Ulid::from_u128(1)),
-            Ref::new(Ulid::from_u128(3)),
+            Ulid::from_u128(1),
+            Ulid::from_u128(2),
+            Ulid::from_u128(1),
+            Ulid::from_u128(3),
         ]),
         ReadConsistency::MissingOk,
     ));
@@ -1430,7 +1320,7 @@ fn session_many_empty_is_noop() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(1)),
+        id: Ulid::from_u128(1),
         name: "alpha".to_string(),
     };
     saver.insert(entity).unwrap();
@@ -1438,7 +1328,7 @@ fn session_many_empty_is_noop() {
     let session = DbSession::new(DB);
     let resp = session
         .load::<TestEntity>()
-        .many(Vec::<Ref<TestEntity>>::new())
+        .many(Vec::<Ulid>::new())
         .execute()
         .unwrap();
 
@@ -1452,7 +1342,7 @@ fn session_many_dedups_duplicate_keys() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(7)),
+        id: Ulid::from_u128(7),
         name: "alpha".to_string(),
     };
     saver.insert(entity.clone()).unwrap();
@@ -1475,7 +1365,7 @@ fn session_many_missing_ok_skips_missing() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(1)),
+        id: Ulid::from_u128(1),
         name: "alpha".to_string(),
     };
     saver.insert(entity.clone()).unwrap();
@@ -1483,7 +1373,7 @@ fn session_many_missing_ok_skips_missing() {
     let session = DbSession::new(DB);
     let resp = session
         .load::<TestEntity>()
-        .many(vec![entity.id, Ref::new(Ulid::from_u128(2))])
+        .many(vec![entity.id, Ulid::from_u128(2)])
         .execute()
         .unwrap();
 
@@ -1499,7 +1389,7 @@ fn session_many_strict_missing_errors() {
     let session = DbSession::new(DB);
     let err = session
         .load_with_consistency::<TestEntity>(ReadConsistency::Strict)
-        .many(vec![Ref::new(Ulid::from_u128(99))])
+        .many(vec![Ulid::from_u128(99)])
         .execute()
         .expect_err("strict missing should error");
 
@@ -1515,7 +1405,7 @@ fn session_many_views_materializes() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(42)),
+        id: Ulid::from_u128(42),
         name: "alpha".to_string(),
     };
     saver.insert(entity.clone()).unwrap();
@@ -1538,11 +1428,11 @@ fn session_delete_many_by_primary_key() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let a = TestEntity {
-        id: Ref::new(Ulid::from_u128(10)),
+        id: Ulid::from_u128(10),
         name: "alpha".to_string(),
     };
     let b = TestEntity {
-        id: Ref::new(Ulid::from_u128(11)),
+        id: Ulid::from_u128(11),
         name: "beta".to_string(),
     };
     saver.insert(a.clone()).unwrap();
@@ -1613,7 +1503,7 @@ fn session_only_loads_singleton() {
     setup_schema();
 
     let saver = SaveExecutor::<UnitEntity>::new(DB, false);
-    let entity = UnitEntity { id: Ref::new(Unit) };
+    let entity = UnitEntity { id: Unit };
     saver.insert(entity.clone()).unwrap();
 
     let session = DbSession::new(DB);
@@ -1634,11 +1524,11 @@ fn load_or_predicate_executes_union() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let a = TestEntity {
-        id: Ref::new(Ulid::from_u128(1)),
+        id: Ulid::from_u128(1),
         name: "alpha".to_string(),
     };
     let b = TestEntity {
-        id: Ref::new(Ulid::from_u128(2)),
+        id: Ulid::from_u128(2),
         name: "beta".to_string(),
     };
     saver.insert(a.clone()).unwrap();
@@ -1666,11 +1556,11 @@ fn load_in_predicate_executes_union() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let a = TestEntity {
-        id: Ref::new(Ulid::from_u128(10)),
+        id: Ulid::from_u128(10),
         name: "alpha".to_string(),
     };
     let b = TestEntity {
-        id: Ref::new(Ulid::from_u128(11)),
+        id: Ulid::from_u128(11),
         name: "beta".to_string(),
     };
     saver.insert(a).unwrap();
@@ -1695,7 +1585,7 @@ fn load_or_strict_missing_errors() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(42)),
+        id: Ulid::from_u128(42),
         name: "alpha".to_string(),
     };
     saver.insert(entity.clone()).unwrap();
@@ -1766,7 +1656,7 @@ fn trace_emits_start_and_finish_for_load() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(55)),
+        id: Ulid::from_u128(55),
         name: "alpha".to_string(),
     };
     saver.insert(entity).unwrap();
@@ -1832,11 +1722,11 @@ fn trace_access_includes_composite_plan() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity_a = TestEntity {
-        id: Ref::new(Ulid::from_u128(1)),
+        id: Ulid::from_u128(1),
         name: "alpha".to_string(),
     };
     let entity_b = TestEntity {
-        id: Ref::new(Ulid::from_u128(2)),
+        id: Ulid::from_u128(2),
         name: "beta".to_string(),
     };
     saver.insert(entity_a).unwrap();
@@ -1845,8 +1735,8 @@ fn trace_access_includes_composite_plan() {
     let plan = LogicalPlan {
         mode: QueryMode::Load(LoadSpec::new()),
         access: AccessPlan::Union(vec![
-            AccessPlan::Path(AccessPath::ByKey(Ref::new(Ulid::from_u128(1)))),
-            AccessPlan::Path(AccessPath::ByKey(Ref::new(Ulid::from_u128(2)))),
+            AccessPlan::Path(AccessPath::ByKey(Ulid::from_u128(1))),
+            AccessPlan::Path(AccessPath::ByKey(Ulid::from_u128(2))),
         ]),
         predicate: None,
         order: None,
@@ -1914,11 +1804,11 @@ fn trace_emits_phase_counts_for_filter_order_page() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entities = [
-        (Ref::new(Ulid::from_u128(10)), "alpha"),
-        (Ref::new(Ulid::from_u128(11)), "beta"),
-        (Ref::new(Ulid::from_u128(12)), "gamma"),
-        (Ref::new(Ulid::from_u128(13)), "delta"),
-        (Ref::new(Ulid::from_u128(14)), "epsilon"),
+        (Ulid::from_u128(10), "alpha"),
+        (Ulid::from_u128(11), "beta"),
+        (Ulid::from_u128(12), "gamma"),
+        (Ulid::from_u128(13), "delta"),
+        (Ulid::from_u128(14), "epsilon"),
     ];
     for (id, name) in entities {
         saver
@@ -2005,7 +1895,7 @@ fn trace_emits_error_for_strict_missing_row() {
     setup_schema();
 
     let plan = LogicalPlan::new(
-        AccessPath::ByKey(Ref::new(Ulid::from_u128(1))),
+        AccessPath::ByKey(Ulid::from_u128(1)),
         ReadConsistency::Strict,
     );
     let fingerprint = plan.fingerprint();
@@ -2041,7 +1931,7 @@ fn trace_disabled_emits_no_events() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(99)),
+        id: Ulid::from_u128(99),
         name: "alpha".to_string(),
     };
     saver.insert(entity).unwrap();
@@ -2065,14 +1955,14 @@ fn trace_emits_start_and_finish_for_save() {
     let save_executor =
         SaveExecutor::<TestEntity>::new(DB, false).with_trace_sink(Some(&TRACE_SINK));
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(1001)),
+        id: Ulid::from_u128(1001),
         name: "alpha".to_string(),
     };
 
     let (result, events) = with_trace_events(|| save_executor.insert(entity));
     let saved = result.unwrap();
 
-    assert_eq!(saved.id, Ref::new(Ulid::from_u128(1001)));
+    assert_eq!(saved.id, Ulid::from_u128(1001));
     assert_eq!(events.len(), 2);
 
     let (start_fp, finish_fp) = match (&events[0], &events[1]) {
@@ -2107,7 +1997,7 @@ fn trace_emits_phases_for_delete() {
     setup_schema();
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
-    let entity_id = Ref::new(Ulid::from_u128(2002));
+    let entity_id = Ulid::from_u128(2002);
     let entity = TestEntity {
         id: entity_id,
         name: "beta".to_string(),
@@ -2244,7 +2134,7 @@ fn execute_with_diagnostics_returns_events() {
 
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entity = TestEntity {
-        id: Ref::new(Ulid::from_u128(123)),
+        id: Ulid::from_u128(123),
         name: "alpha".to_string(),
     };
     saver.insert(entity).unwrap();
@@ -2287,7 +2177,9 @@ fn resolve_data_values_rejects_prefix_too_long() {
     ];
 
     let err = TEST_INDEX_STORE
-        .with_borrow(|store| store.resolve_data_values::<TestEntity>(&INDEX_MODEL, &values))
+        .with_borrow(|store| {
+            store.resolve_data_values::<TestEntity>(<TestEntity as EntityKind>::INDEXES[0], &values)
+        })
         .expect_err("expected error");
     assert_eq!(err.class, ErrorClass::Unsupported);
     assert_eq!(err.origin, ErrorOrigin::Index);
@@ -2300,22 +2192,22 @@ fn load_orders_with_incomparable_primary_uses_secondary() {
     let saver = SaveExecutor::<OrderEntity>::new(DB, false);
     let entities = vec![
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(1)),
+            id: Ulid::from_u128(1),
             primary: Value::None,
             secondary: 0,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(2)),
+            id: Ulid::from_u128(2),
             primary: Value::None,
             secondary: 1,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(3)),
+            id: Ulid::from_u128(3),
             primary: Value::None,
             secondary: 0,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(4)),
+            id: Ulid::from_u128(4),
             primary: Value::None,
             secondary: 1,
         },
@@ -2343,10 +2235,10 @@ fn load_orders_with_incomparable_primary_uses_secondary() {
     assert_eq!(
         ordered_ids,
         vec![
-            Ref::new(Ulid::from_u128(1)),
-            Ref::new(Ulid::from_u128(3)),
-            Ref::new(Ulid::from_u128(2)),
-            Ref::new(Ulid::from_u128(4)),
+            Ulid::from_u128(1),
+            Ulid::from_u128(3),
+            Ulid::from_u128(2),
+            Ulid::from_u128(4),
         ]
     );
 }
@@ -2358,19 +2250,19 @@ fn load_paginates_after_ordering() {
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     let entities = vec![
         TestEntity {
-            id: Ref::new(Ulid::from_u128(1)),
+            id: Ulid::from_u128(1),
             name: "delta".to_string(),
         },
         TestEntity {
-            id: Ref::new(Ulid::from_u128(2)),
+            id: Ulid::from_u128(2),
             name: "alpha".to_string(),
         },
         TestEntity {
-            id: Ref::new(Ulid::from_u128(3)),
+            id: Ulid::from_u128(3),
             name: "charlie".to_string(),
         },
         TestEntity {
-            id: Ref::new(Ulid::from_u128(4)),
+            id: Ulid::from_u128(4),
             name: "bravo".to_string(),
         },
     ];
@@ -2438,22 +2330,22 @@ fn load_paginates_after_filtering_and_ordering() {
     let saver = SaveExecutor::<OrderEntity>::new(DB, false);
     let entities = vec![
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(1)),
+            id: Ulid::from_u128(1),
             primary: Value::Int(10),
             secondary: 0,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(2)),
+            id: Ulid::from_u128(2),
             primary: Value::Int(20),
             secondary: 1,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(3)),
+            id: Ulid::from_u128(3),
             primary: Value::Int(30),
             secondary: 2,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(4)),
+            id: Ulid::from_u128(4),
             primary: Value::Int(40),
             secondary: 3,
         },
@@ -2491,7 +2383,7 @@ fn load_pagination_handles_large_offset() {
     let saver = SaveExecutor::<TestEntity>::new(DB, false);
     saver
         .insert(TestEntity {
-            id: Ref::new(Ulid::from_u128(1)),
+            id: Ulid::from_u128(1),
             name: "alpha".to_string(),
         })
         .unwrap();
@@ -2519,22 +2411,22 @@ fn ordering_does_not_break_ties_by_primary_key() {
     let saver = SaveExecutor::<OrderEntity>::new(DB, false);
     let entities = vec![
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(3)),
+            id: Ulid::from_u128(3),
             primary: Value::Int(1),
             secondary: 1,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(1)),
+            id: Ulid::from_u128(1),
             primary: Value::Int(1),
             secondary: 2,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(4)),
+            id: Ulid::from_u128(4),
             primary: Value::Int(1),
             secondary: 3,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(2)),
+            id: Ulid::from_u128(2),
             primary: Value::Int(1),
             secondary: 4,
         },
@@ -2577,22 +2469,22 @@ fn ordering_does_not_compare_incomparable_values() {
     let saver = SaveExecutor::<OrderEntity>::new(DB, false);
     let entities = vec![
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(10)),
+            id: Ulid::from_u128(10),
             primary: Value::None,
             secondary: 1,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(11)),
+            id: Ulid::from_u128(11),
             primary: Value::Int(1),
             secondary: 2,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(12)),
+            id: Ulid::from_u128(12),
             primary: Value::None,
             secondary: 3,
         },
         OrderEntity {
-            id: Ref::new(Ulid::from_u128(13)),
+            id: Ulid::from_u128(13),
             primary: Value::Int(1),
             secondary: 4,
         },
@@ -2624,7 +2516,7 @@ fn save_direct_ref_missing_target_fails_no_commit() {
 
     let saver = SaveExecutor::<DirectRefEntity>::new(RI_DB, false);
     let entity = DirectRefEntity {
-        id: Ref::new(Ulid::generate()),
+        id: Ulid::generate(),
         owner: Some(Ref::new(Ulid::generate())),
     };
 
@@ -2641,7 +2533,7 @@ fn save_optional_ref_none_succeeds() {
 
     let saver = SaveExecutor::<DirectRefEntity>::new(RI_DB, false);
     let entity = DirectRefEntity {
-        id: Ref::new(Ulid::generate()),
+        id: Ulid::generate(),
         owner: None,
     };
 
@@ -2656,7 +2548,7 @@ fn save_nested_record_ref_missing_target_succeeds() {
 
     let saver = SaveExecutor::<RecordRefEntity>::new(RI_DB, false);
     let entity = RecordRefEntity {
-        id: Ref::new(Ulid::generate()),
+        id: Ulid::generate(),
         profile: RecordRefPayload {
             owner: Ref::new(Ulid::generate()),
         },
@@ -2673,7 +2565,7 @@ fn save_nested_enum_ref_missing_target_succeeds() {
 
     let saver = SaveExecutor::<EnumRefEntity>::new(RI_DB, false);
     let entity = EnumRefEntity {
-        id: Ref::new(Ulid::generate()),
+        id: Ulid::generate(),
         status: RefEnum::Missing(Ref::new(Ulid::generate())),
     };
 
@@ -2688,7 +2580,7 @@ fn save_collection_refs_do_not_trigger_invariant_failure() {
 
     let saver = SaveExecutor::<CollectionRefEntity>::new(RI_DB, false);
     let entity = CollectionRefEntity {
-        id: Ref::new(Ulid::generate()),
+        id: Ulid::generate(),
         owners: vec![Ref::new(Ulid::generate()), Ref::new(Ulid::generate())],
     };
 
@@ -2702,14 +2594,14 @@ fn delete_ignores_references() {
     setup_schema();
 
     let owner = OwnerEntity {
-        id: Ref::new(Ulid::generate()),
+        id: Ulid::generate(),
     };
     let owner_saver = SaveExecutor::<OwnerEntity>::new(RI_DB, false);
     owner_saver.insert(owner.clone()).unwrap();
 
     let ref_entity = DirectRefEntity {
-        id: Ref::new(Ulid::generate()),
-        owner: Some(owner.id),
+        id: Ulid::generate(),
+        owner: Some(Ref::new(owner.id)),
     };
     let ref_saver = SaveExecutor::<DirectRefEntity>::new(RI_DB, false);
     ref_saver.insert(ref_entity.clone()).unwrap();
@@ -2724,4 +2616,3 @@ fn delete_ignores_references() {
     assert_row_present::<DirectRefEntity>(RI_DB, ref_entity.id);
     assert_commit_marker_clear();
 }
-*/

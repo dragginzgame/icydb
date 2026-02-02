@@ -840,18 +840,14 @@ dependencies = [
  "chrono",
  "derive_more",
  "icydb-schema",
- "icydb-test-macros",
  "num-traits",
- "proc-macro2",
  "proptest",
- "quote",
  "rust_decimal",
  "serde",
  "serde_bytes",
  "serde_cbor",
  "serde_json",
  "sha2",
- "syn 2.0.114",
  "thiserror 2.0.18",
  "trybuild",
  "ulid",
@@ -863,7 +859,6 @@ version = "0.6.4"
 dependencies = [
  "candid",
  "canic-cdk",
- "canic-utils",
  "darling 0.23.0",
  "derive_more",
  "proc-macro2",
@@ -887,15 +882,6 @@ dependencies = [
  "serde",
  "syn 2.0.114",
  "trybuild",
-]
-
-[[package]]
-name = "icydb-test-macros"
-version = "0.6.4"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.114",
 ]
 
 [[package]]

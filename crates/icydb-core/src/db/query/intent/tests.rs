@@ -1,4 +1,3 @@
-/*
 use super::*;
 use crate::{
     db::query::{
@@ -7,46 +6,28 @@ use crate::{
         plan::{ExplainAccessPath, OrderDirection, OrderSpec, PlanError, planner::PlannerEntity},
         predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
     },
-    model::{
-        entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel},
-        index::IndexModel,
-    },
     traits::{
-        CanisterKind, DataStoreKind, EntityKind, FieldValues, Path, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        FieldValues, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
     },
-    types::{Ref, Ulid},
+    types::{Ulid, Unit},
     value::Value,
 };
-use icydb_test_macros::test_entity;
 use serde::{Deserialize, Serialize};
-
-const UNIT_CANISTER_PATH: &str = "planner_test::UnitCanister";
-const UNIT_STORE_PATH: &str = "planner_test::UnitStore";
-const UNIT_ENTITY_PATH: &str = "planner_test::UnitEntity";
-const UNIT_FIELD_MODELS: [EntityFieldModel; 1] = [EntityFieldModel {
-    name: "id",
-    kind: EntityFieldKind::Unit,
-}];
-const UNIT_FIELDS: [&str; 1] = ["id"];
-const UNIT_MODEL: EntityModel = EntityModel {
-    path: UNIT_ENTITY_PATH,
-    entity_name: "UnitEntity",
-    primary_key: &UNIT_FIELD_MODELS[0],
-    fields: &UNIT_FIELD_MODELS,
-    indexes: &[],
-};
 
 /// UnitEntity
 /// Test-only entity with a unit primary key.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 struct UnitEntity {
-    id: Ref<Self>,
+    id: Unit,
 }
 
-impl Path for UnitEntity {
-    const PATH: &'static str = UNIT_ENTITY_PATH;
+crate::test_entity! {
+    entity UnitEntity {
+        path: "planner_test::UnitEntity",
+        pk: id: Unit,
+
+        fields { id: Unit }
+    }
 }
 
 impl View for UnitEntity {
@@ -70,69 +51,27 @@ impl Visitable for UnitEntity {}
 impl FieldValues for UnitEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Unit),
             _ => None,
         }
     }
 }
 
-// Test-only canister marker for unit-key entity planning.
-struct UnitCanister;
-
-impl Path for UnitCanister {
-    const PATH: &'static str = UNIT_CANISTER_PATH;
-}
-
-impl CanisterKind for UnitCanister {}
-
-// Test-only store marker for unit-key entity planning.
-struct UnitStore;
-
-impl Path for UnitStore {
-    const PATH: &'static str = UNIT_STORE_PATH;
-}
-
-impl DataStoreKind for UnitStore {
-    type Canister = UnitCanister;
-}
-
-impl EntityKind for UnitEntity {
-    type Id = Ref<Self>;
-    type DataStore = UnitStore;
-    type Canister = UnitCanister;
-
-    const ENTITY_NAME: &'static str = "UnitEntity";
-    const PRIMARY_KEY: &'static str = "id";
-    const FIELDS: &'static [&'static str] = &UNIT_FIELDS;
-    const INDEXES: &'static [&'static IndexModel] = &[];
-    const MODEL: &'static EntityModel = &UNIT_MODEL;
-
-    fn id(&self) -> Self::Id {
-        self.id
-    }
-
-    fn set_id(&mut self, id: Self::Id) {
-        self.id = id;
-    }
-}
-
-impl UnitKey for UnitEntity {}
-
 /// UnorderableEntity
 /// Test-only entity with a non-orderable list field.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[test_entity(
-    crate = crate,
-    entity_name = "UnorderableEntity",
-    path = "planner_test::UnorderableEntity",
-    datastore = UnitStore,
-    canister = UnitCanister,
-    primary_key = id,
-    fields = ["id", "tags"],
-)]
 struct UnorderableEntity {
-    id: Ref<Self>,
+    id: Ulid,
     tags: Vec<String>,
+}
+
+crate::test_entity! {
+    entity UnorderableEntity {
+        path: "planner_test::UnorderableEntity",
+        pk: id: Ulid,
+
+        fields { id: Ulid, tags: List<Text> }
+    }
 }
 
 impl View for UnorderableEntity {
@@ -156,7 +95,7 @@ impl Visitable for UnorderableEntity {}
 impl FieldValues for UnorderableEntity {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
-            "id" => Some(self.id.as_value()),
+            "id" => Some(Value::Ulid(self.id)),
             "tags" => Some(Value::List(
                 self.tags
                     .iter()
@@ -373,10 +312,7 @@ fn plan_is_deterministic_for_equivalent_predicates() {
 
 #[test]
 fn many_plans_as_primary_key_access() {
-    let keys = vec![
-        Ref::new(Ulid::from_u128(1)),
-        Ref::new(Ulid::from_u128(2)),
-    ];
+    let keys = vec![Ulid::from_u128(1), Ulid::from_u128(2)];
     let expected = vec![
         Value::Ulid(Ulid::from_u128(1)),
         Value::Ulid(Ulid::from_u128(2)),
@@ -406,7 +342,7 @@ fn many_empty_plans_as_primary_key_access() {
 #[test]
 fn many_rejects_predicates() {
     let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-        .by_keys(vec![Ref::new(Ulid::from_u128(1))])
+        .by_keys(vec![Ulid::from_u128(1)])
         .filter(FieldRef::new("other").eq("x"));
 
     let err = query.plan().expect_err("many with predicate");
@@ -514,4 +450,3 @@ fn query_explain_rejects_invalid_order() {
         QueryError::Plan(PlanError::UnknownOrderField { .. })
     ));
 }
-*/
