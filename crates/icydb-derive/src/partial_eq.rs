@@ -4,7 +4,7 @@ use syn::{Data, DeriveInput, Error, Fields};
 
 use crate::util::where_clause_with_bounds;
 
-pub fn derive_partial_ord(input: TokenStream) -> TokenStream {
+pub fn derive_partial_eq(input: TokenStream) -> TokenStream {
     let input: DeriveInput = match syn::parse2(input) {
         Ok(input) => input,
         Err(err) => return err.to_compile_error(),
@@ -14,54 +14,53 @@ pub fn derive_partial_ord(input: TokenStream) -> TokenStream {
 
     match &input.data {
         Data::Struct(data) => {
-            let (compare_body, bounds) = struct_partial_ord_body(data);
+            let (eq_body, bounds) = struct_partial_eq_body(data);
             let where_tokens =
                 where_clause_with_bounds(input.generics.where_clause.as_ref(), &bounds);
 
             quote! {
-                impl #impl_generics ::std::cmp::PartialOrd for #ident #ty_generics #where_tokens {
-                    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-                        #compare_body
+                impl #impl_generics ::std::cmp::PartialEq for #ident #ty_generics #where_tokens {
+                    fn eq(&self, other: &Self) -> bool {
+                        #eq_body
                     }
                 }
             }
         }
         Data::Enum(data) => {
-            let (compare_body, bounds) = enum_partial_ord_body(data);
+            let (eq_body, bounds) = enum_partial_eq_body(data);
             let where_tokens =
                 where_clause_with_bounds(input.generics.where_clause.as_ref(), &bounds);
 
             quote! {
-                impl #impl_generics ::std::cmp::PartialOrd for #ident #ty_generics #where_tokens {
-                    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-                        #compare_body
+                impl #impl_generics ::std::cmp::PartialEq for #ident #ty_generics #where_tokens {
+                    fn eq(&self, other: &Self) -> bool {
+                        #eq_body
                     }
                 }
             }
         }
         Data::Union(_) => {
-            Error::new_spanned(&input.ident, "PartialOrd cannot be derived for unions")
+            Error::new_spanned(&input.ident, "PartialEq cannot be derived for unions")
                 .to_compile_error()
         }
     }
 }
 
-fn struct_partial_ord_body(data: &syn::DataStruct) -> (TokenStream, Vec<TokenStream>) {
+fn struct_partial_eq_body(data: &syn::DataStruct) -> (TokenStream, Vec<TokenStream>) {
     let mut bounds = Vec::new();
 
     match &data.fields {
         Fields::Named(fields) => {
             for field in &fields.named {
                 let ty = &field.ty;
-                bounds.push(quote!(#ty: ::std::cmp::PartialOrd));
+                bounds.push(quote!(#ty: ::std::cmp::PartialEq));
             }
 
             let comparisons = fields.named.iter().map(|field| {
                 let ident = field.ident.as_ref().expect("named field");
                 quote! {
-                    match ::std::cmp::PartialOrd::partial_cmp(&self.#ident, &other.#ident) {
-                        Some(::std::cmp::Ordering::Equal) => {}
-                        non_eq => return non_eq,
+                    if self.#ident != other.#ident {
+                        return false;
                     }
                 }
             });
@@ -69,7 +68,7 @@ fn struct_partial_ord_body(data: &syn::DataStruct) -> (TokenStream, Vec<TokenStr
             (
                 quote! {
                     #(#comparisons)*
-                    Some(::std::cmp::Ordering::Equal)
+                    true
                 },
                 bounds,
             )
@@ -77,15 +76,14 @@ fn struct_partial_ord_body(data: &syn::DataStruct) -> (TokenStream, Vec<TokenStr
         Fields::Unnamed(fields) => {
             for field in &fields.unnamed {
                 let ty = &field.ty;
-                bounds.push(quote!(#ty: ::std::cmp::PartialOrd));
+                bounds.push(quote!(#ty: ::std::cmp::PartialEq));
             }
 
             let comparisons = fields.unnamed.iter().enumerate().map(|(idx, _)| {
                 let index = syn::Index::from(idx);
                 quote! {
-                    match ::std::cmp::PartialOrd::partial_cmp(&self.#index, &other.#index) {
-                        Some(::std::cmp::Ordering::Equal) => {}
-                        non_eq => return non_eq,
+                    if self.#index != other.#index {
+                        return false;
                     }
                 }
             });
@@ -93,17 +91,17 @@ fn struct_partial_ord_body(data: &syn::DataStruct) -> (TokenStream, Vec<TokenStr
             (
                 quote! {
                     #(#comparisons)*
-                    Some(::std::cmp::Ordering::Equal)
+                    true
                 },
                 bounds,
             )
         }
-        Fields::Unit => (quote!(Some(::std::cmp::Ordering::Equal)), bounds),
+        Fields::Unit => (quote!(true), bounds),
     }
 }
 
 #[expect(clippy::too_many_lines)]
-fn enum_partial_ord_body(data: &syn::DataEnum) -> (TokenStream, Vec<TokenStream>) {
+fn enum_partial_eq_body(data: &syn::DataEnum) -> (TokenStream, Vec<TokenStream>) {
     let mut bounds = Vec::new();
 
     for variant in &data.variants {
@@ -111,34 +109,18 @@ fn enum_partial_ord_body(data: &syn::DataEnum) -> (TokenStream, Vec<TokenStream>
             Fields::Named(fields) => {
                 for field in &fields.named {
                     let ty = &field.ty;
-                    bounds.push(quote!(#ty: ::std::cmp::PartialOrd));
+                    bounds.push(quote!(#ty: ::std::cmp::PartialEq));
                 }
             }
             Fields::Unnamed(fields) => {
                 for field in &fields.unnamed {
                     let ty = &field.ty;
-                    bounds.push(quote!(#ty: ::std::cmp::PartialOrd));
+                    bounds.push(quote!(#ty: ::std::cmp::PartialEq));
                 }
             }
             Fields::Unit => {}
         }
     }
-
-    let index_arms: Vec<TokenStream> = data
-        .variants
-        .iter()
-        .enumerate()
-        .map(|(idx, variant)| {
-            let name = &variant.ident;
-            let pattern = match &variant.fields {
-                Fields::Named(_) => quote!(Self::#name { .. }),
-                Fields::Unnamed(_) => quote!(Self::#name ( .. )),
-                Fields::Unit => quote!(Self::#name),
-            };
-
-            quote!(#pattern => #idx)
-        })
-        .collect();
 
     let cmp_arms = data.variants.iter().map(|variant| {
         let name = &variant.ident;
@@ -157,9 +139,8 @@ fn enum_partial_ord_body(data: &syn::DataEnum) -> (TokenStream, Vec<TokenStream>
                     let ident = field.ident.as_ref().expect("named field");
                     let other_ident = format_ident!("other_{}", ident);
                     quote! {
-                        match ::std::cmp::PartialOrd::partial_cmp(#ident, #other_ident) {
-                            Some(::std::cmp::Ordering::Equal) => {}
-                            non_eq => return non_eq,
+                        if #ident != #other_ident {
+                            return false;
                         }
                     }
                 });
@@ -167,7 +148,7 @@ fn enum_partial_ord_body(data: &syn::DataEnum) -> (TokenStream, Vec<TokenStream>
                 quote! {
                     (Self::#name { #(#self_bindings),* }, Self::#name { #(#other_bindings),* }) => {
                         #(#comparisons)*
-                        Some(::std::cmp::Ordering::Equal)
+                        true
                     }
                 }
             }
@@ -184,9 +165,8 @@ fn enum_partial_ord_body(data: &syn::DataEnum) -> (TokenStream, Vec<TokenStream>
                     let ident = format_ident!("field_{idx}");
                     let other_ident = format_ident!("other_{idx}");
                     quote! {
-                        match ::std::cmp::PartialOrd::partial_cmp(#ident, #other_ident) {
-                            Some(::std::cmp::Ordering::Equal) => {}
-                            non_eq => return non_eq,
+                        if #ident != #other_ident {
+                            return false;
                         }
                     }
                 });
@@ -194,32 +174,21 @@ fn enum_partial_ord_body(data: &syn::DataEnum) -> (TokenStream, Vec<TokenStream>
                 quote! {
                     (Self::#name ( #(#self_bindings),* ), Self::#name ( #(#other_bindings),* )) => {
                         #(#comparisons)*
-                        Some(::std::cmp::Ordering::Equal)
+                        true
                     }
                 }
             }
             Fields::Unit => quote! {
-                (Self::#name, Self::#name) => Some(::std::cmp::Ordering::Equal)
+                (Self::#name, Self::#name) => true
             },
         }
     });
 
     (
         quote! {
-            let self_index: usize = match self {
-                #(#index_arms),*
-            };
-            let other_index: usize = match other {
-                #(#index_arms),*
-            };
-
-            if self_index != other_index {
-                return self_index.partial_cmp(&other_index);
-            }
-
             match (self, other) {
-                #(#cmp_arms),*
-                _ => Some(::std::cmp::Ordering::Equal),
+                #(#cmp_arms,)*
+                _ => false,
             }
         },
         bounds,

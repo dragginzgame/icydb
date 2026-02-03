@@ -101,7 +101,7 @@ pub fn fail_checkpoint_label(label: &'static str) {
 }
 
 #[cfg(test)]
-#[allow(clippy::missing_const_for_fn)]
+#[expect(clippy::missing_const_for_fn)]
 fn should_fail_checkpoint(label: &'static str) -> bool {
     #[cfg(test)]
     {

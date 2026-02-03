@@ -8,7 +8,10 @@ use crate::{
 use candid::CandidType;
 use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign, Sum};
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
+use std::{
+    cmp::Ordering,
+    ops::{Div, DivAssign, Mul, MulAssign},
+};
 
 ///
 /// Int128
@@ -39,6 +42,34 @@ impl Int128 {
     #[must_use]
     pub const fn get(self) -> i128 {
         self.0
+    }
+}
+
+impl Mul for Int128 {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+        Self(self.0 * other.0)
+    }
+}
+
+impl MulAssign for Int128 {
+    fn mul_assign(&mut self, other: Self) {
+        self.0 *= other.0;
+    }
+}
+
+impl Div for Int128 {
+    type Output = Self;
+
+    fn div(self, other: Self) -> Self::Output {
+        Self(self.0 / other.0)
+    }
+}
+
+impl DivAssign for Int128 {
+    fn div_assign(&mut self, other: Self) {
+        self.0 /= other.0;
     }
 }
 

@@ -123,13 +123,13 @@ impl HasTraits for Newtype {
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
             TraitKind::Inherent => InherentTrait::strategy(self),
+            TraitKind::Inner => Some(TraitStrategy::from_derive(TraitKind::Inner)),
             TraitKind::PartialEq => PartialEqTrait::strategy(self).map(|s| s.with_derive(t)),
             TraitKind::PartialOrd => PartialOrdTrait::strategy(self).map(|s| s.with_derive(t)),
 
             TraitKind::Default => DefaultTrait::strategy(self),
             TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
-            TraitKind::Inner => InnerTrait::strategy(self),
             TraitKind::NumCast => NumCastTrait::strategy(self),
             TraitKind::NumToPrimitive => NumToPrimitiveTrait::strategy(self),
             TraitKind::NumFromPrimitive => NumFromPrimitiveTrait::strategy(self),

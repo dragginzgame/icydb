@@ -13,7 +13,7 @@ use crate::{
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Rebuild all indexes for a single entity type, regenerating fingerprints.
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub fn rebuild_indexes_for_entity<E>(db: &Db<E::Canister>) -> Result<(), InternalError>
 where
     E: EntityValue,

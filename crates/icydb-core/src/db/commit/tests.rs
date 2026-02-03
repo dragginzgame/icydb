@@ -2,18 +2,15 @@ use crate::{
     db::{
         Db,
         commit::{CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, with_commit_store},
+        ensure_recovered,
         index::{IndexEntry, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
         store::{DataKey, DataStore, DataStoreRegistry, RawRow},
     },
     error::{ErrorClass, ErrorOrigin},
     serialize::serialize,
     test_support::{TEST_DATA_STORE_PATH, TEST_INDEX_STORE_PATH, TestCanister},
-    traits::{
-        EntityKind, EntityValue, FieldValues, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, View, Visitable,
-    },
+    traits::EntityKind,
     types::Ulid,
-    value::Value,
 };
 use canic_memory::runtime::registry::MemoryRegistryRuntime;
 use serde::{Deserialize, Serialize};
@@ -163,11 +160,9 @@ fn commit_marker_recovery_rejects_corrupted_index_key() {
     .unwrap();
 
     // Corrupt the index key
-    marker.index_ops[0]
-        .key
-        .last_mut()
-        .unwrap()
-        .bitxor_assign(0xFF);
+    if let Some(last) = marker.index_ops[0].key.last_mut() {
+        *last ^= 0xFF;
+    }
 
     let _guard = begin_commit(marker).unwrap();
     force_recovery_for_tests();

@@ -56,7 +56,6 @@ pub enum TraitKind {
     DataStoreKind,
     EntityKind,
     IndexStoreKind,
-    PrimitiveKind,
 
     // value
     EntityValue,
@@ -133,11 +132,10 @@ impl TraitKind {
             Self::Eq => Some(quote!(Eq)),
             Self::FieldValues => Some(quote!(::icydb::__reexports::icydb_derive::FieldValues)),
             Self::Hash => Some(quote!(Hash)),
+            Self::Inner => Some(quote!(::icydb::__reexports::icydb_derive::Inner)),
             Self::Mul => Some(quote!(::icydb::__reexports::icydb_derive::Mul)),
             Self::MulAssign => Some(quote!(::icydb::__reexports::icydb_derive::MulAssign)),
             Self::Ord => Some(quote!(Ord)),
-            Self::PartialEq => Some(quote!(PartialEq)),
-            Self::PartialOrd => Some(quote!(::icydb::__reexports::icydb_derive::PartialOrd)),
             Self::Rem => Some(quote!(::icydb::__reexports::icydb_derive::Rem)),
             Self::Serialize => Some(quote!(::serde::Serialize)),
             Self::Sub => Some(quote!(::icydb::__reexports::icydb_derive::Sub)),

@@ -12,7 +12,10 @@ use crate::{
 use candid::{CandidType, Int as WrappedInt};
 use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
-use std::iter::Sum;
+use std::{
+    iter::Sum,
+    ops::{Div, DivAssign, Mul, MulAssign},
+};
 
 ///
 /// Int
@@ -54,6 +57,34 @@ impl Int {
         self.0.encode(&mut out).expect("Int LEB128 encode");
 
         out
+    }
+}
+
+impl Mul for Int {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+        Self(self.0 * other.0)
+    }
+}
+
+impl MulAssign for Int {
+    fn mul_assign(&mut self, other: Self) {
+        self.0 *= other.0;
+    }
+}
+
+impl Div for Int {
+    type Output = Self;
+
+    fn div(self, other: Self) -> Self::Output {
+        Self(self.0 / other.0)
+    }
+}
+
+impl DivAssign for Int {
+    fn div_assign(&mut self, other: Self) {
+        self.0 /= other.0;
     }
 }
 

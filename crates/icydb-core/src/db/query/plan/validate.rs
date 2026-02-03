@@ -24,7 +24,6 @@ use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError)]
 pub enum PlanError {
-    /// Predicate failed schema-level validation.
     #[error("predicate validation failed: {0}")]
     PredicateInvalid(#[from] predicate::ValidateError),
 

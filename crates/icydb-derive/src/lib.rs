@@ -1,10 +1,9 @@
-use proc_macro::TokenStream;
-
 mod field_values;
+mod inner;
 mod newtype;
 mod ops;
-mod partial_ord;
-mod util;
+
+use proc_macro::TokenStream;
 
 #[proc_macro_derive(Add)]
 pub fn derive_add(input: TokenStream) -> TokenStream {
@@ -61,7 +60,7 @@ pub fn derive_field_values(input: TokenStream) -> TokenStream {
     field_values::derive_field_values(input.into()).into()
 }
 
-#[proc_macro_derive(PartialOrd)]
-pub fn derive_partial_ord(input: TokenStream) -> TokenStream {
-    partial_ord::derive_partial_ord(input.into()).into()
+#[proc_macro_derive(Inner)]
+pub fn derive_inner(input: TokenStream) -> TokenStream {
+    inner::derive_inner(input.into()).into()
 }

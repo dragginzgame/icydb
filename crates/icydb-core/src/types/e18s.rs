@@ -139,6 +139,7 @@ impl Mul for E18s {
 
     fn mul(self, other: Self) -> Self::Output {
         let raw = self.0.saturating_mul(other.0) / Self::SCALE;
+
         Self(raw)
     }
 }

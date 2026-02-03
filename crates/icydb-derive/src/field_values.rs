@@ -2,6 +2,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Error, Fields, Type};
 
+// derive_field_values
 pub fn derive_field_values(input: TokenStream) -> TokenStream {
     let input: DeriveInput = match syn::parse2(input) {
         Ok(input) => input,
@@ -70,6 +71,10 @@ pub fn derive_field_values(input: TokenStream) -> TokenStream {
         }
     }
 }
+
+///
+/// FieldCardinality
+///
 
 #[derive(Clone, Copy)]
 enum FieldCardinality {

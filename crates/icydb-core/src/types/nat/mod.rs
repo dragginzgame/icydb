@@ -12,7 +12,10 @@ use crate::{
 use candid::{CandidType, Nat as WrappedNat};
 use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
-use std::iter::Sum;
+use std::{
+    iter::Sum,
+    ops::{Div, DivAssign, Mul, MulAssign},
+};
 
 ///
 /// Nat
@@ -54,6 +57,34 @@ impl Nat {
         self.0.encode(&mut out).expect("Nat LEB128 encode");
 
         out
+    }
+}
+
+impl Mul for Nat {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+        Self(self.0 * other.0)
+    }
+}
+
+impl MulAssign for Nat {
+    fn mul_assign(&mut self, other: Self) {
+        self.0 *= other.0;
+    }
+}
+
+impl Div for Nat {
+    type Output = Self;
+
+    fn div(self, other: Self) -> Self::Output {
+        Self(self.0 / other.0)
+    }
+}
+
+impl DivAssign for Nat {
+    fn div_assign(&mut self, other: Self) {
+        self.0 /= other.0;
     }
 }
 

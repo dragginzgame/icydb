@@ -2,7 +2,9 @@ use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::Ident;
 
-// Quoting helpers
+/// ----------------------
+/// Quoting helpers
+/// ----------------------
 
 /// Quote a single value after transforming it into tokens.
 pub fn quote_one<T, F>(t: &T, transform: F) -> TokenStream
@@ -42,7 +44,9 @@ where
     }
 }
 
-// Transform helpers
+/// ----------------------
+/// Transform helpers
+/// ----------------------
 
 /// Pass through a tokenizable value unchanged (useful for comments).
 pub fn as_tokens<T: ToTokens>(t: &T) -> TokenStream {

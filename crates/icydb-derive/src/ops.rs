@@ -1,7 +1,6 @@
+use crate::newtype::{self, NewtypeInput};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-
-use crate::newtype::{self, NewtypeInput};
 
 pub fn derive_add(input: TokenStream) -> TokenStream {
     derive_op(

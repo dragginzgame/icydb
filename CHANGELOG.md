@@ -16,7 +16,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Added `MulAssign` and `DivAssign` impls for `Decimal` to match arithmetic derives.
 * Added `Blob::as_slice` for explicit byte access in validators.
 * Added `Mul`/`Div` and assignment ops for `E8s` and `E18s` to satisfy fixed-point newtype arithmetic derives.
+* Added `Mul`/`Div` and assignment ops for `Nat` and `Nat128` to support arithmetic newtype derives.
+* Added `Mul`/`Div` and assignment ops for `Int` and `Int128` to support arithmetic newtype derives.
 * Added `CollectionValue` and wired list/set wrapper types to explicit iteration and length access without deref.
+* Moved `PartialEq` derives to `icydb-derive` for schema-generated types.
 
 ### 🧭 Changed
 

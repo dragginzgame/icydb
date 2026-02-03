@@ -200,11 +200,15 @@ pub trait FieldValues {
 /// Explicit iteration contract for list/set wrapper types.
 /// Avoids implicit deref-based access to inner collections.
 ///
+
 pub trait CollectionValue {
     type Item;
 
     fn iter(&self) -> impl Iterator<Item = &Self::Item>;
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 ///
