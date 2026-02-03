@@ -47,7 +47,6 @@ pub struct RenamedEntity {}
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn entity_name_defaults_and_override() {
         assert_eq!(

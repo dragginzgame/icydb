@@ -277,10 +277,13 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
 }
 
 impl<C: CanisterKind, E: EntityKind<Canister = C> + SingletonEntity> SessionDeleteQuery<'_, C, E> {
-    /// Delete the singleton entity identified by an explicit ID.
+    /// Delete the singleton entity.
     #[must_use]
-    pub fn only(mut self, id: E::Id) -> Self {
-        self.inner = self.inner.only(id);
+    pub fn only(mut self) -> Self
+    where
+        E::Id: Default,
+    {
+        self.inner = self.inner.only();
         self
     }
 }

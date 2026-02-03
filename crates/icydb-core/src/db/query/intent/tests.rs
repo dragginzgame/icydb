@@ -11,9 +11,11 @@ use crate::{
     },
     traits::{
         CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
-        Path, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
+        EntityValue, FieldValue, FieldValues, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
-    types::{Ref, Ulid},
+    types::{Ref, Ulid, Unit},
+    value::Value,
 };
 use serde::{Deserialize, Serialize};
 
@@ -102,6 +104,73 @@ static PLAN_MODEL: EntityModel = EntityModel {
     indexes: &PLAN_INDEXES,
 };
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+struct PlanSingleton {
+    id: Unit,
+}
+
+impl View for PlanSingleton {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for PlanSingleton {}
+impl SanitizeCustom for PlanSingleton {}
+impl ValidateAuto for PlanSingleton {}
+impl ValidateCustom for PlanSingleton {}
+impl Visitable for PlanSingleton {}
+
+impl Path for PlanSingleton {
+    const PATH: &'static str = "intent_tests::PlanSingleton";
+}
+
+impl EntityIdentity for PlanSingleton {
+    type Id = Unit;
+
+    const ENTITY_NAME: &'static str = "PlanSingleton";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+impl FieldValues for PlanSingleton {
+    fn get_value(&self, field: &str) -> Option<Value> {
+        match field {
+            "id" => Some(self.id.to_value()),
+            _ => None,
+        }
+    }
+}
+
+impl EntityValue for PlanSingleton {
+    fn id(&self) -> Self::Id {
+        self.id
+    }
+
+    fn set_id(&mut self, id: Self::Id) {
+        self.id = id;
+    }
+}
+
+static SINGLETON_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
+    name: "id",
+    kind: EntityFieldKind::Unit,
+}];
+static SINGLETON_FIELD_NAMES: [&str; 1] = ["id"];
+static SINGLETON_INDEXES: [&IndexModel; 0] = [];
+static SINGLETON_MODEL: EntityModel = EntityModel {
+    path: "intent_tests::PlanSingleton",
+    entity_name: "PlanSingleton",
+    primary_key: &SINGLETON_FIELDS[0],
+    fields: &SINGLETON_FIELDS,
+    indexes: &SINGLETON_INDEXES,
+};
+
 struct PlanCanister;
 struct PlanDataStore;
 
@@ -131,6 +200,20 @@ impl EntityPlacement for PlanEntity {
 }
 
 impl EntityKind for PlanEntity {}
+
+impl EntitySchema for PlanSingleton {
+    const MODEL: &'static EntityModel = &SINGLETON_MODEL;
+    const FIELDS: &'static [&'static str] = &SINGLETON_FIELD_NAMES;
+    const INDEXES: &'static [&'static IndexModel] = &SINGLETON_INDEXES;
+}
+
+impl EntityPlacement for PlanSingleton {
+    type DataStore = PlanDataStore;
+    type Canister = PlanCanister;
+}
+
+impl EntityKind for PlanSingleton {}
+impl SingletonEntity for PlanSingleton {}
 
 #[test]
 fn intent_rejects_many_with_predicate() {
@@ -212,6 +295,20 @@ fn typed_by_ref_matches_by_key_access() {
         .into_inner();
 
     assert_eq!(by_key, by_ref);
+}
+
+#[test]
+fn singleton_only_uses_default_key() {
+    let plan = Query::<PlanSingleton>::new(ReadConsistency::MissingOk)
+        .only()
+        .plan()
+        .expect("singleton plan")
+        .into_inner();
+
+    assert!(matches!(
+        plan.access,
+        AccessPlan::Path(AccessPath::ByKey(Unit))
+    ));
 }
 
 #[test]

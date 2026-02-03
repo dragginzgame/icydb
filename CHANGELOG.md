@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🧯 Breaking
 
 * Schema field names ending in `_id`, `_ids`, `_ref`, `_refs`, `_key`, or `_keys` now fail at compile time; relation fields were renamed to base nouns.
+* Singleton query `only()` no longer accepts an explicit ID and always uses the default singleton key.
 
 ---
 

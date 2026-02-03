@@ -311,10 +311,13 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
 }
 
 impl<C: CanisterKind, E: EntityKind<Canister = C> + SingletonEntity> SessionLoadQuery<'_, C, E> {
-    /// Load the singleton entity identified by an explicit ID.
+    /// Load the singleton entity.
     #[must_use]
-    pub fn only(mut self, id: E::Id) -> Self {
-        self.inner = self.inner.only(id);
+    pub fn only(mut self) -> Self
+    where
+        E::Id: Default,
+    {
+        self.inner = self.inner.only();
         self
     }
 }

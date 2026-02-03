@@ -518,13 +518,14 @@ impl<E: EntityKind> Query<E> {
 impl<E> Query<E>
 where
     E: EntityKind + SingletonEntity,
+    E::Id: Default,
 {
     /// Set the access path to the singleton primary key.
-    pub(crate) fn only(self, id: E::Id) -> Self {
+    pub(crate) fn only(self) -> Self {
         let Self { intent, _marker } = self;
 
         Self {
-            intent: intent.only(id),
+            intent: intent.only(E::Id::default()),
             _marker,
         }
     }
