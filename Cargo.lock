@@ -549,7 +549,7 @@ checksum = "d8b2a507d1bebb111fc8c76098468e4de9c745e9b9ef160a079568ae1d6f7fef"
 dependencies = [
  "candid",
  "hex",
- "ic-certification 3.0.3",
+ "ic-certification 3.1.0",
  "ic-representation-independent-hash",
  "ic0",
  "lazy_static",
@@ -628,9 +628,9 @@ dependencies = [
 
 [[package]]
 name = "ic-certification"
-version = "3.0.3"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffb40d73f9f8273dc6569a68859003bbd467c9dc6d53c6fd7d174742f857209d"
+checksum = "7c11273a40f8d67926ee423b0bd21381ae8419db809b42f33c5cb3319549b40f"
 dependencies = [
  "hex",
  "serde",
@@ -674,9 +674,9 @@ dependencies = [
 
 [[package]]
 name = "ic-representation-independent-hash"
-version = "3.0.3"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2800ba4910f21d9e1cb7b6ecbbbb0f76074bd2e127b4688c57d0936206caa6e"
+checksum = "52fde1026b8f48c17fdfd102d4c39b0d1660ad8f5789a3258bd748240434f7d6"
 dependencies = [
  "leb128",
  "sha2",
@@ -800,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -821,7 +821,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "bencher",
  "candid",
@@ -857,7 +857,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "canic-utils",
  "darling 0.23.0",
@@ -897,7 +897,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "candid",
  "canic-cdk",
