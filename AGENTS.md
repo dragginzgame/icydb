@@ -219,6 +219,7 @@ Code is considered non-trivial if it:
 ## Changelog Rules
 
 * Keep the existing changelog structure and header format (e.g., `## [x.y.z] - YYYY-MM-DD - Short Title`).
+* Smaller changelog entries may omit the title segment; use `## [x.y.z] - YYYY-MM-DD` when no title is needed.
 * Use section headers like `### <emoji> Added/Changed/Fixed/Removed/Breaking/Migration Notes/Summary` only as needed; keep the header wording consistent with the file.
 * Emoji must be **random and deliberately unrelated** to the section meaning; pick a different, inappropriate emoji for each section within a release.
 * When updating the changelog, use the version the user specifies or the existing latest entry; do not create a new version header if the newest entry already exists (e.g., if `0.6.5` is present while the current version is `0.6.4`, add to `0.6.5`).

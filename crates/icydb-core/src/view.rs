@@ -67,7 +67,7 @@ impl<K, V> From<(K, Option<V>)> for MapPatch<K, V> {
 ///
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use std::collections::{HashMap, HashSet};
 

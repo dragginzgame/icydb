@@ -4,7 +4,7 @@ pub mod load;
 use crate::{
     db::{
         query::{Query, QueryDiagnostics, QueryExecutionDiagnostics, ReadConsistency},
-        response::Response,
+        response::{Response, WriteBatchResponse, WriteResponse},
     },
     error::Error,
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -134,46 +134,61 @@ impl<C: CanisterKind> DbSession<C> {
     // High-level write helpers (semantic)
     // ------------------------------------------------------------------
 
-    pub fn insert<E>(&self, entity: E) -> Result<E, Error>
+    pub fn insert<E>(&self, entity: E) -> Result<WriteResponse<E>, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        Ok(self.inner.insert(entity)?)
+        Ok(WriteResponse::from_core(self.inner.insert(entity)?))
     }
 
-    pub fn insert_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
+    pub fn insert_many<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<WriteBatchResponse<E>, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        Ok(self.inner.insert_many(entities)?)
+        Ok(WriteBatchResponse::from_core(
+            self.inner.insert_many(entities)?,
+        ))
     }
 
-    pub fn replace<E>(&self, entity: E) -> Result<E, Error>
+    pub fn replace<E>(&self, entity: E) -> Result<WriteResponse<E>, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        Ok(self.inner.replace(entity)?)
+        Ok(WriteResponse::from_core(self.inner.replace(entity)?))
     }
 
-    pub fn replace_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
+    pub fn replace_many<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<WriteBatchResponse<E>, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        Ok(self.inner.replace_many(entities)?)
+        Ok(WriteBatchResponse::from_core(
+            self.inner.replace_many(entities)?,
+        ))
     }
 
-    pub fn update<E>(&self, entity: E) -> Result<E, Error>
+    pub fn update<E>(&self, entity: E) -> Result<WriteResponse<E>, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        Ok(self.inner.update(entity)?)
+        Ok(WriteResponse::from_core(self.inner.update(entity)?))
     }
 
-    pub fn update_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
+    pub fn update_many<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<WriteBatchResponse<E>, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        Ok(self.inner.update_many(entities)?)
+        Ok(WriteBatchResponse::from_core(
+            self.inner.update_many(entities)?,
+        ))
     }
 
     pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>

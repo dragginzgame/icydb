@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.6.12] – 2026-02-03 - WriteResponse
+
+### 🦩 Added
+
+* Added `WriteResponse`/`WriteBatchResponse` helpers for write results, including key and view accessors.
+
+---
+
 ## [0.6.11] – 2026-02-03 - Decimals, Collections and Stuff
 
 ### 🦩 Added
@@ -23,6 +31,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 * `MapCollection::iter` now returns a GAT-backed iterator instead of a boxed trait object, so implementations and type annotations must update.
 * `Collection::iter` now returns a GAT-backed iterator instead of a boxed trait object, so implementations and type annotations must update.
+* `DbSession::insert`/`replace`/`update` now return `WriteResponse<E>` (and batch variants return `Vec<WriteResponse<E>>`).
 
 ---
 

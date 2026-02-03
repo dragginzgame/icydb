@@ -1,5 +1,5 @@
 #[cfg(test)]
-pub mod tests;
+mod tests;
 
 use crate::{
     db::store::EntityRef,

@@ -1,5 +1,10 @@
+mod write;
+
 use crate::{prelude::*, view::View};
 use thiserror::Error as ThisError;
+
+// re-exports
+pub use write::*;
 
 ///
 /// Row

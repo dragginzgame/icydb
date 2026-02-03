@@ -36,7 +36,7 @@ pub struct Map {}
 ///
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use icydb::validate;
 

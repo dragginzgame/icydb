@@ -1,9 +1,14 @@
+mod write;
+
 use crate::{
     error::{Error, ErrorClass, ErrorOrigin},
     traits::EntityKind,
     view::View,
 };
 use icydb_core::db::response::{Response as CoreResponse, ResponseError};
+
+// re-exports
+pub use write::*;
 
 ///
 /// Response
@@ -104,7 +109,7 @@ impl<E: EntityKind> Response<E> {
 
     /// Return all primary keys.
     #[must_use]
-    pub fn primary_keys(&self) -> Vec<E::Id> {
+    pub fn keys(&self) -> Vec<E::Id> {
         self.inner.ids()
     }
 

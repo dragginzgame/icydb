@@ -21,7 +21,7 @@ use crate::{
                 start_event, trace_access_from_plan,
             },
         },
-        response::Response,
+        response::{Response, WriteBatchResponse, WriteResponse},
         store::{DataStore, DataStoreRegistry},
     },
     error::InternalError,
@@ -300,55 +300,64 @@ impl<C: CanisterKind> DbSession<C> {
     // High-level write API (public, intent-level)
     // ---------------------------------------------------------------------
 
-    pub fn insert<E>(&self, entity: E) -> Result<E, InternalError>
+    pub fn insert<E>(&self, entity: E) -> Result<WriteResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
         self.with_metrics(|| self.save_executor::<E>().insert(entity))
+            .map(WriteResponse::new)
     }
 
     pub fn insert_many<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, InternalError>
+    ) -> Result<WriteBatchResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        self.with_metrics(|| self.save_executor::<E>().insert_many(entities))
+        let entities = self.with_metrics(|| self.save_executor::<E>().insert_many(entities))?;
+
+        Ok(WriteBatchResponse::new(entities))
     }
 
-    pub fn replace<E>(&self, entity: E) -> Result<E, InternalError>
+    pub fn replace<E>(&self, entity: E) -> Result<WriteResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
         self.with_metrics(|| self.save_executor::<E>().replace(entity))
+            .map(WriteResponse::new)
     }
 
     pub fn replace_many<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, InternalError>
+    ) -> Result<WriteBatchResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        self.with_metrics(|| self.save_executor::<E>().replace_many(entities))
+        let entities = self.with_metrics(|| self.save_executor::<E>().replace_many(entities))?;
+
+        Ok(WriteBatchResponse::new(entities))
     }
 
-    pub fn update<E>(&self, entity: E) -> Result<E, InternalError>
+    pub fn update<E>(&self, entity: E) -> Result<WriteResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
         self.with_metrics(|| self.save_executor::<E>().update(entity))
+            .map(WriteResponse::new)
     }
 
     pub fn update_many<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, InternalError>
+    ) -> Result<WriteBatchResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        self.with_metrics(|| self.save_executor::<E>().update_many(entities))
+        let entities = self.with_metrics(|| self.save_executor::<E>().update_many(entities))?;
+
+        Ok(WriteBatchResponse::new(entities))
     }
 
     pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>

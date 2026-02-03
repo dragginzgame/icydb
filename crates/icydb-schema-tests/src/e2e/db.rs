@@ -235,7 +235,7 @@ pub struct IndexUniqueOpt {}
 ///
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use icydb::{deserialize, serialize};
 
