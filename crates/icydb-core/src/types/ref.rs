@@ -89,15 +89,38 @@ impl<E: EntityKind> FieldValue for Ref<E> {
     }
 }
 
-//
-// Equality / ordering / hashing
-//
+impl<T> CandidType for Ref<T>
+where
+    T: EntityKind,
+    T::Id: CandidType,
+{
+    fn _ty() -> candid::types::Type {
+        <T::Id as CandidType>::_ty()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where
+        S: candid::types::Serializer,
+    {
+        self.id.idl_serialize(serializer)
+    }
+}
 
 impl<T: EntityKind> Eq for Ref<T> {}
 
 impl<T: EntityKind> PartialEq for Ref<T> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
+    }
+}
+
+impl<T> Hash for Ref<T>
+where
+    T: EntityKind,
+    T::Id: Hash,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }
 
@@ -110,16 +133,6 @@ impl<T: EntityKind> Ord for Ref<T> {
 impl<T: EntityKind> PartialOrd for Ref<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
-    }
-}
-
-impl<T> Hash for Ref<T>
-where
-    T: EntityKind,
-    T::Id: Hash,
-{
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
     }
 }
 
@@ -151,10 +164,6 @@ where
     }
 }
 
-//
-// Defaults (schema-driven)
-//
-
 impl<T> Default for Ref<T>
 where
     T: EntityKind,
@@ -165,30 +174,35 @@ where
     }
 }
 
-//
-// Candid
-//
-
-impl<T> CandidType for Ref<T>
+impl<T> fmt::Display for Ref<T>
 where
     T: EntityKind,
-    T::Id: CandidType,
+    T::Id: fmt::Display,
 {
-    fn _ty() -> candid::types::Type {
-        <T::Id as CandidType>::_ty()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: candid::types::Serializer,
-    {
-        self.id.idl_serialize(serializer)
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.id.fmt(f)
     }
 }
 
-//
-// View / update
-//
+impl<T> SanitizeAuto for Ref<T> where T: EntityKind {}
+
+impl<T> SanitizeCustom for Ref<T> where T: EntityKind {}
+
+impl<T> UpdateView for Ref<T>
+where
+    T: EntityKind,
+    T::Id: CandidType + Default,
+{
+    type UpdateViewType = Self;
+
+    fn merge(&mut self, update: Self::UpdateViewType) {
+        *self = update;
+    }
+}
+
+impl<T> ValidateAuto for Ref<T> where T: EntityKind {}
+
+impl<T> ValidateCustom for Ref<T> where T: EntityKind {}
 
 impl<T> View for Ref<T>
 where
@@ -206,34 +220,4 @@ where
     }
 }
 
-impl<T> UpdateView for Ref<T>
-where
-    T: EntityKind,
-    T::Id: CandidType + Default,
-{
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, update: Self::UpdateViewType) {
-        *self = update;
-    }
-}
-
-impl<T> SanitizeAuto for Ref<T> where T: EntityKind {}
-impl<T> SanitizeCustom for Ref<T> where T: EntityKind {}
-impl<T> ValidateAuto for Ref<T> where T: EntityKind {}
-impl<T> ValidateCustom for Ref<T> where T: EntityKind {}
 impl<T> Visitable for Ref<T> where T: EntityKind {}
-
-//
-// Display
-//
-
-impl<T> fmt::Display for Ref<T>
-where
-    T: EntityKind,
-    T::Id: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.id.fmt(f)
-    }
-}
