@@ -204,13 +204,13 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
         Ok(self.inner.execute()?.id())
     }
 
-    pub fn key_strict(&self) -> Result<E::Id, Error>
+    pub fn require_key(&self) -> Result<E::Id, Error>
     where
         E: EntityValue,
     {
         self.inner
             .execute()?
-            .id_strict()
+            .require_id()
             .map_err(map_response_error)
     }
 

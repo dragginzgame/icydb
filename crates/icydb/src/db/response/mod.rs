@@ -99,7 +99,7 @@ impl<E: EntityKind> Response<E> {
 
     /// Return the single key.
     pub fn key(self) -> Result<E::Id, Error> {
-        self.inner.id_strict().map_err(map_response_error)
+        self.inner.require_id().map_err(map_response_error)
     }
 
     /// Return zero or one primary key.

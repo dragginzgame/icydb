@@ -131,7 +131,7 @@ impl<E: EntityKind> Response<E> {
         self.0.first().map(|(id, _)| *id)
     }
 
-    pub fn id_strict(self) -> Result<E::Id, ResponseError> {
+    pub fn require_id(self) -> Result<E::Id, ResponseError> {
         self.row().map(|(id, _)| id)
     }
 
