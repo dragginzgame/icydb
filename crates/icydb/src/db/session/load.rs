@@ -6,6 +6,7 @@ use crate::{
     },
     error::Error,
     traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
+    types::Ref,
     view::View,
 };
 use icydb_core as core;
@@ -39,6 +40,13 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     #[must_use]
     pub fn by_key(mut self, id: E::Id) -> Self {
         self.inner = self.inner.by_key(id);
+        self
+    }
+
+    /// Filter by typed reference.
+    #[must_use]
+    pub fn by_ref(mut self, reference: Ref<E>) -> Self {
+        self.inner = self.inner.by_ref(reference);
         self
     }
 

@@ -54,6 +54,12 @@ where
     pub const fn id(self) -> E::Id {
         self.id
     }
+
+    /// Return the primary key.
+    #[must_use]
+    pub const fn key(self) -> E::Id {
+        self.id
+    }
 }
 
 impl<E> Copy for Ref<E> where E: EntityKind {}

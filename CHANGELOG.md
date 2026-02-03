@@ -5,11 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.12] – 2026-02-03 - WriteResponse
+## [0.6.14] – 2026-02-03 - WriteResponse
 
 ### 🦩 Added
 
 * Added `WriteResponse`/`WriteBatchResponse` helpers for write results, including key and view accessors.
+* Added by_ref() for query flow
+
+### 🥪 Changed
+
+* id_strict and key_strict to require_id and require_key to match other methods
 
 ---
 

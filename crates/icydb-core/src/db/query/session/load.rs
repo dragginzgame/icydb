@@ -10,6 +10,7 @@ use crate::{
         response::Response,
     },
     traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
+    types::Ref,
 };
 
 ///
@@ -54,6 +55,13 @@ where
     #[must_use]
     pub fn by_key(mut self, key: E::Id) -> Self {
         self.query = self.query.by_key(key);
+        self
+    }
+
+    #[must_use]
+    /// Set the access path to a typed reference lookup.
+    pub fn by_ref(mut self, reference: Ref<E>) -> Self {
+        self.query = self.query.by_key(reference.key());
         self
     }
 

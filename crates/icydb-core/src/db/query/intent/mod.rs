@@ -23,6 +23,7 @@ use crate::{
     },
     error::InternalError,
     traits::{EntityKind, FieldValue, SingletonEntity},
+    types::Ref,
     value::Value,
 };
 use std::marker::PhantomData;
@@ -430,6 +431,11 @@ impl<E: EntityKind> Query<E> {
             intent: intent.by_key(key),
             _marker,
         }
+    }
+
+    /// Set the access path to a typed reference lookup.
+    pub(crate) fn by_ref(self, reference: Ref<E>) -> Self {
+        self.by_key(reference.key())
     }
 
     /// Set the access path to a primary key batch lookup.
