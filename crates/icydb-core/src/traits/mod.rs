@@ -182,8 +182,13 @@ impl<T> TypeKind for T where
 pub trait Collection {
     type Item;
 
+    /// Iterator over the collection's items, tied to the borrow of `self`.
+    type Iter<'a>: Iterator<Item = &'a Self::Item> + 'a
+    where
+        Self: 'a;
+
     /// Returns an iterator over the collection's items.
-    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Item> + 'a>;
+    fn iter(&self) -> Self::Iter<'_>;
 
     /// Returns the number of items in the collection.
     fn len(&self) -> usize;
@@ -200,8 +205,13 @@ pub trait MapCollection {
     type Key;
     type Value;
 
+    /// Iterator over the map's key/value pairs, tied to the borrow of `self`.
+    type Iter<'a>: Iterator<Item = (&'a Self::Key, &'a Self::Value)> + 'a
+    where
+        Self: 'a;
+
     /// Returns an iterator over the map's key/value pairs.
-    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (&'a Self::Key, &'a Self::Value)> + 'a>;
+    fn iter(&self) -> Self::Iter<'_>;
 
     /// Returns the number of entries in the map.
     fn len(&self) -> usize;

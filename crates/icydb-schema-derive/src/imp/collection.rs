@@ -23,8 +23,12 @@ impl Imp<List> for CollectionTrait {
         let q = quote! {
             type Item = #item;
 
-            fn iter<'a>(&'a self) -> Box<dyn ::std::iter::Iterator<Item = &'a Self::Item> + 'a> {
-                Box::new(self.0.iter())
+            type Iter<'a> = ::std::slice::Iter<'a, #item>
+            where
+                Self: 'a;
+
+            fn iter(&self) -> Self::Iter<'_> {
+                self.0.iter()
             }
 
             fn len(&self) -> usize {
@@ -51,8 +55,12 @@ impl Imp<Set> for CollectionTrait {
         let q = quote! {
             type Item = #item;
 
-            fn iter<'a>(&'a self) -> Box<dyn ::std::iter::Iterator<Item = &'a Self::Item> + 'a> {
-                Box::new(self.0.iter())
+            type Iter<'a> = ::std::collections::hash_set::Iter<'a, #item>
+            where
+                Self: 'a;
+
+            fn iter(&self) -> Self::Iter<'_> {
+                self.0.iter()
             }
 
             fn len(&self) -> usize {
@@ -81,12 +89,12 @@ impl Imp<Map> for MapCollectionTrait {
             type Key = #key;
             type Value = #value;
 
-            fn iter<'a>(
-                &'a self,
-            ) -> Box<
-                dyn ::std::iter::Iterator<Item = (&'a Self::Key, &'a Self::Value)> + 'a,
-            > {
-                Box::new(self.0.iter())
+            type Iter<'a> = ::std::collections::hash_map::Iter<'a, #key, #value>
+            where
+                Self: 'a;
+
+            fn iter(&self) -> Self::Iter<'_> {
+                self.0.iter()
             }
 
             fn len(&self) -> usize {

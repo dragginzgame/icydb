@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.8] – 2026-02-03 - Decimal Abs Helper
+## [0.6.9] – 2026-02-03 - Decimal Abs Helper
 
 ### 🦩 Added
 
@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 * Planner access planning no longer re-validates predicates; validation is now owned by the intent/executor boundaries.
 * Consolidated primary-key compatibility checks to the shared `FieldType::is_keyable` rule to avoid drift across planner/validator layers.
+
+### 🪁 Breaking
+
+* `MapCollection::iter` now returns a GAT-backed iterator instead of a boxed trait object, so implementations and type annotations must update.
+* `Collection::iter` now returns a GAT-backed iterator instead of a boxed trait object, so implementations and type annotations must update.
 
 ---
 
