@@ -1,3 +1,5 @@
+#![allow(clippy::used_underscore_binding)]
+mod key_access;
 #[cfg(test)]
 mod tests;
 
@@ -7,20 +9,23 @@ use crate::{
             ReadConsistency,
             expr::{FilterExpr, SortExpr, SortLowerError},
             plan::{
-                AccessPath, AccessPlan, DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan,
-                OrderDirection, OrderSpec, PageSpec, PlanError,
+                DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan, OrderDirection,
+                OrderSpec, PageSpec, PlanError,
                 planner::{PlannerError, plan_access},
-                validate::{validate_access_plan, validate_logical_plan, validate_order},
+                validate::validate_logical_plan_model,
             },
-            predicate::{Predicate, SchemaInfo, ValidateError, normalize, validate},
+            predicate::{Predicate, SchemaInfo, ValidateError, normalize},
         },
         response::ResponseError,
     },
     error::InternalError,
-    traits::{EntityKind, SingletonEntity},
+    traits::{EntityKind, FieldValue, SingletonEntity},
+    value::Value,
 };
 use std::marker::PhantomData;
 use thiserror::Error as ThisError;
+
+pub use key_access::*;
 
 ///
 /// QueryMode
@@ -98,41 +103,37 @@ impl DeleteSpec {
 }
 
 ///
-/// Query
+/// QueryModel
 ///
-/// Typed, declarative query intent for a specific entity type.
-///
-/// This intent is:
-/// - schema-agnostic at construction
-/// - normalized and validated only during planning
-/// - free of access-path decisions
+/// Model-level query intent and planning context.
+/// `EntityModel` is the source of truth; schema surfaces are derived on demand.
 ///
 
 #[derive(Debug)]
-pub struct Query<E: EntityKind> {
+pub(crate) struct QueryModel<'m, K> {
+    model: &'m crate::model::entity::EntityModel,
     mode: QueryMode,
     predicate: Option<Predicate>,
-    key_access: Option<KeyAccessState<E::Id>>,
+    key_access: Option<KeyAccessState<K>>,
     key_access_conflict: bool,
     order: Option<OrderSpec>,
     consistency: ReadConsistency,
-    _marker: PhantomData<E>,
 }
 
-impl<E: EntityKind> Query<E> {
-    /// Create a new intent with an explicit missing-row policy.
-    /// MissingOk favors idempotency and may mask index/data divergence on deletes.
-    /// Use Strict to surface missing rows during scan/delete execution.
+impl<'m, K: FieldValue> QueryModel<'m, K> {
     #[must_use]
-    pub const fn new(consistency: ReadConsistency) -> Self {
+    pub const fn new(
+        model: &'m crate::model::entity::EntityModel,
+        consistency: ReadConsistency,
+    ) -> Self {
         Self {
+            model,
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             key_access: None,
             key_access_conflict: false,
             order: None,
             consistency,
-            _marker: PhantomData,
         }
     }
 
@@ -152,16 +153,18 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
-    /// Apply a dynamic filter expression.
-    pub fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
-        let predicate = expr.lower::<E>().map_err(QueryError::Validate)?;
+    /// Apply a dynamic filter expression using the model schema.
+    pub(crate) fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
+        let schema = SchemaInfo::from_entity_model(self.model)?;
+        let predicate = expr.lower_with(&schema).map_err(QueryError::Validate)?;
 
         Ok(self.filter(predicate))
     }
 
-    /// Apply a dynamic sort expression.
-    pub fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
-        let order = match expr.lower::<E>() {
+    /// Apply a dynamic sort expression using the model schema.
+    pub(crate) fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
+        let schema = SchemaInfo::from_entity_model(self.model)?;
+        let order = match expr.lower_with(&schema) {
             Ok(order) => order,
             Err(SortLowerError::Validate(err)) => return Err(QueryError::Validate(err)),
             Err(SortLowerError::Plan(err)) => return Err(QueryError::Plan(err)),
@@ -195,7 +198,7 @@ impl<E: EntityKind> Query<E> {
     }
 
     /// Track key-only access paths and detect conflicting key intents.
-    fn set_key_access(mut self, kind: KeyAccessKind, access: KeyAccess<E::Id>) -> Self {
+    fn set_key_access(mut self, kind: KeyAccessKind, access: KeyAccess<K>) -> Self {
         if let Some(existing) = &self.key_access
             && existing.kind != kind
         {
@@ -208,19 +211,24 @@ impl<E: EntityKind> Query<E> {
     }
 
     /// Set the access path to a single primary key lookup.
-    pub(crate) fn by_key(self, key: E::Id) -> Self {
+    pub(crate) fn by_key(self, key: K) -> Self {
         self.set_key_access(KeyAccessKind::Single, KeyAccess::Single(key))
     }
 
     /// Set the access path to a primary key batch lookup.
     pub(crate) fn by_keys<I>(self, keys: I) -> Self
     where
-        I: IntoIterator<Item = E::Id>,
+        I: IntoIterator<Item = K>,
     {
         self.set_key_access(
             KeyAccessKind::Many,
             KeyAccess::Many(keys.into_iter().collect()),
         )
+    }
+
+    /// Set the access path to the singleton primary key.
+    pub(crate) fn only(self, id: K) -> Self {
+        self.set_key_access(KeyAccessKind::Only, KeyAccess::Single(id))
     }
 
     /// Mark this intent as a delete query.
@@ -260,49 +268,23 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
-    /// Explain this intent without executing it.
-    pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
-        let plan = self.build_plan()?;
-
-        Ok(plan.explain())
-    }
-
-    /// Plan this intent into an executor-ready plan.
-    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
-        let plan = self.build_plan()?;
-
-        Ok(ExecutablePlan::new(plan))
-    }
-
-    // Build a logical plan for the current intent.
-    fn build_plan(&self) -> Result<LogicalPlan<E::Id>, QueryError> {
+    /// Build a model-level logical plan using Value-based access keys.
+    fn build_plan_model(&self) -> Result<LogicalPlan<Value>, QueryError> {
         // Phase 1: schema surface and intent validation.
-        let model = E::MODEL;
-        let schema_info = SchemaInfo::from_entity_model(model)?;
+        let schema_info = SchemaInfo::from_entity_model(self.model)?;
         self.validate_intent()?;
-
-        if let Some(order) = &self.order {
-            validate_order(&schema_info, order)?;
-        }
 
         // Phase 2: predicate normalization and access planning.
         let normalized_predicate = self.predicate.as_ref().map(normalize);
-        let access_plan = match &self.key_access {
-            Some(state) => {
-                if let Some(predicate) = self.predicate.as_ref() {
-                    validate(&schema_info, predicate)?;
-                }
-                access_plan_from_keys(&state.access)
-            }
-            None => plan_access::<E>(&schema_info, normalized_predicate.as_ref())?,
+        let access_plan_value = match &self.key_access {
+            Some(state) => access_plan_from_keys_value(&state.access),
+            None => plan_access(self.model, &schema_info, normalized_predicate.as_ref())?,
         };
-
-        validate_access_plan(&schema_info, model, &access_plan)?;
 
         // Phase 3: assemble the executor-ready plan.
         let plan = LogicalPlan {
             mode: self.mode,
-            access: access_plan,
+            access: access_plan_value,
             predicate: normalized_predicate,
             order: self.order.clone(),
             delete_limit: match self.mode {
@@ -325,7 +307,7 @@ impl<E: EntityKind> Query<E> {
             consistency: self.consistency,
         };
 
-        validate_logical_plan(&schema_info, model, &plan)?;
+        validate_logical_plan_model(&schema_info, self.model, &plan)?;
 
         Ok(plan)
     }
@@ -367,13 +349,177 @@ impl<E: EntityKind> Query<E> {
     }
 }
 
+///
+/// Query
+///
+/// Typed, declarative query intent for a specific entity type.
+///
+/// This intent is:
+/// - schema-agnostic at construction
+/// - normalized and validated only during planning
+/// - free of access-path decisions
+///
+
+#[derive(Debug)]
+pub struct Query<E: EntityKind> {
+    intent: QueryModel<'static, E::Id>,
+    #[allow(clippy::struct_field_names)]
+    _marker: PhantomData<E>,
+}
+
+impl<E: EntityKind> Query<E> {
+    /// Create a new intent with an explicit missing-row policy.
+    /// MissingOk favors idempotency and may mask index/data divergence on deletes.
+    /// Use Strict to surface missing rows during scan/delete execution.
+    #[must_use]
+    pub const fn new(consistency: ReadConsistency) -> Self {
+        Self {
+            intent: QueryModel::new(E::MODEL, consistency),
+            _marker: PhantomData,
+        }
+    }
+
+    /// Return the intent mode (load vs delete).
+    #[must_use]
+    pub const fn mode(&self) -> QueryMode {
+        self.intent.mode()
+    }
+
+    /// Add a predicate, implicitly AND-ing with any existing predicate.
+    #[must_use]
+    pub fn filter(mut self, predicate: Predicate) -> Self {
+        self.intent = self.intent.filter(predicate);
+        self
+    }
+
+    /// Apply a dynamic filter expression.
+    pub fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
+        let Self { intent, _marker } = self;
+        let intent = intent.filter_expr(expr)?;
+
+        Ok(Self { intent, _marker })
+    }
+
+    /// Apply a dynamic sort expression.
+    pub fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
+        let Self { intent, _marker } = self;
+        let intent = intent.sort_expr(expr)?;
+
+        Ok(Self { intent, _marker })
+    }
+
+    /// Append an ascending sort key.
+    #[must_use]
+    pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
+        self.intent = self.intent.order_by(field);
+        self
+    }
+
+    /// Append a descending sort key.
+    #[must_use]
+    pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
+        self.intent = self.intent.order_by_desc(field);
+        self
+    }
+
+    /// Set the access path to a single primary key lookup.
+    pub(crate) fn by_key(self, key: E::Id) -> Self {
+        let Self { intent, _marker } = self;
+        Self {
+            intent: intent.by_key(key),
+            _marker,
+        }
+    }
+
+    /// Set the access path to a primary key batch lookup.
+    pub(crate) fn by_keys<I>(self, keys: I) -> Self
+    where
+        I: IntoIterator<Item = E::Id>,
+    {
+        let Self { intent, _marker } = self;
+        Self {
+            intent: intent.by_keys(keys),
+            _marker,
+        }
+    }
+
+    /// Mark this intent as a delete query.
+    #[must_use]
+    pub fn delete(mut self) -> Self {
+        self.intent = self.intent.delete();
+        self
+    }
+
+    /// Apply a limit to the current mode.
+    ///
+    /// Load limits bound result size; delete limits bound mutation size.
+    #[must_use]
+    pub fn limit(mut self, limit: u32) -> Self {
+        self.intent = self.intent.limit(limit);
+        self
+    }
+
+    /// Apply an offset to a load intent.
+    #[must_use]
+    pub fn offset(mut self, offset: u32) -> Self {
+        self.intent = self.intent.offset(offset);
+        self
+    }
+
+    /// Explain this intent without executing it.
+    pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
+        let plan = self.build_plan()?;
+
+        Ok(plan.explain())
+    }
+
+    /// Plan this intent into an executor-ready plan.
+    pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
+        let plan = self.build_plan()?;
+
+        Ok(ExecutablePlan::new(plan))
+    }
+
+    // Build a logical plan for the current intent.
+    fn build_plan(&self) -> Result<LogicalPlan<E::Id>, QueryError> {
+        let plan_value = self.intent.build_plan_model()?;
+        let LogicalPlan {
+            mode,
+            access,
+            predicate,
+            order,
+            delete_limit,
+            page,
+            consistency,
+        } = plan_value;
+
+        let access = access_plan_to_entity_keys::<E>(E::MODEL, access)?;
+        let plan = LogicalPlan {
+            mode,
+            access,
+            predicate,
+            order,
+            delete_limit,
+            page,
+            consistency,
+        };
+
+        Ok(plan)
+    }
+}
+
 impl<E> Query<E>
 where
     E: EntityKind + SingletonEntity,
 {
     /// Set the access path to the singleton primary key.
     pub(crate) fn only(self, id: E::Id) -> Self {
-        self.set_key_access(KeyAccessKind::Only, KeyAccess::Single(id))
+        let Self { intent, _marker } = self;
+
+        Self {
+            intent: intent.only(id),
+            _marker,
+        }
     }
 }
 
@@ -428,59 +574,6 @@ pub enum IntentError {
 
     #[error("multiple key access methods were used on the same query")]
     KeyAccessConflict,
-}
-
-///
-/// KeyAccess
-/// Primary-key-only access hints for query planning.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum KeyAccess<K> {
-    Single(K),
-    Many(Vec<K>),
-}
-
-///
-/// KeyAccessKind
-/// Identifies which key-only builder set the access path.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum KeyAccessKind {
-    Single,
-    Many,
-    Only,
-}
-
-///
-/// KeyAccessState
-/// Tracks key-only access plus its origin for intent validation.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct KeyAccessState<K> {
-    kind: KeyAccessKind,
-    access: KeyAccess<K>,
-}
-
-// Build a key-only access plan without predicate-based planning.
-fn access_plan_from_keys<K>(access: &KeyAccess<K>) -> AccessPlan<K>
-where
-    K: Copy + Ord,
-{
-    match access {
-        KeyAccess::Single(key) => AccessPlan::Path(AccessPath::ByKey(*key)),
-        KeyAccess::Many(keys) => {
-            if let Some((first, rest)) = keys.split_first()
-                && rest.is_empty()
-            {
-                return AccessPlan::Path(AccessPath::ByKey(*first));
-            }
-
-            AccessPlan::Path(AccessPath::ByKeys(keys.clone()))
-        }
-    }
 }
 
 /// Helper to append an ordering field while preserving existing order spec.

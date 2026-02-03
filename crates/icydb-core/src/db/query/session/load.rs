@@ -9,7 +9,7 @@ use crate::{
         },
         response::Response,
     },
-    traits::{CanisterKind, EntityValue, SingletonEntity},
+    traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
 };
 
 ///
@@ -23,7 +23,7 @@ use crate::{
 pub struct SessionLoadQuery<'a, C, E>
 where
     C: CanisterKind,
-    E: EntityValue<Canister = C>,
+    E: EntityKind<Canister = C>,
 {
     session: &'a DbSession<C>,
     query: Query<E>,
@@ -32,7 +32,7 @@ where
 impl<'a, C, E> SessionLoadQuery<'a, C, E>
 where
     C: CanisterKind,
-    E: EntityValue<Canister = C>,
+    E: EntityKind<Canister = C>,
 {
     pub(crate) const fn new(session: &'a DbSession<C>, query: Query<E>) -> Self {
         Self { session, query }
@@ -123,7 +123,10 @@ where
     // ------------------------------------------------------------------
 
     /// Execute this query using the session's policy settings.
-    pub fn execute(&self) -> Result<Response<E>, QueryError> {
+    pub fn execute(&self) -> Result<Response<E>, QueryError>
+    where
+        E: EntityValue,
+    {
         self.session.execute_query(self.query())
     }
 
@@ -132,22 +135,34 @@ where
     // ------------------------------------------------------------------
 
     /// Execute and return whether the result set is empty.
-    pub fn is_empty(&self) -> Result<bool, QueryError> {
+    pub fn is_empty(&self) -> Result<bool, QueryError>
+    where
+        E: EntityValue,
+    {
         Ok(self.execute()?.is_empty())
     }
 
     /// Execute and return the number of matching rows.
-    pub fn count(&self) -> Result<u32, QueryError> {
+    pub fn count(&self) -> Result<u32, QueryError>
+    where
+        E: EntityValue,
+    {
         Ok(self.execute()?.count())
     }
 
     /// Execute and require exactly one matching row.
-    pub fn require_one(&self) -> Result<(), QueryError> {
+    pub fn require_one(&self) -> Result<(), QueryError>
+    where
+        E: EntityValue,
+    {
         self.execute()?.require_one().map_err(QueryError::Response)
     }
 
     /// Execute and require at least one matching row.
-    pub fn require_some(&self) -> Result<(), QueryError> {
+    pub fn require_some(&self) -> Result<(), QueryError>
+    where
+        E: EntityValue,
+    {
         self.execute()?.require_some().map_err(QueryError::Response)
     }
 }
@@ -155,7 +170,7 @@ where
 impl<C, E> SessionLoadQuery<'_, C, E>
 where
     C: CanisterKind,
-    E: SingletonEntity<Canister = C>,
+    E: EntityKind<Canister = C> + SingletonEntity,
 {
     #[must_use]
     pub fn only(mut self, id: E::Id) -> Self {

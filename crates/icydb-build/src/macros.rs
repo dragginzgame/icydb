@@ -1,6 +1,9 @@
-/// Build-script helper that runs IcyDB codegen for the specified canister actor path.
+//! Build-script helper that runs IcyDB actor codegen for the specified canister path.
+//!
+//! This does not register schema nodes; schema registration is handled by derives at compile time.
+//! Formerly named `build!`; renamed to make the actor-only scope explicit.
 #[macro_export]
-macro_rules! build {
+macro_rules! build_actor {
     ($actor:expr) => {
         use std::{env::var, fs::File, io::Write, path::PathBuf};
 

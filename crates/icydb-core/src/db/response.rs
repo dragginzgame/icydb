@@ -5,7 +5,7 @@ use thiserror::Error as ThisError;
 /// Row
 ///
 
-pub type Row<E> = (<E as EntityKind>::Id, E);
+pub type Row<E> = (<E as EntityIdentity>::Id, E);
 
 ///
 /// ResponseError

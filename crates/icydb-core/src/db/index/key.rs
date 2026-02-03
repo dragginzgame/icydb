@@ -6,7 +6,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,
-    traits::{EntityValue, Storable},
+    traits::{EntityKind, EntityValue, Storable},
 };
 use canic_cdk::structures::storable::Bound;
 use derive_more::Display;
@@ -28,7 +28,7 @@ impl IndexId {
     /// Build an index id from static entity metadata.
     ///
     /// This is the canonical constructor. Identity invariants are always enforced.
-    pub fn try_new<E: EntityValue>(index: &IndexModel) -> Result<Self, IndexIdError> {
+    pub fn try_new<E: EntityKind>(index: &IndexModel) -> Result<Self, IndexIdError> {
         let entity = EntityName::try_from_str(E::ENTITY_NAME)?;
         let name = IndexName::try_from_parts(&entity, index.fields)?;
         Ok(Self(name))
@@ -38,7 +38,7 @@ impl IndexId {
     ///
     /// This is intended for generated code and schema-defined indexes.
     #[must_use]
-    pub fn new<E: EntityValue>(index: &IndexModel) -> Self {
+    pub fn new<E: EntityKind>(index: &IndexModel) -> Self {
         Self::try_new::<E>(index).expect("static IndexModel must define a valid IndexId")
     }
 
@@ -91,7 +91,7 @@ impl IndexKey {
 
     /// Build an index key; returns `Ok(None)` if any indexed field is missing or non-indexable.
     /// `Value::None` and `Value::Unsupported` are treated as non-indexable.
-    pub fn new<E: EntityValue>(
+    pub fn new<E: EntityKind + EntityValue>(
         entity: &E,
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
@@ -118,6 +118,7 @@ impl IndexKey {
             let Some(fp) = fingerprint::to_index_fingerprint(&value)? else {
                 return Ok(None);
             };
+
             values[len] = fp;
             len += 1;
         }

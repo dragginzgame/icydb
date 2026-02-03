@@ -24,125 +24,127 @@ pub use std::{
 
 use crate::{prelude::*, value::ValueEnum, visitor::VisitorContext};
 
-/// ============================================================================
-/// KIND HIERARCHY
-/// ============================================================================
-///
-/// In schema terminology these are "nodes".
-/// In runtime terminology these are "kinds".
-///
+// ============================================================================
+// FOUNDATIONAL KINDS
+// ============================================================================
+//
+// These traits define *where* something lives in the system,
+// not what data it contains.
+//
 
-///
-/// Kind
-///
+/// Fully-qualified schema path.
+pub trait Path {
+    const PATH: &'static str;
+}
+
+/// Marker for all schema/runtime nodes.
 pub trait Kind: Path + 'static {}
 impl<T> Kind for T where T: Path + 'static {}
 
-///
-/// CanisterKind
-///
+/// Marker for canister namespaces.
 pub trait CanisterKind: Kind {}
 
-///
-/// DataStoreKind
-///
+/// Marker for data stores bound to a canister.
 pub trait DataStoreKind: Kind {
     type Canister: CanisterKind;
 }
 
-///
-/// IndexStoreKind
-///
+/// Marker for index stores bound to a canister.
 pub trait IndexStoreKind: Kind {
     type Canister: CanisterKind;
 }
 
-/// ============================================================================
-/// IDENTITY TRAITS
-/// ============================================================================
-///
-/// Identity traits describe *who* an entity is, not how it is stored.
-/// No persistence assumptions are allowed here.
-///
+// ============================================================================
+// ENTITY IDENTITY & SCHEMA
+// ============================================================================
+//
+// These traits describe *what an entity is*, not how it is stored
+// or manipulated at runtime.
+//
 
-///
-/// EntityKey
-///
 /// Marker trait for entity identity types.
 ///
-/// Identity types must be:
-/// - Copy
-/// - Comparable
+/// Identity types:
+/// - Are cheap to copy
+/// - Are totally ordered
+/// - Can be converted to/from query Values
 ///
 /// They are NOT required to be persistable.
-///
 pub trait EntityKey: Copy + Debug + Eq + Ord + FieldValue + 'static {}
-
 impl<T> EntityKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static {}
 
 ///
-/// EntityKind
-///
-/// Describes a concrete entity type.
-///
-/// This trait binds together:
-/// - Identity (`Id`)
-/// - Schema metadata
-/// - Store and canister placement
-///
-/// It intentionally does NOT imply how the ID is stored.
+/// EntityIdentity
+/// Identity-only facts about an entity.
 ///
 
-pub trait EntityKind: Kind + TypeKind {
-    /// Entity primary key type.
-    ///
-    /// Invariants:
-    /// - Must be representable as a `Value`
-    /// - Must be totally ordered for range validation
-    /// - Must be schema-compatible with the declared primary key field
+pub trait EntityIdentity {
     type Id: EntityKey;
-    type DataStore: DataStoreKind;
-    type Canister: CanisterKind;
 
     const ENTITY_NAME: &'static str;
     const PRIMARY_KEY: &'static str;
-    const FIELDS: &'static [&'static str];
-    const INDEXES: &'static [&'static IndexModel];
-    const MODEL: &'static EntityModel;
 }
 
 ///
-/// EntityValue
+/// EntitySchema
+/// Declared schema facts for an entity.
 ///
 
-pub trait EntityValue: EntityKind + FieldValues {
+pub trait EntitySchema: EntityIdentity {
+    const MODEL: &'static EntityModel;
+    const FIELDS: &'static [&'static str];
+    const INDEXES: &'static [&'static IndexModel];
+}
+
+// ============================================================================
+// ENTITY RUNTIME COMPOSITION
+// ============================================================================
+//
+// These traits bind schema-defined entities into runtime placement.
+//
+
+/// Runtime placement of an entity.
+pub trait EntityPlacement {
+    type DataStore: DataStoreKind;
+    type Canister: CanisterKind;
+}
+
+/// Fully runtime-bound entity.
+///
+/// This is the *maximum* entity contract and should only be
+/// required by code that actually touches storage or execution.
+pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {}
+
+// ============================================================================
+// ENTITY VALUES
+// ============================================================================
+//
+// These traits describe *instances* of entities.
+//
+
+/// A concrete entity value.
+///
+/// This trait is intentionally lighter than `EntityKind`.
+/// It does NOT imply storage placement.
+pub trait EntityValue: EntityIdentity + FieldValues {
     fn id(&self) -> Self::Id;
     fn set_id(&mut self, id: Self::Id);
 }
 
-/// ============================================================================
-/// PERSISTENCE CAPABILITIES
-/// ============================================================================
-///
-/// These traits explicitly grant permission to cross into storage concerns.
-///
-
-///
-/// SingletonEntity
-/// Entity with exactly one logical row.
-///
-
+/// Marker for entities with exactly one logical row.
 pub trait SingletonEntity: EntityValue {}
 
-/// ============================================================================
-/// TYPE SYSTEM
-/// ============================================================================
+// ============================================================================
+// TYPE SYSTEM CONTRACTS
+// ============================================================================
+//
+// These traits define behavioral expectations for schema-defined types.
+//
 
-///
-/// TypeKind
-///
 /// Any schema-defined data type.
 ///
+/// This is a *strong* contract and should only be required
+/// where full lifecycle semantics are needed.
 pub trait TypeKind:
     Kind
     + View
@@ -175,40 +177,47 @@ impl<T> TypeKind for T where
 /// QUERY VALUE BOUNDARIES
 /// ============================================================================
 
-///
-/// EnumValue
-///
-/// Explicit conversion boundary for domain enums.
-///
+/// Explicit iteration contract for list/set wrapper types.
+/// Avoids implicit deref-based access to inner collections.
+pub trait Collection {
+    type Item;
+
+    /// Returns an iterator over the collection's items.
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Self::Item> + 'a>;
+
+    /// Returns the number of items in the collection.
+    fn len(&self) -> usize;
+
+    /// Returns true if the collection contains no items.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// Explicit iteration contract for map wrapper types.
+/// Avoids implicit deref-based access to inner collections.
+pub trait MapCollection {
+    type Key;
+    type Value;
+
+    /// Returns an iterator over the map's key/value pairs.
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (&'a Self::Key, &'a Self::Value)> + 'a>;
+
+    /// Returns the number of entries in the map.
+    fn len(&self) -> usize;
+
+    /// Returns true if the map contains no entries.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
 
 pub trait EnumValue {
     fn to_value_enum(&self) -> ValueEnum;
 }
 
-///
-/// FieldValues
-///
-/// Read access to entity fields by name.
-///
 pub trait FieldValues {
     fn get_value(&self, field: &str) -> Option<Value>;
-}
-
-///
-/// CollectionValue
-///
-/// Explicit iteration contract for list/set wrapper types.
-/// Avoids implicit deref-based access to inner collections.
-///
-
-pub trait CollectionValue {
-    type Item;
-
-    fn iter(&self) -> impl Iterator<Item = &Self::Item>;
-    fn len(&self) -> usize;
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
 }
 
 ///
@@ -218,6 +227,7 @@ pub trait CollectionValue {
 ///
 /// Represents values that can appear on the *right-hand side* of predicates.
 ///
+
 pub trait FieldValue {
     fn to_value(&self) -> Value {
         Value::Unsupported
@@ -253,15 +263,15 @@ impl<T: FieldValue> FieldValue for Option<T> {
     }
 }
 
-impl<T: FieldValue> FieldValue for Vec<T> {
-    fn to_value(&self) -> Value {
-        Value::List(self.iter().map(FieldValue::to_value).collect())
-    }
-}
-
 impl<T: FieldValue> FieldValue for Box<T> {
     fn to_value(&self) -> Value {
         (**self).to_value()
+    }
+}
+
+impl<T: FieldValue> FieldValue for Vec<Box<T>> {
+    fn to_value(&self) -> Value {
+        Value::List(self.iter().map(FieldValue::to_value).collect())
     }
 }
 
@@ -332,15 +342,6 @@ macro_rules! impl_inner {
 impl_inner!(
     bool, f32, f64, i8, i16, i32, i64, i128, String, u8, u16, u32, u64, u128
 );
-
-///
-/// Path
-///
-/// Fully-qualified schema path.
-///
-pub trait Path {
-    const PATH: &'static str;
-}
 
 /// ============================================================================
 /// SANITIZATION / VALIDATION

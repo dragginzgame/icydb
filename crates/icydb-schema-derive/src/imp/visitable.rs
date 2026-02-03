@@ -50,7 +50,8 @@ impl Imp<Enum> for VisitableTrait {
 impl Imp<List> for VisitableTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
         let inner = quote! {
-            use ::icydb::traits::CollectionValue;
+            use ::icydb::traits::Collection;
+
             for (i, v) in self.iter().enumerate() {
                 perform_visit(visitor, v, i);
             }
@@ -148,7 +149,8 @@ impl Imp<Record> for VisitableTrait {
 impl Imp<Set> for VisitableTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
         let inner = quote! {
-            use ::icydb::traits::CollectionValue;
+            use ::icydb::traits::Collection;
+
             for (i, v) in self.iter().enumerate() {
                 perform_visit(visitor, v, i);
             }

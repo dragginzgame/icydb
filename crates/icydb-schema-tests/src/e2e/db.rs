@@ -229,3 +229,29 @@ pub struct IndexRelation {}
     )
 )]
 pub struct IndexUniqueOpt {}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use icydb::{deserialize, serialize};
+
+    #[test]
+    fn missing_field_round_trip() {
+        let small = MissingFieldSmall {
+            a_id: Ulid::generate(),
+            b_id: Ulid::generate(),
+        };
+
+        let bytes = serialize(&small).expect("serialize MissingFieldSmall");
+        let large =
+            deserialize::<MissingFieldLarge>(&bytes).expect("deserialize MissingFieldLarge");
+
+        assert!(!large.a_id.is_nil());
+        assert!(!large.b_id.is_nil());
+        assert!(large.c_id.is_nil());
+    }
+}

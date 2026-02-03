@@ -1,3 +1,5 @@
+pub mod maths;
+
 pub use crate::prelude::*;
 
 /// --------------------
@@ -5,97 +7,97 @@ pub use crate::prelude::*;
 /// --------------------
 
 #[newtype(primitive = "Account", item(prim = "Account"))]
-pub struct Account {}
+pub struct AccountN {}
 
 #[newtype(primitive = "Bool", item(prim = "Bool"))]
-pub struct Bool {}
+pub struct BoolN {}
 
 #[newtype(primitive = "Date", item(prim = "Date"))]
-pub struct Date {}
+pub struct DateN {}
 
 #[newtype(item(prim = "Decimal"), primitive = "Decimal")]
-pub struct Decimal {}
+pub struct DecimalN {}
 
 #[newtype(item(prim = "Duration"), primitive = "Duration")]
-pub struct Duration {}
+pub struct DurationN {}
 
 #[newtype(primitive = "E8s", item(prim = "E8s"))]
-pub struct E8s {}
+pub struct E8sN {}
 
 #[newtype(primitive = "E18s", item(prim = "E18s"))]
-pub struct E18s {}
+pub struct E18sN {}
 
 #[newtype(primitive = "Float32", item(prim = "Float32"))]
-pub struct Float32 {}
+pub struct Float32N {}
 
 #[newtype(primitive = "Float64", item(prim = "Float64"))]
-pub struct Float64 {}
+pub struct Float64N {}
 
 #[newtype(primitive = "Int", item(prim = "Int"))]
-pub struct Int {}
+pub struct IntN {}
 
 #[newtype(primitive = "Int8", item(prim = "Int8"))]
-pub struct Int8 {}
+pub struct Int8N {}
 
 #[newtype(primitive = "Int16", item(prim = "Int16"))]
-pub struct Int16 {}
+pub struct Int16N {}
 
 #[newtype(primitive = "Int32", item(prim = "Int32"))]
-pub struct Int32 {}
+pub struct Int32N {}
 
 #[newtype(primitive = "Int64", item(prim = "Int64"))]
-pub struct Int64 {}
+pub struct Int64N {}
 
 #[newtype(primitive = "Int128", item(prim = "Int128"))]
-pub struct Int128 {}
+pub struct Int128N {}
 
 #[newtype(primitive = "Nat", item(prim = "Nat"))]
-pub struct Nat {}
+pub struct NatN {}
 
 #[newtype(primitive = "Nat8", item(prim = "Nat8"))]
-pub struct Nat8 {}
+pub struct Nat8N {}
 
 #[newtype(primitive = "Nat16", item(prim = "Nat16"))]
-pub struct Nat16 {}
+pub struct Nat16N {}
 
 #[newtype(primitive = "Nat32", item(prim = "Nat32"))]
-pub struct Nat32 {}
+pub struct Nat32N {}
 
 #[newtype(primitive = "Nat64", item(prim = "Nat64"))]
-pub struct Nat64 {}
+pub struct Nat64N {}
 
 #[newtype(primitive = "Nat128", item(prim = "Nat128"))]
-pub struct Nat128 {}
+pub struct Nat128N {}
 
 #[newtype(primitive = "Principal", item(prim = "Principal"))]
-pub struct Principal {}
+pub struct PrincipalN {}
 
 #[newtype(primitive = "Subaccount", item(prim = "Subaccount"))]
-pub struct Subaccount {}
+pub struct SubaccountN {}
 
 #[newtype(primitive = "Text", item(prim = "Text"))]
-pub struct Text {}
+pub struct TextN {}
 
 #[newtype(primitive = "Timestamp", item(prim = "Timestamp"))]
-pub struct Timestamp {}
+pub struct TimestampN {}
 
 #[newtype(primitive = "Ulid", item(prim = "Ulid"))]
-pub struct Ulid {}
+pub struct UlidN {}
 
 #[newtype(primitive = "Unit", item(prim = "Unit"))]
-pub struct Unit {}
+pub struct UnitN {}
 
 ///
-/// Wrappers
+/// Wrapped
 ///
 
-#[newtype(primitive = "Float32", item(is = "Float32"))]
+#[newtype(primitive = "Float32", item(is = "Float32N"))]
 pub struct Float32W {}
 
 #[newtype(primitive = "Float32", item(is = "Float32W"))]
 pub struct Float32WW {}
 
-#[newtype(primitive = "Nat32", item(is = "Nat32"))]
+#[newtype(primitive = "Nat32", item(is = "Nat32N"))]
 pub struct Nat32W {}
 
 #[newtype(primitive = "Nat32", item(is = "Nat32W"))]
@@ -109,77 +111,77 @@ pub struct Nat32WW {}
 /// Each mirrors its non-default counterpart above.
 
 #[newtype(primitive = "Account", item(prim = "Account"))]
-pub struct AccountDefault {}
+pub struct AccountD {}
 
 #[newtype(primitive = "Bool", item(prim = "Bool"), default = true)]
-pub struct BoolDefault {}
+pub struct BoolD {}
 
 #[newtype(
     primitive = "Date",
     item(prim = "Date"),
     default = "icydb::types::Date::EPOCH"
 )]
-pub struct DateDefault {}
+pub struct DateD {}
 
 #[newtype(primitive = "Decimal", item(prim = "Decimal"), default = 0.0)]
-pub struct DecimalDefault {}
+pub struct DecimalD {}
 
 #[newtype(primitive = "Duration", item(prim = "Duration"), default = 0u64)]
-pub struct DurationDefault {}
+pub struct DurationD {}
 
 #[newtype(primitive = "E8s", item(prim = "E8s"), default = 0u64)]
-pub struct E8sDefault {}
+pub struct E8sD {}
 
 #[newtype(primitive = "E18s", item(prim = "E18s"), default = 0u128)]
-pub struct E18sDefault {}
+pub struct E18sD {}
 
 #[newtype(primitive = "Float32", item(prim = "Float32"), default = 0)]
-pub struct Float32Default {}
+pub struct Float32D {}
 
 #[newtype(primitive = "Float64", item(prim = "Float64"), default = 0)]
-pub struct Float64Default {}
+pub struct Float64D {}
 
 #[newtype(primitive = "Int", item(prim = "Int"), default = 0)]
-pub struct IntDefault {}
+pub struct IntD {}
 
 #[newtype(primitive = "Int128", item(prim = "Int128"), default = 0)]
-pub struct Int128Default {}
+pub struct Int128D {}
 
 #[newtype(primitive = "Nat", item(prim = "Nat"), default = 0u64)]
-pub struct NatDefault {}
+pub struct NatD {}
 
 #[newtype(primitive = "Nat32", item(prim = "Nat32"), default = 0u32)]
-pub struct Nat32Default {}
+pub struct Nat32D {}
 
 #[newtype(primitive = "Nat64", item(prim = "Nat64"), default = 0u64)]
-pub struct Nat64Default;
+pub struct Nat64D;
 
 #[newtype(primitive = "Nat128", item(prim = "Nat128"), default = 0u128)]
-pub struct Nat128Default;
+pub struct Nat128D;
 
 #[newtype(
     primitive = "Principal",
     item(prim = "Principal"),
     default = "icydb::types::Principal::anonymous"
 )]
-pub struct PrincipalDefault;
+pub struct PrincipalD;
 
 #[newtype(primitive = "Subaccount", item(prim = "Subaccount"))]
-pub struct SubaccountDefault;
+pub struct SubaccountD;
 
 #[newtype(primitive = "Text", item(prim = "Text"), default = "\"\"")]
-pub struct TextDefault;
+pub struct TextD;
 
 #[newtype(
     primitive = "Timestamp",
     item(prim = "Timestamp"),
     default = "icydb::types::Timestamp::EPOCH"
 )]
-pub struct TimestampDefault;
+pub struct TimestampD;
 
 #[newtype(
     primitive = "Ulid",
     item(prim = "Ulid"),
     default = "icydb::types::Ulid::generate"
 )]
-pub struct UlidDefault;
+pub struct UlidD;

@@ -203,7 +203,6 @@ debug boolean all the way through
 ### Added
 - Codex CLI configuration (`codex.yaml`) with common commands and workflows.
 - README "Using Codex CLI" section with sample invocations.
-- `make test` now conditionally runs `scripts/app/test.sh` when `dfx` is available.
 
 ### Changed
 - Float TypeView: `Float32::from_view` and `Float64::from_view` now preserve invariants

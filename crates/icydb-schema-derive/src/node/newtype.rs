@@ -98,6 +98,9 @@ impl HasTraits for Newtype {
                     TraitKind::Sum,
                 ]);
             }
+            if primitive.supports_remainder() {
+                traits.add(TraitKind::Rem);
+            }
             if primitive.supports_copy() {
                 traits.add(TraitKind::Copy);
             }

@@ -5,7 +5,7 @@ use crate::{
     db::store::EntityRef,
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::field::EntityFieldKind,
-    traits::EntityValue,
+    traits::{EntityKind, EntityValue},
     value::Value,
 };
 
@@ -26,7 +26,7 @@ pub trait EntityReferences {
 
 impl<E> EntityReferences for E
 where
-    E: EntityValue,
+    E: EntityKind + EntityValue,
 {
     fn entity_refs(&self) -> Result<Vec<EntityRef>, InternalError> {
         let mut refs = Vec::with_capacity(E::MODEL.fields.len());

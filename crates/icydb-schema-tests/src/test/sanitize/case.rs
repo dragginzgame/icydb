@@ -105,49 +105,49 @@ mod tests {
     fn lower_sanitizer_to_lowercase() {
         let mut value = LowerCaseText::from("MiXeD Case");
         sanitize(&mut value).unwrap();
-        assert_eq!(&*value, "mixed case");
+        assert_eq!(value.inner().as_str(), "mixed case");
     }
 
     #[test]
     fn upper_sanitizer_to_uppercase() {
         let mut value = UpperCaseText::from("MiXeD Case");
         sanitize(&mut value).unwrap();
-        assert_eq!(&*value, "MIXED CASE");
+        assert_eq!(value.inner().as_str(), "MIXED CASE");
     }
 
     #[test]
     fn snake_sanitizer_to_snake_case() {
         let mut value = SnakeCaseText::from("Mixed Case Text");
         sanitize(&mut value).unwrap();
-        assert_eq!(&*value, "mixed_case_text");
+        assert_eq!(value.inner().as_str(), "mixed_case_text");
     }
 
     #[test]
     fn kebab_sanitizer_to_kebab_case() {
         let mut value = KebabCaseText::from("Mixed Case Text");
         sanitize(&mut value).unwrap();
-        assert_eq!(&*value, "mixed-case-text");
+        assert_eq!(value.inner().as_str(), "mixed-case-text");
     }
 
     #[test]
     fn title_sanitizer_to_title_case() {
         let mut value = TitleCaseText::from("the lord of the rings");
         sanitize(&mut value).unwrap();
-        assert_eq!(&*value, "The Lord of the Rings");
+        assert_eq!(value.inner().as_str(), "The Lord of the Rings");
     }
 
     #[test]
     fn upper_snake_sanitizer_to_upper_snake_case() {
         let mut value = UpperSnakeText::from("Mixed Case Text");
         sanitize(&mut value).unwrap();
-        assert_eq!(&*value, "MIXED_CASE_TEXT");
+        assert_eq!(value.inner().as_str(), "MIXED_CASE_TEXT");
     }
 
     #[test]
     fn upper_camel_sanitizer_to_upper_camel_case() {
         let mut value = UpperCamelText::from("mixed case text");
         sanitize(&mut value).unwrap();
-        assert_eq!(&*value, "MixedCaseText");
+        assert_eq!(value.inner().as_str(), "MixedCaseText");
     }
 
     #[test]
@@ -160,7 +160,8 @@ mod tests {
         sanitize(&mut list).unwrap();
 
         let expected = vec!["mixed_case_text".to_string(), "another_value".to_string()];
-        assert_eq!(*list, expected);
+        let actual: Vec<_> = list.iter().map(|value| value.inner().clone()).collect();
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -177,7 +178,7 @@ mod tests {
 
         let actual: HashMap<_, _> = map
             .iter()
-            .map(|(k, v)| (k.clone(), v.to_string()))
+            .map(|(k, v)| (k.clone(), v.inner().clone()))
             .collect();
 
         let expected = HashMap::from([

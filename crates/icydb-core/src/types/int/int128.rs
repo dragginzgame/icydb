@@ -10,7 +10,7 @@ use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign, Sum};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
-    ops::{Div, DivAssign, Mul, MulAssign},
+    ops::{Div, DivAssign, Mul, MulAssign, Rem},
 };
 
 ///
@@ -70,6 +70,14 @@ impl Div for Int128 {
 impl DivAssign for Int128 {
     fn div_assign(&mut self, other: Self) {
         self.0 /= other.0;
+    }
+}
+
+impl Rem for Int128 {
+    type Output = Self;
+
+    fn rem(self, other: Self) -> Self::Output {
+        Self(self.0 % other.0)
     }
 }
 

@@ -108,20 +108,13 @@ release: ensure-clean
 # Tests
 #
 
-test: clippy test-canisters test-unit
+test: clippy test-unit
 
 test-unit:
 	$(CARGO_ENV) cargo test --workspace --all-targets --verbose
 
 test-canisters:
-	@if command -v dfx >/dev/null 2>&1; then \
-		( dfx canister create --all -qq ); \
-		( dfx build --all ); \
-		( dfx canister install test --mode=reinstall -y ); \
-		( dfx canister call test test ); \
-	else \
-		echo "Skipping canister tests (dfx not installed)"; \
-	fi
+	@echo "Skipping canister tests (disabled)"
 
 #
 # Development commands

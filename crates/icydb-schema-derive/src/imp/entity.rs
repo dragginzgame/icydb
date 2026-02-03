@@ -39,26 +39,44 @@ impl Imp<Entity> for EntityKindTrait {
             .map(Index::runtime_part)
             .collect::<Vec<_>>();
 
-        let q = quote! {
-            type Id = #id_type;
-            type DataStore = #store;
-            type Canister =
-                <Self::DataStore as ::icydb::traits::DataStoreKind>::Canister;
+        let identity_tokens = Implementor::new(&node.def, TraitKind::EntityIdentity)
+            .set_tokens(quote! {
+                type Id = #id_type;
 
-            const ENTITY_NAME: &'static str = #entity_name;
-            const PRIMARY_KEY: &'static str = stringify!(#pk_ident);
-            const FIELDS: &'static [&'static str] = &[
-                #( Self::#field_refs.as_str() ),*
-            ];
-            const INDEXES: &'static [&'static ::icydb::model::index::IndexModel] =
-                &[#(&#indexes),*];
-            const MODEL: &'static ::icydb::model::entity::EntityModel =
-                &Self::__ENTITY_MODEL;
-        };
-
-        let mut tokens = Implementor::new(&node.def, TraitKind::EntityKind)
-            .set_tokens(q)
+                const ENTITY_NAME: &'static str = #entity_name;
+                const PRIMARY_KEY: &'static str = stringify!(#pk_ident);
+            })
             .to_token_stream();
+
+        let schema_tokens = Implementor::new(&node.def, TraitKind::EntitySchema)
+            .set_tokens(quote! {
+                const FIELDS: &'static [&'static str] = &[
+                    #( Self::#field_refs.as_str() ),*
+                ];
+                const INDEXES: &'static [&'static ::icydb::model::index::IndexModel] =
+                    &[#(&#indexes),*];
+                const MODEL: &'static ::icydb::model::entity::EntityModel =
+                    &Self::__ENTITY_MODEL;
+            })
+            .to_token_stream();
+
+        let placement_tokens = Implementor::new(&node.def, TraitKind::EntityPlacement)
+            .set_tokens(quote! {
+                type DataStore = #store;
+                type Canister =
+                    <Self::DataStore as ::icydb::traits::DataStoreKind>::Canister;
+            })
+            .to_token_stream();
+
+        let kind_tokens = Implementor::new(&node.def, TraitKind::EntityKind)
+            .set_tokens(quote! {})
+            .to_token_stream();
+
+        let mut tokens = TokenStream::new();
+        tokens.extend(identity_tokens);
+        tokens.extend(schema_tokens);
+        tokens.extend(placement_tokens);
+        tokens.extend(kind_tokens);
 
         // Existing consistency test stays valid
         let ident = node.def.ident();
@@ -70,8 +88,8 @@ impl Imp<Entity> for EntityKindTrait {
 
                 #[test]
                 fn model_consistency() {
-                    let model = <#ident as ::icydb::traits::EntityKind>::MODEL;
-                    let names = <#ident as ::icydb::traits::EntityKind>::FIELDS;
+                    let model = <#ident as ::icydb::traits::EntitySchema>::MODEL;
+                    let names = <#ident as ::icydb::traits::EntitySchema>::FIELDS;
 
                     assert_eq!(model.fields.len(), names.len());
                     for (field, name) in model.fields.iter().zip(names.iter()) {
@@ -86,7 +104,7 @@ impl Imp<Entity> for EntityKindTrait {
             }
         });
 
-        // Unit-key logic remains tied to EntityKind
+        // Unit-key logic remains tied to the schema layer.
         if matches!(
             pk_entry.value.item.target(),
             ItemTarget::Primitive(Primitive::Unit)

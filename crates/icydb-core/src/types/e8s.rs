@@ -153,8 +153,18 @@ impl E8s {
 impl Mul for E8s {
     type Output = Self;
 
+    // Fixed-point multiplication:
+    // (a / SCALE) * (b / SCALE), rescaled back to SCALE with round-to-nearest.
+    // Saturates on overflow.
     fn mul(self, other: Self) -> Self::Output {
-        let raw = (self.0 as u128 * other.0 as u128) / Self::SCALE as u128;
+        let a = <u128 as From<u64>>::from(self.0);
+        let b = <u128 as From<u64>>::from(other.0);
+        let scale = <u128 as From<u64>>::from(Self::SCALE);
+
+        // Fixed-point multiply with round-to-nearest
+        let raw = (a * b + scale / 2) / scale;
+
+        // Saturate on overflow back to u64
         let value = u64::try_from(raw).unwrap_or(u64::MAX);
 
         Self(value)
@@ -171,9 +181,19 @@ impl Div for E8s {
     type Output = Self;
 
     fn div(self, other: Self) -> Self::Output {
-        let raw = (self.0 as u128 * Self::SCALE as u128) / other.0 as u128;
-        let value = u64::try_from(raw).unwrap_or(u64::MAX);
+        if other.0 == 0 {
+            return Self(u64::MAX);
+        }
 
+        let a = <u128 as From<u64>>::from(self.0);
+        let b = <u128 as From<u64>>::from(other.0);
+        let scale = <u128 as From<u64>>::from(Self::SCALE);
+
+        // Fixed-point division with round-to-nearest:
+        // (a / SCALE) ÷ (b / SCALE) = (a * SCALE) / b
+        let raw = (a * scale + b / 2) / b;
+
+        let value = u64::try_from(raw).unwrap_or(u64::MAX);
         Self(value)
     }
 }

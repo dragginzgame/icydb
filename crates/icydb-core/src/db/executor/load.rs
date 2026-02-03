@@ -10,7 +10,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
-    traits::EntityValue,
+    traits::{EntityKind, EntityValue},
 };
 use std::marker::PhantomData;
 
@@ -19,7 +19,7 @@ use std::marker::PhantomData;
 ///
 
 #[derive(Clone)]
-pub struct LoadExecutor<E: EntityValue> {
+pub struct LoadExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
     trace: Option<&'static dyn QueryTraceSink>,
@@ -28,7 +28,7 @@ pub struct LoadExecutor<E: EntityValue> {
 
 impl<E> LoadExecutor<E>
 where
-    E: EntityValue,
+    E: EntityKind + EntityValue,
 {
     #[must_use]
     pub const fn new(db: Db<E::Canister>, debug: bool) -> Self {
@@ -42,6 +42,7 @@ where
 
     #[cfg(test)]
     #[must_use]
+    #[expect(dead_code)]
     pub(crate) const fn with_trace_sink(
         mut self,
         sink: Option<&'static dyn QueryTraceSink>,

@@ -1,6 +1,9 @@
 use crate::{
     db::query::predicate::{
-        CoercionId, CoercionSpec, CompareOp, Predicate, eval,
+        CoercionId, CoercionSpec, CompareOp, Predicate,
+        ast::ComparePredicate,
+        coercion::{compare_eq, compare_order},
+        eval,
         eval::{FieldPresence, Row},
         normalize,
     },
@@ -9,6 +12,16 @@ use crate::{
 };
 use proptest::prelude::*;
 use std::{cmp::Ordering, collections::BTreeMap};
+
+///
+/// TestRow
+///
+/// Simple in-memory row implementation for predicate evaluation.
+///
+/// This deliberately models only:
+/// - field presence vs missing
+/// - cloning of values (acceptable for tests)
+///
 
 #[derive(Clone, Debug)]
 struct TestRow {
@@ -45,7 +58,7 @@ fn arb_scalar_value() -> impl Strategy<Value = Value> {
         any::<u8>().prop_map(|b| Value::Account(Account::dummy(b))),
         any::<u8>().prop_map(|b| Value::Principal(Principal::from_slice(&[b]))),
         prop_oneof![Just("A"), Just("B"), Just("C")]
-            .prop_map(|variant| { Value::Enum(ValueEnum::new(variant, Some("TestEnum"))) }),
+            .prop_map(|variant| Value::Enum(ValueEnum::new(variant, Some("TestEnum")))),
         Just(Value::None),
         Just(Value::Unit),
     ]
@@ -55,7 +68,11 @@ fn arb_list_value() -> impl Strategy<Value = Value> {
     prop::collection::vec(arb_scalar_value(), 0..4).prop_map(Value::List)
 }
 
-fn arb_map_value() -> impl Strategy<Value = Value> {
+/// Represents map-like data as `List[List[key, value], ...]`.
+///
+/// This intentionally mirrors how map predicates are evaluated internally,
+/// without requiring a dedicated map value type.
+fn arb_kv_pair_list() -> impl Strategy<Value = Value> {
     prop::collection::vec(
         (arb_scalar_value(), arb_scalar_value()).prop_map(|(k, v)| Value::List(vec![k, v])),
         0..4,
@@ -64,7 +81,7 @@ fn arb_map_value() -> impl Strategy<Value = Value> {
 }
 
 fn arb_value() -> impl Strategy<Value = Value> {
-    prop_oneof![arb_scalar_value(), arb_list_value(), arb_map_value()]
+    prop_oneof![arb_scalar_value(), arb_list_value(), arb_kv_pair_list()]
 }
 
 fn arb_coercion_spec() -> impl Strategy<Value = CoercionSpec> {
@@ -93,6 +110,15 @@ fn arb_compare_op() -> impl Strategy<Value = CompareOp> {
     ]
 }
 
+/// Arbitrary predicate generator.
+///
+/// NOTE: This intentionally generates *semantically invalid* predicates
+/// (e.g. ordering on lists, IN with non-lists, text ops on non-text).
+///
+/// The goal is to assert:
+/// - totality (never panic)
+/// - determinism
+/// - normalization equivalence
 fn arb_predicate() -> impl Strategy<Value = Predicate> {
     let leaf = prop_oneof![
         Just(Predicate::True),
@@ -105,16 +131,16 @@ fn arb_predicate() -> impl Strategy<Value = Predicate> {
             arb_field(),
             arb_compare_op(),
             arb_value(),
-            arb_coercion_spec()
+            arb_coercion_spec(),
         )
             .prop_map(|(field, op, value, coercion)| {
-                Predicate::Compare(crate::db::query::predicate::ast::ComparePredicate {
+                Predicate::Compare(ComparePredicate {
                     field,
                     op,
                     value,
                     coercion,
                 })
-            },),
+            }),
         (arb_field(), arb_scalar_value(), arb_coercion_spec()).prop_map(
             |(field, key, coercion)| Predicate::MapContainsKey {
                 field,
@@ -135,18 +161,18 @@ fn arb_predicate() -> impl Strategy<Value = Predicate> {
             arb_scalar_value(),
             arb_coercion_spec(),
         )
-            .prop_map(
-                |(field, key, value, coercion)| Predicate::MapContainsEntry {
+            .prop_map(|(field, key, value, coercion)| {
+                Predicate::MapContainsEntry {
                     field,
                     key,
                     value,
                     coercion,
                 }
-            ),
+            }),
         (arb_field(), arb_scalar_value())
-            .prop_map(|(field, value)| { Predicate::TextContains { field, value } }),
+            .prop_map(|(field, value)| Predicate::TextContains { field, value }),
         (arb_field(), arb_scalar_value())
-            .prop_map(|(field, value)| { Predicate::TextContainsCi { field, value } }),
+            .prop_map(|(field, value)| Predicate::TextContainsCi { field, value }),
     ];
 
     leaf.prop_recursive(3, 24, 4, |inner| {
@@ -181,40 +207,65 @@ fn scan(rows: &[TestRow], predicate: &Predicate) -> BTreeMap<usize, bool> {
         .collect()
 }
 
+//
+// Normalization invariants
+//
+
 proptest! {
     #[test]
     fn normalization_equivalence(predicate in arb_predicate(), row in arb_row()) {
         let normalized = normalize(&predicate);
-        prop_assert_eq!(eval(&row, &predicate), eval(&row, &normalized));
+        prop_assert_eq!(
+            eval(&row, &predicate),
+            eval(&row, &normalized)
+        );
     }
 
     #[test]
-    fn scan_invariance(predicate in arb_predicate(), rows in prop::collection::vec(arb_row(), 0..10)) {
+    fn normalization_idempotent(predicate in arb_predicate()) {
+        let once = normalize(&predicate);
+        let twice = normalize(&once);
+        prop_assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn scan_invariance(
+        predicate in arb_predicate(),
+        rows in prop::collection::vec(arb_row(), 0..10)
+    ) {
         let normalized = normalize(&predicate);
-        let left = scan(&rows, &predicate);
-        let right = scan(&rows, &normalized);
-        prop_assert_eq!(left, right);
+        prop_assert_eq!(
+            scan(&rows, &predicate),
+            scan(&rows, &normalized)
+        );
     }
 }
 
+//
+// Coercion invariants
+//
+
 proptest! {
     #[test]
-    fn coercion_deterministic(lhs in arb_value(), rhs in arb_value(), id in arb_coercion_spec()) {
-        use crate::db::query::predicate::coercion::{compare_eq, compare_order};
+    fn coercion_deterministic(
+        lhs in arb_value(),
+        rhs in arb_value(),
+        spec in arb_coercion_spec()
+    ) {
+        prop_assert_eq!(
+            compare_eq(&lhs, &rhs, &spec),
+            compare_eq(&lhs, &rhs, &spec)
+        );
 
-        let a_eq = compare_eq(&lhs, &rhs, &id);
-        let b_eq = compare_eq(&lhs, &rhs, &id);
-        prop_assert_eq!(a_eq, b_eq);
-
-        let a_ord = compare_order(&lhs, &rhs, &id);
-        let b_ord = compare_order(&lhs, &rhs, &id);
-        prop_assert_eq!(a_ord, b_ord);
+        prop_assert_eq!(
+            compare_order(&lhs, &rhs, &spec),
+            compare_order(&lhs, &rhs, &spec)
+        );
     }
 
     #[test]
     fn symmetric_coercions(lhs in arb_value(), rhs in arb_value()) {
-        use crate::db::query::predicate::coercion::{compare_eq, compare_order};
-
+        // All coercions listed here are defined as symmetric and locale-independent.
         let symmetric = [
             CoercionId::Strict,
             CoercionId::NumericWiden,
@@ -224,16 +275,23 @@ proptest! {
 
         for id in symmetric {
             let spec = CoercionSpec::new(id);
-            let forward_eq = compare_eq(&lhs, &rhs, &spec);
-            let backward_eq = compare_eq(&rhs, &lhs, &spec);
-            prop_assert_eq!(forward_eq, backward_eq);
 
-            let forward_ord = compare_order(&lhs, &rhs, &spec);
-            let backward_ord = compare_order(&rhs, &lhs, &spec);
-            prop_assert_eq!(forward_ord, backward_ord.map(Ordering::reverse));
+            prop_assert_eq!(
+                compare_eq(&lhs, &rhs, &spec),
+                compare_eq(&rhs, &lhs, &spec)
+            );
+
+            prop_assert_eq!(
+                compare_order(&lhs, &rhs, &spec),
+                compare_order(&rhs, &lhs, &spec).map(Ordering::reverse)
+            );
         }
     }
 }
+
+//
+// Regression tests
+//
 
 #[test]
 fn not_in_invalid_values_are_false() {
@@ -241,7 +299,7 @@ fn not_in_invalid_values_are_false() {
     fields.insert("a".to_string(), Value::Int(5));
     let row = TestRow { fields };
 
-    let not_list = Predicate::Compare(crate::db::query::predicate::ast::ComparePredicate {
+    let not_list = Predicate::Compare(ComparePredicate {
         field: "a".to_string(),
         op: CompareOp::NotIn,
         value: Value::Text("nope".to_string()),
@@ -249,7 +307,7 @@ fn not_in_invalid_values_are_false() {
     });
     assert!(!eval(&row, &not_list));
 
-    let wrong_list = Predicate::Compare(crate::db::query::predicate::ast::ComparePredicate {
+    let wrong_list = Predicate::Compare(ComparePredicate {
         field: "a".to_string(),
         op: CompareOp::NotIn,
         value: Value::List(vec![Value::Text("nope".to_string())]),

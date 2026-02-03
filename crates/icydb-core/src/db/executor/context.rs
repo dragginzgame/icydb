@@ -9,7 +9,7 @@ use crate::{
         store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorOrigin, InternalError},
-    traits::{EntityValue, Path},
+    traits::{EntityKind, EntityValue, Path},
 };
 use std::{collections::BTreeSet, marker::PhantomData, ops::Bound};
 
@@ -17,14 +17,14 @@ use std::{collections::BTreeSet, marker::PhantomData, ops::Bound};
 /// Context
 ///
 
-pub struct Context<'a, E: EntityValue> {
+pub struct Context<'a, E: EntityKind + EntityValue> {
     pub db: &'a Db<E::Canister>,
     _marker: PhantomData<E>,
 }
 
 impl<'a, E> Context<'a, E>
 where
-    E: EntityValue,
+    E: EntityKind + EntityValue,
 {
     #[must_use]
     pub const fn new(db: &'a Db<E::Canister>) -> Self {
@@ -44,6 +44,7 @@ where
     }
 
     #[cfg(test)]
+    #[expect(dead_code)]
     pub fn with_store_mut<R>(
         &self,
         f: impl FnOnce(&mut DataStore) -> R,
@@ -82,7 +83,7 @@ where
         access: &AccessPath<E::Id>,
     ) -> Result<Vec<DataKey>, InternalError>
     where
-        E: EntityValue,
+        E: EntityKind,
     {
         let is_index_path = matches!(access, AccessPath::IndexPrefix { .. });
 
@@ -136,7 +137,7 @@ where
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError>
     where
-        E: EntityValue,
+        E: EntityKind,
     {
         match access {
             AccessPath::ByKey(key) => {
@@ -185,7 +186,7 @@ where
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError>
     where
-        E: EntityValue,
+        E: EntityKind,
     {
         match access {
             AccessPlan::Path(path) => self.rows_from_access(path, consistency),
@@ -203,7 +204,7 @@ where
 
     fn data_key_from_id(id: E::Id) -> Result<DataKey, InternalError>
     where
-        E: EntityValue,
+        E: EntityKind,
     {
         DataKey::try_new::<E>(id)
     }
@@ -253,7 +254,7 @@ where
         plan: &AccessPlan<E::Id>,
     ) -> Result<BTreeSet<DataKey>, InternalError>
     where
-        E: EntityValue,
+        E: EntityKind,
     {
         match plan {
             AccessPlan::Path(path) => {
@@ -294,7 +295,7 @@ where
 
     pub fn deserialize_rows(rows: Vec<DataRow>) -> Result<Vec<(E::Id, E)>, InternalError>
     where
-        E: EntityValue,
+        E: EntityKind + EntityValue,
     {
         rows.into_iter()
             .map(|(key, row)| {

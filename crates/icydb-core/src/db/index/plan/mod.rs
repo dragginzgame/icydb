@@ -14,7 +14,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,
     obs::sink::{self, MetricsEvent},
-    traits::{EntityValue, FieldValue, Storable},
+    traits::{EntityKind, EntityValue, FieldValue, Storable},
 };
 use std::{cell::RefCell, collections::BTreeMap, thread::LocalKey};
 
@@ -47,7 +47,7 @@ pub struct IndexMutationPlan {
 ///
 /// All fallible work happens here. The returned plan is safe to apply
 /// infallibly after a commit marker is written.
-pub fn plan_index_mutation_for_entity<E: EntityValue>(
+pub fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
     db: &crate::db::Db<E::Canister>,
     old: Option<&E>,
     new: Option<&E>,
@@ -147,7 +147,7 @@ pub fn plan_index_mutation_for_entity<E: EntityValue>(
     Ok(IndexMutationPlan { apply, commit_ops })
 }
 
-fn load_existing_entry<E: EntityValue>(
+fn load_existing_entry<E: EntityKind + EntityValue>(
     store: &'static LocalKey<RefCell<IndexStore>>,
     index: &'static IndexModel,
     entity: Option<&E>,
@@ -184,7 +184,7 @@ fn load_existing_entry<E: EntityValue>(
 /// - Index corruption (multiple keys in a unique entry)
 /// - Uniqueness violations (conflicting key ownership)
 #[expect(clippy::too_many_lines)]
-fn validate_unique_constraint<E: EntityValue>(
+fn validate_unique_constraint<E: EntityKind + EntityValue>(
     db: &crate::db::Db<E::Canister>,
     index: &IndexModel,
     entry: Option<&IndexEntry<E>>,
@@ -314,7 +314,7 @@ fn validate_unique_constraint<E: EntityValue>(
 /// Correctly handles old/new key overlap and guarantees that
 /// apply-time mutations cannot fail except by invariant violation.
 #[allow(clippy::too_many_arguments)]
-fn build_commit_ops_for_index<E: EntityValue>(
+fn build_commit_ops_for_index<E: EntityKind>(
     commit_ops: &mut Vec<CommitIndexOp>,
     index: &'static IndexModel,
     old_key: Option<IndexKey>,

@@ -9,7 +9,7 @@ use crate::{
         },
         response::Response,
     },
-    traits::{CanisterKind, EntityValue, SingletonEntity},
+    traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
 };
 
 ///
@@ -23,7 +23,7 @@ use crate::{
 pub struct SessionDeleteQuery<'a, C, E>
 where
     C: CanisterKind,
-    E: EntityValue<Canister = C>,
+    E: EntityKind<Canister = C>,
 {
     session: &'a DbSession<C>,
     query: Query<E>,
@@ -32,7 +32,7 @@ where
 impl<'a, C, E> SessionDeleteQuery<'a, C, E>
 where
     C: CanisterKind,
-    E: EntityValue<Canister = C>,
+    E: EntityKind<Canister = C>,
 {
     pub(crate) const fn new(session: &'a DbSession<C>, query: Query<E>) -> Self {
         Self { session, query }
@@ -119,27 +119,42 @@ where
     /// Execute this delete using the session's policy settings.
     ///
     /// All result inspection and projection is performed on `Response<E>`.
-    pub fn execute(&self) -> Result<Response<E>, QueryError> {
+    pub fn execute(&self) -> Result<Response<E>, QueryError>
+    where
+        E: EntityValue,
+    {
         self.session.execute_query(self.query())
     }
 
     /// Execute and return whether any rows were affected.
-    pub fn is_empty(&self) -> Result<bool, QueryError> {
+    pub fn is_empty(&self) -> Result<bool, QueryError>
+    where
+        E: EntityValue,
+    {
         Ok(self.execute()?.is_empty())
     }
 
     /// Execute and return the number of affected rows.
-    pub fn count(&self) -> Result<u32, QueryError> {
+    pub fn count(&self) -> Result<u32, QueryError>
+    where
+        E: EntityValue,
+    {
         Ok(self.execute()?.count())
     }
 
     /// Execute and require exactly one affected row.
-    pub fn require_one(&self) -> Result<(), QueryError> {
+    pub fn require_one(&self) -> Result<(), QueryError>
+    where
+        E: EntityValue,
+    {
         self.execute()?.require_one().map_err(QueryError::Response)
     }
 
     /// Execute and require at least one affected row.
-    pub fn require_some(&self) -> Result<(), QueryError> {
+    pub fn require_some(&self) -> Result<(), QueryError>
+    where
+        E: EntityValue,
+    {
         self.execute()?.require_some().map_err(QueryError::Response)
     }
 }
@@ -147,7 +162,7 @@ where
 impl<C, E> SessionDeleteQuery<'_, C, E>
 where
     C: CanisterKind,
-    E: SingletonEntity<Canister = C>,
+    E: EntityKind<Canister = C> + SingletonEntity,
 {
     /// Delete the singleton entity identified by the unit primary key `()`.
     #[must_use]

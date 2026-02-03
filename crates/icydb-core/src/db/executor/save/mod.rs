@@ -27,7 +27,7 @@ use crate::{
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::serialize,
-    traits::{EntityValue, FieldValue, Path, Storable},
+    traits::{EntityKind, EntityValue, FieldValue, Path, Storable},
     validate::validate,
     value::Value,
 };
@@ -48,14 +48,14 @@ use std::{
 ///
 
 #[derive(Clone, Copy)]
-pub struct SaveExecutor<E: EntityValue> {
+pub struct SaveExecutor<E: EntityKind + EntityValue> {
     db: Db<E::Canister>,
     debug: bool,
     trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
-impl<E: EntityValue> SaveExecutor<E> {
+impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     // ======================================================================
     // Construction & configuration
     // ======================================================================
@@ -74,6 +74,7 @@ impl<E: EntityValue> SaveExecutor<E> {
 
     #[cfg(test)]
     #[must_use]
+    #[expect(dead_code)]
     pub(crate) const fn with_trace_sink(
         mut self,
         sink: Option<&'static dyn QueryTraceSink>,
@@ -785,7 +786,7 @@ impl CachedInvariant {
 }
 
 // Build the set of fields referenced by indexes for an entity.
-fn indexed_field_set<E: EntityValue>() -> BTreeSet<&'static str> {
+fn indexed_field_set<E: EntityKind>() -> BTreeSet<&'static str> {
     let mut fields = BTreeSet::new();
     for index in E::INDEXES {
         fields.extend(index.fields.iter().copied());

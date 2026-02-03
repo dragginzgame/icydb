@@ -91,17 +91,19 @@ thread_local! {
 }
 
 #[cfg(test)]
+#[expect(dead_code)]
 pub fn fail_next_checkpoint() {
     FAIL_NEXT_CHECKPOINT.with(|flag| flag.set(true));
 }
 
 #[cfg(test)]
+#[expect(dead_code)]
 pub fn fail_checkpoint_label(label: &'static str) {
     FAIL_CHECKPOINT_LABEL.with(|slot| slot.set(Some(label)));
 }
 
 #[cfg(test)]
-#[expect(clippy::missing_const_for_fn)]
+#[allow(clippy::missing_const_for_fn)]
 fn should_fail_checkpoint(label: &'static str) -> bool {
     #[cfg(test)]
     {

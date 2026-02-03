@@ -27,6 +27,7 @@ use crate::model::{field::EntityFieldModel, index::IndexModel};
 /// The planner and predicate validator consume this model directly.
 ///
 
+#[derive(Debug)]
 pub struct EntityModel {
     /// Fully-qualified Rust type path (for diagnostics).
     pub path: &'static str,

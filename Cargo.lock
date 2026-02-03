@@ -155,9 +155,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.9.15"
+version = "0.9.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7aebacc9fb3aef09248e50e3b294e8f6fb7a1db138d818927c3348e5ea7166de"
+checksum = "75bd45c2d0acbbe107d1a3b8881915660378ca8f697493141889546db2a130c3"
 dependencies = [
  "base32 0.5.1",
  "candid",
@@ -179,9 +179,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.9.15"
+version = "0.9.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd09649ff200a751450c3cbba18f1dd7da8e7b9da133113f8d1e59ff8eadf90e"
+checksum = "b9e407ba709d4879098c4d441ffb2ab1b1b89bba6649a057e80c06d9b0e72d1f"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -193,9 +193,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.9.15"
+version = "0.9.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d8688656b212a3f741700f4b99944f16cb2f39905777d6aaa338671a0068204"
+checksum = "5b77e055c09d63376be3930715a644bae194f9b8666ef25a56ab349d21f08869"
 dependencies = [
  "candid",
  "convert_case 0.11.0",
@@ -896,6 +896,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "icydb-schema-tests"
+version = "0.6.4"
+dependencies = [
+ "candid",
+ "canic-cdk",
+ "canic-utils",
+ "icydb",
+ "icydb-build",
+ "serde",
+]
+
+[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1466,28 +1478,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "test"
-version = "0.6.4"
-dependencies = [
- "candid",
- "canic-cdk",
- "canic-utils",
- "ic-cdk",
- "icydb",
- "icydb-build",
- "test_design",
-]
-
-[[package]]
-name = "test_design"
-version = "0.6.4"
-dependencies = [
- "candid",
- "icydb",
- "serde",
 ]
 
 [[package]]

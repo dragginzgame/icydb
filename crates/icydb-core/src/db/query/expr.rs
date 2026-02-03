@@ -1,9 +1,6 @@
-use crate::{
-    db::query::{
-        plan::{OrderDirection, OrderSpec, PlanError, validate::validate_order},
-        predicate::{self, Predicate, SchemaInfo, ValidateError, normalize},
-    },
-    traits::EntityKind,
+use crate::db::query::{
+    plan::{OrderDirection, OrderSpec, PlanError, validate::validate_order},
+    predicate::{self, Predicate, SchemaInfo, ValidateError, normalize},
 };
 use thiserror::Error as ThisError;
 
@@ -17,10 +14,9 @@ use thiserror::Error as ThisError;
 pub struct FilterExpr(pub Predicate);
 
 impl FilterExpr {
-    /// Lower the filter expression into a validated predicate for `E`.
-    pub fn lower<E: EntityKind>(&self) -> Result<Predicate, ValidateError> {
-        let schema = SchemaInfo::from_entity_model(E::MODEL)?;
-        predicate::validate(&schema, &self.0)?;
+    /// Lower the filter expression into a validated predicate for the provided schema.
+    pub fn lower_with(&self, schema: &SchemaInfo) -> Result<Predicate, ValidateError> {
+        predicate::validate(schema, &self.0)?;
 
         Ok(normalize(&self.0))
     }
@@ -38,14 +34,13 @@ pub struct SortExpr {
 }
 
 impl SortExpr {
-    /// Lower the sort expression into a validated order spec for `E`.
-    pub fn lower<E: EntityKind>(&self) -> Result<OrderSpec, SortLowerError> {
-        let schema = SchemaInfo::from_entity_model(E::MODEL)?;
+    /// Lower the sort expression into a validated order spec for the provided schema.
+    pub fn lower_with(&self, schema: &SchemaInfo) -> Result<OrderSpec, SortLowerError> {
         let spec = OrderSpec {
             fields: self.fields.clone(),
         };
 
-        validate_order(&schema, &spec)?;
+        validate_order(schema, &spec)?;
 
         Ok(spec)
     }

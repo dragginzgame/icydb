@@ -1,19 +1,5 @@
 {
-    "canisters": {
-        "test": {
-            "type": "custom",
-            "candid": ".dfx/local/canisters/test/test.did",
-            "build": "bash -c 'scripts/app/build.sh test'",
-            "wasm": ".dfx/local/canisters/test/test.wasm",
-            "shrink": true,
-            "gzip": true,
-            "metadata": [
-                {
-                    "name": "candid:service"
-                }
-            ]
-        }
-    },
+    "canisters": {},
     "networks": {
         "staging": {
             "providers": [

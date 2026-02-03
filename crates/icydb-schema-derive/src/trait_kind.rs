@@ -54,6 +54,9 @@ pub enum TraitKind {
     // kind
     CanisterKind,
     DataStoreKind,
+    EntityIdentity,
+    EntitySchema,
+    EntityPlacement,
     EntityKind,
     IndexStoreKind,
 
@@ -64,10 +67,11 @@ pub enum TraitKind {
     FieldValues,
 
     // orm
+    Collection,
     CreateView,
-    UpdateView,
     From,
     Inner,
+    MapCollection,
     NumCast,
     NumFromPrimitive,
     NumToPrimitive,
@@ -75,6 +79,7 @@ pub enum TraitKind {
     Sorted,
     SanitizeAuto,
     SanitizeCustom,
+    UpdateView,
     ValidateAuto,
     ValidateCustom,
     View,
@@ -114,6 +119,8 @@ fn path_to_string(path: &syn::Path) -> String {
 }
 
 impl TraitKind {
+    /// NOTE: even if we have our own impl versions, the derives may still
+    /// be used by other types (PartialEq for instance)
     #[must_use]
     #[remain::check]
     pub(crate) fn derive_path(self) -> Option<TokenStream> {
@@ -136,6 +143,8 @@ impl TraitKind {
             Self::Mul => Some(quote!(::icydb::__reexports::icydb_derive::Mul)),
             Self::MulAssign => Some(quote!(::icydb::__reexports::icydb_derive::MulAssign)),
             Self::Ord => Some(quote!(Ord)),
+            Self::PartialEq => Some(quote!(PartialEq)),
+            Self::PartialOrd => Some(quote!(PartialOrd)),
             Self::Rem => Some(quote!(::icydb::__reexports::icydb_derive::Rem)),
             Self::Serialize => Some(quote!(::serde::Serialize)),
             Self::Sub => Some(quote!(::icydb::__reexports::icydb_derive::Sub)),

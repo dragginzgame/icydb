@@ -35,7 +35,7 @@ and mechanical enforcement of architectural boundaries.
 - **Stable storage** — data is persisted in stable memory (not heap), backed by CanIC B-trees.
 - **Path dispatch** — `icydb_build` generates internal routing helpers.
 - **Observability endpoints** — `icydb_snapshot`, `icydb_metrics`, `icydb_metrics_reset`.
-- **IC integration** — ergonomic `icydb::start!` and `icydb::build!` macros.
+- **IC integration** — ergonomic `icydb::start!` and `icydb::build_actor!` macros.
 - **Testability** — fixtures, predicate validation, index testing utilities.
 
 ---
@@ -121,7 +121,7 @@ Key properties:
 * `crates/icydb-schema-derive` — proc-macros for schema, traits, and views.
 * `crates/icydb-schema` — schema AST, builder, and validation.
 * `crates/icydb-build` — build-time codegen for actors, queries, metrics.
-* `crates/test`, `crates/test_design` — integration and design tests.
+* `crates/icydb-schema-tests` — integration and design tests.
 * `assets/`, `scripts/`, `Makefile` — docs, helpers, workspace tasks.
 
 ---
@@ -169,7 +169,7 @@ Pre-commit hooks run:
 * Prefer typed errors (`thiserror`) over panics in library code.
 * Keep functions small and single-purpose.
 * Use explicit semantics over implicit defaults.
-* Co-locate unit tests; integration tests live under `crates/test*`.
+* Co-locate unit tests; integration tests live under `crates/icydb-schema-tests`.
 * No backward-compatibility guarantee yet — breaking changes are documented.
 
 ---

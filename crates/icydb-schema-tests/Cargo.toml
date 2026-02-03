@@ -1,5 +1,5 @@
 [package]
-name = "test"
+name = "icydb-schema-tests"
 edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -9,22 +9,16 @@ description = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
 
-[lib]
-crate-type = ["cdylib"]
-
 [dependencies]
 candid = { workspace = true }
-canic-cdk = { workspace = true }
-ic-cdk = { workspace = true }
 icydb = { workspace = true }
-test_design = { workspace = true }
+serde = { workspace = true }
 
 [build-dependencies]
 canic-cdk = { workspace = true }
 canic-utils = { workspace = true }
 icydb = { workspace = true }
 icydb-build = { workspace = true }
-test_design = { workspace = true }
 
 [lints]
 workspace = true

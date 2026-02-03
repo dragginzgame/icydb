@@ -138,7 +138,20 @@ impl Mul for E18s {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self::Output {
-        let raw = self.0.saturating_mul(other.0) / Self::SCALE;
+        let scale = Self::SCALE;
+
+        // Split scaling to reduce overflow risk:
+        // (a * b) / scale  ≈  (a / scale) * b  OR  a * (b / scale)
+        //
+        // Choose the safer direction dynamically.
+        let raw = if self.0 >= other.0 {
+            let a = self.0 / scale;
+            a.checked_mul(other.0)
+                .expect("E18s multiplication overflow")
+        } else {
+            let b = other.0 / scale;
+            self.0.checked_mul(b).expect("E18s multiplication overflow")
+        };
 
         Self(raw)
     }

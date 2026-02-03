@@ -14,9 +14,6 @@ pub mod value;
 pub mod view;
 pub mod visitor;
 
-#[cfg(test)]
-pub mod test_support;
-
 ///
 /// CONSTANTS
 ///
@@ -37,7 +34,7 @@ pub const MAX_INDEX_FIELDS: usize = 4;
 pub mod prelude {
     pub use crate::{
         model::{entity::EntityModel, index::IndexModel},
-        traits::{EntityKind, Path},
+        traits::{EntityIdentity, EntityKind, Path},
         value::Value,
     };
 }

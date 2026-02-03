@@ -97,6 +97,7 @@ where
 ///
 /// This is the executor-safe entrypoint and must not consult global schema.
 #[cfg(test)]
+#[expect(dead_code)]
 pub(crate) fn validate_plan_with_model<K>(
     plan: &LogicalPlan<K>,
     model: &EntityModel,
@@ -109,6 +110,7 @@ where
 }
 
 /// Validate a logical plan against schema and plan-level invariants.
+#[cfg(test)]
 pub(crate) fn validate_logical_plan<K>(
     schema: &SchemaInfo,
     model: &EntityModel,
@@ -131,11 +133,28 @@ where
     Ok(())
 }
 
+/// Validate a logical plan with model-level key values.
+pub(crate) fn validate_logical_plan_model(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    plan: &LogicalPlan<Value>,
+) -> Result<(), PlanError> {
+    if let Some(predicate) = &plan.predicate {
+        predicate::validate(schema, predicate)?;
+    }
+
+    if let Some(order) = &plan.order {
+        validate_order(schema, order)?;
+    }
+
+    validate_access_plan_model(schema, model, &plan.access)?;
+    validate_plan_semantics(plan)?;
+
+    Ok(())
+}
+
 /// Validate plan-level invariants not covered by schema checks.
-fn validate_plan_semantics<K>(plan: &LogicalPlan<K>) -> Result<(), PlanError>
-where
-    K: FieldValue + Ord,
-{
+fn validate_plan_semantics<K>(plan: &LogicalPlan<K>) -> Result<(), PlanError> {
     if let Some(order) = &plan.order
         && order.fields.is_empty()
     {
@@ -264,6 +283,23 @@ where
     }
 }
 
+/// Validate access paths that carry model-level key values.
+pub(crate) fn validate_access_plan_model(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    access: &AccessPlan<Value>,
+) -> Result<(), PlanError> {
+    match access {
+        AccessPlan::Path(path) => validate_access_path_model(schema, model, path),
+        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
+            for child in children {
+                validate_access_plan_model(schema, model, child)?;
+            }
+            Ok(())
+        }
+    }
+}
+
 fn validate_access_path<K>(
     schema: &SchemaInfo,
     model: &EntityModel,
@@ -299,6 +335,41 @@ where
     }
 }
 
+// Validate executor-visible access paths that carry model-level key values.
+fn validate_access_path_model(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    access: &AccessPath<Value>,
+) -> Result<(), PlanError> {
+    match access {
+        AccessPath::ByKey(key) => validate_pk_value(schema, model, key),
+        AccessPath::ByKeys(keys) => {
+            if keys.is_empty() {
+                return Ok(());
+            }
+            for key in keys {
+                validate_pk_value(schema, model, key)?;
+            }
+            Ok(())
+        }
+        AccessPath::KeyRange { start, end } => {
+            validate_pk_value(schema, model, start)?;
+            validate_pk_value(schema, model, end)?;
+            let Some(ordering) = start.partial_cmp(end) else {
+                return Err(PlanError::InvalidKeyRange);
+            };
+            if ordering == std::cmp::Ordering::Greater {
+                return Err(PlanError::InvalidKeyRange);
+            }
+            Ok(())
+        }
+        AccessPath::IndexPrefix { index, values } => {
+            validate_index_prefix(schema, model, index, values)
+        }
+        AccessPath::FullScan => Ok(()),
+    }
+}
+
 /// Validate that a key matches the entity's primary key type.
 fn validate_pk_key<K>(schema: &SchemaInfo, model: &EntityModel, key: &K) -> Result<(), PlanError>
 where
@@ -323,6 +394,36 @@ where
         return Err(PlanError::PrimaryKeyMismatch {
             field: field.to_string(),
             key: value,
+        });
+    }
+
+    Ok(())
+}
+
+// Validate that a model-level key value matches the entity's primary key type.
+fn validate_pk_value(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    key: &Value,
+) -> Result<(), PlanError> {
+    let field = model.primary_key.name;
+
+    let field_type = schema
+        .field(field)
+        .ok_or_else(|| PlanError::PrimaryKeyUnsupported {
+            field: field.to_string(),
+        })?;
+
+    if !is_key_compatible(field_type) {
+        return Err(PlanError::PrimaryKeyUnsupported {
+            field: field.to_string(),
+        });
+    }
+
+    if !predicate::validate::literal_matches_type(key, field_type) {
+        return Err(PlanError::PrimaryKeyMismatch {
+            field: field.to_string(),
+            key: key.clone(),
         });
     }
 

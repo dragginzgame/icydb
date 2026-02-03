@@ -8,7 +8,7 @@ use crate::{
         query::{ReadConsistency, plan::AccessPath},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::EntityValue,
+    traits::{EntityKind, EntityValue},
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[expect(dead_code)]
 pub fn rebuild_indexes_for_entity<E>(db: &Db<E::Canister>) -> Result<(), InternalError>
 where
-    E: EntityValue,
+    E: EntityKind + EntityValue,
 {
     // ------------------------------------------------------------------
     // Phase 1: recovery guard

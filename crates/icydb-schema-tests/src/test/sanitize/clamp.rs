@@ -59,30 +59,34 @@ mod tests {
     fn test_clamp_int32() {
         let mut v = ClampInt32::from(5);
         sanitize(&mut v).unwrap();
-        assert_eq!(*v, 10, "should clamp up to min");
+        assert_eq!(*v.inner(), 10, "should clamp up to min");
 
         let mut v = ClampInt32::from(25);
         sanitize(&mut v).unwrap();
-        assert_eq!(*v, 20, "should clamp down to max");
+        assert_eq!(*v.inner(), 20, "should clamp down to max");
 
         let mut v = ClampInt32::from(15);
         sanitize(&mut v).unwrap();
-        assert_eq!(*v, 15, "in-range value should be unchanged");
+        assert_eq!(*v.inner(), 15, "in-range value should be unchanged");
     }
 
     #[test]
     fn test_clamp_decimal() {
         let mut v = ClampDecimal::from(Decimal::from(0.1));
         sanitize(&mut v).unwrap();
-        assert_eq!(*v, Decimal::from(0.5), "should clamp up to min");
+        assert_eq!(*v.inner(), Decimal::from(0.5), "should clamp up to min");
 
         let mut v = ClampDecimal::from(Decimal::from(10));
         sanitize(&mut v).unwrap();
-        assert_eq!(*v, Decimal::from(5.5), "should clamp down to max");
+        assert_eq!(*v.inner(), Decimal::from(5.5), "should clamp down to max");
 
         let mut v = ClampDecimal::from(Decimal::from(2));
         sanitize(&mut v).unwrap();
-        assert_eq!(*v, Decimal::from(2.0), "in-range value should be unchanged");
+        assert_eq!(
+            *v.inner(),
+            Decimal::from(2.0),
+            "in-range value should be unchanged"
+        );
     }
 
     #[test]
@@ -110,8 +114,9 @@ mod tests {
         sanitize(&mut list).unwrap();
 
         let expected = vec![Decimal::from(0.5), Decimal::from(2.0), Decimal::from(5.5)];
+        let actual: Vec<_> = list.iter().map(|value| *value.inner()).collect();
         assert_eq!(
-            *list, expected,
+            actual, expected,
             "list values should be clamped element-wise"
         );
     }

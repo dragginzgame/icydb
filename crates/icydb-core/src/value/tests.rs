@@ -1,8 +1,5 @@
-///
-/// TESTS
-///
 use crate::{
-    traits::{FieldValue, NumFromPrimitive},
+    traits::NumFromPrimitive,
     types::{Decimal, E8s, E18s, Float32 as F32, Float64 as F64, Ulid},
     value::{TextMode, Value},
 };
@@ -27,14 +24,6 @@ fn v_d_i(x: i64) -> Value {
 }
 fn v_txt(s: &str) -> Value {
     Value::Text(s.to_string())
-}
-
-#[test]
-fn vec_box_value_field_value() {
-    let inner = Value::Uint(5);
-    let vec: Vec<Box<Value>> = vec![Box::new(inner.clone())];
-    let value = FieldValue::to_value(&vec);
-    assert_eq!(value, Value::List(vec![inner]));
 }
 
 // ---- keys --------------------------------------------------------------

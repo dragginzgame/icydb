@@ -58,9 +58,9 @@ pub struct IndexStoreSnapshot {
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EntitySnapshot {
-    /// Store path (e.g., test_design::schema::TestDataStore)
+    /// Store path (e.g., icydb_schema_tests::schema::TestDataStore)
     pub store: String,
-    /// Entity path (e.g., test_design::canister::db::Index)
+    /// Entity path (e.g., icydb_schema_tests::canister::db::Index)
     pub path: String,
     /// Number of rows for this entity in the store
     pub entries: u64,

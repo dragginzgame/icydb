@@ -18,7 +18,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
-    traits::{EntityValue, Path, Storable},
+    traits::{EntityKind, EntityValue, Path, Storable},
 };
 use std::{
     borrow::Cow, cell::RefCell, collections::BTreeMap, marker::PhantomData, thread::LocalKey,
@@ -69,7 +69,7 @@ where
     entity: E,
 }
 
-impl<E: EntityValue> crate::db::query::plan::logical::PlanRow<E> for DeleteRow<E> {
+impl<E: EntityKind> crate::db::query::plan::logical::PlanRow<E> for DeleteRow<E> {
     fn entity(&self) -> &E {
         &self.entity
     }
@@ -88,7 +88,7 @@ impl<E: EntityValue> crate::db::query::plan::logical::PlanRow<E> for DeleteRow<E
 #[derive(Clone, Copy)]
 pub struct DeleteExecutor<E>
 where
-    E: EntityValue,
+    E: EntityKind,
 {
     db: Db<E::Canister>,
     debug: bool,
@@ -98,7 +98,7 @@ where
 
 impl<E> DeleteExecutor<E>
 where
-    E: EntityValue,
+    E: EntityKind + EntityValue,
 {
     // Debug is session-scoped via DbSession and propagated into executors;
     // executors do not expose independent debug control.
@@ -113,6 +113,7 @@ where
     }
 
     #[cfg(test)]
+    #[expect(dead_code)]
     #[must_use]
     pub(crate) const fn with_trace_sink(
         mut self,
@@ -678,7 +679,9 @@ const fn yes_no(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
 }
 
-fn decode_rows<E: EntityValue>(rows: Vec<DataRow>) -> Result<Vec<DeleteRow<E>>, InternalError> {
+fn decode_rows<E: EntityKind + EntityValue>(
+    rows: Vec<DataRow>,
+) -> Result<Vec<DeleteRow<E>>, InternalError> {
     rows.into_iter()
         .map(|(dk, raw)| {
             let dk_for_err = dk.clone();

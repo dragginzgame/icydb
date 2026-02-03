@@ -123,6 +123,7 @@ thread_local! {
 }
 
 #[cfg(test)]
+#[expect(dead_code)]
 pub(crate) fn with_test_hash_override<T>(hash: [u8; 16], f: impl FnOnce() -> T) -> T {
     TEST_HASH_OVERRIDE.with(|cell| {
         let previous = cell.replace(Some(hash));

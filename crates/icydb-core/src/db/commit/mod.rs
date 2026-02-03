@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 pub use recovery::ensure_recovered;
 
 #[cfg(test)]
+#[expect(dead_code)]
 /// Return true if a commit marker is currently persisted.
 pub fn commit_marker_present() -> Result<bool, InternalError> {
     store::commit_marker_present()

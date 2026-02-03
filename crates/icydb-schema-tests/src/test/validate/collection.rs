@@ -31,9 +31,9 @@ pub struct Set {}
 )]
 pub struct Map {}
 
-/// ------------------------
+///
 /// TESTS
-/// ------------------------
+///
 
 #[cfg(test)]
 mod test {

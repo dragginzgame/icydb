@@ -50,6 +50,9 @@ mod tests {
 
     #[test]
     fn entity_name_defaults_and_override() {
-        assert_eq!(RenamedEntity::ENTITY_NAME, "Potato");
+        assert_eq!(
+            <RenamedEntity as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
+            "Potato"
+        );
     }
 }

@@ -58,7 +58,7 @@ extern crate self as icydb;
 
 // crates
 pub use icydb_build as build;
-pub use icydb_build::build;
+pub use icydb_build::build_actor;
 pub use icydb_schema as schema;
 pub use icydb_schema_derive as macros;
 
@@ -106,7 +106,8 @@ pub mod prelude {
             query::{FilterExpr, SortExpr, builder::FieldRef, predicate::Predicate},
         },
         traits::{
-            CreateView as _, EntityKind as _, Inner as _, Path as _, UpdateView as _, View as _,
+            Collection as _, CreateView as _, EntityKind as _, Inner as _, MapCollection as _,
+            Path as _, UpdateView as _, View as _,
         },
         types::*,
         value::Value,
@@ -131,9 +132,9 @@ pub mod design {
             db::query::builder::FieldRef,
             macros::*,
             traits::{
-                EntityKind, FieldValue as _, Inner as _, Path as _, Sanitize as _, Sanitizer,
-                Serialize as _, Validate as _, ValidateCustom, Validator, View as _,
-                Visitable as _,
+                Collection as _, EntityKind, FieldValue as _, Inner as _, MapCollection as _,
+                Path as _, Sanitize as _, Sanitizer, Serialize as _, Validate as _, ValidateCustom,
+                Validator, View as _, Visitable as _,
             },
             types::*,
             value::Value,
@@ -160,7 +161,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // start
 // macro to be included at the start of each canister lib.rs file
-/// Include the generated actor module emitted by `build!` (placed in `OUT_DIR/actor.rs`).
+/// Include the generated actor module emitted by `build_actor!` (placed in `OUT_DIR/actor.rs`).
 #[macro_export]
 macro_rules! start {
     () => {

@@ -1,3 +1,4 @@
+mod collection;
 mod data_store;
 mod default;
 mod entity;
@@ -13,6 +14,7 @@ mod validate;
 mod view;
 mod visitable;
 
+pub use collection::*;
 pub use data_store::*;
 pub use default::*;
 pub use entity::*;

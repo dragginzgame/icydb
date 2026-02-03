@@ -134,14 +134,19 @@ mod tests {
         sanitize(&mut node).unwrap();
 
         let expected_list = vec!["mixed".to_string(), "another".to_string()];
-        assert_eq!(*node.list, expected_list);
-        assert_eq!(&*node.tup.0, "mixed");
-        assert_eq!(&*node.tup.1, "another");
+        let actual_list: Vec<_> = node
+            .list
+            .iter()
+            .map(|value| value.inner().clone())
+            .collect();
+        assert_eq!(actual_list, expected_list);
+        assert_eq!(node.tup.0.inner().as_str(), "mixed");
+        assert_eq!(node.tup.1.inner().as_str(), "another");
 
         let actual_map: HashMap<_, _> = node
             .map
             .iter()
-            .map(|(k, v)| (k.clone(), v.to_string()))
+            .map(|(k, v)| (k.clone(), v.inner().clone()))
             .collect();
 
         let expected_map = HashMap::from([

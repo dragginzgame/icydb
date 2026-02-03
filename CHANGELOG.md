@@ -5,7 +5,13 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.5] – 2026-02-02 - Explicit Arithmetic Derives
+## [0.6.5] – 2026-02-02 - Derive Consolidation & Explicit Collections
+
+### 🧊 Summary
+
+* Introduced `QueryModel` to separate model-level intent, validation, and planning from typed `Query<E>` wrappers, reducing trait coupling in query logic.
+* Added the `icydb-derive` proc-macro crate for arithmetic and ordering derives on schema-generated types.
+* Relocated canister-centric tests to PocketIC-backed flows and removed canister builds from default `make test` runs.
 
 ### 🍉 Added
 
@@ -19,6 +25,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Added `Mul`/`Div` and assignment ops for `Nat` and `Nat128` to support arithmetic newtype derives.
 * Added `Mul`/`Div` and assignment ops for `Int` and `Int128` to support arithmetic newtype derives.
 * Added `CollectionValue` and wired list/set wrapper types to explicit iteration and length access without deref.
+* Added `MapCollection` for explicit, read-only iteration over map wrapper types without deref.
+* Added explicit mutation APIs on list/set/map wrapper types (`push`, `insert`, `remove`, `clear`) without implicit container access.
 * Moved `PartialEq` derives to `icydb-derive` for schema-generated types.
 
 ### 🧭 Changed
@@ -26,6 +34,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Newtype arithmetic derives now route through `icydb-derive` (including `Div`/`DivAssign`) instead of `derive_more`.
 * `test_entity!` now requires an explicit `struct` block and derives `EntityKind::Id` from the primary key field’s Rust type, failing at compile time if the PK is missing from the struct or `fields {}`.
 * `FieldValues` is now derived via `icydb-derive` and no longer implemented by schema-specific `imp` code.
+* `DbSession::diagnose_query` now requires `EntityKind` only, keeping diagnostics schema-level.
+* Public query builders now accept `EntityKind` for intent construction; execution continues to require `EntityValue`.
+* Renamed `build!` to `build_actor!` to make actor-only codegen explicit.
+* Updated `canic` to `0.9.17`.
+* `make test` no longer runs canister builds; `test-canisters` is now a no-op.
 
 ### 🪂 Removed
 
@@ -35,6 +48,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🧵 Fixed
 
 * Exported `Div`/`DivAssign` through `traits` so generated arithmetic derives resolve cleanly.
+* Session write APIs and query execution now require `EntityValue`, aligning runtime execution with value-level access.
+* `#[newtype]` now derives `Rem` only for primitives that support remainder, and `Int128`/`Nat128` implement `Rem` to match numeric newtype expectations.
 
 ---
 

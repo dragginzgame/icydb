@@ -38,6 +38,7 @@ thread_local! {
 }
 
 #[cfg(test)]
+#[expect(dead_code)]
 /// Force the system recovery step to run once on the next call to
 /// `ensure_recovered`.
 pub fn force_recovery_for_tests() {

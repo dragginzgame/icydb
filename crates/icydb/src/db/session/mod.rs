@@ -7,7 +7,7 @@ use crate::{
         response::Response,
     },
     error::Error,
-    traits::{CanisterKind, EntityValue},
+    traits::{CanisterKind, EntityKind, EntityValue},
 };
 use icydb_core as core;
 
@@ -57,7 +57,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub const fn load<E>(&self) -> SessionLoadQuery<'_, C, E>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C>,
     {
         SessionLoadQuery {
             inner: self.inner.load::<E>(),
@@ -70,7 +70,7 @@ impl<C: CanisterKind> DbSession<C> {
         consistency: ReadConsistency,
     ) -> SessionLoadQuery<'_, C, E>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C>,
     {
         SessionLoadQuery {
             inner: self.inner.load_with_consistency::<E>(consistency),
@@ -78,9 +78,9 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[must_use]
-    pub const fn delete<E>(&self) -> SessionDeleteQuery<'_, C, E>
+    pub fn delete<E>(&self) -> SessionDeleteQuery<'_, C, E>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C>,
     {
         SessionDeleteQuery {
             inner: self.inner.delete::<E>(),
@@ -88,12 +88,12 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[must_use]
-    pub const fn delete_with_consistency<E>(
+    pub fn delete_with_consistency<E>(
         &self,
         consistency: ReadConsistency,
     ) -> SessionDeleteQuery<'_, C, E>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C>,
     {
         SessionDeleteQuery {
             inner: self.inner.delete_with_consistency::<E>(consistency),
@@ -106,14 +106,14 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub fn diagnose_query<E>(&self, query: &Query<E>) -> Result<QueryDiagnostics, Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C>,
     {
         Ok(self.inner.diagnose_query(query)?)
     }
 
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<Response<E>, Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(Response::from_core(self.inner.execute_query(query)?))
     }
@@ -123,7 +123,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &Query<E>,
     ) -> Result<(Response<E>, QueryExecutionDiagnostics), Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C> + EntityValue,
     {
         let (response, diagnostics) = self.inner.execute_with_diagnostics(query)?;
 
@@ -136,63 +136,63 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub fn insert<E>(&self, entity: E) -> Result<E, Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(self.inner.insert(entity)?)
     }
 
     pub fn insert_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(self.inner.insert_many(entities)?)
     }
 
     pub fn replace<E>(&self, entity: E) -> Result<E, Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(self.inner.replace(entity)?)
     }
 
     pub fn replace_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(self.inner.replace_many(entities)?)
     }
 
     pub fn update<E>(&self, entity: E) -> Result<E, Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(self.inner.update(entity)?)
     }
 
     pub fn update_many<E>(&self, entities: impl IntoIterator<Item = E>) -> Result<Vec<E>, Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(self.inner.update_many(entities)?)
     }
 
     pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(self.inner.insert_view::<E>(view)?)
     }
 
     pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(self.inner.replace_view::<E>(view)?)
     }
 
     pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, Error>
     where
-        E: EntityValue<Canister = C>,
+        E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(self.inner.update_view::<E>(view)?)
     }

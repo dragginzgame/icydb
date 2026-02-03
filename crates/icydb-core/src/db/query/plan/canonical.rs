@@ -19,6 +19,8 @@ use std::cmp::Ordering;
 ///
 /// This function exists solely to ensure deterministic planner output.
 /// It must not filter, merge, or otherwise modify plan structure.
+#[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn canonicalize_access_plans<K>(plans: &mut [AccessPlan<K>])
 where
     K: Ord,
@@ -26,9 +28,16 @@ where
     plans.sort_by(canonical_cmp_access_plan);
 }
 
+/// Canonicalize access plans that use `Value` keys.
+pub(crate) fn canonicalize_access_plans_value(plans: &mut [AccessPlan<Value>]) {
+    plans.sort_by(canonical_cmp_access_plan_value);
+}
+
 /// Returns true if the given plans are already in canonical order.
 ///
 /// This is intended for invariant checks and debug assertions.
+#[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn is_canonical_sorted<K>(plans: &[AccessPlan<K>]) -> bool
 where
     K: Ord,
@@ -38,11 +47,20 @@ where
         .all(|pair| canonical_cmp_access_plan(&pair[0], &pair[1]) != Ordering::Greater)
 }
 
+/// Returns true if the given `Value`-keyed plans are already in canonical order.
+pub(crate) fn is_canonical_sorted_value(plans: &[AccessPlan<Value>]) -> bool {
+    plans
+        .windows(2)
+        .all(|pair| canonical_cmp_access_plan_value(&pair[0], &pair[1]) != Ordering::Greater)
+}
+
 /// Top-level comparison for access plans.
 ///
 /// Ordering rules:
 /// 1. Plan *kind* (Path < Intersection < Union)
 /// 2. Within the same kind, compare contents recursively
+#[cfg(test)]
+#[allow(dead_code)]
 fn canonical_cmp_access_plan<K>(left: &AccessPlan<K>, right: &AccessPlan<K>) -> Ordering
 where
     K: Ord,
@@ -52,6 +70,22 @@ where
         (AccessPlan::Intersection(left), AccessPlan::Intersection(right))
         | (AccessPlan::Union(left), AccessPlan::Union(right)) => {
             canonical_cmp_plan_list(left, right)
+        }
+        _ => canonical_access_plan_rank(left).cmp(&canonical_access_plan_rank(right)),
+    }
+}
+
+fn canonical_cmp_access_plan_value(
+    left: &AccessPlan<Value>,
+    right: &AccessPlan<Value>,
+) -> Ordering {
+    match (left, right) {
+        (AccessPlan::Path(left), AccessPlan::Path(right)) => {
+            canonical_cmp_access_path_value(left, right)
+        }
+        (AccessPlan::Intersection(left), AccessPlan::Intersection(right))
+        | (AccessPlan::Union(left), AccessPlan::Union(right)) => {
+            canonical_cmp_plan_list_value(left, right)
         }
         _ => canonical_access_plan_rank(left).cmp(&canonical_access_plan_rank(right)),
     }
@@ -71,6 +105,8 @@ const fn canonical_access_plan_rank<K>(plan: &AccessPlan<K>) -> u8 {
 /// Lexicographic comparison of access plan lists.
 ///
 /// Used for Intersection and Union variants.
+#[cfg(test)]
+#[allow(dead_code)]
 fn canonical_cmp_plan_list<K>(left: &[AccessPlan<K>], right: &[AccessPlan<K>]) -> Ordering
 where
     K: Ord,
@@ -85,11 +121,27 @@ where
     left.len().cmp(&right.len())
 }
 
+fn canonical_cmp_plan_list_value(
+    left: &[AccessPlan<Value>],
+    right: &[AccessPlan<Value>],
+) -> Ordering {
+    let limit = left.len().min(right.len());
+    for (left, right) in left.iter().take(limit).zip(right.iter().take(limit)) {
+        let cmp = canonical_cmp_access_plan_value(left, right);
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+    }
+    left.len().cmp(&right.len())
+}
+
 /// Comparison for concrete access paths.
 ///
 /// Ordering rules:
 /// 1. Path rank (primary key > exact index > prefix index > full scan)
 /// 2. Path-specific fields
+#[cfg(test)]
+#[allow(dead_code)]
 fn canonical_cmp_access_path<K>(left: &AccessPath<K>, right: &AccessPath<K>) -> Ordering
 where
     K: Ord,
@@ -152,6 +204,66 @@ where
     }
 }
 
+fn canonical_cmp_access_path_value(
+    left: &AccessPath<Value>,
+    right: &AccessPath<Value>,
+) -> Ordering {
+    let rank = canonical_access_path_rank(left).cmp(&canonical_access_path_rank(right));
+    if rank != Ordering::Equal {
+        return rank;
+    }
+
+    match (left, right) {
+        (AccessPath::ByKey(left), AccessPath::ByKey(right)) => canonical_cmp_value(left, right),
+
+        (AccessPath::ByKeys(left), AccessPath::ByKeys(right)) => {
+            canonical_cmp_value_list(left, right)
+        }
+
+        (
+            AccessPath::KeyRange {
+                start: left_start,
+                end: left_end,
+            },
+            AccessPath::KeyRange {
+                start: right_start,
+                end: right_end,
+            },
+        ) => {
+            let cmp = canonical_cmp_value(left_start, right_start);
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+            canonical_cmp_value(left_end, right_end)
+        }
+
+        (
+            AccessPath::IndexPrefix {
+                index: left_index,
+                values: left_values,
+            },
+            AccessPath::IndexPrefix {
+                index: right_index,
+                values: right_values,
+            },
+        ) => {
+            let cmp = left_index.name.cmp(right_index.name);
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+
+            let cmp = left_values.len().cmp(&right_values.len());
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+
+            canonical_cmp_value_list(left_values, right_values)
+        }
+
+        _ => Ordering::Equal,
+    }
+}
+
 /// Assigns a total ordering across access path variants.
 ///
 /// Lower values sort first.
@@ -179,6 +291,8 @@ struct AccessPathRank {
 }
 
 /// Lexicographic comparison of key lists.
+#[cfg(test)]
+#[allow(dead_code)]
 fn canonical_cmp_key_list<K>(left: &[K], right: &[K]) -> Ordering
 where
     K: Ord,
@@ -195,6 +309,8 @@ where
     left.len().cmp(&right.len())
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn canonical_cmp_key<K>(left: &K, right: &K) -> Ordering
 where
     K: Ord,

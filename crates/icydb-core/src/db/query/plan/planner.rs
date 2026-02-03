@@ -3,7 +3,7 @@
 //! Determinism: the planner canonicalizes output so the same model and
 //! predicate shape always produce identical access plans.
 
-use super::{AccessPath, AccessPlan, PlanError, canonical, validate_plan_invariants};
+use super::{AccessPath, AccessPlan, PlanError, canonical, validate_plan_invariants_model};
 use crate::{
     db::{
         index::fingerprint,
@@ -13,24 +13,11 @@ use crate::{
         },
     },
     error::InternalError,
+    model::entity::EntityModel,
     model::index::IndexModel,
-    traits::{EntityKind, FieldValue},
     value::Value,
 };
 use thiserror::Error as ThisError;
-
-impl<K> AccessPlan<K>
-where
-    K: Ord,
-{
-    fn normalize(self) -> Self {
-        match self {
-            Self::Path(_) => self,
-            Self::Union(children) => normalize_union(children),
-            Self::Intersection(children) => normalize_intersection(children),
-        }
-    }
-}
 
 #[derive(Debug, ThisError)]
 pub(crate) enum PlannerError {
@@ -41,10 +28,11 @@ pub(crate) enum PlannerError {
 }
 
 /// Planner entrypoint that operates on a prebuilt schema surface.
-pub(crate) fn plan_access<E: EntityKind>(
+pub(crate) fn plan_access(
+    model: &EntityModel,
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
-) -> Result<AccessPlan<E::Id>, PlannerError> {
+) -> Result<AccessPlan<Value>, PlannerError> {
     let Some(predicate) = predicate else {
         return Ok(AccessPlan::full_scan());
     };
@@ -61,15 +49,16 @@ pub(crate) fn plan_access<E: EntityKind>(
     crate::db::query::predicate::validate(schema, predicate).map_err(PlanError::from)?;
 
     let normalized = normalize(predicate);
-    let plan = plan_predicate::<E>(schema, &normalized)?.normalize();
-    validate_plan_invariants::<E>(&plan, schema, Some(&normalized))?;
+    let plan = normalize_access_plan(plan_predicate(model, schema, &normalized)?);
+    validate_plan_invariants_model(&plan, schema, model, Some(&normalized))?;
     Ok(plan)
 }
 
-fn plan_predicate<E: EntityKind>(
+fn plan_predicate(
+    model: &EntityModel,
     schema: &SchemaInfo,
     predicate: &Predicate,
-) -> Result<AccessPlan<E::Id>, InternalError> {
+) -> Result<AccessPlan<Value>, InternalError> {
     let plan = match predicate {
         Predicate::True
         | Predicate::False
@@ -86,10 +75,10 @@ fn plan_predicate<E: EntityKind>(
         Predicate::And(children) => {
             let mut plans = children
                 .iter()
-                .map(|child| plan_predicate::<E>(schema, child))
+                .map(|child| plan_predicate(model, schema, child))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            if let Some(prefix) = index_prefix_from_and::<E>(schema, children)? {
+            if let Some(prefix) = index_prefix_from_and(model, schema, children)? {
                 plans.push(AccessPlan::Path(prefix));
             }
 
@@ -98,32 +87,33 @@ fn plan_predicate<E: EntityKind>(
         Predicate::Or(children) => AccessPlan::Union(
             children
                 .iter()
-                .map(|child| plan_predicate::<E>(schema, child))
+                .map(|child| plan_predicate(model, schema, child))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
-        Predicate::Compare(cmp) => plan_compare::<E>(schema, cmp)?,
+        Predicate::Compare(cmp) => plan_compare(model, schema, cmp)?,
     };
 
     Ok(plan)
 }
 
-fn plan_compare<E: EntityKind>(
+fn plan_compare(
+    model: &EntityModel,
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
-) -> Result<AccessPlan<E::Id>, InternalError> {
+) -> Result<AccessPlan<Value>, InternalError> {
     if cmp.coercion.id != CoercionId::Strict {
         return Ok(AccessPlan::full_scan());
     }
 
-    if is_primary_key::<E>(schema, &cmp.field)
-        && let Some(path) = plan_pk_compare::<E>(schema, cmp)
+    if is_primary_key_model(schema, model, &cmp.field)
+        && let Some(path) = plan_pk_compare(schema, model, cmp)
     {
         return Ok(AccessPlan::Path(path));
     }
 
     match cmp.op {
         CompareOp::Eq => {
-            if let Some(paths) = index_prefix_for_eq::<E>(schema, &cmp.field, &cmp.value)? {
+            if let Some(paths) = index_prefix_for_eq(model, schema, &cmp.field, &cmp.value)? {
                 return Ok(AccessPlan::Union(paths));
             }
         }
@@ -131,7 +121,7 @@ fn plan_compare<E: EntityKind>(
             if let Value::List(items) = &cmp.value {
                 let mut plans = Vec::new();
                 for item in items {
-                    if let Some(paths) = index_prefix_for_eq::<E>(schema, &cmp.field, item)? {
+                    if let Some(paths) = index_prefix_for_eq(model, schema, &cmp.field, item)? {
                         plans.extend(paths);
                     }
                 }
@@ -146,49 +136,47 @@ fn plan_compare<E: EntityKind>(
     Ok(AccessPlan::full_scan())
 }
 
-fn plan_pk_compare<E: EntityKind>(
+fn plan_pk_compare(
     schema: &SchemaInfo,
+    model: &EntityModel,
     cmp: &ComparePredicate,
-) -> Option<AccessPath<E::Id>> {
+) -> Option<AccessPath<Value>> {
     match cmp.op {
         CompareOp::Eq => {
-            if !value_matches_pk::<E>(schema, &cmp.value) {
+            if !value_matches_pk_model(schema, model, &cmp.value) {
                 return None;
             }
 
-            let key = <E::Id as FieldValue>::from_value(&cmp.value)?;
-            Some(AccessPath::ByKey(key))
+            Some(AccessPath::ByKey(cmp.value.clone()))
         }
         CompareOp::In => {
             let Value::List(items) = &cmp.value else {
                 return None;
             };
 
-            let mut keys = Vec::with_capacity(items.len());
             for item in items {
-                if !value_matches_pk::<E>(schema, item) {
+                if !value_matches_pk_model(schema, model, item) {
                     return None;
                 }
-                let key = <E::Id as FieldValue>::from_value(item)?;
-                keys.push(key);
             }
-            Some(AccessPath::ByKeys(keys))
+            Some(AccessPath::ByKeys(items.clone()))
         }
         _ => None,
     }
 }
 
-fn sorted_indexes<E: EntityKind>() -> Vec<&'static IndexModel> {
-    let mut indexes = E::INDEXES.to_vec();
+fn sorted_indexes(model: &EntityModel) -> Vec<&'static IndexModel> {
+    let mut indexes = model.indexes.to_vec();
     indexes.sort_by(|left, right| left.name.cmp(right.name));
     indexes
 }
 
-fn index_prefix_for_eq<E: EntityKind>(
+fn index_prefix_for_eq(
+    model: &EntityModel,
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
-) -> Result<Option<Vec<AccessPlan<E::Id>>>, InternalError> {
+) -> Result<Option<Vec<AccessPlan<Value>>>, InternalError> {
     let Some(field_type) = schema.field(field) else {
         return Ok(None);
     };
@@ -202,7 +190,7 @@ fn index_prefix_for_eq<E: EntityKind>(
     }
 
     let mut out = Vec::new();
-    for index in sorted_indexes::<E>() {
+    for index in sorted_indexes(model) {
         if index.fields.first() != Some(&field) {
             continue;
         }
@@ -219,10 +207,11 @@ fn index_prefix_for_eq<E: EntityKind>(
     }
 }
 
-fn index_prefix_from_and<E: EntityKind>(
+fn index_prefix_from_and(
+    model: &EntityModel,
     schema: &SchemaInfo,
     children: &[Predicate],
-) -> Result<Option<AccessPath<E::Id>>, InternalError> {
+) -> Result<Option<AccessPath<Value>>, InternalError> {
     let mut field_values = Vec::new();
 
     for child in children {
@@ -239,7 +228,7 @@ fn index_prefix_from_and<E: EntityKind>(
     }
 
     let mut best: Option<(usize, bool, &IndexModel, Vec<Value>)> = None;
-    for index in sorted_indexes::<E>() {
+    for index in sorted_indexes(model) {
         let mut prefix = Vec::new();
         for field in index.fields {
             let Some((_, value)) = field_values.iter().find(|(name, _)| *name == *field) else {
@@ -296,14 +285,20 @@ fn better_index(
         || (cand_len == best_len && cand_exact == best_exact && cand_index.name < best_index.name)
 }
 
-fn normalize_union<K>(children: Vec<AccessPlan<K>>) -> AccessPlan<K>
-where
-    K: Ord,
-{
+// Normalize composite access plans into canonical, flattened forms.
+fn normalize_access_plan(plan: AccessPlan<Value>) -> AccessPlan<Value> {
+    match plan {
+        AccessPlan::Path(_) => plan,
+        AccessPlan::Union(children) => normalize_union(children),
+        AccessPlan::Intersection(children) => normalize_intersection(children),
+    }
+}
+
+fn normalize_union(children: Vec<AccessPlan<Value>>) -> AccessPlan<Value> {
     let mut out = Vec::new();
 
     for child in children {
-        let child = child.normalize();
+        let child = normalize_access_plan(child);
         if is_full_scan(&child) {
             return AccessPlan::full_scan();
         }
@@ -314,6 +309,7 @@ where
         }
     }
 
+    // Collapse degenerate unions.
     if out.is_empty() {
         return AccessPlan::full_scan();
     }
@@ -321,7 +317,8 @@ where
         return out.pop().expect("single union child");
     }
 
-    canonical::canonicalize_access_plans(&mut out);
+    // Canonicalize and deduplicate for deterministic planning.
+    canonical::canonicalize_access_plans_value(&mut out);
     out.dedup();
     if out.len() == 1 {
         return out.pop().expect("single union child");
@@ -329,14 +326,11 @@ where
     AccessPlan::Union(out)
 }
 
-fn normalize_intersection<K>(children: Vec<AccessPlan<K>>) -> AccessPlan<K>
-where
-    K: Ord,
-{
+fn normalize_intersection(children: Vec<AccessPlan<Value>>) -> AccessPlan<Value> {
     let mut out = Vec::new();
 
     for child in children {
-        let child = child.normalize();
+        let child = normalize_access_plan(child);
         if is_full_scan(&child) {
             continue;
         }
@@ -347,6 +341,7 @@ where
         }
     }
 
+    // Collapse degenerate intersections.
     if out.is_empty() {
         return AccessPlan::full_scan();
     }
@@ -354,7 +349,8 @@ where
         return out.pop().expect("single intersection child");
     }
 
-    canonical::canonicalize_access_plans(&mut out);
+    // Canonicalize and deduplicate for deterministic planning.
+    canonical::canonicalize_access_plans_value(&mut out);
     out.dedup();
     if out.len() == 1 {
         return out.pop().expect("single intersection child");
@@ -366,12 +362,12 @@ const fn is_full_scan<K>(plan: &AccessPlan<K>) -> bool {
     matches!(plan, AccessPlan::Path(AccessPath::FullScan))
 }
 
-fn is_primary_key<E: EntityKind>(schema: &SchemaInfo, field: &str) -> bool {
-    field == E::PRIMARY_KEY && schema.field(field).is_some()
+fn is_primary_key_model(schema: &SchemaInfo, model: &EntityModel, field: &str) -> bool {
+    field == model.primary_key.name && schema.field(field).is_some()
 }
 
-fn value_matches_pk<E: EntityKind>(schema: &SchemaInfo, value: &Value) -> bool {
-    let field = E::PRIMARY_KEY;
+fn value_matches_pk_model(schema: &SchemaInfo, model: &EntityModel, value: &Value) -> bool {
+    let field = model.primary_key.name;
     let Some(field_type) = schema.field(field) else {
         return false;
     };

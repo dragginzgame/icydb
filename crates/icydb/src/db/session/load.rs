@@ -5,7 +5,7 @@ use crate::{
         response::{Response, map_response_error},
     },
     error::Error,
-    traits::{CanisterKind, EntityValue, SingletonEntity},
+    traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
     view::View,
 };
 use icydb_core as core;
@@ -17,11 +17,11 @@ use std::{borrow::Borrow, collections::HashMap, hash::Hash};
 /// Session-bound fluent wrapper for load queries.
 ///
 
-pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityValue<Canister = C>> {
+pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
     pub(crate) inner: core::db::query::SessionLoadQuery<'a, C, E>,
 }
 
-impl<C: CanisterKind, E: EntityValue<Canister = C>> SessionLoadQuery<'_, C, E> {
+impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------
@@ -103,11 +103,17 @@ impl<C: CanisterKind, E: EntityValue<Canister = C>> SessionLoadQuery<'_, C, E> {
     // Execution terminals
     // ------------------------------------------------------------------
 
-    pub fn is_empty(&self) -> Result<bool, Error> {
+    pub fn is_empty(&self) -> Result<bool, Error>
+    where
+        E: EntityValue,
+    {
         Ok(self.inner.is_empty()?)
     }
 
-    pub fn count(&self) -> Result<u32, Error> {
+    pub fn count(&self) -> Result<u32, Error>
+    where
+        E: EntityValue,
+    {
         Ok(self.inner.count()?)
     }
 
@@ -115,53 +121,81 @@ impl<C: CanisterKind, E: EntityValue<Canister = C>> SessionLoadQuery<'_, C, E> {
         Ok(self.inner.explain()?)
     }
 
-    pub fn execute(&self) -> Result<Response<E>, Error> {
+    pub fn execute(&self) -> Result<Response<E>, Error>
+    where
+        E: EntityValue,
+    {
         Ok(Response::from_core(self.inner.execute()?))
     }
 
-    pub fn require_one(&self) -> Result<(), Error> {
+    pub fn require_one(&self) -> Result<(), Error>
+    where
+        E: EntityValue,
+    {
         self.inner
             .execute()?
             .require_one()
             .map_err(map_response_error)
     }
 
-    pub fn require_some(&self) -> Result<(), Error> {
+    pub fn require_some(&self) -> Result<(), Error>
+    where
+        E: EntityValue,
+    {
         self.inner
             .execute()?
             .require_some()
             .map_err(map_response_error)
     }
 
-    pub fn row(&self) -> Result<Row<E>, Error> {
+    pub fn row(&self) -> Result<Row<E>, Error>
+    where
+        E: EntityValue,
+    {
         self.inner.execute()?.row().map_err(map_response_error)
     }
 
-    pub fn try_row(&self) -> Result<Option<Row<E>>, Error> {
+    pub fn try_row(&self) -> Result<Option<Row<E>>, Error>
+    where
+        E: EntityValue,
+    {
         self.inner.execute()?.try_row().map_err(map_response_error)
     }
 
-    pub fn rows(&self) -> Result<Vec<Row<E>>, Error> {
+    pub fn rows(&self) -> Result<Vec<Row<E>>, Error>
+    where
+        E: EntityValue,
+    {
         Ok(self.inner.execute()?.rows())
     }
 
-    pub fn entity(&self) -> Result<E, Error> {
+    pub fn entity(&self) -> Result<E, Error>
+    where
+        E: EntityValue,
+    {
         self.inner.execute()?.entity().map_err(map_response_error)
     }
 
-    pub fn try_entity(&self) -> Result<Option<E>, Error> {
+    pub fn try_entity(&self) -> Result<Option<E>, Error>
+    where
+        E: EntityValue,
+    {
         self.inner
             .execute()?
             .try_entity()
             .map_err(map_response_error)
     }
 
-    pub fn entities(&self) -> Result<Vec<E>, Error> {
+    pub fn entities(&self) -> Result<Vec<E>, Error>
+    where
+        E: EntityValue,
+    {
         Ok(self.inner.execute()?.entities())
     }
 
     pub fn group_count_by<K>(self, key: impl Fn(&E) -> K) -> Result<HashMap<K, u32>, Error>
     where
+        E: EntityValue,
         K: Eq + Hash,
     {
         let entities = self.inner.execute()?.entities();
@@ -176,18 +210,27 @@ impl<C: CanisterKind, E: EntityValue<Canister = C>> SessionLoadQuery<'_, C, E> {
     // Primary-key results (semantic)
     // ------------------------------------------------------------------
 
-    pub fn key(&self) -> Result<Option<E::Id>, Error> {
+    pub fn key(&self) -> Result<Option<E::Id>, Error>
+    where
+        E: EntityValue,
+    {
         Ok(self.inner.execute()?.id())
     }
 
-    pub fn key_strict(&self) -> Result<E::Id, Error> {
+    pub fn key_strict(&self) -> Result<E::Id, Error>
+    where
+        E: EntityValue,
+    {
         self.inner
             .execute()?
             .id_strict()
             .map_err(map_response_error)
     }
 
-    pub fn try_key(&self) -> Result<Option<E::Id>, Error> {
+    pub fn try_key(&self) -> Result<Option<E::Id>, Error>
+    where
+        E: EntityValue,
+    {
         self.inner
             .execute()?
             .try_row()
@@ -195,40 +238,64 @@ impl<C: CanisterKind, E: EntityValue<Canister = C>> SessionLoadQuery<'_, C, E> {
             .map_err(map_response_error)
     }
 
-    pub fn keys(&self) -> Result<Vec<E::Id>, Error> {
+    pub fn keys(&self) -> Result<Vec<E::Id>, Error>
+    where
+        E: EntityValue,
+    {
         Ok(self.inner.execute()?.ids())
     }
 
-    pub fn contains_key(&self, id: &E::Id) -> Result<bool, Error> {
+    pub fn contains_key(&self, id: &E::Id) -> Result<bool, Error>
+    where
+        E: EntityValue,
+    {
         Ok(self.inner.execute()?.contains_id(id))
     }
 
-    pub fn all(&self) -> Result<Vec<E>, Error> {
+    pub fn all(&self) -> Result<Vec<E>, Error>
+    where
+        E: EntityValue,
+    {
         self.entities()
     }
 
-    pub fn views(&self) -> Result<Vec<View<E>>, Error> {
+    pub fn views(&self) -> Result<Vec<View<E>>, Error>
+    where
+        E: EntityValue,
+    {
         Ok(self.inner.execute()?.views())
     }
 
-    pub fn one(&self) -> Result<E, Error> {
+    pub fn one(&self) -> Result<E, Error>
+    where
+        E: EntityValue,
+    {
         self.entity()
     }
 
-    pub fn one_opt(&self) -> Result<Option<E>, Error> {
+    pub fn one_opt(&self) -> Result<Option<E>, Error>
+    where
+        E: EntityValue,
+    {
         self.try_entity()
     }
 
-    pub fn view(&self) -> Result<View<E>, Error> {
+    pub fn view(&self) -> Result<View<E>, Error>
+    where
+        E: EntityValue,
+    {
         self.inner.execute()?.view().map_err(map_response_error)
     }
 
-    pub fn view_opt(&self) -> Result<Option<View<E>>, Error> {
+    pub fn view_opt(&self) -> Result<Option<View<E>>, Error>
+    where
+        E: EntityValue,
+    {
         self.inner.execute()?.view_opt().map_err(map_response_error)
     }
 }
 
-impl<C: CanisterKind, E: EntityValue<Canister = C> + SingletonEntity> SessionLoadQuery<'_, C, E> {
+impl<C: CanisterKind, E: EntityKind<Canister = C> + SingletonEntity> SessionLoadQuery<'_, C, E> {
     /// Load the singleton entity identified by an explicit ID.
     #[must_use]
     pub fn only(mut self, id: E::Id) -> Self {

@@ -80,6 +80,24 @@ impl Primitive {
     }
 
     #[must_use]
+    pub const fn supports_remainder(self) -> bool {
+        matches!(
+            self,
+            Self::Decimal
+                | Self::Int8
+                | Self::Int16
+                | Self::Int32
+                | Self::Int64
+                | Self::Int128
+                | Self::Nat8
+                | Self::Nat16
+                | Self::Nat32
+                | Self::Nat64
+                | Self::Nat128
+        )
+    }
+
+    #[must_use]
     pub const fn supports_copy(self) -> bool {
         !matches!(self, Self::Blob | Self::Int | Self::Nat | Self::Text)
     }
@@ -144,7 +162,7 @@ impl Primitive {
     pub const fn is_signed_int(self) -> bool {
         matches!(
             self,
-            Self::Int | Self::Int8 | Self::Int16 | Self::Int32 | Self::Int64
+            Self::Int | Self::Int8 | Self::Int16 | Self::Int32 | Self::Int64 | Self::Int128
         )
     }
 
@@ -152,7 +170,7 @@ impl Primitive {
     pub const fn is_unsigned_int(self) -> bool {
         matches!(
             self,
-            Self::Nat | Self::Nat8 | Self::Nat16 | Self::Nat32 | Self::Nat64
+            Self::Nat | Self::Nat8 | Self::Nat16 | Self::Nat32 | Self::Nat64 | Self::Nat128
         )
     }
 

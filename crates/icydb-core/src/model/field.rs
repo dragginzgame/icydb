@@ -7,6 +7,7 @@
 /// and executor-side plan checks.
 ///
 
+#[derive(Debug)]
 pub struct EntityFieldModel {
     /// Field name as used in predicates and indexing.
     pub name: &'static str,
@@ -21,7 +22,9 @@ pub struct EntityFieldModel {
 ///
 /// This is aligned with `Value` variants and intentionally lossy: it encodes
 /// only the shape required for predicate compatibility and index planning.
+///
 
+#[derive(Debug)]
 pub enum EntityFieldKind {
     // Scalar primitives
     Account,

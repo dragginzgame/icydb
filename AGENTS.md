@@ -7,7 +7,7 @@
 * `crates/icydb-schema-derive`: Derive and codegen macros.
 * `crates/icydb-schema`: Schema AST/builders and validation.
 * `crates/icydb-build`: Build/codegen helpers and canister glue.
-* `crates/test` and `crates/test_design`: Integration and design tests.
+* `crates/icydb-schema-tests`: Integration and design tests.
 * `assets/`: Images and docs assets. `scripts/`: release/version helpers. `Makefile`: common tasks.
 * Workspace manifest: `Cargo.toml` (edition 2024, rust-version 1.93.0).
 
@@ -190,9 +190,9 @@ Code is considered non-trivial if it:
 ## Testing Guidelines
 
 * Framework: Rust test harness.
-* Unit tests live near code (`mod tests`); integration tests live in `crates/test` and `crates/test_design`.
+* Unit tests live near code (`mod tests`); integration tests live in `crates/icydb-schema-tests`.
 * Run all tests with `make test`.
-* In `icydb-core` tests, do not create ad-hoc `DummyEntity` types; macro-driven entity and index tests belong in `crates/test_design`.
+* In `icydb-core` tests, do not create ad-hoc `DummyEntity` types; macro-driven entity and index tests belong in `crates/icydb-schema-tests`.
 
 ---
 
@@ -221,6 +221,7 @@ Code is considered non-trivial if it:
 * Keep the existing changelog structure and header format (e.g., `## [x.y.z] - YYYY-MM-DD - Short Title`).
 * Use section headers like `### <emoji> Added/Changed/Fixed/Removed/Breaking/Migration Notes/Summary` only as needed; keep the header wording consistent with the file.
 * Emoji must be **random and deliberately unrelated** to the section meaning; pick a different, inappropriate emoji for each section within a release.
+* When updating the changelog, use the version the user specifies or the existing latest entry; do not create a new version header if the newest entry already exists (e.g., if `0.6.5` is present while the current version is `0.6.4`, add to `0.6.5`).
 * Write in plain, industry-friendly language: lead with the outcome and user impact, use technical terms only when they improve clarity.
 * Bullets should be short (1–2 sentences), avoid deep implementation details, and use inline code for API/type names.
 
