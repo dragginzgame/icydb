@@ -38,7 +38,6 @@ pub enum AccessPath<K> {
     ByKeys(Vec<K>),
 
     /// Range scan over primary keys (inclusive).
-    #[expect(dead_code)]
     KeyRange { start: K, end: K },
 
     /// Index scan using a prefix of index fields and bound values.

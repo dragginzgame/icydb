@@ -1,7 +1,10 @@
 #![allow(clippy::used_underscore_binding)]
-mod key_access;
 #[cfg(test)]
 mod tests;
+
+// Key-only access intent and helpers (split out for readability).
+mod key_access;
+pub use key_access::*;
 
 use crate::{
     db::{
@@ -24,8 +27,6 @@ use crate::{
 };
 use std::marker::PhantomData;
 use thiserror::Error as ThisError;
-
-pub use key_access::*;
 
 ///
 /// QueryMode
