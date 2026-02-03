@@ -5,12 +5,13 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.9] – 2026-02-03 - Decimal Abs Helper
+## [0.6.10] – 2026-02-03 - Decimals, Collections and Stuff
 
 ### 🦩 Added
 
 * Added a `get()` accessor to map collection inherent traits for explicit lookup without deref.
 * Added `Decimal::abs()` to expose absolute value math without deref.
+* Added `Blob::to_vec()` for explicit byte cloning without deref.
 
 ### 🥪 Changed
 

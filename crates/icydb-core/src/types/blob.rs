@@ -34,6 +34,12 @@ impl Blob {
     }
 
     #[must_use]
+    /// Clone the blob into a new byte vector.
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.to_vec()
+    }
+
+    #[must_use]
     /// Whether the blob is empty.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
