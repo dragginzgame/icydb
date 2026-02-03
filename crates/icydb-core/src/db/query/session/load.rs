@@ -58,10 +58,10 @@ where
         self
     }
 
-    #[must_use]
     /// Set the access path to a typed reference lookup.
+    #[must_use]
     pub fn by_ref(mut self, reference: Ref<E>) -> Self {
-        self.query = self.query.by_key(reference.key());
+        self.query = self.query.by_ref(reference);
         self
     }
 

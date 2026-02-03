@@ -13,7 +13,7 @@ use crate::{
         CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
         Path, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View, Visitable,
     },
-    types::Ulid,
+    types::{Ref, Ulid},
 };
 use serde::{Deserialize, Serialize};
 
@@ -194,6 +194,24 @@ fn intent_rejects_conflicting_key_access() {
         intent.validate_intent(),
         Err(IntentError::KeyAccessConflict)
     ));
+}
+
+#[test]
+fn typed_by_ref_matches_by_key_access() {
+    let key = Ulid::generate();
+
+    let by_key = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .by_key(key)
+        .plan()
+        .expect("by_key plan")
+        .into_inner();
+    let by_ref = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .by_ref(Ref::new(key))
+        .plan()
+        .expect("by_ref plan")
+        .into_inner();
+
+    assert_eq!(by_key, by_ref);
 }
 
 #[test]
