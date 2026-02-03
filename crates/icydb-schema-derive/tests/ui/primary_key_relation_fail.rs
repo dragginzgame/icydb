@@ -2,8 +2,8 @@ use icydb_schema_derive::entity;
 
 #[entity(
     store = "TestDataStore",
-    pk = "owner_id",
-    fields(field(ident = "owner_id", value(item(rel = "Owner"))))
+    pk = "owner",
+    fields(field(ident = "owner", value(item(rel = "Owner"))))
 )]
 /// Compile-fail fixture for relation primary keys.
 /// Intentionally uses a relation as the primary key.

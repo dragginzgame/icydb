@@ -50,6 +50,13 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         self
     }
 
+    /// Load multiple entities by typed reference.
+    #[must_use]
+    pub fn many_refs(mut self, refs: &[Ref<E>]) -> Self {
+        self.inner = self.inner.many_refs(refs);
+        self
+    }
+
     /// Load multiple entities by primary key.
     #[must_use]
     pub fn many<I>(mut self, ids: I) -> Self

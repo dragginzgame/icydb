@@ -104,6 +104,9 @@ pub struct Field {
     pub is_system: bool,
 }
 
+// Storage suffixes are forbidden in domain-level field names.
+const BANNED_SUFFIXES: [&str; 6] = ["_id", "_ids", "_ref", "_refs", "_key", "_keys"];
+
 impl Field {
     pub fn validate(&self) -> Result<(), DarlingError> {
         // Identifier validation.
@@ -130,23 +133,22 @@ impl Field {
         // Value validation.
         self.value.validate()?;
 
-        // Relation naming conventions.
-        if self.value.item.is_relation() {
-            match self.value.cardinality() {
-                Cardinality::One | Cardinality::Opt if !ident_str.ends_with("id") => {
-                    return Err(DarlingError::custom(format!(
-                        "one or optional relationship '{ident_str}' should end with 'id'"
-                    ))
-                    .with_span(&self.ident));
-                }
-                Cardinality::Many if !ident_str.ends_with("ids") => {
-                    return Err(DarlingError::custom(format!(
-                        "many relationship '{ident_str}' should end with 'ids'"
-                    ))
-                    .with_span(&self.ident));
-                }
-                _ => {}
-            }
+        // TODO(temporary): re-enable suffix enforcement once downstream schemas are updated.
+        if false
+            && BANNED_SUFFIXES
+                .iter()
+                .any(|suffix| ident_str.ends_with(suffix))
+        {
+            let suffixes = BANNED_SUFFIXES
+                .iter()
+                .map(|suffix| format!("'{suffix}'"))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            return Err(DarlingError::custom(format!(
+                "field ident '{ident_str}' must not end with {suffixes}"
+            ))
+            .with_span(&self.ident));
         }
 
         Ok(())

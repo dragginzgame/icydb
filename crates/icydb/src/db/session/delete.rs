@@ -54,6 +54,13 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
         self
     }
 
+    /// Delete multiple entities by typed reference.
+    #[must_use]
+    pub fn many_refs(mut self, refs: &[Ref<E>]) -> Self {
+        self.inner = self.inner.many_refs(refs);
+        self
+    }
+
     /// Delete multiple entities by primary key.
     ///
     /// Uses key-based access only.

@@ -88,9 +88,9 @@ pub struct AdminEntity {}
     pk = "id",
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "simple_id", value(item(rel = "SimpleEntity"))),
-        field(ident = "opt_simple_id", value(opt, item(rel = "SimpleEntity"))),
-        field(ident = "simple_ids", value(many, item(rel = "SimpleEntity")))
+        field(ident = "simple", value(item(rel = "SimpleEntity"))),
+        field(ident = "opt_simple", value(opt, item(rel = "SimpleEntity"))),
+        field(ident = "simples", value(many, item(rel = "SimpleEntity")))
     )
 )]
 pub struct RelatedEntity {}

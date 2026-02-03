@@ -65,6 +65,12 @@ where
         self
     }
 
+    /// Set the access path to a batch of typed reference lookups.
+    #[must_use]
+    pub fn many_refs(self, refs: &[Ref<E>]) -> Self {
+        self.many(refs.iter().map(|reference| reference.key()))
+    }
+
     #[must_use]
     pub fn many<I>(mut self, keys: I) -> Self
     where

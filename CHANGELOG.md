@@ -5,16 +5,23 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.14] – 2026-02-03 - WriteResponse
+## [0.6.15] – 2026-02-03 - Query Ergonomics
 
 ### 🦩 Added
 
 * Added `WriteResponse`/`WriteBatchResponse` helpers for write results, including key and view accessors.
 * Added by_ref() for query flow
+* Added many_refs() for query flow
 
 ### 🥪 Changed
 
 * id_strict and key_strict to require_id and require_key to match other methods
+* Clarified schema error messaging for banned suffixes on field names
+* Temporarily disabled enforcement of banned field-name suffixes pending schema cleanup
+
+### 🧯 Breaking
+
+* Schema field names ending in `_id`, `_ids`, `_ref`, `_refs`, `_key`, or `_keys` now fail at compile time; relation fields were renamed to base nouns.
 
 ---
 

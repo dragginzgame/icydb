@@ -67,8 +67,8 @@ pub struct DataKeyOrder {}
 ///
 
 #[record(fields(
-    field(ident = "a_id", value(item(prim = "Ulid"))),
-    field(ident = "b_id", value(item(prim = "Ulid"))),
+    field(ident = "a", value(item(prim = "Ulid"))),
+    field(ident = "b", value(item(prim = "Ulid"))),
 ))]
 pub struct MissingFieldSmall {}
 
@@ -77,9 +77,9 @@ pub struct MissingFieldSmall {}
 ///
 
 #[record(fields(
-    field(ident = "a_id", value(item(prim = "Ulid"))),
-    field(ident = "b_id", value(item(prim = "Ulid"))),
-    field(ident = "c_id", value(item(prim = "Ulid"))),
+    field(ident = "a", value(item(prim = "Ulid"))),
+    field(ident = "b", value(item(prim = "Ulid"))),
+    field(ident = "c", value(item(prim = "Ulid"))),
 ))]
 pub struct MissingFieldLarge {}
 
@@ -131,16 +131,16 @@ pub struct ContainsOpts {}
     pk = "id",
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "a_ids", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "b_ids", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "c_ids", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "d_ids", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "e_ids", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "f_ids", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "g_ids", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "h_ids", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "i_ids", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "j_ids", value(many, item(rel = "ContainsBlob")))
+        field(ident = "a", value(many, item(rel = "ContainsBlob"))),
+        field(ident = "b", value(many, item(rel = "ContainsBlob"))),
+        field(ident = "c", value(many, item(rel = "ContainsBlob"))),
+        field(ident = "d", value(many, item(rel = "ContainsBlob"))),
+        field(ident = "e", value(many, item(rel = "ContainsBlob"))),
+        field(ident = "f", value(many, item(rel = "ContainsBlob"))),
+        field(ident = "g", value(many, item(rel = "ContainsBlob"))),
+        field(ident = "h", value(many, item(rel = "ContainsBlob"))),
+        field(ident = "i", value(many, item(rel = "ContainsBlob"))),
+        field(ident = "j", value(many, item(rel = "ContainsBlob")))
     )
 )]
 pub struct ContainsManyRelations {}
@@ -207,10 +207,10 @@ pub struct IndexSanitized {}
 #[entity(
     store = "TestDataStore",
     pk = "id",
-    index(store = "TestIndexStore", fields = "create_blob_id"),
+    index(store = "TestIndexStore", fields = "create_blob"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "create_blob_id", value(item(rel = "BlobEntity")))
+        field(ident = "create_blob", value(item(rel = "BlobEntity")))
     )
 )]
 pub struct IndexRelation {}
@@ -242,16 +242,16 @@ mod tests {
     #[test]
     fn missing_field_round_trip() {
         let small = MissingFieldSmall {
-            a_id: Ulid::generate(),
-            b_id: Ulid::generate(),
+            a: Ulid::generate(),
+            b: Ulid::generate(),
         };
 
         let bytes = serialize(&small).expect("serialize MissingFieldSmall");
         let large =
             deserialize::<MissingFieldLarge>(&bytes).expect("deserialize MissingFieldLarge");
 
-        assert!(!large.a_id.is_nil());
-        assert!(!large.b_id.is_nil());
-        assert!(large.c_id.is_nil());
+        assert!(!large.a.is_nil());
+        assert!(!large.b.is_nil());
+        assert!(large.c.is_nil());
     }
 }
