@@ -334,7 +334,6 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
     }
 }
 
-/*
 ///
 /// TESTS
 ///
@@ -342,37 +341,74 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::query::intent::{KeyAccess, access_plan_from_keys_value};
     use crate::db::query::plan::{AccessPath, LogicalPlan};
-    use crate::db::query::{FieldRef, Query, ReadConsistency};
+    use crate::db::query::predicate::Predicate;
+    use crate::db::query::{FieldRef, LoadSpec, QueryMode, ReadConsistency};
     use crate::model::index::IndexModel;
-    use crate::types::{Ref, Ulid};
+    use crate::types::Ulid;
     use crate::value::Value;
 
     #[test]
     fn explain_is_deterministic_for_same_query() {
-        let query = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-            .filter(FieldRef::new("id").eq(Ulid::default()));
+        let predicate = FieldRef::new("id").eq(Ulid::default());
+        let mut plan: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        plan.predicate = Some(predicate);
 
-        let plan_a = query.plan().expect("plan a");
-        let plan_b = query.plan().expect("plan b");
-
-        assert_eq!(plan_a.explain(), plan_b.explain());
+        assert_eq!(plan.explain(), plan.explain());
     }
 
     #[test]
     fn explain_is_deterministic_for_equivalent_predicates() {
         let id = Ulid::default();
 
-        let query_a = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-            .filter(FieldRef::new("id").eq(id))
-            .filter(FieldRef::new("other").eq("x"));
+        let predicate_a = Predicate::And(vec![
+            FieldRef::new("id").eq(id),
+            FieldRef::new("other").eq(Value::Text("x".to_string())),
+        ]);
+        let predicate_b = Predicate::And(vec![
+            FieldRef::new("other").eq(Value::Text("x".to_string())),
+            FieldRef::new("id").eq(id),
+        ]);
 
-        let query_b = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-            .filter(FieldRef::new("other").eq("x"))
-            .filter(FieldRef::new("id").eq(id));
+        let mut plan_a: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        plan_a.predicate = Some(predicate_a);
 
-        let plan_a = query_a.plan().expect("plan a");
-        let plan_b = query_b.plan().expect("plan b");
+        let mut plan_b: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        plan_b.predicate = Some(predicate_b);
+
+        assert_eq!(plan_a.explain(), plan_b.explain());
+    }
+
+    #[test]
+    fn explain_is_deterministic_for_by_keys() {
+        let a = Ulid::from_u128(1);
+        let b = Ulid::from_u128(2);
+
+        let access_a = access_plan_from_keys_value(&KeyAccess::Many(vec![a, b, a]));
+        let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
+
+        let plan_a: LogicalPlan<Value> = LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: access_a,
+            predicate: None,
+            order: None,
+            delete_limit: None,
+            page: None,
+            consistency: ReadConsistency::MissingOk,
+        };
+        let plan_b: LogicalPlan<Value> = LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: access_b,
+            predicate: None,
+            order: None,
+            delete_limit: None,
+            page: None,
+            consistency: ReadConsistency::MissingOk,
+        };
 
         assert_eq!(plan_a.explain(), plan_b.explain());
     }
@@ -389,7 +425,7 @@ mod tests {
         indexes.sort_by(|left, right| left.name.cmp(right.name));
         let chosen = indexes[0];
 
-        let plan = LogicalPlan::<Ref<PlannerEntity>>::new(
+        let plan: LogicalPlan<Value> = LogicalPlan::new(
             AccessPath::IndexPrefix {
                 index: chosen,
                 values: vec![Value::Text("alpha".to_string())],
@@ -415,16 +451,13 @@ mod tests {
 
     #[test]
     fn explain_differs_for_semantic_changes() {
-        let plan_a = LogicalPlan::<Ref<PlannerEntity>>::new(
-            AccessPath::ByKey(Ref::new(Ulid::from_u128(1))),
-            crate::db::query::ReadConsistency::MissingOk,
+        let plan_a: LogicalPlan<Value> = LogicalPlan::new(
+            AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1))),
+            ReadConsistency::MissingOk,
         );
-        let plan_b = LogicalPlan::<Ref<PlannerEntity>>::new(
-            AccessPath::FullScan,
-            crate::db::query::ReadConsistency::MissingOk,
-        );
+        let plan_b: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
 
         assert_ne!(plan_a.explain(), plan_b.explain());
     }
 }
-*/

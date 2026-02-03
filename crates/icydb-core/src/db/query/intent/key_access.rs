@@ -1,5 +1,5 @@
 use crate::{
-    db::query::plan::{AccessPath, AccessPlan, PlanError},
+    db::query::plan::{AccessPath, AccessPlan, PlanError, canonical},
     traits::{EntityKind, FieldValue},
     value::Value,
 };
@@ -48,7 +48,8 @@ where
     match access {
         KeyAccess::Single(key) => AccessPlan::Path(AccessPath::ByKey(key.to_value())),
         KeyAccess::Many(keys) => {
-            let values: Vec<Value> = keys.iter().map(FieldValue::to_value).collect();
+            let mut values: Vec<Value> = keys.iter().map(FieldValue::to_value).collect();
+            canonical::canonicalize_key_values(&mut values);
             if let Some(first) = values.first()
                 && values.len() == 1
             {

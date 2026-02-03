@@ -58,7 +58,7 @@ extern crate self as icydb;
 
 // crates
 pub use icydb_build as build;
-pub use icydb_build::build_actor;
+pub use icydb_build::build;
 pub use icydb_schema as schema;
 pub use icydb_schema_derive as macros;
 
@@ -159,9 +159,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Macros
 ///
 
-// start
-// macro to be included at the start of each canister lib.rs file
-/// Include the generated actor module emitted by `build_actor!` (placed in `OUT_DIR/actor.rs`).
+/// Include the generated actor module emitted by `build!` (placed in `OUT_DIR/actor.rs`).
 #[macro_export]
 macro_rules! start {
     () => {
@@ -170,7 +168,6 @@ macro_rules! start {
     };
 }
 
-/// db
 /// Access the current canister's database session; use `db!().debug()` for verbose tracing.
 #[macro_export]
 #[allow(clippy::crate_in_macro_def)]

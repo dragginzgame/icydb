@@ -288,9 +288,20 @@ fn better_index(
 // Normalize composite access plans into canonical, flattened forms.
 fn normalize_access_plan(plan: AccessPlan<Value>) -> AccessPlan<Value> {
     match plan {
-        AccessPlan::Path(_) => plan,
+        AccessPlan::Path(path) => AccessPlan::Path(normalize_access_path(path)),
         AccessPlan::Union(children) => normalize_union(children),
         AccessPlan::Intersection(children) => normalize_intersection(children),
+    }
+}
+
+// Normalize ByKeys paths to set semantics for deterministic planning.
+fn normalize_access_path(path: AccessPath<Value>) -> AccessPath<Value> {
+    match path {
+        AccessPath::ByKeys(mut keys) => {
+            canonical::canonicalize_key_values(&mut keys);
+            AccessPath::ByKeys(keys)
+        }
+        other => other,
     }
 }
 

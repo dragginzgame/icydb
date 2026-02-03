@@ -5,7 +5,18 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.5] – 2026-02-02 - Derive Consolidation & Explicit Collections
+## [0.6.6] – 2026-02-03 - Diagnostic Test Reenablement
+
+### 🧁 Summary
+
+* Re-enabled query plan explain, fingerprint, and validation tests to guard planner determinism and invariants after the refactor.
+
+### 🛰️ Added
+
+* Added `ByKeys` determinism checks for `ExplainPlan` and `PlanFingerprint` to lock in set semantics for key batches.
+* Added a typed-vs-model planning equivalence test to anchor `QueryModel`/`Query<E>` parity post-refactor.
+
+## [0.6.5] – 2026-02-03 - Derive Consolidation & Explicit Collections
 
 ### 🧊 Summary
 
@@ -24,7 +35,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Added `Mul`/`Div` and assignment ops for `E8s` and `E18s` to satisfy fixed-point newtype arithmetic derives.
 * Added `Mul`/`Div` and assignment ops for `Nat` and `Nat128` to support arithmetic newtype derives.
 * Added `Mul`/`Div` and assignment ops for `Int` and `Int128` to support arithmetic newtype derives.
-* Added `CollectionValue` and wired list/set wrapper types to explicit iteration and length access without deref.
+* Added `Collection` and wired list/set wrapper types to explicit iteration and length access without deref.
 * Added `MapCollection` for explicit, read-only iteration over map wrapper types without deref.
 * Added explicit mutation APIs on list/set/map wrapper types (`push`, `insert`, `remove`, `clear`) without implicit container access.
 * Moved `PartialEq` derives to `icydb-derive` for schema-generated types.
@@ -36,7 +47,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * `FieldValues` is now derived via `icydb-derive` and no longer implemented by schema-specific `imp` code.
 * `DbSession::diagnose_query` now requires `EntityKind` only, keeping diagnostics schema-level.
 * Public query builders now accept `EntityKind` for intent construction; execution continues to require `EntityValue`.
-* Renamed `build!` to `build_actor!` to make actor-only codegen explicit.
 * Updated `canic` to `0.9.17`.
 * `make test` no longer runs canister builds; `test-canisters` is now a no-op.
 

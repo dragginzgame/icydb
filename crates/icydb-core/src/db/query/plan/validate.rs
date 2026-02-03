@@ -489,28 +489,24 @@ const fn is_key_compatible(field_type: &FieldType) -> bool {
     )
 }
 
-/*
 ///
 /// TESTS
 ///
 
 #[cfg(test)]
 mod tests {
-    use super::{PlanError, validate_plan_with_model, validate_plan_with_schema_info};
+    use super::{PlanError, validate_logical_plan_model};
     use crate::{
-        db::{
-            query::{
-                plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec},
-                predicate::{SchemaInfo, ValidateError},
-            },
-            store::StorageKey,
+        db::query::{
+            plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec},
+            predicate::{SchemaInfo, ValidateError},
         },
         model::{
             entity::EntityModel,
             field::{EntityFieldKind, EntityFieldModel},
             index::IndexModel,
         },
-        types::{Ref, Ulid},
+        types::Ulid,
         value::Value,
     };
 
@@ -529,6 +525,29 @@ mod tests {
             primary_key,
             fields,
             indexes,
+        }
+    }
+
+    const INDEX_FIELDS: [&str; 1] = ["tag"];
+    const INDEX_MODEL: IndexModel =
+        IndexModel::new("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
+    const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
+
+    fn model_with_index() -> EntityModel {
+        let fields: &'static [EntityFieldModel] = Box::leak(
+            vec![
+                field("id", EntityFieldKind::Ulid),
+                field("tag", EntityFieldKind::Text),
+            ]
+            .into_boxed_slice(),
+        );
+
+        EntityModel {
+            path: "test::Entity",
+            entity_name: "TestEntity",
+            primary_key: &fields[0],
+            fields,
+            indexes: &INDEXES,
         }
     }
 
@@ -686,7 +705,7 @@ mod tests {
         );
 
         let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
-        let plan: LogicalPlan<Ref<PlannerEntity>> = LogicalPlan {
+        let plan: LogicalPlan<Value> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::FullScan),
             predicate: None,
@@ -699,22 +718,19 @@ mod tests {
         };
 
         let err =
-            validate_plan_with_schema_info(&schema, &model, &plan).expect_err("unorderable field");
+            validate_logical_plan_model(&schema, &model, &plan).expect_err("unorderable field");
         assert!(matches!(err, PlanError::UnorderableField { .. }));
     }
 
     #[test]
     fn plan_rejects_index_prefix_too_long() {
-        let schema = SchemaInfo::from_entity_model(PlannerEntity::MODEL).expect("valid model");
-        let plan: LogicalPlan<Ref<PlannerEntity>> = LogicalPlan {
+        let model = model_with_index();
+        let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
+        let plan: LogicalPlan<Value> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::IndexPrefix {
-                index: *PlannerEntity::INDEXES[0],
-                values: vec![
-                    Value::Text("a".to_string()),
-                    Value::Text("b".to_string()),
-                    Value::Text("c".to_string()),
-                ],
+                index: INDEX_MODEL,
+                values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
             }),
             predicate: None,
             order: None,
@@ -723,18 +739,19 @@ mod tests {
             consistency: crate::db::query::ReadConsistency::MissingOk,
         };
 
-        let err = validate_plan_with_schema_info(&schema, PlannerEntity::MODEL, &plan)
-            .expect_err("index prefix too long");
+        let err =
+            validate_logical_plan_model(&schema, &model, &plan).expect_err("index prefix too long");
         assert!(matches!(err, PlanError::IndexPrefixTooLong { .. }));
     }
 
     #[test]
     fn plan_rejects_empty_index_prefix() {
-        let schema = SchemaInfo::from_entity_model(PlannerEntity::MODEL).expect("valid model");
-        let plan: LogicalPlan<Ref<PlannerEntity>> = LogicalPlan {
+        let model = model_with_index();
+        let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
+        let plan: LogicalPlan<Value> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::IndexPrefix {
-                index: *PlannerEntity::INDEXES[0],
+                index: INDEX_MODEL,
                 values: vec![],
             }),
             predicate: None,
@@ -744,17 +761,18 @@ mod tests {
             consistency: crate::db::query::ReadConsistency::MissingOk,
         };
 
-        let err = validate_plan_with_schema_info(&schema, PlannerEntity::MODEL, &plan)
-            .expect_err("index prefix empty");
+        let err =
+            validate_logical_plan_model(&schema, &model, &plan).expect_err("index prefix empty");
         assert!(matches!(err, PlanError::IndexPrefixEmpty));
     }
 
     #[test]
     fn plan_accepts_model_based_validation() {
         let model = model_with_fields(vec![field("id", EntityFieldKind::Ulid)], 0);
-        let plan: LogicalPlan<Ref<PlannerEntity>> = LogicalPlan {
+        let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
+        let plan: LogicalPlan<Value> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-            access: AccessPlan::Path(AccessPath::ByKey(Ref::new(Ulid::nil()))),
+            access: AccessPlan::Path(AccessPath::ByKey(Value::Ulid(Ulid::nil()))),
             predicate: None,
             order: None,
             delete_limit: None,
@@ -762,7 +780,6 @@ mod tests {
             consistency: crate::db::query::ReadConsistency::MissingOk,
         };
 
-        validate_plan_with_model(&plan, &model).expect("valid plan");
+        validate_logical_plan_model(&schema, &model, &plan).expect("valid plan");
     }
 }
-*/

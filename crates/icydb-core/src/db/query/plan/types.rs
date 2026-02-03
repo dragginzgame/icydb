@@ -34,6 +34,7 @@ pub enum AccessPath<K> {
 
     /// Batched lookup by multiple primary keys.
     ///
+    /// Keys are treated as a set; order is canonicalized and duplicates are ignored.
     /// Empty key lists are a valid no-op and return no rows.
     ByKeys(Vec<K>),
 

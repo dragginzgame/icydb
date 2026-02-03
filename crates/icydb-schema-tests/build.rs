@@ -4,5 +4,5 @@
 // reintroduced later.
 //
 fn main() {
-    // icydb::build_actor!("icydb_schema_tests::schema::test::TestCanister");
+    // icydb::build!("icydb_schema_tests::schema::test::TestCanister");
 }

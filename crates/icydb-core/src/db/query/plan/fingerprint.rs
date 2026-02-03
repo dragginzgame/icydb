@@ -352,34 +352,70 @@ const fn coercion_id_tag(id: CoercionId) -> u8 {
     }
 }
 
-/*
 ///
 /// TESTS
 ///
 
 #[cfg(test)]
 mod tests {
+    use crate::db::query::intent::{KeyAccess, access_plan_from_keys_value};
     use crate::db::query::plan::{AccessPath, DeleteLimitSpec, LogicalPlan};
-    use crate::db::query::{FieldRef, plan::planner::PlannerEntity};
-    use crate::db::query::{Query, QueryMode, ReadConsistency};
+    use crate::db::query::predicate::Predicate;
+    use crate::db::query::{FieldRef, QueryMode, ReadConsistency};
     use crate::model::index::IndexModel;
-    use crate::types::{Ref, Ulid};
+    use crate::types::Ulid;
     use crate::value::Value;
 
     #[test]
     fn fingerprint_is_deterministic_for_equivalent_predicates() {
         let id = Ulid::default();
 
-        let query_a = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-            .filter(FieldRef::new("id").eq(id))
-            .filter(FieldRef::new("other").eq("x"));
+        let predicate_a = Predicate::And(vec![
+            FieldRef::new("id").eq(id),
+            FieldRef::new("other").eq(Value::Text("x".to_string())),
+        ]);
+        let predicate_b = Predicate::And(vec![
+            FieldRef::new("other").eq(Value::Text("x".to_string())),
+            FieldRef::new("id").eq(id),
+        ]);
 
-        let query_b = Query::<PlannerEntity>::new(ReadConsistency::MissingOk)
-            .filter(FieldRef::new("other").eq("x"))
-            .filter(FieldRef::new("id").eq(id));
+        let mut plan_a: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        plan_a.predicate = Some(predicate_a);
 
-        let plan_a = query_a.plan().expect("plan a");
-        let plan_b = query_b.plan().expect("plan b");
+        let mut plan_b: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        plan_b.predicate = Some(predicate_b);
+
+        assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
+    }
+
+    #[test]
+    fn fingerprint_is_deterministic_for_by_keys() {
+        let a = Ulid::from_u128(1);
+        let b = Ulid::from_u128(2);
+
+        let access_a = access_plan_from_keys_value(&KeyAccess::Many(vec![a, b, a]));
+        let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
+
+        let plan_a: LogicalPlan<Value> = LogicalPlan {
+            mode: QueryMode::Load(crate::db::query::LoadSpec::new()),
+            access: access_a,
+            predicate: None,
+            order: None,
+            delete_limit: None,
+            page: None,
+            consistency: ReadConsistency::MissingOk,
+        };
+        let plan_b: LogicalPlan<Value> = LogicalPlan {
+            mode: QueryMode::Load(crate::db::query::LoadSpec::new()),
+            access: access_b,
+            predicate: None,
+            order: None,
+            delete_limit: None,
+            page: None,
+            consistency: ReadConsistency::MissingOk,
+        };
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
     }
@@ -400,14 +436,14 @@ mod tests {
             false,
         );
 
-        let plan_a = LogicalPlan::<Ref<PlannerEntity>>::new(
+        let plan_a: LogicalPlan<Value> = LogicalPlan::new(
             AccessPath::IndexPrefix {
                 index: INDEX_A,
                 values: vec![Value::Text("alpha".to_string())],
             },
             crate::db::query::ReadConsistency::MissingOk,
         );
-        let plan_b = LogicalPlan::<Ref<PlannerEntity>>::new(
+        let plan_b: LogicalPlan<Value> = LogicalPlan::new(
             AccessPath::IndexPrefix {
                 index: INDEX_B,
                 values: vec![Value::Text("alpha".to_string())],
@@ -420,14 +456,10 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_pagination() {
-        let mut plan_a = LogicalPlan::<Ref<PlannerEntity>>::new(
-            AccessPath::FullScan,
-            crate::db::query::ReadConsistency::MissingOk,
-        );
-        let mut plan_b = LogicalPlan::<Ref<PlannerEntity>>::new(
-            AccessPath::FullScan,
-            crate::db::query::ReadConsistency::MissingOk,
-        );
+        let mut plan_a: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_a.page = Some(crate::db::query::plan::PageSpec {
             limit: Some(10),
             offset: 0,
@@ -442,14 +474,10 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_delete_limit() {
-        let mut plan_a = LogicalPlan::<Ref<PlannerEntity>>::new(
-            AccessPath::FullScan,
-            crate::db::query::ReadConsistency::MissingOk,
-        );
-        let mut plan_b = LogicalPlan::<Ref<PlannerEntity>>::new(
-            AccessPath::FullScan,
-            crate::db::query::ReadConsistency::MissingOk,
-        );
+        let mut plan_a: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_a.mode = QueryMode::Delete(crate::db::query::DeleteSpec::new());
         plan_b.mode = QueryMode::Delete(crate::db::query::DeleteSpec::new());
         plan_a.delete_limit = Some(DeleteLimitSpec { max_rows: 2 });
@@ -460,13 +488,10 @@ mod tests {
 
     #[test]
     fn fingerprint_is_stable_for_full_scan() {
-        let plan = LogicalPlan::<Ref<PlannerEntity>>::new(
-            AccessPath::FullScan,
-            crate::db::query::ReadConsistency::MissingOk,
-        );
+        let plan: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         let fingerprint_a = plan.fingerprint();
         let fingerprint_b = plan.fingerprint();
         assert_eq!(fingerprint_a, fingerprint_b);
     }
 }
-*/

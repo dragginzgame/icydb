@@ -33,6 +33,12 @@ pub(crate) fn canonicalize_access_plans_value(plans: &mut [AccessPlan<Value>]) {
     plans.sort_by(canonical_cmp_access_plan_value);
 }
 
+/// Canonicalize a list of key values for deterministic ByKeys plans.
+pub(crate) fn canonicalize_key_values(keys: &mut Vec<Value>) {
+    keys.sort_by(canonical_cmp_value);
+    keys.dedup();
+}
+
 /// Returns true if the given plans are already in canonical order.
 ///
 /// This is intended for invariant checks and debug assertions.

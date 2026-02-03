@@ -92,7 +92,6 @@ impl<K> LogicalPlan<K> {
     ///
     /// Predicates, ordering, and pagination may be attached later.
     #[cfg(test)]
-    #[expect(dead_code)]
     pub const fn new(access: AccessPath<K>, consistency: ReadConsistency) -> Self {
         Self {
             mode: QueryMode::Load(LoadSpec::new()),

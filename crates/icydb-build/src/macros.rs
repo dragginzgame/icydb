@@ -3,7 +3,7 @@
 //! This does not register schema nodes; schema registration is handled by derives at compile time.
 //! Formerly named `build!`; renamed to make the actor-only scope explicit.
 #[macro_export]
-macro_rules! build_actor {
+macro_rules! build {
     ($actor:expr) => {
         use std::{env::var, fs::File, io::Write, path::PathBuf};
 
