@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.10] – 2026-02-03 - Decimals, Collections and Stuff
+## [0.6.11] – 2026-02-03 - Decimals, Collections and Stuff
 
 ### 🦩 Added
 
@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 * Planner access planning no longer re-validates predicates; validation is now owned by the intent/executor boundaries.
 * Consolidated primary-key compatibility checks to the shared `FieldType::is_keyable` rule to avoid drift across planner/validator layers.
+* Renamed primary_key() and similar methods in Response to key() for consistency
 
 ### 🪁 Breaking
 

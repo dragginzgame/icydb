@@ -92,13 +92,13 @@ impl<E: EntityKind> Response<E> {
     // Identity (facade-friendly naming)
     // ------------------------------------------------------------------
 
-    /// Return the single primary key.
-    pub fn primary_key(self) -> Result<E::Id, Error> {
+    /// Return the single key.
+    pub fn key(self) -> Result<E::Id, Error> {
         self.inner.id_strict().map_err(map_response_error)
     }
 
     /// Return zero or one primary key.
-    pub fn try_primary_key(self) -> Result<Option<E::Id>, Error> {
+    pub fn try_key(self) -> Result<Option<E::Id>, Error> {
         Ok(self.inner.id())
     }
 
