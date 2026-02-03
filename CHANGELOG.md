@@ -5,6 +5,19 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.6.7] – 2026-02-03 - Planner Validation Boundary
+
+### 🦩 Added
+
+* Added a `get()` accessor to map collection inherent traits for explicit lookup without deref.
+
+### 🥪 Changed
+
+* Planner access planning no longer re-validates predicates; validation is now owned by the intent/executor boundaries.
+* Consolidated primary-key compatibility checks to the shared `FieldType::is_keyable` rule to avoid drift across planner/validator layers.
+
+---
+
 ## [0.6.6] – 2026-02-03 - Diagnostic Test Reenablement
 
 ### 🧁 Summary
@@ -15,6 +28,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 * Added `ByKeys` determinism checks for `ExplainPlan` and `PlanFingerprint` to lock in set semantics for key batches.
 * Added a typed-vs-model planning equivalence test to anchor `QueryModel`/`Query<E>` parity post-refactor.
+
+---
 
 ## [0.6.5] – 2026-02-03 - Derive Consolidation & Explicit Collections
 

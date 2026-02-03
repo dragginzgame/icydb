@@ -6,8 +6,7 @@ use super::{
 };
 use crate::{
     db::query::predicate::{
-        CoercionId, CompareOp, Predicate, SchemaInfo,
-        validate::{FieldType, ScalarType, literal_matches_type},
+        CoercionId, CompareOp, Predicate, SchemaInfo, validate::literal_matches_type,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::entity::EntityModel,
@@ -440,7 +439,7 @@ fn value_matches_pk<E: EntityKind>(schema: &SchemaInfo, value: &Value) -> bool {
         return false;
     };
 
-    if !is_key_compatible(field_type) {
+    if !field_type.is_keyable() {
         return false;
     }
 
@@ -457,25 +456,9 @@ fn value_matches_pk_model(schema: &SchemaInfo, model: &EntityModel, value: &Valu
         return false;
     };
 
-    if !is_key_compatible(field_type) {
+    if !field_type.is_keyable() {
         return false;
     }
 
     literal_matches_type(value, field_type)
-}
-
-const fn is_key_compatible(field_type: &FieldType) -> bool {
-    matches!(
-        field_type,
-        FieldType::Scalar(
-            ScalarType::Account
-                | ScalarType::Int
-                | ScalarType::Principal
-                | ScalarType::Subaccount
-                | ScalarType::Timestamp
-                | ScalarType::Uint
-                | ScalarType::Ulid
-                | ScalarType::Unit
-        )
-    )
 }

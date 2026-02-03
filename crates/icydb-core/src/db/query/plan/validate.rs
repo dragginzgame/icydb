@@ -1,10 +1,7 @@
 //! Executor-ready plan validation against a concrete entity schema.
 use super::{AccessPath, AccessPlan, LogicalPlan, OrderSpec};
 use crate::{
-    db::query::predicate::{
-        self, SchemaInfo,
-        validate::{FieldType, ScalarType},
-    },
+    db::query::predicate::{self, SchemaInfo},
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::entity::EntityModel,
     model::index::IndexModel,
@@ -383,7 +380,7 @@ where
             field: field.to_string(),
         })?;
 
-    if !is_key_compatible(field_type) {
+    if !field_type.is_keyable() {
         return Err(PlanError::PrimaryKeyUnsupported {
             field: field.to_string(),
         });
@@ -414,7 +411,7 @@ fn validate_pk_value(
             field: field.to_string(),
         })?;
 
-    if !is_key_compatible(field_type) {
+    if !field_type.is_keyable() {
         return Err(PlanError::PrimaryKeyUnsupported {
             field: field.to_string(),
         });
@@ -473,22 +470,6 @@ fn validate_index_prefix(
 /// Map scalar field types to compatible key variants.
 ///
 /// Non-scalar and unsupported field types are intentionally excluded.
-const fn is_key_compatible(field_type: &FieldType) -> bool {
-    matches!(
-        field_type,
-        FieldType::Scalar(
-            ScalarType::Account
-                | ScalarType::Int
-                | ScalarType::Principal
-                | ScalarType::Subaccount
-                | ScalarType::Timestamp
-                | ScalarType::Uint
-                | ScalarType::Ulid
-                | ScalarType::Unit
-        )
-    )
-}
-
 ///
 /// TESTS
 ///

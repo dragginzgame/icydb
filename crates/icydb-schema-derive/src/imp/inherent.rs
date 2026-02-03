@@ -99,6 +99,10 @@ impl Imp<Entity> for InherentTrait {
     }
 }
 
+///
+/// Enum
+///
+
 impl Imp<Enum> for InherentTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
         let kind = quote!(::icydb::model::field::EntityFieldKind::Enum);
@@ -114,6 +118,10 @@ impl Imp<Enum> for InherentTrait {
     }
 }
 
+///
+/// Newtype
+///
+
 impl Imp<Newtype> for InherentTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
         let kind = model_kind_from_item(&node.item);
@@ -128,6 +136,10 @@ impl Imp<Newtype> for InherentTrait {
         Some(TraitStrategy::from_impl(tokens))
     }
 }
+
+///
+/// List
+///
 
 impl Imp<List> for InherentTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
@@ -176,6 +188,10 @@ impl Imp<List> for InherentTrait {
     }
 }
 
+///
+/// Set
+///
+
 impl Imp<Set> for InherentTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
@@ -208,6 +224,10 @@ impl Imp<Set> for InherentTrait {
     }
 }
 
+///
+/// Map
+///
+
 impl Imp<Map> for InherentTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
         let key_kind = model_kind_from_item(&node.key);
@@ -220,8 +240,14 @@ impl Imp<Map> for InherentTrait {
                 value: &#value_kind,
             }
         };
+
         let tokens = quote! {
             pub const KIND: ::icydb::model::field::EntityFieldKind = #kind;
+
+            /// Returns a reference to the value for `key`, if present.
+            pub fn get(&self, key: &#key) -> Option<&#value> {
+                self.0.get(key)
+            }
 
             /// Inserts a key/value pair, returning the previous value if any.
             pub fn insert(&mut self, key: #key, value: #value) -> Option<#value> {
@@ -247,6 +273,10 @@ impl Imp<Map> for InherentTrait {
     }
 }
 
+///
+/// Record
+///
+
 impl Imp<Record> for InherentTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
         let kind = quote!(::icydb::model::field::EntityFieldKind::Unsupported);
@@ -261,6 +291,10 @@ impl Imp<Record> for InherentTrait {
         Some(TraitStrategy::from_impl(tokens))
     }
 }
+
+///
+/// Tuple
+///
 
 impl Imp<Tuple> for InherentTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {

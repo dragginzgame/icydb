@@ -9,7 +9,7 @@ use crate::{
         index::fingerprint,
         query::predicate::{
             CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, normalize,
-            validate::{FieldType, ScalarType, literal_matches_type},
+            validate::literal_matches_type,
         },
     },
     error::InternalError,
@@ -19,15 +19,22 @@ use crate::{
 };
 use thiserror::Error as ThisError;
 
+///
+/// PlannerError
+///
+
 #[derive(Debug, ThisError)]
 pub(crate) enum PlannerError {
     #[error("{0}")]
     Plan(#[from] PlanError),
+
     #[error("{0}")]
     Internal(#[from] InternalError),
 }
 
 /// Planner entrypoint that operates on a prebuilt schema surface.
+///
+/// CONTRACT: the caller is responsible for predicate validation.
 pub(crate) fn plan_access(
     model: &EntityModel,
     schema: &SchemaInfo,
@@ -46,8 +53,6 @@ pub(crate) fn plan_access(
     // - Access paths are ranked: primary key lookups, exact index matches, prefix matches, full scans.
     // - Order specs preserve user order after validation (planner does not reorder).
     // - Field resolution uses SchemaInfo's name map (sorted by field name).
-    crate::db::query::predicate::validate(schema, predicate).map_err(PlanError::from)?;
-
     let normalized = normalize(predicate);
     let plan = normalize_access_plan(plan_predicate(model, schema, &normalized)?);
     validate_plan_invariants_model(&plan, schema, model, Some(&normalized))?;
@@ -159,6 +164,7 @@ fn plan_pk_compare(
                     return None;
                 }
             }
+            // NOTE: key order is canonicalized during access-plan normalization.
             Some(AccessPath::ByKeys(items.clone()))
         }
         _ => None,
@@ -168,6 +174,7 @@ fn plan_pk_compare(
 fn sorted_indexes(model: &EntityModel) -> Vec<&'static IndexModel> {
     let mut indexes = model.indexes.to_vec();
     indexes.sort_by(|left, right| left.name.cmp(right.name));
+
     indexes
 }
 
@@ -231,6 +238,8 @@ fn index_prefix_from_and(
     for index in sorted_indexes(model) {
         let mut prefix = Vec::new();
         for field in index.fields {
+            // NOTE: duplicate equality predicates on the same field are assumed
+            // to have been validated upstream (no conflict). Planner picks the first.
             let Some((_, value)) = field_values.iter().find(|(name, _)| *name == *field) else {
                 break;
             };
@@ -383,21 +392,66 @@ fn value_matches_pk_model(schema: &SchemaInfo, model: &EntityModel, value: &Valu
         return false;
     };
 
-    is_key_compatible(field_type) && literal_matches_type(value, field_type)
+    field_type.is_keyable() && literal_matches_type(value, field_type)
 }
 
-const fn is_key_compatible(field_type: &FieldType) -> bool {
-    matches!(
-        field_type,
-        FieldType::Scalar(
-            ScalarType::Account
-                | ScalarType::Int
-                | ScalarType::Principal
-                | ScalarType::Subaccount
-                | ScalarType::Timestamp
-                | ScalarType::Uint
-                | ScalarType::Ulid
-                | ScalarType::Unit
-        )
-    )
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Ulid;
+
+    #[test]
+    fn normalize_union_dedups_identical_paths() {
+        let key = Value::Ulid(Ulid::from_u128(1));
+        let plan = AccessPlan::Union(vec![
+            AccessPlan::Path(AccessPath::ByKey(key.clone())),
+            AccessPlan::Path(AccessPath::ByKey(key)),
+        ]);
+
+        let normalized = normalize_access_plan(plan);
+
+        assert_eq!(
+            normalized,
+            AccessPlan::Path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1))))
+        );
+    }
+
+    #[test]
+    fn normalize_union_sorts_by_key() {
+        let a = Value::Ulid(Ulid::from_u128(1));
+        let b = Value::Ulid(Ulid::from_u128(2));
+        let plan = AccessPlan::Union(vec![
+            AccessPlan::Path(AccessPath::ByKey(b.clone())),
+            AccessPlan::Path(AccessPath::ByKey(a.clone())),
+        ]);
+
+        let normalized = normalize_access_plan(plan);
+        let AccessPlan::Union(children) = normalized else {
+            panic!("expected union");
+        };
+
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0], AccessPlan::Path(AccessPath::ByKey(a)));
+        assert_eq!(children[1], AccessPlan::Path(AccessPath::ByKey(b)));
+    }
+
+    #[test]
+    fn normalize_intersection_removes_full_scan() {
+        let key = Value::Ulid(Ulid::from_u128(7));
+        let plan = AccessPlan::Intersection(vec![
+            AccessPlan::full_scan(),
+            AccessPlan::Path(AccessPath::ByKey(key)),
+        ]);
+
+        let normalized = normalize_access_plan(plan);
+
+        assert_eq!(
+            normalized,
+            AccessPlan::Path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7))))
+        );
+    }
 }
