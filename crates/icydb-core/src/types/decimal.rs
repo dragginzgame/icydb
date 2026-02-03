@@ -114,6 +114,12 @@ impl Decimal {
         Self(self.0.round_dp(dp))
     }
 
+    #[must_use]
+    /// Return the absolute value of the decimal.
+    pub fn abs(&self) -> Self {
+        Self(self.0.abs())
+    }
+
     /// Checked remainder; returns `None` on division by zero.
     pub fn checked_rem(self, rhs: Self) -> Option<Self> {
         self.0.checked_rem(rhs.0).map(Self)

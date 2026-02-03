@@ -5,11 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.7] – 2026-02-03 - Planner Validation Boundary
+## [0.6.8] – 2026-02-03 - Decimal Abs Helper
 
 ### 🦩 Added
 
 * Added a `get()` accessor to map collection inherent traits for explicit lookup without deref.
+* Added `Decimal::abs()` to expose absolute value math without deref.
 
 ### 🥪 Changed
 
