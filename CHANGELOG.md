@@ -5,12 +5,13 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.18] – 2026-02-04
+## [0.6.20] – 2026-02-04
 
 ### 🧋 Added
 
 * Added `Blob::as_bytes()` and `Blob::as_mut_bytes()` for explicit byte access without deref.
-* Added `Ext<E, Id>` for typed external identities that do not imply local existence or referential integrity.
+* Added `Ext<E>` for typed external identities that do not imply local existence or referential integrity.
+* Added Default for `Ext<E>` so it can have a View type
 
 ---
 

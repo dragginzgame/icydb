@@ -104,7 +104,7 @@ pub struct Field {
     pub is_system: bool,
 }
 
-// Storage suffixes are forbidden in domain-level field names.
+// Storage suffixes are forbidden on relation/external field names.
 const BANNED_SUFFIXES: [&str; 6] = ["_id", "_ids", "_ref", "_refs", "_key", "_keys"];
 
 impl Field {
@@ -133,10 +133,11 @@ impl Field {
         // Value validation.
         self.value.validate()?;
 
-        // TODO(temporary): re-enable suffix enforcement once downstream schemas are updated.
-        if BANNED_SUFFIXES
-            .iter()
-            .any(|suffix| ident_str.ends_with(suffix))
+        // Enforce suffix bans only for relation/external fields.
+        if (self.value.item.is_relation() || self.value.item.is_external())
+            && BANNED_SUFFIXES
+                .iter()
+                .any(|suffix| ident_str.ends_with(suffix))
         {
             let suffixes = BANNED_SUFFIXES
                 .iter()
@@ -145,7 +146,7 @@ impl Field {
                 .join(", ");
 
             return Err(DarlingError::custom(format!(
-                "field ident '{ident_str}' must not end with {suffixes}"
+                "relation/external field ident '{ident_str}' must not end with {suffixes}"
             ))
             .with_span(&self.ident));
         }

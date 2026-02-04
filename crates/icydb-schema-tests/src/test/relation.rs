@@ -11,7 +11,7 @@ use crate::prelude::*;
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "a", value(item(rel = "EntityA"))),
         field(ident = "b", value(item(rel = "EntityB", prim = "Nat16"))),
-        field(ident = "c", value(item(rel = "EntityC", prim = "Principal"))),
+        field(ident = "c", value(item(ext = "EntityC", prim = "Principal"))),
     )
 )]
 pub struct HasRelation;

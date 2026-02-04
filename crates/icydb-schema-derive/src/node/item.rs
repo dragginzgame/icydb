@@ -150,8 +150,7 @@ impl HasTypeExpr for Item {
         let ty = if let Some(relation) = &self.relation {
             quote!(::icydb::types::Ref<#relation>)
         } else if let Some(external) = &self.external {
-            let id_ty = self.target().type_expr();
-            quote!(::icydb::types::Ext<#external, #id_ty>)
+            quote!(::icydb::types::Ext<#external>)
         } else {
             self.target().type_expr()
         };

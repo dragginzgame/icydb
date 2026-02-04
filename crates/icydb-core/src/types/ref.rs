@@ -86,15 +86,6 @@ where
     }
 }
 
-impl<E> FieldValue for Ref<E>
-where
-    E: EntityIdentity,
-{
-    fn to_value(&self) -> Value {
-        self.as_value()
-    }
-}
-
 impl<E> CandidType for Ref<E>
 where
     E: EntityIdentity,
@@ -120,6 +111,15 @@ where
 {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
+    }
+}
+
+impl<E> FieldValue for Ref<E>
+where
+    E: EntityIdentity,
+{
+    fn to_value(&self) -> Value {
+        self.as_value()
     }
 }
 
