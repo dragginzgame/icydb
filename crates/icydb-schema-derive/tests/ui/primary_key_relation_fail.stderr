@@ -1,5 +1,0 @@
-error: primary key field 'owner' cannot be a relation (Ref<T> is not a primary key)
-  --> tests/ui/primary_key_relation_fail.rs:19:10
-   |
-19 |     pk = "owner",
-   |          ^^^^^^^

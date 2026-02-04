@@ -1,5 +1,0 @@
-error: primary key field 'id' must have cardinality One
-  --> tests/ui/primary_key_cardinality_fail.rs:11:10
-   |
-11 |     pk = "id",
-   |          ^^^^
