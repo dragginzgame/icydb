@@ -36,7 +36,10 @@ impl SchemaNode {
             Self::Record(n) => Some(Box::new(n.clone())),
             Self::Set(n) => Some(Box::new(n.clone())),
             Self::Tuple(n) => Some(Box::new(n.clone())),
-            _ => None,
+            _ => {
+                // NOTE: Non-type nodes are intentionally excluded from type lookups.
+                None
+            }
         }
     }
 }

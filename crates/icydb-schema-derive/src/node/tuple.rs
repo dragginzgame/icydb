@@ -75,7 +75,10 @@ impl HasTraits for Tuple {
             TraitKind::View => ViewTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 
-            _ => None,
+            _ => {
+                // NOTE: Unsupported traits are intentionally ignored for Tuple nodes.
+                None
+            }
         }
     }
 }

@@ -499,6 +499,7 @@ const fn coercion_id_tag(id: CoercionId) -> u8 {
 }
 
 fn push_len(out: &mut Vec<u8>, len: usize) {
+    // NOTE: Sort keys are diagnostics-only; overflow saturates for determinism.
     let len = u64::try_from(len).unwrap_or(u64::MAX);
     out.extend_from_slice(&len.to_be_bytes());
 }

@@ -138,9 +138,11 @@ pub fn eval<R: Row + ?Sized>(row: &R, predicate: &Predicate) -> bool {
             map_contains_entry(actual, key, value, coercion)
         }),
         Predicate::TextContains { field, value } => on_present(row, field, |actual| {
+            // NOTE: Invalid text comparisons are treated as non-matches.
             actual.text_contains(value, TextMode::Cs).unwrap_or(false)
         }),
         Predicate::TextContainsCi { field, value } => on_present(row, field, |actual| {
+            // NOTE: Invalid text comparisons are treated as non-matches.
             actual.text_contains(value, TextMode::Ci).unwrap_or(false)
         }),
     }
@@ -165,6 +167,7 @@ fn eval_compare<R: Row + ?Sized>(row: &R, cmp: &ComparePredicate) -> bool {
         return false;
     };
 
+    // NOTE: Comparison helpers return None when a comparison is invalid; eval treats that as false.
     match op {
         CompareOp::Eq => compare_eq(&actual, value, coercion).unwrap_or(false),
         CompareOp::Ne => compare_eq(&actual, value, coercion).is_some_and(|v| !v),
@@ -236,6 +239,7 @@ fn contains(actual: &Value, needle: &Value, coercion: &CoercionSpec) -> bool {
 
     items
         .iter()
+        // Invalid comparisons are treated as non-matches.
         .any(|item| compare_eq(item, needle, coercion).unwrap_or(false))
 }
 
@@ -251,6 +255,7 @@ fn map_contains_key(map: &Value, key: &Value, coercion: &CoercionSpec) -> bool {
     };
 
     for (entry_key, _) in entries {
+        // Invalid comparisons are treated as non-matches.
         if compare_eq(entry_key, key, coercion).unwrap_or(false) {
             return true;
         }
@@ -269,6 +274,7 @@ fn map_contains_value(map: &Value, value: &Value, coercion: &CoercionSpec) -> bo
     };
 
     for (_, entry_value) in entries {
+        // Invalid comparisons are treated as non-matches.
         if compare_eq(entry_value, value, coercion).unwrap_or(false) {
             return true;
         }
@@ -287,6 +293,7 @@ fn map_contains_entry(map: &Value, key: &Value, value: &Value, coercion: &Coerci
     };
 
     for (entry_key, entry_value) in entries {
+        // Invalid comparisons are treated as non-matches.
         let key_match = compare_eq(entry_key, key, coercion).unwrap_or(false);
         let value_match = compare_eq(entry_value, value, coercion).unwrap_or(false);
 

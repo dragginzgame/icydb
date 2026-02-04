@@ -135,7 +135,9 @@ fn plan_compare(
                 }
             }
         }
-        _ => {}
+        _ => {
+            // NOTE: Non-equality comparisons never yield index-prefixed plans.
+        }
     }
 
     Ok(AccessPlan::full_scan())
@@ -167,7 +169,10 @@ fn plan_pk_compare(
             // NOTE: key order is canonicalized during access-plan normalization.
             Some(AccessPath::ByKeys(items.clone()))
         }
-        _ => None,
+        _ => {
+            // NOTE: Only Eq/In comparisons can be expressed as key access paths.
+            None
+        }
     }
 }
 

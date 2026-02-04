@@ -116,6 +116,7 @@ where
             let stats = plan.apply_post_access::<E, _>(&mut rows)?;
 
             if let Some(trace) = trace.as_ref() {
+                // NOTE: Trace metrics saturate on overflow; diagnostics only.
                 let to_u64 = |n| u64::try_from(n).unwrap_or(u64::MAX);
                 trace.phase(TracePhase::Access, to_u64(access_rows));
                 trace.phase(TracePhase::Filter, to_u64(stats.rows_after_filter));

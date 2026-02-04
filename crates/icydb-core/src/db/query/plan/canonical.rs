@@ -206,7 +206,15 @@ where
             canonical_cmp_value_list(left_values, right_values)
         }
 
-        _ => Ordering::Equal,
+        _ => {
+            debug_assert_eq!(
+                canonical_access_path_rank(left),
+                canonical_access_path_rank(right),
+                "canonical access path rank mismatch"
+            );
+            // NOTE: Rank ties are treated as equal to preserve deterministic ordering.
+            Ordering::Equal
+        }
     }
 }
 
@@ -266,7 +274,15 @@ fn canonical_cmp_access_path_value(
             canonical_cmp_value_list(left_values, right_values)
         }
 
-        _ => Ordering::Equal,
+        _ => {
+            debug_assert_eq!(
+                canonical_access_path_rank(left),
+                canonical_access_path_rank(right),
+                "canonical access path rank mismatch"
+            );
+            // NOTE: Rank ties are treated as equal to preserve deterministic ordering.
+            Ordering::Equal
+        }
     }
 }
 
@@ -376,7 +392,10 @@ fn canonical_cmp_value(left: &Value, right: &Value) -> Ordering {
         (Value::Uint128(left), Value::Uint128(right)) => left.cmp(right),
         (Value::UintBig(left), Value::UintBig(right)) => left.cmp(right),
         (Value::Ulid(left), Value::Ulid(right)) => left.cmp(right),
-        _ => Ordering::Equal,
+        _ => {
+            // NOTE: Mismatched variants of the same rank compare equal by design.
+            Ordering::Equal
+        }
     }
 }
 

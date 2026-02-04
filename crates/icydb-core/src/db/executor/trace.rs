@@ -177,26 +177,38 @@ pub fn start_exec_trace(
 fn trace_access_from_plan<K>(plan: &AccessPlan<K>) -> TraceAccess {
     match plan {
         AccessPlan::Path(path) => trace_access_from_path(path),
-        AccessPlan::Union(children) => TraceAccess::Union {
-            branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
-        },
-        AccessPlan::Intersection(children) => TraceAccess::Intersection {
-            branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
-        },
+        AccessPlan::Union(children) => {
+            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
+            TraceAccess::Union {
+                branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
+            }
+        }
+        AccessPlan::Intersection(children) => {
+            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
+            TraceAccess::Intersection {
+                branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
+            }
+        }
     }
 }
 
 fn trace_access_from_path<K>(path: &AccessPath<K>) -> TraceAccess {
     match path {
         AccessPath::ByKey(_) => TraceAccess::ByKey,
-        AccessPath::ByKeys(keys) => TraceAccess::ByKeys {
-            count: u32::try_from(keys.len()).unwrap_or(u32::MAX),
-        },
+        AccessPath::ByKeys(keys) => {
+            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
+            TraceAccess::ByKeys {
+                count: u32::try_from(keys.len()).unwrap_or(u32::MAX),
+            }
+        }
         AccessPath::KeyRange { .. } => TraceAccess::KeyRange,
-        AccessPath::IndexPrefix { index, values } => TraceAccess::IndexPrefix {
-            name: index.name,
-            prefix_len: u32::try_from(values.len()).unwrap_or(u32::MAX),
-        },
+        AccessPath::IndexPrefix { index, values } => {
+            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
+            TraceAccess::IndexPrefix {
+                name: index.name,
+                prefix_len: u32::try_from(values.len()).unwrap_or(u32::MAX),
+            }
+        }
         AccessPath::FullScan => TraceAccess::FullScan,
     }
 }
@@ -234,6 +246,7 @@ const fn executor_tag(executor: TraceExecutorKind) -> u8 {
 }
 
 fn write_str(hasher: &mut Sha256, value: &str) {
+    // NOTE: Diagnostics-only fingerprinting saturates on overflow to avoid panics.
     let len = u32::try_from(value.len()).unwrap_or(u32::MAX);
     hasher.update(len.to_be_bytes());
     hasher.update(value.as_bytes());

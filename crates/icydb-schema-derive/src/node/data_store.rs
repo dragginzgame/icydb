@@ -71,7 +71,10 @@ impl HasTraits for DataStore {
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
             TraitKind::DataStoreKind => DataStoreKindTrait::strategy(self),
-            _ => None,
+            _ => {
+                // NOTE: Only DataStoreKind is supported for DataStore nodes.
+                None
+            }
         }
     }
 }

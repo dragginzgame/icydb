@@ -134,10 +134,14 @@ fn collect_strict_predicate_info<E: EntityKind>(
                         }
                     }
                 }
-                _ => {}
+                _ => {
+                    // NOTE: Only Eq/In comparisons contribute to strict predicate info.
+                }
             }
         }
-        _ => {}
+        _ => {
+            // NOTE: Non-comparison predicates do not contribute to strict predicate info.
+        }
     }
 }
 
@@ -194,10 +198,14 @@ fn collect_strict_predicate_info_model(
                         }
                     }
                 }
-                _ => {}
+                _ => {
+                    // NOTE: Only Eq/In comparisons contribute to strict predicate info.
+                }
             }
         }
-        _ => {}
+        _ => {
+            // NOTE: Non-comparison predicates do not contribute to strict predicate info.
+        }
     }
 }
 
@@ -393,9 +401,11 @@ fn validate_access_path_model(
             )?;
             for (field, value) in index.fields.iter().zip(values.iter()) {
                 let Some(field_type) = schema.field(field) else {
+                    // NOTE: Missing fields imply upstream validation failure.
                     continue;
                 };
                 if !literal_matches_type(value, field_type) {
+                    // NOTE: Literal mismatches imply upstream validation failure.
                     continue;
                 }
                 ensure_invariant(

@@ -124,6 +124,19 @@ Tests in this category should:
 * Construct `EntityModel`, `IndexModel`, and `SchemaInfo` directly
 * Avoid `EntityKind`, derives, or runtime glue
 
+### Model Construction Rules (Tests)
+
+When a test needs a manual model:
+
+* Use the legacy helper `LegacyTestEntityModel` in `crates/icydb-core/src/test_fixtures.rs`
+* Add a short comment explaining why typed entities are not used
+* Do **not** inline `EntityModel { ... }` in test modules
+
+When a typed entity already exists in the test:
+
+* Use `E::MODEL`
+* Do not recreate the model manually
+
 ### Forbidden
 
 * Canisters
@@ -195,9 +208,10 @@ Example:
 ## What We Explicitly Do NOT Have
 
 * ❌ Macro DSL tests
-* ❌ Fake entities for planner tests
 * ❌ `__internal` test-only APIs
 * ❌ Dual schema languages ("real" vs "test")
+* ❌ Inline `EntityModel { ... }` in test modules
+* ❌ Unlabeled manual models (use `LegacyTestEntityModel`)
 
 If a test requires one of these, the architecture is wrong.
 

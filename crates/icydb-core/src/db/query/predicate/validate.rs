@@ -166,7 +166,10 @@ impl FieldType {
     pub fn map_types(&self) -> Option<(&Self, &Self)> {
         match self {
             Self::Map { key, value } => Some((key.as_ref(), value.as_ref())),
-            _ => None,
+            _ => {
+                // NOTE: Only map field types expose key/value type pairs.
+                None
+            }
         }
     }
 
@@ -786,7 +789,10 @@ pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> b
             }),
             _ => false,
         },
-        FieldType::Unsupported => false,
+        FieldType::Unsupported => {
+            // NOTE: Unsupported field types never match predicate literals.
+            false
+        }
     }
 }
 
@@ -846,6 +852,7 @@ impl fmt::Display for FieldType {
 
 #[cfg(test)]
 mod tests {
+    // NOTE: Tests in this module intentionally use legacy manual EntityModel helpers.
     use super::{ValidateError, validate_model};
     use crate::{
         db::query::{
@@ -853,7 +860,7 @@ mod tests {
             predicate::{CoercionId, Predicate},
         },
         model::field::{EntityFieldKind, EntityFieldModel},
-        test_fixtures::model_with_fields,
+        test_fixtures::LegacyTestEntityModel,
         types::Ulid,
     };
 
@@ -861,9 +868,10 @@ mod tests {
         EntityFieldModel { name, kind }
     }
 
+    // NOTE: Predicate validation tests use legacy manual models to exercise schema-driven checks.
     #[test]
     fn validate_model_accepts_scalars_and_coercions() {
-        let model = model_with_fields(
+        let model = LegacyTestEntityModel::from_fields(
             vec![
                 field("id", EntityFieldKind::Ulid),
                 field("email", EntityFieldKind::Text),
@@ -885,7 +893,7 @@ mod tests {
 
     #[test]
     fn validate_model_accepts_collections_and_map_contains() {
-        let model = model_with_fields(
+        let model = LegacyTestEntityModel::from_fields(
             vec![
                 field("id", EntityFieldKind::Ulid),
                 field("tags", EntityFieldKind::List(&EntityFieldKind::Text)),
@@ -923,7 +931,7 @@ mod tests {
 
     #[test]
     fn validate_model_rejects_unsupported_fields() {
-        let model = model_with_fields(
+        let model = LegacyTestEntityModel::from_fields(
             vec![
                 field("id", EntityFieldKind::Ulid),
                 field("broken", EntityFieldKind::Unsupported),
@@ -941,7 +949,7 @@ mod tests {
 
     #[test]
     fn validate_model_accepts_text_contains() {
-        let model = model_with_fields(
+        let model = LegacyTestEntityModel::from_fields(
             vec![
                 field("id", EntityFieldKind::Ulid),
                 field("email", EntityFieldKind::Text),
@@ -958,7 +966,7 @@ mod tests {
 
     #[test]
     fn validate_model_rejects_text_contains_on_non_text() {
-        let model = model_with_fields(
+        let model = LegacyTestEntityModel::from_fields(
             vec![
                 field("id", EntityFieldKind::Ulid),
                 field("age", EntityFieldKind::Uint),

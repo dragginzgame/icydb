@@ -83,7 +83,9 @@ impl ValidateAutoFn for Enum {
             wrap_validate_self_fn(Some(quote! {
                 match self {
                     #invalid_arms
-                    _ => {}
+                    _ => {
+                        // NOTE: Only unspecified variants emit diagnostics.
+                    }
                 }
             }))
         }
@@ -143,6 +145,7 @@ impl ValidateAutoFn for Map {
         let entry_rules = match (key_rules, value_rules) {
             (None, None) => None,
             (k, v) => {
+                // NOTE: Missing key/value rules are treated as empty blocks.
                 let k = k.unwrap_or_default();
                 let v = v.unwrap_or_default();
 

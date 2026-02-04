@@ -9,7 +9,7 @@ use crate::{
         field::{EntityFieldKind, EntityFieldModel},
         index::IndexModel,
     },
-    test_fixtures::model_with_fields,
+    test_fixtures::LegacyTestEntityModel,
     traits::{
         CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
         EntityValue, FieldValue, FieldValues, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
@@ -24,8 +24,9 @@ fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
     EntityFieldModel { name, kind }
 }
 
+// NOTE: Intent tests use legacy manual models to exercise model-only planning logic.
 fn basic_model() -> EntityModel {
-    model_with_fields(
+    LegacyTestEntityModel::from_fields(
         vec![
             field("id", EntityFieldKind::Ulid),
             field("name", EntityFieldKind::Text),
@@ -85,13 +86,13 @@ static PLAN_INDEXES: [&IndexModel; 0] = [];
 
 // Legacy test scaffolding: manual models keep typed-vs-model planning parity
 // tests independent of schema macros.
-static PLAN_MODEL: EntityModel = EntityModel {
-    path: "intent_tests::PlanEntity",
-    entity_name: "PlanEntity",
-    primary_key: &PLAN_FIELDS[0],
-    fields: &PLAN_FIELDS,
-    indexes: &PLAN_INDEXES,
-};
+static PLAN_MODEL: EntityModel = LegacyTestEntityModel::from_static(
+    "intent_tests::PlanEntity",
+    "PlanEntity",
+    &PLAN_FIELDS[0],
+    &PLAN_FIELDS,
+    &PLAN_INDEXES,
+);
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 struct PlanSingleton {
@@ -154,13 +155,13 @@ static SINGLETON_FIELD_NAMES: [&str; 1] = ["id"];
 static SINGLETON_INDEXES: [&IndexModel; 0] = [];
 
 // Legacy test scaffolding: singleton model is hand-built to exercise model-only planning.
-static SINGLETON_MODEL: EntityModel = EntityModel {
-    path: "intent_tests::PlanSingleton",
-    entity_name: "PlanSingleton",
-    primary_key: &SINGLETON_FIELDS[0],
-    fields: &SINGLETON_FIELDS,
-    indexes: &SINGLETON_INDEXES,
-};
+static SINGLETON_MODEL: EntityModel = LegacyTestEntityModel::from_static(
+    "intent_tests::PlanSingleton",
+    "PlanSingleton",
+    &SINGLETON_FIELDS[0],
+    &SINGLETON_FIELDS,
+    &SINGLETON_INDEXES,
+);
 
 struct PlanCanister;
 struct PlanDataStore;

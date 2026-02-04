@@ -263,7 +263,9 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
         Value::Ulid(u) => {
             feed_bytes(h, &u.to_bytes());
         }
-        Value::None | Value::Unit | Value::Unsupported => {}
+        Value::None | Value::Unit | Value::Unsupported => {
+            // NOTE: Non-indexable values intentionally contribute no hash input.
+        }
     }
 
     Ok(())
@@ -297,12 +299,9 @@ pub fn hash_value(value: &Value) -> Result<[u8; 16], InternalError> {
 ///
 /// Stable 128-bit hash used for index keys; returns `None` for non-indexable values.
 pub fn to_index_fingerprint(value: &Value) -> Result<Option<[u8; 16]>, InternalError> {
-    match value {
-        Value::None | Value::Unsupported => {
-            // Intentionally skipped: non-indexable values do not participate in indexes.
-            return Ok(None);
-        }
-        _ => {}
+    if matches!(value, Value::None | Value::Unsupported) {
+        // Intentionally skipped: non-indexable values do not participate in indexes.
+        return Ok(None);
     }
 
     Ok(Some(hash_value(value)?))

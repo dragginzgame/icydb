@@ -334,7 +334,9 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
                 KeyAccessKind::Only if self.predicate.is_some() => {
                     return Err(IntentError::OnlyWithPredicate);
                 }
-                _ => {}
+                _ => {
+                    // NOTE: Single/Many without predicates impose no additional constraints.
+                }
             }
         }
 

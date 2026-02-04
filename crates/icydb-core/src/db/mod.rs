@@ -262,6 +262,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         match result {
             Ok(response) => {
+                // NOTE: Diagnostics are best-effort; overflow saturates for determinism.
                 let rows = u64::try_from(response.0.len()).unwrap_or(u64::MAX);
                 let finish = finish_event(fingerprint, access, executor, rows);
                 Ok((

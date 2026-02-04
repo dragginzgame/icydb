@@ -90,7 +90,10 @@ const fn strong_relation_from_kind(kind: &EntityFieldKind) -> Option<StrongRelat
             target_entity_name,
             target_store_path,
         }),
-        _ => None,
+        _ => {
+            // NOTE: Only strong Ref and List<Ref> fields participate in save-time RI.
+            None
+        }
     }
 }
 
@@ -563,13 +566,16 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             match &value {
                 Value::List(items) => {
                     for item in items {
+                        // NOTE: Optional list entries are allowed; skip explicit None values.
                         if matches!(item, Value::None) {
                             continue;
                         }
                         self.validate_strong_relation_value(field.name, relation, item)?;
                     }
                 }
-                Value::None => {}
+                Value::None => {
+                    // NOTE: Optional strong relations may be unset; None does not trigger RI.
+                }
                 _ => {
                     self.validate_strong_relation_value(field.name, relation, &value)?;
                 }

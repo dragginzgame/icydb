@@ -199,6 +199,7 @@ where
 
             if rows.is_empty() {
                 if let Some(trace) = trace.as_ref() {
+                    // NOTE: Trace metrics saturate on overflow; diagnostics only.
                     let to_u64 = |len| u64::try_from(len).unwrap_or(u64::MAX);
                     trace.phase(TracePhase::Access, to_u64(access_rows));
                     trace.phase(TracePhase::Filter, to_u64(stats.rows_after_filter));
@@ -299,6 +300,7 @@ where
 
             // Emit per-phase counts after the delete succeeds.
             if let Some(trace) = trace.as_ref() {
+                // NOTE: Trace metrics saturate on overflow; diagnostics only.
                 let to_u64 = |len| u64::try_from(len).unwrap_or(u64::MAX);
                 trace.phase(TracePhase::Access, to_u64(access_rows));
                 trace.phase(TracePhase::Filter, to_u64(stats.rows_after_filter));
@@ -324,6 +326,7 @@ where
         }
 
         if let Some(trace) = trace {
+            // NOTE: Trace metrics saturate on overflow; diagnostics only.
             match &result {
                 Ok(resp) => trace.finish(u64::try_from(resp.0.len()).unwrap_or(u64::MAX)),
                 Err(err) => trace.error(err),

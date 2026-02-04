@@ -151,7 +151,10 @@ impl TraitKind {
             Self::SubAssign => Some(quote!(::icydb::__reexports::icydb_derive::SubAssign)),
             Self::Sum => Some(quote!(::icydb::__reexports::icydb_derive::Sum)),
 
-            _ => None,
+            _ => {
+                // NOTE: Not all TraitKind variants have derive paths.
+                None
+            }
         }
     }
 
@@ -159,7 +162,10 @@ impl TraitKind {
         match self {
             Self::Sorted => Some(quote!(#[::icydb::__reexports::remain::sorted])),
             Self::Default => Some(quote!(#[serde(default)])),
-            _ => None,
+            _ => {
+                // NOTE: Only specific traits emit derive attributes.
+                None
+            }
         }
     }
 }

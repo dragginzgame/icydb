@@ -239,7 +239,10 @@ fn strict_ordering(left: &Value, right: &Value) -> Option<Ordering> {
         (Value::UintBig(a), Value::UintBig(b)) => a.partial_cmp(b),
         (Value::Ulid(a), Value::Ulid(b)) => a.partial_cmp(b),
         (Value::Unit, Value::Unit) => Some(Ordering::Equal),
-        _ => None,
+        _ => {
+            // NOTE: Non-matching or non-orderable variants do not define ordering.
+            None
+        }
     }
 }
 
@@ -255,7 +258,10 @@ fn casefold_value(value: &Value) -> Option<String> {
     match value {
         Value::Text(text) => Some(casefold(text)),
         // CONTRACT: identifiers and structured values never casefold.
-        _ => None,
+        _ => {
+            // NOTE: Non-text values do not casefold.
+            None
+        }
     }
 }
 

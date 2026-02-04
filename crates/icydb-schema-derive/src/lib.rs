@@ -149,7 +149,10 @@ fn extract_comments(attrs: &[Attribute]) -> Option<LitStr> {
                     None
                 }
             }
-            _ => None,
+            _ => {
+                // NOTE: Only doc attributes contribute to extracted comments.
+                None
+            }
         })
         .collect();
 

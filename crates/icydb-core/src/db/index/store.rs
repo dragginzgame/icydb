@@ -317,7 +317,7 @@ impl IndexStore {
                     actual,
                 }))
             }
-            _ => Ok(()),
+            Some(_) => Ok(()),
         }
     }
 

@@ -141,14 +141,20 @@ impl HasTraits for Enum {
             TraitKind::View => ViewTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 
-            _ => None,
+            _ => {
+                // NOTE: Unsupported traits are intentionally ignored for Enum nodes.
+                None
+            }
         }
     }
 
     fn map_attribute(&self, t: TraitKind) -> Option<TokenStream> {
         match t {
             TraitKind::Sorted => TraitKind::Sorted.derive_attribute(),
-            _ => None,
+            _ => {
+                // NOTE: Only Sorted emits a derive attribute for enums.
+                None
+            }
         }
     }
 }

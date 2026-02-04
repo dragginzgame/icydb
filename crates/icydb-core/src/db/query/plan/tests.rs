@@ -9,7 +9,7 @@ use crate::{
         field::{EntityFieldKind, EntityFieldModel},
         index::IndexModel,
     },
-    test_fixtures::model_with_fields_and_indexes,
+    test_fixtures::LegacyTestEntityModel,
     types::Ulid,
     value::Value,
 };
@@ -27,8 +27,9 @@ fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
     EntityFieldModel { name, kind }
 }
 
+// NOTE: Planner tests use legacy manual models to exercise plan building without schema macros.
 fn model_with_index() -> EntityModel {
-    model_with_fields_and_indexes(
+    LegacyTestEntityModel::from_fields_and_indexes(
         "plan_tests::Entity",
         "PlanEntity",
         vec![

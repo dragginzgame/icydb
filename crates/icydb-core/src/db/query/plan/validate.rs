@@ -476,6 +476,7 @@ fn validate_index_prefix(
 
 #[cfg(test)]
 mod tests {
+    // NOTE: Tests in this module intentionally use legacy manual EntityModel helpers.
     use super::{PlanError, validate_logical_plan_model};
     use crate::{
         db::query::{
@@ -487,7 +488,7 @@ mod tests {
             field::{EntityFieldKind, EntityFieldModel},
             index::IndexModel,
         },
-        test_fixtures::{model_with_fields, model_with_fields_and_indexes},
+        test_fixtures::LegacyTestEntityModel,
         types::Ulid,
         value::Value,
     };
@@ -501,8 +502,9 @@ mod tests {
         IndexModel::new("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
     const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
 
+    // NOTE: Planner validation tests use legacy manual models to exercise schema failures.
     fn model_with_index() -> EntityModel {
-        model_with_fields_and_indexes(
+        LegacyTestEntityModel::from_fields_and_indexes(
             "test::Entity",
             "TestEntity",
             vec![
@@ -522,13 +524,13 @@ mod tests {
             Box::leak(vec![field("id", EntityFieldKind::Ulid)].into_boxed_slice());
         let missing_pk = Box::leak(Box::new(field("missing", EntityFieldKind::Ulid)));
 
-        let model = EntityModel {
-            path: "test::Entity",
-            entity_name: "TestEntity",
-            primary_key: missing_pk,
+        let model = LegacyTestEntityModel::from_static(
+            "test::Entity",
+            "TestEntity",
+            missing_pk,
             fields,
-            indexes: &[],
-        };
+            &[],
+        );
 
         assert!(matches!(
             SchemaInfo::from_entity_model(&model),
@@ -538,7 +540,7 @@ mod tests {
 
     #[test]
     fn model_rejects_duplicate_fields() {
-        let model = model_with_fields(
+        let model = LegacyTestEntityModel::from_fields(
             vec![
                 field("dup", EntityFieldKind::Text),
                 field("dup", EntityFieldKind::Text),
@@ -554,7 +556,7 @@ mod tests {
 
     #[test]
     fn model_rejects_invalid_primary_key_type() {
-        let model = model_with_fields(
+        let model = LegacyTestEntityModel::from_fields(
             vec![field("pk", EntityFieldKind::List(&EntityFieldKind::Text))],
             0,
         );
@@ -578,13 +580,13 @@ mod tests {
 
         let fields: &'static [EntityFieldModel] =
             Box::leak(vec![field("id", EntityFieldKind::Ulid)].into_boxed_slice());
-        let model = EntityModel {
-            path: "test::Entity",
-            entity_name: "TestEntity",
-            primary_key: &fields[0],
+        let model = LegacyTestEntityModel::from_static(
+            "test::Entity",
+            "TestEntity",
+            &fields[0],
             fields,
-            indexes: &INDEXES,
-        };
+            &INDEXES,
+        );
 
         assert!(matches!(
             SchemaInfo::from_entity_model(&model),
@@ -606,13 +608,13 @@ mod tests {
             ]
             .into_boxed_slice(),
         );
-        let model = EntityModel {
-            path: "test::Entity",
-            entity_name: "TestEntity",
-            primary_key: &fields[0],
+        let model = LegacyTestEntityModel::from_static(
+            "test::Entity",
+            "TestEntity",
+            &fields[0],
             fields,
-            indexes: &INDEXES,
-        };
+            &INDEXES,
+        );
 
         assert!(matches!(
             SchemaInfo::from_entity_model(&model),
@@ -645,13 +647,13 @@ mod tests {
             ]
             .into_boxed_slice(),
         );
-        let model = EntityModel {
-            path: "test::Entity",
-            entity_name: "TestEntity",
-            primary_key: &fields[0],
+        let model = LegacyTestEntityModel::from_static(
+            "test::Entity",
+            "TestEntity",
+            &fields[0],
             fields,
-            indexes: &INDEXES,
-        };
+            &INDEXES,
+        );
 
         assert!(matches!(
             SchemaInfo::from_entity_model(&model),
@@ -661,7 +663,7 @@ mod tests {
 
     #[test]
     fn plan_rejects_unorderable_field() {
-        let model = model_with_fields(
+        let model = LegacyTestEntityModel::from_fields(
             vec![
                 field("id", EntityFieldKind::Ulid),
                 field("tags", EntityFieldKind::List(&EntityFieldKind::Text)),
@@ -733,7 +735,7 @@ mod tests {
 
     #[test]
     fn plan_accepts_model_based_validation() {
-        let model = model_with_fields(vec![field("id", EntityFieldKind::Ulid)], 0);
+        let model = LegacyTestEntityModel::from_fields(vec![field("id", EntityFieldKind::Ulid)], 0);
         let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
         let plan: LogicalPlan<Value> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),

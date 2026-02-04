@@ -151,7 +151,7 @@ Commit markers are **authoritative**, not diagnostic.
 
 ---
 
-## 6. Explicit Non-Goals (0.6 Contract)
+## 6. Explicit Non-Goals (0.7 Contract)
 
 The following are **explicitly out of scope**:
 
@@ -222,4 +222,4 @@ Until then, this document is authoritative.
 * Matches the current executor + commit-marker architecture
 * Makes invariants explicit and enforceable
 * Prevents silent regression via async or refactors
-* Sets a clean, honest contract for 0.6+
+* Sets a clean, honest contract for 0.7+
