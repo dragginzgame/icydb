@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.6.18] – 2026-02-04
+
+### 🧲 Fixed
+
+* Made `Ref<T>` `Sync + Send` to match the `*const` variant.
+
+---
+
 ## [0.6.17] – 2026-02-03 - Query Ergonomics
 
 ### 🦩 Added
