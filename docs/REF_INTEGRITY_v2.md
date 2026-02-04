@@ -1,5 +1,15 @@
 # Referential Integrity (RI) — v2 Contract
 
+## Status (as of 0.6.x)
+
+Save-time referential integrity is currently **disabled**. References are identity-only and may be dangling; existence is checked at point of use.
+
+Key points:
+* `Ref<T>` is **identity only**
+* There is **no save-time RI**
+* Locality is enforced at `DbSession<C>` via `E: EntityKind<Canister = C>`
+* Strong/weak classification is removed pending a future two-pass schema
+
 This document defines the **referential integrity model** for IcyDB.
 
 It is **normative**: it specifies what guarantees exist, what is explicitly not guaranteed, and where future extensions may occur. It is not a feature roadmap.

@@ -28,7 +28,9 @@ impl HasDef for Record {
 impl ValidateNode for Record {
     fn validate(&self) -> Result<(), DarlingError> {
         self.traits.with_type_traits().validate()?;
-        self.fields.validate()
+        self.fields.validate()?;
+
+        Ok(())
     }
 }
 

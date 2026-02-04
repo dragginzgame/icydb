@@ -43,7 +43,7 @@ impl Imp<Entity> for InherentTrait {
             .zip(model_field_idents.iter())
             .map(|(field, ident)| {
                 let name = field.ident.to_string();
-                let kind = model_kind_from_value(&field.value);
+                let kind = model_kind_from_value(node, &field.value);
                 quote! {
                     const #ident: ::icydb::model::field::EntityFieldModel =
                         ::icydb::model::field::EntityFieldModel {
@@ -231,7 +231,7 @@ impl Imp<Set> for InherentTrait {
 impl Imp<Map> for InherentTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
         let key_kind = model_kind_from_item(&node.key);
-        let value_kind = model_kind_from_value(&node.value);
+        let value_kind = model_kind_from_nested_value(&node.value);
         let key = node.key.type_expr();
         let value = node.value.type_expr();
         let kind = quote! {
@@ -316,19 +316,18 @@ fn model_field_ident(field: &Field) -> Ident {
     format_ident!("__MODEL_FIELD_{constant}")
 }
 
-fn model_kind_from_value(value: &Value) -> TokenStream {
-    let base = if let Some(relation) = value.item.relation.as_ref() {
-        let key_kind = model_kind_from_item(&value.item);
-        let target_path = quote_one(relation, to_path);
-        quote! {
-            ::icydb::model::field::EntityFieldKind::Ref {
-                target_path: #target_path,
-                key_kind: &#key_kind,
-            }
+fn model_kind_from_value(_entity: &Entity, value: &Value) -> TokenStream {
+    let base = model_kind_from_item(&value.item);
+    match value.cardinality() {
+        Cardinality::Many => {
+            quote!(::icydb::model::field::EntityFieldKind::List(&#base))
         }
-    } else {
-        model_kind_from_item(&value.item)
-    };
+        Cardinality::One | Cardinality::Opt => base,
+    }
+}
+
+fn model_kind_from_nested_value(value: &Value) -> TokenStream {
+    let base = model_kind_from_item(&value.item);
     match value.cardinality() {
         Cardinality::Many => {
             quote!(::icydb::model::field::EntityFieldKind::List(&#base))
@@ -338,6 +337,21 @@ fn model_kind_from_value(value: &Value) -> TokenStream {
 }
 
 fn model_kind_from_item(item: &Item) -> TokenStream {
+    if let Some(relation) = &item.relation {
+        let key_kind = model_kind_from_item_target(item);
+        let target_path = quote_one(relation, to_path);
+        return quote! {
+            ::icydb::model::field::EntityFieldKind::Ref {
+                target_path: #target_path,
+                key_kind: &#key_kind,
+            }
+        };
+    }
+
+    model_kind_from_item_target(item)
+}
+
+fn model_kind_from_item_target(item: &Item) -> TokenStream {
     match item.target() {
         ItemTarget::Primitive(prim) => model_kind_from_primitive(prim),
         ItemTarget::Is(path) => quote!(#path::KIND),

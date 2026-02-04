@@ -208,7 +208,7 @@ impl HasType for Entity {
         let ident = self.def.ident();
         let fields = self.fields.iter().map(|field| {
             let field_ident = &field.ident;
-            let value = field.value.type_expr();
+            let value = entity_field_type_expr(field);
 
             quote!(pub #field_ident: #value)
         });
@@ -224,5 +224,26 @@ impl HasType for Entity {
 impl ToTokens for Entity {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.extend(self.all_tokens());
+    }
+}
+
+fn entity_field_type_expr(field: &Field) -> TokenStream {
+    let item = &field.value.item;
+    let base = if let Some(relation) = &item.relation {
+        quote!(::icydb::types::Ref<#relation>)
+    } else {
+        item.target().type_expr()
+    };
+
+    let base = if item.indirect {
+        quote!(Box<#base>)
+    } else {
+        base
+    };
+
+    match field.value.cardinality() {
+        Cardinality::One => quote!(#base),
+        Cardinality::Opt => quote!(Option<#base>),
+        Cardinality::Many => quote!(Vec<#base>),
     }
 }

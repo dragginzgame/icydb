@@ -1,12 +1,10 @@
 mod data;
 mod data_key;
-mod entity_ref;
 mod row;
 mod storage_key;
 
 pub use data::*;
 pub use data_key::*;
-pub use entity_ref::*;
 pub use row::*;
 pub use storage_key::*;
 

@@ -40,12 +40,12 @@ mod tests {
     use super::*;
     use icydb::validate;
 
-    fn ulid() -> Ulid {
-        Ulid::generate()
+    fn entity_ref() -> Ref<crate::test::entity::Entity> {
+        Ref::new(Ulid::generate())
     }
 
-    fn entity_ref() -> Ref<crate::test::entity::Entity> {
-        Ref::new(ulid())
+    fn ulid() -> Ulid {
+        Ulid::generate()
     }
 
     #[test]

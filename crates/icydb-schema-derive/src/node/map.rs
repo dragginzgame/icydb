@@ -29,7 +29,9 @@ impl ValidateNode for Map {
     fn validate(&self) -> Result<(), DarlingError> {
         self.traits.with_type_traits().validate()?;
         self.key.validate()?;
-        self.value.validate()
+        self.value.validate()?;
+
+        Ok(())
     }
 }
 

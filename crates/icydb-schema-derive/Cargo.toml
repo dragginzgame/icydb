@@ -23,6 +23,8 @@ serde = { workspace = true }
 syn = { workspace = true }
 
 [dev-dependencies]
+candid = { workspace = true }
+icydb = { workspace = true }
 trybuild = { workspace = true }
 
 [lints]

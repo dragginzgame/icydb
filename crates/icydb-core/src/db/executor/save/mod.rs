@@ -17,10 +17,9 @@ use crate::{
         },
         query::{
             SaveMode,
-            plan::refs::EntityReferences,
             predicate::validate::{SchemaInfo, literal_matches_type},
         },
-        store::{DataKey, DataStore, EntityRef, RawDataKey, RawRow},
+        store::{DataKey, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::field::EntityFieldKind,
@@ -201,7 +200,8 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             sanitize(&mut entity)?;
             validate(&entity)?;
             Self::ensure_entity_invariants(&entity)?;
-            self.ensure_reference_targets(&entity)?;
+
+            // Reference existence checks are intentionally skipped; refs are identity-only.
 
             let key = entity.id();
             let data_key = DataKey::try_new::<E>(key)?;
@@ -385,74 +385,6 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         let schema = Self::schema_info()?;
 
         Self::validate_entity_invariants(entity, schema)
-    }
-
-    fn ensure_reference_targets(&self, entity: &E) -> Result<(), InternalError> {
-        // Strong references only: direct `Ref<T>` and `Option<Ref<T>>` fields.
-        // Nested and collection references are weak in 0.6 and are not validated.
-        let refs = entity.entity_refs()?;
-        for reference in refs {
-            self.ensure_target_exists(reference)?;
-        }
-
-        Ok(())
-    }
-
-    fn ensure_target_exists(&self, reference: EntityRef) -> Result<(), InternalError> {
-        // Phase 1: resolve the referenced entity metadata.
-        let entry = self
-            .db
-            .entity_registry()
-            .iter()
-            .find(|entry| entry.entity_path == reference.target_path)
-            .ok_or_else(|| {
-                InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Executor,
-                    format!("reference target not registered: {}", reference.target_path),
-                )
-            })?;
-
-        // Phase 2: ensure the referenced row exists in the target store.
-        let store = self
-            .db
-            .with_data(|reg| reg.try_get_store(entry.store_path))?;
-
-        // Scan for the key without resolving entity names or schema metadata.
-        let exists = store.with_borrow(|s| -> Result<bool, InternalError> {
-            for store_entry in s.iter() {
-                let data_key = DataKey::try_from_raw(store_entry.key()).map_err(|err| {
-                    InternalError::new(
-                        ErrorClass::Corruption,
-                        ErrorOrigin::Store,
-                        format!(
-                            "corrupted data key while checking reference: {} ({err})",
-                            reference.target_path
-                        ),
-                    )
-                })?;
-
-                if data_key.storage_key() == reference.storage_key() {
-                    return Ok(true);
-                }
-            }
-
-            Ok(false)
-        })?;
-
-        if !exists {
-            return Err(InternalError::new(
-                ErrorClass::Conflict,
-                ErrorOrigin::Executor,
-                format!(
-                    "missing referenced entity: {} key={}",
-                    reference.target_path,
-                    reference.storage_key()
-                ),
-            ));
-        }
-
-        Ok(())
     }
 
     // Cache schema validation results per entity type.

@@ -4,7 +4,7 @@ mod metrics;
 
 use icydb_schema::{
     build::get_schema,
-    node::{Canister, DataStore, Entity, IndexStore, Schema},
+    node::{Canister, DataStore, IndexStore, Schema},
 };
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -77,26 +77,5 @@ impl ActorBuilder {
             .filter_nodes::<IndexStore>(|node| node.canister == canister_path)
             .map(|(path, store)| (path.to_string(), store.clone()))
             .collect()
-    }
-
-    /// All entities attached to the current canister, keyed by path.
-    #[must_use]
-    pub fn get_entities(&self) -> Vec<(String, Entity)> {
-        let canister_path = self.canister.def.path();
-        let mut entities = Vec::new();
-
-        for (store_path, _) in self
-            .schema
-            .filter_nodes::<DataStore>(|node| node.canister == canister_path)
-        {
-            for (entity_path, entity) in self
-                .schema
-                .filter_nodes::<Entity>(|node| node.store == store_path)
-            {
-                entities.push((entity_path.to_string(), entity.clone()));
-            }
-        }
-
-        entities
     }
 }

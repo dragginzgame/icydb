@@ -134,6 +134,7 @@ pub trait EntityValue: EntityIdentity + FieldValues {
 /// Marker for entities with exactly one logical row.
 pub trait SingletonEntity: EntityValue {}
 
+///
 // ============================================================================
 // TYPE SYSTEM CONTRACTS
 // ============================================================================

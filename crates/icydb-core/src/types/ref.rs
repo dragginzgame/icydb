@@ -65,27 +65,6 @@ where
     }
 }
 
-impl<E> Copy for Ref<E> where E: EntityIdentity {}
-
-#[allow(clippy::expl_impl_clone_on_copy)]
-impl<E> Clone for Ref<E>
-where
-    E: EntityIdentity,
-{
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<E> std::fmt::Debug for Ref<E>
-where
-    E: EntityIdentity,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Ref").field(&self.id).finish()
-    }
-}
-
 impl<E> CandidType for Ref<E>
 where
     E: EntityIdentity,
@@ -100,6 +79,47 @@ where
         S: candid::types::Serializer,
     {
         self.id.idl_serialize(serializer)
+    }
+}
+
+#[allow(clippy::expl_impl_clone_on_copy)]
+impl<E> Clone for Ref<E>
+where
+    E: EntityIdentity,
+{
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<E> Copy for Ref<E> where E: EntityIdentity {}
+
+impl<E> std::fmt::Debug for Ref<E>
+where
+    E: EntityIdentity,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Ref").field(&self.id).finish()
+    }
+}
+
+impl<E> Default for Ref<E>
+where
+    E: EntityIdentity,
+    E::Id: Default,
+{
+    fn default() -> Self {
+        Self::new(E::Id::default())
+    }
+}
+
+impl<E> fmt::Display for Ref<E>
+where
+    E: EntityIdentity,
+    E::Id: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.id.fmt(f)
     }
 }
 
@@ -151,6 +171,10 @@ where
     }
 }
 
+impl<E> SanitizeAuto for Ref<E> where E: EntityIdentity {}
+
+impl<E> SanitizeCustom for Ref<E> where E: EntityIdentity {}
+
 impl<E> Serialize for Ref<E>
 where
     E: EntityIdentity,
@@ -179,34 +203,10 @@ where
     }
 }
 
-impl<T> Default for Ref<T>
+impl<E> UpdateView for Ref<E>
 where
-    T: EntityIdentity,
-    T::Id: Default,
-{
-    fn default() -> Self {
-        Self::new(T::Id::default())
-    }
-}
-
-impl<T> fmt::Display for Ref<T>
-where
-    T: EntityIdentity,
-    T::Id: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.id.fmt(f)
-    }
-}
-
-impl<T> SanitizeAuto for Ref<T> where T: EntityIdentity {}
-
-impl<T> SanitizeCustom for Ref<T> where T: EntityIdentity {}
-
-impl<T> UpdateView for Ref<T>
-where
-    T: EntityIdentity,
-    T::Id: CandidType + Default,
+    E: EntityIdentity,
+    E::Id: CandidType + Default,
 {
     type UpdateViewType = Self;
 
@@ -215,9 +215,9 @@ where
     }
 }
 
-impl<T> ValidateAuto for Ref<T> where T: EntityIdentity {}
+impl<E> ValidateAuto for Ref<E> where E: EntityIdentity {}
 
-impl<T> ValidateCustom for Ref<T> where T: EntityIdentity {}
+impl<E> ValidateCustom for Ref<E> where E: EntityIdentity {}
 
 impl<E> View for Ref<E>
 where
@@ -235,4 +235,4 @@ where
     }
 }
 
-impl<T> Visitable for Ref<T> where T: EntityIdentity {}
+impl<E> Visitable for Ref<E> where E: EntityIdentity {}

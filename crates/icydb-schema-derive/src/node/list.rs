@@ -27,7 +27,9 @@ impl HasDef for List {
 impl ValidateNode for List {
     fn validate(&self) -> Result<(), DarlingError> {
         self.traits.with_type_traits().validate()?;
-        self.item.validate()
+        self.item.validate()?;
+
+        Ok(())
     }
 }
 

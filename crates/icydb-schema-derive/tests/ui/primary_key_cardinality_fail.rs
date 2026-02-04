@@ -1,4 +1,10 @@
-use icydb_schema_derive::entity;
+use icydb_schema_derive::{canister, data_store, entity};
+
+#[canister(memory_min = 1, memory_max = 2)]
+pub struct TestCanister;
+
+#[data_store(ident = "TEST_DATA_STORE", canister = "TestCanister", memory_id = 0)]
+pub struct TestDataStore;
 
 #[entity(
     store = "TestDataStore",

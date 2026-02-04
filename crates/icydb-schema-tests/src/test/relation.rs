@@ -11,7 +11,7 @@ use crate::prelude::*;
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "a", value(item(rel = "EntityA"))),
         field(ident = "b", value(item(rel = "EntityB", prim = "Nat16"))),
-        field(ident = "c", value(item(ext = "EntityC", prim = "Principal"))),
+        field(ident = "c", value(item(rel = "EntityC", prim = "Principal"))),
     )
 )]
 pub struct HasRelation;
@@ -102,34 +102,3 @@ pub struct RelationOwned;
     )
 )]
 pub struct CrossCanisterRelation;
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use icydb::schema::{self, Error as SchemaError, build::BuildError};
-
-    #[test]
-    fn schema_rejects_cross_canister_relation() {
-        let err = schema::build::get_schema().expect_err("expected schema validation error");
-        let SchemaError::BuildError(BuildError::Validation(tree)) = err else {
-            panic!("expected schema validation error, got: {err:?}");
-        };
-
-        let message = tree.to_string();
-        assert!(
-            message.contains("CrossCanisterRelation"),
-            "expected error to mention CrossCanisterRelation, got: {message}"
-        );
-        assert!(
-            message.contains("RelationOwner"),
-            "expected error to mention RelationOwner, got: {message}"
-        );
-        assert!(
-            !message.contains("RelationOwned"),
-            "expected same-canister relation to be accepted, got: {message}"
-        );
-    }
-}

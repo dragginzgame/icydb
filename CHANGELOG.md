@@ -10,13 +10,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🪿 Added
 
 * Added `Blob::as_bytes()` and `Blob::as_mut_bytes()` for explicit byte access without deref.
-* Added `Ext<E>` support for external references with explicit identity types.
-* Added `View` support for `Ext` to align with `Ref`.
 
 ### 🧷 Changed
 
 * Relation/external field suffix bans now apply only to relation and external fields (not arbitrary primitives like `my_api_id`).
-* Item schema validation now allows `rel`/`ext` with `prim` overrides; only `rel` + `ext` and `is` + `prim` are rejected.
 
 ### 🪁 Fixed
 

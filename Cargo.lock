@@ -883,9 +883,11 @@ dependencies = [
 name = "icydb-schema-derive"
 version = "0.6.20"
 dependencies = [
+ "candid",
  "canic-utils",
  "darling 0.23.0",
  "derive_more",
+ "icydb",
  "icydb-schema",
  "proc-macro2",
  "quote",
