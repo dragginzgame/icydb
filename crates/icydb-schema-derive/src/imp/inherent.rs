@@ -340,10 +340,22 @@ fn model_kind_from_item(item: &Item) -> TokenStream {
     if let Some(relation) = &item.relation {
         let key_kind = model_kind_from_item_target(item);
         let target_path = quote_one(relation, to_path);
+        let target_entity_name =
+            quote!(<#relation as ::icydb::traits::EntityIdentity>::ENTITY_NAME);
+        let target_store_path =
+            quote!(<#relation as ::icydb::traits::EntityPlacement>::DataStore::PATH);
+        let strength = if item.strong {
+            quote!(::icydb::model::field::RelationStrength::Strong)
+        } else {
+            quote!(::icydb::model::field::RelationStrength::Weak)
+        };
         return quote! {
             ::icydb::model::field::EntityFieldKind::Ref {
                 target_path: #target_path,
+                target_entity_name: #target_entity_name,
+                target_store_path: #target_store_path,
                 key_kind: &#key_kind,
+                strength: #strength,
             }
         };
     }

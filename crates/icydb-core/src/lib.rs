@@ -14,6 +14,9 @@ pub mod value;
 pub mod view;
 pub mod visitor;
 
+#[cfg(test)]
+pub(crate) mod test_fixtures;
+
 ///
 /// CONSTANTS
 ///

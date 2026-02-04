@@ -123,7 +123,8 @@ Commit markers are **authoritative**, not diagnostic.
 
 * Markers may be persisted during execution
 * Markers must not be observable as committed application state
-* Markers are acted upon only by the system recovery step
+* Markers are applied during the apply phase after they are persisted
+* The system recovery step handles markers left behind by interrupted commits
 * All read and write entrypoints must invoke recovery before accessing durable stores;
   reads must not branch on marker presence outside recovery
 

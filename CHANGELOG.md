@@ -5,6 +5,31 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.7.0] – 2026-02-05 - Referential Integrity, Part III
+
+### 🧁 Summary
+
+0.7.0 finalizes the referential-integrity redesign introduced across late 0.6.x.
+
+Relation intent is now explicit (strong vs weak), and save-time referential integrity is enforced only for relations explicitly marked strong. Enforcement is deterministic, schema-driven, and occurs during save preflight, with no load-time checks, inference, or cascading behavior.
+
+This release locks in the new RI contract and stabilizes runtime behavior.
+
+### 🥨 Added
+
+* Added `strong`/`weak` relation flags in the schema DSL, with `weak` as the default.
+* Added relation strength metadata to `EntityFieldKind::Ref` for runtime consumers.
+
+### 🪼 Changed
+
+* Save operations now enforce referential integrity for `RelationStrength::Strong` fields and fail if targets are missing.
+
+### 🧢 Breaking
+
+* `EntityFieldKind::Ref` now carries target entity/store metadata and relation strength, so downstream enum matches must update.
+
+---
+
 ## [0.6.20] – 2026-02-04
 
 ### 🪿 Added

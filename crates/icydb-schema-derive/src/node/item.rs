@@ -15,6 +15,12 @@ pub struct Item {
     #[darling(default, rename = "rel")]
     pub relation: Option<Path>,
 
+    #[darling(default)]
+    pub strong: bool,
+
+    #[darling(default)]
+    pub weak: bool,
+
     #[darling(multiple, rename = "sanitizer")]
     pub sanitizers: Vec<TypeSanitizer>,
 
@@ -34,7 +40,19 @@ impl Item {
             ));
         }
 
-        // Phase 2: enforce relation constraints.
+        // Phase 2: validate relation strength flags.
+        if self.strong && self.weak {
+            return Err(DarlingError::custom(
+                "relation cannot be both strong and weak",
+            ));
+        }
+        if self.relation.is_none() && (self.strong || self.weak) {
+            return Err(DarlingError::custom(
+                "strong/weak may only be used with rel",
+            ));
+        }
+
+        // Phase 3: enforce relation constraints.
         if let Some(relation) = &self.relation
             && self.indirect
         {

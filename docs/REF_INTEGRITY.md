@@ -1,20 +1,22 @@
-# Referential Integrity (RI) — v2 Contract
+# Referential Integrity (RI)
 
-## Status (as of 0.6.x)
+## Status (as of 0.7.x)
 
-Save-time referential integrity is currently **disabled**. References are identity-only and may be dangling; existence is checked at point of use.
+Save-time referential integrity is enforced for **strong** relations only. References are identity-only; existence checks run only where the schema explicitly declares strength.
 
 Key points:
-* `Ref<T>` is **identity only**
-* There is **no save-time RI**
+* `Ref<T>` is an **identity wrapper**, not a semantic value
+* `RelationStrength::Strong` is enforced at save time; the target must exist
+* `RelationStrength::Weak` is **not validated** and is purely semantic
+* Strength is **explicit** schema intent (no inference from type shape or cardinality)
 * Locality is enforced at `DbSession<C>` via `E: EntityKind<Canister = C>`
-* Strong/weak classification is removed pending a future two-pass schema
+* Schema metadata is emitted via associated constants; no runtime schema registry
 
 This document defines the **referential integrity model** for IcyDB.
 
 It is **normative**: it specifies what guarantees exist, what is explicitly not guaranteed, and where future extensions may occur. It is not a feature roadmap.
 
-This document applies to **IcyDB 0.6**.
+This document applies to **IcyDB 0.7**.
 
 ---
 
@@ -45,37 +47,27 @@ A reference:
 
 References are **not joins** and do not participate in query planning.
 
+`Ref<T>` is an identity wrapper and is **not automatically validated** except where the schema declares a strong relation.
+
 ---
 
-## 3. Reference discovery (structural)
+## 3. Reference discovery (schema-driven)
 
-### 3.1 Structural discovery rule
+RI is **schema-driven** and **field-scoped**.
 
-All references are **structurally discoverable**.
-
-That is:
-
-> Any `Ref<T>` present anywhere in an entity’s value graph may be discovered deterministically by traversing the value structure.
-
-References may appear in:
-
-* entity fields
-* records
-* enums (variant payloads)
-* tuples
-* newtypes
-* lists, sets, and maps
-
-Discovery is **structural**, not semantic.
-Discovery does **not** imply enforcement.
+Only entity fields declared as relations in the schema are considered for save-time enforcement. There is **no traversal** of nested values and **no inference** from type shape, cardinality, or field names.
 
 ---
 
 ## 4. Strong vs weak references
 
-IcyDB distinguishes between **strong** and **weak** references.
+IcyDB distinguishes between **strong** and **weak** references. The distinction controls **validation**, not representation.
 
-This distinction controls **validation**, not representation.
+Strength is declared explicitly in the schema DSL:
+
+* `item(rel = "EntityA", strong)`
+* `item(rel = "EntityA", weak)`
+* `item(rel = "EntityA")` (defaults to `weak`)
 
 ---
 
@@ -83,25 +75,16 @@ This distinction controls **validation**, not representation.
 
 Strong references are **validated at save time**.
 
-In IcyDB 0.6, the following references are strong by default:
-
-* Direct entity fields of type:
-
-  * `Ref<T>`
-  * `Option<Ref<T>>`
-* With cardinality:
-
-  * `One`
-  * `Opt`
-
 Strong reference rules:
 
+* Strength is **explicit** in schema metadata
 * Validation occurs **pre-commit**
 * Validation checks that the referenced entity exists
 * Validation failure aborts the mutation
 * No durable state is mutated on failure
+* No cascading inserts or deletes are performed
 
-Strong references are **bounded and deterministic**.
+Strength is **not inferred** from cardinality or container shape.
 
 ---
 
@@ -109,25 +92,10 @@ Strong references are **bounded and deterministic**.
 
 Weak references are **not validated for existence**.
 
-In IcyDB 0.6, the following references are weak by default:
-
-* References nested inside:
-
-  * records
-  * enums
-  * tuples
-  * newtypes
-* References inside collections:
-
-  * `Vec<Ref<T>>`
-  * `Set<Ref<T>>`
-  * `Map<_, Ref<T>>`
-  * any nested combination thereof
-
 Weak reference rules:
 
-* They are type-checked and serialized normally
-* They are preserved through views and updates
+* Strength is **explicit** in schema metadata
+* Values are type-checked and serialized normally
 * They do **not** participate in save-time RI enforcement
 * Missing targets do **not** cause errors
 * They do **not** affect atomicity
@@ -151,8 +119,8 @@ RI enforcement:
 
 Only **strong references** are enforced.
 
-Weak references are allowed but not validated; no recursive discovery is
-performed for enforcement in 0.6.
+Weak references are allowed but not validated; there is no recursive discovery
+or inference.
 
 ### 5.3 What is not enforced
 
@@ -184,19 +152,15 @@ RI enforcement does **not** depend on traps, recovery timing, or read behavior.
 
 Validation failures for strong references are reported as **write-time validation errors**.
 
-They are **not** corruption and **not** invariant violations.
-
-Schema-level disallowed constructs (if any) must fail **at schema validation time**, not at runtime.
-
-Runtime invariant violations must never be used to signal unsupported reference shapes.
+They surface as `InternalError` with `ErrorClass::InvariantViolation` and
+`ErrorOrigin::Executor`. They are **not** corruption.
 
 ---
 
-## 8. Explicit non-goals (0.6)
+## 8. Explicit non-goals (0.7)
 
-The following are **out of scope** for IcyDB 0.6:
+The following are **out of scope** for IcyDB 0.7:
 
-* Strong reference collections
 * Many-to-many relations
 * Recursive existence validation
 * Delete-side RI enforcement
@@ -212,8 +176,6 @@ Introducing any of these requires a new RI specification.
 
 The following extensions are explicitly reserved for the future:
 
-* Schema-level `weak` / `strong` annotations
-* Opt-in strong reference collections with bounded validation
 * Cardinality-aware many-relations
 * Static guarantees for entity–store ownership
 * Tooling for reference diagnostics and visualization

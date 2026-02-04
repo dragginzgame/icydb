@@ -16,6 +16,18 @@ pub struct EntityFieldModel {
 }
 
 ///
+/// RelationStrength
+///
+/// Explicit relation intent for save-time referential integrity.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RelationStrength {
+    Strong,
+    Weak,
+}
+
+///
 /// EntityFieldKind
 ///
 /// Minimal runtime type surface needed by planning, validation, and execution.
@@ -52,9 +64,16 @@ pub enum EntityFieldKind {
     Unit,
 
     /// Typed entity reference; `key_kind` reflects the referenced key type.
+    /// `strength` encodes strong vs. weak relation intent.
     Ref {
+        /// Fully-qualified Rust type path for diagnostics.
         target_path: &'static str,
+        /// Stable external name used in storage keys.
+        target_entity_name: &'static str,
+        /// Data store path where the target entity is persisted.
+        target_store_path: &'static str,
         key_kind: &'static Self,
+        strength: RelationStrength,
     },
 
     // Collections

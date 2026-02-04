@@ -487,6 +487,7 @@ mod tests {
             field::{EntityFieldKind, EntityFieldModel},
             index::IndexModel,
         },
+        test_fixtures::{model_with_fields, model_with_fields_and_indexes},
         types::Ulid,
         value::Value,
     };
@@ -495,45 +496,28 @@ mod tests {
         EntityFieldModel { name, kind }
     }
 
-    fn model_with_fields(fields: Vec<EntityFieldModel>, pk_index: usize) -> EntityModel {
-        let fields: &'static [EntityFieldModel] = Box::leak(fields.into_boxed_slice());
-        let primary_key = &fields[pk_index];
-        let indexes: &'static [&'static IndexModel] = &[];
-
-        EntityModel {
-            path: "test::Entity",
-            entity_name: "TestEntity",
-            primary_key,
-            fields,
-            indexes,
-        }
-    }
-
     const INDEX_FIELDS: [&str; 1] = ["tag"];
     const INDEX_MODEL: IndexModel =
         IndexModel::new("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
     const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
 
     fn model_with_index() -> EntityModel {
-        let fields: &'static [EntityFieldModel] = Box::leak(
+        model_with_fields_and_indexes(
+            "test::Entity",
+            "TestEntity",
             vec![
                 field("id", EntityFieldKind::Ulid),
                 field("tag", EntityFieldKind::Text),
-            ]
-            .into_boxed_slice(),
-        );
-
-        EntityModel {
-            path: "test::Entity",
-            entity_name: "TestEntity",
-            primary_key: &fields[0],
-            fields,
-            indexes: &INDEXES,
-        }
+            ],
+            0,
+            &INDEXES,
+        )
     }
 
     #[test]
     fn model_rejects_missing_primary_key() {
+        // Legacy test scaffolding: invalid models are hand-built to exercise
+        // validation failures that helpers intentionally prevent.
         let fields: &'static [EntityFieldModel] =
             Box::leak(vec![field("id", EntityFieldKind::Ulid)].into_boxed_slice());
         let missing_pk = Box::leak(Box::new(field("missing", EntityFieldKind::Ulid)));

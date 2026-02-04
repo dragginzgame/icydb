@@ -9,6 +9,7 @@ use crate::{
         field::{EntityFieldKind, EntityFieldModel},
         index::IndexModel,
     },
+    test_fixtures::model_with_fields_and_indexes,
     types::Ulid,
     value::Value,
 };
@@ -27,23 +28,16 @@ fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
 }
 
 fn model_with_index() -> EntityModel {
-    // Leak the field list to satisfy the model's static lifetime contract in tests.
-    let fields: &'static [EntityFieldModel] = Box::leak(
+    model_with_fields_and_indexes(
+        "plan_tests::Entity",
+        "PlanEntity",
         vec![
             field("id", EntityFieldKind::Ulid),
             field("tag", EntityFieldKind::Text),
-        ]
-        .into_boxed_slice(),
-    );
-    let primary_key = &fields[0];
-
-    EntityModel {
-        path: "plan_tests::Entity",
-        entity_name: "PlanEntity",
-        primary_key,
-        fields,
-        indexes: &INDEXES,
-    }
+        ],
+        0,
+        &INDEXES,
+    )
 }
 
 #[test]

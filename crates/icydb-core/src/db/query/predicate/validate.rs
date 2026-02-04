@@ -852,30 +852,13 @@ mod tests {
             FieldRef,
             predicate::{CoercionId, Predicate},
         },
-        model::{
-            entity::EntityModel,
-            field::{EntityFieldKind, EntityFieldModel},
-            index::IndexModel,
-        },
+        model::field::{EntityFieldKind, EntityFieldModel},
+        test_fixtures::model_with_fields,
         types::Ulid,
     };
 
     fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
         EntityFieldModel { name, kind }
-    }
-
-    fn model_with_fields(fields: Vec<EntityFieldModel>, pk_index: usize) -> EntityModel {
-        let fields: &'static [EntityFieldModel] = Box::leak(fields.into_boxed_slice());
-        let primary_key = &fields[pk_index];
-        let indexes: &'static [&'static IndexModel] = &[];
-
-        EntityModel {
-            path: "test::Entity",
-            entity_name: "TestEntity",
-            primary_key,
-            fields,
-            indexes,
-        }
     }
 
     #[test]

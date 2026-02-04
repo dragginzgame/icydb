@@ -9,6 +9,7 @@ use crate::{
         field::{EntityFieldKind, EntityFieldModel},
         index::IndexModel,
     },
+    test_fixtures::model_with_fields,
     traits::{
         CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
         EntityValue, FieldValue, FieldValues, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
@@ -21,21 +22,6 @@ use serde::{Deserialize, Serialize};
 
 fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
     EntityFieldModel { name, kind }
-}
-
-fn model_with_fields(fields: Vec<EntityFieldModel>, pk_index: usize) -> EntityModel {
-    // Leak the field list to satisfy the model's static lifetime contract in tests.
-    let fields: &'static [EntityFieldModel] = Box::leak(fields.into_boxed_slice());
-    let primary_key = &fields[pk_index];
-    let indexes: &'static [&'static crate::model::index::IndexModel] = &[];
-
-    EntityModel {
-        path: "intent_tests::Entity",
-        entity_name: "IntentEntity",
-        primary_key,
-        fields,
-        indexes,
-    }
 }
 
 fn basic_model() -> EntityModel {
@@ -96,6 +82,9 @@ static PLAN_FIELDS: [EntityFieldModel; 2] = [
 ];
 static PLAN_FIELD_NAMES: [&str; 2] = ["id", "name"];
 static PLAN_INDEXES: [&IndexModel; 0] = [];
+
+// Legacy test scaffolding: manual models keep typed-vs-model planning parity
+// tests independent of schema macros.
 static PLAN_MODEL: EntityModel = EntityModel {
     path: "intent_tests::PlanEntity",
     entity_name: "PlanEntity",
@@ -163,6 +152,8 @@ static SINGLETON_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
 }];
 static SINGLETON_FIELD_NAMES: [&str; 1] = ["id"];
 static SINGLETON_INDEXES: [&IndexModel; 0] = [];
+
+// Legacy test scaffolding: singleton model is hand-built to exercise model-only planning.
 static SINGLETON_MODEL: EntityModel = EntityModel {
     path: "intent_tests::PlanSingleton",
     entity_name: "PlanSingleton",
