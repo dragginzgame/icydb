@@ -5,11 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.6.15] – 2026-02-03 - Query Ergonomics
+## [0.6.17] – 2026-02-03 - Query Ergonomics
 
 ### 🦩 Added
 
 * Added `WriteResponse`/`WriteBatchResponse` helpers for write results, including key and view accessors.
+* Added `Nat::to_i64`/`to_u64` and `Int::to_i64`/`to_u64` for explicit integer conversion without deref.
 * Added by_ref() for query flow
 * Added many_refs() for query flow
 

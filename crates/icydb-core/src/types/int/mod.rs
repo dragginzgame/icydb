@@ -51,6 +51,13 @@ impl Int {
     }
 
     #[must_use]
+    pub fn to_i64(&self) -> Option<i64> {
+        let big = &self.0.0;
+
+        i64::try_from(big).ok()
+    }
+
+    #[must_use]
     /// Serialize the arbitrary-precision integer to LEB128 bytes.
     pub fn to_leb128(&self) -> Vec<u8> {
         let mut out = Vec::new();

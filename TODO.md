@@ -102,6 +102,12 @@ However:
 
 ---
 
+## Additional TODO
+
+* [ ] Implement `saturating_sub` in the inherent trait for newtypes that need it
+
+---
+
 ## Non-Goals (for now)
 
 * Removing the model layer entirely

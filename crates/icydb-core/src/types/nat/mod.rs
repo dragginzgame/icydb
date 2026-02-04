@@ -51,6 +51,13 @@ impl Nat {
     }
 
     #[must_use]
+    pub fn to_u64(&self) -> Option<u64> {
+        let big = &self.0.0;
+
+        u64::try_from(big).ok()
+    }
+
+    #[must_use]
     /// Serialize the arbitrary-precision natural to LEB128 bytes.
     pub fn to_leb128(&self) -> Vec<u8> {
         let mut out = Vec::new();
