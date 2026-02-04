@@ -20,27 +20,38 @@ use std::fmt::{self, Display};
 )]
 pub struct Blob(ByteBuf);
 
+/// `Blob` is a semantic binary value; raw byte access is explicit via accessors (no `Deref`).
 impl Blob {
     #[must_use]
-    /// Length of the blob in bytes.
-    pub fn len(&self) -> usize {
-        self.0.len()
+    pub fn as_mut_bytes(&mut self) -> &mut Vec<u8> {
+        &mut self.0
     }
 
     #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
     /// View the blob as a byte slice.
+    #[must_use]
     pub fn as_slice(&self) -> &[u8] {
         self.0.as_slice()
     }
 
-    #[must_use]
     /// Clone the blob into a new byte vector.
+    #[must_use]
     pub fn to_vec(&self) -> Vec<u8> {
         self.0.to_vec()
     }
 
+    /// Length of the blob in bytes.
     #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
     /// Whether the blob is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

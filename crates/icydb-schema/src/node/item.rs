@@ -12,6 +12,9 @@ pub struct Item {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relation: Option<&'static str>,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external: Option<&'static str>,
+
     #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
     pub validators: &'static [TypeValidator],
 
@@ -34,6 +37,12 @@ impl ValidateNode for Item {
         let mut errs = ErrorTree::new();
         let schema = schema_read();
 
+        // Phase 1: enforce option constraints.
+        if self.relation.is_some() && self.external.is_some() {
+            err!(errs, "an Item cannot specify both rel and ext");
+        }
+
+        // Phase 2: validate target shape.
         match &self.target {
             ItemTarget::Is(path) => {
                 // cannot be an entity
@@ -45,7 +54,7 @@ impl ValidateNode for Item {
             ItemTarget::Primitive(_) => {}
         }
 
-        // relation
+        // Phase 3: validate relation target compatibility.
         if let Some(relation) = &self.relation {
             // Step 1: Ensure the relation path exists and is an Entity
             match schema.cast_node::<Entity>(relation) {

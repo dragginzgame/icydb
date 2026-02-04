@@ -134,11 +134,9 @@ impl Field {
         self.value.validate()?;
 
         // TODO(temporary): re-enable suffix enforcement once downstream schemas are updated.
-        #[allow(clippy::overly_complex_bool_expr)]
-        if false
-            && BANNED_SUFFIXES
-                .iter()
-                .any(|suffix| ident_str.ends_with(suffix))
+        if BANNED_SUFFIXES
+            .iter()
+            .any(|suffix| ident_str.ends_with(suffix))
         {
             let suffixes = BANNED_SUFFIXES
                 .iter()

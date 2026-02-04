@@ -15,6 +15,9 @@ pub struct Item {
     #[darling(default, rename = "rel")]
     pub relation: Option<Path>,
 
+    #[darling(default, rename = "ext")]
+    pub external: Option<Path>,
+
     #[darling(multiple, rename = "sanitizer")]
     pub sanitizers: Vec<TypeSanitizer>,
 
@@ -27,11 +30,20 @@ pub struct Item {
 
 impl Item {
     pub fn validate(&self) -> Result<(), DarlingError> {
-        if self.is.is_some() && (self.primitive.is_some() || self.relation.is_some()) {
+        // Phase 1: reject incompatible option pairs.
+        if let (Some(_), Some(_)) = (&self.relation, &self.external) {
+            return Err(
+                DarlingError::custom("item may not specify both rel and ext")
+                    .with_span(self.relation.as_ref().unwrap()),
+            );
+        }
+        if self.is.is_some() && self.primitive.is_some() {
             return Err(DarlingError::custom(
-                "item 'is' cannot be combined with 'prim' or 'rel'",
+                "item may not specify both is and prim",
             ));
         }
+
+        // Phase 2: enforce relation/external constraints.
         if let Some(relation) = &self.relation
             && self.indirect
         {
@@ -40,22 +52,40 @@ impl Item {
             );
         }
 
+        if let Some(external) = &self.external
+            && self.indirect
+        {
+            return Err(
+                DarlingError::custom("external relations cannot be set to indirect")
+                    .with_span(external),
+            );
+        }
+
         Ok(())
     }
 
-    // if relation is Some and no type is set, we default to Ulid
+    // If rel/ext is set and no is/primitive is specified, default to Ulid.
     pub fn target(&self) -> ItemTarget {
         debug_assert!(
-            !(self.is.is_some() && (self.primitive.is_some() || self.relation.is_some())),
-            "item 'is' cannot be combined with 'prim' or 'rel'"
+            !(self.is.is_some() && self.primitive.is_some()),
+            "item 'is' cannot be combined with 'prim'",
+        );
+        debug_assert!(
+            !(self.relation.is_some() && self.external.is_some()),
+            "item 'rel' cannot be combined with 'ext'",
         );
 
-        match (&self.is, &self.primitive, &self.relation) {
-            (Some(path), None, _) => ItemTarget::Is(path.clone()),
-            (None, Some(prim), _) => ItemTarget::Primitive(*prim),
-            (None, None, Some(_)) => ItemTarget::Primitive(Primitive::Ulid),
-            _ => ItemTarget::Primitive(Primitive::Unit),
+        if let Some(path) = &self.is {
+            return ItemTarget::Is(path.clone());
         }
+        if let Some(prim) = &self.primitive {
+            return ItemTarget::Primitive(*prim);
+        }
+        if self.relation.is_some() || self.external.is_some() {
+            return ItemTarget::Primitive(Primitive::Ulid);
+        }
+
+        ItemTarget::Primitive(Primitive::Unit)
     }
 
     pub fn created_at() -> Self {
@@ -84,6 +114,10 @@ impl Item {
         self.relation.is_some()
     }
 
+    pub const fn is_external(&self) -> bool {
+        self.external.is_some()
+    }
+
     pub const fn is_primitive(&self) -> bool {
         self.primitive.is_some()
     }
@@ -93,15 +127,16 @@ impl HasSchemaPart for Item {
     fn schema_part(&self) -> TokenStream {
         let target = self.target().schema_part();
         let relation = quote_option(self.relation.as_ref(), to_path);
+        let external = quote_option(self.external.as_ref(), to_path);
         let validators = quote_slice(&self.validators, TypeValidator::schema_part);
         let sanitizers = quote_slice(&self.sanitizers, TypeSanitizer::schema_part);
         let indirect = self.indirect;
 
-        // quote
         quote! {
-            ::icydb::schema::node::Item{
+            ::icydb::schema::node::Item {
                 target: #target,
                 relation: #relation,
+                external: #external,
                 validators: #validators,
                 sanitizers: #sanitizers,
                 indirect: #indirect,
@@ -114,6 +149,9 @@ impl HasTypeExpr for Item {
     fn type_expr(&self) -> TokenStream {
         let ty = if let Some(relation) = &self.relation {
             quote!(::icydb::types::Ref<#relation>)
+        } else if let Some(external) = &self.external {
+            let id_ty = self.target().type_expr();
+            quote!(::icydb::types::Ext<#external, #id_ty>)
         } else {
             self.target().type_expr()
         };

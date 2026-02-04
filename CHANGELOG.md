@@ -7,9 +7,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.6.18] – 2026-02-04
 
-### 🧲 Fixed
+### 🧋 Added
 
-* Made `Ref<T>` `Sync + Send` to match the `*const` variant.
+* Added `Blob::as_bytes()` and `Blob::as_mut_bytes()` for explicit byte access without deref.
+* Added `Ext<E, Id>` for typed external identities that do not imply local existence or referential integrity.
 
 ---
 
@@ -26,7 +27,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 * id_strict and key_strict to require_id and require_key to match other methods
 * Clarified schema error messaging for banned suffixes on field names
-* Temporarily disabled enforcement of banned field-name suffixes pending schema cleanup
 
 ### 🧯 Breaking
 
