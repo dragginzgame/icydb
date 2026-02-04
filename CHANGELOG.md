@@ -7,11 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.6.20] – 2026-02-04
 
-### 🧋 Added
+### 🪿 Added
 
 * Added `Blob::as_bytes()` and `Blob::as_mut_bytes()` for explicit byte access without deref.
-* Added `Ext<E>` for typed external identities that do not imply local existence or referential integrity.
-* Added Default for `Ext<E>` so it can have a View type
+* Added `Ext<E>` support for external references with explicit identity types.
+* Added `View` support for `Ext` to align with `Ref`.
+
+### 🧷 Changed
+
+* Relation/external field suffix bans now apply only to relation and external fields (not arbitrary primitives like `my_api_id`).
+* Item schema validation now allows `rel`/`ext` with `prim` overrides; only `rel` + `ext` and `is` + `prim` are rejected.
+
+### 🪁 Fixed
+
+* Made `Ref<T>` `Sync + Send` to fix the `*const` variant.
 
 ---
 
