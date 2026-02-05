@@ -93,8 +93,8 @@ impl Value {
     ///
 
     /// Build a `Value::List` from a slice of items convertible into `Value`.
-    pub fn from_list<T: Into<Self> + Clone>(items: &[T]) -> Self {
-        Self::List(items.iter().cloned().map(Into::into).collect())
+    pub fn from_list<T: Into<Self>>(items: Vec<T>) -> Self {
+        Self::List(items.into_iter().map(Into::into).collect())
     }
 
     /// Build a `Value::List` from an iterator of items convertible into `Value`
@@ -473,6 +473,12 @@ impl Value {
     }
 }
 
+impl FieldValue for Value {
+    fn to_value(&self) -> Value {
+        self.clone()
+    }
+}
+
 #[macro_export]
 macro_rules! impl_from_for {
     ( $( $type:ty => $variant:ident ),* $(,)? ) => {
@@ -558,12 +564,6 @@ impl ValueFamilyExt for Value {
             // Everything else
             Self::Unsupported => ValueFamily::Unsupported,
         }
-    }
-}
-
-impl FieldValue for Value {
-    fn to_value(&self) -> Value {
-        self.clone()
     }
 }
 
