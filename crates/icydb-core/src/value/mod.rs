@@ -70,6 +70,9 @@ pub enum Value {
     Int(i64),
     Int128(Int128),
     IntBig(Int),
+    /// Ordered list of values.
+    /// Used for many-cardinality transport and map-like encodings (`[key, value]` pairs).
+    /// List order is preserved for normalization and fingerprints.
     List(Vec<Self>),
     None,
     Principal(Principal),

@@ -14,8 +14,11 @@ pub type Update<T> = <T as UpdateView>::UpdateViewType;
 /// ListPatch
 ///
 
-/// Patches apply sequentially; indices outside the current length are clamped to the tail and
-/// invalid removals are ignored.
+/// Positional list patches applied in order.
+/// Indices refer to the list state at the time each patch executes.
+/// `Insert` clamps out-of-bounds indices to the tail; `Remove` ignores invalid indices.
+/// `Update` only applies to existing elements and never creates new entries.
+/// `Overwrite` replaces the entire list with the provided values.
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub enum ListPatch<U> {
     Update { index: usize, patch: U },

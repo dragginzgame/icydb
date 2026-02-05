@@ -101,6 +101,16 @@ impl<T> OrderedList<T> {
     }
 }
 
+impl<T> OrderedList<T>
+where
+    T: UpdateView + Default,
+{
+    /// Apply positional patches using `ListPatch` semantics.
+    pub fn apply_patches(&mut self, patches: Vec<ListPatch<T::UpdateViewType>>) {
+        self.merge(patches);
+    }
+}
+
 impl<T: FieldValue> FieldValue for OrderedList<T> {
     fn to_value(&self) -> Value {
         Value::List(self.0.iter().map(FieldValue::to_value).collect())
@@ -243,5 +253,31 @@ where
                 ListPatch::Clear => self.clear(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ordered_list_patches_are_positional() {
+        let mut list: OrderedList<u8> = vec![10, 20, 30].into();
+        let patches = vec![
+            ListPatch::Update {
+                index: 1,
+                patch: 99,
+            },
+            ListPatch::Insert {
+                index: 1,
+                value: 11,
+            },
+            ListPatch::Remove { index: 0 },
+        ];
+
+        list.apply_patches(patches);
+
+        let expected: OrderedList<u8> = vec![11, 99, 30].into();
+        assert_eq!(list, expected);
     }
 }

@@ -102,6 +102,20 @@ where
     }
 }
 
+impl<E> RefSet<E>
+where
+    E: EntityIdentity,
+    Ref<E>: UpdateView + Default,
+{
+    /// Apply set patches, enforcing key uniqueness and deterministic ordering.
+    pub fn apply_patches(
+        &mut self,
+        patches: Vec<SetPatch<<Ref<E> as UpdateView>::UpdateViewType>>,
+    ) {
+        self.merge(patches);
+    }
+}
+
 impl<E> CandidType for RefSet<E>
 where
     E: EntityIdentity,
