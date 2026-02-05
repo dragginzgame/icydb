@@ -24,6 +24,8 @@ stacks on top of an incomplete commit.
 * Added `Response::reference`, `Response::try_reference`, and `Response::references` to return typed `Ref<E>` results from query responses.
 * Added a `Display` derive in `icydb-derive` for tuple newtypes.
 * Added collection types `OrderedList`, `UniqueList`, `KeyedList`, and `RefSet` for explicit many-field semantics.
+* Added `OrderedList::retain` plus `apply_patches` helpers on `OrderedList` and `RefSet` for explicit patch application.
+* Added `docs/collections.md` as the contract reference for collection and patch semantics.
 
 ### 🪼 Changed
 

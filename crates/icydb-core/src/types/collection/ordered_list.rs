@@ -17,6 +17,10 @@ use serde::{Deserialize, Serialize};
 /// Ordered, duplicate-friendly list used for many-cardinality fields.
 /// Preserves insertion order and serializes identically to `Vec<T>`.
 ///
+/// Mutation is explicit and positional; `OrderedList` does not expose
+/// `DerefMut` to avoid accidental bypass of list semantics.
+
+///
 
 #[repr(transparent)]
 #[derive(CandidType, Clone, Debug, Default, Deref, Deserialize, Eq, PartialEq, Serialize)]
@@ -98,6 +102,14 @@ impl<T> OrderedList<T> {
     /// Clear all items from the list.
     pub fn clear(&mut self) {
         self.0.clear();
+    }
+
+    /// Retain only the items specified by the predicate.
+    pub fn retain<F>(&mut self, predicate: F)
+    where
+        F: FnMut(&T) -> bool,
+    {
+        self.0.retain(predicate);
     }
 }
 
@@ -278,6 +290,16 @@ mod tests {
         list.apply_patches(patches);
 
         let expected: OrderedList<u8> = vec![11, 99, 30].into();
+        assert_eq!(list, expected);
+    }
+
+    #[test]
+    fn ordered_list_retain_filters_items() {
+        let mut list: OrderedList<u8> = vec![1, 2, 3, 4, 5].into();
+
+        list.retain(|value| value % 2 == 0);
+
+        let expected: OrderedList<u8> = vec![2, 4].into();
         assert_eq!(list, expected);
     }
 }
