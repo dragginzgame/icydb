@@ -41,7 +41,7 @@ stacks on top of an incomplete commit.
 * `EntityFieldKind::Ref` now carries target entity/store metadata and relation strength, so downstream enum matches must update.
 * Entity and record fields with `many` cardinality now emit `OrderedList<T>` instead of `Vec<T>`.
 * Relation fields with `many` cardinality now emit `RefSet<T>` instead of list types like `Vec<Ref<T>>`.
-* Entity primary-key fields now emit `Id<E>` instead of raw key values, so struct literals and accessors must wrap/unwrap explicitly.
+* Entity primary-key fields now emit `Id<E>` instead of raw key values, and `EntityValue::set_id` wraps raw keys into `Id<E>` so call sites must pass the raw key type.
 
 ---
 

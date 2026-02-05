@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        EntityIdentity, FieldValue, Identifies, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        EntityIdentity, FieldValue, Identifies, Inner, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
     types::Ref,
     value::Value,
@@ -227,18 +227,6 @@ where
         let id = E::Id::deserialize(deserializer)?;
 
         Ok(Self::new(id))
-    }
-}
-
-impl<E> UpdateView for Id<E>
-where
-    E: EntityIdentity,
-    E::Id: CandidType + Default,
-{
-    type UpdateViewType = E::Id;
-
-    fn merge(&mut self, update: Self::UpdateViewType) {
-        self.id = update;
     }
 }
 
