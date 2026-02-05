@@ -12,6 +12,10 @@
 //! In general:
 //! - Schema / macro code defines *what exists*
 //! - `model` defines *what runs*
+//!
+//! Model types are **internal** runtime artifacts derived from typed entities.
+//! Downstream code should not construct them manually except in tests that
+//! intentionally exercise invalid or edge-case schemas.
 pub mod entity;
 pub mod field;
 pub mod index;

@@ -3,6 +3,7 @@ mod write;
 use crate::{
     error::{Error, ErrorClass, ErrorOrigin},
     traits::EntityKind,
+    types::Ref,
     view::View,
 };
 use icydb_core::db::response::{Response as CoreResponse, ResponseError};
@@ -104,7 +105,10 @@ impl<E: EntityKind> Response<E> {
 
     /// Return zero or one primary key.
     pub fn try_key(self) -> Result<Option<E::Id>, Error> {
-        Ok(self.inner.id())
+        self.inner
+            .try_row()
+            .map(|row| row.map(|(id, _)| id))
+            .map_err(map_response_error)
     }
 
     /// Return all primary keys.
@@ -116,6 +120,22 @@ impl<E: EntityKind> Response<E> {
     /// Check whether the response contains the given primary key.
     pub fn contains_key(&self, id: &E::Id) -> bool {
         self.inner.contains_id(id)
+    }
+
+    /// Return the single typed reference.
+    pub fn reference(self) -> Result<Ref<E>, Error> {
+        self.inner.reference().map_err(map_response_error)
+    }
+
+    /// Return zero or one typed reference.
+    pub fn try_reference(self) -> Result<Option<Ref<E>>, Error> {
+        self.inner.try_reference().map_err(map_response_error)
+    }
+
+    /// Return all typed references.
+    #[must_use]
+    pub fn references(&self) -> Vec<Ref<E>> {
+        self.inner.references()
     }
 }
 

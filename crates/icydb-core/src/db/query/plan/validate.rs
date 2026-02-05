@@ -476,7 +476,7 @@ fn validate_index_prefix(
 
 #[cfg(test)]
 mod tests {
-    // NOTE: Tests in this module intentionally use legacy manual EntityModel helpers.
+    // NOTE: Legacy helpers remain only for intentionally invalid schemas.
     use super::{PlanError, validate_logical_plan_model};
     use crate::{
         db::query::{
@@ -489,6 +489,7 @@ mod tests {
             index::IndexModel,
         },
         test_fixtures::LegacyTestEntityModel,
+        traits::EntitySchema,
         types::Ulid,
         value::Value,
     };
@@ -500,20 +501,38 @@ mod tests {
     const INDEX_FIELDS: [&str; 1] = ["tag"];
     const INDEX_MODEL: IndexModel =
         IndexModel::new("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
-    const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
 
-    // NOTE: Planner validation tests use legacy manual models to exercise schema failures.
-    fn model_with_index() -> EntityModel {
-        LegacyTestEntityModel::from_fields_and_indexes(
-            "test::Entity",
-            "TestEntity",
-            vec![
-                field("id", EntityFieldKind::Ulid),
-                field("tag", EntityFieldKind::Text),
-            ],
-            0,
-            &INDEXES,
-        )
+    crate::test_entity_schema! {
+        PlanValidateIndexedEntity,
+        id = Ulid,
+        path = "plan_validate::IndexedEntity",
+        entity_name = "IndexedEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", EntityFieldKind::Ulid),
+            ("tag", EntityFieldKind::Text),
+        ],
+        indexes = [&INDEX_MODEL],
+    }
+
+    crate::test_entity_schema! {
+        PlanValidateListEntity,
+        id = Ulid,
+        path = "plan_validate::ListEntity",
+        entity_name = "ListEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", EntityFieldKind::Ulid),
+            ("tags", EntityFieldKind::List(&EntityFieldKind::Text)),
+        ],
+        indexes = [],
+    }
+
+    // Helper for tests that need the indexed model derived from a typed schema.
+    fn model_with_index() -> &'static EntityModel {
+        <PlanValidateIndexedEntity as EntitySchema>::MODEL
     }
 
     #[test]
@@ -663,15 +682,9 @@ mod tests {
 
     #[test]
     fn plan_rejects_unorderable_field() {
-        let model = LegacyTestEntityModel::from_fields(
-            vec![
-                field("id", EntityFieldKind::Ulid),
-                field("tags", EntityFieldKind::List(&EntityFieldKind::Text)),
-            ],
-            0,
-        );
+        let model = <PlanValidateListEntity as EntitySchema>::MODEL;
 
-        let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
+        let schema = SchemaInfo::from_entity_model(model).expect("valid model");
         let plan: LogicalPlan<Value> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::FullScan),
@@ -685,14 +698,14 @@ mod tests {
         };
 
         let err =
-            validate_logical_plan_model(&schema, &model, &plan).expect_err("unorderable field");
+            validate_logical_plan_model(&schema, model, &plan).expect_err("unorderable field");
         assert!(matches!(err, PlanError::UnorderableField { .. }));
     }
 
     #[test]
     fn plan_rejects_index_prefix_too_long() {
         let model = model_with_index();
-        let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
+        let schema = SchemaInfo::from_entity_model(model).expect("valid model");
         let plan: LogicalPlan<Value> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::IndexPrefix {
@@ -707,14 +720,14 @@ mod tests {
         };
 
         let err =
-            validate_logical_plan_model(&schema, &model, &plan).expect_err("index prefix too long");
+            validate_logical_plan_model(&schema, model, &plan).expect_err("index prefix too long");
         assert!(matches!(err, PlanError::IndexPrefixTooLong { .. }));
     }
 
     #[test]
     fn plan_rejects_empty_index_prefix() {
         let model = model_with_index();
-        let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
+        let schema = SchemaInfo::from_entity_model(model).expect("valid model");
         let plan: LogicalPlan<Value> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::IndexPrefix {
@@ -729,14 +742,14 @@ mod tests {
         };
 
         let err =
-            validate_logical_plan_model(&schema, &model, &plan).expect_err("index prefix empty");
+            validate_logical_plan_model(&schema, model, &plan).expect_err("index prefix empty");
         assert!(matches!(err, PlanError::IndexPrefixEmpty));
     }
 
     #[test]
     fn plan_accepts_model_based_validation() {
-        let model = LegacyTestEntityModel::from_fields(vec![field("id", EntityFieldKind::Ulid)], 0);
-        let schema = SchemaInfo::from_entity_model(&model).expect("valid model");
+        let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+        let schema = SchemaInfo::from_entity_model(model).expect("valid model");
         let plan: LogicalPlan<Value> = LogicalPlan {
             mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
             access: AccessPlan::Path(AccessPath::ByKey(Value::Ulid(Ulid::nil()))),
@@ -747,6 +760,6 @@ mod tests {
             consistency: crate::db::query::ReadConsistency::MissingOk,
         };
 
-        validate_logical_plan_model(&schema, &model, &plan).expect("valid plan");
+        validate_logical_plan_model(&schema, model, &plan).expect("valid plan");
     }
 }

@@ -94,11 +94,11 @@ However:
 
 ## Action Items
 
-* [ ] Identify tests that can switch from manual models to `T::MODEL`
-* [ ] Introduce a helper for model-only tests that derives from a typed entity
-* [ ] Add guidance (or a lint) discouraging new manual `EntityModel` construction
-* [ ] Document the model layer as *internal / derived*, not user-facing
-* [ ] Gradually migrate legacy tests to typed-first definitions
+* [x] Identify tests that can switch from manual models to `T::MODEL`
+* [x] Introduce a helper for model-only tests that derives from a typed entity
+* [x] Add guidance (or a lint) discouraging new manual `EntityModel` construction
+* [x] Document the model layer as *internal / derived*, not user-facing
+* [x] Gradually migrate legacy tests to typed-first definitions (legacy helpers remain only for invalid schemas)
 
 ---
 

@@ -20,19 +20,9 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
-    EntityFieldModel { name, kind }
-}
-
-// NOTE: Intent tests use legacy manual models to exercise model-only planning logic.
-fn basic_model() -> EntityModel {
-    LegacyTestEntityModel::from_fields(
-        vec![
-            field("id", EntityFieldKind::Ulid),
-            field("name", EntityFieldKind::Text),
-        ],
-        0,
-    )
+// Helper for intent tests that need the typed model snapshot.
+fn basic_model() -> &'static EntityModel {
+    <PlanEntity as EntitySchema>::MODEL
 }
 
 // Test-only entity to compare typed vs model planning without schema macros.
@@ -210,7 +200,7 @@ impl SingletonEntity for PlanSingleton {}
 #[test]
 fn intent_rejects_many_with_predicate() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(&model, ReadConsistency::MissingOk)
+    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
         .by_keys([Ulid::generate()])
         .filter(Predicate::True);
 
@@ -223,7 +213,7 @@ fn intent_rejects_many_with_predicate() {
 #[test]
 fn intent_rejects_only_with_predicate() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(&model, ReadConsistency::MissingOk)
+    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
         .only(Ulid::generate())
         .filter(Predicate::True);
 
@@ -236,7 +226,7 @@ fn intent_rejects_only_with_predicate() {
 #[test]
 fn intent_rejects_delete_limit_without_order() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(&model, ReadConsistency::MissingOk)
+    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
         .delete()
         .limit(1);
 
@@ -249,7 +239,7 @@ fn intent_rejects_delete_limit_without_order() {
 #[test]
 fn intent_rejects_empty_order_spec() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(&model, ReadConsistency::MissingOk)
+    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
         .order_spec(OrderSpec { fields: Vec::new() });
 
     assert!(matches!(
@@ -261,7 +251,7 @@ fn intent_rejects_empty_order_spec() {
 #[test]
 fn intent_rejects_conflicting_key_access() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(&model, ReadConsistency::MissingOk)
+    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
         .by_key(Ulid::generate())
         .by_keys([Ulid::generate()]);
 
@@ -306,7 +296,7 @@ fn singleton_only_uses_default_key() {
 #[test]
 fn build_plan_model_full_scan_without_predicate() {
     let model = basic_model();
-    let intent = QueryModel::<Ulid>::new(&model, ReadConsistency::MissingOk);
+    let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk);
     let plan = intent.build_plan_model().expect("model plan should build");
 
     assert!(matches!(

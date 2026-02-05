@@ -108,7 +108,7 @@ impl DeleteSpec {
 /// QueryModel
 ///
 /// Model-level query intent and planning context.
-/// `EntityModel` is the source of truth; schema surfaces are derived on demand.
+/// Consumes an `EntityModel` derived from typed entity definitions.
 ///
 
 #[derive(Debug)]

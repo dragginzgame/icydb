@@ -4,12 +4,8 @@ use crate::{
         plan::planner::plan_access,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo},
     },
-    model::{
-        entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel},
-        index::IndexModel,
-    },
-    test_fixtures::LegacyTestEntityModel,
+    model::{entity::EntityModel, field::EntityFieldKind, index::IndexModel},
+    traits::EntitySchema,
     types::Ulid,
     value::Value,
 };
@@ -21,31 +17,31 @@ const INDEX_MODEL: IndexModel = IndexModel::new(
     &INDEX_FIELDS,
     false,
 );
-const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
 
-fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
-    EntityFieldModel { name, kind }
+crate::test_entity_schema! {
+    PlanModelEntity,
+    id = Ulid,
+    path = "plan_tests::Entity",
+    entity_name = "PlanEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", EntityFieldKind::Ulid),
+        ("tag", EntityFieldKind::Text),
+    ],
+    indexes = [&INDEX_MODEL],
 }
 
-// NOTE: Planner tests use legacy manual models to exercise plan building without schema macros.
-fn model_with_index() -> EntityModel {
-    LegacyTestEntityModel::from_fields_and_indexes(
-        "plan_tests::Entity",
-        "PlanEntity",
-        vec![
-            field("id", EntityFieldKind::Ulid),
-            field("tag", EntityFieldKind::Text),
-        ],
-        0,
-        &INDEXES,
-    )
+// Helper for tests that need the indexed model derived from a typed schema.
+fn model_with_index() -> &'static EntityModel {
+    <PlanModelEntity as EntitySchema>::MODEL
 }
 
 #[test]
 fn plan_access_full_scan_without_predicate() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(&model).expect("schema should validate");
-    let plan = plan_access(&model, &schema, None).expect("plan should build");
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let plan = plan_access(model, &schema, None).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::full_scan());
 }
@@ -53,7 +49,7 @@ fn plan_access_full_scan_without_predicate() {
 #[test]
 fn plan_access_uses_primary_key_lookup() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(&model).expect("schema should validate");
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let key = Ulid::generate();
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "id",
@@ -62,7 +58,7 @@ fn plan_access_uses_primary_key_lookup() {
         CoercionId::Strict,
     ));
 
-    let plan = plan_access(&model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::Path(AccessPath::ByKey(Value::Ulid(key))));
 }
@@ -70,7 +66,7 @@ fn plan_access_uses_primary_key_lookup() {
 #[test]
 fn plan_access_uses_index_prefix_for_exact_match() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(&model).expect("schema should validate");
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "tag",
         CompareOp::Eq,
@@ -78,7 +74,7 @@ fn plan_access_uses_index_prefix_for_exact_match() {
         CoercionId::Strict,
     ));
 
-    let plan = plan_access(&model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(
         plan,
@@ -92,7 +88,7 @@ fn plan_access_uses_index_prefix_for_exact_match() {
 #[test]
 fn plan_access_ignores_non_strict_predicates() {
     let model = model_with_index();
-    let schema = SchemaInfo::from_entity_model(&model).expect("schema should validate");
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
     let predicate = Predicate::Compare(ComparePredicate::with_coercion(
         "tag",
         CompareOp::Eq,
@@ -100,7 +96,7 @@ fn plan_access_ignores_non_strict_predicates() {
         CoercionId::TextCasefold,
     ));
 
-    let plan = plan_access(&model, &schema, Some(&predicate)).expect("plan should build");
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::full_scan());
 }

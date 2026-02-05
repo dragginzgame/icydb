@@ -852,7 +852,7 @@ impl fmt::Display for FieldType {
 
 #[cfg(test)]
 mod tests {
-    // NOTE: Tests in this module intentionally use legacy manual EntityModel helpers.
+    // NOTE: Legacy helpers remain only for intentionally invalid or unsupported schemas.
     use super::{ValidateError, validate_model};
     use crate::{
         db::query::{
@@ -861,6 +861,7 @@ mod tests {
         },
         model::field::{EntityFieldKind, EntityFieldModel},
         test_fixtures::LegacyTestEntityModel,
+        traits::EntitySchema,
         types::Ulid,
     };
 
@@ -868,19 +869,48 @@ mod tests {
         EntityFieldModel { name, kind }
     }
 
-    // NOTE: Predicate validation tests use legacy manual models to exercise schema-driven checks.
+    crate::test_entity_schema! {
+        ScalarPredicateEntity,
+        id = Ulid,
+        path = "predicate_validate::ScalarEntity",
+        entity_name = "ScalarEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", EntityFieldKind::Ulid),
+            ("email", EntityFieldKind::Text),
+            ("age", EntityFieldKind::Uint),
+            ("created_at", EntityFieldKind::Timestamp),
+            ("active", EntityFieldKind::Bool),
+        ],
+        indexes = [],
+    }
+
+    crate::test_entity_schema! {
+        CollectionPredicateEntity,
+        id = Ulid,
+        path = "predicate_validate::CollectionEntity",
+        entity_name = "CollectionEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", EntityFieldKind::Ulid),
+            ("tags", EntityFieldKind::List(&EntityFieldKind::Text)),
+            ("principals", EntityFieldKind::Set(&EntityFieldKind::Principal)),
+            (
+                "attributes",
+                EntityFieldKind::Map {
+                    key: &EntityFieldKind::Text,
+                    value: &EntityFieldKind::Uint,
+                }
+            ),
+        ],
+        indexes = [],
+    }
+
     #[test]
     fn validate_model_accepts_scalars_and_coercions() {
-        let model = LegacyTestEntityModel::from_fields(
-            vec![
-                field("id", EntityFieldKind::Ulid),
-                field("email", EntityFieldKind::Text),
-                field("age", EntityFieldKind::Uint),
-                field("created_at", EntityFieldKind::Timestamp),
-                field("active", EntityFieldKind::Bool),
-            ],
-            0,
-        );
+        let model = <ScalarPredicateEntity as EntitySchema>::MODEL;
 
         let predicate = Predicate::And(vec![
             FieldRef::new("id").eq(Ulid::nil()),
@@ -888,29 +918,12 @@ mod tests {
             FieldRef::new("age").lt(30u32),
         ]);
 
-        assert!(validate_model(&model, &predicate).is_ok());
+        assert!(validate_model(model, &predicate).is_ok());
     }
 
     #[test]
     fn validate_model_accepts_collections_and_map_contains() {
-        let model = LegacyTestEntityModel::from_fields(
-            vec![
-                field("id", EntityFieldKind::Ulid),
-                field("tags", EntityFieldKind::List(&EntityFieldKind::Text)),
-                field(
-                    "principals",
-                    EntityFieldKind::Set(&EntityFieldKind::Principal),
-                ),
-                field(
-                    "attributes",
-                    EntityFieldKind::Map {
-                        key: &EntityFieldKind::Text,
-                        value: &EntityFieldKind::Uint,
-                    },
-                ),
-            ],
-            0,
-        );
+        let model = <CollectionPredicateEntity as EntitySchema>::MODEL;
 
         let predicate = Predicate::And(vec![
             FieldRef::new("tags").is_empty(),
@@ -918,13 +931,13 @@ mod tests {
             FieldRef::new("attributes").map_contains_entry("k", 1u64, CoercionId::Strict),
         ]);
 
-        assert!(validate_model(&model, &predicate).is_ok());
+        assert!(validate_model(model, &predicate).is_ok());
 
         let bad =
             FieldRef::new("attributes").map_contains_entry("k", 1u64, CoercionId::TextCasefold);
 
         assert!(matches!(
-            validate_model(&model, &bad),
+            validate_model(model, &bad),
             Err(ValidateError::InvalidCoercion { .. })
         ));
     }
@@ -949,34 +962,22 @@ mod tests {
 
     #[test]
     fn validate_model_accepts_text_contains() {
-        let model = LegacyTestEntityModel::from_fields(
-            vec![
-                field("id", EntityFieldKind::Ulid),
-                field("email", EntityFieldKind::Text),
-            ],
-            0,
-        );
+        let model = <ScalarPredicateEntity as EntitySchema>::MODEL;
 
         let predicate = FieldRef::new("email").text_contains("example");
-        assert!(validate_model(&model, &predicate).is_ok());
+        assert!(validate_model(model, &predicate).is_ok());
 
         let predicate = FieldRef::new("email").text_contains_ci("EXAMPLE");
-        assert!(validate_model(&model, &predicate).is_ok());
+        assert!(validate_model(model, &predicate).is_ok());
     }
 
     #[test]
     fn validate_model_rejects_text_contains_on_non_text() {
-        let model = LegacyTestEntityModel::from_fields(
-            vec![
-                field("id", EntityFieldKind::Ulid),
-                field("age", EntityFieldKind::Uint),
-            ],
-            0,
-        );
+        let model = <ScalarPredicateEntity as EntitySchema>::MODEL;
 
         let predicate = FieldRef::new("age").text_contains("1");
         assert!(matches!(
-            validate_model(&model, &predicate),
+            validate_model(model, &predicate),
             Err(ValidateError::InvalidOperator { field, op })
                 if field == "age" && op == "text_contains"
         ));
