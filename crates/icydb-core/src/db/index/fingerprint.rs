@@ -396,8 +396,8 @@ mod tests {
 
     #[test]
     fn list_hash_is_order_sensitive() {
-        let l1 = Value::from_list(&[v_i(1), v_i(2)]);
-        let l2 = Value::from_list(&[v_i(2), v_i(1)]);
+        let l1 = Value::from_slice(&[v_i(1), v_i(2)]);
+        let l2 = Value::from_slice(&[v_i(2), v_i(1)]);
         assert_ne!(
             hash_value(&l1).expect("hash value"),
             hash_value(&l2).expect("hash value"),
@@ -407,8 +407,8 @@ mod tests {
 
     #[test]
     fn list_hash_is_length_sensitive() {
-        let l1 = Value::from_list(&[v_i(1)]);
-        let l2 = Value::from_list(&[v_i(1), v_i(1)]);
+        let l1 = Value::from_slice(&[v_i(1)]);
+        let l2 = Value::from_slice(&[v_i(1), v_i(1)]);
         assert_ne!(
             hash_value(&l1).expect("hash value"),
             hash_value(&l2).expect("hash value"),

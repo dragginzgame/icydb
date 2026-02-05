@@ -125,17 +125,17 @@ fn partial_ord_cross_variant_is_none() {
 
 #[test]
 fn list_contains_scalar() {
-    let l = Value::from_list(&[v_i(1), v_txt("a")]);
+    let l = Value::from_slice(&[v_i(1), v_txt("a")]);
     assert_eq!(l.contains(&v_i(1)), Some(true));
     assert_eq!(l.contains(&v_i(2)), Some(false));
 }
 
 #[test]
 fn list_contains_any_all_and_vacuous_truth() {
-    let l = Value::from_list(&[v_txt("x"), v_txt("y")]);
-    let needles_any = Value::from_list(&[v_txt("z"), v_txt("y")]);
-    let needles_all = Value::from_list(&[v_txt("x"), v_txt("y")]);
-    let empty = Value::from_list::<Value>(&[]);
+    let l = Value::from_slice(&[v_txt("x"), v_txt("y")]);
+    let needles_any = Value::from_slice(&[v_txt("z"), v_txt("y")]);
+    let needles_all = Value::from_slice(&[v_txt("x"), v_txt("y")]);
+    let empty = Value::from_slice::<Value>(&[]);
     assert_eq!(l.contains_any(&needles_any), Some(true));
     assert_eq!(l.contains_all(&needles_all), Some(true));
     assert_eq!(l.contains_any(&empty), Some(false), "AnyIn([]) == false");
@@ -146,14 +146,14 @@ fn list_contains_any_all_and_vacuous_truth() {
 
 #[test]
 fn contains_any_list_vs_list() {
-    let haystack = Value::from_list(&[v_i(1), v_i(2), v_i(3)]);
-    let needles = Value::from_list(&[v_i(4), v_i(2)]);
+    let haystack = Value::from_slice(&[v_i(1), v_i(2), v_i(3)]);
+    let needles = Value::from_slice(&[v_i(4), v_i(2)]);
     assert_eq!(haystack.contains_any(&needles), Some(true));
 
-    let needles_none = Value::from_list(&[v_i(4), v_i(5)]);
+    let needles_none = Value::from_slice(&[v_i(4), v_i(5)]);
     assert_eq!(haystack.contains_any(&needles_none), Some(false));
 
-    let empty = Value::from_list::<Value>(&[]);
+    let empty = Value::from_slice::<Value>(&[]);
     assert_eq!(
         haystack.contains_any(&empty),
         Some(false),
@@ -163,14 +163,14 @@ fn contains_any_list_vs_list() {
 
 #[test]
 fn contains_all_list_vs_list() {
-    let haystack = Value::from_list(&[v_txt("a"), v_txt("b"), v_txt("c")]);
-    let needles = Value::from_list(&[v_txt("a"), v_txt("c")]);
+    let haystack = Value::from_slice(&[v_txt("a"), v_txt("b"), v_txt("c")]);
+    let needles = Value::from_slice(&[v_txt("a"), v_txt("c")]);
     assert_eq!(haystack.contains_all(&needles), Some(true));
 
-    let needles_missing = Value::from_list(&[v_txt("a"), v_txt("z")]);
+    let needles_missing = Value::from_slice(&[v_txt("a"), v_txt("z")]);
     assert_eq!(haystack.contains_all(&needles_missing), Some(false));
 
-    let empty = Value::from_list::<Value>(&[]);
+    let empty = Value::from_slice::<Value>(&[]);
     assert_eq!(
         haystack.contains_all(&empty),
         Some(true),
@@ -180,14 +180,14 @@ fn contains_all_list_vs_list() {
 
 #[test]
 fn contains_any_list_vs_scalar() {
-    let haystack = Value::from_list(&[v_i(10), v_i(20)]);
+    let haystack = Value::from_slice(&[v_i(10), v_i(20)]);
     assert_eq!(haystack.contains_any(&v_i(20)), Some(true));
     assert_eq!(haystack.contains_any(&v_i(99)), Some(false));
 }
 
 #[test]
 fn contains_all_list_vs_scalar() {
-    let haystack = Value::from_list(&[v_i(10), v_i(20)]);
+    let haystack = Value::from_slice(&[v_i(10), v_i(20)]);
     assert_eq!(haystack.contains_all(&v_i(20)), Some(true));
     assert_eq!(haystack.contains_all(&v_i(99)), Some(false));
 }
@@ -195,8 +195,8 @@ fn contains_all_list_vs_scalar() {
 #[test]
 fn contains_any_scalar_vs_list() {
     let scalar = v_txt("hello");
-    let needles_yes = Value::from_list(&[v_txt("x"), v_txt("hello")]);
-    let needles_no = Value::from_list(&[v_txt("x"), v_txt("y")]);
+    let needles_yes = Value::from_slice(&[v_txt("x"), v_txt("hello")]);
+    let needles_no = Value::from_slice(&[v_txt("x"), v_txt("y")]);
 
     assert_eq!(scalar.contains_any(&needles_yes), Some(true));
     assert_eq!(scalar.contains_any(&needles_no), Some(false));
@@ -205,9 +205,9 @@ fn contains_any_scalar_vs_list() {
 #[test]
 fn contains_all_scalar_vs_list() {
     let scalar = v_txt("hello");
-    let needles_yes = Value::from_list(&[v_txt("hello")]);
-    let needles_extra = Value::from_list(&[v_txt("hello"), v_txt("world")]);
-    let empty = Value::from_list::<Value>(&[]);
+    let needles_yes = Value::from_slice(&[v_txt("hello")]);
+    let needles_extra = Value::from_slice(&[v_txt("hello"), v_txt("world")]);
+    let empty = Value::from_slice::<Value>(&[]);
 
     assert_eq!(scalar.contains_all(&needles_yes), Some(true));
     assert_eq!(scalar.contains_all(&needles_extra), Some(false));
@@ -234,7 +234,7 @@ fn contains_all_scalar_vs_scalar() {
 
 #[test]
 fn in_list_ci_text_vs_list() {
-    let haystack = Value::from_list(&[v_txt("Alpha"), v_txt("Beta")]);
+    let haystack = Value::from_slice(&[v_txt("Alpha"), v_txt("Beta")]);
     assert_eq!(v_txt("alpha").in_list_ci(&haystack), Some(true));
     assert_eq!(v_txt("BETA").in_list_ci(&haystack), Some(true));
     assert_eq!(v_txt("gamma").in_list_ci(&haystack), Some(false));
@@ -242,7 +242,7 @@ fn in_list_ci_text_vs_list() {
 
 #[test]
 fn list_contains_ci_scalar() {
-    let list = Value::from_list(&[v_txt("Foo"), v_txt("Bar")]);
+    let list = Value::from_slice(&[v_txt("Foo"), v_txt("Bar")]);
     assert_eq!(list.contains_ci(&v_txt("foo")), Some(true));
     assert_eq!(list.contains_ci(&v_txt("BAR")), Some(true));
     assert_eq!(list.contains_ci(&v_txt("baz")), Some(false));
@@ -250,9 +250,9 @@ fn list_contains_ci_scalar() {
 
 #[test]
 fn list_contains_any_ci() {
-    let haystack = Value::from_list(&[v_txt("Apple"), v_txt("Banana")]);
-    let needles_yes = Value::from_list(&[v_txt("banana"), v_txt("Cherry")]);
-    let needles_no = Value::from_list(&[v_txt("pear"), v_txt("cherry")]);
+    let haystack = Value::from_slice(&[v_txt("Apple"), v_txt("Banana")]);
+    let needles_yes = Value::from_slice(&[v_txt("banana"), v_txt("Cherry")]);
+    let needles_no = Value::from_slice(&[v_txt("pear"), v_txt("cherry")]);
 
     assert_eq!(haystack.contains_any_ci(&needles_yes), Some(true));
     assert_eq!(haystack.contains_any_ci(&needles_no), Some(false));
@@ -260,9 +260,9 @@ fn list_contains_any_ci() {
 
 #[test]
 fn list_contains_all_ci() {
-    let haystack = Value::from_list(&[v_txt("Dog"), v_txt("Cat"), v_txt("Bird")]);
-    let needles_yes = Value::from_list(&[v_txt("dog"), v_txt("cat")]);
-    let needles_no = Value::from_list(&[v_txt("dog"), v_txt("lion")]);
+    let haystack = Value::from_slice(&[v_txt("Dog"), v_txt("Cat"), v_txt("Bird")]);
+    let needles_yes = Value::from_slice(&[v_txt("dog"), v_txt("cat")]);
+    let needles_no = Value::from_slice(&[v_txt("dog"), v_txt("lion")]);
 
     assert_eq!(haystack.contains_all_ci(&needles_yes), Some(true));
     assert_eq!(haystack.contains_all_ci(&needles_no), Some(false));
@@ -271,18 +271,18 @@ fn list_contains_all_ci() {
 #[test]
 fn scalar_vs_list_ci() {
     let scalar = v_txt("Hello");
-    let list = Value::from_list(&[v_txt("HELLO"), v_txt("World")]);
+    let list = Value::from_slice(&[v_txt("HELLO"), v_txt("World")]);
 
     assert_eq!(scalar.in_list_ci(&list), Some(true));
     assert_eq!(scalar.contains_any_ci(&list), Some(true));
 
-    let list2 = Value::from_list(&[v_txt("World")]);
+    let list2 = Value::from_slice(&[v_txt("World")]);
     assert_eq!(scalar.contains_any_ci(&list2), Some(false));
 }
 
 #[test]
 fn ci_membership_with_empty_lists() {
-    let empty = Value::from_list::<Value>(&[]);
+    let empty = Value::from_slice::<Value>(&[]);
     let scalar = v_txt("alpha");
 
     assert_eq!(scalar.in_list_ci(&empty), Some(false));
@@ -298,7 +298,7 @@ fn ci_equality_parses_identifier_text() {
     assert!(Value::Ulid(ulid).contains_ci(&ulid_text).unwrap());
     assert!(
         Value::Ulid(ulid)
-            .in_list_ci(&Value::from_list(&[ulid_text]))
+            .in_list_ci(&Value::from_slice(&[ulid_text]))
             .unwrap()
     );
 }
@@ -306,8 +306,8 @@ fn ci_equality_parses_identifier_text() {
 #[test]
 fn ci_membership_handles_ulid_strings() {
     let target = Ulid::generate();
-    let actual = Value::from_list(&[Value::Ulid(target)]);
-    let needles = Value::from_list(&[Value::Text(target.to_string())]);
+    let actual = Value::from_slice(&[Value::Ulid(target)]);
+    let needles = Value::from_slice(&[Value::Text(target.to_string())]);
 
     assert_eq!(actual.contains_any_ci(&needles), Some(true));
     assert_eq!(actual.contains_all_ci(&needles), Some(true));
@@ -417,7 +417,11 @@ fn e18s_ordering_and_float_cross_check() {
 fn e8s_e18s_text_and_list_do_not_compare() {
     // sanity: non-numeric shapes return None from cmp_numeric
     assert!(v_e8(1).partial_cmp(&v_txt("1")).is_none());
-    assert!(v_e18(1).partial_cmp(&Value::from_list(&[v_i(1)])).is_none());
+    assert!(
+        v_e18(1)
+            .partial_cmp(&Value::from_slice(&[v_i(1)]))
+            .is_none()
+    );
 }
 
 // ----------- eq and none

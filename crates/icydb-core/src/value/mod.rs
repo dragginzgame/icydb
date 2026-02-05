@@ -92,13 +92,21 @@ impl Value {
     /// CONSTRUCTION
     ///
 
-    /// Build a `Value::List` from a slice of items convertible into `Value`.
-    pub fn from_list<T: Into<Self>>(items: Vec<T>) -> Self {
-        Self::List(items.into_iter().map(Into::into).collect())
+    /// Build a `Value::List` from a list literal.
+    ///
+    /// Intended for tests and inline construction.
+    /// Requires `Clone` because items are borrowed.
+    pub fn from_slice<T>(items: &[T]) -> Self
+    where
+        T: Into<Self> + Clone,
+    {
+        Self::List(items.iter().cloned().map(Into::into).collect())
     }
 
-    /// Build a `Value::List` from an iterator of items convertible into `Value`
-    pub fn from_list_iter<T>(items: impl IntoIterator<Item = T>) -> Self
+    /// Build a `Value::List` from owned items.
+    ///
+    /// This is the canonical constructor for query / DTO boundaries.
+    pub fn from_list<T>(items: Vec<T>) -> Self
     where
         T: Into<Self>,
     {
