@@ -74,6 +74,16 @@ pub trait EntityKey: Copy + Debug + Eq + Ord + FieldValue + 'static {}
 impl<T> EntityKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static {}
 
 ///
+/// Identifies
+///
+/// Narrow capability for extracting an entity key without collapsing identity and relation types.
+///
+
+pub trait Identifies<E: EntityIdentity> {
+    fn key(&self) -> E::Id;
+}
+
+///
 /// EntityIdentity
 /// Identity-only facts about an entity.
 ///
@@ -128,7 +138,6 @@ pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {}
 /// It does NOT imply storage placement.
 pub trait EntityValue: EntityIdentity + FieldValues {
     fn id(&self) -> Self::Id;
-    fn set_id(&mut self, id: Self::Id);
 }
 
 /// Marker for entities with exactly one logical row.

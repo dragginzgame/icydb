@@ -1,8 +1,9 @@
 use crate::{
     traits::{
-        EntityIdentity, FieldValue, Identifies, SanitizeAuto, SanitizeCustom, UpdateView,
+        EntityIdentity, FieldValue, Identifies, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
         ValidateAuto, ValidateCustom, View, Visitable,
     },
+    types::Ref,
     value::Value,
 };
 use candid::CandidType;
@@ -14,29 +15,24 @@ use std::{
 };
 
 ///
-/// Ref
+/// Id
 ///
-/// Typed reference to another entity's primary key.
-/// This is an *identity type*, not a semantic value.
-///
-/// If a generic identity wrapper must be Copy, never derive Copy or Clone;
-/// always implement both manually.
+/// Typed primary-key wrapper for entity identities.
+/// Carries entity context without changing the underlying key type.
+/// Serializes identically to `E::Id`.
 ///
 
 #[repr(transparent)]
-pub struct Ref<E>
-where
-    E: EntityIdentity,
-{
+pub struct Id<E: EntityIdentity> {
     id: E::Id,
     _marker: PhantomData<fn() -> E>,
 }
 
-impl<E> Ref<E>
+impl<E> Id<E>
 where
     E: EntityIdentity,
 {
-    /// Construct a Ref from a semantic identity value.
+    /// Construct a typed identity from the raw key value.
     #[must_use]
     pub const fn new(id: E::Id) -> Self {
         Self {
@@ -45,27 +41,20 @@ where
         }
     }
 
-    /// Convert this identity key into a semantic Value.
-    ///
-    /// This is intended ONLY for planner invariants, diagnostics,
-    /// explain output, and fingerprinting.
-    pub fn as_value(&self) -> Value {
-        self.id.to_value()
+    /// Borrow the underlying key.
+    #[must_use]
+    pub const fn key(&self) -> &E::Id {
+        &self.id
     }
 
+    /// Consume into the raw key.
     #[must_use]
-    pub const fn id(self) -> E::Id {
-        self.id
-    }
-
-    /// Return the primary key.
-    #[must_use]
-    pub const fn key(self) -> E::Id {
+    pub const fn into_inner(self) -> E::Id {
         self.id
     }
 }
 
-impl<E> CandidType for Ref<E>
+impl<E> CandidType for Id<E>
 where
     E: EntityIdentity,
     E::Id: CandidType,
@@ -83,7 +72,7 @@ where
 }
 
 #[allow(clippy::expl_impl_clone_on_copy)]
-impl<E> Clone for Ref<E>
+impl<E> Clone for Id<E>
 where
     E: EntityIdentity,
 {
@@ -92,18 +81,19 @@ where
     }
 }
 
-impl<E> Copy for Ref<E> where E: EntityIdentity {}
+impl<E> Copy for Id<E> where E: EntityIdentity {}
 
-impl<E> std::fmt::Debug for Ref<E>
+impl<E> fmt::Debug for Id<E>
 where
     E: EntityIdentity,
+    E::Id: fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Ref").field(&self.id).finish()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("Id").field(&self.id).finish()
     }
 }
 
-impl<E> Default for Ref<E>
+impl<E> Default for Id<E>
 where
     E: EntityIdentity,
     E::Id: Default,
@@ -113,7 +103,7 @@ where
     }
 }
 
-impl<E> fmt::Display for Ref<E>
+impl<E> fmt::Display for Id<E>
 where
     E: EntityIdentity,
     E::Id: fmt::Display,
@@ -123,27 +113,33 @@ where
     }
 }
 
-impl<E> Eq for Ref<E> where E: EntityIdentity {}
-
-impl<E> PartialEq for Ref<E>
+impl<E> Eq for Id<E>
 where
     E: EntityIdentity,
+    E::Id: Eq,
+{
+}
+
+impl<E> PartialEq for Id<E>
+where
+    E: EntityIdentity,
+    E::Id: PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }
 }
 
-impl<E> FieldValue for Ref<E>
+impl<E> From<Id<E>> for Ref<E>
 where
     E: EntityIdentity,
 {
-    fn to_value(&self) -> Value {
-        self.as_value()
+    fn from(id: Id<E>) -> Self {
+        Self::new(id.id)
     }
 }
 
-impl<E> Hash for Ref<E>
+impl<E> Hash for Id<E>
 where
     E: EntityIdentity,
     E::Id: Hash,
@@ -153,29 +149,60 @@ where
     }
 }
 
-impl<E> Ord for Ref<E>
+impl<E> Ord for Id<E>
 where
     E: EntityIdentity,
+    E::Id: Ord,
 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.id.cmp(&other.id)
     }
 }
 
-impl<E> PartialOrd for Ref<E>
+impl<E> PartialOrd for Id<E>
 where
     E: EntityIdentity,
+    E::Id: PartialOrd,
 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<E> SanitizeAuto for Ref<E> where E: EntityIdentity {}
+impl<E> FieldValue for Id<E>
+where
+    E: EntityIdentity,
+    E::Id: FieldValue,
+{
+    fn to_value(&self) -> Value {
+        self.id.to_value()
+    }
 
-impl<E> SanitizeCustom for Ref<E> where E: EntityIdentity {}
+    fn from_value(value: &Value) -> Option<Self> {
+        let id = E::Id::from_value(value)?;
 
-impl<E> Serialize for Ref<E>
+        Some(Self::new(id))
+    }
+}
+
+impl<E> Inner<E::Id> for Id<E>
+where
+    E: EntityIdentity,
+{
+    fn inner(&self) -> &E::Id {
+        &self.id
+    }
+
+    fn into_inner(self) -> E::Id {
+        self.id
+    }
+}
+
+impl<E> SanitizeAuto for Id<E> where E: EntityIdentity {}
+
+impl<E> SanitizeCustom for Id<E> where E: EntityIdentity {}
+
+impl<E> Serialize for Id<E>
 where
     E: EntityIdentity,
     E::Id: Serialize,
@@ -188,7 +215,7 @@ where
     }
 }
 
-impl<'de, E> Deserialize<'de> for Ref<E>
+impl<'de, E> Deserialize<'de> for Id<E>
 where
     E: EntityIdentity,
     E::Id: Deserialize<'de>,
@@ -203,41 +230,41 @@ where
     }
 }
 
-impl<E> UpdateView for Ref<E>
+impl<E> UpdateView for Id<E>
 where
     E: EntityIdentity,
     E::Id: CandidType + Default,
 {
-    type UpdateViewType = Self;
+    type UpdateViewType = E::Id;
 
     fn merge(&mut self, update: Self::UpdateViewType) {
-        *self = update;
+        self.id = update;
     }
 }
 
-impl<E> ValidateAuto for Ref<E> where E: EntityIdentity {}
+impl<E> ValidateAuto for Id<E> where E: EntityIdentity {}
 
-impl<E> ValidateCustom for Ref<E> where E: EntityIdentity {}
+impl<E> ValidateCustom for Id<E> where E: EntityIdentity {}
 
-impl<E> View for Ref<E>
+impl<E> View for Id<E>
 where
     E: EntityIdentity,
-    E::Id: Default,
+    E::Id: Copy + Default,
 {
-    type ViewType = Self;
+    type ViewType = E::Id;
 
     fn to_view(&self) -> Self::ViewType {
-        *self
+        self.id
     }
 
     fn from_view(view: Self::ViewType) -> Self {
-        view
+        Self::new(view)
     }
 }
 
-impl<E> Visitable for Ref<E> where E: EntityIdentity {}
+impl<E> Visitable for Id<E> where E: EntityIdentity {}
 
-impl<E> Identifies<E> for Ref<E>
+impl<E> Identifies<E> for Id<E>
 where
     E: EntityIdentity,
 {

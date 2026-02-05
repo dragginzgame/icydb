@@ -19,7 +19,7 @@ use crate::{
         EntityValue, Path, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View,
         Visitable,
     },
-    types::Ulid,
+    types::{Id, Ulid},
 };
 use canic_cdk::structures::{
     DefaultMemoryImpl,
@@ -81,7 +81,7 @@ fn test_memory(id: u8) -> VirtualMemory<DefaultMemoryImpl> {
 
 #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
 struct SimpleEntity {
-    id: Ulid,
+    id: Id<Self>,
 }
 
 impl View for SimpleEntity {
@@ -143,11 +143,7 @@ impl EntityKind for SimpleEntity {}
 
 impl EntityValue for SimpleEntity {
     fn id(&self) -> Self::Id {
-        self.id
-    }
-
-    fn set_id(&mut self, id: Self::Id) {
-        self.id = id;
+        *self.id.key()
     }
 }
 
@@ -166,7 +162,7 @@ fn executor_save_then_delete_round_trip() {
     let delete = DeleteExecutor::<SimpleEntity>::new(DB, false);
 
     let entity = SimpleEntity {
-        id: Ulid::generate(),
+        id: Id::new(Ulid::generate()),
     };
     let saved = save.insert(entity).expect("save should succeed");
 
@@ -200,7 +196,7 @@ fn delete_replays_incomplete_commit_marker() {
     let delete = DeleteExecutor::<SimpleEntity>::new(DB, false);
 
     let entity = SimpleEntity {
-        id: Ulid::generate(),
+        id: Id::new(Ulid::generate()),
     };
     let saved = save.insert(entity).expect("save should succeed");
 

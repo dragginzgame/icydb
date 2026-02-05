@@ -27,6 +27,8 @@ stacks on top of an incomplete commit.
 * Added `OrderedList::retain` plus `apply_patches` helpers on `OrderedList` and `RefSet` for explicit patch application.
 * Added `docs/collections.md` as the contract reference for collection and patch semantics.
 * Added `saturating_add`/`saturating_sub` helpers to arithmetic newtypes for explicit saturating math.
+* Added `Id<E>` as a typed primary-key wrapper for entity identities, distinct from `Ref<E>`.
+* Added `Identifies<E>` as an internal capability trait for extracting entity keys from `Id<E>` or `Ref<E>`.
 
 ### 🪼 Changed
 
@@ -39,6 +41,7 @@ stacks on top of an incomplete commit.
 * `EntityFieldKind::Ref` now carries target entity/store metadata and relation strength, so downstream enum matches must update.
 * Entity and record fields with `many` cardinality now emit `OrderedList<T>` instead of `Vec<T>`.
 * Relation fields with `many` cardinality now emit `RefSet<T>` instead of list types like `Vec<Ref<T>>`.
+* Entity primary-key fields now emit `Id<E>` instead of raw key values, so struct literals and accessors must wrap/unwrap explicitly.
 
 ---
 

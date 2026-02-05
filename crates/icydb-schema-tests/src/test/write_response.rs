@@ -24,7 +24,7 @@ mod tests {
     fn write_response_exposes_key_reference_and_view() {
         let id = Ulid::generate();
         let entity = WriteResponseEntity {
-            id,
+            id: Id::new(id),
             ..Default::default()
         };
         let response = WriteResponse::new(entity);
@@ -37,11 +37,11 @@ mod tests {
     #[test]
     fn write_batch_response_iter_and_helpers() {
         let first = WriteResponseEntity {
-            id: Ulid::generate(),
+            id: Id::new(Ulid::generate()),
             ..Default::default()
         };
         let second = WriteResponseEntity {
-            id: Ulid::generate(),
+            id: Id::new(Ulid::generate()),
             ..Default::default()
         };
 

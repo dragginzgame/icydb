@@ -14,7 +14,7 @@ use crate::{
         EntityValue, Path, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View,
         Visitable,
     },
-    types::{Ref, Ulid},
+    types::{Id, Ref, Ulid},
 };
 use canic_cdk::structures::{
     DefaultMemoryImpl,
@@ -93,7 +93,7 @@ fn test_memory(id: u8) -> VirtualMemory<DefaultMemoryImpl> {
 
 #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
 struct TargetEntity {
-    id: Ulid,
+    id: Id<Self>,
 }
 
 impl View for TargetEntity {
@@ -155,11 +155,7 @@ impl EntityKind for TargetEntity {}
 
 impl EntityValue for TargetEntity {
     fn id(&self) -> Self::Id {
-        self.id
-    }
-
-    fn set_id(&mut self, id: Self::Id) {
-        self.id = id;
+        *self.id.key()
     }
 }
 
@@ -169,7 +165,7 @@ impl EntityValue for TargetEntity {
 
 #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
 struct SourceEntity {
-    id: Ulid,
+    id: Id<Self>,
     target: Ref<TargetEntity>,
 }
 
@@ -243,11 +239,7 @@ impl EntityKind for SourceEntity {}
 
 impl EntityValue for SourceEntity {
     fn id(&self) -> Self::Id {
-        self.id
-    }
-
-    fn set_id(&mut self, id: Self::Id) {
-        self.id = id;
+        *self.id.key()
     }
 }
 
@@ -255,7 +247,7 @@ impl EntityValue for SourceEntity {
 fn strong_relation_missing_fails_preflight() {
     let executor = SaveExecutor::<SourceEntity>::new(DB, false);
     let entity = SourceEntity {
-        id: Ulid::generate(),
+        id: Id::new(Ulid::generate()),
         target: Ref::new(Ulid::generate()),
     };
 

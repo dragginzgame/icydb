@@ -130,11 +130,7 @@ impl Imp<Entity> for EntityValueTrait {
 
         let q = quote! {
             fn id(&self) -> Self::Id {
-                self.#pk_ident
-            }
-
-            fn set_id(&mut self, id: Self::Id) {
-                self.#pk_ident = id;
+                self.#pk_ident.key().clone()
             }
         };
 

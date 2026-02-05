@@ -212,9 +212,14 @@ impl HasTraits for Entity {
 impl HasType for Entity {
     fn type_part(&self) -> TokenStream {
         let ident = self.def.ident();
+        let primary_key = &self.primary_key;
         let fields = self.fields.iter().map(|field| {
             let field_ident = &field.ident;
-            let value = entity_field_type_expr(field);
+            let value = if field_ident == primary_key {
+                quote!(::icydb::types::Id<#ident>)
+            } else {
+                entity_field_type_expr(field)
+            };
 
             quote!(pub #field_ident: #value)
         });

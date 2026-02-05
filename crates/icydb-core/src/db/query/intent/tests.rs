@@ -15,7 +15,7 @@ use crate::{
         EntityValue, FieldValue, FieldValues, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, View, Visitable,
     },
-    types::{Ref, Ulid, Unit},
+    types::{Id, Ref, Ulid, Unit},
     value::Value,
 };
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ fn basic_model() -> &'static EntityModel {
 // Test-only entity to compare typed vs model planning without schema macros.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 struct PlanEntity {
-    id: Ulid,
+    id: Id<Self>,
     name: String,
 }
 
@@ -86,7 +86,7 @@ static PLAN_MODEL: EntityModel = LegacyTestEntityModel::from_static(
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 struct PlanSingleton {
-    id: Unit,
+    id: Id<Self>,
 }
 
 impl View for PlanSingleton {
@@ -129,11 +129,7 @@ impl FieldValues for PlanSingleton {
 
 impl EntityValue for PlanSingleton {
     fn id(&self) -> Self::Id {
-        self.id
-    }
-
-    fn set_id(&mut self, id: Self::Id) {
-        self.id = id;
+        *self.id.key()
     }
 }
 

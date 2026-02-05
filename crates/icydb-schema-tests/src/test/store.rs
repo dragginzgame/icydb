@@ -15,7 +15,7 @@ impl StoreTestEntity {
     #[must_use]
     pub fn new(id: u64) -> Self {
         Self {
-            id,
+            id: Id::new(id),
             ..Default::default()
         }
     }
