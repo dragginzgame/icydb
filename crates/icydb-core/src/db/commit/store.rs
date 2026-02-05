@@ -152,6 +152,11 @@ pub(super) fn with_commit_store<R>(
     })
 }
 
+// Fast, observational check for marker presence without decoding.
+pub(super) fn commit_marker_present_fast() -> Result<bool, InternalError> {
+    with_commit_store(|store| Ok(!store.is_empty()))
+}
+
 // Access the commit store without fallible initialization.
 pub(super) fn with_commit_store_infallible<R>(f: impl FnOnce(&mut CommitStore) -> R) -> R {
     COMMIT_STORE.with(|cell| {

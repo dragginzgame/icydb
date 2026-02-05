@@ -4,7 +4,7 @@ mod tests;
 use crate::{
     db::{
         CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit,
-        ensure_recovered,
+        ensure_recovered_for_write,
         executor::{
             ExecutorError,
             commit_ops::{apply_marker_index_ops, resolve_index_key},
@@ -91,7 +91,7 @@ const fn strong_relation_from_kind(kind: &EntityFieldKind) -> Option<StrongRelat
             target_store_path,
         }),
         _ => {
-            // NOTE: Only strong Ref and List<Ref> fields participate in save-time RI.
+            // NOTE: Only strong Ref and collection (List/Set) Ref fields participate in save-time RI.
             None
         }
     }
@@ -237,7 +237,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             let ctx = self.db.context::<E>();
 
             // Recovery is mandatory before mutations; read paths recover separately.
-            ensure_recovered(&self.db)?;
+            ensure_recovered_for_write(&self.db)?;
 
             // Sanitize & validate before key extraction in case PK fields are normalized
             sanitize(&mut entity)?;
@@ -565,6 +565,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             // Phase 2: validate each referenced key.
             match &value {
                 Value::List(items) => {
+                    // Collection enforcement is aggregate: every referenced key must exist.
                     for item in items {
                         // NOTE: Optional list entries are allowed; skip explicit None values.
                         if matches!(item, Value::None) {

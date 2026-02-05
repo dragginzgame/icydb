@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 Relation intent is now explicit (strong vs weak), and save-time referential integrity is enforced only for relations explicitly marked strong. Enforcement is deterministic, schema-driven, and occurs during save preflight, with no load-time checks, inference, or cascading behavior.
 
 This release locks in the new RI contract and stabilizes runtime behavior.
+Write paths now refuse to proceed while a prior commit marker is present, ensuring no mutation
+stacks on top of an incomplete commit.
 
 ### 🥨 Added
 
@@ -23,6 +25,7 @@ This release locks in the new RI contract and stabilizes runtime behavior.
 ### 🪼 Changed
 
 * Save operations now enforce referential integrity for `RelationStrength::Strong` fields and fail if targets are missing.
+* Write executors now perform a fast commit-marker check and replay recovery before mutations when needed; read recovery remains startup-only.
 
 ### 🧢 Breaking
 

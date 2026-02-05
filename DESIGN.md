@@ -194,7 +194,7 @@ but reference discovery is always structural and deterministic.
 
 icydb supports:
 
-* existence checks for **strong** direct references (`Ref<T>`, `Option<Ref<T>>`)
+* existence checks for **strong** references (`Ref<T>`, `Option<Ref<T>>`, and collections of `Ref<T>`)
 * validation during save/update **before the commit boundary**
 
 icydb explicitly does **not** support:
@@ -209,7 +209,7 @@ Referential integrity:
 
 * is enforced only during mutation
 * requires no graph traversal
-* performs only direct key existence checks for strong references
+* performs key existence checks for strong references (including collections)
 * does not alter execution or query semantics
 
 RI exists to prevent invalid persisted state, not to enable relational querying.
@@ -224,10 +224,11 @@ Strong reference shapes (validated):
 
 * `Ref<T>`
 * `Option<Ref<T>>`
+* collections of `Ref<T>` (e.g. `List<Ref<T>>`, `Set<Ref<T>>`)
 
 Weak reference shapes (allowed, not validated):
 
-* `Vec<Ref<T>>`, `Set<Ref<T>>`, `Map<_, Ref<T>>`
+* `Map<_, Ref<T>>`
 * nested references inside records, enums, tuples, or collections
 * implicit or inferred relations are never introduced automatically
 
@@ -257,7 +258,9 @@ Error classification is part of the correctness model and must not change silent
 
 ## 11. Recovery and read safety
 
-Reads must never observe partial commit state.
+Reads are guarded by startup recovery, but do not perform marker checks after
+startup. A post-startup trap may leave partial state visible to reads until a
+write triggers recovery or the process restarts.
 
 icydb enforces:
 

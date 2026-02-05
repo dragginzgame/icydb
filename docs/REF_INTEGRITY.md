@@ -6,7 +6,8 @@ Save-time referential integrity is enforced for **strong** relations only. Refer
 
 Key points:
 * `Ref<T>` is an **identity wrapper**, not a semantic value
-* `RelationStrength::Strong` is enforced at save time; the target must exist
+* `RelationStrength::Strong` is enforced at save time for `Ref<T>`, `Option<Ref<T>>`,
+  and collections of `Ref<T>` (e.g. `List<Ref<T>>`, `Set<Ref<T>>`)
 * `RelationStrength::Weak` is **not validated** and is purely semantic
 * Strength is **explicit** schema intent (no inference from type shape or cardinality)
 * Locality is enforced at `DbSession<C>` via `E: EntityKind<Canister = C>`
@@ -49,13 +50,15 @@ References are **not joins** and do not participate in query planning.
 
 `Ref<T>` is an identity wrapper and is **not automatically validated** except where the schema declares a strong relation.
 
+Collection fields that contain `Ref<T>` are treated as references for RI when the field is marked strong.
+
 ---
 
 ## 3. Reference discovery (schema-driven)
 
 RI is **schema-driven** and **field-scoped**.
 
-Only entity fields declared as relations in the schema are considered for save-time enforcement. There is **no traversal** of nested values and **no inference** from type shape, cardinality, or field names.
+Only entity fields declared as relations in the schema are considered for save-time enforcement. There is **no traversal beyond the field boundary** (no nested discovery inside records, enums, tuples, maps, or arbitrary containers), and **no inference** from type shape, cardinality, or field names.
 
 ---
 
@@ -83,6 +86,18 @@ Strong reference rules:
 * Validation failure aborts the mutation
 * No durable state is mutated on failure
 * No cascading inserts or deletes are performed
+
+Supported strong shapes:
+
+* `Ref<T>`
+* `Option<Ref<T>>`
+* Collections of `Ref<T>` (e.g. `List<Ref<T>>`, `Set<Ref<T>>`)
+
+Collection enforcement is **aggregate**:
+
+* Every referenced target must exist
+* Empty collections are valid
+* Any missing target causes the save to fail
 
 Strength is **not inferred** from cardinality or container shape.
 
@@ -118,6 +133,9 @@ RI enforcement:
 ### 5.2 What is enforced
 
 Only **strong references** are enforced.
+
+For collection fields, enforcement is element-wise and bounded; a single missing
+target fails the save. Empty collections are valid.
 
 Weak references are allowed but not validated; there is no recursive discovery
 or inference.

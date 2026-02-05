@@ -1,6 +1,7 @@
 use crate::{
     db::{
         CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit,
+        ensure_recovered_for_write,
         executor::{
             ExecutorError,
             commit_ops::{apply_marker_index_ops, resolve_index_key},
@@ -145,6 +146,8 @@ where
         let mut commit_started = false;
         let trace = start_plan_trace(self.trace, TraceExecutorKind::Delete, &plan);
         let result = (|| {
+            // Recovery is mandatory before mutations; read paths recover separately.
+            ensure_recovered_for_write(&self.db)?;
             let plan = plan.into_inner();
             validate_executor_plan::<E>(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;

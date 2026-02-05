@@ -110,7 +110,7 @@ Key properties:
 * Entity type is fixed at construction (`Query<User>`).
 * Missing-row behavior is explicit (`ReadConsistency`).
 * Executors only accept validated, executable plans.
-* Query semantics are API-surface dependent: `FieldRef` and `FilterExpr` use different coercion defaults for ordering. See `docs/QUERY_BUILDER.md` for the locked contract.
+* Query semantics are API-surface dependent: `FieldRef` and `FilterExpr` use different coercion defaults for ordering. See `docs/QUERY_CONTRACT.md` for the facade contract and `docs/QUERY_PRACTICE.md` for predicate semantics.
 
 ---
 

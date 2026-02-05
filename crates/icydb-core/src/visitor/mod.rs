@@ -275,6 +275,14 @@ pub fn perform_visit<S: Into<PathSegment>>(
     }
 }
 
+pub fn perform_visit_typed<S, V>(visitor: &mut dyn VisitorCore, node: &V, seg: S)
+where
+    S: Into<PathSegment>,
+    V: Visitable,
+{
+    perform_visit(visitor, node, seg);
+}
+
 // ============================================================================
 // VisitorMut (mutable)
 // ============================================================================
@@ -366,6 +374,13 @@ where
 // Traversal (mutable)
 // ============================================================================
 
+/// Perform a mutable visitor traversal starting at a trait-object node.
+///
+/// This is the *core* traversal entrypoint. It operates on `&mut dyn Visitable`
+/// because visitor callbacks (`enter_mut` / `exit_mut`) require a trait object.
+///
+/// Path segments are pushed/popped around the traversal unless the segment is
+/// `PathSegment::Empty`.
 pub fn perform_visit_mut<S: Into<PathSegment>>(
     visitor: &mut dyn VisitorMutCore,
     node: &mut dyn Visitable,
@@ -385,4 +400,12 @@ pub fn perform_visit_mut<S: Into<PathSegment>>(
     if should_push {
         visitor.pop();
     }
+}
+
+pub fn perform_visit_mut_typed<S, V>(visitor: &mut dyn VisitorMutCore, node: &mut V, seg: S)
+where
+    S: Into<PathSegment>,
+    V: Visitable,
+{
+    perform_visit_mut(visitor, node, seg);
 }

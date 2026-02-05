@@ -14,13 +14,13 @@ The goal is to keep tests:
 
 IcyDB uses **five distinct classes of tests**. Each class has a clear purpose and a clear home.
 
-| Test Type              | Purpose                                   | Lives In                        | May Touch Internals | Runs On IC |
-| ---------------------- | ----------------------------------------- | ------------------------------- | ------------------- | ---------- |
-| Unit Tests             | Local invariants of a single module       | Same crate as code              | Yes                 | No         |
-| Integration Tests      | Cross-module correctness inside one crate | `crates/*/tests` or `mod tests` | Limited             | No         |
-| Schema / Planner Tests | Declarative schema → planning semantics   | `icydb-core`                    | Yes                 | No         |
-| End-to-End (E2E) Tests | Full system behavior                      | `tests/e2e`                     | No                  | Yes        |
-| Regression Tests       | Lock in previously-broken behavior        | Wherever the bug lived          | Yes                 | Depends    |
+| Test Type              | Purpose                                   | Lives In                                   | May Touch Internals | Runs On IC |
+| ---------------------- | ----------------------------------------- | ------------------------------------------ | ------------------- | ---------- |
+| Unit Tests             | Local invariants of a single module       | Same crate as code                         | Yes                 | No         |
+| Integration Tests      | Cross-module correctness inside one crate | `crates/*/tests` or `mod tests`            | Limited             | No         |
+| Schema / Planner Tests | Declarative schema → planning semantics   | `icydb-core`                               | Yes                 | No         |
+| End-to-End (E2E) Tests | System-level behavior of generated code   | `crates/icydb-schema-tests/src/e2e`        | No                  | No         |
+| Regression Tests       | Lock in previously-broken behavior        | Wherever the bug lived                     | Yes                 | Depends    |
 
 ---
 
@@ -150,36 +150,36 @@ When a typed entity already exists in the test:
 
 ### Purpose
 
-Validate **real-world behavior** from a user perspective:
+Validate **system-level behavior** from a user perspective:
 
 * Schema declaration
-* Deployment
 * Reads and writes
 * Referential integrity
 * Recovery behavior
 
-These tests answer: *"Does the system actually work when deployed?"*
+These tests answer: *"Does the generated surface behave coherently?"*
 
 ### Location
 
-`tests/e2e`
+`crates/icydb-schema-tests/src/e2e`
 
 ### Characteristics
 
-* Slow
-* Expensive
-* High confidence
+* Medium cost
+* Host-test harness (no canister runtime)
+* Moderate confidence
 
 ### Allowed Dependencies
 
 * Public API only
-* Real canisters
-* Real storage
+* Macro-generated types
+* Host test harness
 
 ### Forbidden
 
 * Internal planner assertions
 * White-box checks
+* Canister lifecycle assumptions
 
 ---
 
@@ -207,7 +207,7 @@ Example:
 
 ## What We Explicitly Do NOT Have
 
-* ❌ Macro DSL tests
+* ❌ IC canister-level E2E tests (deployment, upgrade, message boundaries)
 * ❌ `__internal` test-only APIs
 * ❌ Dual schema languages ("real" vs "test")
 * ❌ Inline `EntityModel { ... }` in test modules
@@ -223,7 +223,7 @@ If a test requires one of these, the architecture is wrong.
    Planner logic depends on schema models, not `EntityKind`.
 
 2. **Black-box vs white-box clarity**
-   E2E tests are black-box. Core tests are white-box. Never mix them.
+   System tests are black-box. Core tests are white-box. Never mix them.
 
 3. **No test-only public APIs**
    Tests live where internals already exist.
@@ -248,7 +248,7 @@ If the answers are unclear, stop and reassess.
 * Unit tests protect invariants
 * Integration tests protect module composition
 * Schema / planner tests protect correctness
-* E2E tests protect reality
+* E2E tests protect the generated surface
 * Regression tests protect history
 
 Each class has a home. Each home has rules.

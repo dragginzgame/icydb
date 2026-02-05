@@ -349,6 +349,7 @@ fn model_kind_from_item(item: &Item) -> TokenStream {
         } else {
             quote!(::icydb::model::field::RelationStrength::Weak)
         };
+        // Relation strength applies to Ref targets and collection-of-Ref shapes.
         return quote! {
             ::icydb::model::field::EntityFieldKind::Ref {
                 target_path: #target_path,

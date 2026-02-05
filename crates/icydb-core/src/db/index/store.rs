@@ -18,7 +18,7 @@ use derive_more::{Deref, DerefMut};
 use std::borrow::Cow;
 
 /*
-Index Fingerprints — Design Contract (0.6)
+Index Fingerprints — Design Contract (0.7)
 
 Fingerprints are *non-authoritative diagnostic witnesses* stored alongside
 index entries. They exist solely to detect divergence during development.

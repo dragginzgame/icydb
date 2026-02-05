@@ -5,11 +5,9 @@
 //! commit before any new operation proceeds.
 //!
 //! Important semantic notes:
-//! - Recovery is an entrypoint gate for both reads and mutations.
-//! - Reads never observe partial commit state because recovery completes
-//!   synchronously before any read logic runs.
-//! - Recovery, if needed, completes synchronously before control returns
-//!   to the caller.
+//! - Recovery runs once at startup for read paths.
+//! - Write paths perform a cheap marker check and replay if needed.
+//! - Reads may observe partial commit state if a trap occurs after startup.
 //!
 //! Invocation from read or mutation entrypoints is permitted only as an
 //! unconditional invariant-restoration step. Recovery must not be
@@ -21,7 +19,7 @@ use crate::{
         commit::{
             CommitKind, CommitMarker,
             decode::{decode_data_key, decode_index_entry, decode_index_key},
-            store::with_commit_store,
+            store::{commit_marker_present_fast, with_commit_store},
         },
         index::RawIndexEntry,
         store::{DataStore, RawDataKey, RawRow},
@@ -73,7 +71,7 @@ fn should_force_recovery() -> bool {
 ///
 /// This function is:
 /// - **Not part of mutation atomicity**
-/// - **Mandatory before any read or mutation execution**
+/// - **Mandatory before read execution at startup**
 /// - **Not conditional on read semantics**
 ///
 /// It may be invoked at operation boundaries (including read or mutation
@@ -85,6 +83,37 @@ pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(),
         return Ok(());
     }
 
+    perform_recovery(db)
+}
+
+/// Ensure recovery has been performed before any write operation proceeds.
+///
+/// Hybrid model:
+/// - Startup recovery runs once.
+/// - Writes perform a fast marker check and replay if a marker is present.
+///
+/// Recovery must be idempotent and safe to run multiple times.
+/// All mutation entrypoints must call this before any commit boundary work.
+pub fn ensure_recovered_for_write(
+    db: &Db<impl crate::traits::CanisterKind>,
+) -> Result<(), InternalError> {
+    let force = should_force_recovery();
+    if force {
+        return perform_recovery(db);
+    }
+
+    if RECOVERED.get().is_none() {
+        return perform_recovery(db);
+    }
+
+    if commit_marker_present_fast()? {
+        return perform_recovery(db);
+    }
+
+    Ok(())
+}
+
+fn perform_recovery(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {
     let marker = with_commit_store(|store| store.load())?;
     if let Some(marker) = marker {
         let (index_ops, data_ops) = prevalidate_recovery(db, &marker)?;
@@ -96,6 +125,7 @@ pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(),
     }
 
     let _ = RECOVERED.set(());
+
     Ok(())
 }
 

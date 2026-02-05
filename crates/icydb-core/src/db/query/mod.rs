@@ -1,6 +1,6 @@
 //! Query Builder modules.
 //!
-//! Predicate semantics are defined in `docs/QUERY_BUILDER.md` and are the
+//! Predicate semantics are defined in `docs/QUERY_PRACTICE.md` and are the
 //! canonical contract for evaluation, coercion, and normalization.
 
 pub mod builder;
