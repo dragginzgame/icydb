@@ -267,6 +267,37 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         Ok(self.inner.execute()?.contains_id(id))
     }
 
+    // ------------------------------------------------------------------
+    // References
+    // ------------------------------------------------------------------
+
+    pub fn reference(&self) -> Result<Ref<E>, Error>
+    where
+        E: EntityValue,
+    {
+        self.inner
+            .execute()?
+            .reference()
+            .map_err(map_response_error)
+    }
+
+    pub fn try_reference(&self) -> Result<Option<Ref<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        self.inner
+            .execute()?
+            .try_reference()
+            .map_err(map_response_error)
+    }
+
+    pub fn references(&self) -> Result<Vec<Ref<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.execute()?.references())
+    }
+
     pub fn all(&self) -> Result<Vec<E>, Error>
     where
         E: EntityValue,
