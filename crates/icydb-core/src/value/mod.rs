@@ -97,6 +97,14 @@ impl Value {
         Self::List(items.iter().cloned().map(Into::into).collect())
     }
 
+    /// Build a `Value::List` from an iterator of items convertible into `Value`
+    pub fn from_list_iter<T>(items: impl IntoIterator<Item = T>) -> Self
+    where
+        T: Into<Self>,
+    {
+        Self::List(items.into_iter().map(Into::into).collect())
+    }
+
     /// Build a `Value::Enum` from a domain enum using its explicit mapping.
     pub fn from_enum<E: EnumValue>(value: E) -> Self {
         Self::Enum(value.to_value_enum())
@@ -556,6 +564,12 @@ impl ValueFamilyExt for Value {
 impl FieldValue for Value {
     fn to_value(&self) -> Value {
         self.clone()
+    }
+}
+
+impl<E: EntityIdentity> From<Ref<E>> for Value {
+    fn from(r: Ref<E>) -> Self {
+        r.to_value() // via FieldValue
     }
 }
 
