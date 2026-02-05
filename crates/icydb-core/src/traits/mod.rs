@@ -74,18 +74,9 @@ pub trait EntityKey: Copy + Debug + Eq + Ord + FieldValue + 'static {}
 impl<T> EntityKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static {}
 
 ///
-/// Identifies
-///
-/// Narrow capability for extracting an entity key without collapsing identity and relation types.
-///
-
-pub trait Identifies<E: EntityIdentity> {
-    fn key(&self) -> E::Id;
-}
-
-///
 /// EntityIdentity
 /// Identity-only facts about an entity.
+/// Primary keys may be relations only for identity-borrowing (singleton) entities.
 ///
 
 pub trait EntityIdentity {

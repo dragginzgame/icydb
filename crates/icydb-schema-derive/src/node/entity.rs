@@ -119,13 +119,13 @@ impl ValidateNode for Entity {
         }
 
         if pk_field.value.item.is_relation() {
-            errors.push(syn::Error::new_spanned(
-                pk_ident,
-                format!(
-                    "primary key field '{}' cannot be a relation (Ref<T> is not a primary key)",
-                    self.primary_key
-                ),
-            ));
+            // PK-as-relation is only allowed as identity-borrowing (singleton-by-X).
+            // At this point:
+            // - this field *is* the primary key
+            // - cardinality is enforced to One
+            // Therefore this is allowed.
+            //
+            // Any other relation-as-PK cases are already structurally impossible.
         }
 
         errors

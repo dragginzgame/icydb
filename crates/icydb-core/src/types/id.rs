@@ -1,6 +1,6 @@
 use crate::{
     traits::{
-        EntityIdentity, FieldValue, Identifies, Inner, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        EntityIdentity, FieldValue, Inner, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, View, Visitable,
     },
     types::Ref,
@@ -251,12 +251,3 @@ where
 }
 
 impl<E> Visitable for Id<E> where E: EntityIdentity {}
-
-impl<E> Identifies<E> for Id<E>
-where
-    E: EntityIdentity,
-{
-    fn key(&self) -> E::Id {
-        self.id
-    }
-}

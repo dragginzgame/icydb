@@ -30,7 +30,7 @@ mod tests {
         let response = WriteResponse::new(entity);
 
         assert_eq!(response.key(), id);
-        assert_eq!(response.reference().id(), id);
+        assert_eq!(response.reference().key(), id);
         assert_eq!(response.view().id, id);
     }
 

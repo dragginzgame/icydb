@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        EntityIdentity, FieldValue, Identifies, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        EntityIdentity, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
     value::Value,
 };
@@ -51,11 +51,6 @@ where
     /// explain output, and fingerprinting.
     pub fn as_value(&self) -> Value {
         self.id.to_value()
-    }
-
-    #[must_use]
-    pub const fn id(self) -> E::Id {
-        self.id
     }
 
     /// Return the primary key.
@@ -236,12 +231,3 @@ where
 }
 
 impl<E> Visitable for Ref<E> where E: EntityIdentity {}
-
-impl<E> Identifies<E> for Ref<E>
-where
-    E: EntityIdentity,
-{
-    fn key(&self) -> E::Id {
-        self.id
-    }
-}

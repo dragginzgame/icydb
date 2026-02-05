@@ -35,6 +35,7 @@ stacks on top of an incomplete commit.
 * Save operations now enforce referential integrity for `RelationStrength::Strong` fields and fail if targets are missing.
 * Write executors now perform a fast commit-marker check and replay recovery before mutations when needed; read recovery remains startup-only.
 * Many relation fields now emit `RefSet<T>` to enforce unique, key-ordered references and align update semantics with `SetPatch`.
+* Entity macros now allow primary keys to be relations for identity-borrowing singleton entities.
 
 ### 🧢 Breaking
 

@@ -2,7 +2,7 @@
 //! exclusively by the storage and indexing layers.
 //!
 //! It MUST NOT be used as an identity or primary key abstraction.
-//! Typed identity is represented by Ref<E>.
+//! Typed identity is represented by Id<E> for owned identity and Ref<E> for references.
 
 #![expect(clippy::cast_possible_truncation)]
 
