@@ -9,18 +9,21 @@ use crate::{
     visitor::{VisitorContext, VisitorCore, VisitorMutCore, perform_visit},
 };
 use candid::CandidType;
-use derive_more::Deref;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 ///
 /// RefSet
 ///
-/// Ordered set of typed entity references.
-/// Uniqueness is enforced by `E::Id`, ordered by ascending key.
+/// Canonical set of typed entity references.
+///
+/// - Uniqueness is enforced by `E::Id`.
+/// - Ordering is canonical (ascending by key) and does NOT reflect insertion history.
+/// - No ordering-based or predicate-based mutation APIs are provided.
+/// - In-place mutation of elements is forbidden to preserve ordering invariants.
 ///
 
 #[repr(transparent)]
-#[derive(Clone, Debug, Default, Deref, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RefSet<E: EntityIdentity>(Vec<Ref<E>>);
 
 impl<E> RefSet<E>
@@ -64,6 +67,7 @@ where
     /// Insert a reference, returning `true` if it was newly inserted.
     pub fn insert(&mut self, reference: Ref<E>) -> bool {
         let key = reference.key();
+
         match self.find_index(&key) {
             Ok(_) => false,
             Err(index) => {
@@ -74,8 +78,10 @@ where
     }
 
     /// Remove a reference by key, returning `true` if it was present.
-    pub fn remove(&mut self, key: &E::Id) -> bool {
-        match self.find_index(key) {
+    pub fn remove(&mut self, reference: &Ref<E>) -> bool {
+        let key = reference.key();
+
+        match self.find_index(&key) {
             Ok(index) => {
                 self.0.remove(index);
                 true
@@ -84,9 +90,15 @@ where
         }
     }
 
+    /// Returns `true` if the set contains the reference.
+    #[must_use]
+    pub fn contains(&self, reference: &Ref<E>) -> bool {
+        self.contains_key(&reference.key())
+    }
+
     /// Returns `true` if the set contains the key.
     #[must_use]
-    pub fn contains_key(&self, key: &E::Id) -> bool {
+    fn contains_key(&self, key: &E::Id) -> bool {
         self.find_index(key).is_ok()
     }
 
@@ -99,6 +111,12 @@ where
     fn find_index(&self, key: &E::Id) -> Result<usize, usize> {
         self.0
             .binary_search_by(|candidate| candidate.key().cmp(key))
+    }
+
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
+    fn assert_sorted(&self) {
+        debug_assert!(self.0.windows(2).all(|w| { w[0].key() < w[1].key() }));
     }
 }
 
@@ -269,8 +287,7 @@ where
                 SetPatch::Remove(value) => {
                     let mut reference = Ref::<E>::default();
                     reference.merge(value);
-                    let key = reference.key();
-                    self.remove(&key);
+                    self.remove(&reference);
                 }
                 SetPatch::Overwrite { values } => {
                     self.clear();

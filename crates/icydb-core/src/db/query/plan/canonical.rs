@@ -66,7 +66,6 @@ pub(crate) fn is_canonical_sorted_value(plans: &[AccessPlan<Value>]) -> bool {
 /// 1. Plan *kind* (Path < Intersection < Union)
 /// 2. Within the same kind, compare contents recursively
 #[cfg(test)]
-#[allow(dead_code)]
 fn canonical_cmp_access_plan<K>(left: &AccessPlan<K>, right: &AccessPlan<K>) -> Ordering
 where
     K: Ord,
