@@ -22,6 +22,7 @@ stacks on top of an incomplete commit.
 * Added `strong`/`weak` relation flags in the schema DSL, with `weak` as the default.
 * Added relation strength metadata to `EntityFieldKind::Ref` for runtime consumers.
 * Added `Response::reference`, `Response::try_reference`, and `Response::references` to return typed `Ref<E>` results from query responses.
+* Added a `Display` derive in `icydb-derive` for tuple newtypes.
 
 ### 🪼 Changed
 

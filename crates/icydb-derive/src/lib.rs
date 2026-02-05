@@ -1,3 +1,4 @@
+mod display;
 mod field_values;
 mod inner;
 mod newtype;
@@ -58,6 +59,11 @@ pub fn derive_sum(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(FieldValues)]
 pub fn derive_field_values(input: TokenStream) -> TokenStream {
     field_values::derive_field_values(input.into()).into()
+}
+
+#[proc_macro_derive(Display)]
+pub fn derive_display(input: TokenStream) -> TokenStream {
+    display::derive_display(input.into()).into()
 }
 
 #[proc_macro_derive(Inner)]
