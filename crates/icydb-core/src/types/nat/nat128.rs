@@ -43,6 +43,18 @@ impl Nat128 {
     pub const fn get(self) -> u128 {
         self.0
     }
+
+    /// Saturating addition.
+    #[must_use]
+    pub const fn saturating_add(self, rhs: Self) -> Self {
+        Self(self.0.saturating_add(rhs.0))
+    }
+
+    /// Saturating subtraction.
+    #[must_use]
+    pub const fn saturating_sub(self, rhs: Self) -> Self {
+        Self(self.0.saturating_sub(rhs.0))
+    }
 }
 
 impl Mul for Nat128 {

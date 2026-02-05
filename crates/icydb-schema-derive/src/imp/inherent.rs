@@ -125,9 +125,29 @@ impl Imp<Enum> for InherentTrait {
 impl Imp<Newtype> for InherentTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
         let kind = model_kind_from_item(&node.item);
-        let tokens = quote! {
+        let mut tokens = quote! {
             pub const KIND: ::icydb::model::field::EntityFieldKind = #kind;
         };
+
+        if let Some(primitive) = node.primitive
+            && primitive.supports_arithmetic()
+        {
+            tokens = quote! {
+                #tokens
+
+                /// Saturating addition.
+                #[must_use]
+                pub fn saturating_add(self, rhs: Self) -> Self {
+                    Self(self.0.saturating_add(rhs.0))
+                }
+
+                /// Saturating subtraction.
+                #[must_use]
+                pub fn saturating_sub(self, rhs: Self) -> Self {
+                    Self(self.0.saturating_sub(rhs.0))
+                }
+            };
+        }
 
         let tokens = Implementor::new(node.def(), TraitKind::Inherent)
             .set_tokens(tokens)

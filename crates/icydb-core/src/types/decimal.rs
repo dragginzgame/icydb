@@ -120,6 +120,18 @@ impl Decimal {
         Self(self.0.abs())
     }
 
+    /// Saturating addition.
+    #[must_use]
+    pub fn saturating_add(self, rhs: Self) -> Self {
+        Self(self.0.saturating_add(rhs.0))
+    }
+
+    /// Saturating subtraction.
+    #[must_use]
+    pub fn saturating_sub(self, rhs: Self) -> Self {
+        Self(self.0.saturating_sub(rhs.0))
+    }
+
     /// Checked remainder; returns `None` on division by zero.
     pub fn checked_rem(self, rhs: Self) -> Option<Self> {
         self.0.checked_rem(rhs.0).map(Self)

@@ -65,6 +65,22 @@ impl Nat {
 
         out
     }
+
+    /// Saturating addition (unbounded; equivalent to normal addition).
+    #[must_use]
+    pub fn saturating_add(self, rhs: Self) -> Self {
+        Self(self.0 + rhs.0)
+    }
+
+    /// Saturating subtraction; clamps at zero on underflow.
+    #[must_use]
+    pub fn saturating_sub(self, rhs: Self) -> Self {
+        if rhs > self {
+            return Self::default();
+        }
+
+        Self(self.0 - rhs.0)
+    }
 }
 
 impl Mul for Nat {

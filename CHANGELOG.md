@@ -26,6 +26,7 @@ stacks on top of an incomplete commit.
 * Added collection types `OrderedList`, `UniqueList`, `KeyedList`, and `RefSet` for explicit many-field semantics.
 * Added `OrderedList::retain` plus `apply_patches` helpers on `OrderedList` and `RefSet` for explicit patch application.
 * Added `docs/collections.md` as the contract reference for collection and patch semantics.
+* Added `saturating_add`/`saturating_sub` helpers to arithmetic newtypes for explicit saturating math.
 
 ### 🪼 Changed
 

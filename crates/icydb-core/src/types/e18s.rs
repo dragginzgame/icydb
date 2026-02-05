@@ -116,6 +116,18 @@ impl E18s {
         self.0
     }
 
+    /// Saturating addition.
+    #[must_use]
+    pub const fn saturating_add(self, rhs: Self) -> Self {
+        Self(self.0.saturating_add(rhs.0))
+    }
+
+    /// Saturating subtraction.
+    #[must_use]
+    pub const fn saturating_sub(self, rhs: Self) -> Self {
+        Self(self.0.saturating_sub(rhs.0))
+    }
+
     #[must_use]
     #[allow(clippy::cast_possible_wrap)]
     /// Convert the fixed-point value into a normalized `Decimal`.
