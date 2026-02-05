@@ -14,7 +14,7 @@ resolver = "2"
 [workspace.package]
 rust-version = "1.93.0"
 edition = "2024"
-version = "0.6.27"
+version = "0.6.28"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A type-safe, embedded ORM and schema system for the Internet Computer"
 categories = ["database", "web-programming", "wasm"]
@@ -32,12 +32,12 @@ ctor = "0.6"
 darling = "0.23"
 derive_more = { version = "2.0", default-features = false, features = ["full"] }
 ic-cdk = "0.19.0"
-icydb = { path = "crates/icydb", version = "0.6.27" }
-icydb-build = { path = "crates/icydb-build", version = "0.6.27" }
-icydb-core = { path = "crates/icydb-core", version = "0.6.27" }
-icydb-derive = { path = "crates/icydb-derive", version = "0.6.27" }
-icydb-schema = { path = "crates/icydb-schema", version = "0.6.27" }
-icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.6.27" }
+icydb = { path = "crates/icydb", version = "0.6.28" }
+icydb-build = { path = "crates/icydb-build", version = "0.6.28" }
+icydb-core = { path = "crates/icydb-core", version = "0.6.28" }
+icydb-derive = { path = "crates/icydb-derive", version = "0.6.28" }
+icydb-schema = { path = "crates/icydb-schema", version = "0.6.28" }
+icydb-schema-derive = { path = "crates/icydb-schema-derive", version = "0.6.28" }
 # Test harnesses
 icydb-schema-tests = { path = "crates/icydb-schema-tests" }
 num-traits = { version = "0.2", default-features = false }
