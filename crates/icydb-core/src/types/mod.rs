@@ -1,5 +1,6 @@
 mod account;
 mod blob;
+mod collection;
 mod date;
 mod decimal;
 mod duration;
@@ -17,6 +18,7 @@ mod unit;
 
 pub use account::*;
 pub use blob::*;
+pub use collection::*;
 pub use date::*;
 pub use decimal::*;
 pub use duration::*;

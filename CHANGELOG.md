@@ -23,15 +23,19 @@ stacks on top of an incomplete commit.
 * Added relation strength metadata to `EntityFieldKind::Ref` for runtime consumers.
 * Added `Response::reference`, `Response::try_reference`, and `Response::references` to return typed `Ref<E>` results from query responses.
 * Added a `Display` derive in `icydb-derive` for tuple newtypes.
+* Added collection types `OrderedList`, `UniqueList`, `KeyedList`, and `RefSet` for explicit many-field semantics.
 
 ### 🪼 Changed
 
 * Save operations now enforce referential integrity for `RelationStrength::Strong` fields and fail if targets are missing.
 * Write executors now perform a fast commit-marker check and replay recovery before mutations when needed; read recovery remains startup-only.
+* Many relation fields now emit `RefSet<T>` to enforce unique, key-ordered references and align update semantics with `SetPatch`.
 
 ### 🧢 Breaking
 
 * `EntityFieldKind::Ref` now carries target entity/store metadata and relation strength, so downstream enum matches must update.
+* Entity and record fields with `many` cardinality now emit `OrderedList<T>` instead of `Vec<T>`.
+* Relation fields with `many` cardinality now emit `RefSet<T>` instead of list types like `Vec<Ref<T>>`.
 
 ---
 

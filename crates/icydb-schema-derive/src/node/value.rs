@@ -65,7 +65,13 @@ impl HasTypeExpr for Value {
         match self.cardinality() {
             Cardinality::One => quote!(#item),
             Cardinality::Opt => quote!(Option<#item>),
-            Cardinality::Many => quote!(Vec<#item>),
+            Cardinality::Many => {
+                if let Some(relation) = &self.item.relation {
+                    quote!(::icydb::types::RefSet<#relation>)
+                } else {
+                    quote!(::icydb::types::OrderedList<#item>)
+                }
+            }
         }
     }
 }

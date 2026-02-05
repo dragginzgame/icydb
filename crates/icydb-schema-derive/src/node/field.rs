@@ -160,7 +160,13 @@ impl Field {
             (Some(default), _) => quote!(#default.into()),
             (None, Cardinality::One) => quote!(Default::default()),
             (None, Cardinality::Opt) => quote!(None),
-            (None, Cardinality::Many) => quote!(Vec::new()),
+            (None, Cardinality::Many) => {
+                if let Some(relation) = &self.value.item.relation {
+                    quote!(::icydb::types::RefSet::<#relation>::new())
+                } else {
+                    quote!(::icydb::types::OrderedList::new())
+                }
+            }
         }
     }
 
@@ -214,10 +220,26 @@ impl HasSchemaPart for Field {
 impl HasTypeExpr for Field {
     fn type_expr(&self) -> TokenStream {
         let ident = &self.ident;
-        let value = self.value.type_expr();
+        let value = field_value_type_expr(&self.value);
 
         quote! {
             pub #ident: #value
+        }
+    }
+}
+
+fn field_value_type_expr(value: &Value) -> TokenStream {
+    let item = value.item.type_expr();
+
+    match value.cardinality() {
+        Cardinality::One => quote!(#item),
+        Cardinality::Opt => quote!(Option<#item>),
+        Cardinality::Many => {
+            if let Some(relation) = &value.item.relation {
+                quote!(::icydb::types::RefSet<#relation>)
+            } else {
+                quote!(::icydb::types::OrderedList<#item>)
+            }
         }
     }
 }

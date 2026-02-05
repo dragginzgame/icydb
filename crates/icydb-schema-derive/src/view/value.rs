@@ -2,6 +2,7 @@ use crate::{
     prelude::*,
     view::{ItemUpdate, ItemView, traits::ViewExpr},
 };
+use quote::quote;
 
 ///
 /// ValueView
@@ -37,7 +38,13 @@ impl ViewExpr for ValueUpdate<'_> {
         match node.cardinality() {
             Cardinality::One => quote!(#item),
             Cardinality::Opt => quote!(Option<#item>),
-            Cardinality::Many => quote!(Vec<::icydb::view::ListPatch<#item>>),
+            Cardinality::Many => {
+                if node.item.is_relation() {
+                    quote!(Vec<::icydb::view::SetPatch<#item>>)
+                } else {
+                    quote!(Vec<::icydb::view::ListPatch<#item>>)
+                }
+            }
         }
         .into()
     }

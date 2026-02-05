@@ -250,6 +250,12 @@ fn entity_field_type_expr(field: &Field) -> TokenStream {
     match field.value.cardinality() {
         Cardinality::One => quote!(#base),
         Cardinality::Opt => quote!(Option<#base>),
-        Cardinality::Many => quote!(Vec<#base>),
+        Cardinality::Many => {
+            if let Some(relation) = &item.relation {
+                quote!(::icydb::types::RefSet<#relation>)
+            } else {
+                quote!(::icydb::types::OrderedList<#base>)
+            }
+        }
     }
 }

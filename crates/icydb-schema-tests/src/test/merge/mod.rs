@@ -79,7 +79,7 @@ mod tests {
         MergeProfile {
             bio: bio.into(),
             visits,
-            favorite_numbers: favorites.to_vec(),
+            favorite_numbers: favorites.to_vec().into(),
         }
     }
 
@@ -90,7 +90,7 @@ mod tests {
             name: "original".into(),
             score: 7,
             nickname: None,
-            scores: vec![1, 2, 3],
+            scores: vec![1, 2, 3].into(),
             tags: MergeTags::from(vec!["red".to_string(), "blue".to_string()]),
             settings: MergeSettings::from(vec![
                 ("volume".to_string(), 10u32),
@@ -149,7 +149,7 @@ mod tests {
 
         assert_eq!(entity.name, "updated");
         assert_eq!(entity.nickname.as_deref(), Some("nick"));
-        assert_eq!(entity.scores, vec![10, 20, 3]);
+        assert_eq!(entity.scores, vec![10, 20, 3].into());
 
         let tags: HashSet<_> = entity.tags.iter().cloned().collect();
         let expected_tags: HashSet<_> = vec!["green".to_string()].into_iter().collect();
@@ -181,7 +181,7 @@ mod tests {
             name: "original".into(),
             score: 7,
             nickname: Some("nick".into()),
-            scores: vec![1, 2, 3],
+            scores: vec![1, 2, 3].into(),
             tags: MergeTags::from(vec!["red".to_string(), "blue".to_string()]),
             settings: MergeSettings::from(vec![("volume".to_string(), 10u32)]),
             profile: profile("quiet", 1, &[10, 11]),
@@ -217,7 +217,7 @@ mod tests {
 
         assert_eq!(profile.bio, "updated");
         assert_eq!(profile.visits, 1);
-        assert_eq!(profile.favorite_numbers, vec![1, 2, 3]);
+        assert_eq!(profile.favorite_numbers, vec![1, 2, 3].into());
     }
 
     #[test]
@@ -264,7 +264,7 @@ mod tests {
             name: "reset".into(),
             score: 2,
             nickname: None,
-            scores: vec![1, 2, 3],
+            scores: vec![1, 2, 3].into(),
             tags: MergeTags::from(vec!["old".to_string(), "stale".to_string()]),
             settings: MergeSettings::from(vec![("keep".to_string(), 1u32)]),
             profile: profile("overwrite", 0, &[]),
@@ -290,7 +290,7 @@ mod tests {
 
         entity.merge(update);
 
-        assert_eq!(entity.scores, vec![9, 8, 7]);
+        assert_eq!(entity.scores, vec![9, 8, 7].into());
 
         let tags: HashSet<_> = entity.tags.iter().cloned().collect();
         let expected_tags: HashSet<_> = vec!["fresh".to_string(), "new".to_string()]

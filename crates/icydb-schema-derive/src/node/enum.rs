@@ -230,7 +230,7 @@ impl EnumVariant {
             {
                 let item_ty = value.item.type_expr().to_string().replace(' ', "");
                 let message = format!(
-                    "Vec<{item_ty}> does not implement FieldValue. If this list holds a recursive or complex value type, use item(indirect, ...) to store Vec<Box<{item_ty}>>."
+                    "OrderedList<{item_ty}> does not implement FieldValue. If this list holds a recursive or complex value type, use item(indirect, ...) to store OrderedList<Box<{item_ty}>>."
                 );
                 return Err(DarlingError::custom(message).with_span(&self.ident));
             }
