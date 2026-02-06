@@ -461,8 +461,8 @@ fn validate_eq_ne(
         ensure_list_literal(field, value, field_type)?;
     } else if field_type.is_map() {
         ensure_map_literal(field, value, field_type)?;
-    } else if matches!(value, Value::List(_)) {
-        return Err(invalid_literal(field, "expected scalar literal"));
+    } else {
+        ensure_scalar_literal(field, value)?;
     }
 
     ensure_coercion(field, field_type, value, coercion)
@@ -486,9 +486,7 @@ fn validate_ordering(
         return Err(invalid_operator(field, format!("{op:?}")));
     }
 
-    if matches!(value, Value::List(_)) {
-        return Err(invalid_literal(field, "expected scalar literal"));
-    }
+    ensure_scalar_literal(field, value)?;
 
     ensure_coercion(field, field_type, value, coercion)
 }
@@ -564,9 +562,7 @@ fn validate_text_compare(
         return Err(invalid_operator(field, format!("{op:?}")));
     }
 
-    if !matches!(value, Value::Text(_)) {
-        return Err(invalid_literal(field, "expected text literal"));
-    }
+    ensure_text_literal(field, value)?;
 
     ensure_coercion(field, field_type, value, coercion)
 }
@@ -589,12 +585,7 @@ fn validate_map_key(
     key: &Value,
     coercion: &CoercionSpec,
 ) -> Result<(), ValidateError> {
-    if matches!(coercion.id, CoercionId::TextCasefold) {
-        return Err(ValidateError::InvalidCoercion {
-            field: field.to_string(),
-            coercion: coercion.id,
-        });
-    }
+    ensure_no_text_casefold(field, coercion)?;
 
     let (key_type, _) = ensure_map_types(schema, field, "map_contains_key")?;
 
@@ -607,12 +598,7 @@ fn validate_map_value(
     value: &Value,
     coercion: &CoercionSpec,
 ) -> Result<(), ValidateError> {
-    if matches!(coercion.id, CoercionId::TextCasefold) {
-        return Err(ValidateError::InvalidCoercion {
-            field: field.to_string(),
-            coercion: coercion.id,
-        });
-    }
+    ensure_no_text_casefold(field, coercion)?;
 
     let (_, value_type) = ensure_map_types(schema, field, "map_contains_value")?;
 
@@ -626,12 +612,7 @@ fn validate_map_entry(
     value: &Value,
     coercion: &CoercionSpec,
 ) -> Result<(), ValidateError> {
-    if matches!(coercion.id, CoercionId::TextCasefold) {
-        return Err(ValidateError::InvalidCoercion {
-            field: field.to_string(),
-            coercion: coercion.id,
-        });
-    }
+    ensure_no_text_casefold(field, coercion)?;
 
     let (key_type, value_type) = ensure_map_types(schema, field, "map_contains_entry")?;
 
@@ -653,9 +634,7 @@ fn validate_text_contains(
         return Err(invalid_operator(field, op));
     }
 
-    if !matches!(value, Value::Text(_)) {
-        return Err(invalid_literal(field, "expected text literal"));
-    }
+    ensure_text_literal(field, value)?;
 
     Ok(())
 }
@@ -699,6 +678,36 @@ fn invalid_literal(field: &str, msg: &str) -> ValidateError {
         field: field.to_string(),
         message: msg.to_string(),
     }
+}
+
+// Reject unsupported case-insensitive coercions for non-text comparisons.
+fn ensure_no_text_casefold(field: &str, coercion: &CoercionSpec) -> Result<(), ValidateError> {
+    if matches!(coercion.id, CoercionId::TextCasefold) {
+        return Err(ValidateError::InvalidCoercion {
+            field: field.to_string(),
+            coercion: coercion.id,
+        });
+    }
+
+    Ok(())
+}
+
+// Ensure the literal is text to match text-only operators.
+fn ensure_text_literal(field: &str, value: &Value) -> Result<(), ValidateError> {
+    if !matches!(value, Value::Text(_)) {
+        return Err(invalid_literal(field, "expected text literal"));
+    }
+
+    Ok(())
+}
+
+// Reject list literals when scalar comparisons are required.
+fn ensure_scalar_literal(field: &str, value: &Value) -> Result<(), ValidateError> {
+    if matches!(value, Value::List(_)) {
+        return Err(invalid_literal(field, "expected scalar literal"));
+    }
+
+    Ok(())
 }
 
 fn ensure_coercion(

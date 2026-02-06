@@ -2,10 +2,11 @@ use crate::{
     db::{
         Context, Db,
         executor::{
+            debug::{access_summary, yes_no},
             plan::{record_plan_metrics, set_rows_from_len},
             trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
         },
-        query::plan::{AccessPath, AccessPlan, ExecutablePlan, validate::validate_executor_plan},
+        query::plan::{ExecutablePlan, validate::validate_executor_plan},
         response::Response,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -137,32 +138,4 @@ where
 
         result
     }
-}
-
-fn access_summary<K>(access: &AccessPlan<K>) -> String {
-    match access {
-        AccessPlan::Path(path) => access_path_summary(path),
-        AccessPlan::Union(children) => format!("union of {} access paths", children.len()),
-        AccessPlan::Intersection(children) => {
-            format!("intersection of {} access paths", children.len())
-        }
-    }
-}
-
-fn access_path_summary<K>(path: &AccessPath<K>) -> String {
-    match path {
-        AccessPath::ByKey(_) => "primary key lookup".to_string(),
-        AccessPath::ByKeys(keys) => format!("primary key lookup ({} keys)", keys.len()),
-        AccessPath::KeyRange { .. } => "primary key range scan".to_string(),
-        AccessPath::IndexPrefix { index, values } => format!(
-            "index prefix scan ({}, prefix_len={})",
-            index.name,
-            values.len()
-        ),
-        AccessPath::FullScan => "full scan".to_string(),
-    }
-}
-
-const fn yes_no(value: bool) -> &'static str {
-    if value { "yes" } else { "no" }
 }
