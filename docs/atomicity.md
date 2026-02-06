@@ -162,6 +162,25 @@ atomicity.
 
 ---
 
+## Startup Recovery Window (Operational Guidance)
+
+At process startup, there is a bounded **recovery window** before the first
+successful guarded read/write call. During this window, a leftover commit marker
+from a previous trap may still represent partially applied durable state.
+
+Unsafe during this window:
+* Direct store/index access that bypasses `ensure_recovered` /
+  `ensure_recovered_for_write`
+* Any tooling or helper that reads durable rows without going through guarded
+  query/session entrypoints
+
+Fully consistent point:
+* The system is fully consistent immediately after the first guarded recovery
+  pass completes successfully (startup read-side recovery or write-side marker
+  check + replay).
+
+---
+
 ## 6. Explicit Non-Goals (0.7 Contract)
 
 The following are **explicitly out of scope**:

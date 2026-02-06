@@ -407,7 +407,7 @@ pub enum ValidateError {
     IndexFieldUnsupported { index: IndexModel, field: String },
 
     #[error(
-        "index '{index}' references map field '{field}'; map fields are not queryable/indexable in 0.7.x"
+        "index '{index}' references map field '{field}'; map fields are not queryable in icydb 0.7"
     )]
     IndexFieldMapUnsupported { index: IndexModel, field: String },
 
@@ -426,7 +426,7 @@ pub enum ValidateError {
     #[error("invalid literal for field '{field}': {message}")]
     InvalidLiteral { field: String, message: String },
 
-    #[error("map field '{field}' is not queryable/indexable in 0.7.x")]
+    #[error("Map fields are not queryable in icydb 0.7 (field '{field}')")]
     MapFieldNotQueryable { field: String },
 }
 
@@ -713,8 +713,6 @@ fn ensure_field<'a>(schema: &'a SchemaInfo, field: &str) -> Result<&'a FieldType
             field: field.to_string(),
         })?;
 
-    // TODO(0.8): Re-enable map field query validation once runtime map encoding
-    // and map predicate evaluation are guaranteed coherent.
     if matches!(field_type, FieldType::Map { .. }) {
         return Err(ValidateError::MapFieldNotQueryable {
             field: field.to_string(),
@@ -881,12 +879,15 @@ pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> b
             _ => false,
         },
         FieldType::Map { key, value } => match literal {
-            Value::List(entries) => entries.iter().all(|entry| match entry {
-                Value::List(pair) if pair.len() == 2 => {
-                    literal_matches_type(&pair[0], key) && literal_matches_type(&pair[1], value)
+            Value::Map(entries) => {
+                if Value::validate_map_entries(entries.as_slice()).is_err() {
+                    return false;
                 }
-                _ => false,
-            }),
+
+                entries.iter().all(|(entry_key, entry_value)| {
+                    literal_matches_type(entry_key, key) && literal_matches_type(entry_value, value)
+                })
+            }
             _ => false,
         },
         FieldType::Unsupported => {

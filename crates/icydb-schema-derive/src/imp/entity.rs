@@ -142,7 +142,12 @@ impl Imp<Entity> for EntityValueTrait {
             .is_some_and(|entry| entry.value.item.is_relation());
 
         let id_expr = if pk_is_relation {
-            quote!(::icydb::types::Id::new(self.#pk_ident.key()))
+            quote!({
+                let value = ::icydb::traits::FieldValue::to_value(&self.#pk_ident);
+
+                <::icydb::types::Id<Self> as ::icydb::traits::FieldValue>::from_value(&value)
+                    .expect("relation primary key must decode into Id<Self>")
+            })
         } else {
             quote!(self.#pk_ident)
         };

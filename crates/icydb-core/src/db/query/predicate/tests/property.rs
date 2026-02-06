@@ -68,20 +68,44 @@ fn arb_list_value() -> impl Strategy<Value = Value> {
     prop::collection::vec(arb_scalar_value(), 0..4).prop_map(Value::List)
 }
 
-/// Represents map-like data as `List[List[key, value], ...]`.
-///
-/// This intentionally mirrors how map predicates are evaluated internally,
-/// without requiring a dedicated map value type.
-fn arb_kv_pair_list() -> impl Strategy<Value = Value> {
-    prop::collection::vec(
-        (arb_scalar_value(), arb_scalar_value()).prop_map(|(k, v)| Value::List(vec![k, v])),
-        0..4,
+fn arb_map_key() -> impl Strategy<Value = Value> {
+    prop_oneof![
+        any::<i64>().prop_map(Value::Int),
+        any::<u64>().prop_map(Value::Uint),
+        any::<bool>().prop_map(Value::Bool),
+        "[a-zA-Z0-9_]{0,8}".prop_map(Value::Text),
+        any::<u128>().prop_map(|n| Value::Ulid(Ulid::from_u128(n))),
+        any::<u8>().prop_map(|b| Value::Account(Account::dummy(b))),
+        any::<u8>().prop_map(|b| Value::Principal(Principal::from_slice(&[b]))),
+        prop_oneof![Just("A"), Just("B"), Just("C")]
+            .prop_map(|variant| Value::Enum(ValueEnum::new(variant, Some("TestEnum")))),
+    ]
+}
+
+fn arb_map_value() -> impl Strategy<Value = Value> {
+    prop_oneof![
+        any::<i64>().prop_map(Value::Int),
+        any::<u64>().prop_map(Value::Uint),
+        any::<bool>().prop_map(Value::Bool),
+        "[a-zA-Z0-9_]{0,8}".prop_map(Value::Text),
+        any::<u128>().prop_map(|n| Value::Ulid(Ulid::from_u128(n))),
+        any::<u8>().prop_map(|b| Value::Account(Account::dummy(b))),
+        any::<u8>().prop_map(|b| Value::Principal(Principal::from_slice(&[b]))),
+        prop_oneof![Just("A"), Just("B"), Just("C")]
+            .prop_map(|variant| Value::Enum(ValueEnum::new(variant, Some("TestEnum")))),
+        Just(Value::None),
+    ]
+}
+
+fn arb_map() -> impl Strategy<Value = Value> {
+    prop::collection::vec((arb_map_key(), arb_map_value()), 0..4).prop_filter_map(
+        "generated map entries must satisfy map invariants",
+        |entries| Value::from_map(entries).ok(),
     )
-    .prop_map(Value::List)
 }
 
 fn arb_value() -> impl Strategy<Value = Value> {
-    prop_oneof![arb_scalar_value(), arb_list_value(), arb_kv_pair_list()]
+    prop_oneof![arb_scalar_value(), arb_list_value(), arb_map()]
 }
 
 fn arb_coercion_spec() -> impl Strategy<Value = CoercionSpec> {

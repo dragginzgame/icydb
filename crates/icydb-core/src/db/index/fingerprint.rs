@@ -35,17 +35,18 @@ pub enum ValueTag {
     Int128 = 13,
     IntBig = 14,
     List = 15,
-    None = 16,
-    Principal = 17,
-    Subaccount = 18,
-    Text = 19,
-    Timestamp = 20,
-    Uint = 21,
-    Uint128 = 22,
-    UintBig = 23,
-    Ulid = 24,
-    Unit = 25,
-    Unsupported = 26,
+    Map = 16,
+    None = 17,
+    Principal = 18,
+    Subaccount = 19,
+    Text = 20,
+    Timestamp = 21,
+    Uint = 22,
+    Uint128 = 23,
+    UintBig = 24,
+    Ulid = 25,
+    Unit = 26,
+    Unsupported = 27,
 }
 
 impl ValueTag {
@@ -76,6 +77,7 @@ const fn value_tag(value: &Value) -> u8 {
         Value::Int128(_) => ValueTag::Int128,
         Value::IntBig(_) => ValueTag::IntBig,
         Value::List(_) => ValueTag::List,
+        Value::Map(_) => ValueTag::Map,
         Value::None => ValueTag::None,
         Value::Principal(_) => ValueTag::Principal,
         Value::Subaccount(_) => ValueTag::Subaccount,
@@ -222,6 +224,15 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
             for x in xs {
                 feed_u8(h, 0xFF);
                 write_to_hasher(x, h)?; // recurse, no sub-hash
+            }
+        }
+        Value::Map(entries) => {
+            feed_u32(h, entries.len() as u32);
+            for (key, value) in entries {
+                feed_u8(h, 0xFD);
+                write_to_hasher(key, h)?;
+                feed_u8(h, 0xFE);
+                write_to_hasher(value, h)?;
             }
         }
         Value::Principal(p) => {

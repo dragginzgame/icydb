@@ -71,7 +71,7 @@ mod tests {
     use super::*;
     use icydb::{
         traits::UpdateView,
-        view::{ListPatch, MapPatch, SetPatch, Update},
+        view::{ListPatch, SetPatch, Update},
     };
     use std::collections::{HashMap, HashSet};
 
@@ -117,19 +117,7 @@ mod tests {
             },
         ]);
         update.tags = Some(vec![SetPatch::Clear, SetPatch::Insert("green".to_string())]);
-        update.settings = Some(vec![
-            MapPatch::Upsert {
-                key: "volume".to_string(),
-                value: 77u32,
-            },
-            MapPatch::Remove {
-                key: "remove".to_string(),
-            },
-            MapPatch::Upsert {
-                key: "insert".to_string(),
-                value: 9u32,
-            },
-        ]);
+        update.settings = Some(());
         update.profile = Some(MergeProfileUpdate {
             visits: Some(10),
             ..Default::default()
@@ -160,9 +148,8 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.clone(), *v))
             .collect();
-        assert_eq!(settings.get("volume"), Some(&77));
-        assert_eq!(settings.get("insert"), Some(&9));
-        assert!(!settings.contains_key("remove"));
+        assert_eq!(settings.get("volume"), Some(&10));
+        assert_eq!(settings.get("remove"), Some(&5));
 
         assert_eq!(entity.profile.visits, 10);
         assert_eq!(entity.wrapper.0.bio, "outer");
@@ -236,25 +223,12 @@ mod tests {
 
         let mut settings =
             MergeSettings::from(vec![("keep".to_string(), 1u32), ("drop".to_string(), 2u32)]);
-        let patch: Update<MergeSettings> = vec![
-            MapPatch::Upsert {
-                key: "keep".to_string(),
-                value: 5u32,
-            },
-            MapPatch::Remove {
-                key: "drop".to_string(),
-            },
-            MapPatch::Upsert {
-                key: "add".to_string(),
-                value: 9u32,
-            },
-        ];
+        let patch: Update<MergeSettings> = ();
         settings.merge(patch);
 
         let settings_map: HashMap<_, _> = settings.iter().map(|(k, v)| (k.clone(), *v)).collect();
-        assert_eq!(settings_map.get("keep"), Some(&5));
-        assert_eq!(settings_map.get("add"), Some(&9));
-        assert!(!settings_map.contains_key("drop"));
+        assert_eq!(settings_map.get("keep"), Some(&1));
+        assert_eq!(settings_map.get("drop"), Some(&2));
     }
 
     #[test]
@@ -281,12 +255,7 @@ mod tests {
         update.tags = Some(vec![SetPatch::Overwrite {
             values: vec!["fresh".to_string(), "new".to_string()],
         }]);
-        update.settings = Some(vec![MapPatch::Overwrite {
-            entries: vec![
-                ("primary".to_string(), 10u32),
-                ("secondary".to_string(), 11u32),
-            ],
-        }]);
+        update.settings = Some(());
 
         entity.merge(update);
 
@@ -303,8 +272,6 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.clone(), *v))
             .collect();
-        assert_eq!(settings.get("primary"), Some(&10));
-        assert_eq!(settings.get("secondary"), Some(&11));
-        assert!(!settings.contains_key("keep"));
+        assert_eq!(settings.get("keep"), Some(&1));
     }
 }

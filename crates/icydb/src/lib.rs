@@ -8,8 +8,8 @@
 //! - schema and design-time helpers for macros and validation,
 //! - and a small set of macros and entry points that wire generated code.
 //!
-//! All low-level execution, storage, and engine internals live in
-//! `icydb-core` and are *not* part of the public API contract.
+//! Low-level execution, storage, and engine internals live in
+//! `icydb-core` and are exposed only through `__internal`.
 //!
 //! ## Crate layout
 //!
@@ -20,9 +20,11 @@
 //!   Internal code generation helpers used by macros and tests
 //!   (not intended for direct use).
 //!
-//! - `core` *(internal)*
-//!   Runtime data model, queries, filters, values, and observability.
-//!   This crate is intentionally hidden behind internal adapters.
+//! - `model` / `traits` / `types` / `value` / `view` / `visitor`
+//!   Stable runtime and schema-facing building blocks used by generated code.
+//!
+//! - `__internal::core` *(internal)*
+//!   Full engine internals for macros/tests. Not covered by semver guarantees.
 //!
 //! - `error`
 //!   Shared error types for generated code and runtime boundaries.
@@ -63,8 +65,7 @@ pub use icydb_schema as schema;
 pub use icydb_schema_derive as macros;
 
 // core modules
-#[doc(hidden)]
-pub use icydb_core::{model, obs, traits, types, value, view, visitor};
+pub use icydb_core::{model, traits, types, value, view, visitor};
 
 // canic modules
 pub mod base;

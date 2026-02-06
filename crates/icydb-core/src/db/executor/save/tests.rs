@@ -252,7 +252,7 @@ fn strong_relation_missing_fails_preflight() {
     let executor = SaveExecutor::<SourceEntity>::new(DB, false);
     let entity = SourceEntity {
         id: Id::new(Ulid::generate()),
-        target: Ref::new(Ulid::generate()),
+        target: Ref::from_storage_key(Ulid::generate()),
     };
 
     let err = executor

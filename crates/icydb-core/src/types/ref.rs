@@ -1,9 +1,8 @@
 use crate::{
     traits::{
-        EntityIdentity, EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
-    types::Id,
     value::Value,
 };
 use candid::CandidType;
@@ -37,18 +36,25 @@ impl<E> Ref<E>
 where
     E: EntityStorageKey,
 {
-    /// Construct a Ref from raw storage key material.
+    /// Construct a reference directly from raw storage key material.
+    ///
+    /// This constructor is **core-only** and must not be used
+    /// by application code.
     #[must_use]
-    pub const fn new(key: E::Key) -> Self {
+    pub(crate) const fn from_storage_key(key: E::Key) -> Self {
         Self {
             key,
             _marker: PhantomData,
         }
     }
 
-    /// Returns the underlying key.
+    /// Consume this reference and extract raw storage key material.
+    ///
+    /// This is a **core-only escape hatch** for intent building,
+    /// planning, and execution. Application code must not depend
+    /// on storage identity.
     #[must_use]
-    pub const fn key(&self) -> E::Key {
+    pub(crate) const fn into_storage_key(self) -> E::Key {
         self.key
     }
 
@@ -58,17 +64,6 @@ where
     /// explain output, and fingerprinting.
     pub fn as_value(&self) -> Value {
         self.key.to_value()
-    }
-}
-
-impl<E> Ref<E>
-where
-    E: EntityStorageKey + EntityIdentity,
-{
-    /// Return semantic identity for this reference.
-    #[must_use]
-    pub const fn id(&self) -> Id<E> {
-        Id::new(self.key())
     }
 }
 
@@ -116,7 +111,7 @@ where
     E::Key: Default,
 {
     fn default() -> Self {
-        Self::new(E::Key::default())
+        Self::from_storage_key(E::Key::default())
     }
 }
 
@@ -206,7 +201,7 @@ where
     {
         let key = E::Key::deserialize(deserializer)?;
 
-        Ok(Self::new(key))
+        Ok(Self::from_storage_key(key))
     }
 }
 

@@ -41,7 +41,9 @@ mod tests {
     use icydb::validate;
 
     fn entity_ref() -> Ref<crate::test::entity::Entity> {
-        Ref::new(Ulid::generate())
+        let id: Id<crate::test::entity::Entity> =
+            ::icydb::traits::View::from_view(Ulid::generate());
+        Ref::from(id)
     }
 
     fn ulid() -> Ulid {

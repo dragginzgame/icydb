@@ -383,6 +383,7 @@ fn canonical_cmp_value(left: &Value, right: &Value) -> Ordering {
         (Value::Int128(left), Value::Int128(right)) => left.cmp(right),
         (Value::IntBig(left), Value::IntBig(right)) => left.cmp(right),
         (Value::List(left), Value::List(right)) => canonical_cmp_value_list(left, right),
+        (Value::Map(left), Value::Map(right)) => canonical_cmp_value_map(left, right),
         (Value::Principal(left), Value::Principal(right)) => left.cmp(right),
         (Value::Subaccount(left), Value::Subaccount(right)) => left.cmp(right),
         (Value::Text(left), Value::Text(right)) => left.cmp(right),
@@ -418,18 +419,38 @@ const fn canonical_value_rank(value: &Value) -> u8 {
         Value::Int128(_) => 12,
         Value::IntBig(_) => 13,
         Value::List(_) => 14,
-        Value::None => 15,
-        Value::Principal(_) => 16,
-        Value::Subaccount(_) => 17,
-        Value::Text(_) => 18,
-        Value::Timestamp(_) => 19,
-        Value::Uint(_) => 20,
-        Value::Uint128(_) => 21,
-        Value::UintBig(_) => 22,
-        Value::Ulid(_) => 23,
-        Value::Unit => 24,
-        Value::Unsupported => 25,
+        Value::Map(_) => 15,
+        Value::None => 16,
+        Value::Principal(_) => 17,
+        Value::Subaccount(_) => 18,
+        Value::Text(_) => 19,
+        Value::Timestamp(_) => 20,
+        Value::Uint(_) => 21,
+        Value::Uint128(_) => 22,
+        Value::UintBig(_) => 23,
+        Value::Ulid(_) => 24,
+        Value::Unit => 25,
+        Value::Unsupported => 26,
     }
+}
+
+fn canonical_cmp_value_map(left: &[(Value, Value)], right: &[(Value, Value)]) -> Ordering {
+    let limit = left.len().min(right.len());
+    for ((left_key, left_value), (right_key, right_value)) in
+        left.iter().zip(right.iter()).take(limit)
+    {
+        let key_cmp = Value::canonical_cmp_key(left_key, right_key);
+        if key_cmp != Ordering::Equal {
+            return key_cmp;
+        }
+
+        let value_cmp = canonical_cmp_value(left_value, right_value);
+        if value_cmp != Ordering::Equal {
+            return value_cmp;
+        }
+    }
+
+    left.len().cmp(&right.len())
 }
 
 /// Comparison for enum values.

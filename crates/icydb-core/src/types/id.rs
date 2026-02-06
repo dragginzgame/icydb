@@ -34,7 +34,7 @@ where
 {
     /// Construct a typed identity from the raw key value.
     #[must_use]
-    pub const fn new(key: E::Key) -> Self {
+    pub(crate) const fn new(key: E::Key) -> Self {
         Self {
             key,
             _marker: PhantomData,
@@ -43,13 +43,13 @@ where
 
     /// Returns the underlying key.
     #[must_use]
-    pub const fn key(&self) -> E::Key {
+    pub(crate) const fn key(&self) -> E::Key {
         self.key
     }
 
     /// Consume this identity and return the raw key.
     #[must_use]
-    pub const fn into_key(self) -> E::Key {
+    pub(crate) const fn into_key(self) -> E::Key {
         self.key
     }
 
@@ -143,7 +143,7 @@ where
     E: EntityStorageKey,
 {
     fn from(identity: Id<E>) -> Self {
-        Self::new(identity.key)
+        Self::from_storage_key(identity.into_key())
     }
 }
 

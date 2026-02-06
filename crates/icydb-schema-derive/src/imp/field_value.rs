@@ -100,6 +100,71 @@ impl Imp<List> for FieldValueTrait {
 }
 
 ///
+/// Map
+///
+
+impl Imp<Map> for FieldValueTrait {
+    fn strategy(node: &Map) -> Option<TraitStrategy> {
+        let key_type = node.key.type_expr();
+        let value_type = node.value.type_expr();
+
+        let q = quote! {
+            fn to_value(&self) -> ::icydb::value::Value {
+                let entries = self
+                    .0
+                    .iter()
+                    .map(|(key, value)| {
+                        (
+                            ::icydb::traits::FieldValue::to_value(key),
+                            ::icydb::traits::FieldValue::to_value(value),
+                        )
+                    })
+                    .collect();
+
+                ::icydb::value::Value::from_map(entries).unwrap_or_else(|err| {
+                    panic!(
+                        "invalid map field value for {}: {err}",
+                        <Self as ::icydb::traits::Path>::PATH,
+                    )
+                })
+            }
+
+            fn from_value(value: &::icydb::value::Value) -> Option<Self> {
+                let ::icydb::value::Value::Map(entries) = value else {
+                    return None;
+                };
+
+                if ::icydb::value::Value::validate_map_entries(entries.as_slice()).is_err() {
+                    return None;
+                }
+
+                let mut map =
+                    ::std::collections::HashMap::<#key_type, #value_type>::with_capacity(
+                        entries.len(),
+                    );
+                for (entry_key, entry_value) in entries {
+                    let key = <#key_type as ::icydb::traits::FieldValue>::from_value(entry_key)?;
+                    let value =
+                        <#value_type as ::icydb::traits::FieldValue>::from_value(entry_value)?;
+
+                    if map.insert(key, value).is_some() {
+                        return None;
+                    }
+                }
+
+                Some(Self(map))
+            }
+        };
+
+        let tokens = Implementor::new(node.def(), TraitKind::FieldValue)
+            .set_tokens(q)
+            .to_token_stream();
+
+        Some(TraitStrategy::from_impl(tokens))
+    }
+}
+
+///
 /// Newtype
 ///
 

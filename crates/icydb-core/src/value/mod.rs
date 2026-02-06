@@ -46,6 +46,57 @@ pub enum TextMode {
 }
 
 ///
+/// MapValueError
+///
+/// Invariant violations for `Value::Map` construction/normalization.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MapValueError {
+    EmptyKey {
+        index: usize,
+    },
+    NonScalarKey {
+        index: usize,
+        key: Value,
+    },
+    NonScalarValue {
+        index: usize,
+        value: Value,
+    },
+    DuplicateKey {
+        left_index: usize,
+        right_index: usize,
+    },
+}
+
+impl std::fmt::Display for MapValueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyKey { index } => write!(f, "map key at index {index} must be non-null"),
+            Self::NonScalarKey { index, key } => {
+                write!(f, "map key at index {index} is not scalar: {key:?}")
+            }
+            Self::NonScalarValue { index, value } => {
+                write!(
+                    f,
+                    "map value at index {index} is not scalar/ref-like: {value:?}"
+                )
+            }
+            Self::DuplicateKey {
+                left_index,
+                right_index,
+            } => write!(
+                f,
+                "map contains duplicate keys at normalized positions {left_index} and {right_index}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MapValueError {}
+
+///
 /// Value
 /// can be used in WHERE statements
 ///
@@ -71,9 +122,13 @@ pub enum Value {
     Int128(Int128),
     IntBig(Int),
     /// Ordered list of values.
-    /// Used for many-cardinality transport and map-like encodings (`[key, value]` pairs).
+    /// Used for many-cardinality transport.
     /// List order is preserved for normalization and fingerprints.
     List(Vec<Self>),
+    /// Canonical map representation.
+    /// Entries are always sorted by canonical key order and keys are unique.
+    /// Maps are persistable but not queryable or patchable in 0.7.
+    Map(Vec<(Self, Self)>),
     None,
     Principal(Principal),
     Subaccount(Subaccount),
@@ -148,6 +203,7 @@ macro_rules! value_coercion_family_from_registry {
         match $value {
             $( $value_pat => $coercion_family, )*
             Value::List(_) => CoercionFamily::Collection,
+            Value::Map(_) => CoercionFamily::Collection,
             Value::None => CoercionFamily::Null,
             Value::Unsupported => CoercionFamily::Unsupported,
         }
@@ -178,6 +234,64 @@ impl Value {
         T: Into<Self>,
     {
         Self::List(items.into_iter().map(Into::into).collect())
+    }
+
+    /// Build a canonical `Value::Map` from owned key/value entries.
+    ///
+    /// Invariants are validated and entries are normalized:
+    /// - keys must be scalar and non-null
+    /// - values must be scalar/ref-like (no collections)
+    /// - entries are sorted by canonical key order
+    /// - duplicate keys are rejected
+    pub fn from_map(entries: Vec<(Self, Self)>) -> Result<Self, MapValueError> {
+        let normalized = Self::normalize_map_entries(entries)?;
+        Ok(Self::Map(normalized))
+    }
+
+    /// Validate map entry invariants without changing order.
+    pub fn validate_map_entries(entries: &[(Self, Self)]) -> Result<(), MapValueError> {
+        for (index, (key, value)) in entries.iter().enumerate() {
+            if matches!(key, Self::None) {
+                return Err(MapValueError::EmptyKey { index });
+            }
+            if !key.is_scalar() || matches!(key, Self::Unsupported) {
+                return Err(MapValueError::NonScalarKey {
+                    index,
+                    key: key.clone(),
+                });
+            }
+
+            if !value.is_scalar() || matches!(value, Self::Unsupported) {
+                return Err(MapValueError::NonScalarValue {
+                    index,
+                    value: value.clone(),
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Normalize map entries into canonical deterministic order.
+    pub fn normalize_map_entries(
+        mut entries: Vec<(Self, Self)>,
+    ) -> Result<Vec<(Self, Self)>, MapValueError> {
+        Self::validate_map_entries(&entries)?;
+        entries
+            .sort_by(|(left_key, _), (right_key, _)| Self::canonical_cmp_key(left_key, right_key));
+
+        for i in 1..entries.len() {
+            let (left_key, _) = &entries[i - 1];
+            let (right_key, _) = &entries[i];
+            if Self::canonical_cmp_key(left_key, right_key) == Ordering::Equal {
+                return Err(MapValueError::DuplicateKey {
+                    left_index: i - 1,
+                    right_index: i,
+                });
+            }
+        }
+
+        Ok(entries)
     }
 
     /// Build a `Value::Enum` from a domain enum using its explicit mapping.
@@ -224,8 +338,75 @@ impl Value {
     pub const fn is_scalar(&self) -> bool {
         match self {
             // definitely not scalar:
-            Self::List(_) | Self::Unit => false,
+            Self::List(_) | Self::Map(_) | Self::Unit => false,
             _ => true,
+        }
+    }
+
+    /// Total canonical comparator used for map-key normalization.
+    #[must_use]
+    pub fn canonical_cmp_key(left: &Self, right: &Self) -> Ordering {
+        let rank = Self::canonical_key_rank(left).cmp(&Self::canonical_key_rank(right));
+        if rank != Ordering::Equal {
+            return rank;
+        }
+
+        match (left, right) {
+            (Self::Account(a), Self::Account(b)) => a.cmp(b),
+            (Self::Blob(a), Self::Blob(b)) => a.cmp(b),
+            (Self::Bool(a), Self::Bool(b)) => a.cmp(b),
+            (Self::Date(a), Self::Date(b)) => a.cmp(b),
+            (Self::Decimal(a), Self::Decimal(b)) => a.cmp(b),
+            (Self::Duration(a), Self::Duration(b)) => a.cmp(b),
+            (Self::Enum(a), Self::Enum(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
+            (Self::E8s(a), Self::E8s(b)) => a.cmp(b),
+            (Self::E18s(a), Self::E18s(b)) => a.cmp(b),
+            (Self::Float32(a), Self::Float32(b)) => a.cmp(b),
+            (Self::Float64(a), Self::Float64(b)) => a.cmp(b),
+            (Self::Int(a), Self::Int(b)) => a.cmp(b),
+            (Self::Int128(a), Self::Int128(b)) => a.cmp(b),
+            (Self::IntBig(a), Self::IntBig(b)) => a.cmp(b),
+            (Self::Principal(a), Self::Principal(b)) => a.cmp(b),
+            (Self::Subaccount(a), Self::Subaccount(b)) => a.cmp(b),
+            (Self::Text(a), Self::Text(b)) => a.cmp(b),
+            (Self::Timestamp(a), Self::Timestamp(b)) => a.cmp(b),
+            (Self::Uint(a), Self::Uint(b)) => a.cmp(b),
+            (Self::Uint128(a), Self::Uint128(b)) => a.cmp(b),
+            (Self::UintBig(a), Self::UintBig(b)) => a.cmp(b),
+            (Self::Ulid(a), Self::Ulid(b)) => a.cmp(b),
+            _ => Ordering::Equal,
+        }
+    }
+
+    const fn canonical_key_rank(value: &Self) -> u8 {
+        match value {
+            Self::Account(_) => 0,
+            Self::Blob(_) => 1,
+            Self::Bool(_) => 2,
+            Self::Date(_) => 3,
+            Self::Decimal(_) => 4,
+            Self::Duration(_) => 5,
+            Self::Enum(_) => 6,
+            Self::E8s(_) => 7,
+            Self::E18s(_) => 8,
+            Self::Float32(_) => 9,
+            Self::Float64(_) => 10,
+            Self::Int(_) => 11,
+            Self::Int128(_) => 12,
+            Self::IntBig(_) => 13,
+            Self::List(_) => 14,
+            Self::Map(_) => 15,
+            Self::None => 16,
+            Self::Principal(_) => 17,
+            Self::Subaccount(_) => 18,
+            Self::Text(_) => 19,
+            Self::Timestamp(_) => 20,
+            Self::Uint(_) => 21,
+            Self::Uint128(_) => 22,
+            Self::UintBig(_) => 23,
+            Self::Ulid(_) => 24,
+            Self::Unit => 25,
+            Self::Unsupported => 26,
         }
     }
 
@@ -270,6 +451,15 @@ impl Value {
     pub const fn as_list(&self) -> Option<&[Self]> {
         if let Self::List(xs) = self {
             Some(xs.as_slice())
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn as_map(&self) -> Option<&[(Self, Self)]> {
+        if let Self::Map(entries) = self {
+            Some(entries.as_slice())
         } else {
             None
         }
@@ -468,6 +658,7 @@ impl Value {
     pub const fn is_empty(&self) -> Option<bool> {
         match self {
             Self::List(xs) => Some(xs.is_empty()),
+            Self::Map(entries) => Some(entries.is_empty()),
             Self::Text(s) => Some(s.is_empty()),
             Self::Blob(b) => Some(b.is_empty()),
 
@@ -610,6 +801,14 @@ impl From<Vec<Self>> for Value {
     }
 }
 
+impl From<Vec<(Self, Self)>> for Value {
+    fn from(entries: Vec<(Self, Self)>) -> Self {
+        Self::from_map(entries).unwrap_or_else(|err| {
+            panic!("invalid map invariant while constructing Value::Map from Vec: {err}")
+        })
+    }
+}
+
 impl From<()> for Value {
     fn from((): ()) -> Self {
         Self::Unit
@@ -644,6 +843,20 @@ impl PartialOrd for Value {
             (Self::Uint128(a), Self::Uint128(b)) => a.partial_cmp(b),
             (Self::UintBig(a), Self::UintBig(b)) => a.partial_cmp(b),
             (Self::Ulid(a), Self::Ulid(b)) => a.partial_cmp(b),
+            (Self::Map(a), Self::Map(b)) => {
+                for ((left_key, left_value), (right_key, right_value)) in a.iter().zip(b.iter()) {
+                    let key_cmp = Self::canonical_cmp_key(left_key, right_key);
+                    if key_cmp != Ordering::Equal {
+                        return Some(key_cmp);
+                    }
+
+                    match left_value.partial_cmp(right_value) {
+                        Some(Ordering::Equal) => {}
+                        non_eq => return non_eq,
+                    }
+                }
+                a.len().partial_cmp(&b.len())
+            }
 
             // Cross-type comparisons: no ordering
             _ => None,

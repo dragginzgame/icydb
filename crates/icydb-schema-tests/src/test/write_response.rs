@@ -24,24 +24,27 @@ mod tests {
     fn write_response_exposes_key_reference_and_view() {
         let id = Ulid::generate();
         let entity = WriteResponseEntity {
-            id: Id::new(id),
+            id: ::icydb::traits::View::from_view(id),
             ..Default::default()
         };
         let response = WriteResponse::new(entity);
 
-        assert_eq!(response.key(), Id::new(id));
-        assert_eq!(response.reference().key(), id);
+        assert_eq!(
+            response.key(),
+            <Id<WriteResponseEntity> as ::icydb::traits::View>::from_view(id)
+        );
+        assert_eq!(response.reference(), Ref::from(response.key()));
         assert_eq!(response.view().id, id);
     }
 
     #[test]
     fn write_batch_response_iter_and_helpers() {
         let first = WriteResponseEntity {
-            id: Id::new(Ulid::generate()),
+            id: ::icydb::traits::View::from_view(Ulid::generate()),
             ..Default::default()
         };
         let second = WriteResponseEntity {
-            id: Id::new(Ulid::generate()),
+            id: ::icydb::traits::View::from_view(Ulid::generate()),
             ..Default::default()
         };
 

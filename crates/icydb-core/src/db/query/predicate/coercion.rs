@@ -227,17 +227,18 @@ const fn canonical_rank(value: &Value) -> u8 {
         Value::Int128(_) => 12,
         Value::IntBig(_) => 13,
         Value::List(_) => 14,
-        Value::None => 15,
-        Value::Principal(_) => 16,
-        Value::Subaccount(_) => 17,
-        Value::Text(_) => 18,
-        Value::Timestamp(_) => 19,
-        Value::Uint(_) => 20,
-        Value::Uint128(_) => 21,
-        Value::UintBig(_) => 22,
-        Value::Ulid(_) => 23,
-        Value::Unit => 24,
-        Value::Unsupported => 25,
+        Value::Map(_) => 15,
+        Value::None => 16,
+        Value::Principal(_) => 17,
+        Value::Subaccount(_) => 18,
+        Value::Text(_) => 19,
+        Value::Timestamp(_) => 20,
+        Value::Uint(_) => 21,
+        Value::Uint128(_) => 22,
+        Value::UintBig(_) => 23,
+        Value::Ulid(_) => 24,
+        Value::Unit => 25,
+        Value::Unsupported => 26,
     }
 }
 
@@ -294,6 +295,7 @@ fn strict_ordering(left: &Value, right: &Value) -> Option<Ordering> {
         (Value::Int(a), Value::Int(b)) => a.partial_cmp(b),
         (Value::Int128(a), Value::Int128(b)) => a.partial_cmp(b),
         (Value::IntBig(a), Value::IntBig(b)) => a.partial_cmp(b),
+        (Value::Map(a), Value::Map(b)) => map_ordering(a.as_slice(), b.as_slice()),
         (Value::Principal(a), Value::Principal(b)) => a.partial_cmp(b),
         (Value::Subaccount(a), Value::Subaccount(b)) => a.partial_cmp(b),
         (Value::Text(a), Value::Text(b)) => a.partial_cmp(b),
@@ -308,6 +310,25 @@ fn strict_ordering(left: &Value, right: &Value) -> Option<Ordering> {
             None
         }
     }
+}
+
+fn map_ordering(left: &[(Value, Value)], right: &[(Value, Value)]) -> Option<Ordering> {
+    let limit = left.len().min(right.len());
+    for ((left_key, left_value), (right_key, right_value)) in
+        left.iter().zip(right.iter()).take(limit)
+    {
+        let key_cmp = Value::canonical_cmp_key(left_key, right_key);
+        if key_cmp != Ordering::Equal {
+            return Some(key_cmp);
+        }
+
+        let value_cmp = strict_ordering(left_value, right_value)?;
+        if value_cmp != Ordering::Equal {
+            return Some(value_cmp);
+        }
+    }
+
+    left.len().partial_cmp(&right.len())
 }
 
 fn compare_casefold(left: &Value, right: &Value) -> Option<bool> {

@@ -66,7 +66,7 @@ where
 
     /// Insert a reference, returning `true` if it was newly inserted.
     pub fn insert(&mut self, reference: Ref<E>) -> bool {
-        let key = reference.key();
+        let key = reference.into_storage_key();
 
         match self.find_index(&key) {
             Ok(_) => false,
@@ -79,7 +79,7 @@ where
 
     /// Remove a reference by key, returning `true` if it was present.
     pub fn remove(&mut self, reference: &Ref<E>) -> bool {
-        let key = reference.key();
+        let key = reference.into_storage_key();
 
         match self.find_index(&key) {
             Ok(index) => {
@@ -93,7 +93,7 @@ where
     /// Returns `true` if the set contains the reference.
     #[must_use]
     pub fn contains(&self, reference: &Ref<E>) -> bool {
-        self.contains_key(&reference.key())
+        self.contains_key(&reference.into_storage_key())
     }
 
     /// Returns `true` if the set contains the key.
@@ -110,13 +110,17 @@ where
     // Locate a key in the sorted list.
     fn find_index(&self, key: &E::Key) -> Result<usize, usize> {
         self.0
-            .binary_search_by(|candidate| candidate.key().cmp(key))
+            .binary_search_by(|candidate| candidate.into_storage_key().cmp(key))
     }
 
     #[cfg(debug_assertions)]
     #[allow(dead_code)]
     fn assert_sorted(&self) {
-        debug_assert!(self.0.windows(2).all(|w| { w[0].key() < w[1].key() }));
+        debug_assert!(
+            self.0
+                .windows(2)
+                .all(|w| { w[0].into_storage_key() < w[1].into_storage_key() })
+        );
     }
 }
 

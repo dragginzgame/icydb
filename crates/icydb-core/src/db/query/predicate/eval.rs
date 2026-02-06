@@ -59,25 +59,11 @@ fn on_present<R: Row + ?Sized>(row: &R, field: &str, f: impl FnOnce(&Value) -> b
 
 /// Decode map entries into key/value pairs; malformed maps return None.
 fn map_entries(map: &Value) -> Option<impl Iterator<Item = (&Value, &Value)>> {
-    let Value::List(entries) = map else {
+    let Value::Map(entries) = map else {
         return None;
     };
 
-    Some(
-        entries
-            .iter()
-            .map(|entry| {
-                let Value::List(pair) = entry else {
-                    return None;
-                };
-                if pair.len() != 2 {
-                    return None;
-                }
-                Some((&pair[0], &pair[1]))
-            })
-            .collect::<Option<Vec<_>>>()?
-            .into_iter(),
-    )
+    Some(entries.iter().map(|(key, value)| (key, value)))
 }
 
 ///
@@ -246,7 +232,7 @@ fn contains(actual: &Value, needle: &Value, coercion: &CoercionSpec) -> bool {
 ///
 /// Check whether a map-like value contains a given key.
 ///
-/// Maps are represented as lists of 2-element lists `[key, value]`.
+/// Maps are represented as `Value::Map(Vec<(Value, Value)>)`.
 ///
 fn map_contains_key(map: &Value, key: &Value, coercion: &CoercionSpec) -> bool {
     let Some(entries) = map_entries(map) else {

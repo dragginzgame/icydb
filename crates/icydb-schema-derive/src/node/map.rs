@@ -31,6 +31,35 @@ impl ValidateNode for Map {
         self.key.validate()?;
         self.value.validate()?;
 
+        // Map keys must stay scalar and canonical in runtime representation.
+        if self.key.relation.is_some() {
+            return Err(DarlingError::custom(
+                "map key must be scalar and cannot be a relation",
+            ));
+        }
+
+        if self.key.indirect {
+            return Err(DarlingError::custom("map key cannot be indirect"));
+        }
+
+        if matches!(self.key.target(), ItemTarget::Primitive(Primitive::Unit)) {
+            return Err(DarlingError::custom("map key cannot be Unit"));
+        }
+
+        // Map values are intentionally non-nested in 0.7.
+        if self.value.cardinality() == Cardinality::Many {
+            return Err(DarlingError::custom(
+                "map value cardinality cannot be many in icydb 0.7",
+            ));
+        }
+
+        if matches!(
+            self.value.item.target(),
+            ItemTarget::Primitive(Primitive::Unit)
+        ) {
+            return Err(DarlingError::custom("map value cannot be Unit"));
+        }
+
         Ok(())
     }
 }
@@ -73,6 +102,7 @@ impl HasTraits for Map {
         match t {
             TraitKind::Inherent => InherentTrait::strategy(self),
 
+            TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
             TraitKind::MapCollection => MapCollectionTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),

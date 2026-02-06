@@ -40,7 +40,9 @@ mod tests {
     fn relation_primary_key_borrows_storage_key() {
         assert_storage_key::<UserProjects>();
 
-        let user_ref = Ref::<User>::new(Ulid::from_parts(1, 42));
+        let user_ref: Ref<User> = Ref::from(<Id<User> as ::icydb::traits::View>::from_view(
+            Ulid::from_parts(1, 42),
+        ));
         let projects = UserProjects {
             user: user_ref,
             ..Default::default()
@@ -53,6 +55,6 @@ mod tests {
         let id: Id<UserProjects> = projects.id();
 
         // Identity unwraps to the borrowed storage key
-        assert_eq!(id.key(), user_ref.key());
+        assert_eq!(id.to_value(), user_ref.to_value());
     }
 }

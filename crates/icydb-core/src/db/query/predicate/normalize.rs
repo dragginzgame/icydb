@@ -325,17 +325,18 @@ const VALUE_INT: u8 = 12;
 const VALUE_INT128: u8 = 13;
 const VALUE_INT_BIG: u8 = 14;
 const VALUE_LIST: u8 = 15;
-const VALUE_NONE: u8 = 16;
-const VALUE_PRINCIPAL: u8 = 17;
-const VALUE_SUBACCOUNT: u8 = 18;
-const VALUE_TEXT: u8 = 19;
-const VALUE_TIMESTAMP: u8 = 20;
-const VALUE_UINT: u8 = 21;
-const VALUE_UINT128: u8 = 22;
-const VALUE_UINT_BIG: u8 = 23;
-const VALUE_ULID: u8 = 24;
-const VALUE_UNIT: u8 = 25;
-const VALUE_UNSUPPORTED: u8 = 26;
+const VALUE_MAP: u8 = 16;
+const VALUE_NONE: u8 = 17;
+const VALUE_PRINCIPAL: u8 = 18;
+const VALUE_SUBACCOUNT: u8 = 19;
+const VALUE_TEXT: u8 = 20;
+const VALUE_TIMESTAMP: u8 = 21;
+const VALUE_UINT: u8 = 22;
+const VALUE_UINT128: u8 = 23;
+const VALUE_UINT_BIG: u8 = 24;
+const VALUE_ULID: u8 = 25;
+const VALUE_UNIT: u8 = 26;
+const VALUE_UNSUPPORTED: u8 = 27;
 
 #[expect(clippy::too_many_lines)]
 fn encode_value_key(out: &mut Vec<u8>, value: &Value) {
@@ -410,6 +411,14 @@ fn encode_value_key(out: &mut Vec<u8>, value: &Value) {
             push_len(out, items.len());
             for item in items {
                 push_value(out, item);
+            }
+        }
+        Value::Map(entries) => {
+            out.push(VALUE_MAP);
+            push_len(out, entries.len());
+            for (key, value) in entries {
+                push_value(out, key);
+                push_value(out, value);
             }
         }
         Value::None => out.push(VALUE_NONE),

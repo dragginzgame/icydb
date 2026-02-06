@@ -19,16 +19,22 @@ mod test {
     use super::*;
     use icydb::validate;
 
+    fn entity_ref() -> Ref<crate::test::entity::Entity> {
+        let id: Id<crate::test::entity::Entity> =
+            ::icydb::traits::View::from_view(Ulid::generate());
+        Ref::from(id)
+    }
+
     #[test]
     fn friends_list_allows_up_to_max_length() {
         let mut list = FriendsList::default();
 
         // Add one friend
-        list.push(Ref::new(Ulid::generate()));
+        list.push(entity_ref());
         assert!(validate(&list).is_ok(), "1 friend should be valid");
 
         // Add second friend (at the max)
-        list.push(Ref::new(Ulid::generate()));
+        list.push(entity_ref());
         assert!(validate(&list).is_ok(), "2 friends should still be valid");
     }
 
@@ -37,9 +43,9 @@ mod test {
         let mut list = FriendsList::default();
 
         // Add three (exceeds Max(2))
-        list.push(Ref::new(Ulid::generate()));
-        list.push(Ref::new(Ulid::generate()));
-        list.push(Ref::new(Ulid::generate()));
+        list.push(entity_ref());
+        list.push(entity_ref());
+        list.push(entity_ref());
 
         let result = validate(&list);
         assert!(
