@@ -142,8 +142,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
     /// Insert a new view, returning the stored view.
     pub fn insert_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        let entity = E::from_view(view);
-        Ok(self.insert(entity)?.to_view())
+        self.save_view(SaveMode::Insert, view)
     }
 
     /// Update an existing entity (errors if it does not exist).
@@ -153,9 +152,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
     /// Update an existing view (errors if it does not exist).
     pub fn update_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
-        let entity = E::from_view(view);
-
-        Ok(self.update(entity)?.to_view())
+        self.save_view(SaveMode::Update, view)
     }
 
     /// Replace an entity, inserting if missing.
@@ -165,9 +162,14 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
     /// Replace a view, inserting if missing.
     pub fn replace_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
+        self.save_view(SaveMode::Replace, view)
+    }
+
+    // Shared wrapper for view-based save operations.
+    fn save_view(&self, mode: SaveMode, view: E::ViewType) -> Result<E::ViewType, InternalError> {
         let entity = E::from_view(view);
 
-        Ok(self.replace(entity)?.to_view())
+        Ok(self.save_entity(mode, entity)?.to_view())
     }
 
     // ======================================================================
@@ -178,45 +180,40 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
-        let iter = entities.into_iter();
-        let mut out = Vec::with_capacity(iter.size_hint().0);
-
         // Batch semantics: fail-fast and non-atomic; partial successes remain.
         // Retry-safe only with caller idempotency and conflict handling.
-        for entity in iter {
-            out.push(self.insert(entity)?);
-        }
-
-        Ok(out)
+        self.save_many(SaveMode::Insert, entities)
     }
 
     pub fn update_many(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
-        let iter = entities.into_iter();
-        let mut out = Vec::with_capacity(iter.size_hint().0);
-
         // Batch semantics: fail-fast and non-atomic; partial successes remain.
         // Retry-safe only if the caller tolerates already-updated rows.
-        for entity in iter {
-            out.push(self.update(entity)?);
-        }
-
-        Ok(out)
+        self.save_many(SaveMode::Update, entities)
     }
 
     pub fn replace_many(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
+        // Batch semantics: fail-fast and non-atomic; partial successes remain.
+        // Retry-safe only with caller idempotency and conflict handling.
+        self.save_many(SaveMode::Replace, entities)
+    }
+
+    // Shared batch save loop for insert/update/replace variants.
+    fn save_many(
+        &self,
+        mode: SaveMode,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<Vec<E>, InternalError> {
         let iter = entities.into_iter();
         let mut out = Vec::with_capacity(iter.size_hint().0);
 
-        // Batch semantics: fail-fast and non-atomic; partial successes remain.
-        // Retry-safe only with caller idempotency and conflict handling.
         for entity in iter {
-            out.push(self.replace(entity)?);
+            out.push(self.save_entity(mode, entity)?);
         }
 
         Ok(out)
