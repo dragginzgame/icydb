@@ -128,7 +128,7 @@ impl FieldValues for PlanSingleton {
 
 impl EntityValue for PlanSingleton {
     fn id(&self) -> Self::Id {
-        *self.id.key()
+        self.id.key()
     }
 }
 

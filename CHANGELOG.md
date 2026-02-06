@@ -46,6 +46,7 @@ stacks on top of an incomplete commit.
 * Entity and record fields with `many` cardinality now emit `OrderedList<T>` instead of `Vec<T>`.
 * Relation fields with `many` cardinality now emit `RefSet<T>` instead of list types like `Vec<Ref<T>>`.
 * Entity primary-key fields now emit `Id<E>` instead of raw key values, and `EntityValue::set_id` wraps raw keys into `Id<E>` so call sites must pass the raw key type.
+* Storage key admission is now registry-driven via `is_storage_key_encodable`; the encodable scalar set is unchanged, but the contract is now explicit and auditable.
 
 ---
 

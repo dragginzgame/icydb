@@ -1,21 +1,17 @@
-//! Semantic classification for `Value`.
+//! Coercion-routing family classification for `Value`.
 //!
-//! This module adds a *semantic* layer so filter/coercion logic
-//! can decide:
-//!   - which values are numeric
-//!   - which are textual
-//!   - which are identifiers (`Ulid`, `Principal`, etc.)
-//!   - which are collections
-//!
-//! This avoids hardcoding tag comparisons all over the evaluator.
+//! This module defines only coarse routing categories used by coercion tables.
+//! It does not define scalar capabilities.
 
 ///
-/// ValueFamily
-/// High-level semantic classification of a `Value`.
+/// CoercionFamily
 ///
-
+/// Coarse value classification used only for coercion routing.
+/// This classification MUST NOT be used to infer numeric coercion,
+/// arithmetic support, ordering support, or keyability.
+///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ValueFamily {
+pub enum CoercionFamily {
     Numeric,    // Int, Uint, Decimal, Float, Duration, Timestamp, …
     Textual,    // Text
     Identifier, // Ulid, Principal, Subaccount
@@ -28,48 +24,12 @@ pub enum ValueFamily {
     Unsupported,
 }
 
-impl ValueFamily {
-    #[must_use]
-    pub const fn is_numeric(self) -> bool {
-        matches!(self, Self::Numeric)
-    }
-
-    #[must_use]
-    pub const fn is_textual(self) -> bool {
-        matches!(self, Self::Textual)
-    }
-
-    #[must_use]
-    pub const fn is_identifier(self) -> bool {
-        matches!(self, Self::Identifier)
-    }
-
-    #[must_use]
-    pub const fn is_collection(self) -> bool {
-        matches!(self, Self::Collection)
-    }
-
-    #[must_use]
-    pub const fn is_enum(self) -> bool {
-        matches!(self, Self::Enum)
-    }
-
-    #[must_use]
-    pub const fn is_null(self) -> bool {
-        matches!(self, Self::Null)
-    }
-
-    #[must_use]
-    pub const fn is_scalar(self) -> bool {
-        // scalar = not collection, not unit
-        !self.is_collection() && !matches!(self, Self::Unit)
-    }
-}
-
 ///
-/// Extension trait mapping `Value` to `ValueFamily`.
+/// CoercionFamilyExt
 ///
-
-pub trait ValueFamilyExt {
-    fn family(&self) -> ValueFamily;
+/// Maps a value to its coercion-routing family.
+///
+pub trait CoercionFamilyExt {
+    /// Returns the coercion-routing family for this value.
+    fn coercion_family(&self) -> CoercionFamily;
 }

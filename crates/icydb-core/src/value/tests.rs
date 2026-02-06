@@ -1,11 +1,10 @@
 use crate::{
-    db::store::StorageKey,
     traits::NumFromPrimitive,
     types::{
         Account, Date, Decimal, Duration, E8s, E18s, Float32 as F32, Float64 as F64, Int, Int128,
         Nat, Nat128, Principal, Subaccount, Timestamp, Ulid,
     },
-    value::{TextMode, Value, ValueEnum},
+    value::{CoercionFamily, CoercionFamilyExt, TextMode, Value, ValueEnum},
 };
 use std::{cmp::Ordering, str::FromStr};
 
@@ -102,29 +101,13 @@ macro_rules! sample_value_for_scalar {
     };
 }
 
-/// Build scalar-backed values in registry order.
-fn registry_scalar_values() -> Vec<Value> {
-    macro_rules! collect_values {
-        ( @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
-            vec![ $( sample_value_for_scalar!($scalar) ),* ]
-        };
-        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
-            vec![ $( sample_value_for_scalar!($scalar) ),* ]
-        };
-    }
-
-    let values = scalar_registry!(collect_values);
-
-    values
-}
-
 /// Build scalar-backed values paired with their registry numeric flag.
 fn registry_numeric_cases() -> Vec<(Value, bool)> {
     macro_rules! collect_cases {
-        ( @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
             vec![ $( (sample_value_for_scalar!($scalar), $is_numeric) ),* ]
         };
-        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
             vec![ $( (sample_value_for_scalar!($scalar), $is_numeric) ),* ]
         };
     }
@@ -132,15 +115,29 @@ fn registry_numeric_cases() -> Vec<(Value, bool)> {
     let cases = scalar_registry!(collect_cases);
 
     cases
+}
+
+/// Build scalar-backed values paired with their registry numeric-coercion flag.
+fn registry_numeric_coercion_cases() -> Vec<(Value, bool)> {
+    macro_rules! collect_cases {
+        ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+            vec![ $( (sample_value_for_scalar!($scalar), $supports_numeric_coercion) ),* ]
+        };
+        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+            vec![ $( (sample_value_for_scalar!($scalar), $supports_numeric_coercion) ),* ]
+        };
+    }
+
+    scalar_registry!(collect_cases)
 }
 
 /// Build scalar-backed values paired with their registry keyable flag.
 fn registry_keyable_cases() -> Vec<(Value, bool)> {
     macro_rules! collect_cases {
-        ( @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
             vec![ $( (sample_value_for_scalar!($scalar), $is_keyable) ),* ]
         };
-        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
             vec![ $( (sample_value_for_scalar!($scalar), $is_keyable) ),* ]
         };
     }
@@ -150,39 +147,20 @@ fn registry_keyable_cases() -> Vec<(Value, bool)> {
     cases
 }
 
-/// Legacy numeric classification from the pre-registry implementation.
-fn legacy_is_numeric(value: &Value) -> bool {
-    let is_numeric = matches!(
-        value,
-        Value::Decimal(_)
-            | Value::Duration(_)
-            | Value::E8s(_)
-            | Value::E18s(_)
-            | Value::Float32(_)
-            | Value::Float64(_)
-            | Value::Int(_)
-            | Value::Int128(_)
-            | Value::Timestamp(_)
-            | Value::Uint(_)
-            | Value::Uint128(_)
-    );
-
-    is_numeric
-}
-
-/// Legacy storage-key conversion from the pre-registry implementation.
-fn legacy_as_storage_key(value: &Value) -> Option<StorageKey> {
-    match value {
-        Value::Account(v) => Some(StorageKey::Account(*v)),
-        Value::Int(v) => Some(StorageKey::Int(*v)),
-        Value::Uint(v) => Some(StorageKey::Uint(*v)),
-        Value::Principal(v) => Some(StorageKey::Principal(*v)),
-        Value::Subaccount(v) => Some(StorageKey::Subaccount(*v)),
-        Value::Timestamp(v) => Some(StorageKey::Timestamp(*v)),
-        Value::Ulid(v) => Some(StorageKey::Ulid(*v)),
-        Value::Unit => Some(StorageKey::Unit),
-        _ => None,
+/// Build scalar-backed values paired with their registry coercion family.
+fn registry_coercion_family_cases() -> Vec<(Value, CoercionFamily)> {
+    macro_rules! collect_cases {
+        ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+            vec![ $( (sample_value_for_scalar!($scalar), $coercion_family) ),* ]
+        };
+        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+            vec![ $( (sample_value_for_scalar!($scalar), $coercion_family) ),* ]
+        };
     }
+
+    let cases = scalar_registry!(collect_cases);
+
+    cases
 }
 
 // ---- keys --------------------------------------------------------------
@@ -231,20 +209,6 @@ fn storage_key_round_trips_through_value() {
 // ---- numeric coercion & comparison ------------------------------------
 
 #[test]
-fn value_is_numeric_parity_with_legacy() {
-    let mut values = registry_scalar_values();
-    values.push(Value::List(vec![]));
-    values.push(Value::None);
-    values.push(Value::Unsupported);
-
-    for value in values {
-        let expected = legacy_is_numeric(&value);
-
-        assert_eq!(value.is_numeric(), expected, "value: {value:?}");
-    }
-}
-
-#[test]
 fn value_is_numeric_matches_registry_flag() {
     for (value, expected) in registry_numeric_cases() {
         assert_eq!(value.is_numeric(), expected, "value: {value:?}");
@@ -252,16 +216,13 @@ fn value_is_numeric_matches_registry_flag() {
 }
 
 #[test]
-fn value_as_storage_key_parity_with_legacy() {
-    let mut values = registry_scalar_values();
-    values.push(Value::List(vec![]));
-    values.push(Value::None);
-    values.push(Value::Unsupported);
-
-    for value in values {
-        let expected = legacy_as_storage_key(&value);
-
-        assert_eq!(value.as_storage_key(), expected, "value: {value:?}");
+fn value_supports_numeric_coercion_matches_registry_flag() {
+    for (value, expected) in registry_numeric_coercion_cases() {
+        assert_eq!(
+            value.supports_numeric_coercion(),
+            expected,
+            "value: {value:?}"
+        );
     }
 }
 
@@ -271,6 +232,17 @@ fn value_as_storage_key_matches_registry_flag() {
         assert_eq!(
             value.as_storage_key().is_some(),
             is_keyable,
+            "value: {value:?}"
+        );
+    }
+}
+
+#[test]
+fn value_coercion_family_matches_registry_flag() {
+    for (value, expected_coercion_family) in registry_coercion_family_cases() {
+        assert_eq!(
+            value.coercion_family(),
+            expected_coercion_family,
             "value: {value:?}"
         );
     }
@@ -317,6 +289,44 @@ fn cmp_numeric_neg_zero_equals_zero() {
     assert_eq!(neg_zero.cmp_numeric(&v_i(0)), Some(Ordering::Equal));
     let neg_zero32 = Value::Float32(F32::try_new(-0.0).unwrap());
     assert_eq!(neg_zero32.cmp_numeric(&v_i(0)), Some(Ordering::Equal));
+}
+
+#[test]
+fn cmp_numeric_respects_registry_numeric_coercion_flag() {
+    for (value, supports_numeric_coercion) in registry_numeric_coercion_cases() {
+        let cmp = value.cmp_numeric(&value);
+        if supports_numeric_coercion {
+            assert_eq!(cmp, Some(Ordering::Equal), "value: {value:?}");
+        } else {
+            assert!(cmp.is_none(), "value: {value:?}");
+        }
+    }
+}
+
+#[test]
+fn cmp_numeric_rejects_date_and_bigints() {
+    let date = Value::Date(Date::new(2024, 1, 2));
+    let int_big = Value::IntBig(Int::from(10i32));
+    let uint_big = Value::UintBig(Nat::from(10u64));
+    let one = Value::Int(1);
+
+    assert!(!date.supports_numeric_coercion());
+    assert!(!int_big.supports_numeric_coercion());
+    assert!(!uint_big.supports_numeric_coercion());
+
+    assert!(date.cmp_numeric(&one).is_none());
+    assert!(int_big.cmp_numeric(&one).is_none());
+    assert!(uint_big.cmp_numeric(&one).is_none());
+}
+
+#[test]
+fn cmp_numeric_is_unreachable_for_non_numeric_coercible_values() {
+    let left = Value::Date(Date::EPOCH);
+    let right = Value::Int(0);
+
+    assert!(!left.supports_numeric_coercion());
+    assert!(left.cmp_numeric(&right).is_none());
+    assert!(left.partial_cmp(&right).is_none());
 }
 
 #[test]

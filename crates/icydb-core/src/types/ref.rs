@@ -45,15 +45,9 @@ where
         }
     }
 
-    /// Borrow the primary key.
+    /// Returns the underlying key.
     #[must_use]
-    pub const fn key(&self) -> &E::Id {
-        &self.id
-    }
-
-    /// Copy the underlying key.
-    #[must_use]
-    pub const fn copied(&self) -> E::Id {
+    pub const fn key(&self) -> E::Id {
         self.id
     }
 

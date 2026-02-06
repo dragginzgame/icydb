@@ -5,7 +5,7 @@ use super::{
 use crate::{
     db::identity::{EntityName, EntityNameError, IndexName, IndexNameError},
     model::{entity::EntityModel, field::EntityFieldKind, index::IndexModel},
-    value::{Value, ValueFamily, ValueFamilyExt},
+    value::{CoercionFamily, CoercionFamilyExt, Value},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -51,16 +51,16 @@ pub(crate) enum ScalarType {
 }
 
 // Local helpers to expand the scalar registry into match arms.
-macro_rules! scalar_family_from_registry {
-    ( @args $self:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+macro_rules! scalar_coercion_family_from_registry {
+    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         match $self {
-            $( ScalarType::$scalar => $family, )*
+            $( ScalarType::$scalar => $coercion_family, )*
         }
     };
 }
 
 macro_rules! scalar_matches_value_from_registry {
-    ( @args $self:expr, $value:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+    ( @args $self:expr, $value:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         matches!(
             ($self, $value),
             $( (ScalarType::$scalar, $value_pat) )|*
@@ -68,9 +68,17 @@ macro_rules! scalar_matches_value_from_registry {
     };
 }
 
+macro_rules! scalar_supports_numeric_coercion_from_registry {
+    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+        match $self {
+            $( ScalarType::$scalar => $supports_numeric_coercion, )*
+        }
+    };
+}
+
 #[cfg(test)]
 macro_rules! scalar_supports_arithmetic_from_registry {
-    ( @args $self:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         match $self {
             $( ScalarType::$scalar => $supports_arithmetic, )*
         }
@@ -78,7 +86,7 @@ macro_rules! scalar_supports_arithmetic_from_registry {
 }
 
 macro_rules! scalar_is_keyable_from_registry {
-    ( @args $self:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         match $self {
             $( ScalarType::$scalar => $is_keyable, )*
         }
@@ -87,7 +95,7 @@ macro_rules! scalar_is_keyable_from_registry {
 
 #[cfg(test)]
 macro_rules! scalar_supports_equality_from_registry {
-    ( @args $self:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         match $self {
             $( ScalarType::$scalar => $supports_equality, )*
         }
@@ -95,7 +103,7 @@ macro_rules! scalar_supports_equality_from_registry {
 }
 
 macro_rules! scalar_supports_ordering_from_registry {
-    ( @args $self:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         match $self {
             $( ScalarType::$scalar => $supports_ordering, )*
         }
@@ -104,12 +112,14 @@ macro_rules! scalar_supports_ordering_from_registry {
 
 impl ScalarType {
     #[must_use]
-    pub const fn family(&self) -> ValueFamily {
-        scalar_registry!(scalar_family_from_registry, self)
+    pub const fn coercion_family(&self) -> CoercionFamily {
+        scalar_registry!(scalar_coercion_family_from_registry, self)
     }
 
     #[must_use]
     pub const fn is_orderable(&self) -> bool {
+        // Predicate-level ordering gate.
+        // Delegates to registry-backed supports_ordering.
         self.supports_ordering()
     }
 
@@ -119,7 +129,13 @@ impl ScalarType {
     }
 
     #[must_use]
+    pub const fn supports_numeric_coercion(&self) -> bool {
+        scalar_registry!(scalar_supports_numeric_coercion_from_registry, self)
+    }
+
+    #[must_use]
     #[cfg(test)]
+    #[expect(dead_code)]
     pub const fn supports_arithmetic(&self) -> bool {
         scalar_registry!(scalar_supports_arithmetic_from_registry, self)
     }
@@ -131,6 +147,7 @@ impl ScalarType {
 
     #[must_use]
     #[cfg(test)]
+    #[expect(dead_code)]
     pub const fn supports_equality(&self) -> bool {
         scalar_registry!(scalar_supports_equality_from_registry, self)
     }
@@ -162,10 +179,10 @@ pub(crate) enum FieldType {
 
 impl FieldType {
     #[must_use]
-    pub const fn family(&self) -> Option<ValueFamily> {
+    pub const fn coercion_family(&self) -> Option<CoercionFamily> {
         match self {
-            Self::Scalar(inner) => Some(inner.family()),
-            Self::List(_) | Self::Set(_) | Self::Map { .. } => Some(ValueFamily::Collection),
+            Self::Scalar(inner) => Some(inner.coercion_family()),
+            Self::List(_) | Self::Set(_) | Self::Map { .. } => Some(CoercionFamily::Collection),
             Self::Unsupported => None,
         }
     }
@@ -213,6 +230,14 @@ impl FieldType {
     pub const fn is_keyable(&self) -> bool {
         match self {
             Self::Scalar(inner) => inner.is_keyable(),
+            _ => false,
+        }
+    }
+
+    #[must_use]
+    pub const fn supports_numeric_coercion(&self) -> bool {
+        match self {
+            Self::Scalar(inner) => inner.supports_numeric_coercion(),
             _ => false,
         }
     }
@@ -735,13 +760,6 @@ fn ensure_coercion(
     literal: &Value,
     coercion: &CoercionSpec,
 ) -> Result<(), ValidateError> {
-    let left_family = field_type
-        .family()
-        .ok_or_else(|| ValidateError::UnsupportedFieldType {
-            field: field.to_string(),
-        })?;
-    let right_family = literal.family();
-
     if matches!(coercion.id, CoercionId::TextCasefold) && !field_type.is_text() {
         // CONTRACT: case-insensitive coercions are text-only.
         return Err(ValidateError::InvalidCoercion {
@@ -750,11 +768,34 @@ fn ensure_coercion(
         });
     }
 
-    if !supports_coercion(left_family, right_family, coercion.id) {
+    // NOTE:
+    // NumericWiden eligibility is registry-authoritative.
+    // CoercionFamily::Numeric is intentionally NOT sufficient.
+    // This prevents validation/runtime divergence for Date, IntBig, UintBig.
+    if matches!(coercion.id, CoercionId::NumericWiden)
+        && (!field_type.supports_numeric_coercion() || !literal.supports_numeric_coercion())
+    {
         return Err(ValidateError::InvalidCoercion {
             field: field.to_string(),
             coercion: coercion.id,
         });
+    }
+
+    if !matches!(coercion.id, CoercionId::NumericWiden) {
+        let left_family =
+            field_type
+                .coercion_family()
+                .ok_or_else(|| ValidateError::UnsupportedFieldType {
+                    field: field.to_string(),
+                })?;
+        let right_family = literal.coercion_family();
+
+        if !supports_coercion(left_family, right_family, coercion.id) {
+            return Err(ValidateError::InvalidCoercion {
+                field: field.to_string(),
+                coercion: coercion.id,
+            });
+        }
     }
 
     if matches!(
@@ -881,15 +922,12 @@ impl fmt::Display for FieldType {
 #[cfg(test)]
 mod tests {
     // NOTE: Invalid helpers remain only for intentionally invalid or unsupported schemas.
-    use super::{
-        CompareOp, FieldType, ScalarType, ValidateError, validate_model, validate_ordering,
-    };
+    use super::{FieldType, ScalarType, ValidateError, ensure_coercion, validate_model};
     use crate::{
         db::query::{
             FieldRef,
             predicate::{CoercionId, CoercionSpec, Predicate},
         },
-        db::store::StorageKey,
         model::field::{EntityFieldKind, EntityFieldModel},
         test_fixtures::InvalidEntityModelBuilder,
         traits::EntitySchema,
@@ -897,17 +935,17 @@ mod tests {
             Account, Date, Decimal, Duration, E8s, E18s, Float32, Float64, Int, Int128, Nat,
             Nat128, Principal, Subaccount, Timestamp, Ulid,
         },
-        value::{Value, ValueEnum, ValueFamily},
+        value::{CoercionFamily, Value, ValueEnum},
     };
     use std::collections::BTreeSet;
 
     /// Build a registry-driven list of all scalar variants.
     fn registry_scalars() -> Vec<ScalarType> {
         macro_rules! collect_scalars {
-            ( @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+            ( @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
                 vec![ $( ScalarType::$scalar ),* ]
             };
-            ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+            ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
                 vec![ $( ScalarType::$scalar ),* ]
             };
         }
@@ -981,107 +1019,6 @@ mod tests {
         Some(scalar)
     }
 
-    /// Legacy family mapping from the pre-registry implementation.
-    fn legacy_family(scalar: ScalarType) -> ValueFamily {
-        match scalar {
-            ScalarType::Text => ValueFamily::Textual,
-            ScalarType::Ulid | ScalarType::Principal | ScalarType::Account => {
-                ValueFamily::Identifier
-            }
-            ScalarType::Enum => ValueFamily::Enum,
-            ScalarType::Blob | ScalarType::Subaccount => ValueFamily::Blob,
-            ScalarType::Bool => ValueFamily::Bool,
-            ScalarType::Unit => ValueFamily::Unit,
-            ScalarType::Date
-            | ScalarType::Decimal
-            | ScalarType::Duration
-            | ScalarType::E8s
-            | ScalarType::E18s
-            | ScalarType::Float32
-            | ScalarType::Float64
-            | ScalarType::Int
-            | ScalarType::Int128
-            | ScalarType::IntBig
-            | ScalarType::Timestamp
-            | ScalarType::Uint
-            | ScalarType::Uint128
-            | ScalarType::UintBig => ValueFamily::Numeric,
-        }
-    }
-
-    /// Legacy value matching from the pre-registry implementation.
-    fn legacy_matches_value(scalar: ScalarType, value: &Value) -> bool {
-        let matches_value = matches!(
-            (scalar, value),
-            (ScalarType::Account, Value::Account(_))
-                | (ScalarType::Blob, Value::Blob(_))
-                | (ScalarType::Bool, Value::Bool(_))
-                | (ScalarType::Date, Value::Date(_))
-                | (ScalarType::Decimal, Value::Decimal(_))
-                | (ScalarType::Duration, Value::Duration(_))
-                | (ScalarType::Enum, Value::Enum(_))
-                | (ScalarType::E8s, Value::E8s(_))
-                | (ScalarType::E18s, Value::E18s(_))
-                | (ScalarType::Float32, Value::Float32(_))
-                | (ScalarType::Float64, Value::Float64(_))
-                | (ScalarType::Int, Value::Int(_))
-                | (ScalarType::Int128, Value::Int128(_))
-                | (ScalarType::IntBig, Value::IntBig(_))
-                | (ScalarType::Principal, Value::Principal(_))
-                | (ScalarType::Subaccount, Value::Subaccount(_))
-                | (ScalarType::Text, Value::Text(_))
-                | (ScalarType::Timestamp, Value::Timestamp(_))
-                | (ScalarType::Uint, Value::Uint(_))
-                | (ScalarType::Uint128, Value::Uint128(_))
-                | (ScalarType::UintBig, Value::UintBig(_))
-                | (ScalarType::Ulid, Value::Ulid(_))
-                | (ScalarType::Unit, Value::Unit)
-        );
-
-        matches_value
-    }
-
-    /// Legacy arithmetic support from the pre-registry model.
-    fn legacy_supports_arithmetic(scalar: ScalarType) -> bool {
-        matches!(
-            scalar,
-            ScalarType::Decimal
-                | ScalarType::E8s
-                | ScalarType::E18s
-                | ScalarType::Int
-                | ScalarType::Int128
-                | ScalarType::IntBig
-                | ScalarType::Uint
-                | ScalarType::Uint128
-                | ScalarType::UintBig
-        )
-    }
-
-    /// Legacy ordering support from the pre-registry model.
-    fn legacy_supports_ordering(scalar: ScalarType) -> bool {
-        !matches!(scalar, ScalarType::Blob | ScalarType::Unit)
-    }
-
-    /// Legacy equality support from the pre-registry model.
-    fn legacy_supports_equality(_scalar: ScalarType) -> bool {
-        true
-    }
-
-    /// Legacy keyability from the pre-registry model.
-    fn legacy_is_keyable(scalar: ScalarType) -> bool {
-        matches!(
-            scalar,
-            ScalarType::Account
-                | ScalarType::Int
-                | ScalarType::Principal
-                | ScalarType::Subaccount
-                | ScalarType::Timestamp
-                | ScalarType::Uint
-                | ScalarType::Ulid
-                | ScalarType::Unit
-        )
-    }
-
     /// Build a representative value for each scalar variant.
     fn sample_value_for_scalar(scalar: ScalarType) -> Value {
         match scalar {
@@ -1112,14 +1049,6 @@ mod tests {
             ScalarType::UintBig => Value::UintBig(Nat::from(0u64)),
             ScalarType::Ulid => Value::Ulid(Ulid::nil()),
             ScalarType::Unit => Value::Unit,
-        }
-    }
-
-    /// Build a non-matching value for each scalar variant.
-    fn mismatching_value_for_scalar(scalar: ScalarType) -> Value {
-        match scalar {
-            ScalarType::Unit => Value::Bool(false),
-            _ => Value::Unit,
         }
     }
 
@@ -1162,6 +1091,26 @@ mod tests {
                     value: &EntityFieldKind::Uint,
                 }
             ),
+        ],
+        indexes = [],
+    }
+
+    crate::test_entity_schema! {
+        NumericCoercionPredicateEntity,
+        id = Ulid,
+        path = "predicate_validate::NumericCoercionEntity",
+        entity_name = "NumericCoercionEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", EntityFieldKind::Ulid),
+            ("date", EntityFieldKind::Date),
+            ("int_big", EntityFieldKind::IntBig),
+            ("uint_big", EntityFieldKind::UintBig),
+            ("int_small", EntityFieldKind::Int),
+            ("uint_small", EntityFieldKind::Uint),
+            ("decimal", EntityFieldKind::Decimal),
+            ("e8s", EntityFieldKind::E8s),
         ],
         indexes = [],
     }
@@ -1242,6 +1191,103 @@ mod tests {
     }
 
     #[test]
+    fn validate_model_rejects_numeric_widen_for_registry_exclusions() {
+        let model = <NumericCoercionPredicateEntity as EntitySchema>::MODEL;
+
+        let date_pred = FieldRef::new("date").lt(1i64);
+        assert!(matches!(
+            validate_model(model, &date_pred),
+            Err(ValidateError::InvalidCoercion { field, coercion })
+                if field == "date" && coercion == CoercionId::NumericWiden
+        ));
+
+        let int_big_pred = FieldRef::new("int_big").lt(Int::from(1i32));
+        assert!(matches!(
+            validate_model(model, &int_big_pred),
+            Err(ValidateError::InvalidCoercion { field, coercion })
+                if field == "int_big" && coercion == CoercionId::NumericWiden
+        ));
+
+        let uint_big_pred = FieldRef::new("uint_big").lt(Nat::from(1u64));
+        assert!(matches!(
+            validate_model(model, &uint_big_pred),
+            Err(ValidateError::InvalidCoercion { field, coercion })
+                if field == "uint_big" && coercion == CoercionId::NumericWiden
+        ));
+    }
+
+    #[test]
+    fn validate_model_accepts_numeric_widen_for_registry_allowed_scalars() {
+        let model = <NumericCoercionPredicateEntity as EntitySchema>::MODEL;
+        let predicate = Predicate::And(vec![
+            FieldRef::new("int_small").lt(9u64),
+            FieldRef::new("uint_small").lt(9i64),
+            FieldRef::new("decimal").lt(9u64),
+            FieldRef::new("e8s").lt(9u64),
+        ]);
+
+        assert!(validate_model(model, &predicate).is_ok());
+    }
+
+    #[test]
+    fn numeric_widen_authority_tracks_registry_flags() {
+        for scalar in registry_scalars() {
+            let field_type = FieldType::Scalar(scalar.clone());
+            let literal = sample_value_for_scalar(scalar.clone());
+            let expected = scalar.supports_numeric_coercion();
+            let actual = ensure_coercion(
+                "value",
+                &field_type,
+                &literal,
+                &CoercionSpec::new(CoercionId::NumericWiden),
+            )
+            .is_ok();
+
+            assert_eq!(
+                actual, expected,
+                "numeric widen drift for scalar {scalar:?}: expected {expected}, got {actual}"
+            );
+        }
+    }
+
+    #[test]
+    fn numeric_widen_is_not_inferred_from_coercion_family() {
+        let mut numeric_family_with_no_numeric_widen = 0usize;
+
+        for scalar in registry_scalars() {
+            if scalar.coercion_family() != CoercionFamily::Numeric {
+                continue;
+            }
+
+            let field_type = FieldType::Scalar(scalar.clone());
+            let literal = sample_value_for_scalar(scalar.clone());
+            let numeric_widen_allowed = ensure_coercion(
+                "value",
+                &field_type,
+                &literal,
+                &CoercionSpec::new(CoercionId::NumericWiden),
+            )
+            .is_ok();
+
+            assert_eq!(
+                numeric_widen_allowed,
+                scalar.supports_numeric_coercion(),
+                "numeric family must not imply numeric widen for scalar {scalar:?}"
+            );
+
+            if !scalar.supports_numeric_coercion() {
+                numeric_family_with_no_numeric_widen =
+                    numeric_family_with_no_numeric_widen.saturating_add(1);
+            }
+        }
+
+        assert!(
+            numeric_family_with_no_numeric_widen > 0,
+            "expected at least one numeric-family scalar without numeric widen support"
+        );
+    }
+
+    #[test]
     fn scalar_registry_covers_all_variants_exactly_once() {
         let scalars = registry_scalars();
         let mut names = BTreeSet::new();
@@ -1269,96 +1315,16 @@ mod tests {
     }
 
     #[test]
-    fn scalar_registry_preserves_family_and_matching() {
-        for scalar in registry_scalars() {
-            let expected_family = legacy_family(scalar.clone());
-            let matching = sample_value_for_scalar(scalar.clone());
-            let mismatching = mismatching_value_for_scalar(scalar.clone());
-            let expected_match = legacy_matches_value(scalar.clone(), &matching);
-            let expected_mismatch = legacy_matches_value(scalar.clone(), &mismatching);
-
-            assert_eq!(scalar.family(), expected_family);
-            assert_eq!(scalar.matches_value(&matching), expected_match);
-            assert_eq!(scalar.matches_value(&mismatching), expected_mismatch);
-        }
-    }
-
-    #[test]
-    fn scalar_registry_preserves_arithmetic_support() {
-        for scalar in registry_scalars() {
-            let expected = legacy_supports_arithmetic(scalar.clone());
-
-            assert_eq!(scalar.supports_arithmetic(), expected);
-        }
-    }
-
-    #[test]
-    fn scalar_registry_preserves_keyability() {
-        for scalar in registry_scalars() {
-            let expected = legacy_is_keyable(scalar.clone());
-
-            assert_eq!(scalar.is_keyable(), expected);
-        }
-    }
-
-    #[test]
-    fn scalar_keyability_matches_storage_key_conversion_paths() {
+    fn scalar_keyability_matches_value_storage_key() {
         for scalar in registry_scalars() {
             let value = sample_value_for_scalar(scalar.clone());
             let scalar_keyable = scalar.is_keyable();
             let value_keyable = value.as_storage_key().is_some();
-            let storage_keyable = StorageKey::try_from_value(&value).is_ok();
 
             assert_eq!(
                 value_keyable, scalar_keyable,
                 "Value::as_storage_key drift for scalar {scalar:?}"
             );
-            assert_eq!(
-                storage_keyable, scalar_keyable,
-                "StorageKey::try_from_value drift for scalar {scalar:?}"
-            );
-            assert_eq!(
-                value.as_storage_key(),
-                StorageKey::try_from_value(&value).ok()
-            );
-        }
-    }
-
-    #[test]
-    fn scalar_registry_preserves_ordering_support() {
-        for scalar in registry_scalars() {
-            let expected = legacy_supports_ordering(scalar.clone());
-
-            assert_eq!(scalar.supports_ordering(), expected);
-            assert_eq!(scalar.is_orderable(), expected);
-        }
-    }
-
-    #[test]
-    fn scalar_registry_preserves_equality_support() {
-        for scalar in registry_scalars() {
-            let expected = legacy_supports_equality(scalar.clone());
-
-            assert_eq!(scalar.supports_equality(), expected);
-        }
-    }
-
-    #[test]
-    fn validate_ordering_matches_legacy_support() {
-        let coercion = CoercionSpec::default();
-        let op = CompareOp::Lt;
-
-        for scalar in registry_scalars() {
-            let field_type = FieldType::Scalar(scalar.clone());
-            let value = sample_value_for_scalar(scalar.clone());
-            let result = validate_ordering("field", &field_type, &value, &coercion, op);
-            let is_orderable = legacy_supports_ordering(scalar);
-
-            if is_orderable {
-                assert!(result.is_ok(), "scalar should be orderable: {field_type:?}");
-            } else {
-                assert!(matches!(result, Err(ValidateError::InvalidOperator { .. })));
-            }
         }
     }
 }

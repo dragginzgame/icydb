@@ -143,7 +143,7 @@ impl EntityKind for SimpleEntity {}
 
 impl EntityValue for SimpleEntity {
     fn id(&self) -> Self::Id {
-        *self.id.key()
+        self.id.key()
     }
 }
 

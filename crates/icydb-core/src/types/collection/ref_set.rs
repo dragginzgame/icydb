@@ -68,7 +68,7 @@ where
     pub fn insert(&mut self, reference: Ref<E>) -> bool {
         let key = reference.key();
 
-        match self.find_index(key) {
+        match self.find_index(&key) {
             Ok(_) => false,
             Err(index) => {
                 self.0.insert(index, reference);
@@ -81,7 +81,7 @@ where
     pub fn remove(&mut self, reference: &Ref<E>) -> bool {
         let key = reference.key();
 
-        match self.find_index(key) {
+        match self.find_index(&key) {
             Ok(index) => {
                 self.0.remove(index);
                 true
@@ -93,7 +93,7 @@ where
     /// Returns `true` if the set contains the reference.
     #[must_use]
     pub fn contains(&self, reference: &Ref<E>) -> bool {
-        self.contains_key(reference.key())
+        self.contains_key(&reference.key())
     }
 
     /// Returns `true` if the set contains the key.

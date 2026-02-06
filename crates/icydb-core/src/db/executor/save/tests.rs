@@ -155,7 +155,7 @@ impl EntityKind for TargetEntity {}
 
 impl EntityValue for TargetEntity {
     fn id(&self) -> Self::Id {
-        *self.id.key()
+        self.id.key()
     }
 }
 
@@ -239,7 +239,7 @@ impl EntityKind for SourceEntity {}
 
 impl EntityValue for SourceEntity {
     fn id(&self) -> Self::Id {
-        *self.id.key()
+        self.id.key()
     }
 }
 

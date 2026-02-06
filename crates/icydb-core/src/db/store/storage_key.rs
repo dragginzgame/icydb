@@ -67,6 +67,16 @@ pub enum StorageKey {
     Unit,
 }
 
+// Local helper to evaluate storage-key encodability from the scalar registry.
+macro_rules! value_is_storage_key_encodable_from_registry {
+    ( @args $value:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+        match $value {
+            $( $value_pat => $is_storage_key_encodable, )*
+            _ => false,
+        }
+    };
+}
+
 impl StorageKey {
     // ── Variant tags (DO NOT reorder) ────────────────────────────────
     pub(crate) const TAG_ACCOUNT: u8 = 0;
@@ -97,6 +107,18 @@ impl StorageKey {
     const ACCOUNT_MAX_SIZE: usize = 62;
 
     pub const fn try_from_value(value: &Value) -> Result<Self, StorageKeyEncodeError> {
+        // Storage encodability is a persistent compatibility contract.
+        // Changing admission is a breaking change and may require index migration.
+        // This is intentionally distinct from schema keyability.
+        let is_storage_key_encodable =
+            scalar_registry!(value_is_storage_key_encodable_from_registry, value);
+        if !is_storage_key_encodable {
+            return Err(StorageKeyEncodeError::AccountLengthMismatch {
+                len: 0,
+                expected: 0,
+            });
+        }
+
         match value {
             Value::Account(v) => Ok(Self::Account(*v)),
             Value::Int(v) => Ok(Self::Int(*v)),
@@ -107,10 +129,7 @@ impl StorageKey {
             Value::Ulid(v) => Ok(Self::Ulid(*v)),
             Value::Unit => Ok(Self::Unit),
 
-            // Everything else is *not* storage-key compatible
             _ => Err(StorageKeyEncodeError::AccountLengthMismatch {
-                // pick a better error variant if you want;
-                // or introduce a new UnsupportedValue variant
                 len: 0,
                 expected: 0,
             }),
@@ -324,5 +343,155 @@ impl TryFrom<&[u8]> for StorageKey {
     type Error = &'static str;
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Self::try_from_bytes(bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StorageKey;
+    use crate::{
+        types::{
+            Account, Date, Decimal, Duration, E8s, E18s, Float32, Float64, Int, Int128, Nat,
+            Nat128, Principal, Subaccount, Timestamp, Ulid,
+        },
+        value::{Value, ValueEnum},
+    };
+
+    macro_rules! sample_value_for_scalar {
+        (Account) => {
+            Value::Account(Account::dummy(7))
+        };
+        (Blob) => {
+            Value::Blob(vec![1u8, 2u8, 3u8])
+        };
+        (Bool) => {
+            Value::Bool(true)
+        };
+        (Date) => {
+            Value::Date(Date::new(2024, 1, 2))
+        };
+        (Decimal) => {
+            Value::Decimal(Decimal::new(123, 2))
+        };
+        (Duration) => {
+            Value::Duration(Duration::from_secs(1))
+        };
+        (Enum) => {
+            Value::Enum(ValueEnum::loose("example"))
+        };
+        (E8s) => {
+            Value::E8s(E8s::from_atomic(1))
+        };
+        (E18s) => {
+            Value::E18s(E18s::from_atomic(1))
+        };
+        (Float32) => {
+            Value::Float32(Float32::try_new(1.25).expect("Float32 sample should be finite"))
+        };
+        (Float64) => {
+            Value::Float64(Float64::try_new(2.5).expect("Float64 sample should be finite"))
+        };
+        (Int) => {
+            Value::Int(-7)
+        };
+        (Int128) => {
+            Value::Int128(Int128::from(123i128))
+        };
+        (IntBig) => {
+            Value::IntBig(Int::from(99i32))
+        };
+        (Principal) => {
+            Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8]))
+        };
+        (Subaccount) => {
+            Value::Subaccount(Subaccount::new([1u8; 32]))
+        };
+        (Text) => {
+            Value::Text("example".to_string())
+        };
+        (Timestamp) => {
+            Value::Timestamp(Timestamp::from_seconds(1))
+        };
+        (Uint) => {
+            Value::Uint(7)
+        };
+        (Uint128) => {
+            Value::Uint128(Nat128::from(9u128))
+        };
+        (UintBig) => {
+            Value::UintBig(Nat::from(11u64))
+        };
+        (Ulid) => {
+            Value::Ulid(Ulid::from_u128(42))
+        };
+        (Unit) => {
+            Value::Unit
+        };
+    }
+
+    fn registry_storage_encodable_cases() -> Vec<(Value, bool)> {
+        macro_rules! collect_cases {
+            ( @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+                vec![ $( (sample_value_for_scalar!($scalar), $is_storage_key_encodable) ),* ]
+            };
+            ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+                vec![ $( (sample_value_for_scalar!($scalar), $is_storage_key_encodable) ),* ]
+            };
+        }
+
+        scalar_registry!(collect_cases)
+    }
+
+    #[test]
+    fn storage_key_try_from_value_matches_registry_flag() {
+        for (value, expected_encodable) in registry_storage_encodable_cases() {
+            assert_eq!(
+                StorageKey::try_from_value(&value).is_ok(),
+                expected_encodable,
+                "value: {value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn storage_key_known_encodability_contracts() {
+        assert!(StorageKey::try_from_value(&Value::Unit).is_ok());
+        assert!(StorageKey::try_from_value(&Value::Decimal(Decimal::new(1, 0))).is_err());
+        assert!(StorageKey::try_from_value(&Value::Text("x".to_string())).is_err());
+        assert!(StorageKey::try_from_value(&Value::Account(Account::dummy(1))).is_ok());
+    }
+
+    #[test]
+    fn storage_keys_sort_deterministically_across_mixed_variants() {
+        let mut keys = vec![
+            StorageKey::try_from_value(&Value::Unit).expect("Unit is encodable"),
+            StorageKey::try_from_value(&Value::Ulid(Ulid::from_u128(2)))
+                .expect("Ulid is encodable"),
+            StorageKey::try_from_value(&Value::Uint(2)).expect("Uint is encodable"),
+            StorageKey::try_from_value(&Value::Timestamp(Timestamp::from_seconds(2)))
+                .expect("Timestamp is encodable"),
+            StorageKey::try_from_value(&Value::Subaccount(Subaccount::new([3u8; 32])))
+                .expect("Subaccount is encodable"),
+            StorageKey::try_from_value(&Value::Principal(Principal::from_slice(&[9u8])))
+                .expect("Principal is encodable"),
+            StorageKey::try_from_value(&Value::Int(-1)).expect("Int is encodable"),
+            StorageKey::try_from_value(&Value::Account(Account::dummy(3)))
+                .expect("Account is encodable"),
+        ];
+
+        keys.sort();
+
+        let expected = vec![
+            StorageKey::Account(Account::dummy(3)),
+            StorageKey::Int(-1),
+            StorageKey::Principal(Principal::from_slice(&[9u8])),
+            StorageKey::Subaccount(Subaccount::new([3u8; 32])),
+            StorageKey::Timestamp(Timestamp::from_seconds(2)),
+            StorageKey::Uint(2),
+            StorageKey::Ulid(Ulid::from_u128(2)),
+            StorageKey::Unit,
+        ];
+
+        assert_eq!(keys, expected);
     }
 }

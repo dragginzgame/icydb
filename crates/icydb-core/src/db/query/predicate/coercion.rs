@@ -1,4 +1,4 @@
-use crate::value::{TextMode, Value, ValueFamily};
+use crate::value::{CoercionFamily, TextMode, Value};
 use std::{cmp::Ordering, collections::BTreeMap, mem::discriminant};
 
 ///
@@ -65,13 +65,15 @@ impl Default for CoercionSpec {
 }
 
 ///
-/// CoercionFamily
+/// CoercionRuleFamily
 ///
-
+/// Rule-side matcher for coercion routing families.
+/// This exists only to express "any" versus an exact family in the coercion table.
+///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CoercionFamily {
+pub enum CoercionRuleFamily {
     Any,
-    Family(ValueFamily),
+    Family(CoercionFamily),
 }
 
 ///
@@ -86,45 +88,49 @@ pub enum CoercionFamily {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CoercionRule {
-    pub left: CoercionFamily,
-    pub right: CoercionFamily,
+    pub left: CoercionRuleFamily,
+    pub right: CoercionRuleFamily,
     pub id: CoercionId,
 }
 
+// CoercionFamily is a routing category only.
+// Capability checks (numeric coercion eligibility, etc.) are registry-driven
+// and must be applied before consulting this table.
 pub const COERCION_TABLE: &[CoercionRule] = &[
     CoercionRule {
-        left: CoercionFamily::Any,
-        right: CoercionFamily::Any,
+        left: CoercionRuleFamily::Any,
+        right: CoercionRuleFamily::Any,
         id: CoercionId::Strict,
     },
     CoercionRule {
-        left: CoercionFamily::Family(ValueFamily::Numeric),
-        right: CoercionFamily::Family(ValueFamily::Numeric),
+        left: CoercionRuleFamily::Family(CoercionFamily::Numeric),
+        right: CoercionRuleFamily::Family(CoercionFamily::Numeric),
         id: CoercionId::NumericWiden,
     },
     CoercionRule {
-        left: CoercionFamily::Family(ValueFamily::Textual),
-        right: CoercionFamily::Family(ValueFamily::Textual),
+        left: CoercionRuleFamily::Family(CoercionFamily::Textual),
+        right: CoercionRuleFamily::Family(CoercionFamily::Textual),
         id: CoercionId::TextCasefold,
     },
     CoercionRule {
-        left: CoercionFamily::Any,
-        right: CoercionFamily::Any,
+        left: CoercionRuleFamily::Any,
+        right: CoercionRuleFamily::Any,
         id: CoercionId::CollectionElement,
     },
 ];
 
+/// Returns whether a coercion rule exists for the provided routing families.
 #[must_use]
-pub fn supports_coercion(left: ValueFamily, right: ValueFamily, id: CoercionId) -> bool {
+pub fn supports_coercion(left: CoercionFamily, right: CoercionFamily, id: CoercionId) -> bool {
     COERCION_TABLE.iter().any(|rule| {
         rule.id == id && family_matches(rule.left, left) && family_matches(rule.right, right)
     })
 }
 
-fn family_matches(rule: CoercionFamily, value: ValueFamily) -> bool {
+fn family_matches(rule: CoercionRuleFamily, value: CoercionFamily) -> bool {
     match rule {
-        CoercionFamily::Any => true,
-        CoercionFamily::Family(expected) => expected == value,
+        CoercionRuleFamily::Any => true,
+        CoercionRuleFamily::Family(expected) => expected == value,
     }
 }
 
@@ -150,7 +156,13 @@ pub fn compare_eq(left: &Value, right: &Value, coercion: &CoercionSpec) -> Optio
         CoercionId::Strict | CoercionId::CollectionElement => {
             same_variant(left, right).then_some(left == right)
         }
-        CoercionId::NumericWiden => left.cmp_numeric(right).map(|ord| ord == Ordering::Equal),
+        CoercionId::NumericWiden => {
+            if !left.supports_numeric_coercion() || !right.supports_numeric_coercion() {
+                return None;
+            }
+
+            left.cmp_numeric(right).map(|ord| ord == Ordering::Equal)
+        }
         CoercionId::TextCasefold => compare_casefold(left, right),
     }
 }
@@ -168,7 +180,13 @@ pub fn compare_order(left: &Value, right: &Value, coercion: &CoercionSpec) -> Op
             }
             strict_ordering(left, right)
         }
-        CoercionId::NumericWiden => left.cmp_numeric(right),
+        CoercionId::NumericWiden => {
+            if !left.supports_numeric_coercion() || !right.supports_numeric_coercion() {
+                return None;
+            }
+
+            left.cmp_numeric(right)
+        }
         CoercionId::TextCasefold => {
             let left = casefold_value(left)?;
             let right = casefold_value(right)?;

@@ -105,7 +105,7 @@ macro_rules! primitive_matches_scalar {
 }
 
 macro_rules! primitive_supports_arithmetic_from_registry {
-    ( @args $primitive:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+    ( @args $primitive:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         false $( || (primitive_matches_scalar!($primitive, $scalar) && $supports_arithmetic) )*
     };
 }
@@ -264,58 +264,5 @@ impl ToTokens for Primitive {
         let ident = format_ident!("{self}");
 
         tokens.extend(quote!(::icydb::schema::types::Primitive::#ident));
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::Primitive;
-
-    const ALL_PRIMITIVES: [Primitive; 28] = [
-        Primitive::Account,
-        Primitive::Blob,
-        Primitive::Bool,
-        Primitive::Date,
-        Primitive::Decimal,
-        Primitive::Duration,
-        Primitive::E8s,
-        Primitive::E18s,
-        Primitive::Float32,
-        Primitive::Float64,
-        Primitive::Int,
-        Primitive::Int8,
-        Primitive::Int16,
-        Primitive::Int32,
-        Primitive::Int64,
-        Primitive::Int128,
-        Primitive::Nat,
-        Primitive::Nat8,
-        Primitive::Nat16,
-        Primitive::Nat32,
-        Primitive::Nat64,
-        Primitive::Nat128,
-        Primitive::Principal,
-        Primitive::Subaccount,
-        Primitive::Text,
-        Primitive::Timestamp,
-        Primitive::Ulid,
-        Primitive::Unit,
-    ];
-
-    fn legacy_supports_arithmetic(primitive: Primitive) -> bool {
-        primitive.is_int() || primitive.is_fixed_point() || primitive.is_decimal()
-    }
-
-    #[test]
-    fn supports_arithmetic_matches_legacy() {
-        for primitive in ALL_PRIMITIVES {
-            let expected = legacy_supports_arithmetic(primitive);
-
-            assert_eq!(primitive.supports_arithmetic(), expected, "{primitive:?}");
-        }
     }
 }

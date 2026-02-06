@@ -7,8 +7,13 @@
 // NOTE: Numeric exclusions are intentional.
 // Date / IntBig / UintBig are Numeric by family but MUST remain non-numeric
 // for Value::is_numeric and numeric coercion.
-// Do not infer numeric-ness from ValueFamily.
+// CoercionFamily is a routing category only.
+// Scalar capabilities are defined separately and MUST NOT be inferred.
+// Do not infer numeric-ness from CoercionFamily.
+// NOTE: `supports_numeric_coercion` is the only gate for numeric widening.
 // NOTE: Floats are numeric but do NOT support arithmetic traits in schema-derive.
+// TODO(breaking): consider whether Decimal / Text should ever be
+// storage-key encodable, with explicit canonical encoding.
 #[doc(hidden)]
 #[macro_export]
 macro_rules! scalar_registry_entries {
@@ -20,233 +25,283 @@ macro_rules! scalar_registry_entries {
             @entries
             (
                 Account,
-                $crate::value::ValueFamily::Identifier,
+                $crate::value::CoercionFamily::Identifier,
                 $crate::value::Value::Account(_),
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = true
+                is_keyable = true,
+                is_storage_key_encodable = true
             ),
             (
                 Blob,
-                $crate::value::ValueFamily::Blob,
+                $crate::value::CoercionFamily::Blob,
                 $crate::value::Value::Blob(_),
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = false,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 Bool,
-                $crate::value::ValueFamily::Bool,
+                $crate::value::CoercionFamily::Bool,
                 $crate::value::Value::Bool(_),
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 Date,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::Date(_),
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 Decimal,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::Decimal(_),
                 is_numeric_value = true,
+                supports_numeric_coercion = true,
                 supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 Duration,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::Duration(_),
                 is_numeric_value = true,
+                supports_numeric_coercion = true,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 Enum,
-                $crate::value::ValueFamily::Enum,
+                $crate::value::CoercionFamily::Enum,
                 $crate::value::Value::Enum(_),
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 E8s,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::E8s(_),
                 is_numeric_value = true,
+                supports_numeric_coercion = true,
                 supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 E18s,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::E18s(_),
                 is_numeric_value = true,
+                supports_numeric_coercion = true,
                 supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 Float32,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::Float32(_),
                 is_numeric_value = true,
+                supports_numeric_coercion = true,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 Float64,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::Float64(_),
                 is_numeric_value = true,
+                supports_numeric_coercion = true,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 Int,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::Int(_),
                 is_numeric_value = true,
+                supports_numeric_coercion = true,
                 supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = true
+                is_keyable = true,
+                is_storage_key_encodable = true
             ),
             (
                 Int128,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::Int128(_),
                 is_numeric_value = true,
+                supports_numeric_coercion = true,
                 supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 IntBig,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::IntBig(_),
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
+                // IntBig participates in arithmetic trait emission for schema newtypes,
+                // but is intentionally excluded from numeric widening/coercion.
                 supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 Principal,
-                $crate::value::ValueFamily::Identifier,
+                $crate::value::CoercionFamily::Identifier,
                 $crate::value::Value::Principal(_),
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = true
+                is_keyable = true,
+                is_storage_key_encodable = true
             ),
             (
                 Subaccount,
-                $crate::value::ValueFamily::Blob,
+                $crate::value::CoercionFamily::Blob,
                 $crate::value::Value::Subaccount(_),
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = true
+                is_keyable = true,
+                is_storage_key_encodable = true
             ),
             (
                 Text,
-                $crate::value::ValueFamily::Textual,
+                $crate::value::CoercionFamily::Textual,
                 $crate::value::Value::Text(_),
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 Timestamp,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::Timestamp(_),
                 is_numeric_value = true,
+                supports_numeric_coercion = true,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = true
+                is_keyable = true,
+                is_storage_key_encodable = true
             ),
             (
                 Uint,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::Uint(_),
                 is_numeric_value = true,
+                supports_numeric_coercion = true,
                 supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = true
+                is_keyable = true,
+                is_storage_key_encodable = true
             ),
             (
                 Uint128,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::Uint128(_),
                 is_numeric_value = true,
+                supports_numeric_coercion = true,
                 supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 UintBig,
-                $crate::value::ValueFamily::Numeric,
+                $crate::value::CoercionFamily::Numeric,
                 $crate::value::Value::UintBig(_),
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
+                // UintBig participates in arithmetic trait emission for schema newtypes,
+                // but is intentionally excluded from numeric widening/coercion.
                 supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = false
+                is_keyable = false,
+                is_storage_key_encodable = false
             ),
             (
                 Ulid,
-                $crate::value::ValueFamily::Identifier,
+                $crate::value::CoercionFamily::Identifier,
                 $crate::value::Value::Ulid(_),
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = true,
-                is_keyable = true
+                is_keyable = true,
+                is_storage_key_encodable = true
             ),
             (
                 Unit,
-                $crate::value::ValueFamily::Unit,
+                $crate::value::CoercionFamily::Unit,
                 $crate::value::Value::Unit,
                 is_numeric_value = false,
+                supports_numeric_coercion = false,
                 supports_arithmetic = false,
                 supports_equality = true,
                 supports_ordering = false,
-                is_keyable = true
+                is_keyable = true,
+                is_storage_key_encodable = true
             ),
         }
     };

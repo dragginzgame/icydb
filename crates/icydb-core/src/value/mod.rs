@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
 // re-exports
-pub use family::{ValueFamily, ValueFamilyExt};
+pub use family::{CoercionFamily, CoercionFamilyExt};
 
 ///
 /// CONSTANTS
@@ -89,9 +89,18 @@ pub enum Value {
 
 // Local helpers to expand the scalar registry into match arms.
 macro_rules! value_is_numeric_from_registry {
-    ( @args $value:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+    ( @args $value:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         match $value {
             $( $value_pat => $is_numeric, )*
+            _ => false,
+        }
+    };
+}
+
+macro_rules! value_supports_numeric_coercion_from_registry {
+    ( @args $value:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+        match $value {
+            $( $value_pat => $supports_numeric_coercion, )*
             _ => false,
         }
     };
@@ -118,7 +127,7 @@ macro_rules! value_storage_key_case {
 }
 
 macro_rules! value_storage_key_from_registry {
-    ( @args $value:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:tt) ),* $(,)? ) => {
+    ( @args $value:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:tt, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         {
             let mut key = None;
             $(
@@ -130,6 +139,17 @@ macro_rules! value_storage_key_from_registry {
                 }
             )*
             key
+        }
+    };
+}
+
+macro_rules! value_coercion_family_from_registry {
+    ( @args $value:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
+        match $value {
+            $( $value_pat => $coercion_family, )*
+            Value::List(_) => CoercionFamily::Collection,
+            Value::None => CoercionFamily::Null,
+            Value::Unsupported => CoercionFamily::Unsupported,
         }
     };
 }
@@ -182,6 +202,12 @@ impl Value {
         scalar_registry!(value_is_numeric_from_registry, self)
     }
 
+    /// Returns true when numeric coercion/comparison is explicitly allowed.
+    #[must_use]
+    pub const fn supports_numeric_coercion(&self) -> bool {
+        scalar_registry!(value_supports_numeric_coercion_from_registry, self)
+    }
+
     /// Returns true if the value is Text.
     #[must_use]
     pub const fn is_text(&self) -> bool {
@@ -204,6 +230,11 @@ impl Value {
     }
 
     fn numeric_repr(&self) -> NumericRepr {
+        // Numeric comparison eligibility is registry-authoritative.
+        if !self.supports_numeric_coercion() {
+            return NumericRepr::None;
+        }
+
         if let Some(d) = self.to_decimal() {
             return NumericRepr::Decimal(d);
         }
@@ -294,6 +325,10 @@ impl Value {
     /// Cross-type numeric comparison; returns None if non-numeric.
     #[must_use]
     pub fn cmp_numeric(&self, other: &Self) -> Option<Ordering> {
+        if !self.supports_numeric_coercion() || !other.supports_numeric_coercion() {
+            return None;
+        }
+
         match (self.numeric_repr(), other.numeric_repr()) {
             (NumericRepr::Decimal(a), NumericRepr::Decimal(b)) => a.partial_cmp(&b),
             (NumericRepr::F64(a), NumericRepr::F64(b)) => a.partial_cmp(&b),
@@ -552,50 +587,14 @@ impl_from_for! {
     Ulid       => Ulid,
 }
 
-impl ValueFamilyExt for Value {
-    fn family(&self) -> ValueFamily {
-        match self {
-            // Numeric
-            Self::Date(_)
-            | Self::Decimal(_)
-            | Self::Duration(_)
-            | Self::E8s(_)
-            | Self::E18s(_)
-            | Self::Float32(_)
-            | Self::Float64(_)
-            | Self::Int(_)
-            | Self::Int128(_)
-            | Self::Timestamp(_)
-            | Self::Uint(_)
-            | Self::Uint128(_)
-            | Self::IntBig(_)
-            | Self::UintBig(_) => ValueFamily::Numeric,
-
-            // Text
-            Self::Text(_) => ValueFamily::Textual,
-
-            // Identifiers
-            Self::Ulid(_) | Self::Principal(_) | Self::Account(_) => ValueFamily::Identifier,
-
-            // Enum
-            Self::Enum(_) => ValueFamily::Enum,
-
-            // Collections
-            Self::List(_) => ValueFamily::Collection,
-
-            // Blobs
-            Self::Blob(_) | Self::Subaccount(_) => ValueFamily::Blob,
-
-            // Bool
-            Self::Bool(_) => ValueFamily::Bool,
-
-            // Null / Unit
-            Self::None => ValueFamily::Null,
-            Self::Unit => ValueFamily::Unit,
-
-            // Everything else
-            Self::Unsupported => ValueFamily::Unsupported,
-        }
+impl CoercionFamilyExt for Value {
+    /// Returns the coercion-routing family for this value.
+    ///
+    /// NOTE:
+    /// This does NOT imply numeric, arithmetic, ordering, or keyability support.
+    /// All scalar capabilities are registry-driven.
+    fn coercion_family(&self) -> CoercionFamily {
+        scalar_registry!(value_coercion_family_from_registry, self)
     }
 }
 
