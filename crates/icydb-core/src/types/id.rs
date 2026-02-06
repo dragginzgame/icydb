@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        EntityIdentity, FieldValue, Inner, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        EntityIdentity, FieldValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        View, Visitable,
     },
     types::Ref,
     value::Value,
@@ -44,6 +44,12 @@ where
     /// Returns the underlying key.
     #[must_use]
     pub const fn key(&self) -> E::Id {
+        self.id
+    }
+
+    /// Consume this identity and return the raw key.
+    #[must_use]
+    pub const fn into_key(self) -> E::Id {
         self.id
     }
 
@@ -184,19 +190,6 @@ where
         let id = E::Id::from_value(value)?;
 
         Some(Self::new(id))
-    }
-}
-
-impl<E> Inner<E::Id> for Id<E>
-where
-    E: EntityIdentity,
-{
-    fn inner(&self) -> &E::Id {
-        &self.id
-    }
-
-    fn into_inner(self) -> E::Id {
-        self.id
     }
 }
 

@@ -23,7 +23,6 @@ use crate::{
     },
     error::InternalError,
     traits::{EntityKind, FieldValue, SingletonEntity},
-    types::Ref,
     value::Value,
 };
 use std::marker::PhantomData;
@@ -213,18 +212,18 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     }
 
     /// Set the access path to a single primary key lookup.
-    pub(crate) fn by_key(self, key: K) -> Self {
-        self.set_key_access(KeyAccessKind::Single, KeyAccess::Single(key))
+    pub(crate) fn by_id(self, id: K) -> Self {
+        self.set_key_access(KeyAccessKind::Single, KeyAccess::Single(id))
     }
 
     /// Set the access path to a primary key batch lookup.
-    pub(crate) fn by_keys<I>(self, keys: I) -> Self
+    pub(crate) fn by_ids<I>(self, ids: I) -> Self
     where
         I: IntoIterator<Item = K>,
     {
         self.set_key_access(
             KeyAccessKind::Many,
-            KeyAccess::Many(keys.into_iter().collect()),
+            KeyAccess::Many(ids.into_iter().collect()),
         )
     }
 
@@ -329,7 +328,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         if let Some(state) = &self.key_access {
             match state.kind {
                 KeyAccessKind::Many if self.predicate.is_some() => {
-                    return Err(IntentError::ManyWithPredicate);
+                    return Err(IntentError::ByIdsWithPredicate);
                 }
                 KeyAccessKind::Only if self.predicate.is_some() => {
                     return Err(IntentError::OnlyWithPredicate);
@@ -427,27 +426,22 @@ impl<E: EntityKind> Query<E> {
     }
 
     /// Set the access path to a single primary key lookup.
-    pub(crate) fn by_key(self, key: E::Id) -> Self {
+    pub(crate) fn by_id(self, id: E::Id) -> Self {
         let Self { intent, _marker } = self;
         Self {
-            intent: intent.by_key(key),
+            intent: intent.by_id(id),
             _marker,
         }
     }
 
-    /// Set the access path to a typed reference lookup.
-    pub(crate) fn by_ref(self, reference: Ref<E>) -> Self {
-        self.by_key(reference.key())
-    }
-
     /// Set the access path to a primary key batch lookup.
-    pub(crate) fn by_keys<I>(self, keys: I) -> Self
+    pub(crate) fn by_ids<I>(self, ids: I) -> Self
     where
         I: IntoIterator<Item = E::Id>,
     {
         let Self { intent, _marker } = self;
         Self {
-            intent: intent.by_keys(keys),
+            intent: intent.by_ids(ids),
             _marker,
         }
     }
@@ -576,8 +570,8 @@ pub enum IntentError {
     #[error("order specification must include at least one field")]
     EmptyOrderSpec,
 
-    #[error("many() cannot be combined with predicates")]
-    ManyWithPredicate,
+    #[error("by_ids() cannot be combined with predicates")]
+    ByIdsWithPredicate,
 
     #[error("only() cannot be combined with predicates")]
     OnlyWithPredicate,

@@ -22,7 +22,7 @@ pub use std::{
     ops::{Add, AddAssign, Deref, DerefMut, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign},
 };
 
-use crate::{prelude::*, value::ValueEnum, visitor::VisitorContext};
+use crate::{prelude::*, types::Id, value::ValueEnum, visitor::VisitorContext};
 
 // ============================================================================
 // FOUNDATIONAL KINDS
@@ -62,17 +62,6 @@ pub trait IndexStoreKind: Kind {
 // or manipulated at runtime.
 //
 
-/// Marker trait for entity identity types.
-///
-/// Identity types:
-/// - Are cheap to copy
-/// - Are totally ordered
-/// - Can be converted to/from query Values
-///
-/// They are NOT required to be persistable.
-pub trait EntityKey: Copy + Debug + Eq + Ord + FieldValue + 'static {}
-impl<T> EntityKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static {}
-
 ///
 /// EntityIdentity
 /// Identity-only facts about an entity.
@@ -80,7 +69,7 @@ impl<T> EntityKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static 
 ///
 
 pub trait EntityIdentity {
-    type Id: EntityKey;
+    type Id: crate::types::Id<Self>;
 
     const ENTITY_NAME: &'static str;
     const PRIMARY_KEY: &'static str;
@@ -318,6 +307,11 @@ impl_field_value!(
     u64 => Uint,
     bool => Bool,
 );
+
+/// Was EntityKey
+/// not sure where to put this, codex please help!
+pub trait StorageKey: Copy + Debug + Eq + Ord + FieldValue + 'static {}
+impl<T> StorageKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static {}
 
 /// ============================================================================
 /// MISC HELPERS

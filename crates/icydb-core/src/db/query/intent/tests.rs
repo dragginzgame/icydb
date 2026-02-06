@@ -15,7 +15,7 @@ use crate::{
         EntityValue, FieldValue, FieldValues, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, View, Visitable,
     },
-    types::{Id, Ref, Ulid, Unit},
+    types::{Id, Ulid, Unit},
     value::Value,
 };
 use serde::{Deserialize, Serialize};
@@ -193,15 +193,15 @@ impl EntityKind for PlanSingleton {}
 impl SingletonEntity for PlanSingleton {}
 
 #[test]
-fn intent_rejects_many_with_predicate() {
+fn intent_rejects_by_ids_with_predicate() {
     let model = basic_model();
     let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
-        .by_keys([Ulid::generate()])
+        .by_ids([Ulid::generate()])
         .filter(Predicate::True);
 
     assert!(matches!(
         intent.validate_intent(),
-        Err(IntentError::ManyWithPredicate)
+        Err(IntentError::ByIdsWithPredicate)
     ));
 }
 
@@ -247,8 +247,8 @@ fn intent_rejects_empty_order_spec() {
 fn intent_rejects_conflicting_key_access() {
     let model = basic_model();
     let intent = QueryModel::<Ulid>::new(model, ReadConsistency::MissingOk)
-        .by_key(Ulid::generate())
-        .by_keys([Ulid::generate()]);
+        .by_id(Ulid::generate())
+        .by_ids([Ulid::generate()]);
 
     assert!(matches!(
         intent.validate_intent(),
@@ -257,21 +257,21 @@ fn intent_rejects_conflicting_key_access() {
 }
 
 #[test]
-fn typed_by_ref_matches_by_key_access() {
+fn typed_by_ids_matches_by_id_access() {
     let key = Ulid::generate();
 
-    let by_key = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
-        .by_key(key)
+    let by_id = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .by_id(key)
         .plan()
-        .expect("by_key plan")
+        .expect("by_id plan")
         .into_inner();
-    let by_ref = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
-        .by_ref(Ref::new(key))
+    let by_ids = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .by_ids([key])
         .plan()
-        .expect("by_ref plan")
+        .expect("by_ids plan")
         .into_inner();
 
-    assert_eq!(by_key, by_ref);
+    assert_eq!(by_id, by_ids);
 }
 
 #[test]

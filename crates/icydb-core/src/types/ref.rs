@@ -3,6 +3,7 @@ use crate::{
         EntityIdentity, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
         ValidateCustom, View, Visitable,
     },
+    types::Id,
     value::Value,
 };
 use candid::CandidType;
@@ -49,6 +50,12 @@ where
     #[must_use]
     pub const fn key(&self) -> E::Id {
         self.id
+    }
+
+    // Returns a Id<E> around the inner value
+    #[must_use]
+    pub const fn id(&self) -> Id<E> {
+        Id::new(self.key())
     }
 
     /// Convert this identity key into a semantic Value.

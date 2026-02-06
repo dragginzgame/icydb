@@ -6,11 +6,11 @@ use crate::{
     },
     error::Error,
     traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
-    types::Ref,
+    types::{Id, Ref},
     view::View,
 };
 use icydb_core as core;
-use std::{borrow::Borrow, collections::HashMap, hash::Hash};
+use std::{collections::HashMap, hash::Hash};
 
 ///
 /// SessionLoadQuery
@@ -36,35 +36,19 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     // Primary-key access (semantic)
     // ------------------------------------------------------------------
 
-    /// Filter by primary key.
     #[must_use]
-    pub fn by_key(mut self, id: E::Id) -> Self {
-        self.inner = self.inner.by_key(id);
+    pub fn by_id(mut self, id: Id<E>) -> Self {
+        self.inner = self.inner.by_id(id);
         self
     }
 
-    /// Filter by typed reference.
+    /// Load multiple entities by typed identity.
     #[must_use]
-    pub fn by_ref(mut self, reference: Ref<E>) -> Self {
-        self.inner = self.inner.by_ref(reference);
-        self
-    }
-
-    /// Load multiple entities by typed reference.
-    #[must_use]
-    pub fn many_refs(mut self, refs: &[Ref<E>]) -> Self {
-        self.inner = self.inner.many_refs(refs);
-        self
-    }
-
-    /// Load multiple entities by primary key.
-    #[must_use]
-    pub fn many<I>(mut self, ids: I) -> Self
+    pub fn by_ids<I>(mut self, ids: I) -> Self
     where
-        I: IntoIterator,
-        I::Item: Borrow<E::Id>,
+        I: IntoIterator<Item = Id<E>>,
     {
-        self.inner = self.inner.many(ids.into_iter().map(|id| *id.borrow()));
+        self.inner = self.inner.by_ids(ids);
         self
     }
 

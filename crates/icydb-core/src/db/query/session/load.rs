@@ -10,7 +10,7 @@ use crate::{
         response::Response,
     },
     traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
-    types::Ref,
+    types::Id,
 };
 
 ///
@@ -52,33 +52,26 @@ where
     // Intent builders (pure)
     // ------------------------------------------------------------------
 
+    /// Set the access path to a single entity identity.
     #[must_use]
-    pub fn by_key(mut self, key: E::Id) -> Self {
-        self.query = self.query.by_key(key);
+    pub fn by_id(mut self, id: Id<E>) -> Self {
+        self.query = self.query.by_id(id.into_key());
         self
     }
 
-    /// Set the access path to a typed reference lookup.
+    /// Set the access path to multiple entity identities.
     #[must_use]
-    pub fn by_ref(mut self, reference: Ref<E>) -> Self {
-        self.query = self.query.by_ref(reference);
-        self
-    }
-
-    /// Set the access path to a batch of typed reference lookups.
-    #[must_use]
-    pub fn many_refs(self, refs: &[Ref<E>]) -> Self {
-        self.many(refs.iter().map(Ref::key))
-    }
-
-    #[must_use]
-    pub fn many<I>(mut self, keys: I) -> Self
+    pub fn by_ids<I>(mut self, ids: I) -> Self
     where
-        I: IntoIterator<Item = E::Id>,
+        I: IntoIterator<Item = Id<E>>,
     {
-        self.query = self.query.by_keys(keys);
+        self.query = self.query.by_ids(ids.into_iter().map(Id::key));
         self
     }
+
+    // ------------------------------------------------------------------
+    // Query Refinement
+    // ------------------------------------------------------------------
 
     #[must_use]
     pub fn filter(mut self, predicate: Predicate) -> Self {
