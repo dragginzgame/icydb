@@ -154,23 +154,18 @@ impl<E: EntityKind> Response<E> {
 
     /// Return the single typed reference.
     pub fn reference(self) -> Result<Ref<E>, ResponseError> {
-        self.require_id()
-            .map(|id| Ref::from_storage_key(id.into_key()))
+        self.require_id().map(Into::into)
     }
 
     /// Return zero or one typed reference.
     pub fn try_reference(self) -> Result<Option<Ref<E>>, ResponseError> {
-        self.try_row()
-            .map(|row| row.map(|(id, _)| Ref::from_storage_key(id.into_key())))
+        self.try_row().map(|row| row.map(|(id, _)| id.into()))
     }
 
     /// Return all typed references.
     #[must_use]
     pub fn references(&self) -> Vec<Ref<E>> {
-        self.0
-            .iter()
-            .map(|(id, _)| Ref::from_storage_key(id.into_key()))
-            .collect()
+        self.0.iter().map(|(id, _)| (*id).into()).collect()
     }
 
     // ------------------------------------------------------------------

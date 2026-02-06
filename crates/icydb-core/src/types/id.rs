@@ -32,20 +32,16 @@ impl<E> Id<E>
 where
     E: EntityStorageKey,
 {
-    /// Construct a typed identity from the raw key value.
-    #[must_use]
-    pub(crate) const fn new(key: E::Key) -> Self {
-        Self {
-            key,
-            _marker: PhantomData,
-        }
-    }
+    // ------------------------------------------------------------------
+    // Construction
+    // ------------------------------------------------------------------
 
     /// Construct an entity identity from raw storage key material.
     ///
-    /// This is intended for **entity construction only**:
+    /// ## Semantics
+    /// This function is intended **only for entity construction**:
     /// - handwritten constructors in schema crates
-    /// - derive-generated entity defaults
+    /// - derive-generated entity initialization
     ///
     /// Application code must not invent identities arbitrarily.
     #[must_use]
@@ -56,21 +52,33 @@ where
         }
     }
 
-    /// Returns the underlying key.
-    #[must_use]
-    pub(crate) const fn key(&self) -> E::Key {
-        self.key
-    }
+    // ------------------------------------------------------------------
+    // Storage access (core-only)
+    // ------------------------------------------------------------------
 
-    /// Consume this identity and return the raw key.
-    #[must_use]
-    pub(crate) const fn into_key(self) -> E::Key {
-        self.key
-    }
-
-    /// Convert this identity key into a semantic Value.
+    /// Borrow the underlying storage key.
     ///
-    /// This is intended ONLY for planner invariants, diagnostics,
+    /// Core-only. Application code must not depend on storage identity.
+    #[must_use]
+    pub(crate) const fn storage_key(&self) -> E::Key {
+        self.key
+    }
+
+    /// Consume this identity and return raw storage key material.
+    ///
+    /// Core-only. Use only at intent / execution boundaries.
+    #[must_use]
+    pub(crate) const fn into_storage_key(self) -> E::Key {
+        self.key
+    }
+
+    // ------------------------------------------------------------------
+    // Diagnostics
+    // ------------------------------------------------------------------
+
+    /// Convert this identity key into a semantic `Value`.
+    ///
+    /// Intended only for planner invariants, diagnostics,
     /// explain output, and fingerprinting.
     pub fn as_value(&self) -> Value {
         self.key.to_value()
@@ -122,7 +130,7 @@ where
     E::Key: Default,
 {
     fn default() -> Self {
-        Self::new(E::Key::default())
+        Self::from_storage_key(E::Key::default())
     }
 }
 
@@ -158,7 +166,7 @@ where
     E: EntityStorageKey,
 {
     fn from(identity: Id<E>) -> Self {
-        Self::from_storage_key(identity.into_key())
+        Self::from_storage_key(identity.into_storage_key())
     }
 }
 
@@ -204,7 +212,7 @@ where
     fn from_value(value: &Value) -> Option<Self> {
         let key = E::Key::from_value(value)?;
 
-        Some(Self::new(key))
+        Some(Self::from_storage_key(key))
     }
 }
 
@@ -236,7 +244,7 @@ where
     {
         let key = E::Key::deserialize(deserializer)?;
 
-        Ok(Self::new(key))
+        Ok(Self::from_storage_key(key))
     }
 }
 
@@ -252,11 +260,11 @@ where
     type ViewType = <E::Key as View>::ViewType;
 
     fn to_view(&self) -> Self::ViewType {
-        View::to_view(&self.key())
+        View::to_view(&self.storage_key())
     }
 
     fn from_view(view: Self::ViewType) -> Self {
-        Self::new(View::from_view(view))
+        Self::from_storage_key(View::from_view(view))
     }
 }
 

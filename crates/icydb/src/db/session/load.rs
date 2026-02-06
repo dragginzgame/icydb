@@ -53,6 +53,27 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     }
 
     // ------------------------------------------------------------------
+    // Reference-based access (semantic)
+    // ------------------------------------------------------------------
+
+    /// Resolve a semantic entity reference.
+    /// Callers must not extract keys from `Ref`.
+    #[must_use]
+    pub fn by_ref(mut self, r: Ref<E>) -> Self {
+        self.inner = self.inner.by_ref(r);
+        self
+    }
+
+    #[must_use]
+    pub fn by_refs<I>(mut self, refs: I) -> Self
+    where
+        I: IntoIterator<Item = Ref<E>>,
+    {
+        self.inner = self.inner.by_refs(refs);
+        self
+    }
+
+    // ------------------------------------------------------------------
     // Query refinement
     // ------------------------------------------------------------------
 

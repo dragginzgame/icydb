@@ -52,8 +52,8 @@ pub fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
     old: Option<&E>,
     new: Option<&E>,
 ) -> Result<IndexMutationPlan, InternalError> {
-    let old_entity_key = old.map(|entity| entity.id().into_key());
-    let new_entity_key = new.map(|entity| entity.id().into_key());
+    let old_entity_key = old.map(|entity| entity.id().into_storage_key());
+    let new_entity_key = new.map(|entity| entity.id().into_storage_key());
 
     let mut apply = Vec::with_capacity(E::INDEXES.len());
     let mut commit_ops = Vec::new();
@@ -248,7 +248,7 @@ fn validate_unique_constraint<E: EntityKind + EntityValue>(
             )
         })?
     };
-    let stored_key = stored.id().into_key();
+    let stored_key = stored.id().into_storage_key();
     if stored_key != existing_key {
         // Stored row decoded successfully but key mismatch indicates index/data divergence; treat as corruption.
         return Err(ExecutorError::corruption(

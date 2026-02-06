@@ -44,7 +44,7 @@ impl<E> WriteResponse<E> {
     where
         E: EntityKind + EntityValue,
     {
-        Ref::from_storage_key(self.entity.id().into_key())
+        Ref::from_storage_key(self.entity.id().into_storage_key())
     }
 
     /// Return the stored entity as its view type.

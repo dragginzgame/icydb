@@ -164,13 +164,13 @@ fn executor_save_then_delete_round_trip() {
     let delete = DeleteExecutor::<SimpleEntity>::new(DB, false);
 
     let entity = SimpleEntity {
-        id: Id::new(Ulid::generate()),
+        id: Id::from_storage_key(Ulid::generate()),
     };
     let saved = save.insert(entity).expect("save should succeed");
 
     let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
         .delete()
-        .by_id(saved.id().into_key())
+        .by_id(saved.id().into_storage_key())
         .plan()
         .expect("delete plan should build");
     let response = delete.execute(plan).expect("delete should succeed");
@@ -198,7 +198,7 @@ fn delete_replays_incomplete_commit_marker() {
     let delete = DeleteExecutor::<SimpleEntity>::new(DB, false);
 
     let entity = SimpleEntity {
-        id: Id::new(Ulid::generate()),
+        id: Id::from_storage_key(Ulid::generate()),
     };
     let saved = save.insert(entity).expect("save should succeed");
 
@@ -212,7 +212,7 @@ fn delete_replays_incomplete_commit_marker() {
 
     let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
         .delete()
-        .by_id(saved.id().into_key())
+        .by_id(saved.id().into_storage_key())
         .plan()
         .expect("delete plan should build");
     let response = delete.execute(plan).expect("delete should succeed");

@@ -10,7 +10,7 @@ use crate::{
         response::Response,
     },
     traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
-    types::Id,
+    types::{Id, Ref},
 };
 
 ///
@@ -55,7 +55,7 @@ where
     /// Set the access path to a single entity identity.
     #[must_use]
     pub fn by_id(mut self, id: Id<E>) -> Self {
-        self.query = self.query.by_id(id.into_key());
+        self.query = self.query.by_id(id.into_storage_key());
         self
     }
 
@@ -65,7 +65,30 @@ where
     where
         I: IntoIterator<Item = Id<E>>,
     {
-        self.query = self.query.by_ids(ids.into_iter().map(Id::into_key));
+        self.query = self.query.by_ids(ids.into_iter().map(Id::into_storage_key));
+        self
+    }
+
+    // ------------------------------------------------------------------
+    // Reference-based intent builders
+    // ------------------------------------------------------------------
+
+    /// Resolve a semantic entity reference.
+    #[must_use]
+    pub fn by_ref(mut self, r: Ref<E>) -> Self {
+        // Core is allowed to inspect / resolve refs
+        let key = r.into_storage_key(); // pub(crate)
+        self.query = self.query.by_id(key);
+        self
+    }
+
+    #[must_use]
+    pub fn by_refs<I>(mut self, refs: I) -> Self
+    where
+        I: IntoIterator<Item = Ref<E>>,
+    {
+        let keys = refs.into_iter().map(Ref::into_storage_key);
+        self.query = self.query.by_ids(keys);
         self
     }
 

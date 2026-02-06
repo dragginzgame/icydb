@@ -36,23 +36,18 @@ impl<E> Ref<E>
 where
     E: EntityStorageKey,
 {
-    /// Construct a typed identity from the raw key value.
-    #[must_use]
-    #[expect(dead_code)]
-    pub(crate) const fn new(key: E::Key) -> Self {
-        Self {
-            key,
-            _marker: PhantomData,
-        }
-    }
+    // ------------------------------------------------------------------
+    // Construction
+    // ------------------------------------------------------------------
 
-    /// Construct an entity identity from raw storage key material.
+    /// Construct a typed entity reference from raw storage key material.
     ///
-    /// This is intended for **entity construction only**:
+    /// ## Semantics
+    /// This function is intended **only for schema-level construction**:
     /// - handwritten constructors in schema crates
-    /// - derive-generated entity defaults
+    /// - derive-generated relation initialization
     ///
-    /// Application code must not invent identities arbitrarily.
+    /// Application code must not invent references arbitrarily.
     #[must_use]
     pub const fn from_storage_key(key: E::Key) -> Self {
         Self {
@@ -61,19 +56,27 @@ where
         }
     }
 
-    /// Consume this reference and extract raw storage key material.
+    // ------------------------------------------------------------------
+    // Storage access (core-only)
+    // ------------------------------------------------------------------
+
+    /// Consume this reference and return raw storage key material.
     ///
-    /// This is a **core-only escape hatch** for intent building,
-    /// planning, and execution. Application code must not depend
-    /// on storage identity.
+    /// Core-only escape hatch for intent building, planning,
+    /// execution, and persistence. Application code must not
+    /// depend on storage identity.
     #[must_use]
     pub(crate) const fn into_storage_key(self) -> E::Key {
         self.key
     }
 
-    /// Convert this reference key into a semantic Value.
+    // ------------------------------------------------------------------
+    // Diagnostics
+    // ------------------------------------------------------------------
+
+    /// Convert this reference key into a semantic `Value`.
     ///
-    /// This is intended ONLY for planner invariants, diagnostics,
+    /// Intended only for planner invariants, diagnostics,
     /// explain output, and fingerprinting.
     pub fn as_value(&self) -> Value {
         self.key.to_value()
