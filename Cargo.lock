@@ -800,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.6.43"
+version = "0.6.44"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -821,7 +821,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.6.43"
+version = "0.6.44"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.6.43"
+version = "0.6.44"
 dependencies = [
  "bencher",
  "candid",
@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.6.43"
+version = "0.6.44"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -865,7 +865,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.6.43"
+version = "0.6.44"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.6.43"
+version = "0.6.44"
 dependencies = [
  "candid",
  "canic-utils",
@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.6.43"
+version = "0.6.44"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -981,9 +981,9 @@ checksum = "df1d3c3b53da64cf5760482273a98e575c651a67eec7f77df96b5b642de8f039"
 
 [[package]]
 name = "memchr"
-version = "2.7.6"
+version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
+checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "minicbor"
