@@ -1,6 +1,6 @@
 use crate::{
     traits::{
-        EntityIdentity, FieldValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
         View, Visitable,
     },
     types::Ref,
@@ -19,38 +19,38 @@ use std::{
 ///
 /// Typed primary-key wrapper for entity identities.
 /// Carries entity context without changing the underlying key type.
-/// Serializes identically to `E::Id`.
+/// Serializes identically to `E::Key`.
 ///
 
 #[repr(transparent)]
-pub struct Id<E: EntityIdentity> {
-    id: E::Id,
+pub struct Id<E: EntityStorageKey> {
+    key: E::Key,
     _marker: PhantomData<fn() -> E>,
 }
 
 impl<E> Id<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     /// Construct a typed identity from the raw key value.
     #[must_use]
-    pub const fn new(id: E::Id) -> Self {
+    pub const fn new(key: E::Key) -> Self {
         Self {
-            id,
+            key,
             _marker: PhantomData,
         }
     }
 
     /// Returns the underlying key.
     #[must_use]
-    pub const fn key(&self) -> E::Id {
-        self.id
+    pub const fn key(&self) -> E::Key {
+        self.key
     }
 
     /// Consume this identity and return the raw key.
     #[must_use]
-    pub const fn into_key(self) -> E::Id {
-        self.id
+    pub const fn into_key(self) -> E::Key {
+        self.key
     }
 
     /// Convert this identity key into a semantic Value.
@@ -58,119 +58,119 @@ where
     /// This is intended ONLY for planner invariants, diagnostics,
     /// explain output, and fingerprinting.
     pub fn as_value(&self) -> Value {
-        self.id.to_value()
+        self.key.to_value()
     }
 }
 
 impl<E> CandidType for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: CandidType,
+    E: EntityStorageKey,
+    E::Key: CandidType,
 {
     fn _ty() -> candid::types::Type {
-        <E::Id as CandidType>::_ty()
+        <E::Key as CandidType>::_ty()
     }
 
     fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
     where
         S: candid::types::Serializer,
     {
-        self.id.idl_serialize(serializer)
+        self.key.idl_serialize(serializer)
     }
 }
 
 #[allow(clippy::expl_impl_clone_on_copy)]
 impl<E> Clone for Id<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<E> Copy for Id<E> where E: EntityIdentity {}
+impl<E> Copy for Id<E> where E: EntityStorageKey {}
 
 impl<E> fmt::Debug for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: fmt::Debug,
+    E: EntityStorageKey,
+    E::Key: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Id").field(&self.id).finish()
+        f.debug_tuple("Id").field(&self.key).finish()
     }
 }
 
 impl<E> Default for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: Default,
+    E: EntityStorageKey,
+    E::Key: Default,
 {
     fn default() -> Self {
-        Self::new(E::Id::default())
+        Self::new(E::Key::default())
     }
 }
 
 impl<E> fmt::Display for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: fmt::Display,
+    E: EntityStorageKey,
+    E::Key: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.id.fmt(f)
+        self.key.fmt(f)
     }
 }
 
 impl<E> Eq for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: Eq,
+    E: EntityStorageKey,
+    E::Key: Eq,
 {
 }
 
 impl<E> PartialEq for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: PartialEq,
+    E: EntityStorageKey,
+    E::Key: PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+        self.key == other.key
     }
 }
 
 impl<E> From<Id<E>> for Ref<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
-    fn from(id: Id<E>) -> Self {
-        Self::new(id.id)
+    fn from(identity: Id<E>) -> Self {
+        Self::new(identity.key)
     }
 }
 
 impl<E> Hash for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: Hash,
+    E: EntityStorageKey,
+    E::Key: Hash,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
+        self.key.hash(state);
     }
 }
 
 impl<E> Ord for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: Ord,
+    E: EntityStorageKey,
+    E::Key: Ord,
 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.id.cmp(&other.id)
+        self.key.cmp(&other.key)
     }
 }
 
 impl<E> PartialOrd for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: PartialOrd,
+    E: EntityStorageKey,
+    E::Key: PartialOrd,
 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -179,70 +179,70 @@ where
 
 impl<E> FieldValue for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: FieldValue,
+    E: EntityStorageKey,
+    E::Key: FieldValue,
 {
     fn to_value(&self) -> Value {
-        self.id.to_value()
+        self.key.to_value()
     }
 
     fn from_value(value: &Value) -> Option<Self> {
-        let id = E::Id::from_value(value)?;
+        let key = E::Key::from_value(value)?;
 
-        Some(Self::new(id))
+        Some(Self::new(key))
     }
 }
 
-impl<E> SanitizeAuto for Id<E> where E: EntityIdentity {}
+impl<E> SanitizeAuto for Id<E> where E: EntityStorageKey {}
 
-impl<E> SanitizeCustom for Id<E> where E: EntityIdentity {}
+impl<E> SanitizeCustom for Id<E> where E: EntityStorageKey {}
 
 impl<E> Serialize for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: Serialize,
+    E: EntityStorageKey,
+    E::Key: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        self.id.serialize(serializer)
+        self.key.serialize(serializer)
     }
 }
 
 impl<'de, E> Deserialize<'de> for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: Deserialize<'de>,
+    E: EntityStorageKey,
+    E::Key: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let id = E::Id::deserialize(deserializer)?;
+        let key = E::Key::deserialize(deserializer)?;
 
-        Ok(Self::new(id))
+        Ok(Self::new(key))
     }
 }
 
-impl<E> ValidateAuto for Id<E> where E: EntityIdentity {}
+impl<E> ValidateAuto for Id<E> where E: EntityStorageKey {}
 
-impl<E> ValidateCustom for Id<E> where E: EntityIdentity {}
+impl<E> ValidateCustom for Id<E> where E: EntityStorageKey {}
 
 impl<E> View for Id<E>
 where
-    E: EntityIdentity,
-    E::Id: Copy + Default,
+    E: EntityStorageKey,
+    E::Key: View,
 {
-    type ViewType = E::Id;
+    type ViewType = <E::Key as View>::ViewType;
 
     fn to_view(&self) -> Self::ViewType {
-        self.id
+        View::to_view(&self.key())
     }
 
     fn from_view(view: Self::ViewType) -> Self {
-        Self::new(view)
+        Self::new(View::from_view(view))
     }
 }
 
-impl<E> Visitable for Id<E> where E: EntityIdentity {}
+impl<E> Visitable for Id<E> where E: EntityStorageKey {}

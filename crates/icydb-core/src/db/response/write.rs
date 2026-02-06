@@ -1,6 +1,6 @@
 use crate::{
     traits::{EntityKind, EntityValue, View},
-    types::Ref,
+    types::{Id, Ref},
     view::View as EntityView,
 };
 
@@ -31,7 +31,7 @@ impl<E> WriteResponse<E> {
 
     /// Return the stored entity's primary key.
     #[must_use]
-    pub fn key(&self) -> E::Id
+    pub fn key(&self) -> Id<E>
     where
         E: EntityValue,
     {
@@ -44,7 +44,7 @@ impl<E> WriteResponse<E> {
     where
         E: EntityKind + EntityValue,
     {
-        Ref::new(self.entity.id())
+        Ref::new(self.entity.id().into_key())
     }
 
     /// Return the stored entity as its view type.
@@ -107,7 +107,7 @@ impl<E> WriteBatchResponse<E> {
 
     /// Return all primary keys.
     #[must_use]
-    pub fn keys(&self) -> Vec<E::Id>
+    pub fn keys(&self) -> Vec<Id<E>>
     where
         E: EntityValue,
     {

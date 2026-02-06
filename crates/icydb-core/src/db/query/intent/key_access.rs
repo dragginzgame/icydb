@@ -65,7 +65,7 @@ where
 pub fn access_plan_to_entity_keys<E: EntityKind>(
     model: &crate::model::entity::EntityModel,
     access: AccessPlan<Value>,
-) -> Result<AccessPlan<E::Id>, PlanError> {
+) -> Result<AccessPlan<E::Key>, PlanError> {
     let plan = match access {
         AccessPlan::Path(path) => AccessPlan::Path(access_path_to_entity_keys::<E>(model, path)?),
         AccessPlan::Union(children) => {
@@ -91,7 +91,7 @@ pub fn access_plan_to_entity_keys<E: EntityKind>(
 pub fn access_path_to_entity_keys<E: EntityKind>(
     model: &crate::model::entity::EntityModel,
     path: AccessPath<Value>,
-) -> Result<AccessPath<E::Id>, PlanError> {
+) -> Result<AccessPath<E::Key>, PlanError> {
     let path = match path {
         AccessPath::ByKey(key) => AccessPath::ByKey(coerce_entity_key::<E>(model, &key)?),
         AccessPath::ByKeys(keys) => {
@@ -116,8 +116,8 @@ pub fn access_path_to_entity_keys<E: EntityKind>(
 pub fn coerce_entity_key<E: EntityKind>(
     model: &crate::model::entity::EntityModel,
     key: &Value,
-) -> Result<E::Id, PlanError> {
-    E::Id::from_value(key).ok_or_else(|| PlanError::PrimaryKeyMismatch {
+) -> Result<E::Key, PlanError> {
+    E::Key::from_value(key).ok_or_else(|| PlanError::PrimaryKeyMismatch {
         field: model.primary_key.name.to_string(),
         key: key.clone(),
     })

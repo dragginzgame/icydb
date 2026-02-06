@@ -15,12 +15,12 @@ use std::marker::PhantomData;
 
 #[derive(Debug)]
 pub struct ExecutablePlan<E: EntityKind> {
-    plan: LogicalPlan<E::Id>,
+    plan: LogicalPlan<E::Key>,
     _marker: PhantomData<E>,
 }
 
 impl<E: EntityKind> ExecutablePlan<E> {
-    pub(crate) const fn new(plan: LogicalPlan<E::Id>) -> Self {
+    pub(crate) const fn new(plan: LogicalPlan<E::Key>) -> Self {
         Self {
             plan,
             _marker: PhantomData,
@@ -45,11 +45,11 @@ impl<E: EntityKind> ExecutablePlan<E> {
         self.plan.mode
     }
 
-    pub(crate) const fn access(&self) -> &crate::db::query::plan::AccessPlan<E::Id> {
+    pub(crate) const fn access(&self) -> &crate::db::query::plan::AccessPlan<E::Key> {
         &self.plan.access
     }
 
-    pub(crate) fn into_inner(self) -> LogicalPlan<E::Id> {
+    pub(crate) fn into_inner(self) -> LogicalPlan<E::Key> {
         self.plan
     }
 }

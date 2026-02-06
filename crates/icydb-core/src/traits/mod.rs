@@ -63,14 +63,28 @@ pub trait IndexStoreKind: Kind {
 //
 
 ///
-/// EntityIdentity
-/// Identity-only facts about an entity.
-/// Primary keys may be relations only for identity-borrowing (singleton) entities.
+/// EntityKey
+/// Marker trait for raw entity key material used at storage boundaries.
 ///
 
-pub trait EntityIdentity {
-    type Id: crate::types::Id<Self>;
+pub trait EntityKey: Copy + Debug + Eq + Ord + FieldValue + 'static {}
+impl<T> EntityKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static {}
 
+///
+/// EntityStorageKey
+/// Raw storage-key facts about an entity.
+///
+
+pub trait EntityStorageKey {
+    type Key: EntityKey;
+}
+
+///
+/// EntityIdentity
+/// Semantic identity facts about an entity.
+///
+
+pub trait EntityIdentity: EntityStorageKey {
     const ENTITY_NAME: &'static str;
     const PRIMARY_KEY: &'static str;
 }
@@ -93,16 +107,24 @@ pub trait EntitySchema: EntityIdentity {
 // These traits bind schema-defined entities into runtime placement.
 //
 
-/// Runtime placement of an entity.
+///
+/// EntityPlacement
+/// Runtime placement of an entity
+///
+
 pub trait EntityPlacement {
     type DataStore: DataStoreKind;
     type Canister: CanisterKind;
 }
 
+///
+/// EntityKind
 /// Fully runtime-bound entity.
 ///
 /// This is the *maximum* entity contract and should only be
 /// required by code that actually touches storage or execution.
+///
+
 pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {}
 
 // ============================================================================
@@ -116,8 +138,8 @@ pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {}
 ///
 /// This trait is intentionally lighter than `EntityKind`.
 /// It does NOT imply storage placement.
-pub trait EntityValue: EntityIdentity + FieldValues {
-    fn id(&self) -> Self::Id;
+pub trait EntityValue: EntityIdentity + FieldValues + Sized {
+    fn id(&self) -> Id<Self>;
 }
 
 /// Marker for entities with exactly one logical row.
@@ -131,10 +153,15 @@ pub trait SingletonEntity: EntityValue {}
 // These traits define behavioral expectations for schema-defined types.
 //
 
+///
+/// TypeKind
+///
 /// Any schema-defined data type.
 ///
 /// This is a *strong* contract and should only be required
 /// where full lifecycle semantics are needed.
+///
+
 pub trait TypeKind:
     Kind
     + View
@@ -167,8 +194,13 @@ impl<T> TypeKind for T where
 /// QUERY VALUE BOUNDARIES
 /// ============================================================================
 
+///
+/// Collection
+///
 /// Explicit iteration contract for list/set wrapper types.
 /// Avoids implicit deref-based access to inner collections.
+///
+
 pub trait Collection {
     type Item;
 
@@ -189,8 +221,13 @@ pub trait Collection {
     }
 }
 
+///
+/// MapCollection
+///
 /// Explicit iteration contract for map wrapper types.
 /// Avoids implicit deref-based access to inner collections.
+///
+
 pub trait MapCollection {
     type Key;
     type Value;
@@ -307,11 +344,6 @@ impl_field_value!(
     u64 => Uint,
     bool => Bool,
 );
-
-/// Was EntityKey
-/// not sure where to put this, codex please help!
-pub trait StorageKey: Copy + Debug + Eq + Ord + FieldValue + 'static {}
-impl<T> StorageKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static {}
 
 /// ============================================================================
 /// MISC HELPERS

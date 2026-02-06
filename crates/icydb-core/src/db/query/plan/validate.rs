@@ -182,7 +182,7 @@ fn validate_plan_semantics<K>(plan: &LogicalPlan<K>) -> Result<(), PlanError> {
 
 /// Validate plans at executor boundaries and surface invariant violations.
 pub(crate) fn validate_executor_plan<E: EntityKind>(
-    plan: &LogicalPlan<E::Id>,
+    plan: &LogicalPlan<E::Key>,
 ) -> Result<(), InternalError> {
     let schema = SchemaInfo::from_entity_model(E::MODEL).map_err(|err| {
         InternalError::new(

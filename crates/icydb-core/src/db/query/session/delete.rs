@@ -170,7 +170,7 @@ impl<C, E> SessionDeleteQuery<'_, C, E>
 where
     C: CanisterKind,
     E: EntityKind<Canister = C> + SingletonEntity,
-    E::Id: Default,
+    E::Key: Default,
 {
     /// Delete the singleton entity.
     #[must_use]

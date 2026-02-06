@@ -20,7 +20,7 @@ use crate::traits::{EntityKind, FieldValue};
 #[cfg(test)]
 #[allow(dead_code)]
 pub fn validate_plan_invariants<E: EntityKind>(
-    plan: &AccessPlan<E::Id>,
+    plan: &AccessPlan<E::Key>,
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
 ) -> Result<(), InternalError> {
@@ -213,7 +213,7 @@ fn collect_strict_predicate_info_model(
 #[cfg(test)]
 #[allow(dead_code)]
 fn validate_access_plan<E: EntityKind>(
-    plan: &AccessPlan<E::Id>,
+    plan: &AccessPlan<E::Key>,
     schema: &SchemaInfo,
     info: &StrictPredicateInfo,
 ) -> Result<(), InternalError> {
@@ -274,7 +274,7 @@ fn validate_access_plan_model(
 #[cfg(test)]
 #[allow(dead_code)]
 fn validate_access_path<E: EntityKind>(
-    path: &AccessPath<E::Id>,
+    path: &AccessPath<E::Key>,
     schema: &SchemaInfo,
     info: &StrictPredicateInfo,
 ) -> Result<(), InternalError> {

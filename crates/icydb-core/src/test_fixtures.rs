@@ -124,9 +124,11 @@ macro_rules! test_entity_schema {
                 );
         }
 
-        impl $crate::traits::EntityIdentity for $name {
-            type Id = $id_ty;
+        impl $crate::traits::EntityStorageKey for $name {
+            type Key = $id_ty;
+        }
 
+        impl $crate::traits::EntityIdentity for $name {
             const ENTITY_NAME: &'static str = $entity_name;
             const PRIMARY_KEY: &'static str = $primary_key;
         }

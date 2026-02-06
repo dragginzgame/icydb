@@ -56,8 +56,8 @@ where
             let raw_key = index_key.to_raw();
             entries
                 .entry(raw_key)
-                .and_modify(|entry| entry.insert(*id))
-                .or_insert_with(|| IndexEntry::new(*id));
+                .and_modify(|entry| entry.insert(id.into_key()))
+                .or_insert_with(|| IndexEntry::new(id.into_key()));
         }
 
         let mut writes = Vec::with_capacity(entries.len());

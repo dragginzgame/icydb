@@ -12,8 +12,8 @@ use crate::{
     test_fixtures::entity_model_from_static,
     traits::{
         CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
-        EntityValue, FieldValue, FieldValues, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        EntityStorageKey, EntityValue, FieldValue, FieldValues, Path, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::{Id, Ulid, Unit},
     value::Value,
@@ -54,9 +54,11 @@ impl Path for PlanEntity {
     const PATH: &'static str = "intent_tests::PlanEntity";
 }
 
-impl EntityIdentity for PlanEntity {
-    type Id = Ulid;
+impl EntityStorageKey for PlanEntity {
+    type Key = Ulid;
+}
 
+impl EntityIdentity for PlanEntity {
     const ENTITY_NAME: &'static str = "PlanEntity";
     const PRIMARY_KEY: &'static str = "id";
 }
@@ -110,9 +112,11 @@ impl Path for PlanSingleton {
     const PATH: &'static str = "intent_tests::PlanSingleton";
 }
 
-impl EntityIdentity for PlanSingleton {
-    type Id = Unit;
+impl EntityStorageKey for PlanSingleton {
+    type Key = Unit;
+}
 
+impl EntityIdentity for PlanSingleton {
     const ENTITY_NAME: &'static str = "PlanSingleton";
     const PRIMARY_KEY: &'static str = "id";
 }
@@ -127,8 +131,8 @@ impl FieldValues for PlanSingleton {
 }
 
 impl EntityValue for PlanSingleton {
-    fn id(&self) -> Self::Id {
-        self.id.key()
+    fn id(&self) -> Id<Self> {
+        self.id
     }
 }
 

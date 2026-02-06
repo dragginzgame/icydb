@@ -11,8 +11,8 @@ use crate::{
     test_fixtures::entity_model_from_static,
     traits::{
         CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
-        EntityValue, Path, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View,
-        Visitable,
+        EntityStorageKey, EntityValue, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
     types::{Id, Ref, Ulid},
 };
@@ -118,9 +118,11 @@ impl Path for TargetEntity {
     const PATH: &'static str = "save_tests::TargetEntity";
 }
 
-impl EntityIdentity for TargetEntity {
-    type Id = Ulid;
+impl EntityStorageKey for TargetEntity {
+    type Key = Ulid;
+}
 
+impl EntityIdentity for TargetEntity {
     const ENTITY_NAME: &'static str = "TargetEntity";
     const PRIMARY_KEY: &'static str = "id";
 }
@@ -154,8 +156,8 @@ impl EntityPlacement for TargetEntity {
 impl EntityKind for TargetEntity {}
 
 impl EntityValue for TargetEntity {
-    fn id(&self) -> Self::Id {
-        self.id.id()
+    fn id(&self) -> Id<Self> {
+        self.id
     }
 }
 
@@ -191,9 +193,11 @@ impl Path for SourceEntity {
     const PATH: &'static str = "save_tests::SourceEntity";
 }
 
-impl EntityIdentity for SourceEntity {
-    type Id = Ulid;
+impl EntityStorageKey for SourceEntity {
+    type Key = Ulid;
+}
 
+impl EntityIdentity for SourceEntity {
     const ENTITY_NAME: &'static str = "SourceEntity";
     const PRIMARY_KEY: &'static str = "id";
 }
@@ -238,8 +242,8 @@ impl EntityPlacement for SourceEntity {
 impl EntityKind for SourceEntity {}
 
 impl EntityValue for SourceEntity {
-    fn id(&self) -> Self::Id {
-        self.id.id()
+    fn id(&self) -> Id<Self> {
+        self.id
     }
 }
 

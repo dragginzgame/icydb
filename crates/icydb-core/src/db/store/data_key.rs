@@ -93,12 +93,12 @@ impl DataKey {
 
     /// Construct using compile-time entity metadata.
     ///
-    /// This requires that the entity ID is persistable.
-    pub fn try_new<E>(id: E::Id) -> Result<Self, InternalError>
+    /// This requires that the entity key is persistable.
+    pub fn try_new<E>(key: E::Key) -> Result<Self, InternalError>
     where
         E: EntityKind,
     {
-        let value = id.to_value();
+        let value = key.to_value();
         let key = StorageKey::try_from_value(&value)?;
 
         Ok(Self {
@@ -107,11 +107,11 @@ impl DataKey {
         })
     }
 
-    /// Decode a semantic identity from this data key.
+    /// Decode a raw entity key from this data key.
     ///
     /// This is a fallible boundary that validates entity identity and
     /// key compatibility against the target entity type.
-    pub fn try_id<E>(&self) -> Result<E::Id, InternalError>
+    pub fn try_key<E>(&self) -> Result<E::Key, InternalError>
     where
         E: EntityKind,
     {
@@ -128,7 +128,7 @@ impl DataKey {
         }
 
         let value = self.key.as_value();
-        <E::Id as FieldValue>::from_value(&value).ok_or_else(|| {
+        <E::Key as FieldValue>::from_value(&value).ok_or_else(|| {
             InternalError::new(
                 ErrorClass::Corruption,
                 ErrorOrigin::Store,

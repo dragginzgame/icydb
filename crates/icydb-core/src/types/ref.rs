@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        EntityIdentity, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        EntityIdentity, EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::Id,
     value::Value,
@@ -18,7 +18,7 @@ use std::{
 /// Ref
 ///
 /// Typed reference to another entity's primary key.
-/// This is an *identity type*, not a semantic value.
+/// Stores raw key material for relations.
 ///
 /// If a generic identity wrapper must be Copy, never derive Copy or Clone;
 /// always implement both manually.
@@ -27,118 +27,123 @@ use std::{
 #[repr(transparent)]
 pub struct Ref<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
-    id: E::Id,
+    key: E::Key,
     _marker: PhantomData<fn() -> E>,
 }
 
 impl<E> Ref<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
-    /// Construct a Ref from a semantic identity value.
+    /// Construct a Ref from raw storage key material.
     #[must_use]
-    pub const fn new(id: E::Id) -> Self {
+    pub const fn new(key: E::Key) -> Self {
         Self {
-            id,
+            key,
             _marker: PhantomData,
         }
     }
 
     /// Returns the underlying key.
     #[must_use]
-    pub const fn key(&self) -> E::Id {
-        self.id
+    pub const fn key(&self) -> E::Key {
+        self.key
     }
 
-    // Returns a Id<E> around the inner value
-    #[must_use]
-    pub const fn id(&self) -> Id<E> {
-        Id::new(self.key())
-    }
-
-    /// Convert this identity key into a semantic Value.
+    /// Convert this reference key into a semantic Value.
     ///
     /// This is intended ONLY for planner invariants, diagnostics,
     /// explain output, and fingerprinting.
     pub fn as_value(&self) -> Value {
-        self.id.to_value()
+        self.key.to_value()
+    }
+}
+
+impl<E> Ref<E>
+where
+    E: EntityStorageKey + EntityIdentity,
+{
+    /// Return semantic identity for this reference.
+    #[must_use]
+    pub const fn id(&self) -> Id<E> {
+        Id::new(self.key())
     }
 }
 
 impl<E> CandidType for Ref<E>
 where
-    E: EntityIdentity,
-    E::Id: CandidType,
+    E: EntityStorageKey,
+    E::Key: CandidType,
 {
     fn _ty() -> candid::types::Type {
-        <E::Id as CandidType>::_ty()
+        <E::Key as CandidType>::_ty()
     }
 
     fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
     where
         S: candid::types::Serializer,
     {
-        self.id.idl_serialize(serializer)
+        self.key.idl_serialize(serializer)
     }
 }
 
 #[allow(clippy::expl_impl_clone_on_copy)]
 impl<E> Clone for Ref<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<E> Copy for Ref<E> where E: EntityIdentity {}
+impl<E> Copy for Ref<E> where E: EntityStorageKey {}
 
 impl<E> std::fmt::Debug for Ref<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Ref").field(&self.id).finish()
+        f.debug_tuple("Ref").field(&self.key).finish()
     }
 }
 
 impl<E> Default for Ref<E>
 where
-    E: EntityIdentity,
-    E::Id: Default,
+    E: EntityStorageKey,
+    E::Key: Default,
 {
     fn default() -> Self {
-        Self::new(E::Id::default())
+        Self::new(E::Key::default())
     }
 }
 
 impl<E> fmt::Display for Ref<E>
 where
-    E: EntityIdentity,
-    E::Id: fmt::Display,
+    E: EntityStorageKey,
+    E::Key: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.id.fmt(f)
+        self.key.fmt(f)
     }
 }
 
-impl<E> Eq for Ref<E> where E: EntityIdentity {}
+impl<E> Eq for Ref<E> where E: EntityStorageKey {}
 
 impl<E> PartialEq for Ref<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
+        self.key == other.key
     }
 }
 
 impl<E> FieldValue for Ref<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     fn to_value(&self) -> Value {
         self.as_value()
@@ -147,68 +152,68 @@ where
 
 impl<E> Hash for Ref<E>
 where
-    E: EntityIdentity,
-    E::Id: Hash,
+    E: EntityStorageKey,
+    E::Key: Hash,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
+        self.key.hash(state);
     }
 }
 
 impl<E> Ord for Ref<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.id.cmp(&other.id)
+        self.key.cmp(&other.key)
     }
 }
 
 impl<E> PartialOrd for Ref<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<E> SanitizeAuto for Ref<E> where E: EntityIdentity {}
+impl<E> SanitizeAuto for Ref<E> where E: EntityStorageKey {}
 
-impl<E> SanitizeCustom for Ref<E> where E: EntityIdentity {}
+impl<E> SanitizeCustom for Ref<E> where E: EntityStorageKey {}
 
 impl<E> Serialize for Ref<E>
 where
-    E: EntityIdentity,
-    E::Id: Serialize,
+    E: EntityStorageKey,
+    E::Key: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        self.id.serialize(serializer)
+        self.key.serialize(serializer)
     }
 }
 
 impl<'de, E> Deserialize<'de> for Ref<E>
 where
-    E: EntityIdentity,
-    E::Id: Deserialize<'de>,
+    E: EntityStorageKey,
+    E::Key: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let id = E::Id::deserialize(deserializer)?;
+        let key = E::Key::deserialize(deserializer)?;
 
-        Ok(Self::new(id))
+        Ok(Self::new(key))
     }
 }
 
 impl<E> UpdateView for Ref<E>
 where
-    E: EntityIdentity,
-    E::Id: CandidType + Default,
+    E: EntityStorageKey,
+    E::Key: CandidType + Default,
 {
     type UpdateViewType = Self;
 
@@ -217,14 +222,14 @@ where
     }
 }
 
-impl<E> ValidateAuto for Ref<E> where E: EntityIdentity {}
+impl<E> ValidateAuto for Ref<E> where E: EntityStorageKey {}
 
-impl<E> ValidateCustom for Ref<E> where E: EntityIdentity {}
+impl<E> ValidateCustom for Ref<E> where E: EntityStorageKey {}
 
 impl<E> View for Ref<E>
 where
-    E: EntityIdentity,
-    E::Id: Default,
+    E: EntityStorageKey,
+    E::Key: Default,
 {
     type ViewType = Self;
 
@@ -237,4 +242,4 @@ where
     }
 }
 
-impl<E> Visitable for Ref<E> where E: EntityIdentity {}
+impl<E> Visitable for Ref<E> where E: EntityStorageKey {}

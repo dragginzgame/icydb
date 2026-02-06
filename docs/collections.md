@@ -3,7 +3,7 @@
 ## OrderedList vs UniqueList vs RefSet
 - `OrderedList<T>`: ordered list, duplicates allowed, preserves insertion order, serializes identically to `Vec<T>`.
 - `UniqueList<T>`: enforces uniqueness by `Eq + Hash`; deterministic order is first-seen insertion; serializes identically to `Vec<T>`.
-- `RefSet<E>`: ordered set of `Ref<E>`; uniqueness by `E::Id`, order by ascending key; no cascades or ownership semantics.
+- `RefSet<E>`: ordered set of `Ref<E>`; uniqueness by raw storage key (`E::Key`), order by ascending key; no cascades or ownership semantics.
 
 ## Transport vs Domain Semantics
 - Cardinality (`many`) is shape-only; schema and codegen do not imply uniqueness or ordering semantics beyond container choice.

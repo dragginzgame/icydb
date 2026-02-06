@@ -209,14 +209,14 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     // Primary-key results (semantic)
     // ------------------------------------------------------------------
 
-    pub fn key(&self) -> Result<Option<E::Id>, Error>
+    pub fn key(&self) -> Result<Option<Id<E>>, Error>
     where
         E: EntityValue,
     {
         Ok(self.inner.execute()?.id())
     }
 
-    pub fn require_key(&self) -> Result<E::Id, Error>
+    pub fn require_key(&self) -> Result<Id<E>, Error>
     where
         E: EntityValue,
     {
@@ -226,7 +226,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
             .map_err(map_response_error)
     }
 
-    pub fn try_key(&self) -> Result<Option<E::Id>, Error>
+    pub fn try_key(&self) -> Result<Option<Id<E>>, Error>
     where
         E: EntityValue,
     {
@@ -237,14 +237,14 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
             .map_err(map_response_error)
     }
 
-    pub fn keys(&self) -> Result<Vec<E::Id>, Error>
+    pub fn keys(&self) -> Result<Vec<Id<E>>, Error>
     where
         E: EntityValue,
     {
         Ok(self.inner.execute()?.ids())
     }
 
-    pub fn contains_key(&self, id: &E::Id) -> Result<bool, Error>
+    pub fn contains_key(&self, id: &Id<E>) -> Result<bool, Error>
     where
         E: EntityValue,
     {
@@ -330,7 +330,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C> + SingletonEntity> SessionLoad
     #[must_use]
     pub fn only(mut self) -> Self
     where
-        E::Id: Default,
+        E::Key: Default,
     {
         self.inner = self.inner.only();
         self

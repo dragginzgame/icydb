@@ -365,7 +365,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
 #[derive(Debug)]
 pub struct Query<E: EntityKind> {
-    intent: QueryModel<'static, E::Id>,
+    intent: QueryModel<'static, E::Key>,
     #[allow(clippy::struct_field_names)]
     _marker: PhantomData<E>,
 }
@@ -426,7 +426,7 @@ impl<E: EntityKind> Query<E> {
     }
 
     /// Set the access path to a single primary key lookup.
-    pub(crate) fn by_id(self, id: E::Id) -> Self {
+    pub(crate) fn by_id(self, id: E::Key) -> Self {
         let Self { intent, _marker } = self;
         Self {
             intent: intent.by_id(id),
@@ -437,7 +437,7 @@ impl<E: EntityKind> Query<E> {
     /// Set the access path to a primary key batch lookup.
     pub(crate) fn by_ids<I>(self, ids: I) -> Self
     where
-        I: IntoIterator<Item = E::Id>,
+        I: IntoIterator<Item = E::Key>,
     {
         let Self { intent, _marker } = self;
         Self {
@@ -484,7 +484,7 @@ impl<E: EntityKind> Query<E> {
     }
 
     // Build a logical plan for the current intent.
-    fn build_plan(&self) -> Result<LogicalPlan<E::Id>, QueryError> {
+    fn build_plan(&self) -> Result<LogicalPlan<E::Key>, QueryError> {
         let plan_value = self.intent.build_plan_model()?;
         let LogicalPlan {
             mode,
@@ -514,14 +514,14 @@ impl<E: EntityKind> Query<E> {
 impl<E> Query<E>
 where
     E: EntityKind + SingletonEntity,
-    E::Id: Default,
+    E::Key: Default,
 {
     /// Set the access path to the singleton primary key.
     pub(crate) fn only(self) -> Self {
         let Self { intent, _marker } = self;
 
         Self {
-            intent: intent.only(E::Id::default()),
+            intent: intent.only(E::Key::default()),
             _marker,
         }
     }

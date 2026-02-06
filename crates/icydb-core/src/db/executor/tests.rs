@@ -16,8 +16,8 @@ use crate::{
     test_fixtures::entity_model_from_static,
     traits::{
         CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
-        EntityValue, Path, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View,
-        Visitable,
+        EntityStorageKey, EntityValue, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
     types::{Id, Ulid},
 };
@@ -106,9 +106,11 @@ impl Path for SimpleEntity {
     const PATH: &'static str = "executor_tests::SimpleEntity";
 }
 
-impl EntityIdentity for SimpleEntity {
-    type Id = Ulid;
+impl EntityStorageKey for SimpleEntity {
+    type Key = Ulid;
+}
 
+impl EntityIdentity for SimpleEntity {
     const ENTITY_NAME: &'static str = "SimpleEntity";
     const PRIMARY_KEY: &'static str = "id";
 }
@@ -142,8 +144,8 @@ impl EntityPlacement for SimpleEntity {
 impl EntityKind for SimpleEntity {}
 
 impl EntityValue for SimpleEntity {
-    fn id(&self) -> Self::Id {
-        self.id.key()
+    fn id(&self) -> Id<Self> {
+        self.id
     }
 }
 
@@ -168,7 +170,7 @@ fn executor_save_then_delete_round_trip() {
 
     let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
         .delete()
-        .by_id(saved.id())
+        .by_id(saved.id().into_key())
         .plan()
         .expect("delete plan should build");
     let response = delete.execute(plan).expect("delete should succeed");
@@ -210,7 +212,7 @@ fn delete_replays_incomplete_commit_marker() {
 
     let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
         .delete()
-        .by_id(saved.id())
+        .by_id(saved.id().into_key())
         .plan()
         .expect("delete plan should build");
     let response = delete.execute(plan).expect("delete should succeed");

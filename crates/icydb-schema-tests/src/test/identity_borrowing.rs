@@ -29,19 +29,30 @@ pub struct UserProjects;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::traits::{EntityIdentity, EntityValue};
-    use icydb::types::{Ref, Ulid};
+    use icydb::{
+        traits::{EntityStorageKey, EntityValue},
+        types::{Ref, Ulid},
+    };
+
+    fn assert_storage_key<E: EntityStorageKey<Key = Ulid>>() {}
 
     #[test]
-    fn relation_primary_key_emits_ref() {
+    fn relation_primary_key_borrows_storage_key() {
+        assert_storage_key::<UserProjects>();
+
         let user_ref = Ref::<User>::new(Ulid::from_parts(1, 42));
         let projects = UserProjects {
             user: user_ref,
             ..Default::default()
         };
 
+        // Field type is still a Ref<User>
         let _: Ref<User> = projects.user;
-        let id: <UserProjects as EntityIdentity>::Id = projects.id();
-        let _: Ref<User> = id;
+
+        // Semantic identity is now Id<UserProjects>
+        let id: Id<UserProjects> = projects.id();
+
+        // Identity unwraps to the borrowed storage key
+        assert_eq!(id.key(), user_ref.key());
     }
 }

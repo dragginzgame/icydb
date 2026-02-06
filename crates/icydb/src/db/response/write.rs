@@ -1,6 +1,6 @@
 use crate::{
     traits::{EntityKind, EntityValue, View as ViewTrait},
-    types::Ref,
+    types::{Id, Ref},
     view::View as EntityView,
 };
 use icydb_core::db::response::{
@@ -39,7 +39,7 @@ impl<E: EntityKind> WriteResponse<E> {
 
     /// Return the stored entity's primary key.
     #[must_use]
-    pub fn key(&self) -> E::Id
+    pub fn key(&self) -> Id<E>
     where
         E: EntityValue,
     {
@@ -122,7 +122,7 @@ impl<E: EntityKind> WriteBatchResponse<E> {
 
     /// Return all primary keys.
     #[must_use]
-    pub fn keys(&self) -> Vec<E::Id>
+    pub fn keys(&self) -> Vec<Id<E>>
     where
         E: EntityValue,
     {

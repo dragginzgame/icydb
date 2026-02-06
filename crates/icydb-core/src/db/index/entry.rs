@@ -103,27 +103,27 @@ impl IndexEntryEncodeError {
 
 #[derive(Clone, Debug)]
 pub struct IndexEntry<E: EntityKind> {
-    ids: BTreeSet<E::Id>,
+    ids: BTreeSet<E::Key>,
 }
 
 impl<E: EntityKind> IndexEntry<E> {
     #[must_use]
-    pub fn new(id: E::Id) -> Self {
+    pub fn new(id: E::Key) -> Self {
         let mut ids = BTreeSet::new();
         ids.insert(id);
         Self { ids }
     }
 
-    pub fn insert(&mut self, id: E::Id) {
+    pub fn insert(&mut self, id: E::Key) {
         self.ids.insert(id);
     }
 
-    pub fn remove(&mut self, id: E::Id) {
+    pub fn remove(&mut self, id: E::Key) {
         self.ids.remove(&id);
     }
 
     #[must_use]
-    pub fn contains(&self, id: E::Id) -> bool {
+    pub fn contains(&self, id: E::Key) -> bool {
         self.ids.contains(&id)
     }
 
@@ -137,12 +137,12 @@ impl<E: EntityKind> IndexEntry<E> {
         self.ids.len()
     }
 
-    pub fn iter_ids(&self) -> impl Iterator<Item = E::Id> + '_ {
+    pub fn iter_ids(&self) -> impl Iterator<Item = E::Key> + '_ {
         self.ids.iter().copied()
     }
 
     #[must_use]
-    pub fn single_id(&self) -> Option<E::Id> {
+    pub fn single_id(&self) -> Option<E::Key> {
         if self.ids.len() == 1 {
             self.ids.iter().copied().next()
         } else {
@@ -182,7 +182,7 @@ impl RawIndexEntry {
 
         for key in storage_keys {
             let value = key.as_value();
-            let Some(id) = <E::Id as FieldValue>::from_value(&value) else {
+            let Some(id) = <E::Key as FieldValue>::from_value(&value) else {
                 return Err(IndexEntryCorruption::InvalidKey);
             };
             ids.insert(id);

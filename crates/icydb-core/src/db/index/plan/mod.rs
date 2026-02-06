@@ -52,8 +52,8 @@ pub fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
     old: Option<&E>,
     new: Option<&E>,
 ) -> Result<IndexMutationPlan, InternalError> {
-    let old_entity_key = old.map(EntityValue::id);
-    let new_entity_key = new.map(EntityValue::id);
+    let old_entity_key = old.map(|entity| entity.id().into_key());
+    let new_entity_key = new.map(|entity| entity.id().into_key());
 
     let mut apply = Vec::with_capacity(E::INDEXES.len());
     let mut commit_ops = Vec::new();
@@ -188,7 +188,7 @@ fn validate_unique_constraint<E: EntityKind + EntityValue>(
     db: &crate::db::Db<E::Canister>,
     index: &IndexModel,
     entry: Option<&IndexEntry<E>>,
-    new_key: Option<&E::Id>,
+    new_key: Option<&E::Key>,
     new_entity: Option<&E>,
 ) -> Result<(), InternalError> {
     if !index.unique {
@@ -248,7 +248,7 @@ fn validate_unique_constraint<E: EntityKind + EntityValue>(
             )
         })?
     };
-    let stored_key = stored.id();
+    let stored_key = stored.id().into_key();
     if stored_key != existing_key {
         // Stored row decoded successfully but key mismatch indicates index/data divergence; treat as corruption.
         return Err(ExecutorError::corruption(
@@ -321,8 +321,8 @@ fn build_commit_ops_for_index<E: EntityKind>(
     new_key: Option<IndexKey>,
     old_entry: Option<IndexEntry<E>>,
     new_entry: Option<IndexEntry<E>>,
-    old_entity_key: Option<E::Id>,
-    new_entity_key: Option<E::Id>,
+    old_entity_key: Option<E::Key>,
+    new_entity_key: Option<E::Key>,
 ) -> Result<(), InternalError> {
     let mut touched: BTreeMap<RawIndexKey, Option<IndexEntry<E>>> = BTreeMap::new();
     let fields = index.fields.join(", ");

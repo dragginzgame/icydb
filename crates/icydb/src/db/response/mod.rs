@@ -3,7 +3,7 @@ mod write;
 use crate::{
     error::{Error, ErrorClass, ErrorOrigin},
     traits::EntityKind,
-    types::Ref,
+    types::{Id, Ref},
     view::View,
 };
 use icydb_core::db::response::{Response as CoreResponse, ResponseError};
@@ -99,12 +99,12 @@ impl<E: EntityKind> Response<E> {
     // ------------------------------------------------------------------
 
     /// Return the single key.
-    pub fn key(self) -> Result<E::Id, Error> {
+    pub fn key(self) -> Result<Id<E>, Error> {
         self.inner.require_id().map_err(map_response_error)
     }
 
     /// Return zero or one primary key.
-    pub fn try_key(self) -> Result<Option<E::Id>, Error> {
+    pub fn try_key(self) -> Result<Option<Id<E>>, Error> {
         self.inner
             .try_row()
             .map(|row| row.map(|(id, _)| id))
@@ -113,12 +113,12 @@ impl<E: EntityKind> Response<E> {
 
     /// Return all primary keys.
     #[must_use]
-    pub fn keys(&self) -> Vec<E::Id> {
+    pub fn keys(&self) -> Vec<Id<E>> {
         self.inner.ids()
     }
 
     /// Check whether the response contains the given primary key.
-    pub fn contains_key(&self, id: &E::Id) -> bool {
+    pub fn contains_key(&self, id: &Id<E>) -> bool {
         self.inner.contains_id(id)
     }
 

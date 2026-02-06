@@ -10,6 +10,7 @@ use crate::{
     },
     error::{ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue, Path},
+    types::Id,
 };
 use std::{collections::BTreeSet, marker::PhantomData, ops::Bound};
 
@@ -80,7 +81,7 @@ where
 
     pub(crate) fn candidates_from_access(
         &self,
-        access: &AccessPath<E::Id>,
+        access: &AccessPath<E::Key>,
     ) -> Result<Vec<DataKey>, InternalError>
     where
         E: EntityKind,
@@ -88,17 +89,17 @@ where
         let is_index_path = matches!(access, AccessPath::IndexPrefix { .. });
 
         let mut candidates = match access {
-            AccessPath::ByKey(key) => vec![Self::data_key_from_id(*key)?],
+            AccessPath::ByKey(key) => vec![Self::data_key_from_key(*key)?],
 
             AccessPath::ByKeys(keys) => keys
                 .iter()
                 .copied()
-                .map(Self::data_key_from_id)
+                .map(Self::data_key_from_key)
                 .collect::<Result<Vec<_>, _>>()?,
 
             AccessPath::KeyRange { start, end } => self.with_store(|s| {
-                let start = Self::data_key_from_id(*start)?;
-                let end = Self::data_key_from_id(*end)?;
+                let start = Self::data_key_from_key(*start)?;
+                let end = Self::data_key_from_key(*end)?;
                 let start_raw = start.to_raw()?;
                 let end_raw = end.to_raw()?;
 
@@ -133,7 +134,7 @@ where
 
     pub(crate) fn rows_from_access(
         &self,
-        access: &AccessPath<E::Id>,
+        access: &AccessPath<E::Key>,
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError>
     where
@@ -141,21 +142,21 @@ where
     {
         match access {
             AccessPath::ByKey(key) => {
-                let keys = vec![Self::data_key_from_id(*key)?];
+                let keys = vec![Self::data_key_from_key(*key)?];
                 self.load_many_with_consistency(&keys, consistency)
             }
 
             AccessPath::ByKeys(keys) => {
-                let keys = Self::dedup_ids(keys.clone())
+                let keys = Self::dedup_keys(keys.clone())
                     .into_iter()
-                    .map(Self::data_key_from_id)
+                    .map(Self::data_key_from_key)
                     .collect::<Result<Vec<_>, _>>()?;
                 self.load_many_with_consistency(&keys, consistency)
             }
 
             AccessPath::KeyRange { start, end } => {
-                let start = Self::data_key_from_id(*start)?;
-                let end = Self::data_key_from_id(*end)?;
+                let start = Self::data_key_from_key(*start)?;
+                let end = Self::data_key_from_key(*end)?;
                 self.load_range(start, end)
             }
 
@@ -182,7 +183,7 @@ where
 
     pub(crate) fn rows_from_access_plan(
         &self,
-        access: &AccessPlan<E::Id>,
+        access: &AccessPlan<E::Key>,
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError>
     where
@@ -202,16 +203,16 @@ where
     // Helpers
     // ------------------------------------------------------------------
 
-    fn data_key_from_id(id: E::Id) -> Result<DataKey, InternalError>
+    fn data_key_from_key(key: E::Key) -> Result<DataKey, InternalError>
     where
         E: EntityKind,
     {
-        DataKey::try_new::<E>(id)
+        DataKey::try_new::<E>(key)
     }
 
-    fn dedup_ids(ids: Vec<E::Id>) -> Vec<E::Id> {
+    fn dedup_keys(keys: Vec<E::Key>) -> Vec<E::Key> {
         let mut set = BTreeSet::new();
-        set.extend(ids);
+        set.extend(keys);
         set.into_iter().collect()
     }
 
@@ -251,7 +252,7 @@ where
 
     fn candidate_keys_for_plan(
         &self,
-        plan: &AccessPlan<E::Id>,
+        plan: &AccessPlan<E::Key>,
     ) -> Result<BTreeSet<DataKey>, InternalError>
     where
         E: EntityKind,
@@ -293,7 +294,7 @@ where
             .map_err(|err| ExecutorError::corruption(ErrorOrigin::Store, err.to_string()).into())
     }
 
-    pub fn deserialize_rows(rows: Vec<DataRow>) -> Result<Vec<(E::Id, E)>, InternalError>
+    pub fn deserialize_rows(rows: Vec<DataRow>) -> Result<Vec<(Id<E>, E)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -306,10 +307,12 @@ where
                     )
                 })?;
 
-                let id = key.try_id::<E>()?;
-                if id != entity.id() {
-                    let expected = DataKey::try_new::<E>(id)?;
-                    let found = DataKey::try_new::<E>(entity.id())?;
+                let key = key.try_key::<E>()?;
+                let identity = entity.id();
+                let identity_key = identity.into_key();
+                if key != identity_key {
+                    let expected = DataKey::try_new::<E>(key)?;
+                    let found = DataKey::try_new::<E>(identity_key)?;
 
                     return Err(ExecutorError::corruption(
                         ErrorOrigin::Store,
@@ -318,7 +321,7 @@ where
                     .into());
                 }
 
-                Ok((id, entity))
+                Ok((Id::new(key), entity))
             })
             .collect()
     }

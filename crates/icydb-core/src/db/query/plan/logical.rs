@@ -8,6 +8,7 @@ use crate::db::query::{
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue},
+    types::Id,
 };
 use std::cmp::Ordering;
 
@@ -63,7 +64,7 @@ pub trait PlanRow<E: EntityKind> {
     fn entity(&self) -> &E;
 }
 
-impl<E: EntityKind> PlanRow<E> for (E::Id, E) {
+impl<E: EntityKind> PlanRow<E> for (Id<E>, E) {
     fn entity(&self) -> &E {
         &self.1
     }

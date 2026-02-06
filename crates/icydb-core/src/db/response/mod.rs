@@ -1,6 +1,10 @@
 mod write;
 
-use crate::{prelude::*, types::Ref, view::View};
+use crate::{
+    prelude::*,
+    types::{Id, Ref},
+    view::View,
+};
 use thiserror::Error as ThisError;
 
 // re-exports
@@ -10,7 +14,7 @@ pub use write::*;
 /// Row
 ///
 
-pub type Row<E> = (<E as EntityIdentity>::Id, E);
+pub type Row<E> = (Id<E>, E);
 
 ///
 /// ResponseError
@@ -127,20 +131,20 @@ impl<E: EntityKind> Response<E> {
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub fn id(&self) -> Option<E::Id> {
+    pub fn id(&self) -> Option<Id<E>> {
         self.0.first().map(|(id, _)| *id)
     }
 
-    pub fn require_id(self) -> Result<E::Id, ResponseError> {
+    pub fn require_id(self) -> Result<Id<E>, ResponseError> {
         self.row().map(|(id, _)| id)
     }
 
     #[must_use]
-    pub fn ids(&self) -> Vec<E::Id> {
+    pub fn ids(&self) -> Vec<Id<E>> {
         self.0.iter().map(|(id, _)| *id).collect()
     }
 
-    pub fn contains_id(&self, id: &E::Id) -> bool {
+    pub fn contains_id(&self, id: &Id<E>) -> bool {
         self.0.iter().any(|(k, _)| k == id)
     }
 
@@ -150,18 +154,22 @@ impl<E: EntityKind> Response<E> {
 
     /// Return the single typed reference.
     pub fn reference(self) -> Result<Ref<E>, ResponseError> {
-        self.require_id().map(Ref::new)
+        self.require_id().map(|id| Ref::new(id.into_key()))
     }
 
     /// Return zero or one typed reference.
     pub fn try_reference(self) -> Result<Option<Ref<E>>, ResponseError> {
-        self.try_row().map(|row| row.map(|(id, _)| Ref::new(id)))
+        self.try_row()
+            .map(|row| row.map(|(id, _)| Ref::new(id.into_key())))
     }
 
     /// Return all typed references.
     #[must_use]
     pub fn references(&self) -> Vec<Ref<E>> {
-        self.0.iter().map(|(id, _)| Ref::new(*id)).collect()
+        self.0
+            .iter()
+            .map(|(id, _)| Ref::new(id.into_key()))
+            .collect()
     }
 
     // ------------------------------------------------------------------

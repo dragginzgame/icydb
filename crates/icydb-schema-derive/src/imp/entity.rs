@@ -22,7 +22,11 @@ impl Imp<Entity> for EntityKindTrait {
         };
 
         let pk_ident = &node.primary_key;
-        let id_type = pk_entry.value.item.type_expr();
+        let key_type = if let Some(target) = &pk_entry.value.item.relation {
+            quote!(<#target as ::icydb::traits::EntityStorageKey>::Key)
+        } else {
+            pk_entry.value.item.type_expr()
+        };
 
         let entity_name = if let Some(name) = &node.name {
             quote!(#name)
@@ -38,11 +42,16 @@ impl Imp<Entity> for EntityKindTrait {
             .iter()
             .map(Index::runtime_part)
             .collect::<Vec<_>>();
+        let ident = node.def.ident();
+
+        let storage_tokens = quote! {
+            impl ::icydb::traits::EntityStorageKey for #ident {
+                type Key = #key_type;
+            }
+        };
 
         let identity_tokens = Implementor::new(&node.def, TraitKind::EntityIdentity)
             .set_tokens(quote! {
-                type Id = #id_type;
-
                 const ENTITY_NAME: &'static str = #entity_name;
                 const PRIMARY_KEY: &'static str = stringify!(#pk_ident);
             })
@@ -73,13 +82,13 @@ impl Imp<Entity> for EntityKindTrait {
             .to_token_stream();
 
         let mut tokens = TokenStream::new();
+        tokens.extend(storage_tokens);
         tokens.extend(identity_tokens);
         tokens.extend(schema_tokens);
         tokens.extend(placement_tokens);
         tokens.extend(kind_tokens);
 
         // Existing consistency test stays valid
-        let ident = node.def.ident();
         let test_mod = format_ident!("__entity_model_test_{ident}");
         tokens.extend(quote! {
             #[cfg(test)]
@@ -133,13 +142,13 @@ impl Imp<Entity> for EntityValueTrait {
             .is_some_and(|entry| entry.value.item.is_relation());
 
         let id_expr = if pk_is_relation {
-            quote!(self.#pk_ident)
+            quote!(::icydb::types::Id::new(self.#pk_ident.key()))
         } else {
-            quote!(self.#pk_ident.key().clone())
+            quote!(self.#pk_ident)
         };
 
         let q = quote! {
-            fn id(&self) -> Self::Id {
+            fn id(&self) -> ::icydb::types::Id<Self> {
                 #id_expr
             }
         };

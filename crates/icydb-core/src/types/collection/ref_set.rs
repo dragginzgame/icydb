@@ -1,6 +1,6 @@
 use crate::{
     traits::{
-        EntityIdentity, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
+        EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
         ValidateCustom, View, Visitable,
     },
     types::Ref,
@@ -16,7 +16,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 ///
 /// Canonical set of typed entity references.
 ///
-/// - Uniqueness is enforced by `E::Id`.
+/// - Uniqueness is enforced by `E::Key`.
 /// - Ordering is canonical (ascending by key) and does NOT reflect insertion history.
 /// - No ordering-based or predicate-based mutation APIs are provided.
 /// - In-place mutation of elements is forbidden to preserve ordering invariants.
@@ -24,11 +24,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[repr(transparent)]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct RefSet<E: EntityIdentity>(Vec<Ref<E>>);
+pub struct RefSet<E: EntityStorageKey>(Vec<Ref<E>>);
 
 impl<E> RefSet<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     /// Create an empty ref set.
     #[must_use]
@@ -98,7 +98,7 @@ where
 
     /// Returns `true` if the set contains the key.
     #[must_use]
-    fn contains_key(&self, key: &E::Id) -> bool {
+    fn contains_key(&self, key: &E::Key) -> bool {
         self.find_index(key).is_ok()
     }
 
@@ -108,7 +108,7 @@ where
     }
 
     // Locate a key in the sorted list.
-    fn find_index(&self, key: &E::Id) -> Result<usize, usize> {
+    fn find_index(&self, key: &E::Key) -> Result<usize, usize> {
         self.0
             .binary_search_by(|candidate| candidate.key().cmp(key))
     }
@@ -122,7 +122,7 @@ where
 
 impl<E> RefSet<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
     Ref<E>: UpdateView + Default,
 {
     /// Apply set patches, enforcing key uniqueness and deterministic ordering.
@@ -136,8 +136,8 @@ where
 
 impl<E> CandidType for RefSet<E>
 where
-    E: EntityIdentity,
-    E::Id: CandidType,
+    E: EntityStorageKey,
+    E::Key: CandidType,
 {
     fn _ty() -> candid::types::Type {
         <Vec<Ref<E>> as CandidType>::_ty()
@@ -153,7 +153,7 @@ where
 
 impl<E> IntoIterator for RefSet<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     type Item = Ref<E>;
     type IntoIter = std::vec::IntoIter<Ref<E>>;
@@ -165,7 +165,7 @@ where
 
 impl<'a, E> IntoIterator for &'a RefSet<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     type Item = &'a Ref<E>;
     type IntoIter = std::slice::Iter<'a, Ref<E>>;
@@ -177,21 +177,21 @@ where
 
 impl<E> FieldValue for RefSet<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     fn to_value(&self) -> Value {
         Value::List(self.0.iter().map(FieldValue::to_value).collect())
     }
 }
 
-impl<E> SanitizeAuto for RefSet<E> where E: EntityIdentity {}
+impl<E> SanitizeAuto for RefSet<E> where E: EntityStorageKey {}
 
-impl<E> SanitizeCustom for RefSet<E> where E: EntityIdentity {}
+impl<E> SanitizeCustom for RefSet<E> where E: EntityStorageKey {}
 
 impl<E> Serialize for RefSet<E>
 where
-    E: EntityIdentity,
-    E::Id: Serialize,
+    E: EntityStorageKey,
+    E::Key: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -203,7 +203,7 @@ where
 
 impl<'de, E> Deserialize<'de> for RefSet<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
     Ref<E>: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -218,7 +218,7 @@ where
 
 impl<E> ValidateAuto for RefSet<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     fn validate_self(&self, ctx: &mut dyn VisitorContext) {
         for value in self {
@@ -229,7 +229,7 @@ where
 
 impl<E> ValidateCustom for RefSet<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
         for value in self {
@@ -240,7 +240,7 @@ where
 
 impl<E> Visitable for RefSet<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
 {
     fn drive(&self, visitor: &mut dyn VisitorCore) {
         for (i, value) in self.iter().enumerate() {
@@ -255,7 +255,7 @@ where
 
 impl<E> View for RefSet<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
     Ref<E>: View,
 {
     type ViewType = Vec<<Ref<E> as View>::ViewType>;
@@ -271,7 +271,7 @@ where
 
 impl<E> UpdateView for RefSet<E>
 where
-    E: EntityIdentity,
+    E: EntityStorageKey,
     Ref<E>: UpdateView + Default,
 {
     type UpdateViewType = Vec<SetPatch<<Ref<E> as UpdateView>::UpdateViewType>>;

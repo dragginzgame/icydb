@@ -21,6 +21,7 @@ use crate::{
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     prelude::*,
     traits::{EntityKind, EntityValue, Path, Storable},
+    types::Id,
 };
 use std::{
     borrow::Cow, cell::RefCell, collections::BTreeMap, marker::PhantomData, thread::LocalKey,
@@ -317,7 +318,7 @@ where
 
             let res = rows
                 .into_iter()
-                .map(|row| Ok((row.key.try_id::<E>()?, row.entity)))
+                .map(|row| Ok((Id::new(row.key.try_key::<E>()?), row.entity)))
                 .collect::<Result<Vec<_>, InternalError>>()?;
             set_rows_from_len(&mut span, res.len());
             self.debug_log(format!("Delete committed -> {} rows", res.len()));
@@ -531,7 +532,7 @@ where
                     continue;
                 };
                 let raw_key = key.to_raw();
-                let entity_id = entity.id();
+                let entity_id = entity.id().into_key();
 
                 // Lazily load and decode the existing index entry once per key.
                 let entry = match entries.entry(raw_key) {
@@ -668,8 +669,8 @@ fn decode_rows<E: EntityKind + EntityValue>(
                 )
             })?;
 
-            let expected = dk.try_id::<E>()?;
-            let actual = entity.id();
+            let expected = dk.try_key::<E>()?;
+            let actual = entity.id().into_key();
             if expected != actual {
                 return Err(ExecutorError::corruption(
                     ErrorOrigin::Store,

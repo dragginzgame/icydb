@@ -65,7 +65,7 @@ where
     where
         I: IntoIterator<Item = Id<E>>,
     {
-        self.query = self.query.by_ids(ids.into_iter().map(Id::key));
+        self.query = self.query.by_ids(ids.into_iter().map(Id::into_key));
         self
     }
 
@@ -178,7 +178,7 @@ impl<C, E> SessionLoadQuery<'_, C, E>
 where
     C: CanisterKind,
     E: EntityKind<Canister = C> + SingletonEntity,
-    E::Id: Default,
+    E::Key: Default,
 {
     #[must_use]
     pub fn only(mut self) -> Self {
