@@ -1,7 +1,11 @@
 use crate::{
+    db::store::StorageKey,
     traits::NumFromPrimitive,
-    types::{Decimal, E8s, E18s, Float32 as F32, Float64 as F64, Ulid},
-    value::{TextMode, Value},
+    types::{
+        Account, Date, Decimal, Duration, E8s, E18s, Float32 as F32, Float64 as F64, Int, Int128,
+        Nat, Nat128, Principal, Subaccount, Timestamp, Ulid,
+    },
+    value::{TextMode, Value, ValueEnum},
 };
 use std::{cmp::Ordering, str::FromStr};
 
@@ -24,6 +28,161 @@ fn v_d_i(x: i64) -> Value {
 }
 fn v_txt(s: &str) -> Value {
     Value::Text(s.to_string())
+}
+
+macro_rules! sample_value_for_scalar {
+    (Account) => {
+        Value::Account(Account::dummy(7))
+    };
+    (Blob) => {
+        Value::Blob(vec![1u8, 2u8, 3u8])
+    };
+    (Bool) => {
+        Value::Bool(true)
+    };
+    (Date) => {
+        Value::Date(Date::new(2024, 1, 2))
+    };
+    (Decimal) => {
+        Value::Decimal(Decimal::new(123, 2))
+    };
+    (Duration) => {
+        Value::Duration(Duration::from_secs(1))
+    };
+    (Enum) => {
+        Value::Enum(ValueEnum::loose("example"))
+    };
+    (E8s) => {
+        Value::E8s(E8s::from_atomic(1))
+    };
+    (E18s) => {
+        Value::E18s(E18s::from_atomic(1))
+    };
+    (Float32) => {
+        Value::Float32(F32::try_new(1.25).expect("Float32 sample should be finite"))
+    };
+    (Float64) => {
+        Value::Float64(F64::try_new(2.5).expect("Float64 sample should be finite"))
+    };
+    (Int) => {
+        Value::Int(-7)
+    };
+    (Int128) => {
+        Value::Int128(Int128::from(123i128))
+    };
+    (IntBig) => {
+        Value::IntBig(Int::from(99i32))
+    };
+    (Principal) => {
+        Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8]))
+    };
+    (Subaccount) => {
+        Value::Subaccount(Subaccount::new([1u8; 32]))
+    };
+    (Text) => {
+        Value::Text("example".to_string())
+    };
+    (Timestamp) => {
+        Value::Timestamp(Timestamp::from_seconds(1))
+    };
+    (Uint) => {
+        Value::Uint(7)
+    };
+    (Uint128) => {
+        Value::Uint128(Nat128::from(9u128))
+    };
+    (UintBig) => {
+        Value::UintBig(Nat::from(11u64))
+    };
+    (Ulid) => {
+        Value::Ulid(Ulid::from_u128(42))
+    };
+    (Unit) => {
+        Value::Unit
+    };
+}
+
+/// Build scalar-backed values in registry order.
+fn registry_scalar_values() -> Vec<Value> {
+    macro_rules! collect_values {
+        ( @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+            vec![ $( sample_value_for_scalar!($scalar) ),* ]
+        };
+        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+            vec![ $( sample_value_for_scalar!($scalar) ),* ]
+        };
+    }
+
+    let values = scalar_registry!(collect_values);
+
+    values
+}
+
+/// Build scalar-backed values paired with their registry numeric flag.
+fn registry_numeric_cases() -> Vec<(Value, bool)> {
+    macro_rules! collect_cases {
+        ( @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+            vec![ $( (sample_value_for_scalar!($scalar), $is_numeric) ),* ]
+        };
+        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+            vec![ $( (sample_value_for_scalar!($scalar), $is_numeric) ),* ]
+        };
+    }
+
+    let cases = scalar_registry!(collect_cases);
+
+    cases
+}
+
+/// Build scalar-backed values paired with their registry keyable flag.
+fn registry_keyable_cases() -> Vec<(Value, bool)> {
+    macro_rules! collect_cases {
+        ( @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+            vec![ $( (sample_value_for_scalar!($scalar), $is_keyable) ),* ]
+        };
+        ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+            vec![ $( (sample_value_for_scalar!($scalar), $is_keyable) ),* ]
+        };
+    }
+
+    let cases = scalar_registry!(collect_cases);
+
+    cases
+}
+
+/// Legacy numeric classification from the pre-registry implementation.
+fn legacy_is_numeric(value: &Value) -> bool {
+    let is_numeric = matches!(
+        value,
+        Value::Decimal(_)
+            | Value::Duration(_)
+            | Value::E8s(_)
+            | Value::E18s(_)
+            | Value::Float32(_)
+            | Value::Float64(_)
+            | Value::Int(_)
+            | Value::Int128(_)
+            | Value::Timestamp(_)
+            | Value::Uint(_)
+            | Value::Uint128(_)
+    );
+
+    is_numeric
+}
+
+/// Legacy storage-key conversion from the pre-registry implementation.
+fn legacy_as_storage_key(value: &Value) -> Option<StorageKey> {
+    match value {
+        Value::Account(v) => Some(StorageKey::Account(*v)),
+        Value::Int(v) => Some(StorageKey::Int(*v)),
+        Value::Uint(v) => Some(StorageKey::Uint(*v)),
+        Value::Principal(v) => Some(StorageKey::Principal(*v)),
+        Value::Subaccount(v) => Some(StorageKey::Subaccount(*v)),
+        Value::Timestamp(v) => Some(StorageKey::Timestamp(*v)),
+        Value::Ulid(v) => Some(StorageKey::Ulid(*v)),
+        Value::Unit => Some(StorageKey::Unit),
+        _ => None,
+    }
 }
 
 // ---- keys --------------------------------------------------------------
@@ -70,6 +229,52 @@ fn storage_key_round_trips_through_value() {
 }
 
 // ---- numeric coercion & comparison ------------------------------------
+
+#[test]
+fn value_is_numeric_parity_with_legacy() {
+    let mut values = registry_scalar_values();
+    values.push(Value::List(vec![]));
+    values.push(Value::None);
+    values.push(Value::Unsupported);
+
+    for value in values {
+        let expected = legacy_is_numeric(&value);
+
+        assert_eq!(value.is_numeric(), expected, "value: {value:?}");
+    }
+}
+
+#[test]
+fn value_is_numeric_matches_registry_flag() {
+    for (value, expected) in registry_numeric_cases() {
+        assert_eq!(value.is_numeric(), expected, "value: {value:?}");
+    }
+}
+
+#[test]
+fn value_as_storage_key_parity_with_legacy() {
+    let mut values = registry_scalar_values();
+    values.push(Value::List(vec![]));
+    values.push(Value::None);
+    values.push(Value::Unsupported);
+
+    for value in values {
+        let expected = legacy_as_storage_key(&value);
+
+        assert_eq!(value.as_storage_key(), expected, "value: {value:?}");
+    }
+}
+
+#[test]
+fn value_as_storage_key_matches_registry_flag() {
+    for (value, is_keyable) in registry_keyable_cases() {
+        assert_eq!(
+            value.as_storage_key().is_some(),
+            is_keyable,
+            "value: {value:?}"
+        );
+    }
+}
 
 #[test]
 fn cmp_numeric_int_nat_eq_and_order() {

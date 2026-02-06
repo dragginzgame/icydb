@@ -45,18 +45,24 @@ where
         }
     }
 
+    /// Borrow the primary key.
+    #[must_use]
+    pub const fn key(&self) -> &E::Id {
+        &self.id
+    }
+
+    /// Copy the underlying key.
+    #[must_use]
+    pub const fn copied(&self) -> E::Id {
+        self.id
+    }
+
     /// Convert this identity key into a semantic Value.
     ///
     /// This is intended ONLY for planner invariants, diagnostics,
     /// explain output, and fingerprinting.
     pub fn as_value(&self) -> Value {
         self.id.to_value()
-    }
-
-    /// Return the primary key.
-    #[must_use]
-    pub const fn key(self) -> E::Id {
-        self.id
     }
 }
 

@@ -47,10 +47,18 @@ where
         &self.id
     }
 
-    /// Consume into the raw key.
+    /// Copy the underlying key.
     #[must_use]
-    pub const fn into_inner(self) -> E::Id {
+    pub const fn copied(&self) -> E::Id {
         self.id
+    }
+
+    /// Convert this identity key into a semantic Value.
+    ///
+    /// This is intended ONLY for planner invariants, diagnostics,
+    /// explain output, and fingerprinting.
+    pub fn as_value(&self) -> Value {
+        self.id.to_value()
     }
 }
 

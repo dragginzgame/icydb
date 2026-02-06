@@ -103,6 +103,10 @@ pub struct RelationOwned;
 )]
 pub struct CrossCanisterRelation;
 
+///
+/// TESTS
+///
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,7 +124,7 @@ mod tests {
         let set = RefSet::<EntityA>::from_refs(refs);
 
         assert_eq!(set.len(), 2);
-        let keys: Vec<Ulid> = set.iter().map(|reference| reference.key()).collect();
+        let keys: Vec<Ulid> = set.iter().map(Ref::copied).collect();
         assert_eq!(keys, vec![id_a, id_b]);
     }
 }

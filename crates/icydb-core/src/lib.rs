@@ -1,6 +1,8 @@
 //! Core runtime for IcyDB: entity traits, values, executors, visitors, and
 //! the ergonomics exported via the `prelude`.
 extern crate self as icydb;
+#[macro_use]
+pub(crate) mod scalar_registry;
 pub mod db;
 pub mod error;
 pub mod model;

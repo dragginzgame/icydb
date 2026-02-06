@@ -50,66 +50,94 @@ pub(crate) enum ScalarType {
     Unit,
 }
 
+// Local helpers to expand the scalar registry into match arms.
+macro_rules! scalar_family_from_registry {
+    ( @args $self:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        match $self {
+            $( ScalarType::$scalar => $family, )*
+        }
+    };
+}
+
+macro_rules! scalar_matches_value_from_registry {
+    ( @args $self:expr, $value:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        matches!(
+            ($self, $value),
+            $( (ScalarType::$scalar, $value_pat) )|*
+        )
+    };
+}
+
+#[cfg(test)]
+macro_rules! scalar_supports_arithmetic_from_registry {
+    ( @args $self:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        match $self {
+            $( ScalarType::$scalar => $supports_arithmetic, )*
+        }
+    };
+}
+
+macro_rules! scalar_is_keyable_from_registry {
+    ( @args $self:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        match $self {
+            $( ScalarType::$scalar => $is_keyable, )*
+        }
+    };
+}
+
+#[cfg(test)]
+macro_rules! scalar_supports_equality_from_registry {
+    ( @args $self:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        match $self {
+            $( ScalarType::$scalar => $supports_equality, )*
+        }
+    };
+}
+
+macro_rules! scalar_supports_ordering_from_registry {
+    ( @args $self:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        match $self {
+            $( ScalarType::$scalar => $supports_ordering, )*
+        }
+    };
+}
+
 impl ScalarType {
     #[must_use]
     pub const fn family(&self) -> ValueFamily {
-        match self {
-            Self::Text => ValueFamily::Textual,
-            Self::Ulid | Self::Principal | Self::Account => ValueFamily::Identifier,
-            Self::Enum => ValueFamily::Enum,
-            Self::Blob | Self::Subaccount => ValueFamily::Blob,
-            Self::Bool => ValueFamily::Bool,
-            Self::Unit => ValueFamily::Unit,
-            Self::Date
-            | Self::Decimal
-            | Self::Duration
-            | Self::E8s
-            | Self::E18s
-            | Self::Float32
-            | Self::Float64
-            | Self::Int
-            | Self::Int128
-            | Self::IntBig
-            | Self::Timestamp
-            | Self::Uint
-            | Self::Uint128
-            | Self::UintBig => ValueFamily::Numeric,
-        }
+        scalar_registry!(scalar_family_from_registry, self)
     }
 
     #[must_use]
     pub const fn is_orderable(&self) -> bool {
-        !matches!(self, Self::Blob | Self::Unit)
+        self.supports_ordering()
     }
 
     #[must_use]
     pub const fn matches_value(&self, value: &Value) -> bool {
-        matches!(
-            (self, value),
-            (Self::Account, Value::Account(_))
-                | (Self::Blob, Value::Blob(_))
-                | (Self::Bool, Value::Bool(_))
-                | (Self::Date, Value::Date(_))
-                | (Self::Decimal, Value::Decimal(_))
-                | (Self::Duration, Value::Duration(_))
-                | (Self::Enum, Value::Enum(_))
-                | (Self::E8s, Value::E8s(_))
-                | (Self::E18s, Value::E18s(_))
-                | (Self::Float32, Value::Float32(_))
-                | (Self::Float64, Value::Float64(_))
-                | (Self::Int, Value::Int(_))
-                | (Self::Int128, Value::Int128(_))
-                | (Self::IntBig, Value::IntBig(_))
-                | (Self::Principal, Value::Principal(_))
-                | (Self::Subaccount, Value::Subaccount(_))
-                | (Self::Text, Value::Text(_))
-                | (Self::Timestamp, Value::Timestamp(_))
-                | (Self::Uint, Value::Uint(_))
-                | (Self::Uint128, Value::Uint128(_))
-                | (Self::UintBig, Value::UintBig(_))
-                | (Self::Ulid, Value::Ulid(_))
-                | (Self::Unit, Value::Unit)
-        )
+        scalar_registry!(scalar_matches_value_from_registry, self, value)
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub const fn supports_arithmetic(&self) -> bool {
+        scalar_registry!(scalar_supports_arithmetic_from_registry, self)
+    }
+
+    #[must_use]
+    pub const fn is_keyable(&self) -> bool {
+        scalar_registry!(scalar_is_keyable_from_registry, self)
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    pub const fn supports_equality(&self) -> bool {
+        scalar_registry!(scalar_supports_equality_from_registry, self)
+    }
+
+    #[must_use]
+    pub const fn supports_ordering(&self) -> bool {
+        scalar_registry!(scalar_supports_ordering_from_registry, self)
     }
 }
 
@@ -183,19 +211,10 @@ impl FieldType {
 
     #[must_use]
     pub const fn is_keyable(&self) -> bool {
-        matches!(
-            self,
-            Self::Scalar(
-                ScalarType::Account
-                    | ScalarType::Int
-                    | ScalarType::Principal
-                    | ScalarType::Subaccount
-                    | ScalarType::Timestamp
-                    | ScalarType::Uint
-                    | ScalarType::Ulid
-                    | ScalarType::Unit
-            )
-        )
+        match self {
+            Self::Scalar(inner) => inner.is_keyable(),
+            _ => false,
+        }
     }
 }
 
@@ -862,17 +881,246 @@ impl fmt::Display for FieldType {
 #[cfg(test)]
 mod tests {
     // NOTE: Invalid helpers remain only for intentionally invalid or unsupported schemas.
-    use super::{ValidateError, validate_model};
+    use super::{
+        CompareOp, FieldType, ScalarType, ValidateError, validate_model, validate_ordering,
+    };
     use crate::{
         db::query::{
             FieldRef,
-            predicate::{CoercionId, Predicate},
+            predicate::{CoercionId, CoercionSpec, Predicate},
         },
         model::field::{EntityFieldKind, EntityFieldModel},
         test_fixtures::InvalidEntityModelBuilder,
         traits::EntitySchema,
-        types::Ulid,
+        types::{
+            Account, Date, Decimal, Duration, E8s, E18s, Float32, Float64, Int, Int128, Nat,
+            Nat128, Principal, Subaccount, Timestamp, Ulid,
+        },
+        value::{Value, ValueEnum, ValueFamily},
     };
+    use std::collections::BTreeSet;
+
+    /// Build a registry-driven list of all scalar variants.
+    fn registry_scalars() -> Vec<ScalarType> {
+        macro_rules! collect_scalars {
+            ( @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+                vec![ $( ScalarType::$scalar ),* ]
+            };
+            ( @args $($ignore:tt)*; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+                vec![ $( ScalarType::$scalar ),* ]
+            };
+        }
+
+        let scalars = scalar_registry!(collect_scalars);
+
+        scalars
+    }
+
+    /// Returns the total count of ScalarType variants.
+    const SCALAR_TYPE_VARIANT_COUNT: usize = 23;
+
+    /// Map each ScalarType variant to a stable index.
+    fn scalar_index(scalar: ScalarType) -> usize {
+        match scalar {
+            ScalarType::Account => 0,
+            ScalarType::Blob => 1,
+            ScalarType::Bool => 2,
+            ScalarType::Date => 3,
+            ScalarType::Decimal => 4,
+            ScalarType::Duration => 5,
+            ScalarType::Enum => 6,
+            ScalarType::E8s => 7,
+            ScalarType::E18s => 8,
+            ScalarType::Float32 => 9,
+            ScalarType::Float64 => 10,
+            ScalarType::Int => 11,
+            ScalarType::Int128 => 12,
+            ScalarType::IntBig => 13,
+            ScalarType::Principal => 14,
+            ScalarType::Subaccount => 15,
+            ScalarType::Text => 16,
+            ScalarType::Timestamp => 17,
+            ScalarType::Uint => 18,
+            ScalarType::Uint128 => 19,
+            ScalarType::UintBig => 20,
+            ScalarType::Ulid => 21,
+            ScalarType::Unit => 22,
+        }
+    }
+
+    /// Return every ScalarType variant by index, ensuring exhaustiveness.
+    fn scalar_from_index(index: usize) -> Option<ScalarType> {
+        let scalar = match index {
+            0 => ScalarType::Account,
+            1 => ScalarType::Blob,
+            2 => ScalarType::Bool,
+            3 => ScalarType::Date,
+            4 => ScalarType::Decimal,
+            5 => ScalarType::Duration,
+            6 => ScalarType::Enum,
+            7 => ScalarType::E8s,
+            8 => ScalarType::E18s,
+            9 => ScalarType::Float32,
+            10 => ScalarType::Float64,
+            11 => ScalarType::Int,
+            12 => ScalarType::Int128,
+            13 => ScalarType::IntBig,
+            14 => ScalarType::Principal,
+            15 => ScalarType::Subaccount,
+            16 => ScalarType::Text,
+            17 => ScalarType::Timestamp,
+            18 => ScalarType::Uint,
+            19 => ScalarType::Uint128,
+            20 => ScalarType::UintBig,
+            21 => ScalarType::Ulid,
+            22 => ScalarType::Unit,
+            _ => return None,
+        };
+
+        Some(scalar)
+    }
+
+    /// Legacy family mapping from the pre-registry implementation.
+    fn legacy_family(scalar: ScalarType) -> ValueFamily {
+        match scalar {
+            ScalarType::Text => ValueFamily::Textual,
+            ScalarType::Ulid | ScalarType::Principal | ScalarType::Account => {
+                ValueFamily::Identifier
+            }
+            ScalarType::Enum => ValueFamily::Enum,
+            ScalarType::Blob | ScalarType::Subaccount => ValueFamily::Blob,
+            ScalarType::Bool => ValueFamily::Bool,
+            ScalarType::Unit => ValueFamily::Unit,
+            ScalarType::Date
+            | ScalarType::Decimal
+            | ScalarType::Duration
+            | ScalarType::E8s
+            | ScalarType::E18s
+            | ScalarType::Float32
+            | ScalarType::Float64
+            | ScalarType::Int
+            | ScalarType::Int128
+            | ScalarType::IntBig
+            | ScalarType::Timestamp
+            | ScalarType::Uint
+            | ScalarType::Uint128
+            | ScalarType::UintBig => ValueFamily::Numeric,
+        }
+    }
+
+    /// Legacy value matching from the pre-registry implementation.
+    fn legacy_matches_value(scalar: ScalarType, value: &Value) -> bool {
+        let matches_value = matches!(
+            (scalar, value),
+            (ScalarType::Account, Value::Account(_))
+                | (ScalarType::Blob, Value::Blob(_))
+                | (ScalarType::Bool, Value::Bool(_))
+                | (ScalarType::Date, Value::Date(_))
+                | (ScalarType::Decimal, Value::Decimal(_))
+                | (ScalarType::Duration, Value::Duration(_))
+                | (ScalarType::Enum, Value::Enum(_))
+                | (ScalarType::E8s, Value::E8s(_))
+                | (ScalarType::E18s, Value::E18s(_))
+                | (ScalarType::Float32, Value::Float32(_))
+                | (ScalarType::Float64, Value::Float64(_))
+                | (ScalarType::Int, Value::Int(_))
+                | (ScalarType::Int128, Value::Int128(_))
+                | (ScalarType::IntBig, Value::IntBig(_))
+                | (ScalarType::Principal, Value::Principal(_))
+                | (ScalarType::Subaccount, Value::Subaccount(_))
+                | (ScalarType::Text, Value::Text(_))
+                | (ScalarType::Timestamp, Value::Timestamp(_))
+                | (ScalarType::Uint, Value::Uint(_))
+                | (ScalarType::Uint128, Value::Uint128(_))
+                | (ScalarType::UintBig, Value::UintBig(_))
+                | (ScalarType::Ulid, Value::Ulid(_))
+                | (ScalarType::Unit, Value::Unit)
+        );
+
+        matches_value
+    }
+
+    /// Legacy arithmetic support from the pre-registry model.
+    fn legacy_supports_arithmetic(scalar: ScalarType) -> bool {
+        matches!(
+            scalar,
+            ScalarType::Decimal
+                | ScalarType::E8s
+                | ScalarType::E18s
+                | ScalarType::Int
+                | ScalarType::Int128
+                | ScalarType::IntBig
+                | ScalarType::Uint
+                | ScalarType::Uint128
+                | ScalarType::UintBig
+        )
+    }
+
+    /// Legacy ordering support from the pre-registry model.
+    fn legacy_supports_ordering(scalar: ScalarType) -> bool {
+        !matches!(scalar, ScalarType::Blob | ScalarType::Unit)
+    }
+
+    /// Legacy equality support from the pre-registry model.
+    fn legacy_supports_equality(_scalar: ScalarType) -> bool {
+        true
+    }
+
+    /// Legacy keyability from the pre-registry model.
+    fn legacy_is_keyable(scalar: ScalarType) -> bool {
+        matches!(
+            scalar,
+            ScalarType::Account
+                | ScalarType::Int
+                | ScalarType::Principal
+                | ScalarType::Subaccount
+                | ScalarType::Timestamp
+                | ScalarType::Uint
+                | ScalarType::Ulid
+                | ScalarType::Unit
+        )
+    }
+
+    /// Build a representative value for each scalar variant.
+    fn sample_value_for_scalar(scalar: ScalarType) -> Value {
+        match scalar {
+            ScalarType::Account => Value::Account(Account::dummy(1)),
+            ScalarType::Blob => Value::Blob(vec![0u8, 1u8]),
+            ScalarType::Bool => Value::Bool(true),
+            ScalarType::Date => Value::Date(Date::EPOCH),
+            ScalarType::Decimal => Value::Decimal(Decimal::ZERO),
+            ScalarType::Duration => Value::Duration(Duration::ZERO),
+            ScalarType::Enum => Value::Enum(ValueEnum::loose("example")),
+            ScalarType::E8s => Value::E8s(E8s::from_atomic(0)),
+            ScalarType::E18s => Value::E18s(E18s::from_atomic(0)),
+            ScalarType::Float32 => {
+                Value::Float32(Float32::try_new(0.0).expect("Float32 sample should be finite"))
+            }
+            ScalarType::Float64 => {
+                Value::Float64(Float64::try_new(0.0).expect("Float64 sample should be finite"))
+            }
+            ScalarType::Int => Value::Int(0),
+            ScalarType::Int128 => Value::Int128(Int128::from(0i128)),
+            ScalarType::IntBig => Value::IntBig(Int::from(0i32)),
+            ScalarType::Principal => Value::Principal(Principal::anonymous()),
+            ScalarType::Subaccount => Value::Subaccount(Subaccount::dummy(2)),
+            ScalarType::Text => Value::Text("text".to_string()),
+            ScalarType::Timestamp => Value::Timestamp(Timestamp::EPOCH),
+            ScalarType::Uint => Value::Uint(0),
+            ScalarType::Uint128 => Value::Uint128(Nat128::from(0u128)),
+            ScalarType::UintBig => Value::UintBig(Nat::from(0u64)),
+            ScalarType::Ulid => Value::Ulid(Ulid::nil()),
+            ScalarType::Unit => Value::Unit,
+        }
+    }
+
+    /// Build a non-matching value for each scalar variant.
+    fn mismatching_value_for_scalar(scalar: ScalarType) -> Value {
+        match scalar {
+            ScalarType::Unit => Value::Bool(false),
+            _ => Value::Unit,
+        }
+    }
 
     fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
         EntityFieldModel { name, kind }
@@ -990,5 +1238,103 @@ mod tests {
             Err(ValidateError::InvalidOperator { field, op })
                 if field == "age" && op == "text_contains"
         ));
+    }
+
+    #[test]
+    fn scalar_registry_covers_all_variants_exactly_once() {
+        let scalars = registry_scalars();
+        let mut names = BTreeSet::new();
+        let mut seen = [false; SCALAR_TYPE_VARIANT_COUNT];
+
+        for scalar in scalars {
+            let index = scalar_index(scalar.clone());
+            assert!(!seen[index], "duplicate scalar entry: {scalar:?}");
+            seen[index] = true;
+
+            let name = format!("{scalar:?}");
+            assert!(names.insert(name.clone()), "duplicate scalar entry: {name}");
+        }
+
+        let mut missing = Vec::new();
+        for (index, was_seen) in seen.iter().enumerate() {
+            if !*was_seen {
+                let scalar = scalar_from_index(index).expect("index is in range");
+                missing.push(format!("{scalar:?}"));
+            }
+        }
+
+        assert!(missing.is_empty(), "missing scalar entries: {missing:?}");
+        assert_eq!(names.len(), SCALAR_TYPE_VARIANT_COUNT);
+    }
+
+    #[test]
+    fn scalar_registry_preserves_family_and_matching() {
+        for scalar in registry_scalars() {
+            let expected_family = legacy_family(scalar.clone());
+            let matching = sample_value_for_scalar(scalar.clone());
+            let mismatching = mismatching_value_for_scalar(scalar.clone());
+            let expected_match = legacy_matches_value(scalar.clone(), &matching);
+            let expected_mismatch = legacy_matches_value(scalar.clone(), &mismatching);
+
+            assert_eq!(scalar.family(), expected_family);
+            assert_eq!(scalar.matches_value(&matching), expected_match);
+            assert_eq!(scalar.matches_value(&mismatching), expected_mismatch);
+        }
+    }
+
+    #[test]
+    fn scalar_registry_preserves_arithmetic_support() {
+        for scalar in registry_scalars() {
+            let expected = legacy_supports_arithmetic(scalar.clone());
+
+            assert_eq!(scalar.supports_arithmetic(), expected);
+        }
+    }
+
+    #[test]
+    fn scalar_registry_preserves_keyability() {
+        for scalar in registry_scalars() {
+            let expected = legacy_is_keyable(scalar.clone());
+
+            assert_eq!(scalar.is_keyable(), expected);
+        }
+    }
+
+    #[test]
+    fn scalar_registry_preserves_ordering_support() {
+        for scalar in registry_scalars() {
+            let expected = legacy_supports_ordering(scalar.clone());
+
+            assert_eq!(scalar.supports_ordering(), expected);
+            assert_eq!(scalar.is_orderable(), expected);
+        }
+    }
+
+    #[test]
+    fn scalar_registry_preserves_equality_support() {
+        for scalar in registry_scalars() {
+            let expected = legacy_supports_equality(scalar.clone());
+
+            assert_eq!(scalar.supports_equality(), expected);
+        }
+    }
+
+    #[test]
+    fn validate_ordering_matches_legacy_support() {
+        let coercion = CoercionSpec::default();
+        let op = CompareOp::Lt;
+
+        for scalar in registry_scalars() {
+            let field_type = FieldType::Scalar(scalar.clone());
+            let value = sample_value_for_scalar(scalar.clone());
+            let result = validate_ordering("field", &field_type, &value, &coercion, op);
+            let is_orderable = legacy_supports_ordering(scalar);
+
+            if is_orderable {
+                assert!(result.is_ok(), "scalar should be orderable: {field_type:?}");
+            } else {
+                assert!(matches!(result, Err(ValidateError::InvalidOperator { .. })));
+            }
+        }
     }
 }

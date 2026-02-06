@@ -87,6 +87,53 @@ pub enum Value {
     Unsupported,
 }
 
+// Local helpers to expand the scalar registry into match arms.
+macro_rules! value_is_numeric_from_registry {
+    ( @args $value:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        match $value {
+            $( $value_pat => $is_numeric, )*
+            _ => false,
+        }
+    };
+}
+
+macro_rules! value_storage_key_case {
+    ( $value:expr, Unit, true ) => {
+        if let Value::Unit = $value {
+            Some(StorageKey::Unit)
+        } else {
+            None
+        }
+    };
+    ( $value:expr, $scalar:ident, true ) => {
+        if let Value::$scalar(v) = $value {
+            Some(StorageKey::$scalar(*v))
+        } else {
+            None
+        }
+    };
+    ( $value:expr, $scalar:ident, false ) => {
+        None
+    };
+}
+
+macro_rules! value_storage_key_from_registry {
+    ( @args $value:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:tt) ),* $(,)? ) => {
+        {
+            let mut key = None;
+            $(
+                match key {
+                    Some(_) => {}
+                    None => {
+                        key = value_storage_key_case!($value, $scalar, $is_keyable);
+                    }
+                }
+            )*
+            key
+        }
+    };
+}
+
 impl Value {
     ///
     /// CONSTRUCTION
@@ -132,20 +179,7 @@ impl Value {
     /// supported by numeric comparison/ordering.
     #[must_use]
     pub const fn is_numeric(&self) -> bool {
-        matches!(
-            self,
-            Self::Decimal(_)
-                | Self::Duration(_)
-                | Self::E8s(_)
-                | Self::E18s(_)
-                | Self::Float32(_)
-                | Self::Float64(_)
-                | Self::Int(_)
-                | Self::Int128(_)
-                | Self::Timestamp(_)
-                | Self::Uint(_)
-                | Self::Uint128(_)
-        )
+        scalar_registry!(value_is_numeric_from_registry, self)
     }
 
     /// Returns true if the value is Text.
@@ -189,17 +223,7 @@ impl Value {
     /// Only `None` and `Unsupported` are non-indexable.
     #[must_use]
     pub const fn as_storage_key(&self) -> Option<StorageKey> {
-        match self {
-            Self::Account(v) => Some(StorageKey::Account(*v)),
-            Self::Int(v) => Some(StorageKey::Int(*v)),
-            Self::Uint(v) => Some(StorageKey::Uint(*v)),
-            Self::Principal(v) => Some(StorageKey::Principal(*v)),
-            Self::Subaccount(v) => Some(StorageKey::Subaccount(*v)),
-            Self::Timestamp(v) => Some(StorageKey::Timestamp(*v)),
-            Self::Ulid(v) => Some(StorageKey::Ulid(*v)),
-            Self::Unit => Some(StorageKey::Unit),
-            _ => None,
-        }
+        scalar_registry!(value_storage_key_from_registry, self)
     }
 
     #[must_use]

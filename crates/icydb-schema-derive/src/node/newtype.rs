@@ -170,3 +170,87 @@ impl ToTokens for Newtype {
         tokens.extend(self.all_tokens());
     }
 }
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::Newtype;
+    use crate::prelude::*;
+
+    const ALL_PRIMITIVES: [Primitive; 28] = [
+        Primitive::Account,
+        Primitive::Blob,
+        Primitive::Bool,
+        Primitive::Date,
+        Primitive::Decimal,
+        Primitive::Duration,
+        Primitive::E8s,
+        Primitive::E18s,
+        Primitive::Float32,
+        Primitive::Float64,
+        Primitive::Int,
+        Primitive::Int8,
+        Primitive::Int16,
+        Primitive::Int32,
+        Primitive::Int64,
+        Primitive::Int128,
+        Primitive::Nat,
+        Primitive::Nat8,
+        Primitive::Nat16,
+        Primitive::Nat32,
+        Primitive::Nat64,
+        Primitive::Nat128,
+        Primitive::Principal,
+        Primitive::Subaccount,
+        Primitive::Text,
+        Primitive::Timestamp,
+        Primitive::Ulid,
+        Primitive::Unit,
+    ];
+
+    const ARITHMETIC_TRAITS: [TraitKind; 9] = [
+        TraitKind::Add,
+        TraitKind::AddAssign,
+        TraitKind::Div,
+        TraitKind::DivAssign,
+        TraitKind::Mul,
+        TraitKind::MulAssign,
+        TraitKind::Sub,
+        TraitKind::SubAssign,
+        TraitKind::Sum,
+    ];
+
+    fn newtype_with_primitive(primitive: Primitive) -> Newtype {
+        Newtype {
+            def: Def::default(),
+            primitive: Some(primitive),
+            item: Item {
+                primitive: Some(primitive),
+                ..Default::default()
+            },
+            default: None,
+            ty: Type::default(),
+            traits: TraitBuilder::default(),
+        }
+    }
+
+    fn has_all_arithmetic_traits(traits: &[TraitKind]) -> bool {
+        ARITHMETIC_TRAITS
+            .iter()
+            .all(|trait_kind| traits.contains(trait_kind))
+    }
+
+    #[test]
+    fn arithmetic_traits_match_supports_arithmetic() {
+        for primitive in ALL_PRIMITIVES {
+            let newtype = newtype_with_primitive(primitive);
+            let traits = newtype.traits();
+            let has_arithmetic = has_all_arithmetic_traits(&traits);
+
+            assert_eq!(has_arithmetic, primitive.supports_arithmetic());
+        }
+    }
+}

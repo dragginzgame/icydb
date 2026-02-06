@@ -73,10 +73,47 @@ pub enum Primitive {
     Unit,
 }
 
+// Local helper to map scalar registry variants to schema primitive variants.
+macro_rules! primitive_matches_scalar {
+    ( $primitive:expr, Int ) => {
+        matches!(
+            $primitive,
+            Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64
+        )
+    };
+    ( $primitive:expr, Uint ) => {
+        matches!(
+            $primitive,
+            Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64
+        )
+    };
+    ( $primitive:expr, Enum ) => {
+        false
+    };
+    ( $primitive:expr, IntBig ) => {
+        matches!($primitive, Primitive::Int)
+    };
+    ( $primitive:expr, UintBig ) => {
+        matches!($primitive, Primitive::Nat)
+    };
+    ( $primitive:expr, Uint128 ) => {
+        matches!($primitive, Primitive::Nat128)
+    };
+    ( $primitive:expr, $scalar:ident ) => {
+        matches!($primitive, Primitive::$scalar)
+    };
+}
+
+macro_rules! primitive_supports_arithmetic_from_registry {
+    ( @args $primitive:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr) ),* $(,)? ) => {
+        false $( || (primitive_matches_scalar!($primitive, $scalar) && $supports_arithmetic) )*
+    };
+}
+
 impl Primitive {
     #[must_use]
     pub const fn supports_arithmetic(self) -> bool {
-        self.is_int() || self.is_fixed_point() || self.is_decimal()
+        scalar_registry!(primitive_supports_arithmetic_from_registry, self)
     }
 
     #[must_use]
@@ -227,5 +264,58 @@ impl ToTokens for Primitive {
         let ident = format_ident!("{self}");
 
         tokens.extend(quote!(::icydb::schema::types::Primitive::#ident));
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::Primitive;
+
+    const ALL_PRIMITIVES: [Primitive; 28] = [
+        Primitive::Account,
+        Primitive::Blob,
+        Primitive::Bool,
+        Primitive::Date,
+        Primitive::Decimal,
+        Primitive::Duration,
+        Primitive::E8s,
+        Primitive::E18s,
+        Primitive::Float32,
+        Primitive::Float64,
+        Primitive::Int,
+        Primitive::Int8,
+        Primitive::Int16,
+        Primitive::Int32,
+        Primitive::Int64,
+        Primitive::Int128,
+        Primitive::Nat,
+        Primitive::Nat8,
+        Primitive::Nat16,
+        Primitive::Nat32,
+        Primitive::Nat64,
+        Primitive::Nat128,
+        Primitive::Principal,
+        Primitive::Subaccount,
+        Primitive::Text,
+        Primitive::Timestamp,
+        Primitive::Ulid,
+        Primitive::Unit,
+    ];
+
+    fn legacy_supports_arithmetic(primitive: Primitive) -> bool {
+        primitive.is_int() || primitive.is_fixed_point() || primitive.is_decimal()
+    }
+
+    #[test]
+    fn supports_arithmetic_matches_legacy() {
+        for primitive in ALL_PRIMITIVES {
+            let expected = legacy_supports_arithmetic(primitive);
+
+            assert_eq!(primitive.supports_arithmetic(), expected, "{primitive:?}");
+        }
     }
 }
