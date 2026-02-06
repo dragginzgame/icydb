@@ -94,7 +94,19 @@ Given a valid intent and a schema/model:
 The planner may return Unsupported errors but must not return Internal errors
 for user input.
 
-## Executor Assumptions (No Re-Validation)
+## Validation Ownership (Locked)
+
+Validation is intentionally multi-layered and each rule must have one semantic owner:
+- Logical validation (`validate_logical_plan_model`) owns user-facing query semantics.
+- Planner invariant validation (`validate_plan_invariants_model`) owns planner-internal consistency.
+- Executor validation (`validate_executor_plan`) owns defensive execution-boundary safety checks.
+
+Ownership constraints:
+- Non-owning layers may re-check invariants defensively, but must not reinterpret semantics.
+- Executor validation must not introduce new user-visible query semantics.
+- Disagreement between layers indicates a bug, not a recoverable condition.
+
+## Executor Assumptions (Defensive Re-Validation)
 
 When the executor receives a plan, it may assume:
 - the plan is schema-valid and executor-safe
@@ -103,7 +115,9 @@ When the executor receives a plan, it may assume:
 - ordering and pagination are valid for the schema
 - missing-row policy is explicit and stable
 
-The executor must not re-run planning or schema validation.
+The executor does not perform planning, but it may defensively re-validate plan
+and schema invariants before execution. Those checks must preserve logical
+validation semantics and error-class boundaries.
 Composite access plans are an internal planning detail; the executor resolves
 them deterministically before applying filters, ordering, and pagination.
 

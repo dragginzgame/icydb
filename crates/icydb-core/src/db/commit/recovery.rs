@@ -30,39 +30,6 @@ use std::{cell::RefCell, sync::OnceLock, thread::LocalKey};
 
 static RECOVERED: OnceLock<()> = OnceLock::new();
 
-#[cfg(test)]
-thread_local! {
-    static FORCE_RECOVERY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-#[cfg(test)]
-#[expect(dead_code)]
-/// Force the system recovery step to run once on the next call to
-/// `ensure_recovered`.
-pub fn force_recovery_for_tests() {
-    FORCE_RECOVERY.with(|flag| flag.set(true));
-}
-
-#[allow(clippy::missing_const_for_fn)]
-// Test hook to force a one-shot system recovery run.
-fn should_force_recovery() -> bool {
-    #[cfg(test)]
-    {
-        FORCE_RECOVERY.with(|flag| {
-            let force = flag.get();
-            if force {
-                flag.set(false);
-            }
-            force
-        })
-    }
-
-    #[cfg(not(test))]
-    {
-        false
-    }
-}
-
 /// Ensure global database invariants are restored before proceeding.
 ///
 /// This function performs a **system recovery step**:
@@ -78,8 +45,7 @@ fn should_force_recovery() -> bool {
 /// entrypoints), but must always complete **before** any operation-specific
 /// planning, validation, or apply phase begins.
 pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {
-    let force = should_force_recovery();
-    if !force && RECOVERED.get().is_some() {
+    if RECOVERED.get().is_some() {
         return Ok(());
     }
 
@@ -97,11 +63,6 @@ pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(),
 pub fn ensure_recovered_for_write(
     db: &Db<impl crate::traits::CanisterKind>,
 ) -> Result<(), InternalError> {
-    let force = should_force_recovery();
-    if force {
-        return perform_recovery(db);
-    }
-
     if RECOVERED.get().is_none() {
         return perform_recovery(db);
     }

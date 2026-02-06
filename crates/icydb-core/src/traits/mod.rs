@@ -32,7 +32,11 @@ use crate::{prelude::*, types::Id, value::ValueEnum, visitor::VisitorContext};
 // not what data it contains.
 //
 
+///
+/// Path
 /// Fully-qualified schema path.
+///
+
 pub trait Path {
     const PATH: &'static str;
 }
@@ -64,6 +68,7 @@ pub trait IndexStoreKind: Kind {
 
 ///
 /// EntityKey
+///
 /// Marker trait for raw entity key material used at storage boundaries.
 ///
 
@@ -72,6 +77,7 @@ impl<T> EntityKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static 
 
 ///
 /// EntityStorageKey
+///
 /// Raw storage-key facts about an entity.
 ///
 
@@ -81,6 +87,7 @@ pub trait EntityStorageKey {
 
 ///
 /// EntityIdentity
+///
 /// Semantic identity facts about an entity.
 ///
 
@@ -91,6 +98,7 @@ pub trait EntityIdentity: EntityStorageKey {
 
 ///
 /// EntitySchema
+///
 /// Declared schema facts for an entity.
 ///
 
@@ -109,6 +117,7 @@ pub trait EntitySchema: EntityIdentity {
 
 ///
 /// EntityPlacement
+///
 /// Runtime placement of an entity
 ///
 
@@ -119,6 +128,7 @@ pub trait EntityPlacement {
 
 ///
 /// EntityKind
+///
 /// Fully runtime-bound entity.
 ///
 /// This is the *maximum* entity contract and should only be
@@ -134,10 +144,15 @@ pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {}
 // These traits describe *instances* of entities.
 //
 
+///
+/// EntityValue
+///
 /// A concrete entity value.
 ///
 /// This trait is intentionally lighter than `EntityKind`.
 /// It does NOT imply storage placement.
+///
+
 pub trait EntityValue: EntityIdentity + FieldValues + Sized {
     fn id(&self) -> Id<Self>;
 }

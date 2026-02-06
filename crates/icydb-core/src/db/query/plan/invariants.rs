@@ -1,4 +1,12 @@
 //! Planner invariants and assertions; must not surface user-facing errors.
+//!
+//! Ownership contract:
+//! - This module validates planner-internal consistency only.
+//! - Semantic query validity belongs to logical validation (`PlanError`).
+//! - Violations here represent planner or layering bugs and must remain internal.
+//!
+//! New invariant rules must declare planner ownership explicitly. If another
+//! layer re-checks the same condition, disagreement is a bug, not a fallback path.
 
 use super::{
     canonical,
@@ -38,6 +46,10 @@ pub fn validate_plan_invariants_model(
     model: &EntityModel,
     predicate: Option<&Predicate>,
 ) -> Result<(), InternalError> {
+    // Planner invariant validator:
+    // - owns internal planner consistency checks only
+    // - must not reinterpret user-facing query semantics
+    // - all failures are internal invariant violations
     let Some(predicate) = predicate else {
         return Ok(());
     };

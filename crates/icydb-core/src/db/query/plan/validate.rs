@@ -1,4 +1,13 @@
-//! Executor-ready plan validation against a concrete entity schema.
+//! Query-plan validation at logical and executor boundaries.
+//!
+//! Validation ownership contract:
+//! - `validate_logical_plan_model` owns user-facing query semantics and emits `PlanError`.
+//! - Planner invariant validation lives in `plan::invariants` and emits internal errors.
+//! - `validate_executor_plan` is defensive: it re-checks owned semantics/invariants before
+//!   execution and must not introduce new user-visible semantics.
+//!
+//! Future rule changes must declare a semantic owner. Defensive re-check layers may mirror
+//! rules, but must not reinterpret semantics or error class intent.
 use super::{AccessPath, AccessPlan, LogicalPlan, OrderSpec};
 use crate::{
     db::query::predicate::{self, SchemaInfo, coercion::canonical_cmp},
@@ -131,6 +140,13 @@ where
 }
 
 /// Validate a logical plan with model-level key values.
+///
+/// Ownership:
+/// - semantic owner for user-facing query validity at planning boundaries
+/// - failures here are user-visible planning failures (`PlanError`)
+///
+/// New user-facing validation rules must be introduced here first, then mirrored
+/// defensively in downstream layers without changing semantics.
 pub(crate) fn validate_logical_plan_model(
     schema: &SchemaInfo,
     model: &EntityModel,
@@ -181,6 +197,13 @@ fn validate_plan_semantics<K>(plan: &LogicalPlan<K>) -> Result<(), PlanError> {
 }
 
 /// Validate plans at executor boundaries and surface invariant violations.
+///
+/// Ownership:
+/// - defensive execution-boundary guardrail, not a semantic owner
+/// - must map violations to internal invariant failures, never new user semantics
+///
+/// Any disagreement with logical validation indicates an internal bug and is not
+/// a recoverable user-input condition.
 pub(crate) fn validate_executor_plan<E: EntityKind>(
     plan: &LogicalPlan<E::Key>,
 ) -> Result<(), InternalError> {

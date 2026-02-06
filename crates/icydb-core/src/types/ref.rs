@@ -36,12 +36,25 @@ impl<E> Ref<E>
 where
     E: EntityStorageKey,
 {
-    /// Construct a reference directly from raw storage key material.
-    ///
-    /// This constructor is **core-only** and must not be used
-    /// by application code.
+    /// Construct a typed identity from the raw key value.
     #[must_use]
-    pub(crate) const fn from_storage_key(key: E::Key) -> Self {
+    #[expect(dead_code)]
+    pub(crate) const fn new(key: E::Key) -> Self {
+        Self {
+            key,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Construct an entity identity from raw storage key material.
+    ///
+    /// This is intended for **entity construction only**:
+    /// - handwritten constructors in schema crates
+    /// - derive-generated entity defaults
+    ///
+    /// Application code must not invent identities arbitrarily.
+    #[must_use]
+    pub const fn from_storage_key(key: E::Key) -> Self {
         Self {
             key,
             _marker: PhantomData,
