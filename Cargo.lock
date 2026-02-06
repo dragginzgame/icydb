@@ -800,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.6.35"
+version = "0.6.36"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -821,7 +821,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.6.35"
+version = "0.6.36"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.6.35"
+version = "0.6.36"
 dependencies = [
  "bencher",
  "candid",
@@ -857,7 +857,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.6.35"
+version = "0.6.36"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.6.35"
+version = "0.6.36"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.6.35"
+version = "0.6.36"
 dependencies = [
  "candid",
  "canic-utils",
@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.6.35"
+version = "0.6.36"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1869,18 +1869,18 @@ checksum = "fdd20c5420375476fbd4394763288da7eb0cc0b8c11deed431a91562af7335d3"
 
 [[package]]
 name = "zerocopy"
-version = "0.8.38"
+version = "0.8.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57cf3aa6855b23711ee9852dfc97dfaa51c45feaba5b645d0c777414d494a961"
+checksum = "db6d35d663eadb6c932438e763b262fe1a70987f9ae936e60158176d710cae4a"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.38"
+version = "0.8.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a616990af1a287837c4fe6596ad77ef57948f787e46ce28e166facc0cc1cb75"
+checksum = "4122cd3169e94605190e77839c9a40d40ed048d305bfdc146e7df40ab0f3e517"
 dependencies = [
  "proc-macro2",
  "quote",
