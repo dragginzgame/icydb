@@ -889,6 +889,7 @@ mod tests {
             FieldRef,
             predicate::{CoercionId, CoercionSpec, Predicate},
         },
+        db::store::StorageKey,
         model::field::{EntityFieldKind, EntityFieldModel},
         test_fixtures::InvalidEntityModelBuilder,
         traits::EntitySchema,
@@ -1297,6 +1298,29 @@ mod tests {
             let expected = legacy_is_keyable(scalar.clone());
 
             assert_eq!(scalar.is_keyable(), expected);
+        }
+    }
+
+    #[test]
+    fn scalar_keyability_matches_storage_key_conversion_paths() {
+        for scalar in registry_scalars() {
+            let value = sample_value_for_scalar(scalar.clone());
+            let scalar_keyable = scalar.is_keyable();
+            let value_keyable = value.as_storage_key().is_some();
+            let storage_keyable = StorageKey::try_from_value(&value).is_ok();
+
+            assert_eq!(
+                value_keyable, scalar_keyable,
+                "Value::as_storage_key drift for scalar {scalar:?}"
+            );
+            assert_eq!(
+                storage_keyable, scalar_keyable,
+                "StorageKey::try_from_value drift for scalar {scalar:?}"
+            );
+            assert_eq!(
+                value.as_storage_key(),
+                StorageKey::try_from_value(&value).ok()
+            );
         }
     }
 

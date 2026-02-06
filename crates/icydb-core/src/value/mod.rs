@@ -617,6 +617,11 @@ impl From<()> for Value {
     }
 }
 
+// NOTE:
+// Value::partial_cmp is NOT the canonical ordering for database semantics.
+// Some orderable scalar types (e.g. Account, Unit) intentionally do not
+// participate here. Use canonical_cmp / strict ordering for ORDER BY,
+// planning, and key-range validation.
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {

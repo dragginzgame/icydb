@@ -6,7 +6,8 @@ use super::{
 };
 use crate::{
     db::query::predicate::{
-        CoercionId, CompareOp, Predicate, SchemaInfo, validate::literal_matches_type,
+        CoercionId, CompareOp, Predicate, SchemaInfo, coercion::canonical_cmp,
+        validate::literal_matches_type,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::entity::EntityModel,
@@ -379,12 +380,7 @@ fn validate_access_path_model(
                     && value_matches_pk_model(schema, model, end),
                 "planner invariant violated: KeyRange must target the primary key",
             )?;
-            let Some(ordering) = start.partial_cmp(end) else {
-                return ensure_invariant(
-                    false,
-                    "planner invariant violated: KeyRange values must be comparable",
-                );
-            };
+            let ordering = canonical_cmp(start, end);
             ensure_invariant(
                 ordering != std::cmp::Ordering::Greater,
                 "planner invariant violated: KeyRange start must be <= end",

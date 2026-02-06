@@ -3,7 +3,7 @@
 use crate::db::query::{
     LoadSpec, QueryMode, ReadConsistency,
     plan::{AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec},
-    predicate::{Predicate, eval as eval_predicate},
+    predicate::{Predicate, coercion::canonical_cmp, eval as eval_predicate},
 };
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -242,17 +242,11 @@ fn compare_entities<E: EntityKind + EntityValue>(
         let left_value = left.get_value(field);
         let right_value = right.get_value(field);
 
-        // NOTE: Incomparable values are treated as equal so that stable sorting
-        // preserves input order. This matches SQL-style ORDER BY semantics.
         let ordering = match (left_value, right_value) {
             (None, None) => continue,
             (None, Some(_)) => Ordering::Less,
             (Some(_), None) => Ordering::Greater,
-            (Some(left_value), Some(right_value)) => match left_value.partial_cmp(&right_value) {
-                Some(ordering) => ordering,
-                // Preserve relative order for incomparable values.
-                None => Ordering::Equal,
-            },
+            (Some(left_value), Some(right_value)) => canonical_cmp(&left_value, &right_value),
         };
 
         let ordering = match direction {

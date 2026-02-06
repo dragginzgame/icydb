@@ -1,7 +1,7 @@
 //! Executor-ready plan validation against a concrete entity schema.
 use super::{AccessPath, AccessPlan, LogicalPlan, OrderSpec};
 use crate::{
-    db::query::predicate::{self, SchemaInfo},
+    db::query::predicate::{self, SchemaInfo, coercion::canonical_cmp},
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::entity::EntityModel,
     model::index::IndexModel,
@@ -333,9 +333,7 @@ impl AccessPlanKeyAdapter<Value> for ValueKeyAdapter {
     ) -> Result<(), PlanError> {
         validate_pk_value(schema, model, start)?;
         validate_pk_value(schema, model, end)?;
-        let Some(ordering) = start.partial_cmp(end) else {
-            return Err(PlanError::InvalidKeyRange);
-        };
+        let ordering = canonical_cmp(start, end);
         if ordering == std::cmp::Ordering::Greater {
             return Err(PlanError::InvalidKeyRange);
         }

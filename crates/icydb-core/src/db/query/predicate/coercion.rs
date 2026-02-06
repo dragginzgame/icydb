@@ -177,6 +177,52 @@ pub fn compare_order(left: &Value, right: &Value, coercion: &CoercionSpec) -> Op
     }
 }
 
+/// Canonical total ordering for database semantics.
+///
+/// This is the only ordering used for:
+/// - ORDER BY
+/// - range planning
+/// - key comparisons
+#[must_use]
+pub(crate) fn canonical_cmp(left: &Value, right: &Value) -> Ordering {
+    if let Some(ordering) = strict_ordering(left, right) {
+        return ordering;
+    }
+
+    canonical_rank(left).cmp(&canonical_rank(right))
+}
+
+const fn canonical_rank(value: &Value) -> u8 {
+    match value {
+        Value::Account(_) => 0,
+        Value::Blob(_) => 1,
+        Value::Bool(_) => 2,
+        Value::Date(_) => 3,
+        Value::Decimal(_) => 4,
+        Value::Duration(_) => 5,
+        Value::Enum(_) => 6,
+        Value::E8s(_) => 7,
+        Value::E18s(_) => 8,
+        Value::Float32(_) => 9,
+        Value::Float64(_) => 10,
+        Value::Int(_) => 11,
+        Value::Int128(_) => 12,
+        Value::IntBig(_) => 13,
+        Value::List(_) => 14,
+        Value::None => 15,
+        Value::Principal(_) => 16,
+        Value::Subaccount(_) => 17,
+        Value::Text(_) => 18,
+        Value::Timestamp(_) => 19,
+        Value::Uint(_) => 20,
+        Value::Uint128(_) => 21,
+        Value::UintBig(_) => 22,
+        Value::Ulid(_) => 23,
+        Value::Unit => 24,
+        Value::Unsupported => 25,
+    }
+}
+
 /// Perform text-specific comparison operations.
 ///
 /// Only strict and casefold coercions are supported.
@@ -272,4 +318,32 @@ fn casefold(input: &str) -> String {
 
     // Unicode fallback; matches Value::text_* casefold behavior.
     input.to_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_cmp;
+    use crate::{types::Account, value::Value};
+    use std::cmp::Ordering;
+
+    #[test]
+    fn canonical_cmp_orders_accounts() {
+        let left = Value::Account(Account::dummy(1));
+        let right = Value::Account(Account::dummy(2));
+
+        assert_eq!(canonical_cmp(&left, &right), Ordering::Less);
+        assert_eq!(canonical_cmp(&right, &left), Ordering::Greater);
+    }
+
+    #[test]
+    fn canonical_cmp_is_total_for_mixed_variants() {
+        let left = Value::Account(Account::dummy(1));
+        let right = Value::Text("x".to_string());
+
+        assert_ne!(canonical_cmp(&left, &right), Ordering::Equal);
+        assert_eq!(
+            canonical_cmp(&left, &right),
+            canonical_cmp(&right, &left).reverse()
+        );
+    }
 }
