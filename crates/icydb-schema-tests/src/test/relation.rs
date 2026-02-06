@@ -102,29 +102,3 @@ pub struct RelationOwned;
     )
 )]
 pub struct CrossCanisterRelation;
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ref_set_normalizes_duplicates_and_orders_by_key() {
-        let id_a = Ulid::from_parts(1, 10);
-        let id_b = Ulid::from_parts(1, 20);
-        let ref_a: Ref<EntityA> =
-            Ref::from(<Id<EntityA> as ::icydb::traits::View>::from_view(id_a));
-        let ref_b: Ref<EntityA> =
-            Ref::from(<Id<EntityA> as ::icydb::traits::View>::from_view(id_b));
-        let refs = vec![ref_b, ref_a, ref_b];
-
-        let set = RefSet::<EntityA>::from_refs(refs);
-
-        assert_eq!(set.len(), 2);
-        let refs: Vec<Ref<EntityA>> = set.iter().copied().collect();
-        assert_eq!(refs, vec![ref_a, ref_b]);
-    }
-}

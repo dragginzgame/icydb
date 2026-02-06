@@ -3,7 +3,7 @@ use crate::{
         EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
         ValidateCustom, View, Visitable,
     },
-    types::Ref,
+    types::Id,
     value::Value,
     view::SetPatch,
     visitor::{VisitorContext, VisitorCore, VisitorMutCore, perform_visit},
@@ -12,42 +12,42 @@ use candid::CandidType;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 ///
-/// RefSet
+/// IdSet
 ///
-/// Canonical set of typed entity references.
+/// Canonical set of typed entity identities.
 ///
-/// - Uniqueness is enforced by `E::Key`.
-/// - Ordering is canonical (ascending by key) and does NOT reflect insertion history.
+/// - Uniqueness is enforced by entity identity ordering (`E::Key`).
+/// - Ordering is canonical (ascending by identity) and does NOT reflect insertion history.
 /// - No ordering-based or predicate-based mutation APIs are provided.
 /// - In-place mutation of elements is forbidden to preserve ordering invariants.
+/// - This type represents *identity only*; it does not imply resolvability or existence checks.
 ///
 
 #[repr(transparent)]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct RefSet<E: EntityStorageKey>(Vec<Ref<E>>);
+pub struct IdSet<E: EntityStorageKey>(Vec<Id<E>>);
 
-impl<E> RefSet<E>
+impl<E> IdSet<E>
 where
     E: EntityStorageKey,
 {
-    /// Create an empty ref set.
+    /// Create an empty identity set.
     #[must_use]
     pub const fn new() -> Self {
         Self(Vec::new())
     }
 
-    /// Build a ref set, discarding duplicate keys.
+    /// Build an identity set, discarding duplicate identities.
     #[must_use]
-    pub fn from_refs(refs: Vec<Ref<E>>) -> Self {
+    pub fn from_ids(ids: Vec<Id<E>>) -> Self {
         let mut set = Self::new();
-        for reference in refs {
-            set.insert(reference);
+        for id in ids {
+            set.insert(id);
         }
-
         set
     }
 
-    /// Return the number of references in the set.
+    /// Return the number of identities in the set.
     #[must_use]
     pub const fn len(&self) -> usize {
         self.0.len()
@@ -59,27 +59,27 @@ where
         self.0.is_empty()
     }
 
-    /// Return an iterator over the references.
-    pub fn iter(&self) -> std::slice::Iter<'_, Ref<E>> {
+    /// Return an iterator over the identities.
+    pub fn iter(&self) -> std::slice::Iter<'_, Id<E>> {
         self.0.iter()
     }
 
-    /// Insert a reference, returning `true` if it was newly inserted.
-    pub fn insert(&mut self, reference: Ref<E>) -> bool {
-        let key = reference.into_storage_key();
+    /// Insert an identity, returning `true` if it was newly inserted.
+    pub fn insert(&mut self, id: Id<E>) -> bool {
+        let key = id.into_storage_key();
 
         match self.find_index(&key) {
             Ok(_) => false,
             Err(index) => {
-                self.0.insert(index, reference);
+                self.0.insert(index, id);
                 true
             }
         }
     }
 
-    /// Remove a reference by key, returning `true` if it was present.
-    pub fn remove(&mut self, reference: &Ref<E>) -> bool {
-        let key = reference.into_storage_key();
+    /// Remove an identity, returning `true` if it was present.
+    pub fn remove(&mut self, id: &Id<E>) -> bool {
+        let key = id.into_storage_key();
 
         match self.find_index(&key) {
             Ok(index) => {
@@ -90,24 +90,24 @@ where
         }
     }
 
-    /// Returns `true` if the set contains the reference.
+    /// Returns `true` if the set contains the identity.
     #[must_use]
-    pub fn contains(&self, reference: &Ref<E>) -> bool {
-        self.contains_key(&reference.into_storage_key())
+    pub fn contains(&self, id: &Id<E>) -> bool {
+        self.contains_key(&id.into_storage_key())
     }
 
-    /// Returns `true` if the set contains the key.
+    /// Returns `true` if the set contains the given storage key.
     #[must_use]
     fn contains_key(&self, key: &E::Key) -> bool {
         self.find_index(key).is_ok()
     }
 
-    /// Clear all references from the set.
+    /// Clear all identities from the set.
     pub fn clear(&mut self) {
         self.0.clear();
     }
 
-    // Locate a key in the sorted list.
+    /// Locate a key in the sorted identity list.
     fn find_index(&self, key: &E::Key) -> Result<usize, usize> {
         self.0
             .binary_search_by(|candidate| candidate.into_storage_key().cmp(key))
@@ -119,67 +119,64 @@ where
         debug_assert!(
             self.0
                 .windows(2)
-                .all(|w| { w[0].into_storage_key() < w[1].into_storage_key() })
+                .all(|w| w[0].into_storage_key() < w[1].into_storage_key())
         );
     }
 }
 
-impl<E> RefSet<E>
+impl<E> IdSet<E>
 where
     E: EntityStorageKey,
-    Ref<E>: UpdateView + Default,
+    Id<E>: UpdateView + Default,
 {
-    /// Apply set patches, enforcing key uniqueness and deterministic ordering.
-    pub fn apply_patches(
-        &mut self,
-        patches: Vec<SetPatch<<Ref<E> as UpdateView>::UpdateViewType>>,
-    ) {
+    /// Apply set patches, enforcing identity uniqueness and deterministic ordering.
+    pub fn apply_patches(&mut self, patches: Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>) {
         self.merge(patches);
     }
 }
 
-impl<E> CandidType for RefSet<E>
+impl<E> CandidType for IdSet<E>
 where
     E: EntityStorageKey,
     E::Key: CandidType,
 {
     fn _ty() -> candid::types::Type {
-        <Vec<Ref<E>> as CandidType>::_ty()
+        <Vec<Id<E>> as CandidType>::_ty()
     }
 
     fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
     where
         S: candid::types::Serializer,
     {
-        <Vec<Ref<E>> as CandidType>::idl_serialize(&self.0, serializer)
+        <Vec<Id<E>> as CandidType>::idl_serialize(&self.0, serializer)
     }
 }
 
-impl<E> IntoIterator for RefSet<E>
+impl<E> IntoIterator for IdSet<E>
 where
     E: EntityStorageKey,
 {
-    type Item = Ref<E>;
-    type IntoIter = std::vec::IntoIter<Ref<E>>;
+    type Item = Id<E>;
+    type IntoIter = std::vec::IntoIter<Id<E>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
 
-impl<'a, E> IntoIterator for &'a RefSet<E>
+impl<'a, E> IntoIterator for &'a IdSet<E>
 where
     E: EntityStorageKey,
 {
-    type Item = &'a Ref<E>;
-    type IntoIter = std::slice::Iter<'a, Ref<E>>;
+    type Item = &'a Id<E>;
+    type IntoIter = std::slice::Iter<'a, Id<E>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
     }
 }
 
-impl<E> FieldValue for RefSet<E>
+impl<E> FieldValue for IdSet<E>
 where
     E: EntityStorageKey,
 {
@@ -188,11 +185,10 @@ where
     }
 }
 
-impl<E> SanitizeAuto for RefSet<E> where E: EntityStorageKey {}
+impl<E> SanitizeAuto for IdSet<E> where E: EntityStorageKey {}
+impl<E> SanitizeCustom for IdSet<E> where E: EntityStorageKey {}
 
-impl<E> SanitizeCustom for RefSet<E> where E: EntityStorageKey {}
-
-impl<E> Serialize for RefSet<E>
+impl<E> Serialize for IdSet<E>
 where
     E: EntityStorageKey,
     E::Key: Serialize,
@@ -205,101 +201,99 @@ where
     }
 }
 
-impl<'de, E> Deserialize<'de> for RefSet<E>
+impl<'de, E> Deserialize<'de> for IdSet<E>
 where
     E: EntityStorageKey,
-    Ref<E>: Deserialize<'de>,
+    Id<E>: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let refs = Vec::<Ref<E>>::deserialize(deserializer)?;
-
-        Ok(Self::from_refs(refs))
+        let ids = Vec::<Id<E>>::deserialize(deserializer)?;
+        Ok(Self::from_ids(ids))
     }
 }
 
-impl<E> ValidateAuto for RefSet<E>
+impl<E> ValidateAuto for IdSet<E>
 where
     E: EntityStorageKey,
 {
     fn validate_self(&self, ctx: &mut dyn VisitorContext) {
-        for value in self {
-            value.validate_self(ctx);
+        for id in self {
+            id.validate_self(ctx);
         }
     }
 }
 
-impl<E> ValidateCustom for RefSet<E>
+impl<E> ValidateCustom for IdSet<E>
 where
     E: EntityStorageKey,
 {
     fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
-        for value in self {
-            value.validate_custom(ctx);
+        for id in self {
+            id.validate_custom(ctx);
         }
     }
 }
 
-impl<E> Visitable for RefSet<E>
+impl<E> Visitable for IdSet<E>
 where
     E: EntityStorageKey,
 {
     fn drive(&self, visitor: &mut dyn VisitorCore) {
-        for (i, value) in self.iter().enumerate() {
-            perform_visit(visitor, value, i);
+        for (i, id) in self.iter().enumerate() {
+            perform_visit(visitor, id, i);
         }
     }
 
     fn drive_mut(&mut self, _visitor: &mut dyn VisitorMutCore) {
-        // Intentionally empty: mutating references can invalidate key ordering.
+        // Intentionally empty: mutating identities can invalidate canonical ordering.
     }
 }
 
-impl<E> View for RefSet<E>
+impl<E> View for IdSet<E>
 where
     E: EntityStorageKey,
-    Ref<E>: View,
+    Id<E>: View,
 {
-    type ViewType = Vec<<Ref<E> as View>::ViewType>;
+    type ViewType = Vec<<Id<E> as View>::ViewType>;
 
     fn to_view(&self) -> Self::ViewType {
         self.iter().map(View::to_view).collect()
     }
 
     fn from_view(view: Self::ViewType) -> Self {
-        Self::from_refs(view.into_iter().map(Ref::<E>::from_view).collect())
+        Self::from_ids(view.into_iter().map(Id::<E>::from_view).collect())
     }
 }
 
-impl<E> UpdateView for RefSet<E>
+impl<E> UpdateView for IdSet<E>
 where
     E: EntityStorageKey,
-    Ref<E>: UpdateView + Default,
+    Id<E>: UpdateView + Default,
 {
-    type UpdateViewType = Vec<SetPatch<<Ref<E> as UpdateView>::UpdateViewType>>;
+    type UpdateViewType = Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>;
 
     fn merge(&mut self, patches: Self::UpdateViewType) {
         for patch in patches {
             match patch {
                 SetPatch::Insert(value) => {
-                    let mut reference = Ref::<E>::default();
-                    reference.merge(value);
-                    self.insert(reference);
+                    let mut id = Id::<E>::default();
+                    id.merge(value);
+                    self.insert(id);
                 }
                 SetPatch::Remove(value) => {
-                    let mut reference = Ref::<E>::default();
-                    reference.merge(value);
-                    self.remove(&reference);
+                    let mut id = Id::<E>::default();
+                    id.merge(value);
+                    self.remove(&id);
                 }
                 SetPatch::Overwrite { values } => {
                     self.clear();
-
                     for value in values {
-                        let mut reference = Ref::<E>::default();
-                        reference.merge(value);
-                        self.insert(reference);
+                        let mut id = Id::<E>::default();
+                        id.merge(value);
+                        self.insert(id);
                     }
                 }
                 SetPatch::Clear => self.clear(),

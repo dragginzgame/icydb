@@ -245,7 +245,7 @@ impl ToTokens for Entity {
 fn entity_field_type_expr(field: &Field) -> TokenStream {
     let item = &field.value.item;
     let base = if let Some(relation) = &item.relation {
-        quote!(::icydb::types::Ref<#relation>)
+        quote!(::icydb::types::Id<#relation>)
     } else {
         item.target().type_expr()
     };
@@ -261,7 +261,7 @@ fn entity_field_type_expr(field: &Field) -> TokenStream {
         Cardinality::Opt => quote!(Option<#base>),
         Cardinality::Many => {
             if let Some(relation) = &item.relation {
-                quote!(::icydb::types::RefSet<#relation>)
+                quote!(::icydb::types::IdSet<#relation>)
             } else {
                 quote!(::icydb::types::OrderedList<#base>)
             }

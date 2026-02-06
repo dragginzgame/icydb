@@ -789,12 +789,6 @@ impl CoercionFamilyExt for Value {
     }
 }
 
-impl<E: EntityIdentity> From<Ref<E>> for Value {
-    fn from(r: Ref<E>) -> Self {
-        r.to_value() // via FieldValue
-    }
-}
-
 impl From<Vec<Self>> for Value {
     fn from(vec: Vec<Self>) -> Self {
         Self::List(vec)

@@ -41,14 +41,10 @@ impl FieldList {
         for field in &self.fields {
             field.validate()?;
         }
-
         Ok(())
     }
-}
 
-impl FieldList {
-    // default_assignments
-    // can be used to create different default views
+    /// Generate default assignments for struct initialization.
     pub fn default_assignments(&self) -> Vec<(Ident, TokenStream)> {
         self.iter()
             .map(|f| (f.ident.clone(), f.default_expr()))
@@ -60,7 +56,6 @@ impl HasSchemaPart for FieldList {
     fn schema_part(&self) -> TokenStream {
         let fields = quote_slice(&self.fields, Field::schema_part);
 
-        // quote
         quote! {
             ::icydb::schema::node::FieldList {
                 fields: #fields,
@@ -72,9 +67,7 @@ impl HasSchemaPart for FieldList {
 impl HasTypeExpr for FieldList {
     fn type_expr(&self) -> TokenStream {
         let fields = self.fields.iter().map(HasTypeExpr::type_expr);
-        quote! {
-            #(#fields),*
-        }
+        quote!(#(#fields),*)
     }
 }
 
@@ -94,7 +87,6 @@ impl<'a> IntoIterator for &'a FieldList {
 #[derive(Clone, Debug, FromMeta)]
 pub struct Field {
     pub ident: Ident,
-
     pub value: Value,
 
     #[darling(default)]
@@ -111,18 +103,21 @@ impl Field {
     pub fn validate(&self) -> Result<(), DarlingError> {
         // Identifier validation.
         let ident_str = self.ident.to_string();
+
         if ident_str.len() > MAX_FIELD_NAME_LEN {
             return Err(DarlingError::custom(format!(
                 "field name '{ident_str}' exceeds max length {MAX_FIELD_NAME_LEN}"
             ))
             .with_span(&self.ident));
         }
+
         if is_reserved_word(&ident_str) {
             return Err(
                 DarlingError::custom(format!("the word '{ident_str}' is reserved"))
                     .with_span(&self.ident),
             );
         }
+
         if !ident_str.is_case(Case::Snake) {
             return Err(DarlingError::custom(format!(
                 "field ident '{ident_str}' must be snake_case"
@@ -154,7 +149,7 @@ impl Field {
         Ok(())
     }
 
-    // default_expr
+    /// Generate the default expression for this field.
     pub fn default_expr(&self) -> TokenStream {
         match (&self.default, self.value.cardinality()) {
             (Some(default), _) => quote!(#default.into()),
@@ -162,7 +157,7 @@ impl Field {
             (None, Cardinality::Opt) => quote!(None),
             (None, Cardinality::Many) => {
                 if let Some(relation) = &self.value.item.relation {
-                    quote!(::icydb::types::RefSet::<#relation>::new())
+                    quote!(::icydb::types::IdSet::<#relation>::new())
                 } else {
                     quote!(::icydb::types::OrderedList::new())
                 }
@@ -206,7 +201,6 @@ impl HasSchemaPart for Field {
         let value = self.value.schema_part();
         let default = quote_option(self.default.as_ref(), Arg::schema_part);
 
-        // quote
         quote! {
             ::icydb::schema::node::Field {
                 ident: #ident,
@@ -220,26 +214,10 @@ impl HasSchemaPart for Field {
 impl HasTypeExpr for Field {
     fn type_expr(&self) -> TokenStream {
         let ident = &self.ident;
-        let value = field_value_type_expr(&self.value);
+        let value = self.value.type_expr();
 
         quote! {
             pub #ident: #value
-        }
-    }
-}
-
-fn field_value_type_expr(value: &Value) -> TokenStream {
-    let item = value.item.type_expr();
-
-    match value.cardinality() {
-        Cardinality::One => quote!(#item),
-        Cardinality::Opt => quote!(Option<#item>),
-        Cardinality::Many => {
-            if let Some(relation) = &value.item.relation {
-                quote!(::icydb::types::RefSet<#relation>)
-            } else {
-                quote!(::icydb::types::OrderedList<#item>)
-            }
         }
     }
 }

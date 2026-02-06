@@ -6,7 +6,7 @@ use crate::{
     },
     error::Error,
     traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
-    types::{Id, Ref},
+    types::Id,
     view::View,
 };
 use icydb_core as core;
@@ -49,27 +49,6 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         I: IntoIterator<Item = Id<E>>,
     {
         self.inner = self.inner.by_ids(ids);
-        self
-    }
-
-    // ------------------------------------------------------------------
-    // Reference-based access (semantic)
-    // ------------------------------------------------------------------
-
-    /// Resolve a semantic entity reference.
-    /// Callers must not extract keys from `Ref`.
-    #[must_use]
-    pub fn by_ref(mut self, r: Ref<E>) -> Self {
-        self.inner = self.inner.by_ref(r);
-        self
-    }
-
-    #[must_use]
-    pub fn by_refs<I>(mut self, refs: I) -> Self
-    where
-        I: IntoIterator<Item = Ref<E>>,
-    {
-        self.inner = self.inner.by_refs(refs);
         self
     }
 
@@ -270,37 +249,6 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         E: EntityValue,
     {
         Ok(self.inner.execute()?.contains_id(id))
-    }
-
-    // ------------------------------------------------------------------
-    // References
-    // ------------------------------------------------------------------
-
-    pub fn reference(&self) -> Result<Ref<E>, Error>
-    where
-        E: EntityValue,
-    {
-        self.inner
-            .execute()?
-            .reference()
-            .map_err(map_response_error)
-    }
-
-    pub fn try_reference(&self) -> Result<Option<Ref<E>>, Error>
-    where
-        E: EntityValue,
-    {
-        self.inner
-            .execute()?
-            .try_reference()
-            .map_err(map_response_error)
-    }
-
-    pub fn references(&self) -> Result<Vec<Ref<E>>, Error>
-    where
-        E: EntityValue,
-    {
-        Ok(self.inner.execute()?.references())
     }
 
     pub fn all(&self) -> Result<Vec<E>, Error>

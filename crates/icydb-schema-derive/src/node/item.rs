@@ -138,7 +138,7 @@ impl HasSchemaPart for Item {
 impl HasTypeExpr for Item {
     fn type_expr(&self) -> TokenStream {
         let ty = if let Some(relation) = &self.relation {
-            quote!(::icydb::types::Ref<#relation>)
+            quote!(::icydb::types::Id<#relation>)
         } else {
             self.target().type_expr()
         };

@@ -67,7 +67,7 @@ impl HasTypeExpr for Value {
             Cardinality::Opt => quote!(Option<#item>),
             Cardinality::Many => {
                 if let Some(relation) = &self.item.relation {
-                    quote!(::icydb::types::RefSet<#relation>)
+                    quote!(::icydb::types::IdSet<#relation>)
                 } else {
                     quote!(::icydb::types::OrderedList<#item>)
                 }

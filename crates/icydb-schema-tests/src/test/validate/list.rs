@@ -19,10 +19,8 @@ mod test {
     use super::*;
     use icydb::validate;
 
-    fn entity_ref() -> Ref<crate::test::entity::Entity> {
-        let id: Id<crate::test::entity::Entity> =
-            ::icydb::traits::View::from_view(Ulid::generate());
-        Ref::from(id)
+    fn entity_id() -> Id<crate::test::entity::Entity> {
+        ::icydb::traits::View::from_view(Ulid::generate())
     }
 
     #[test]
@@ -30,11 +28,11 @@ mod test {
         let mut list = FriendsList::default();
 
         // Add one friend
-        list.push(entity_ref());
+        list.push(entity_id());
         assert!(validate(&list).is_ok(), "1 friend should be valid");
 
         // Add second friend (at the max)
-        list.push(entity_ref());
+        list.push(entity_id());
         assert!(validate(&list).is_ok(), "2 friends should still be valid");
     }
 
@@ -43,9 +41,9 @@ mod test {
         let mut list = FriendsList::default();
 
         // Add three (exceeds Max(2))
-        list.push(entity_ref());
-        list.push(entity_ref());
-        list.push(entity_ref());
+        list.push(entity_id());
+        list.push(entity_id());
+        list.push(entity_id());
 
         let result = validate(&list);
         assert!(

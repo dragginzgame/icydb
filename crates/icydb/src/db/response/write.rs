@@ -1,6 +1,6 @@
 use crate::{
     traits::{EntityKind, EntityValue, View as ViewTrait},
-    types::{Id, Ref},
+    types::Id,
     view::View as EntityView,
 };
 use icydb_core::db::response::{
@@ -44,15 +44,6 @@ impl<E: EntityKind> WriteResponse<E> {
         E: EntityValue,
     {
         self.inner.key()
-    }
-
-    /// Return a typed reference to the stored entity.
-    #[must_use]
-    pub fn reference(&self) -> Ref<E>
-    where
-        E: EntityValue,
-    {
-        self.inner.reference()
     }
 
     /// Return the stored entity as its view type.
@@ -127,15 +118,6 @@ impl<E: EntityKind> WriteBatchResponse<E> {
         E: EntityValue,
     {
         self.entries.iter().map(WriteResponse::key).collect()
-    }
-
-    /// Return all typed references.
-    #[must_use]
-    pub fn references(&self) -> Vec<Ref<E>>
-    where
-        E: EntityValue,
-    {
-        self.entries.iter().map(WriteResponse::reference).collect()
     }
 
     /// Return all views.

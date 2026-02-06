@@ -21,20 +21,26 @@ mod tests {
     use icydb::db::{WriteBatchResponse, WriteResponse};
 
     #[test]
-    fn write_response_exposes_key_reference_and_view() {
-        let id = Ulid::generate();
+    fn write_response_exposes_key_and_view() {
+        // Test-only identity creation (allowed in this module)
+        let key = Id::<WriteResponseEntity>::from_storage_key(Ulid::generate());
+
         let entity = WriteResponseEntity {
-            id: ::icydb::traits::View::from_view(id),
+            id: key,
             ..Default::default()
         };
-        let response = WriteResponse::new(entity);
 
-        assert_eq!(
-            response.key(),
-            <Id<WriteResponseEntity> as ::icydb::traits::View>::from_view(id)
-        );
-        assert_eq!(response.reference(), Ref::from(response.key()));
-        assert_eq!(response.view().id, id);
+        let response = WriteResponse::new(entity.clone());
+
+        // 1. Identity is exposed exactly as issued
+        assert_eq!(response.key(), key);
+
+        // 2. View exposes value fields (no identity semantics)
+        let view = response.view();
+
+        // We can only assert equality against the original entity's view,
+        // not against the identity itself.
+        assert_eq!(view.id, entity.to_view().id);
     }
 
     #[test]

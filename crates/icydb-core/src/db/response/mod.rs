@@ -1,10 +1,6 @@
 mod write;
 
-use crate::{
-    prelude::*,
-    types::{Id, Ref},
-    view::View,
-};
+use crate::{prelude::*, types::Id, view::View};
 use thiserror::Error as ThisError;
 
 // re-exports
@@ -146,26 +142,6 @@ impl<E: EntityKind> Response<E> {
 
     pub fn contains_id(&self, id: &Id<E>) -> bool {
         self.0.iter().any(|(k, _)| k == id)
-    }
-
-    // ------------------------------------------------------------------
-    // References
-    // ------------------------------------------------------------------
-
-    /// Return the single typed reference.
-    pub fn reference(self) -> Result<Ref<E>, ResponseError> {
-        self.require_id().map(Into::into)
-    }
-
-    /// Return zero or one typed reference.
-    pub fn try_reference(self) -> Result<Option<Ref<E>>, ResponseError> {
-        self.try_row().map(|row| row.map(|(id, _)| id.into()))
-    }
-
-    /// Return all typed references.
-    #[must_use]
-    pub fn references(&self) -> Vec<Ref<E>> {
-        self.0.iter().map(|(id, _)| (*id).into()).collect()
     }
 
     // ------------------------------------------------------------------

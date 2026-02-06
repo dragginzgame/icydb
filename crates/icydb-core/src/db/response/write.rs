@@ -1,6 +1,6 @@
 use crate::{
-    traits::{EntityKind, EntityValue, View},
-    types::{Id, Ref},
+    traits::{EntityValue, View},
+    types::Id,
     view::View as EntityView,
 };
 
@@ -36,15 +36,6 @@ impl<E> WriteResponse<E> {
         E: EntityValue,
     {
         self.entity.id()
-    }
-
-    /// Return a typed reference to the stored entity.
-    #[must_use]
-    pub fn reference(&self) -> Ref<E>
-    where
-        E: EntityKind + EntityValue,
-    {
-        Ref::from_storage_key(self.entity.id().into_storage_key())
     }
 
     /// Return the stored entity as its view type.
@@ -112,15 +103,6 @@ impl<E> WriteBatchResponse<E> {
         E: EntityValue,
     {
         self.entries.iter().map(WriteResponse::key).collect()
-    }
-
-    /// Return all typed references.
-    #[must_use]
-    pub fn references(&self) -> Vec<Ref<E>>
-    where
-        E: EntityKind + EntityValue,
-    {
-        self.entries.iter().map(WriteResponse::reference).collect()
     }
 
     /// Return all views.

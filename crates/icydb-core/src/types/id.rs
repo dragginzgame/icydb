@@ -1,9 +1,8 @@
 use crate::{
     traits::{
-        EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
+        ValidateCustom, View, Visitable,
     },
-    types::Ref,
     value::Value,
 };
 use candid::CandidType;
@@ -161,15 +160,6 @@ where
     }
 }
 
-impl<E> From<Id<E>> for Ref<E>
-where
-    E: EntityStorageKey,
-{
-    fn from(identity: Id<E>) -> Self {
-        Self::from_storage_key(identity.into_storage_key())
-    }
-}
-
 impl<E> Hash for Id<E>
 where
     E: EntityStorageKey,
@@ -265,6 +255,20 @@ where
 
     fn from_view(view: Self::ViewType) -> Self {
         Self::from_storage_key(View::from_view(view))
+    }
+}
+
+impl<E> UpdateView for Id<E>
+where
+    E: EntityStorageKey,
+    E::Key: UpdateView,
+{
+    type UpdateViewType = <E::Key as UpdateView>::UpdateViewType;
+
+    fn merge(&mut self, update: Self::UpdateViewType) {
+        let mut next_key = self.storage_key();
+        next_key.merge(update);
+        *self = Self::from_storage_key(next_key);
     }
 }
 
