@@ -275,6 +275,14 @@ fn validate_index_fields(
             let field_type = fields
                 .get(*field)
                 .expect("index field existence checked above");
+            // TODO(0.8): Lift this temporary guard once map runtime encoding is
+            // standardized end-to-end for query + index semantics.
+            if matches!(field_type, FieldType::Map { .. }) {
+                return Err(ValidateError::IndexFieldMapUnsupported {
+                    index: **index,
+                    field: (*field).to_string(),
+                });
+            }
             // Indexing is hash-based across all Value variants; only Unsupported is rejected here.
             // Collisions are detected during unique enforcement and lookups.
             if matches!(field_type, FieldType::Unsupported) {
@@ -398,6 +406,11 @@ pub enum ValidateError {
     #[error("index '{index}' references unsupported field '{field}'")]
     IndexFieldUnsupported { index: IndexModel, field: String },
 
+    #[error(
+        "index '{index}' references map field '{field}'; map fields are not queryable/indexable in 0.7.x"
+    )]
+    IndexFieldMapUnsupported { index: IndexModel, field: String },
+
     #[error("index '{index}' repeats field '{field}'")]
     IndexFieldDuplicate { index: IndexModel, field: String },
 
@@ -412,6 +425,9 @@ pub enum ValidateError {
 
     #[error("invalid literal for field '{field}': {message}")]
     InvalidLiteral { field: String, message: String },
+
+    #[error("map field '{field}' is not queryable/indexable in 0.7.x")]
+    MapFieldNotQueryable { field: String },
 }
 
 pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), ValidateError> {
@@ -427,7 +443,14 @@ pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), Valida
         Predicate::Compare(cmp) => validate_compare(schema, cmp),
         Predicate::IsNull { field } | Predicate::IsMissing { field } => {
             // CONTRACT: presence checks are the only predicates allowed on unsupported fields.
-            ensure_field_exists(schema, field).map(|_| ())
+            let field_type = ensure_field_exists(schema, field)?;
+            if matches!(field_type, FieldType::Map { .. }) {
+                return Err(ValidateError::MapFieldNotQueryable {
+                    field: field.clone(),
+                });
+            }
+
+            Ok(())
         }
         Predicate::IsEmpty { field } => {
             let field_type = ensure_field(schema, field)?;
@@ -689,6 +712,14 @@ fn ensure_field<'a>(schema: &'a SchemaInfo, field: &str) -> Result<&'a FieldType
         .ok_or_else(|| ValidateError::UnknownField {
             field: field.to_string(),
         })?;
+
+    // TODO(0.8): Re-enable map field query validation once runtime map encoding
+    // and map predicate evaluation are guaranteed coherent.
+    if matches!(field_type, FieldType::Map { .. }) {
+        return Err(ValidateError::MapFieldNotQueryable {
+            field: field.to_string(),
+        });
+    }
 
     if matches!(field_type, FieldType::Unsupported) {
         return Err(ValidateError::UnsupportedFieldType {
@@ -1129,23 +1160,29 @@ mod tests {
     }
 
     #[test]
-    fn validate_model_accepts_collections_and_map_contains() {
+    fn validate_model_rejects_map_predicates_in_0_7_x() {
         let model = <CollectionPredicateEntity as EntitySchema>::MODEL;
 
-        let predicate = Predicate::And(vec![
+        // Non-map collections remain queryable.
+        let allowed = Predicate::And(vec![
             FieldRef::new("tags").is_empty(),
             FieldRef::new("principals").is_not_empty(),
-            FieldRef::new("attributes").map_contains_entry("k", 1u64, CoercionId::Strict),
         ]);
+        assert!(validate_model(model, &allowed).is_ok());
 
-        assert!(validate_model(model, &predicate).is_ok());
-
-        let bad =
-            FieldRef::new("attributes").map_contains_entry("k", 1u64, CoercionId::TextCasefold);
-
+        let map_contains =
+            FieldRef::new("attributes").map_contains_entry("k", 1u64, CoercionId::Strict);
         assert!(matches!(
-            validate_model(model, &bad),
-            Err(ValidateError::InvalidCoercion { .. })
+            validate_model(model, &map_contains),
+            Err(ValidateError::MapFieldNotQueryable { field }) if field == "attributes"
+        ));
+
+        let map_presence = Predicate::IsMissing {
+            field: "attributes".to_string(),
+        };
+        assert!(matches!(
+            validate_model(model, &map_presence),
+            Err(ValidateError::MapFieldNotQueryable { field }) if field == "attributes"
         ));
     }
 

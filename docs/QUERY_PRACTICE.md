@@ -116,6 +116,9 @@ A `Predicate` is defined as:
 * `MapContainsValue { field, value, coercion }`
 * `MapContainsEntry { field, key, value, coercion }`
 
+For `0.7.x`, map field predicates are intentionally rejected at validation time:
+**map fields are not queryable/indexable in 0.7.x**.
+
 #### Comparison Operators
 
 For `Compare`:
@@ -196,9 +199,8 @@ Given a row `R` and predicate `P`:
      unreachable after successful validation and is treated as a validation bug.
 7. `MapContains*`:
 
-   * if the field is `Missing`, return false.
-   * field must be a map; otherwise validation rejects the predicate.
-   * key/value coercion is applied exactly as declared.
+   * in `0.7.x`, validation rejects map predicates unconditionally.
+   * map query/index semantics are deferred until map encoding is stabilized.
 
 #### Missing Semantics (Non-Negotiable)
 

@@ -689,6 +689,44 @@ mod tests {
     }
 
     #[test]
+    fn model_rejects_index_map_field_in_0_7_x() {
+        const INDEX_FIELDS: [&str; 1] = ["attributes"];
+        const INDEX_MODEL: IndexModel = IndexModel::new(
+            "test::idx_attributes",
+            "test::IndexStore",
+            &INDEX_FIELDS,
+            false,
+        );
+        const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
+
+        let fields: &'static [EntityFieldModel] = Box::leak(
+            vec![
+                field("id", EntityFieldKind::Ulid),
+                field(
+                    "attributes",
+                    EntityFieldKind::Map {
+                        key: &EntityFieldKind::Text,
+                        value: &EntityFieldKind::Uint,
+                    },
+                ),
+            ]
+            .into_boxed_slice(),
+        );
+        let model = InvalidEntityModelBuilder::from_static(
+            "test::Entity",
+            "TestEntity",
+            &fields[0],
+            fields,
+            &INDEXES,
+        );
+
+        assert!(matches!(
+            SchemaInfo::from_entity_model(&model),
+            Err(ValidateError::IndexFieldMapUnsupported { .. })
+        ));
+    }
+
+    #[test]
     fn model_rejects_duplicate_index_names() {
         const INDEX_FIELDS_A: [&str; 1] = ["id"];
         const INDEX_FIELDS_B: [&str; 1] = ["other"];

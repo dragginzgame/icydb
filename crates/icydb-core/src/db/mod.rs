@@ -13,7 +13,7 @@ pub(crate) use write::WriteUnit;
 use crate::{
     db::{
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor},
-        index::{IndexStore, IndexStoreRegistry},
+        index::IndexStoreRegistry,
         query::{
             Query, QueryError, QueryMode, ReadConsistency, SessionDeleteQuery, SessionLoadQuery,
             diagnostics::{
@@ -22,13 +22,16 @@ use crate::{
             },
         },
         response::{Response, WriteBatchResponse, WriteResponse},
-        store::{DataStore, DataStoreRegistry},
+        store::DataStoreRegistry,
     },
     error::InternalError,
     obs::sink::{self, MetricsSink},
     traits::{CanisterKind, EntityKind, EntityValue},
 };
 use std::{marker::PhantomData, thread::LocalKey};
+
+#[cfg(test)]
+use crate::db::{index::IndexStore, store::DataStore};
 
 ///
 /// Db
@@ -363,6 +366,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// TEST ONLY: clear all registered data and index stores for this database.
+    #[cfg(test)]
     #[doc(hidden)]
     pub fn clear_stores_for_tests(&self) {
         // Data stores.
