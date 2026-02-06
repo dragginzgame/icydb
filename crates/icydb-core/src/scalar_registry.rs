@@ -9,6 +9,8 @@
 // for Value::is_numeric and numeric coercion.
 // Do not infer numeric-ness from ValueFamily.
 // NOTE: Floats are numeric but do NOT support arithmetic traits in schema-derive.
+#[doc(hidden)]
+#[macro_export]
 macro_rules! scalar_registry_entries {
     ($macro:ident $(, @args $($args:tt)+ )?) => {
         $macro! {
@@ -18,8 +20,8 @@ macro_rules! scalar_registry_entries {
             @entries
             (
                 Account,
-                ValueFamily::Identifier,
-                Value::Account(_),
+                $crate::value::ValueFamily::Identifier,
+                $crate::value::Value::Account(_),
                 is_numeric_value = false,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -28,8 +30,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Blob,
-                ValueFamily::Blob,
-                Value::Blob(_),
+                $crate::value::ValueFamily::Blob,
+                $crate::value::Value::Blob(_),
                 is_numeric_value = false,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -38,8 +40,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Bool,
-                ValueFamily::Bool,
-                Value::Bool(_),
+                $crate::value::ValueFamily::Bool,
+                $crate::value::Value::Bool(_),
                 is_numeric_value = false,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -48,8 +50,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Date,
-                ValueFamily::Numeric,
-                Value::Date(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::Date(_),
                 is_numeric_value = false,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -58,8 +60,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Decimal,
-                ValueFamily::Numeric,
-                Value::Decimal(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::Decimal(_),
                 is_numeric_value = true,
                 supports_arithmetic = true,
                 supports_equality = true,
@@ -68,8 +70,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Duration,
-                ValueFamily::Numeric,
-                Value::Duration(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::Duration(_),
                 is_numeric_value = true,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -78,8 +80,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Enum,
-                ValueFamily::Enum,
-                Value::Enum(_),
+                $crate::value::ValueFamily::Enum,
+                $crate::value::Value::Enum(_),
                 is_numeric_value = false,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -88,8 +90,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 E8s,
-                ValueFamily::Numeric,
-                Value::E8s(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::E8s(_),
                 is_numeric_value = true,
                 supports_arithmetic = true,
                 supports_equality = true,
@@ -98,8 +100,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 E18s,
-                ValueFamily::Numeric,
-                Value::E18s(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::E18s(_),
                 is_numeric_value = true,
                 supports_arithmetic = true,
                 supports_equality = true,
@@ -108,8 +110,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Float32,
-                ValueFamily::Numeric,
-                Value::Float32(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::Float32(_),
                 is_numeric_value = true,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -118,8 +120,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Float64,
-                ValueFamily::Numeric,
-                Value::Float64(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::Float64(_),
                 is_numeric_value = true,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -128,8 +130,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Int,
-                ValueFamily::Numeric,
-                Value::Int(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::Int(_),
                 is_numeric_value = true,
                 supports_arithmetic = true,
                 supports_equality = true,
@@ -138,8 +140,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Int128,
-                ValueFamily::Numeric,
-                Value::Int128(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::Int128(_),
                 is_numeric_value = true,
                 supports_arithmetic = true,
                 supports_equality = true,
@@ -148,8 +150,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 IntBig,
-                ValueFamily::Numeric,
-                Value::IntBig(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::IntBig(_),
                 is_numeric_value = false,
                 supports_arithmetic = true,
                 supports_equality = true,
@@ -158,8 +160,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Principal,
-                ValueFamily::Identifier,
-                Value::Principal(_),
+                $crate::value::ValueFamily::Identifier,
+                $crate::value::Value::Principal(_),
                 is_numeric_value = false,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -168,8 +170,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Subaccount,
-                ValueFamily::Blob,
-                Value::Subaccount(_),
+                $crate::value::ValueFamily::Blob,
+                $crate::value::Value::Subaccount(_),
                 is_numeric_value = false,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -178,8 +180,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Text,
-                ValueFamily::Textual,
-                Value::Text(_),
+                $crate::value::ValueFamily::Textual,
+                $crate::value::Value::Text(_),
                 is_numeric_value = false,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -188,8 +190,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Timestamp,
-                ValueFamily::Numeric,
-                Value::Timestamp(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::Timestamp(_),
                 is_numeric_value = true,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -198,8 +200,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Uint,
-                ValueFamily::Numeric,
-                Value::Uint(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::Uint(_),
                 is_numeric_value = true,
                 supports_arithmetic = true,
                 supports_equality = true,
@@ -208,8 +210,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Uint128,
-                ValueFamily::Numeric,
-                Value::Uint128(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::Uint128(_),
                 is_numeric_value = true,
                 supports_arithmetic = true,
                 supports_equality = true,
@@ -218,8 +220,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 UintBig,
-                ValueFamily::Numeric,
-                Value::UintBig(_),
+                $crate::value::ValueFamily::Numeric,
+                $crate::value::Value::UintBig(_),
                 is_numeric_value = false,
                 supports_arithmetic = true,
                 supports_equality = true,
@@ -228,8 +230,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Ulid,
-                ValueFamily::Identifier,
-                Value::Ulid(_),
+                $crate::value::ValueFamily::Identifier,
+                $crate::value::Value::Ulid(_),
                 is_numeric_value = false,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -238,8 +240,8 @@ macro_rules! scalar_registry_entries {
             ),
             (
                 Unit,
-                ValueFamily::Unit,
-                Value::Unit,
+                $crate::value::ValueFamily::Unit,
+                $crate::value::Value::Unit,
                 is_numeric_value = false,
                 supports_arithmetic = false,
                 supports_equality = true,
@@ -250,11 +252,12 @@ macro_rules! scalar_registry_entries {
     };
 }
 
+#[macro_export]
 macro_rules! scalar_registry {
     ($macro:ident) => {
-        scalar_registry_entries!($macro)
+        $crate::scalar_registry_entries!($macro)
     };
     ($macro:ident, $($args:tt)+) => {
-        scalar_registry_entries!($macro, @args $($args)+)
+        $crate::scalar_registry_entries!($macro, @args $($args)+)
     };
 }

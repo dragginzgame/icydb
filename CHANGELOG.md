@@ -29,6 +29,7 @@ stacks on top of an incomplete commit.
 * Added `saturating_add`/`saturating_sub` helpers to arithmetic newtypes for explicit saturating math.
 * Added `Id<E>` as a typed primary-key wrapper for entity identities, distinct from `Ref<E>`.
 * Added `Identifies<E>` as an internal capability trait for extracting entity keys from `Id<E>` or `Ref<E>`.
+* Added parity coverage to keep keyability conversion paths aligned across `ScalarType::is_keyable`, `Value::as_storage_key`, and `StorageKey::try_from_value`.
 
 ### 🪼 Changed
 
@@ -36,6 +37,8 @@ stacks on top of an incomplete commit.
 * Write executors now perform a fast commit-marker check and replay recovery before mutations when needed; read recovery remains startup-only.
 * Many relation fields now emit `RefSet<T>` to enforce unique, key-ordered references and align update semantics with `SetPatch`.
 * Entity macros now allow primary keys to be relations for identity-borrowing singleton entities.
+* ORDER BY and model key-range validation now use a shared canonical value comparator instead of `Value::partial_cmp`, keeping query ordering behavior consistent for all orderable key types.
+* Documented that `Value::partial_cmp` is not the canonical database ordering path and should not be used for ORDER BY or key-range semantics.
 
 ### 🧢 Breaking
 

@@ -1,6 +1,3 @@
-#[macro_use]
-mod scalar_registry;
-
 pub mod build;
 pub mod error;
 pub mod node;

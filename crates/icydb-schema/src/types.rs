@@ -113,7 +113,7 @@ macro_rules! primitive_supports_arithmetic_from_registry {
 impl Primitive {
     #[must_use]
     pub const fn supports_arithmetic(self) -> bool {
-        scalar_registry!(primitive_supports_arithmetic_from_registry, self)
+        icydb_core::scalar_registry!(primitive_supports_arithmetic_from_registry, self)
     }
 
     #[must_use]
