@@ -8,7 +8,7 @@ use crate::{
         entity::EntityModel,
         field::{EntityFieldKind, EntityFieldModel, RelationStrength},
     },
-    test_fixtures::LegacyTestEntityModel,
+    test_fixtures::entity_model_from_static,
     traits::{
         CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
         EntityValue, Path, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View,
@@ -131,8 +131,8 @@ static TARGET_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
 }];
 static TARGET_FIELD_NAMES: [&str; 1] = ["id"];
 static TARGET_INDEXES: [&crate::model::index::IndexModel; 0] = [];
-// NOTE: Save executor tests use legacy manual models to avoid schema macros.
-static TARGET_MODEL: EntityModel = LegacyTestEntityModel::from_static(
+// NOTE: Save executor tests use manual models to avoid schema macros.
+static TARGET_MODEL: EntityModel = entity_model_from_static(
     "save_tests::TargetEntity",
     "TargetEntity",
     &TARGET_FIELDS[0],
@@ -216,7 +216,7 @@ static SOURCE_FIELDS: [EntityFieldModel; 2] = [
 ];
 static SOURCE_FIELD_NAMES: [&str; 2] = ["id", "target"];
 static SOURCE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
-static SOURCE_MODEL: EntityModel = LegacyTestEntityModel::from_static(
+static SOURCE_MODEL: EntityModel = entity_model_from_static(
     "save_tests::SourceEntity",
     "SourceEntity",
     &SOURCE_FIELDS[0],

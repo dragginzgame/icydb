@@ -1,6 +1,7 @@
 pub mod collection;
 pub mod entity;
 pub mod enum_payload;
+pub mod identity_borrowing;
 pub mod merge;
 pub mod newtype;
 pub mod query_model;

@@ -216,7 +216,11 @@ impl HasType for Entity {
         let fields = self.fields.iter().map(|field| {
             let field_ident = &field.ident;
             let value = if field_ident == primary_key {
-                quote!(::icydb::types::Id<#ident>)
+                if field.value.item.is_relation() {
+                    entity_field_type_expr(field)
+                } else {
+                    quote!(::icydb::types::Id<#ident>)
+                }
             } else {
                 entity_field_type_expr(field)
             };

@@ -476,7 +476,7 @@ fn validate_index_prefix(
 
 #[cfg(test)]
 mod tests {
-    // NOTE: Legacy helpers remain only for intentionally invalid schemas.
+    // NOTE: Invalid helpers remain only for intentionally invalid schemas.
     use super::{PlanError, validate_logical_plan_model};
     use crate::{
         db::query::{
@@ -488,7 +488,7 @@ mod tests {
             field::{EntityFieldKind, EntityFieldModel},
             index::IndexModel,
         },
-        test_fixtures::LegacyTestEntityModel,
+        test_fixtures::InvalidEntityModelBuilder,
         traits::EntitySchema,
         types::Ulid,
         value::Value,
@@ -537,13 +537,13 @@ mod tests {
 
     #[test]
     fn model_rejects_missing_primary_key() {
-        // Legacy test scaffolding: invalid models are hand-built to exercise
+        // Invalid test scaffolding: models are hand-built to exercise
         // validation failures that helpers intentionally prevent.
         let fields: &'static [EntityFieldModel] =
             Box::leak(vec![field("id", EntityFieldKind::Ulid)].into_boxed_slice());
         let missing_pk = Box::leak(Box::new(field("missing", EntityFieldKind::Ulid)));
 
-        let model = LegacyTestEntityModel::from_static(
+        let model = InvalidEntityModelBuilder::from_static(
             "test::Entity",
             "TestEntity",
             missing_pk,
@@ -559,7 +559,7 @@ mod tests {
 
     #[test]
     fn model_rejects_duplicate_fields() {
-        let model = LegacyTestEntityModel::from_fields(
+        let model = InvalidEntityModelBuilder::from_fields(
             vec![
                 field("dup", EntityFieldKind::Text),
                 field("dup", EntityFieldKind::Text),
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn model_rejects_invalid_primary_key_type() {
-        let model = LegacyTestEntityModel::from_fields(
+        let model = InvalidEntityModelBuilder::from_fields(
             vec![field("pk", EntityFieldKind::List(&EntityFieldKind::Text))],
             0,
         );
@@ -599,7 +599,7 @@ mod tests {
 
         let fields: &'static [EntityFieldModel] =
             Box::leak(vec![field("id", EntityFieldKind::Ulid)].into_boxed_slice());
-        let model = LegacyTestEntityModel::from_static(
+        let model = InvalidEntityModelBuilder::from_static(
             "test::Entity",
             "TestEntity",
             &fields[0],
@@ -627,7 +627,7 @@ mod tests {
             ]
             .into_boxed_slice(),
         );
-        let model = LegacyTestEntityModel::from_static(
+        let model = InvalidEntityModelBuilder::from_static(
             "test::Entity",
             "TestEntity",
             &fields[0],
@@ -666,7 +666,7 @@ mod tests {
             ]
             .into_boxed_slice(),
         );
-        let model = LegacyTestEntityModel::from_static(
+        let model = InvalidEntityModelBuilder::from_static(
             "test::Entity",
             "TestEntity",
             &fields[0],

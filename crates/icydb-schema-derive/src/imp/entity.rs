@@ -127,10 +127,20 @@ pub struct EntityValueTrait {}
 impl Imp<Entity> for EntityValueTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let pk_ident = &node.primary_key;
+        let pk_is_relation = node
+            .fields
+            .get(pk_ident)
+            .is_some_and(|entry| entry.value.item.is_relation());
+
+        let id_expr = if pk_is_relation {
+            quote!(self.#pk_ident)
+        } else {
+            quote!(self.#pk_ident.key().clone())
+        };
 
         let q = quote! {
             fn id(&self) -> Self::Id {
-                self.#pk_ident.key().clone()
+                #id_expr
             }
         };
 

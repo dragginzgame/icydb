@@ -9,7 +9,7 @@ use crate::{
         field::{EntityFieldKind, EntityFieldModel},
         index::IndexModel,
     },
-    test_fixtures::LegacyTestEntityModel,
+    test_fixtures::entity_model_from_static,
     traits::{
         CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
         EntityValue, FieldValue, FieldValues, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
@@ -74,9 +74,8 @@ static PLAN_FIELDS: [EntityFieldModel; 2] = [
 static PLAN_FIELD_NAMES: [&str; 2] = ["id", "name"];
 static PLAN_INDEXES: [&IndexModel; 0] = [];
 
-// Legacy test scaffolding: manual models keep typed-vs-model planning parity
-// tests independent of schema macros.
-static PLAN_MODEL: EntityModel = LegacyTestEntityModel::from_static(
+// Manual models keep typed-vs-model planning parity tests independent of schema macros.
+static PLAN_MODEL: EntityModel = entity_model_from_static(
     "intent_tests::PlanEntity",
     "PlanEntity",
     &PLAN_FIELDS[0],
@@ -140,8 +139,8 @@ static SINGLETON_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
 static SINGLETON_FIELD_NAMES: [&str; 1] = ["id"];
 static SINGLETON_INDEXES: [&IndexModel; 0] = [];
 
-// Legacy test scaffolding: singleton model is hand-built to exercise model-only planning.
-static SINGLETON_MODEL: EntityModel = LegacyTestEntityModel::from_static(
+// Singleton model is hand-built to exercise model-only planning.
+static SINGLETON_MODEL: EntityModel = entity_model_from_static(
     "intent_tests::PlanSingleton",
     "PlanSingleton",
     &SINGLETON_FIELDS[0],

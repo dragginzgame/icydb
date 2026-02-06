@@ -852,7 +852,7 @@ impl fmt::Display for FieldType {
 
 #[cfg(test)]
 mod tests {
-    // NOTE: Legacy helpers remain only for intentionally invalid or unsupported schemas.
+    // NOTE: Invalid helpers remain only for intentionally invalid or unsupported schemas.
     use super::{ValidateError, validate_model};
     use crate::{
         db::query::{
@@ -860,7 +860,7 @@ mod tests {
             predicate::{CoercionId, Predicate},
         },
         model::field::{EntityFieldKind, EntityFieldModel},
-        test_fixtures::LegacyTestEntityModel,
+        test_fixtures::InvalidEntityModelBuilder,
         traits::EntitySchema,
         types::Ulid,
     };
@@ -944,7 +944,7 @@ mod tests {
 
     #[test]
     fn validate_model_rejects_unsupported_fields() {
-        let model = LegacyTestEntityModel::from_fields(
+        let model = InvalidEntityModelBuilder::from_fields(
             vec![
                 field("id", EntityFieldKind::Ulid),
                 field("broken", EntityFieldKind::Unsupported),

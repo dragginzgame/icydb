@@ -13,7 +13,7 @@ use crate::{
         entity::EntityModel,
         field::{EntityFieldKind, EntityFieldModel},
     },
-    test_fixtures::LegacyTestEntityModel,
+    test_fixtures::entity_model_from_static,
     traits::{
         CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
         EntityValue, Path, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, View,
@@ -119,8 +119,8 @@ static SIMPLE_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
 }];
 static SIMPLE_FIELD_NAMES: [&str; 1] = ["id"];
 static SIMPLE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
-// NOTE: Executor tests use legacy manual models to avoid schema macros.
-static SIMPLE_MODEL: EntityModel = LegacyTestEntityModel::from_static(
+// NOTE: Executor tests use manual models to avoid schema macros.
+static SIMPLE_MODEL: EntityModel = entity_model_from_static(
     "executor_tests::SimpleEntity",
     "SimpleEntity",
     &SIMPLE_FIELDS[0],
