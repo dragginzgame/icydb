@@ -44,7 +44,7 @@ where
     ///
     /// Application code must not invent identities arbitrarily.
     #[must_use]
-    pub const fn from_storage_key(key: E::Key) -> Self {
+    pub(crate) const fn from_storage_key(key: E::Key) -> Self {
         Self {
             key,
             _marker: PhantomData,
