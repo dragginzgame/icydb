@@ -213,10 +213,11 @@ impl HasType for Entity {
     fn type_part(&self) -> TokenStream {
         let ident = self.def.ident();
         let primary_key = &self.primary_key.field;
+        let pk_is_external = matches!(self.primary_key.source, PrimaryKeySource::External);
         let fields = self.fields.iter().map(|field| {
             let field_ident = &field.ident;
             let value = if field_ident == primary_key {
-                if field.value.item.is_relation() {
+                if field.value.item.is_relation() || pk_is_external {
                     entity_field_type_expr(field)
                 } else {
                     quote!(::icydb::types::Id<#ident>)

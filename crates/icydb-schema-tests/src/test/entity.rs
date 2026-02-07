@@ -41,12 +41,31 @@ pub struct UnitKey {}
 pub struct RenamedEntity {}
 
 ///
+/// ExternalPrimaryKeyEntity
+///
+
+#[entity(
+    store = "TestDataStore",
+    pk(field = "pid", source = "external"),
+    fields(
+        field(
+            ident = "pid",
+            value(item(prim = "Principal")),
+            default = "Principal::anonymous"
+        ),
+        field(ident = "a", value(item(prim = "Int32")), default = 7),
+    )
+)]
+pub struct ExternalPrimaryKeyEntity {}
+
+///
 /// TESTS
 ///
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use icydb::traits::EntityValue;
 
     #[test]
     fn entity_name_defaults_and_override() {
@@ -54,5 +73,19 @@ mod tests {
             <RenamedEntity as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
             "Potato"
         );
+    }
+
+    #[test]
+    fn external_primary_key_uses_declared_field_type_and_projects_identity() {
+        let wallet_pid = Principal::anonymous();
+        let entity = ExternalPrimaryKeyEntity {
+            pid: wallet_pid,
+            ..Default::default()
+        };
+
+        let _: Principal = entity.pid;
+
+        let id: Id<ExternalPrimaryKeyEntity> = entity.id();
+        assert_eq!(id.to_value(), wallet_pid.to_value());
     }
 }

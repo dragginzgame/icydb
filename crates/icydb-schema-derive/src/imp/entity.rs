@@ -137,17 +137,19 @@ pub struct EntityValueTrait {}
 impl Imp<Entity> for EntityValueTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let pk_ident = &node.primary_key.field;
+        let pk_is_external = matches!(node.primary_key.source, PrimaryKeySource::External);
         let pk_is_relation = node
             .fields
             .get(pk_ident)
             .is_some_and(|entry| entry.value.item.is_relation());
+        let pk_requires_projection = pk_is_relation || pk_is_external;
 
-        let id_expr = if pk_is_relation {
+        let id_expr = if pk_requires_projection {
             quote!({
                 let value = ::icydb::traits::FieldValue::to_value(&self.#pk_ident);
 
                 <::icydb::types::Id<Self> as ::icydb::traits::FieldValue>::from_value(&value)
-                    .expect("relation primary key must decode into Id<Self>")
+                    .expect("primary key must decode into Id<Self>")
             })
         } else {
             quote!(self.#pk_ident)
