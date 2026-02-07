@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
+        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -9,7 +9,7 @@ use candid::CandidType;
 use chrono::{Datelike, Duration as ChronoDuration, NaiveDate};
 use derive_more::{Add, AddAssign, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
-use std::fmt::{self, Display};
+use std::fmt::{self, Debug, Display};
 
 ///
 /// Date
@@ -119,7 +119,19 @@ impl Date {
     }
 }
 
-impl fmt::Debug for Date {
+impl AsView for Date {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        *self
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl Debug for Date {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Date({self})")
     }
@@ -133,8 +145,8 @@ impl Display for Date {
 }
 
 impl FieldValue for Date {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -225,18 +237,6 @@ impl UpdateView for Date {
 impl ValidateAuto for Date {}
 
 impl ValidateCustom for Date {}
-
-impl View for Date {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Visitable for Date {}
 

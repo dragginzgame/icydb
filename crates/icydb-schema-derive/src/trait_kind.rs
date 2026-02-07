@@ -68,6 +68,7 @@ pub enum TraitKind {
     FieldValues,
 
     // orm
+    AsView,
     Collection,
     CreateView,
     From,
@@ -83,7 +84,6 @@ pub enum TraitKind {
     UpdateView,
     ValidateAuto,
     ValidateCustom,
-    View,
     Visitable,
 }
 
@@ -92,6 +92,7 @@ static DEFAULT_TRAITS: LazyLock<Vec<TraitKind>> =
 
 static TYPE_TRAITS: LazyLock<Vec<TraitKind>> = LazyLock::new(|| {
     vec![
+        TraitKind::AsView,
         TraitKind::Default,
         TraitKind::Deserialize,
         TraitKind::Eq,
@@ -103,7 +104,6 @@ static TYPE_TRAITS: LazyLock<Vec<TraitKind>> = LazyLock::new(|| {
         TraitKind::UpdateView,
         TraitKind::ValidateAuto,
         TraitKind::ValidateCustom,
-        TraitKind::View,
         TraitKind::Visitable,
     ]
 });

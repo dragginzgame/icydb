@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Principal, Ulid},
     value::Value,
@@ -107,6 +107,18 @@ impl Subaccount {
     }
 }
 
+impl AsView for Subaccount {
+    type ViewType = SubaccountBytes;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.0
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        Self(view)
+    }
+}
+
 impl Display for Subaccount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in &self.0 {
@@ -118,8 +130,8 @@ impl Display for Subaccount {
 }
 
 impl FieldValue for Subaccount {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -202,18 +214,6 @@ impl UpdateView for Subaccount {
 impl ValidateAuto for Subaccount {}
 
 impl ValidateCustom for Subaccount {}
-
-impl View for Subaccount {
-    type ViewType = SubaccountBytes;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.0
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        Self(view)
-    }
-}
 
 impl Visitable for Subaccount {}
 

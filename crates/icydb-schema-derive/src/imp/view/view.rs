@@ -1,23 +1,23 @@
 use crate::prelude::*;
 
 ///
-/// ViewTrait
+/// AsViewTrait
 ///
 
-pub struct ViewTrait {}
+pub struct AsViewTrait {}
 
 ///
 /// Entity
 ///
 
-impl Imp<Entity> for ViewTrait {
+impl Imp<Entity> for AsViewTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let ident = node.def.ident();
         let view_ident = &node.view_ident();
 
         // tokens
         let q = field_list(view_ident, &node.fields);
-        let view_impl = Implementor::new(node.def(), TraitKind::View)
+        let view_impl = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
             .to_token_stream();
         let conversions = owned_view_conversions(&ident, view_ident);
@@ -34,7 +34,7 @@ impl Imp<Entity> for ViewTrait {
 /// Enum
 ///
 
-impl Imp<Enum> for ViewTrait {
+impl Imp<Enum> for AsViewTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
         let ident = node.def.ident();
         let view_ident = &node.view_ident();
@@ -61,7 +61,7 @@ impl Imp<Enum> for ViewTrait {
             if variant.value.is_some() {
                 quote! {
                     Self::ViewType::#variant_ident(v) => {
-                        Self::#variant_ident(::icydb::traits::View::from_view(v))
+                        Self::#variant_ident(::icydb::traits::AsView::from_view(v))
                     }
                 }
             } else {
@@ -88,7 +88,7 @@ impl Imp<Enum> for ViewTrait {
         };
 
         // tokens
-        let view_impl = Implementor::new(node.def(), TraitKind::View)
+        let view_impl = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
             .to_token_stream();
         let conversions = owned_view_conversions(&ident, view_ident);
@@ -105,12 +105,12 @@ impl Imp<Enum> for ViewTrait {
 /// List
 ///
 
-impl Imp<List> for ViewTrait {
+impl Imp<List> for AsViewTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
         let view_ident = &node.view_ident();
         let q = quote_view_delegate(view_ident);
 
-        let tokens = Implementor::new(node.def(), TraitKind::View)
+        let tokens = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
             .to_token_stream();
 
@@ -122,12 +122,12 @@ impl Imp<List> for ViewTrait {
 /// Map
 ///
 
-impl Imp<Map> for ViewTrait {
+impl Imp<Map> for AsViewTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
         let view_ident = &node.view_ident();
         let q = quote_view_delegate(view_ident);
 
-        let tokens = Implementor::new(node.def(), TraitKind::View)
+        let tokens = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
             .to_token_stream();
 
@@ -139,12 +139,12 @@ impl Imp<Map> for ViewTrait {
 /// Newtype
 ///
 
-impl Imp<Newtype> for ViewTrait {
+impl Imp<Newtype> for AsViewTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
         let view_ident = &node.view_ident();
         let q = quote_view_delegate(view_ident);
 
-        let tokens = Implementor::new(node.def(), TraitKind::View)
+        let tokens = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
             .to_token_stream();
 
@@ -156,13 +156,13 @@ impl Imp<Newtype> for ViewTrait {
 /// Record
 ///
 
-impl Imp<Record> for ViewTrait {
+impl Imp<Record> for AsViewTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
         let ident = node.def.ident();
         let view_ident = &node.view_ident();
         let q = field_list(view_ident, &node.fields);
 
-        let view_impl = Implementor::new(node.def(), TraitKind::View)
+        let view_impl = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
             .to_token_stream();
         let conversions = owned_view_conversions(&ident, view_ident);
@@ -179,12 +179,12 @@ impl Imp<Record> for ViewTrait {
 /// Set
 ///
 
-impl Imp<Set> for ViewTrait {
+impl Imp<Set> for AsViewTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
         let view_ident = &node.view_ident();
         let q = quote_view_delegate(view_ident);
 
-        let tokens = Implementor::new(node.def(), TraitKind::View)
+        let tokens = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
             .to_token_stream();
 
@@ -196,7 +196,7 @@ impl Imp<Set> for ViewTrait {
 /// Tuple
 ///
 
-impl Imp<Tuple> for ViewTrait {
+impl Imp<Tuple> for AsViewTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
         let view_ident = node.view_ident();
         let indices: Vec<_> = (0..node.values.len()).collect();
@@ -204,14 +204,14 @@ impl Imp<Tuple> for ViewTrait {
         let as_view_fields = indices.iter().map(|i| {
             let index = syn::Index::from(*i);
             quote! {
-                ::icydb::traits::View::as_view(&self.#index)
+                ::icydb::traits::AsView::as_view(&self.#index)
             }
         });
 
         let from_view_fields = indices.iter().map(|i| {
             let index = syn::Index::from(*i);
             quote! {
-                ::icydb::traits::View::from_view(view.#index)
+                ::icydb::traits::AsView::from_view(view.#index)
             }
         });
 
@@ -231,7 +231,7 @@ impl Imp<Tuple> for ViewTrait {
             }
         };
 
-        let tokens = Implementor::new(node.def(), TraitKind::View)
+        let tokens = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
             .to_token_stream();
 
@@ -250,7 +250,7 @@ fn field_list(view_ident: &Ident, fields: &FieldList) -> TokenStream {
         .map(|field| {
             let ident = &field.ident;
             quote! {
-                #ident: ::icydb::traits::View::as_view(&self.#ident)
+                #ident: ::icydb::traits::AsView::as_view(&self.#ident)
             }
         })
         .collect();
@@ -260,7 +260,7 @@ fn field_list(view_ident: &Ident, fields: &FieldList) -> TokenStream {
         .map(|field| {
             let ident = &field.ident;
             quote! {
-                #ident: ::icydb::traits::View::from_view(view.#ident)
+                #ident: ::icydb::traits::AsView::from_view(view.#ident)
             }
         })
         .collect();
@@ -286,19 +286,19 @@ fn owned_view_conversions(ident: &Ident, view_ident: &Ident) -> TokenStream {
     quote! {
         impl From<#ident> for #view_ident {
             fn from(value: #ident) -> Self {
-                ::icydb::traits::View::as_view(&value)
+                ::icydb::traits::AsView::as_view(&value)
             }
         }
 
         impl From<&#ident> for #view_ident {
             fn from(value: &#ident) -> Self {
-                ::icydb::traits::View::as_view(value)
+                ::icydb::traits::AsView::as_view(value)
             }
         }
 
         impl From<#view_ident> for #ident {
             fn from(view: #view_ident) -> Self {
-                ::icydb::traits::View::from_view(view)
+                ::icydb::traits::AsView::from_view(view)
             }
         }
     }
@@ -309,11 +309,11 @@ fn quote_view_delegate(view_ident: &Ident) -> TokenStream {
         type ViewType = #view_ident;
 
         fn as_view(&self) -> Self::ViewType {
-            ::icydb::traits::View::as_view(&self.0)
+            ::icydb::traits::AsView::as_view(&self.0)
         }
 
         fn from_view(view: Self::ViewType) -> Self {
-            Self(::icydb::traits::View::from_view(view))
+            Self(::icydb::traits::AsView::from_view(view))
         }
     }
 }

@@ -4,8 +4,8 @@ pub use nat128::*;
 
 use crate::{
     traits::{
-        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -83,17 +83,15 @@ impl Nat {
     }
 }
 
-impl Mul for Nat {
-    type Output = Self;
+impl AsView for Nat {
+    type ViewType = Self;
 
-    fn mul(self, other: Self) -> Self::Output {
-        Self(self.0 * other.0)
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
     }
-}
 
-impl MulAssign for Nat {
-    fn mul_assign(&mut self, other: Self) {
-        self.0 *= other.0;
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 
@@ -112,8 +110,8 @@ impl DivAssign for Nat {
 }
 
 impl FieldValue for Nat {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -128,15 +126,6 @@ impl FieldValue for Nat {
     }
 }
 
-impl TryFrom<i32> for Nat {
-    type Error = std::num::TryFromIntError;
-
-    fn try_from(n: i32) -> Result<Self, Self::Error> {
-        let v = Self(WrappedNat::from(u32::try_from(n)?));
-        Ok(v)
-    }
-}
-
 impl From<u64> for Nat {
     fn from(n: u64) -> Self {
         Self(WrappedNat::from(n))
@@ -146,6 +135,20 @@ impl From<u64> for Nat {
 impl From<WrappedNat> for Nat {
     fn from(n: WrappedNat) -> Self {
         Self(n)
+    }
+}
+
+impl Mul for Nat {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+        Self(self.0 * other.0)
+    }
+}
+
+impl MulAssign for Nat {
+    fn mul_assign(&mut self, other: Self) {
+        self.0 *= other.0;
     }
 }
 
@@ -169,6 +172,15 @@ impl Sum for Nat {
     }
 }
 
+impl TryFrom<i32> for Nat {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(n: i32) -> Result<Self, Self::Error> {
+        let v = Self(WrappedNat::from(u32::try_from(n)?));
+        Ok(v)
+    }
+}
+
 impl UpdateView for Nat {
     type UpdateViewType = Self;
 
@@ -180,17 +192,5 @@ impl UpdateView for Nat {
 impl ValidateAuto for Nat {}
 
 impl ValidateCustom for Nat {}
-
-impl View for Nat {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Visitable for Nat {}

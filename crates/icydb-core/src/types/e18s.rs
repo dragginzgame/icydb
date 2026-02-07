@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
+        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -146,32 +146,15 @@ impl E18s {
     }
 }
 
-impl Mul for E18s {
-    type Output = Self;
+impl AsView for E18s {
+    type ViewType = u128;
 
-    fn mul(self, other: Self) -> Self::Output {
-        let scale = Self::SCALE;
-
-        // Split scaling to reduce overflow risk:
-        // (a * b) / scale  ≈  (a / scale) * b  OR  a * (b / scale)
-        //
-        // Choose the safer direction dynamically.
-        let raw = if self.0 >= other.0 {
-            let a = self.0 / scale;
-            a.checked_mul(other.0)
-                .expect("E18s multiplication overflow")
-        } else {
-            let b = other.0 / scale;
-            self.0.checked_mul(b).expect("E18s multiplication overflow")
-        };
-
-        Self(raw)
+    fn as_view(&self) -> Self::ViewType {
+        self.0
     }
-}
 
-impl MulAssign for E18s {
-    fn mul_assign(&mut self, other: Self) {
-        *self = *self * other;
+    fn from_view(view: Self::ViewType) -> Self {
+        Self(view)
     }
 }
 
@@ -200,8 +183,8 @@ impl Display for E18s {
 }
 
 impl FieldValue for E18s {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -238,6 +221,35 @@ impl Inner<Self> for E18s {
 
     fn into_inner(self) -> Self {
         self
+    }
+}
+
+impl Mul for E18s {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+        let scale = Self::SCALE;
+
+        // Split scaling to reduce overflow risk:
+        // (a * b) / scale  ≈  (a / scale) * b  OR  a * (b / scale)
+        //
+        // Choose the safer direction dynamically.
+        let raw = if self.0 >= other.0 {
+            let a = self.0 / scale;
+            a.checked_mul(other.0)
+                .expect("E18s multiplication overflow")
+        } else {
+            let b = other.0 / scale;
+            self.0.checked_mul(b).expect("E18s multiplication overflow")
+        };
+
+        Self(raw)
+    }
+}
+
+impl MulAssign for E18s {
+    fn mul_assign(&mut self, other: Self) {
+        *self = *self * other;
     }
 }
 
@@ -283,18 +295,6 @@ impl UpdateView for E18s {
 impl ValidateAuto for E18s {}
 
 impl ValidateCustom for E18s {}
-
-impl View for E18s {
-    type ViewType = u128;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.0
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        Self(view)
-    }
-}
 
 impl Visitable for E18s {}
 

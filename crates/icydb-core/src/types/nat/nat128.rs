@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, NumCast, NumToPrimitive, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumToPrimitive, SanitizeAuto,
+        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -57,17 +57,15 @@ impl Nat128 {
     }
 }
 
-impl Mul for Nat128 {
-    type Output = Self;
+impl AsView for Nat128 {
+    type ViewType = Self;
 
-    fn mul(self, other: Self) -> Self::Output {
-        Self(self.0 * other.0)
+    fn as_view(&self) -> Self::ViewType {
+        *self
     }
-}
 
-impl MulAssign for Nat128 {
-    fn mul_assign(&mut self, other: Self) {
-        self.0 *= other.0;
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 
@@ -85,17 +83,9 @@ impl DivAssign for Nat128 {
     }
 }
 
-impl Rem for Nat128 {
-    type Output = Self;
-
-    fn rem(self, other: Self) -> Self::Output {
-        Self(self.0 % other.0)
-    }
-}
-
 impl FieldValue for Nat128 {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -123,6 +113,20 @@ impl Inner<Self> for Nat128 {
 
     fn into_inner(self) -> Self {
         self
+    }
+}
+
+impl Mul for Nat128 {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+        Self(self.0 * other.0)
+    }
+}
+
+impl MulAssign for Nat128 {
+    fn mul_assign(&mut self, other: Self) {
+        self.0 *= other.0;
     }
 }
 
@@ -174,6 +178,14 @@ impl PartialOrd<Nat128> for u128 {
     }
 }
 
+impl Rem for Nat128 {
+    type Output = Self;
+
+    fn rem(self, other: Self) -> Self::Output {
+        Self(self.0 % other.0)
+    }
+}
+
 impl SanitizeAuto for Nat128 {}
 
 impl SanitizeCustom for Nat128 {}
@@ -215,18 +227,6 @@ impl UpdateView for Nat128 {
 impl ValidateAuto for Nat128 {}
 
 impl ValidateCustom for Nat128 {}
-
-impl View for Nat128 {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Visitable for Nat128 {}
 

@@ -54,16 +54,15 @@ impl Imp<Enum> for FieldValueTrait {
         let from_arms = node.variants.iter().map(|v| {
             let v_ident = &v.ident;
             let v_name = v_ident.to_string();
-            if v.value.is_some() {
-                let payload_ty = v
-                    .value
-                    .as_ref()
-                    .expect("payload existence checked above")
-                    .type_expr();
+
+            if let Some(value) = &v.value {
+                let payload_ty = value.type_expr();
+
                 quote! {
                     #v_name => {
                         let payload = v.payload.as_deref()?;
-                        let value = <#payload_ty as ::icydb::traits::FieldValue>::from_value(payload)?;
+                        let value =
+                            <#payload_ty as ::icydb::traits::FieldValue>::from_value(payload)?;
                         Some(Self::#v_ident(value))
                     }
                 }

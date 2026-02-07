@@ -1,8 +1,8 @@
 use crate::{
     prelude::*,
     traits::{
-        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
+        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
 };
 use candid::CandidType;
@@ -57,17 +57,15 @@ impl Int128 {
     }
 }
 
-impl Mul for Int128 {
-    type Output = Self;
+impl AsView for Int128 {
+    type ViewType = Self;
 
-    fn mul(self, other: Self) -> Self::Output {
-        Self(self.0 * other.0)
+    fn as_view(&self) -> Self::ViewType {
+        *self
     }
-}
 
-impl MulAssign for Int128 {
-    fn mul_assign(&mut self, other: Self) {
-        self.0 *= other.0;
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 
@@ -85,17 +83,9 @@ impl DivAssign for Int128 {
     }
 }
 
-impl Rem for Int128 {
-    type Output = Self;
-
-    fn rem(self, other: Self) -> Self::Output {
-        Self(self.0 % other.0)
-    }
-}
-
 impl FieldValue for Int128 {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -130,6 +120,20 @@ impl Inner<Self> for Int128 {
 
     fn into_inner(self) -> Self {
         self
+    }
+}
+
+impl Mul for Int128 {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+        Self(self.0 * other.0)
+    }
+}
+
+impl MulAssign for Int128 {
+    fn mul_assign(&mut self, other: Self) {
+        self.0 *= other.0;
     }
 }
 
@@ -192,6 +196,14 @@ impl PartialOrd<Int128> for i128 {
     }
 }
 
+impl Rem for Int128 {
+    type Output = Self;
+
+    fn rem(self, other: Self) -> Self::Output {
+        Self(self.0 % other.0)
+    }
+}
+
 impl SanitizeAuto for Int128 {}
 
 impl SanitizeCustom for Int128 {}
@@ -233,18 +245,6 @@ impl UpdateView for Int128 {
 impl ValidateAuto for Int128 {}
 
 impl ValidateCustom for Int128 {}
-
-impl View for Int128 {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Visitable for Int128 {}
 

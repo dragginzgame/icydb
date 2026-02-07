@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -30,9 +30,21 @@ use serde::{Deserialize, Serialize};
 )]
 pub struct Unit;
 
+impl AsView for Unit {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        *self
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
 impl FieldValue for () {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -45,8 +57,8 @@ impl FieldValue for () {
 }
 
 impl FieldValue for Unit {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -79,17 +91,5 @@ impl UpdateView for Unit {
 impl ValidateAuto for Unit {}
 
 impl ValidateCustom for Unit {}
-
-impl View for Unit {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Visitable for Unit {}

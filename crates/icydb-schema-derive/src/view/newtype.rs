@@ -14,7 +14,7 @@ impl View for NewtypeView<'_> {
 
         // quote
         quote! {
-            pub type #view_ident = <#view_type as ::icydb::traits::View>::ViewType;
+            pub type #view_ident = <#view_type as ::icydb::traits::AsView>::ViewType;
         }
     }
 }

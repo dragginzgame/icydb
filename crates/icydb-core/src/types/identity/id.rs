@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        AsView, EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, EntityStorageKey, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -211,8 +211,8 @@ where
     E: EntityStorageKey,
     E::Key: FieldValue,
 {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {

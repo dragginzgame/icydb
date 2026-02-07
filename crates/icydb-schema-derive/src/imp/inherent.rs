@@ -49,7 +49,6 @@ impl Imp<Entity> for InherentTrait {
             .map(|(field, ident)| {
                 let name = field.ident.to_string();
                 let kind = model_kind_from_value(node, &field.value);
-                let runtime_determinism_guard = runtime_determinism_guard(field);
                 let deterministic_ident = model_field_determinism_ident(field);
                 let deterministic_message = format!(
                     "field '{name}' uses a non-deterministic collection; persisted and query-visible collections must have stable iteration order"
@@ -66,7 +65,6 @@ impl Imp<Entity> for InherentTrait {
                             ::icydb::model::field::EntityFieldKind::is_deterministic_collection_shape(&#kind),
                             #deterministic_message
                         );
-                        #runtime_determinism_guard
                     };
                 }
             })
@@ -365,25 +363,6 @@ fn model_field_ident(field: &Field) -> Ident {
 fn model_field_determinism_ident(field: &Field) -> Ident {
     let constant = field.ident.to_string().to_case(Case::Constant);
     format_ident!("__MODEL_FIELD_DETERMINISM_{constant}")
-}
-
-fn runtime_determinism_guard(field: &Field) -> TokenStream {
-    if field.value.cardinality() != Cardinality::Many {
-        return quote! {};
-    }
-
-    let value_type = field.value.type_expr();
-
-    quote! {
-        let _ = || {
-            fn assert_deterministic_collection<
-                T: ::icydb::traits::DeterministicCollection,
-            >() {
-            }
-
-            let _ = assert_deterministic_collection::<#value_type>;
-        };
-    }
 }
 
 fn model_kind_from_value(_entity: &Entity, value: &Value) -> TokenStream {

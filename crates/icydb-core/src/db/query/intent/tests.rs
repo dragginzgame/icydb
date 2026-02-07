@@ -11,9 +11,9 @@ use crate::{
     },
     test_fixtures::entity_model_from_static,
     traits::{
-        CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
-        EntityStorageKey, EntityValue, FieldValue, FieldValues, Path, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement,
+        EntitySchema, EntityStorageKey, EntityValue, FieldValue, FieldValues, Path, SanitizeAuto,
+        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Id, Ulid, Unit},
     value::Value,
@@ -32,7 +32,7 @@ struct PlanEntity {
     name: String,
 }
 
-impl View for PlanEntity {
+impl AsView for PlanEntity {
     type ViewType = Self;
 
     fn as_view(&self) -> Self::ViewType {
@@ -113,7 +113,7 @@ struct PlanSingleton {
     id: Id<Self>,
 }
 
-impl View for PlanSingleton {
+impl AsView for PlanSingleton {
     type ViewType = Self;
 
     fn as_view(&self) -> Self::ViewType {

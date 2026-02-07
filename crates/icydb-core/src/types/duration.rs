@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
+        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -168,9 +168,21 @@ impl AddAssign for Duration {
     }
 }
 
+impl AsView for Duration {
+    type ViewType = u64;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.0
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        Self(view)
+    }
+}
+
 impl FieldValue for Duration {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -266,18 +278,6 @@ impl UpdateView for Duration {
 impl ValidateAuto for Duration {}
 
 impl ValidateCustom for Duration {}
-
-impl View for Duration {
-    type ViewType = u64;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.0
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        Self(view)
-    }
-}
 
 impl Visitable for Duration {}
 

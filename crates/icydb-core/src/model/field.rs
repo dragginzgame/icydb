@@ -86,7 +86,9 @@ pub enum EntityFieldKind {
         value: &'static Self,
     },
 
-    /// Structured value with explicit queryability policy.
+    /// Structured (non-atomic) value.
+    /// Queryability here controls whether predicates may target this field,
+    /// not whether it may be stored or updated.
     Structured {
         queryable: bool,
     },

@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -19,6 +19,30 @@ use thiserror::Error as ThisError;
 pub enum PrincipalError {
     #[error("{0}")]
     Wrapped(String),
+}
+
+///
+/// PrincipalDecodeError
+///
+/// Errors returned when decoding a principal from bytes.
+///
+
+#[derive(Debug, ThisError)]
+pub enum PrincipalDecodeError {
+    #[error("principal exceeds max length: {len} bytes")]
+    TooLarge { len: usize },
+}
+
+///
+/// PrincipalEncodeError
+///
+/// Error returned when encoding a principal for persistence.
+///
+
+#[derive(Debug, ThisError)]
+pub enum PrincipalEncodeError {
+    #[error("principal exceeds max length: {len} bytes (limit {max})")]
+    TooLarge { len: usize, max: usize },
 }
 
 ///
@@ -102,35 +126,17 @@ impl Principal {
     }
 }
 
-///
-/// PrincipalDecodeError
-///
-/// Errors returned when decoding a principal from bytes.
-///
+// The WrappedPrincipal type doesn't have Default so we can't
+// use it as a View
+impl AsView for Principal {
+    type ViewType = Self;
 
-#[derive(Debug, ThisError)]
-pub enum PrincipalDecodeError {
-    #[error("principal exceeds max length: {len} bytes")]
-    TooLarge { len: usize },
-}
+    fn as_view(&self) -> Self::ViewType {
+        *self
+    }
 
-///
-/// PrincipalEncodeError
-///
-/// Error returned when encoding a principal for persistence.
-///
-
-#[derive(Debug, ThisError)]
-pub enum PrincipalEncodeError {
-    #[error("principal exceeds max length: {len} bytes (limit {max})")]
-    TooLarge { len: usize, max: usize },
-}
-
-impl TryFrom<&[u8]> for Principal {
-    type Error = PrincipalDecodeError;
-
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from_bytes(bytes)
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 
@@ -141,8 +147,8 @@ impl Default for Principal {
 }
 
 impl FieldValue for Principal {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -158,8 +164,8 @@ impl FieldValue for Principal {
 }
 
 impl FieldValue for WrappedPrincipal {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -231,6 +237,14 @@ impl SanitizeAuto for Principal {}
 
 impl SanitizeCustom for Principal {}
 
+impl TryFrom<&[u8]> for Principal {
+    type Error = PrincipalDecodeError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
+    }
+}
+
 impl UpdateView for Principal {
     type UpdateViewType = Self;
 
@@ -242,20 +256,6 @@ impl UpdateView for Principal {
 impl ValidateAuto for Principal {}
 
 impl ValidateCustom for Principal {}
-
-// The WrappedPrincipal type doesn't have Default so we can't
-// use it as a View
-impl View for Principal {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Visitable for Principal {}
 

@@ -11,7 +11,7 @@ impl ViewExpr for ItemView<'_> {
         let node = self.0;
         let ty = node.type_expr();
 
-        quote!(<#ty as ::icydb::traits::View>::ViewType).into()
+        quote!(<#ty as ::icydb::traits::AsView>::ViewType).into()
     }
 }
 

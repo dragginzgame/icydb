@@ -1,5 +1,5 @@
 use crate::{
-    traits::{EntityKind, EntityValue, View as ViewTrait},
+    traits::{AsView, EntityKind, EntityValue},
     types::Id,
     view::View as EntityView,
 };
@@ -50,7 +50,7 @@ impl<E: EntityKind> WriteResponse<E> {
     #[must_use]
     pub fn view(&self) -> EntityView<E>
     where
-        E: ViewTrait,
+        E: AsView,
     {
         self.inner.view()
     }
@@ -124,7 +124,7 @@ impl<E: EntityKind> WriteBatchResponse<E> {
     #[must_use]
     pub fn views(&self) -> Vec<EntityView<E>>
     where
-        E: ViewTrait,
+        E: AsView,
     {
         self.entries.iter().map(WriteResponse::view).collect()
     }

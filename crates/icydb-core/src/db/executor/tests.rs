@@ -84,7 +84,7 @@ struct SimpleEntity {
     id: Id<Self>,
 }
 
-impl View for SimpleEntity {
+impl AsView for SimpleEntity {
     type ViewType = Self;
 
     fn as_view(&self) -> Self::ViewType {

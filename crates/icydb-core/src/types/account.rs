@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Principal, PrincipalEncodeError, Subaccount},
     value::Value,
@@ -166,11 +166,15 @@ impl Account {
     }
 }
 
-impl TryFrom<&[u8]> for Account {
-    type Error = &'static str;
+impl AsView for Account {
+    type ViewType = Self;
 
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from_bytes(bytes)
+    fn as_view(&self) -> Self::ViewType {
+        *self
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 
@@ -183,8 +187,8 @@ impl Display for Account {
 }
 
 impl FieldValue for Account {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -282,6 +286,14 @@ impl SanitizeAuto for Account {}
 
 impl SanitizeCustom for Account {}
 
+impl TryFrom<&[u8]> for Account {
+    type Error = &'static str;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
+    }
+}
+
 impl UpdateView for Account {
     type UpdateViewType = Self;
 
@@ -293,18 +305,6 @@ impl UpdateView for Account {
 impl ValidateAuto for Account {}
 
 impl ValidateCustom for Account {}
-
-impl View for Account {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Visitable for Account {}
 

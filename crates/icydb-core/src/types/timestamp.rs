@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
+        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -102,9 +102,21 @@ impl Timestamp {
     }
 }
 
+impl AsView for Timestamp {
+    type ViewType = u64;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.0
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        Self(view)
+    }
+}
+
 impl FieldValue for Timestamp {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -177,18 +189,6 @@ impl UpdateView for Timestamp {
 impl ValidateAuto for Timestamp {}
 
 impl ValidateCustom for Timestamp {}
-
-impl View for Timestamp {
-    type ViewType = u64;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.0
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        Self(view)
-    }
-}
 
 impl Visitable for Timestamp {}
 

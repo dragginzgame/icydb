@@ -26,7 +26,7 @@ impl Imp<Entity> for CreateViewTrait {
             .iter()
             .map(|ident| {
                 quote! {
-                    #ident: ::icydb::traits::View::from_view(create.#ident),
+                    #ident: ::icydb::traits::AsView::from_view(create.#ident),
                 }
             })
             .collect();
@@ -34,6 +34,10 @@ impl Imp<Entity> for CreateViewTrait {
         // Build the trait implementation
         let q = quote! {
             type CreateViewType = #create_ident;
+
+            fn from_create_view(view: Self::CreateViewType) -> Self {
+                view.into()
+            }
         };
 
         let create_impl = Implementor::new(node.def(), TraitKind::CreateView)

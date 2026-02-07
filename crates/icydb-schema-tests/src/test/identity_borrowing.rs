@@ -41,7 +41,7 @@ mod tests {
         assert_storage_key::<UserProjects>();
 
         let user_id: Id<User> =
-            <Id<User> as ::icydb::traits::View>::from_view(Ulid::from_parts(1, 42));
+            <Id<User> as ::icydb::traits::AsView>::from_view(Ulid::from_parts(1, 42));
         let projects = UserProjects {
             user: user_id,
             ..Default::default()

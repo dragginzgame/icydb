@@ -220,30 +220,6 @@ impl<T> TypeKind for T where
 /// Avoids implicit deref-based access to inner collections.
 ///
 
-///
-/// DeterministicCollection
-///
-/// Marker for collection types with stable iteration, serialization, and
-/// equality semantics across process boundaries.
-///
-/// This trait intentionally has no methods; it exists to encode a hard
-/// determinism invariant at collection boundaries.
-///
-
-pub trait DeterministicCollection {}
-
-///
-/// DeterministicMapCollection
-///
-/// Marker for map-collection types with stable key iteration and serialization
-/// semantics across process boundaries.
-///
-/// This trait intentionally has no methods; it encodes a hard determinism
-/// invariant at map-collection boundaries.
-///
-
-pub trait DeterministicMapCollection {}
-
 pub trait Collection {
     type Item;
 
@@ -412,7 +388,7 @@ impl<T: FieldValue> FieldValue for Box<T> {
     }
 
     fn from_value(value: &Value) -> Option<Self> {
-        T::from_value(value).map(Box::new)
+        T::from_value(value).map(Self::new)
     }
 }
 
@@ -430,7 +406,7 @@ impl<T: FieldValue> FieldValue for Vec<Box<T>> {
             return None;
         };
 
-        let mut out = Vec::with_capacity(items.len());
+        let mut out = Self::with_capacity(items.len());
         for item in items {
             out.push(Box::new(T::from_value(item)?));
         }

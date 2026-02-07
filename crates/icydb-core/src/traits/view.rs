@@ -230,7 +230,7 @@ pub trait UpdateView: AsView {
     type UpdateViewType: CandidType + Default;
 
     /// Merge the update payload into self.
-    fn merge(&mut self, update: Self::UpdateViewType);
+    fn merge(&mut self, _update: Self::UpdateViewType) {}
 }
 
 impl<T> UpdateView for Option<T>

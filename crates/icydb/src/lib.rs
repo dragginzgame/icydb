@@ -116,7 +116,7 @@ pub mod prelude {
         },
         traits::{
             AsView, Collection as _, CreateView as _, EntityKind as _, Inner as _,
-            MapCollection as _, Path as _, UpdateView as _, View as _,
+            MapCollection as _, Path as _, UpdateView as _,
         },
         types::*,
         value::Value,

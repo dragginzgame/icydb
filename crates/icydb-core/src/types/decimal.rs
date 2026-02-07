@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
+        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -180,6 +180,18 @@ impl Decimal {
     }
 }
 
+impl AsView for Decimal {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        *self
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
 impl CandidType for Decimal {
     fn _ty() -> candid::types::Type {
         candid::types::TypeInner::Text.into()
@@ -218,8 +230,8 @@ impl<'de> Deserialize<'de> for Decimal {
 }
 
 impl FieldValue for Decimal {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -418,19 +430,6 @@ impl UpdateView for Decimal {
 impl ValidateAuto for Decimal {}
 
 impl ValidateCustom for Decimal {}
-
-// WrappedDecimal does not use CandidType
-impl View for Decimal {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Visitable for Decimal {}
 

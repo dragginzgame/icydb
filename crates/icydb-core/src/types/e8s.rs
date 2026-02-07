@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, NumCast, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
+        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -162,30 +162,15 @@ impl E8s {
     }
 }
 
-impl Mul for E8s {
-    type Output = Self;
+impl AsView for E8s {
+    type ViewType = u64;
 
-    // Fixed-point multiplication:
-    // (a / SCALE) * (b / SCALE), rescaled back to SCALE with round-to-nearest.
-    // Saturates on overflow.
-    fn mul(self, other: Self) -> Self::Output {
-        let a = <u128 as From<u64>>::from(self.0);
-        let b = <u128 as From<u64>>::from(other.0);
-        let scale = <u128 as From<u64>>::from(Self::SCALE);
-
-        // Fixed-point multiply with round-to-nearest
-        let raw = (a * b + scale / 2) / scale;
-
-        // Saturate on overflow back to u64
-        let value = u64::try_from(raw).unwrap_or(u64::MAX);
-
-        Self(value)
+    fn as_view(&self) -> Self::ViewType {
+        self.0
     }
-}
 
-impl MulAssign for E8s {
-    fn mul_assign(&mut self, other: Self) {
-        *self = *self * other;
+    fn from_view(view: Self::ViewType) -> Self {
+        Self(view)
     }
 }
 
@@ -223,8 +208,8 @@ impl Display for E8s {
 }
 
 impl FieldValue for E8s {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -272,6 +257,33 @@ impl Inner<Self> for E8s {
     }
 }
 
+impl Mul for E8s {
+    type Output = Self;
+
+    // Fixed-point multiplication:
+    // (a / SCALE) * (b / SCALE), rescaled back to SCALE with round-to-nearest.
+    // Saturates on overflow.
+    fn mul(self, other: Self) -> Self::Output {
+        let a = <u128 as From<u64>>::from(self.0);
+        let b = <u128 as From<u64>>::from(other.0);
+        let scale = <u128 as From<u64>>::from(Self::SCALE);
+
+        // Fixed-point multiply with round-to-nearest
+        let raw = (a * b + scale / 2) / scale;
+
+        // Saturate on overflow back to u64
+        let value = u64::try_from(raw).unwrap_or(u64::MAX);
+
+        Self(value)
+    }
+}
+
+impl MulAssign for E8s {
+    fn mul_assign(&mut self, other: Self) {
+        *self = *self * other;
+    }
+}
+
 impl NumCast for E8s {
     fn from<T: NumToPrimitive>(n: T) -> Option<Self> {
         n.to_u64().map(Self)
@@ -314,18 +326,6 @@ impl UpdateView for E8s {
 impl ValidateAuto for E8s {}
 
 impl ValidateCustom for E8s {}
-
-impl View for E8s {
-    type ViewType = u64;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.0
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        Self(view)
-    }
-}
 
 impl Visitable for E8s {}
 

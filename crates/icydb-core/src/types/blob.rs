@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        AsView, FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -12,6 +12,8 @@ use std::fmt::{self, Display};
 
 ///
 /// Blob
+///
+/// Blob is a semantic binary value; raw byte access is explicit via accessors (no `Deref`).
 /// Display prints a size summary; it does not print content.
 ///
 
@@ -20,7 +22,6 @@ use std::fmt::{self, Display};
 )]
 pub struct Blob(ByteBuf);
 
-/// `Blob` is a semantic binary value; raw byte access is explicit via accessors (no `Deref`).
 impl Blob {
     #[must_use]
     pub fn as_mut_bytes(&mut self) -> &mut Vec<u8> {
@@ -76,8 +77,8 @@ impl Display for Blob {
 }
 
 impl FieldValue for Blob {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {

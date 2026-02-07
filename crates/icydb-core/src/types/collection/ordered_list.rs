@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        AsView, DeterministicCollection, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
+        ValidateCustom, Visitable,
     },
     value::Value,
     view::ListPatch,
@@ -134,11 +134,9 @@ impl<T: AsView> AsView for OrderedList<T> {
     }
 }
 
-impl<T> DeterministicCollection for OrderedList<T> {}
-
 impl<T: FieldValue> FieldValue for OrderedList<T> {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Structured { queryable: true }
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Structured { queryable: true }
     }
 
     fn to_value(&self) -> Value {

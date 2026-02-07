@@ -5,8 +5,8 @@ pub use int128::*;
 use crate::{
     prelude::*,
     traits::{
-        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, Visitable,
     },
 };
 use candid::{CandidType, Int as WrappedInt};
@@ -79,17 +79,15 @@ impl Int {
     }
 }
 
-impl Mul for Int {
-    type Output = Self;
+impl AsView for Int {
+    type ViewType = Self;
 
-    fn mul(self, other: Self) -> Self::Output {
-        Self(self.0 * other.0)
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
     }
-}
 
-impl MulAssign for Int {
-    fn mul_assign(&mut self, other: Self) {
-        self.0 *= other.0;
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 
@@ -108,8 +106,8 @@ impl DivAssign for Int {
 }
 
 impl FieldValue for Int {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -146,6 +144,20 @@ impl Inner<Self> for Int {
     }
 }
 
+impl Mul for Int {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self::Output {
+        Self(self.0 * other.0)
+    }
+}
+
+impl MulAssign for Int {
+    fn mul_assign(&mut self, other: Self) {
+        self.0 *= other.0;
+    }
+}
+
 impl SanitizeAuto for Int {}
 
 impl SanitizeCustom for Int {}
@@ -167,17 +179,5 @@ impl UpdateView for Int {
 impl ValidateAuto for Int {}
 
 impl ValidateCustom for Int {}
-
-impl View for Int {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Visitable for Int {}

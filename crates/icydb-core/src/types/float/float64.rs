@@ -1,8 +1,8 @@
 use crate::{
     prelude::*,
     traits::{
-        AsView, FieldValue, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
+        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     visitor::VisitorContext,
 };
@@ -84,8 +84,8 @@ impl PartialEq for Float64 {
 }
 
 impl FieldValue for Float64 {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {

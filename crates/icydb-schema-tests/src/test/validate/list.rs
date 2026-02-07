@@ -20,7 +20,7 @@ mod test {
     use icydb::validate;
 
     fn entity_id() -> Id<crate::test::entity::Entity> {
-        ::icydb::traits::View::from_view(Ulid::generate())
+        ::icydb::traits::AsView::from_view(Ulid::generate())
     }
 
     #[test]

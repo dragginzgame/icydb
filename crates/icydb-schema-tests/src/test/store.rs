@@ -15,7 +15,7 @@ impl StoreTestEntity {
     #[must_use]
     pub fn new(id: u64) -> Self {
         Self {
-            id: ::icydb::traits::View::from_view(id),
+            id: ::icydb::traits::AsView::from_view(id),
             ..Default::default()
         }
     }

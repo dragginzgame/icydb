@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        AsView, DeterministicCollection, EntityStorageKey, FieldValue, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        AsView, EntityStorageKey, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Id,
     value::Value,
@@ -168,8 +168,6 @@ where
     }
 }
 
-impl<E> DeterministicCollection for IdSet<E> where E: EntityStorageKey {}
-
 impl<E> IntoIterator for IdSet<E>
 where
     E: EntityStorageKey,
@@ -198,8 +196,8 @@ impl<E> FieldValue for IdSet<E>
 where
     E: EntityStorageKey,
 {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Structured { queryable: true }
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Structured { queryable: true }
     }
 
     fn to_value(&self) -> Value {

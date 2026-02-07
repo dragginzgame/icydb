@@ -1,4 +1,4 @@
-use crate::traits::{CreateView, UpdateView, View as OtherView};
+use crate::traits::{AsView, CreateView, UpdateView};
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Type Aliases
 ///
 
-pub type View<T> = <T as OtherView>::ViewType;
+pub type View<T> = <T as AsView>::ViewType;
 pub type Create<T> = <T as CreateView>::CreateViewType;
 pub type Update<T> = <T as UpdateView>::UpdateViewType;
 

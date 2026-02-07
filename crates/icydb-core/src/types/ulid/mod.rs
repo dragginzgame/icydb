@@ -3,8 +3,8 @@ pub mod generator;
 
 use crate::{
     traits::{
-        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
     visitor::VisitorContext,
@@ -26,6 +26,16 @@ pub enum UlidError {
 
     #[error("monotonic error - overflow")]
     GeneratorOverflow,
+}
+
+///
+/// UlidDecodeError
+///
+
+#[derive(Debug, ThisError)]
+pub enum UlidDecodeError {
+    #[error("invalid ulid length: {len} bytes")]
+    InvalidSize { len: usize },
 }
 
 ///
@@ -111,17 +121,15 @@ impl Ulid {
     }
 }
 
-#[derive(Debug, ThisError)]
-pub enum UlidDecodeError {
-    #[error("invalid ulid length: {len} bytes")]
-    InvalidSize { len: usize },
-}
+impl AsView for Ulid {
+    type ViewType = Self;
 
-impl TryFrom<&[u8]> for Ulid {
-    type Error = UlidDecodeError;
+    fn as_view(&self) -> Self::ViewType {
+        *self
+    }
 
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from_bytes(bytes)
+    fn from_view(view: Self::ViewType) -> Self {
+        view
     }
 }
 
@@ -145,8 +153,8 @@ impl Default for Ulid {
 }
 
 impl FieldValue for Ulid {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
@@ -220,6 +228,14 @@ impl<'de> Deserialize<'de> for Ulid {
     }
 }
 
+impl TryFrom<&[u8]> for Ulid {
+    type Error = UlidDecodeError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
+    }
+}
+
 impl UpdateView for Ulid {
     type UpdateViewType = Self;
 
@@ -237,18 +253,6 @@ impl ValidateAuto for Ulid {
 }
 
 impl ValidateCustom for Ulid {}
-
-impl View for Ulid {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        *self
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Visitable for Ulid {}
 

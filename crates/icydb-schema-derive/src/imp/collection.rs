@@ -18,7 +18,6 @@ pub struct MapCollectionTrait {}
 
 impl Imp<List> for CollectionTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
-        let ident = node.def.ident();
         let item = node.item.type_expr();
 
         let q = quote! {
@@ -43,8 +42,6 @@ impl Imp<List> for CollectionTrait {
 
         Some(TraitStrategy::from_impl(quote! {
             #tokens
-
-            impl ::icydb::traits::DeterministicCollection for #ident {}
         }))
     }
 }
@@ -55,7 +52,6 @@ impl Imp<List> for CollectionTrait {
 
 impl Imp<Set> for CollectionTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
-        let ident = node.def.ident();
         let item = node.item.type_expr();
 
         let q = quote! {
@@ -80,8 +76,6 @@ impl Imp<Set> for CollectionTrait {
 
         Some(TraitStrategy::from_impl(quote! {
             #tokens
-
-            impl ::icydb::traits::DeterministicCollection for #ident {}
         }))
     }
 }
@@ -92,7 +86,6 @@ impl Imp<Set> for CollectionTrait {
 
 impl Imp<Map> for MapCollectionTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
-        let ident = node.def.ident();
         let key = node.key.type_expr();
         let value = node.value.type_expr();
 
@@ -119,8 +112,6 @@ impl Imp<Map> for MapCollectionTrait {
 
         Some(TraitStrategy::from_impl(quote! {
             #tokens
-
-            impl ::icydb::traits::DeterministicMapCollection for #ident {}
         }))
     }
 }
