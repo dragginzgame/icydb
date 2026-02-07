@@ -68,7 +68,7 @@ impl ValidateNode for Item {
                         err!(
                             errs,
                             "relation entity '{relation}' missing primary key field '{0}'",
-                            entity.primary_key
+                            entity.primary_key.field
                         );
                     }
                 }

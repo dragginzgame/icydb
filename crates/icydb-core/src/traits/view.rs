@@ -19,6 +19,14 @@ pub trait View: Sized {
     fn from_view(view: Self::ViewType) -> Self;
 }
 
+impl View for () {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {}
+
+    fn from_view((): Self::ViewType) -> Self {}
+}
+
 impl View for String {
     type ViewType = Self;
 

@@ -6,7 +6,7 @@ use crate::prelude::*;
 
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "a", value(item(rel = "EntityA"))),
@@ -22,7 +22,7 @@ pub struct HasRelation;
 
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "a", value(many, item(rel = "EntityA"))),
@@ -36,7 +36,7 @@ pub struct HasManyRelation;
 
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
 )]
 pub struct EntityA;
@@ -47,7 +47,7 @@ pub struct EntityA;
 
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Nat16"))))
 )]
 pub struct EntityB;
@@ -58,7 +58,7 @@ pub struct EntityB;
 
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Principal"))))
 )]
 pub struct EntityC;
@@ -69,7 +69,7 @@ pub struct EntityC;
 
 #[entity(
     store = "RelationDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
 )]
 pub struct RelationOwner;
@@ -80,7 +80,7 @@ pub struct RelationOwner;
 
 #[entity(
     store = "RelationDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "owner", value(item(rel = "RelationOwner"))),
@@ -95,7 +95,7 @@ pub struct RelationOwned;
 #[cfg(test)]
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "owner", value(item(rel = "RelationOwner"))),

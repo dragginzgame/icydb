@@ -16,7 +16,7 @@ pub struct EnumWithPayload {}
 
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "cost", value(item(is = "EnumWithPayload")))

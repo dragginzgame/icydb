@@ -94,7 +94,7 @@ fn default_strategy_entity(node: &Entity) -> TraitStrategy {
         return TraitStrategy::from_derive(TraitKind::Default);
     }
 
-    let primary_key = &node.primary_key;
+    let primary_key = &node.primary_key.field;
     let assignments = fields.iter().map(|f| {
         let ident = &f.ident;
 

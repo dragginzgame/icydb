@@ -6,7 +6,7 @@ use crate::prelude::*;
 
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Nat64"))))
 )]
 pub struct StoreTestEntity {}

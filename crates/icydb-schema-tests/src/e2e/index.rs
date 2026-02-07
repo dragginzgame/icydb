@@ -6,7 +6,7 @@ use crate::prelude::*;
 
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     index(store = "TestIndexStore", fields = "pid, ulid, score"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -23,7 +23,7 @@ pub struct Indexable {}
 
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "pid", value(item(prim = "Principal"))),
@@ -39,7 +39,7 @@ pub struct NotIndexable {}
 
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     index(store = "TestIndexStore", fields = "username", unique),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),

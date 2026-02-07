@@ -12,7 +12,7 @@ pub struct Entity {
     pub store: Path,
 
     #[darling(rename = "pk")]
-    pub primary_key: Ident,
+    pub primary_key: PrimaryKey,
 
     #[darling(default)]
     pub name: Option<LitStr>,
@@ -35,7 +35,7 @@ impl Entity {
     pub fn iter_editable_fields(&self) -> impl Iterator<Item = &Field> {
         self.fields
             .iter()
-            .filter(|f| f.ident != self.primary_key && !f.is_system)
+            .filter(|f| f.ident != self.primary_key.field && !f.is_system)
     }
 
     fn add_metadata(mut fields: FieldList) -> FieldList {
@@ -74,7 +74,7 @@ impl ValidateNode for Entity {
 
     fn fatal_errors(&self) -> Vec<syn::Error> {
         let mut errors = Vec::new();
-        let pk_ident = &self.primary_key;
+        let pk_ident = &self.primary_key.field;
 
         // Primary key resolution must succeed before checking shape.
         let mut pk_count = 0;
@@ -86,7 +86,7 @@ impl ValidateNode for Entity {
                         &field.ident,
                         format!(
                             "primary key field '{}' must appear exactly once in entity fields",
-                            self.primary_key
+                            self.primary_key.field
                         ),
                     ));
                 }
@@ -97,7 +97,7 @@ impl ValidateNode for Entity {
                 pk_ident,
                 format!(
                     "primary key field '{}' not found in entity fields",
-                    self.primary_key
+                    self.primary_key.field
                 ),
             ));
             return errors;
@@ -113,7 +113,7 @@ impl ValidateNode for Entity {
                 pk_ident,
                 format!(
                     "primary key field '{}' must have cardinality One",
-                    self.primary_key
+                    self.primary_key.field
                 ),
             ));
         }
@@ -142,7 +142,7 @@ impl HasSchemaPart for Entity {
     fn schema_part(&self) -> TokenStream {
         let def = &self.def.schema_part();
         let store = quote_one(&self.store, to_path);
-        let primary_key = quote_one(&self.primary_key, to_str_lit);
+        let primary_key = self.primary_key.schema_part();
         let name = quote_option(self.name.as_ref(), to_str_lit);
         let indexes = quote_slice(&self.indexes, Index::schema_part);
         let fields = &self.fields.schema_part();
@@ -212,7 +212,7 @@ impl HasTraits for Entity {
 impl HasType for Entity {
     fn type_part(&self) -> TokenStream {
         let ident = self.def.ident();
-        let primary_key = &self.primary_key;
+        let primary_key = &self.primary_key.field;
         let fields = self.fields.iter().map(|field| {
             let field_ident = &field.ident;
             let value = if field_ident == primary_key {

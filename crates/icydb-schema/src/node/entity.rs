@@ -9,7 +9,7 @@ use std::any::Any;
 pub struct Entity {
     pub def: Def,
     pub store: &'static str,
-    pub primary_key: &'static str,
+    pub primary_key: PrimaryKey,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<&'static str>,
@@ -25,7 +25,7 @@ impl Entity {
     #[must_use]
     /// Return the primary key field if it exists on the entity.
     pub fn get_pk_field(&self) -> Option<&Field> {
-        self.fields.get(self.primary_key)
+        self.fields.get(self.primary_key.field)
     }
 
     #[must_use]

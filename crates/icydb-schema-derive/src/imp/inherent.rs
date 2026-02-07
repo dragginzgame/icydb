@@ -74,7 +74,7 @@ impl Imp<Entity> for InherentTrait {
         let pk_index = node
             .fields
             .iter()
-            .position(|field| field.ident == node.primary_key)
+            .position(|field| field.ident == node.primary_key.field)
             .expect("primary key field not found in entity fields");
         let pk_index = LitInt::new(&pk_index.to_string(), Span::call_site());
 

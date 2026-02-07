@@ -6,7 +6,7 @@ use crate::prelude::*;
 
 #[entity(
     store = "TestDataStore",
-    pk = "id",
+    pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "cint32", value(item(is = "ClampInt32"))),

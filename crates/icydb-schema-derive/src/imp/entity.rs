@@ -10,18 +10,18 @@ impl Imp<Entity> for EntityKindTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let store = &node.store;
 
-        let Some(pk_entry) = node.fields.get(&node.primary_key) else {
+        let Some(pk_entry) = node.fields.get(&node.primary_key.field) else {
             let msg = LitStr::new(
                 &format!(
                     "primary key field '{}' not found in entity fields",
-                    node.primary_key
+                    node.primary_key.field
                 ),
                 Span::call_site(),
             );
             return Some(TraitStrategy::from_impl(quote!(compile_error!(#msg))));
         };
 
-        let pk_ident = &node.primary_key;
+        let pk_ident = &node.primary_key.field;
         let key_type = if let Some(target) = &pk_entry.value.item.relation {
             quote!(<#target as ::icydb::traits::EntityStorageKey>::Key)
         } else {
@@ -136,7 +136,7 @@ pub struct EntityValueTrait {}
 
 impl Imp<Entity> for EntityValueTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        let pk_ident = &node.primary_key;
+        let pk_ident = &node.primary_key.field;
         let pk_is_relation = node
             .fields
             .get(pk_ident)

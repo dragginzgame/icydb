@@ -1,17 +1,27 @@
+use crate::prelude::*;
+
+///
+/// QueryModelEntity
+///
+
+#[entity(
+    store = "TestDataStore",
+    pk(field = "id"),
+    fields(
+        field(ident = "id", value(item(prim = "Ulid"))),
+        field(ident = "email", value(item(prim = "Text"))),
+    )
+)]
+pub struct QueryModelEntity {}
+
+///
+/// TESTS
+///
+
 #[cfg(test)]
 mod tests {
-    use crate::prelude::*;
+    use super::*;
     use icydb::db::query::{Query, ReadConsistency, plan::ExplainAccessPath};
-
-    #[entity(
-        store = "TestDataStore",
-        pk = "id",
-        fields(
-            field(ident = "id", value(item(prim = "Ulid"))),
-            field(ident = "email", value(item(prim = "Text"))),
-        )
-    )]
-    pub struct QueryModelEntity {}
 
     #[test]
     fn plan_uses_model_without_schema_init() {
