@@ -113,6 +113,7 @@ impl EntityStorageKey for SimpleEntity {
 impl EntityIdentity for SimpleEntity {
     const ENTITY_NAME: &'static str = "SimpleEntity";
     const PRIMARY_KEY: &'static str = "id";
+    const IDENTITY_NAMESPACE: &'static str = "SimpleEntity";
 }
 
 static SIMPLE_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {

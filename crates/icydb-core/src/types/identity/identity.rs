@@ -1,82 +1,221 @@
-//! Identity projection utilities.
+//! One-way identity projection for external systems.
 //!
-//! WARNING:
-//! Identity projections MUST be one-way.
-//! No API in this module may expose raw storage keys
-//! or allow reconstruction of `Id<T>`.
+//! This module intentionally exposes only a one-way projection surface.
+//! No API here may reveal raw storage keys or permit identity reconstruction.
 
 use crate::{
-    traits::{EntityIdentity, EntityStorageKey},
-    types::{Id, Ulid, Unit},
+    traits::{EntityIdentity, FieldValue},
+    types::Id,
+    value::Value,
 };
+use candid::CandidType;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::fmt;
+use thiserror::Error as ThisError;
 
-mod sealed {
-    pub trait Sealed {}
+const PROJECTION_DOMAIN_TAG: &[u8] = b"icydb:identity-projection:v2";
+const FRAME_NAMESPACE: &[u8] = b"entity-namespace";
+const FRAME_PRIMARY_KEY: &[u8] = b"primary-key";
+const FRAME_STORAGE_KEY: &[u8] = b"storage-key-v1";
+
+///
+/// IdentityProjectionError
+/// Errors emitted when projecting `Id<E>` into external identity bytes.
+///
+
+#[derive(Debug, ThisError)]
+pub enum IdentityProjectionError {
+    #[error("identity namespace is empty for entity '{entity}'")]
+    EmptyNamespace { entity: &'static str },
+
+    #[error(
+        "primary key '{primary_key}' for entity '{entity}' is not storage-key encodable: {value:?}"
+    )]
+    UnsupportedPrimaryKey {
+        entity: &'static str,
+        primary_key: &'static str,
+        value: Value,
+    },
+
+    #[error("failed to encode storage key during identity projection: {reason}")]
+    StorageKeyEncoding { reason: String },
 }
 
-/// One-way projection of an entity identity into stable bytes.
 ///
-/// This is intended for:
-/// - ledger subaccounts
-/// - partition keys
-/// - deterministic external identifiers
+/// ProjectedIdentity
 ///
-/// It MUST NOT be used to reconstitute identity.
-pub trait IdentityProjection: sealed::Sealed {
-    /// Project identity into a stable, opaque byte representation.
-    fn project_bytes(&self) -> [u8; 32];
+/// Stable, opaque output of one-way identity projection.
+/// This value is safe to expose outside IcyDB boundaries.
+/// It MUST NOT be treated as reversible identity material.
+///
+
+#[repr(transparent)]
+#[derive(
+    CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+)]
+pub struct ProjectedIdentity([u8; 32]);
+
+impl ProjectedIdentity {
+    /// Borrow the projected bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// Consume and return the projected bytes.
+    #[must_use]
+    pub const fn into_bytes(self) -> [u8; 32] {
+        self.0
+    }
 }
 
-impl<E> sealed::Sealed for Id<E> where E: EntityStorageKey {}
+impl fmt::Display for ProjectedIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in &self.0 {
+            write!(f, "{byte:02x}")?;
+        }
 
-impl<E> IdentityProjection for Id<E>
+        Ok(())
+    }
+}
+
+impl<E> Id<E>
 where
     E: EntityIdentity,
-    E::Key: StorageKeyBytes,
 {
-    fn project_bytes(&self) -> [u8; 32] {
-        // Domain-separate identity projection by entity name to avoid
-        // cross-entity collisions for identical storage key bytes.
-        const DOMAIN_TAG: &[u8] = b"icydb:id-projection:v1";
+    /// Project this identity into deterministic, one-way external bytes.
+    ///
+    /// Projection is domain-separated by:
+    /// - projection protocol version
+    /// - entity identity namespace
+    /// - primary key name
+    /// - canonical storage-key encoding
+    ///
+    /// This API is intentionally one-way and does not allow reconstitution
+    /// of `Id<E>` from projected bytes.
+    pub fn project(&self) -> Result<ProjectedIdentity, IdentityProjectionError> {
+        // Phase 1: validate stable namespace input.
+        if E::IDENTITY_NAMESPACE.is_empty() {
+            return Err(IdentityProjectionError::EmptyNamespace {
+                entity: E::ENTITY_NAME,
+            });
+        }
 
-        // INTERNAL: raw key access is allowed only at this boundary.
-        let key = self.storage_key();
+        // Phase 2: normalize key material through the canonical storage-key boundary.
+        let key_value = FieldValue::to_value(&self.storage_key());
+        let Some(storage_key) = key_value.as_storage_key() else {
+            return Err(IdentityProjectionError::UnsupportedPrimaryKey {
+                entity: E::ENTITY_NAME,
+                primary_key: E::PRIMARY_KEY,
+                value: key_value,
+            });
+        };
 
+        let key_bytes =
+            storage_key
+                .to_bytes()
+                .map_err(|err| IdentityProjectionError::StorageKeyEncoding {
+                    reason: err.to_string(),
+                })?;
+
+        // Phase 3: hash a framed envelope for deterministic forward compatibility.
         let mut hasher = Sha256::new();
-        hasher.update(DOMAIN_TAG);
-        hasher.update([0x00]);
-        hasher.update(E::ENTITY_NAME.as_bytes());
-        hasher.update([0x00]);
-        key.with_stable_bytes(|bytes| hasher.update(bytes));
+        hasher.update(PROJECTION_DOMAIN_TAG);
+        write_framed(
+            &mut hasher,
+            FRAME_NAMESPACE,
+            E::IDENTITY_NAMESPACE.as_bytes(),
+        );
+        write_framed(&mut hasher, FRAME_PRIMARY_KEY, E::PRIMARY_KEY.as_bytes());
+        write_framed(&mut hasher, FRAME_STORAGE_KEY, &key_bytes);
 
-        hasher.finalize().into()
+        Ok(ProjectedIdentity(hasher.finalize().into()))
     }
 }
 
-/// Internal trait for stable byte access to storage keys.
-///
-/// This is NOT a general-purpose conversion trait.
-/// It exists only for identity projection internals.
-pub trait StorageKeyBytes {
-    fn with_stable_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R;
+fn write_framed(hasher: &mut Sha256, label: &[u8], bytes: &[u8]) {
+    let label_len = u32::try_from(label.len()).unwrap_or(u32::MAX);
+    hasher.update(label_len.to_be_bytes());
+    hasher.update(label);
+
+    let bytes_len = u32::try_from(bytes.len()).unwrap_or(u32::MAX);
+    hasher.update(bytes_len.to_be_bytes());
+    hasher.update(bytes);
 }
 
-impl StorageKeyBytes for Ulid {
-    fn with_stable_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-        let bytes = self.to_bytes();
-        f(&bytes)
+#[cfg(test)]
+mod tests {
+    use crate::{
+        traits::{EntityIdentity, EntityStorageKey},
+        types::{Id, Ulid},
+    };
+
+    struct VectorEntity;
+    impl EntityStorageKey for VectorEntity {
+        type Key = Ulid;
     }
-}
-
-impl StorageKeyBytes for Unit {
-    fn with_stable_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-        f(&[])
+    impl EntityIdentity for VectorEntity {
+        const ENTITY_NAME: &'static str = "VectorEntity";
+        const PRIMARY_KEY: &'static str = "id";
+        const IDENTITY_NAMESPACE: &'static str = "vector/entity/v1";
     }
-}
 
-impl StorageKeyBytes for () {
-    fn with_stable_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
-        f(&[])
+    struct NamespaceEntity;
+    impl EntityStorageKey for NamespaceEntity {
+        type Key = Ulid;
+    }
+    impl EntityIdentity for NamespaceEntity {
+        const ENTITY_NAME: &'static str = "NamespaceEntity";
+        const PRIMARY_KEY: &'static str = "id";
+        const IDENTITY_NAMESPACE: &'static str = "vector/entity/v2";
+    }
+
+    struct UnsupportedKeyEntity;
+    impl EntityStorageKey for UnsupportedKeyEntity {
+        type Key = bool;
+    }
+    impl EntityIdentity for UnsupportedKeyEntity {
+        const ENTITY_NAME: &'static str = "UnsupportedKeyEntity";
+        const PRIMARY_KEY: &'static str = "id";
+        const IDENTITY_NAMESPACE: &'static str = "unsupported/key/v1";
+    }
+
+    #[test]
+    fn projection_is_deterministic_for_known_vector() {
+        let id = Id::<VectorEntity>::from_storage_key(Ulid::from_bytes([
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
+            0xee, 0xff,
+        ]));
+
+        let projected = id.project().expect("projection should succeed");
+        assert_eq!(
+            projected.to_string(),
+            "4f4930477e209d911976a1da366ec18ba2d2633845b9b6451fc32e522f8ae619"
+        );
+    }
+
+    #[test]
+    fn projection_changes_when_namespace_changes() {
+        let key = Ulid::from_bytes([0x42; 16]);
+        let a = Id::<VectorEntity>::from_storage_key(key)
+            .project()
+            .expect("projection should succeed");
+        let b = Id::<NamespaceEntity>::from_storage_key(key)
+            .project()
+            .expect("projection should succeed");
+
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn projection_rejects_non_keyable_primary_keys() {
+        let id = Id::<UnsupportedKeyEntity>::from_storage_key(true);
+        let err = id.project().expect_err("bool key should not project");
+
+        assert!(matches!(
+            err,
+            super::IdentityProjectionError::UnsupportedPrimaryKey { .. }
+        ));
     }
 }

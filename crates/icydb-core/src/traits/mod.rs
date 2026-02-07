@@ -89,11 +89,15 @@ pub trait EntityStorageKey {
 /// EntityIdentity
 ///
 /// Semantic identity facts about an entity.
+/// `IDENTITY_NAMESPACE` is the stable namespace used for one-way
+/// external identity projection and SHOULD remain unchanged across
+/// schema/type renames when external identity continuity is required.
 ///
 
 pub trait EntityIdentity: EntityStorageKey {
     const ENTITY_NAME: &'static str;
     const PRIMARY_KEY: &'static str;
+    const IDENTITY_NAMESPACE: &'static str;
 }
 
 ///
