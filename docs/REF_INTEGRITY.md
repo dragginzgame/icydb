@@ -5,9 +5,9 @@
 Save-time referential integrity is enforced for **strong** relations only. References are identity-only; existence checks run only where the schema explicitly declares strength.
 
 Key points:
-* `Ref<T>` is an **identity wrapper**, not a semantic value
-* `RelationStrength::Strong` is enforced at save time for `Ref<T>`, `Option<Ref<T>>`,
-  and collections of `Ref<T>` (e.g. `List<Ref<T>>`, `Set<Ref<T>>`)
+* `Id<T>` is an **identity wrapper**, not a semantic value
+* `RelationStrength::Strong` is enforced at save time for `Id<T>`, `Option<Id<T>>`,
+  and collections of `Id<T>` (e.g. `List<Id<T>>`, `Set<Id<T>>`)
 * `RelationStrength::Weak` is **not validated** and is purely semantic
 * Strength is **explicit** schema intent (no inference from type shape or cardinality)
 * Locality is enforced at `DbSession<C>` via `E: EntityKind<Canister = C>`
@@ -36,7 +36,7 @@ IcyDB remains a **typed key/value database** with explicit invariants.
 A reference is a typed pointer to another entity’s primary key:
 
 ```
-Ref<T>
+Id<T>
 ```
 
 A reference:
@@ -48,9 +48,9 @@ A reference:
 
 References are **not joins** and do not participate in query planning.
 
-`Ref<T>` is an identity wrapper and is **not automatically validated** except where the schema declares a strong relation.
+`Id<T>` is an identity wrapper and is **not automatically validated** except where the schema declares a strong relation.
 
-Collection fields that contain `Ref<T>` are treated as references for RI when the field is marked strong.
+Collection fields that contain `Id<T>` are treated as references for RI when the field is marked strong.
 
 ---
 
@@ -89,9 +89,13 @@ Strong reference rules:
 
 Supported strong shapes:
 
-* `Ref<T>`
-* `Option<Ref<T>>`
-* Collections of `Ref<T>` (e.g. `List<Ref<T>>`, `Set<Ref<T>>`)
+* `Id<T>`
+* `Option<Id<T>>`
+* Collections of `Id<T>` (e.g. `List<Id<T>>`, `Set<Id<T>>`)
+
+Collection kinds enforced in 0.7.x:
+* relation lists (`many` list cardinality)
+* relation sets (`many` set cardinality, typically `IdSet<T>`)
 
 Collection enforcement is **aggregate**:
 
@@ -139,6 +143,13 @@ target fails the save. Empty collections are valid.
 
 Weak references are allowed but not validated; there is no recursive discovery
 or inference.
+
+RI is skipped when:
+* relation strength is `weak`
+* a relation value is explicitly unset (`None`)
+* a collection entry is explicitly `None`
+* the field is not a schema-declared relation field
+* the relation is nested beyond the field boundary (records/enums/tuples/maps)
 
 ### 5.3 What is not enforced
 

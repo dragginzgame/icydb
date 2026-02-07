@@ -1,9 +1,9 @@
 # Collections Contract
 
-## OrderedList vs UniqueList vs RefSet
+## OrderedList vs UniqueList vs IdSet
 - `OrderedList<T>`: ordered list, duplicates allowed, preserves insertion order, serializes identically to `Vec<T>`.
 - `UniqueList<T>`: enforces uniqueness by `Eq + Hash`; deterministic order is first-seen insertion; serializes identically to `Vec<T>`.
-- `RefSet<E>`: ordered set of `Ref<E>`; uniqueness by raw storage key (`E::Key`), order by ascending key; no cascades or ownership semantics.
+- `IdSet<E>`: ordered set of `Id<E>`; uniqueness by raw storage key (`E::Key`), order by ascending key; no cascades or ownership semantics.
 
 ## Transport vs Domain Semantics
 - Cardinality (`many`) is shape-only; schema and codegen do not imply uniqueness or ordering semantics beyond container choice.
@@ -18,8 +18,8 @@
 ## Normalization Behavior on Ingest
 - `OrderedList` preserves incoming order and duplicates.
 - `UniqueList` removes later duplicates; order is first-seen.
-- `RefSet` removes duplicate keys and orders by ascending key.
-- `from_view` and serde deserialization for `UniqueList` and `RefSet` perform the same normalization as their constructors.
+- `IdSet` removes duplicate keys and orders by ascending key.
+- `from_view` and serde deserialization for `UniqueList` and `IdSet` perform the same normalization as their constructors.
 
 ## Predicate Behavior on Value::List
 - `In`/`NotIn` and `Contains` treat lists as collections; order does not affect match results.

@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     db::{
+        commit::{ensure_recovered_for_write, init_commit_store_for_tests},
         index::IndexStoreRegistry,
         store::{DataStore, DataStoreRegistry},
     },
@@ -14,7 +15,7 @@ use crate::{
         EntityStorageKey, EntityValue, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, View, Visitable,
     },
-    types::{Id, Ulid},
+    types::{Id, IdSet, Ulid},
 };
 use canic_cdk::structures::{
     DefaultMemoryImpl,
@@ -85,6 +86,17 @@ fn test_memory(id: u8) -> VirtualMemory<DefaultMemoryImpl> {
     let manager = MemoryManager::init(DefaultMemoryImpl::default());
 
     manager.get(MemoryId::new(id))
+}
+
+// Clear test stores and ensure recovery has completed before each test mutation.
+fn reset_store() {
+    ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
+    DB.with_data(|reg| {
+        reg.with_store_mut(SourceStore::PATH, DataStore::clear)
+            .expect("source store access should succeed");
+        reg.with_store_mut(TargetStore::PATH, DataStore::clear)
+            .expect("target store access should succeed");
+    });
 }
 
 ///
@@ -247,6 +259,93 @@ impl EntityValue for SourceEntity {
     }
 }
 
+///
+/// SourceSetEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct SourceSetEntity {
+    id: Id<Self>,
+    targets: IdSet<TargetEntity>,
+}
+
+impl View for SourceSetEntity {
+    type ViewType = Self;
+
+    fn to_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for SourceSetEntity {}
+impl SanitizeCustom for SourceSetEntity {}
+impl ValidateAuto for SourceSetEntity {}
+impl ValidateCustom for SourceSetEntity {}
+impl Visitable for SourceSetEntity {}
+
+impl Path for SourceSetEntity {
+    const PATH: &'static str = "save_tests::SourceSetEntity";
+}
+
+impl EntityStorageKey for SourceSetEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for SourceSetEntity {
+    const ENTITY_NAME: &'static str = "SourceSetEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static SOURCE_SET_TARGET_KIND: EntityFieldKind = EntityFieldKind::Ref {
+    target_path: TargetEntity::PATH,
+    target_entity_name: TargetEntity::ENTITY_NAME,
+    target_store_path: TargetStore::PATH,
+    key_kind: &EntityFieldKind::Ulid,
+    strength: RelationStrength::Strong,
+};
+static SOURCE_SET_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "targets",
+        kind: EntityFieldKind::Set(&SOURCE_SET_TARGET_KIND),
+    },
+];
+static SOURCE_SET_FIELD_NAMES: [&str; 2] = ["id", "targets"];
+static SOURCE_SET_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static SOURCE_SET_MODEL: EntityModel = entity_model_from_static(
+    "save_tests::SourceSetEntity",
+    "SourceSetEntity",
+    &SOURCE_SET_FIELDS[0],
+    &SOURCE_SET_FIELDS,
+    &SOURCE_SET_INDEXES,
+);
+
+impl EntitySchema for SourceSetEntity {
+    const MODEL: &'static EntityModel = &SOURCE_SET_MODEL;
+    const FIELDS: &'static [&'static str] = &SOURCE_SET_FIELD_NAMES;
+    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &SOURCE_SET_INDEXES;
+}
+
+impl EntityPlacement for SourceSetEntity {
+    type DataStore = SourceStore;
+    type Canister = TestCanister;
+}
+
+impl EntityKind for SourceSetEntity {}
+
+impl EntityValue for SourceSetEntity {
+    fn id(&self) -> Id<Self> {
+        self.id
+    }
+}
+
 #[test]
 fn strong_relation_missing_fails_preflight() {
     let executor = SaveExecutor::<SourceEntity>::new(DB, false);
@@ -263,5 +362,94 @@ fn strong_relation_missing_fails_preflight() {
     assert!(
         err.message.contains("strong relation missing"),
         "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn strong_set_relation_missing_key_fails_save() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let executor = SaveExecutor::<SourceSetEntity>::new(DB, false);
+    let missing = Id::from_storage_key(Ulid::generate());
+    let entity = SourceSetEntity {
+        id: Id::from_storage_key(Ulid::generate()),
+        targets: IdSet::from_ids(vec![missing]),
+    };
+
+    let err = executor
+        .insert(entity)
+        .expect_err("missing set relation should fail");
+    assert!(
+        err.message.contains("strong relation missing"),
+        "unexpected error: {err:?}"
+    );
+
+    let source_empty = DB
+        .with_data(|reg| reg.with_store(SourceStore::PATH, |store| store.iter().next().is_none()))
+        .expect("source store access should succeed");
+    assert!(
+        source_empty,
+        "source store must remain empty after failed save"
+    );
+}
+
+#[test]
+fn strong_set_relation_all_present_save_succeeds() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let target_save = SaveExecutor::<TargetEntity>::new(DB, false);
+    let target_a = Id::from_storage_key(Ulid::generate());
+    let target_b = Id::from_storage_key(Ulid::generate());
+    target_save
+        .insert(TargetEntity { id: target_a })
+        .expect("target A save should succeed");
+    target_save
+        .insert(TargetEntity { id: target_b })
+        .expect("target B save should succeed");
+
+    let source_save = SaveExecutor::<SourceSetEntity>::new(DB, false);
+    let saved = source_save
+        .insert(SourceSetEntity {
+            id: Id::from_storage_key(Ulid::generate()),
+            targets: IdSet::from_ids(vec![target_a, target_b]),
+        })
+        .expect("source save should succeed when all targets exist");
+
+    assert!(saved.targets.contains(&target_a));
+    assert!(saved.targets.contains(&target_b));
+}
+
+#[test]
+fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let target_save = SaveExecutor::<TargetEntity>::new(DB, false);
+    let valid = Id::from_storage_key(Ulid::generate());
+    target_save
+        .insert(TargetEntity { id: valid })
+        .expect("valid target save should succeed");
+
+    let invalid = Id::from_storage_key(Ulid::generate());
+    let source_save = SaveExecutor::<SourceSetEntity>::new(DB, false);
+    let err = source_save
+        .insert(SourceSetEntity {
+            id: Id::from_storage_key(Ulid::generate()),
+            targets: IdSet::from_ids(vec![valid, invalid]),
+        })
+        .expect_err("mixed valid/invalid set relation should fail");
+    assert!(
+        err.message.contains("strong relation missing"),
+        "unexpected error: {err:?}"
+    );
+
+    let source_empty = DB
+        .with_data(|reg| reg.with_store(SourceStore::PATH, |store| store.iter().next().is_none()))
+        .expect("source store access should succeed");
+    assert!(
+        source_empty,
+        "source save must be atomic: failed save must not persist partial rows"
     );
 }

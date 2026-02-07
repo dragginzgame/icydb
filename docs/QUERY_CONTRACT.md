@@ -48,11 +48,9 @@ The facade does NOT guarantee:
 
 `FilterExpr` is lowered with **explicit coercions**. For ordering operators:
 
-- `Lt`, `Lte`, `Gt`, `Gte` use `Strict` coercion.
+- `Lt`, `Lte`, `Gt`, `Gte` use `NumericWiden` coercion.
 
-This is an intentional contract and **differs** from the builder `FieldRef`
-surface (which uses `NumericWiden` for ordering). Equivalent logical predicates
-may therefore behave differently depending on API.
+This now matches the builder `FieldRef` surface.
 
 ## What Intent Must NOT Encode
 

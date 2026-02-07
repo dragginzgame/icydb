@@ -85,6 +85,13 @@ const fn strong_relation_from_kind(kind: &EntityFieldKind) -> Option<StrongRelat
             target_store_path,
             strength: RelationStrength::Strong,
             ..
+        })
+        | EntityFieldKind::Set(EntityFieldKind::Ref {
+            target_path,
+            target_entity_name,
+            target_store_path,
+            strength: RelationStrength::Strong,
+            ..
         }) => Some(StrongRelationInfo {
             target_path,
             target_entity_name,
@@ -563,6 +570,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             match &value {
                 Value::List(items) => {
                     // Collection enforcement is aggregate: every referenced key must exist.
+                    // NOTE: relation List/Set shapes are represented as Value::List at runtime.
                     for item in items {
                         // NOTE: Optional list entries are allowed; skip explicit None values.
                         if matches!(item, Value::None) {

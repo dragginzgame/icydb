@@ -21,21 +21,18 @@ stacks on top of an incomplete commit.
 
 * Added `strong`/`weak` relation flags in the schema DSL, with `weak` as the default.
 * Added relation strength metadata to `EntityFieldKind::Ref` for runtime consumers.
-* Added `Response::reference`, `Response::try_reference`, and `Response::references` to return typed `Ref<E>` results from query responses.
 * Added a `Display` derive in `icydb-derive` for tuple newtypes.
-* Added collection types `OrderedList`, `UniqueList`, `KeyedList`, and `RefSet` for explicit many-field semantics.
-* Added `OrderedList::retain` plus `apply_patches` helpers on `OrderedList` and `RefSet` for explicit patch application.
+* Added collection types `OrderedList` and `IdSet` for explicit many-field semantics.
+* Added `OrderedList::retain` plus `apply_patches` helpers on `OrderedList` and `IdSet` for explicit patch application.
 * Added `docs/collections.md` as the contract reference for collection and patch semantics.
 * Added `saturating_add`/`saturating_sub` helpers to arithmetic newtypes for explicit saturating math.
-* Added `Id<E>` as a typed primary-key wrapper for entity identities, distinct from `Ref<E>`.
-* Added `Identifies<E>` as an internal capability trait for extracting entity keys from `Id<E>` or `Ref<E>`.
+* Added `Id<E>` as a typed primary-key wrapper for entity identities.
 * Added parity coverage to keep keyability conversion paths aligned across `ScalarType::is_keyable`, `Value::as_storage_key`, and `StorageKey::try_from_value`.
 
 ### 🪼 Changed
 
 * Save operations now enforce referential integrity for `RelationStrength::Strong` fields and fail if targets are missing.
 * Write executors now perform a fast commit-marker check and replay recovery before mutations when needed; read recovery remains startup-only.
-* Many relation fields now emit `RefSet<T>` to enforce unique, key-ordered references and align update semantics with `SetPatch`.
 * Entity macros now allow primary keys to be relations for identity-borrowing singleton entities.
 * ORDER BY and model key-range validation now use a shared canonical value comparator instead of `Value::partial_cmp`, keeping query ordering behavior consistent for all orderable key types.
 * Documented that `Value::partial_cmp` is not the canonical database ordering path and should not be used for ORDER BY or key-range semantics.
@@ -44,7 +41,7 @@ stacks on top of an incomplete commit.
 
 * `EntityFieldKind::Ref` now carries target entity/store metadata and relation strength, so downstream enum matches must update.
 * Entity and record fields with `many` cardinality now emit `OrderedList<T>` instead of `Vec<T>`.
-* Relation fields with `many` cardinality now emit `RefSet<T>` instead of list types like `Vec<Ref<T>>`.
+* Relation fields with `many` cardinality now emit `IdSet<T>` instead of list types like `Vec<Id<T>>`.
 * Entity primary-key fields now emit `Id<E>` instead of raw key values, and `EntityValue::set_id` wraps raw keys into `Id<E>` so call sites must pass the raw key type.
 * Storage key admission is now registry-driven via `is_storage_key_encodable`; the encodable scalar set is unchanged, but the contract is now explicit and auditable.
 
@@ -62,7 +59,7 @@ stacks on top of an incomplete commit.
 
 ### 🪁 Fixed
 
-* Made `Ref<T>` `Sync + Send` to fix the `*const` variant.
+* Made `Id<T>` `Sync + Send` to fix the `*const` variant.
 
 ---
 
@@ -181,7 +178,7 @@ stacks on top of an incomplete commit.
 
 ### 🪱 Fixed
 
-* Entity macros now reject relation fields as primary keys, preventing `Ref<T>` from being used as an identity type.
+* Entity macros now reject relation fields as primary keys, preventing relation identities from being used as primary key types.
 * Primary key fields must have cardinality `One`; optional or many primary keys now fail at macro expansion time.
 * Local schema invariants now fail fast during macro expansion, including field identifier rules, enum variant ordering, and redundant index prefix checks.
 * Added compile-fail tests covering relation and non-One primary key shapes in the entity macro.
@@ -196,7 +193,7 @@ stacks on top of an incomplete commit.
 
 ### 🧉 Added
 
-* **Save-time referential integrity (RI v2)**: direct `Ref<T>` and `Option<Ref<T>>` fields are now validated pre-commit; saves fail if the referenced target row is missing.
+* **Save-time referential integrity (RI v2)**: direct `Id<T>` and `Option<Id<T>>` relation fields are now validated pre-commit; saves fail if the referenced target row is missing.
 * Added `docs/REF_INTEGRITY_v2.md`, defining the v2 RI contract, including:
 
   * strong vs weak reference shapes,
@@ -210,7 +207,7 @@ stacks on top of an incomplete commit.
 
 ### 🧷 Changed
 
-* Nested and collection reference shapes (`Ref<T>` inside records/enums, and `Vec`/`Set`/`Map<Ref<T>>`) are now **explicitly treated as weak** at runtime and no longer trigger invariant violations during save.
+* Nested and collection reference shapes (`Id<T>` inside records/enums, and `Vec`/`Set`/`Map<Id<T>>`) are now **explicitly treated as weak** at runtime and no longer trigger invariant violations during save.
 * Clarified that schema-level relation validation is **advisory only** and does not imply runtime RI enforcement.
 * Aligned runtime behavior, schema comments, and documentation with the RI v2 contract.
 

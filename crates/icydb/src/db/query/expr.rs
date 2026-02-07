@@ -200,28 +200,28 @@ impl FilterExpr {
                 field.as_str(),
                 CompareOp::Lt,
                 value.clone(),
-                CoercionId::Strict,
+                CoercionId::NumericWiden,
             )),
 
             Self::Lte { field, value } => Predicate::Compare(ComparePredicate::with_coercion(
                 field.as_str(),
                 CompareOp::Lte,
                 value.clone(),
-                CoercionId::Strict,
+                CoercionId::NumericWiden,
             )),
 
             Self::Gt { field, value } => Predicate::Compare(ComparePredicate::with_coercion(
                 field.as_str(),
                 CompareOp::Gt,
                 value.clone(),
-                CoercionId::Strict,
+                CoercionId::NumericWiden,
             )),
 
             Self::Gte { field, value } => Predicate::Compare(ComparePredicate::with_coercion(
                 field.as_str(),
                 CompareOp::Gte,
                 value.clone(),
-                CoercionId::Strict,
+                CoercionId::NumericWiden,
             )),
 
             Self::In { field, values } => Predicate::Compare(ComparePredicate::with_coercion(

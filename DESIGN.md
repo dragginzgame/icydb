@@ -194,7 +194,7 @@ but reference discovery is always structural and deterministic.
 
 icydb supports:
 
-* existence checks for **strong** references (`Ref<T>`, `Option<Ref<T>>`, and collections of `Ref<T>`)
+* existence checks for **strong** references (`Id<T>`, `Option<Id<T>>`, and collections of `Id<T>`)
 * validation during save/update **before the commit boundary**
 
 icydb explicitly does **not** support:
@@ -222,13 +222,13 @@ To preserve key/value semantics and atomicity guarantees, icydb constrains where
 
 Strong reference shapes (validated):
 
-* `Ref<T>`
-* `Option<Ref<T>>`
-* collections of `Ref<T>` (e.g. `List<Ref<T>>`, `Set<Ref<T>>`)
+* `Id<T>`
+* `Option<Id<T>>`
+* collections of `Id<T>` (e.g. `List<Id<T>>`, `Set<Id<T>>`)
 
 Weak reference shapes (allowed, not validated):
 
-* `Map<_, Ref<T>>`
+* `Map<_, Id<T>>`
 * nested references inside records, enums, tuples, or collections
 * implicit or inferred relations are never introduced automatically
 
