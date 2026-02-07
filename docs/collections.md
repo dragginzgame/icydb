@@ -2,7 +2,7 @@
 
 ## OrderedList vs IdSet
 - `OrderedList<T>`: ordered list, duplicates allowed, preserves insertion order, serializes identically to `Vec<T>`.
-- `IdSet<E>`: ordered set of `Id<E>`; uniqueness by raw storage key (`E::Key`), order by ascending key; no cascades or ownership semantics.
+- `IdSet<E>`: ordered set of typed primary-key values (`Id<E>`); uniqueness by key (`E::Key`), order by ascending key; no cascades or ownership semantics.
 
 ## Transport vs Domain Semantics
 - Cardinality is explicit by container choice:
@@ -14,7 +14,7 @@
 ## Patch Identity Rules
 - `ListPatch` identifies elements by index at patch time; patches are applied sequentially.
 - `SetPatch` identifies elements by value equality; operations are applied sequentially.
-- `MapPatch` identifies entries by key; `Overwrite` replaces the full map.
+- `MapPatch` identifies entries by key; `Insert` is upsert, `Replace` requires an existing key, `Remove` requires an existing key, and `Clear` replaces the map with empty when used as the only operation.
 
 ## Normalization Behavior on Ingest
 - `OrderedList` preserves incoming order and duplicates.

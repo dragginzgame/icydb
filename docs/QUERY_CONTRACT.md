@@ -23,7 +23,7 @@ Implementation note: the public facade exposes session-bound wrappers
 execution through `DbSession`.
 
 Minimum intent surface (conceptual):
-- entity identity (E)
+- entity type (E)
 - predicate (optional)
 - projection (implicit all-fields unless specified)
 - order specification (optional)
@@ -60,6 +60,18 @@ Intent must not encode or imply any of the following:
 - execution ordering or physical plan steps
 - plan cache keys or executor hints
 - read modes hidden in access paths
+
+## Primary-Key Semantics
+
+Primary keys are regular field values with uniqueness and indexing guarantees.
+They are queryable through the normal predicate surface, just like other fields.
+
+The planner may optimize validated primary-key predicates into key/index access
+paths when that preserves query semantics.
+
+`by_id(...)` and `by_ids(...)` are ergonomic helpers for typed primary-key
+values (`Id<E>`). They are not privileged access paths and are not required for
+primary-key filtering.
 
 ## Projection Semantics
 

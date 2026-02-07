@@ -2,7 +2,6 @@
 //!
 //! Validation ownership contract:
 //! - `validate_logical_plan_model` owns user-facing query semantics and emits `PlanError`.
-//! - Planner invariant validation lives in `plan::invariants` and emits internal errors.
 //! - `validate_executor_plan` is defensive: it re-checks owned semantics/invariants before
 //!   execution and must not introduce new user-visible semantics.
 //!
@@ -90,59 +89,6 @@ pub enum PlanError {
         "Unordered pagination is not allowed.\nThis query uses LIMIT or OFFSET without an ORDER BY clause.\nPagination without a total ordering is non-deterministic.\nAdd an explicit order_by(...) to make the query stable."
     )]
     UnorderedPagination,
-}
-
-/// Validate a logical plan using a prebuilt schema surface.
-#[cfg(test)]
-pub(crate) fn validate_plan_with_schema_info<K>(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    plan: &LogicalPlan<K>,
-) -> Result<(), PlanError>
-where
-    K: FieldValue + Ord,
-{
-    validate_logical_plan(schema, model, plan)
-}
-
-/// Validate a logical plan against the runtime entity model.
-///
-/// This is the executor-safe entrypoint and must not consult global schema.
-#[cfg(test)]
-#[expect(dead_code)]
-pub(crate) fn validate_plan_with_model<K>(
-    plan: &LogicalPlan<K>,
-    model: &EntityModel,
-) -> Result<(), PlanError>
-where
-    K: FieldValue + Ord,
-{
-    let schema = SchemaInfo::from_entity_model(model)?;
-    validate_plan_with_schema_info(&schema, model, plan)
-}
-
-/// Validate a logical plan against schema and plan-level invariants.
-#[cfg(test)]
-pub(crate) fn validate_logical_plan<K>(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    plan: &LogicalPlan<K>,
-) -> Result<(), PlanError>
-where
-    K: FieldValue + Ord,
-{
-    if let Some(predicate) = &plan.predicate {
-        predicate::validate(schema, predicate)?;
-    }
-
-    if let Some(order) = &plan.order {
-        validate_order(schema, order)?;
-    }
-
-    validate_access_plan(schema, model, &plan.access)?;
-    validate_plan_semantics(plan)?;
-
-    Ok(())
 }
 
 /// Validate a logical plan with model-level key values.

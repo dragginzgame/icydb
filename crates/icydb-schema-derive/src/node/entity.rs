@@ -212,26 +212,11 @@ impl HasTraits for Entity {
 impl HasType for Entity {
     fn type_part(&self) -> TokenStream {
         let ident = self.def.ident();
-        let primary_key = &self.primary_key.field;
-        let pk_is_external = matches!(self.primary_key.source, PrimaryKeySource::External);
-        let fields = self.fields.iter().map(|field| {
-            let field_ident = &field.ident;
-            let value = if field_ident == primary_key {
-                if field.value.item.is_relation() || pk_is_external {
-                    entity_field_type_expr(field)
-                } else {
-                    quote!(::icydb::types::Id<#ident>)
-                }
-            } else {
-                entity_field_type_expr(field)
-            };
-
-            quote!(pub #field_ident: #value)
-        });
+        let fields = self.fields.type_expr();
 
         quote! {
             pub struct #ident {
-                #(#fields),*
+                #fields
             }
         }
     }
@@ -240,32 +225,5 @@ impl HasType for Entity {
 impl ToTokens for Entity {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.extend(self.all_tokens());
-    }
-}
-
-fn entity_field_type_expr(field: &Field) -> TokenStream {
-    let item = &field.value.item;
-    let base = if let Some(relation) = &item.relation {
-        quote!(::icydb::types::Id<#relation>)
-    } else {
-        item.target().type_expr()
-    };
-
-    let base = if item.indirect {
-        quote!(Box<#base>)
-    } else {
-        base
-    };
-
-    match field.value.cardinality() {
-        Cardinality::One => quote!(#base),
-        Cardinality::Opt => quote!(Option<#base>),
-        Cardinality::Many => {
-            if let Some(relation) = &item.relation {
-                quote!(::icydb::types::IdSet<#relation>)
-            } else {
-                quote!(::icydb::types::OrderedList<#base>)
-            }
-        }
     }
 }

@@ -3,7 +3,7 @@ mod tests;
 
 use crate::{
     db::{
-        CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit,
+        CommitApplyGuard, CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, begin_commit,
         ensure_recovered_for_write,
         executor::{
             ExecutorError,
@@ -357,10 +357,11 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             // Preflight data store availability before index mutations.
             ctx.with_store(|_| ())?;
 
-            // Stage-2 atomicity:
-            // Prevalidate index/data mutations before the commit marker is written.
-            // After the marker is persisted, mutations run inside a WriteUnit so
-            // failures roll back before the marker is cleared.
+            // Stage-2 commit protocol:
+            // - prevalidate index/data mutations before persisting the marker
+            // - then apply marker ops mechanically.
+            // Durable correctness is marker + recovery owned. Apply guard rollback
+            // here is best-effort, in-process cleanup only.
             let index_plan =
                 plan_index_mutation_for_entity::<E>(&self.db, old.as_ref(), Some(&entity))?;
             let data_op = CommitDataOp {
@@ -394,9 +395,10 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
             // FIRST STABLE WRITE: commit marker is persisted before any mutations.
             finish_commit(commit, |guard| {
-                let mut unit = WriteUnit::new("save_entity_atomic");
+                let mut apply_guard = CommitApplyGuard::new("save_marker_apply");
                 let index_rollback_ops = index_rollback_ops;
-                unit.record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
+                apply_guard
+                    .record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
                 apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores);
                 for _ in 0..index_removes {
                     sink::record(MetricsEvent::IndexRemove {
@@ -409,17 +411,14 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                     });
                 }
 
-                #[cfg(test)]
-                unit.checkpoint("save_entity_after_indexes")?;
-
                 let data_rollback_ops = data_rollback_ops;
-                unit.record_rollback(move || {
+                apply_guard.record_rollback(move || {
                     Self::apply_data_rollbacks(data_store, data_rollback_ops);
                 });
                 Self::apply_marker_data_ops(&guard.marker.data_ops, data_store);
 
                 span.set_rows(1);
-                unit.commit()?;
+                apply_guard.finish()?;
 
                 Ok(())
             })?;
@@ -430,7 +429,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         })();
 
         if commit_started && result.is_err() {
-            self.debug_log("Save failed; rollback applied");
+            self.debug_log("Save failed during marker apply; best-effort cleanup attempted");
         }
 
         if let Some(trace) = trace {
@@ -608,6 +607,9 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     }
 
     /// Validate canonical map entry invariants for persisted map values.
+    ///
+    /// Map fields are persisted as atomic row-level value replacements; this
+    /// check guarantees each stored map payload is already canonical.
     fn validate_map_encoding(field_name: &str, value: &Value) -> Result<(), InternalError> {
         if matches!(value, Value::Null) {
             return Ok(());

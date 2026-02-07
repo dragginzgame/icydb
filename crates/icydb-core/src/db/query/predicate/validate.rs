@@ -256,8 +256,8 @@ fn validate_index_fields(
             let field_type = fields
                 .get(*field)
                 .expect("index field existence checked above");
-            // TODO(0.8): Lift this temporary guard once map runtime encoding is
-            // standardized end-to-end for query + index semantics.
+            // Guardrail: map fields are deterministic stored values but remain
+            // non-queryable and non-indexable in 0.7.
             if matches!(field_type, FieldType::Map { .. }) {
                 return Err(ValidateError::IndexFieldMapNotQueryable {
                     index: **index,
@@ -956,10 +956,7 @@ mod tests {
     use crate::{
         db::query::{
             FieldRef,
-            predicate::{
-                CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
-                UnsupportedQueryFeature,
-            },
+            predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
         },
         model::field::{EntityFieldKind, EntityFieldModel},
         test_fixtures::InvalidEntityModelBuilder,
@@ -1159,39 +1156,6 @@ mod tests {
         ]);
 
         assert!(validate_model(model, &predicate).is_ok());
-    }
-
-    #[test]
-    fn validate_model_rejects_map_predicates() {
-        let model = <CollectionPredicateEntity as EntitySchema>::MODEL;
-
-        let map_contains_builder =
-            FieldRef::new("attributes").map_contains_entry("k", 1u64, CoercionId::Strict);
-        assert!(matches!(
-            map_contains_builder,
-            Err(UnsupportedQueryFeature::MapPredicate { field }) if field == "attributes"
-        ));
-
-        let map_contains_predicate = Predicate::MapContainsEntry {
-            field: "attributes".to_string(),
-            key: Value::Text("k".to_string()),
-            value: Value::Uint(1),
-            coercion: CoercionSpec::new(CoercionId::Strict),
-        };
-        assert!(matches!(
-            validate_model(model, &map_contains_predicate),
-            Err(ValidateError::UnsupportedQueryFeature(UnsupportedQueryFeature::MapPredicate { field }))
-                if field == "attributes"
-        ));
-
-        let map_presence = Predicate::IsMissing {
-            field: "attributes".to_string(),
-        };
-        assert!(matches!(
-            validate_model(model, &map_presence),
-            Err(ValidateError::UnsupportedQueryFeature(UnsupportedQueryFeature::MapPredicate { field }))
-                if field == "attributes"
-        ));
     }
 
     #[test]

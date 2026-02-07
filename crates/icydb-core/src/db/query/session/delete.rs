@@ -52,14 +52,14 @@ where
     // Intent builders (pure)
     // ------------------------------------------------------------------
 
-    /// Set the access path to a single entity identity.
+    /// Set the access path to a single typed primary-key value.
     #[must_use]
     pub fn by_id(mut self, id: Id<E>) -> Self {
         self.query = self.query.by_id(id.into_storage_key());
         self
     }
 
-    /// Set the access path to multiple entity identities.
+    /// Set the access path to multiple typed primary-key values.
     #[must_use]
     pub fn by_ids<I>(mut self, ids: I) -> Self
     where

@@ -20,6 +20,9 @@ pub struct InternalError {
 }
 
 impl InternalError {
+    /// Construct an InternalError with optional origin-specific detail.
+    /// This constructor provides default StoreError details for certain
+    /// (class, origin) combinations but does not guarantee a detail payload.
     pub fn new(class: ErrorClass, origin: ErrorOrigin, message: impl Into<String>) -> Self {
         let message = message.into();
 

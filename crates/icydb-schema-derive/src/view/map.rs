@@ -1,7 +1,7 @@
 use crate::{
     prelude::*,
     view::{
-        ItemView, ValueView,
+        ItemUpdate, ItemView, ValueUpdate, ValueView,
         traits::{View, ViewExpr},
     },
 };
@@ -41,10 +41,13 @@ impl View for MapUpdate<'_> {
     fn generate(&self) -> TokenStream {
         let node = self.0;
         let update_ident = node.update_ident();
+        let key_update = ItemUpdate(&node.key).expr();
+        let value_update = ValueUpdate(&node.value).expr();
 
         // quote
         quote! {
-            pub type #update_ident = ();
+            pub type #update_ident =
+                Vec<::icydb::view::MapPatch<#key_update, #value_update>>;
         }
     }
 }

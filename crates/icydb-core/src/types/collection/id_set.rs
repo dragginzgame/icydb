@@ -14,13 +14,13 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 ///
 /// IdSet
 ///
-/// Canonical set of typed entity identities.
+/// Canonical set of typed primary-key values.
 ///
-/// - Uniqueness is enforced by entity identity ordering (`E::Key`).
-/// - Ordering is canonical (ascending by identity) and does NOT reflect insertion history.
+/// - Uniqueness is enforced by primary-key ordering (`E::Key`).
+/// - Ordering is canonical (ascending by key) and does NOT reflect insertion history.
 /// - No ordering-based or predicate-based mutation APIs are provided.
 /// - In-place mutation of elements is forbidden to preserve ordering invariants.
-/// - This type represents *identity only*; it does not imply resolvability or existence checks.
+/// - This type stores primary-key values only; it does not imply resolvability or existence checks.
 ///
 
 #[repr(transparent)]
@@ -31,13 +31,13 @@ impl<E> IdSet<E>
 where
     E: EntityStorageKey,
 {
-    /// Create an empty identity set.
+    /// Create an empty primary-key set.
     #[must_use]
     pub const fn new() -> Self {
         Self(Vec::new())
     }
 
-    /// Build an identity set, discarding duplicate identities.
+    /// Build a primary-key set, discarding duplicates.
     #[must_use]
     pub fn from_ids(ids: Vec<Id<E>>) -> Self {
         let mut set = Self::new();
@@ -47,7 +47,7 @@ where
         set
     }
 
-    /// Return the number of identities in the set.
+    /// Return the number of primary-key values in the set.
     #[must_use]
     pub const fn len(&self) -> usize {
         self.0.len()
@@ -59,12 +59,12 @@ where
         self.0.is_empty()
     }
 
-    /// Return an iterator over the identities.
+    /// Return an iterator over primary-key values.
     pub fn iter(&self) -> std::slice::Iter<'_, Id<E>> {
         self.0.iter()
     }
 
-    /// Insert an identity, returning `true` if it was newly inserted.
+    /// Insert a primary-key value, returning `true` if it was newly inserted.
     pub fn insert(&mut self, id: Id<E>) -> bool {
         let key = id.into_storage_key();
 
@@ -77,7 +77,7 @@ where
         }
     }
 
-    /// Remove an identity, returning `true` if it was present.
+    /// Remove a primary-key value, returning `true` if it was present.
     pub fn remove(&mut self, id: &Id<E>) -> bool {
         let key = id.into_storage_key();
 
@@ -90,7 +90,7 @@ where
         }
     }
 
-    /// Returns `true` if the set contains the identity.
+    /// Returns `true` if the set contains the primary-key value.
     #[must_use]
     pub fn contains(&self, id: &Id<E>) -> bool {
         self.contains_key(&id.into_storage_key())
@@ -102,7 +102,7 @@ where
         self.find_index(key).is_ok()
     }
 
-    /// Clear all identities from the set.
+    /// Clear all primary-key values from the set.
     pub fn clear(&mut self) {
         self.0.clear();
     }
@@ -129,7 +129,7 @@ where
     E: EntityStorageKey,
     Id<E>: UpdateView + Default,
 {
-    /// Apply set patches, enforcing identity uniqueness and deterministic ordering.
+    /// Apply set patches, enforcing primary-key uniqueness and deterministic ordering.
     pub fn apply_patches(&mut self, patches: Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>) {
         self.merge(patches);
     }

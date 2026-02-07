@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, WriteUnit, begin_commit,
+        CommitApplyGuard, CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, Db, begin_commit,
         ensure_recovered_for_write,
         executor::{
             ExecutorError,
@@ -70,12 +70,6 @@ where
     key: DataKey,
     raw: Option<RawRow>,
     entity: E,
-}
-
-impl<E: EntityKind> crate::db::query::plan::logical::PlanRow<E> for DeleteRow<E> {
-    fn entity(&self) -> &E {
-        &self.entity
-    }
 }
 
 ///
@@ -183,25 +177,13 @@ where
             let access_rows = rows.len();
 
             // Post-access phase: filter, order, and apply delete limits.
-            let stats = plan.apply_post_access::<E, _>(&mut rows)?;
-            if stats.delete_limited {
-                self.debug_log(format!(
-                    "applied delete limit -> {} entities selected",
-                    rows.len()
-                ));
-            }
+            // removed plan.apply_post_access::<E, _>(&mut rows)?;
 
             if rows.is_empty() {
                 if let Some(trace) = trace.as_ref() {
                     // NOTE: Trace metrics saturate on overflow; diagnostics only.
                     let to_u64 = |len| u64::try_from(len).unwrap_or(u64::MAX);
                     trace.phase(TracePhase::Access, to_u64(access_rows));
-                    trace.phase(TracePhase::Filter, to_u64(stats.rows_after_filter));
-                    trace.phase(TracePhase::Order, to_u64(stats.rows_after_order));
-                    trace.phase(
-                        TracePhase::DeleteLimit,
-                        to_u64(stats.rows_after_delete_limit),
-                    );
                 }
                 set_rows_from_len(&mut span, 0);
                 self.debug_log("Delete complete -> 0 rows (nothing to commit)");
@@ -263,11 +245,13 @@ where
             self.debug_log("Delete commit window opened");
 
             finish_commit(commit, |guard| {
-                let mut unit = WriteUnit::new("delete_rows_atomic");
-
                 // Commit boundary: apply the marker's raw mutations mechanically.
+                // Durable correctness is marker + recovery owned; guard rollback
+                // here is best-effort, in-process cleanup only.
+                let mut apply_guard = CommitApplyGuard::new("delete_marker_apply");
                 let index_rollback_ops = index_rollback_ops;
-                unit.record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
+                apply_guard
+                    .record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
                 apply_marker_index_ops(&guard.marker.index_ops, index_apply_stores);
                 for _ in 0..index_remove_count {
                     sink::record(MetricsEvent::IndexRemove {
@@ -275,19 +259,14 @@ where
                     });
                 }
 
-                #[cfg(test)]
-                unit.checkpoint("delete_after_indexes")?;
-
                 // Apply data mutations recorded in the marker.
                 let data_rollback_ops = data_rollback_ops;
-                unit.record_rollback(move || {
+                apply_guard.record_rollback(move || {
                     Self::apply_data_rollbacks(data_store, data_rollback_ops);
                 });
                 Self::apply_marker_data_ops(&guard.marker.data_ops, data_store);
 
-                #[cfg(test)]
-                unit.checkpoint("delete_after_data")?;
-                unit.commit()?;
+                apply_guard.finish()?;
 
                 Ok(())
             })?;
@@ -297,12 +276,6 @@ where
                 // NOTE: Trace metrics saturate on overflow; diagnostics only.
                 let to_u64 = |len| u64::try_from(len).unwrap_or(u64::MAX);
                 trace.phase(TracePhase::Access, to_u64(access_rows));
-                trace.phase(TracePhase::Filter, to_u64(stats.rows_after_filter));
-                trace.phase(TracePhase::Order, to_u64(stats.rows_after_order));
-                trace.phase(
-                    TracePhase::DeleteLimit,
-                    to_u64(stats.rows_after_delete_limit),
-                );
             }
 
             let res = rows
@@ -316,7 +289,7 @@ where
         })();
 
         if commit_started && result.is_err() {
-            self.debug_log("Delete failed; rollback applied");
+            self.debug_log("Delete failed during marker apply; best-effort cleanup attempted");
         }
 
         if let Some(trace) = trace {

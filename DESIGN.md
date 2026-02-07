@@ -174,7 +174,7 @@ This preserves logical equivalence across execution strategies.
 
 ## 7. Unit keys and singleton entities
 
-Entities with `PrimaryKey = ()` represent **singleton existence**, not identity.
+Entities with `PrimaryKey = ()` represent **singleton existence**, not a per-row primary-key value.
 
 For such entities:
 

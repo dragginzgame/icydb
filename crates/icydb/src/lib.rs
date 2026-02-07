@@ -70,8 +70,7 @@ pub use icydb_schema_derive as macros;
 
 // core modules
 #[doc(hidden)]
-pub use icydb_core::{model, obs};
-pub use icydb_core::{traits, types, value, view, visitor};
+pub use icydb_core::{model, obs, traits, types, value, view, visitor};
 
 // canic modules
 pub mod base;
@@ -153,7 +152,9 @@ pub mod design {
     }
 }
 
+///
 /// -------------------------- CODE -----------------------------------
+///
 use icydb_core::{error::InternalError, traits::Visitable};
 use serde::{Serialize, de::DeserializeOwned};
 

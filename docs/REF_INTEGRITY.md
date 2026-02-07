@@ -2,10 +2,10 @@
 
 ## Status (as of 0.7.x)
 
-Save-time referential integrity is enforced for **strong** relations only. References are identity-only; existence checks run only where the schema explicitly declares strength.
+Save-time referential integrity is enforced for **strong** relations only. References are typed primary-key values; existence checks run only where the schema explicitly declares strength.
 
 Key points:
-* `Id<T>` is an **identity wrapper**, not a semantic value
+* `Id<T>` is a typed primary-key value used for entity-kind correctness
 * `RelationStrength::Strong` is enforced at save time for `Id<T>`, `Option<Id<T>>`,
   and collections of `Id<T>` (e.g. `List<Id<T>>`, `Set<Id<T>>`)
 * `RelationStrength::Weak` is **not validated** and is purely semantic
@@ -33,7 +33,7 @@ IcyDB remains a **typed key/value database** with explicit invariants.
 
 ## 2. What a reference is
 
-A reference is a typed pointer to another entity’s primary key:
+A reference is a typed primary-key value for another entity:
 
 ```
 Id<T>
@@ -44,11 +44,11 @@ A reference:
 * identifies an entity by key
 * does not imply ownership
 * does not imply lifecycle coupling
-* does not imply query-time semantics
+* does not imply joins or relational traversal semantics
 
 References are **not joins** and do not participate in query planning.
 
-`Id<T>` is an identity wrapper and is **not automatically validated** except where the schema declares a strong relation.
+`Id<T>` is a typed primary-key value and is **not automatically RI-validated** except where the schema declares a strong relation.
 
 Collection fields that contain `Id<T>` are treated as references for RI when the field is marked strong.
 

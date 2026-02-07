@@ -10,7 +10,7 @@ use crate::{
     types::*,
 };
 use candid::CandidType;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::cmp::Ordering;
 
 // re-exports
@@ -104,7 +104,7 @@ impl std::error::Error for MapValueError {}
 /// Unit        → internal placeholder for RHS; not a real value.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(CandidType, Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum Value {
     Account(Account),
     Blob(Vec<u8>),
@@ -124,9 +124,12 @@ pub enum Value {
     /// Used for many-cardinality transport.
     /// List order is preserved for normalization and fingerprints.
     List(Vec<Self>),
-    /// Canonical map representation.
-    /// Entries are always sorted by canonical key order and keys are unique.
-    /// Maps are persistable but not queryable in 0.7.
+    /// Canonical deterministic map representation.
+    ///
+    /// - Maps are unordered values; insertion order is discarded.
+    /// - Entries are always sorted by canonical key order and keys are unique.
+    /// - Map fields are patchable through update views, but remain non-queryable.
+    /// - Persistence treats map fields as atomic value replacements per row save.
     Map(Vec<(Self, Self)>),
     Null,
     Principal(Principal),
@@ -138,6 +141,92 @@ pub enum Value {
     UintBig(Nat),
     Ulid(Ulid),
     Unit,
+}
+
+// Serde decode shape used to re-check Value::Map invariants during deserialization.
+#[derive(Deserialize)]
+enum ValueWire {
+    Account(Account),
+    Blob(Vec<u8>),
+    Bool(bool),
+    Date(Date),
+    Decimal(Decimal),
+    Duration(Duration),
+    Enum(ValueEnum),
+    E8s(E8s),
+    E18s(E18s),
+    Float32(Float32),
+    Float64(Float64),
+    Int(i64),
+    Int128(Int128),
+    IntBig(Int),
+    List(Vec<Self>),
+    Map(Vec<(Self, Self)>),
+    Null,
+    Principal(Principal),
+    Subaccount(Subaccount),
+    Text(String),
+    Timestamp(Timestamp),
+    Uint(u64),
+    Uint128(Nat128),
+    UintBig(Nat),
+    Ulid(Ulid),
+    Unit,
+}
+
+impl ValueWire {
+    fn into_value(self) -> Result<Value, MapValueError> {
+        match self {
+            Self::Account(v) => Ok(Value::Account(v)),
+            Self::Blob(v) => Ok(Value::Blob(v)),
+            Self::Bool(v) => Ok(Value::Bool(v)),
+            Self::Date(v) => Ok(Value::Date(v)),
+            Self::Decimal(v) => Ok(Value::Decimal(v)),
+            Self::Duration(v) => Ok(Value::Duration(v)),
+            Self::Enum(v) => Ok(Value::Enum(v)),
+            Self::E8s(v) => Ok(Value::E8s(v)),
+            Self::E18s(v) => Ok(Value::E18s(v)),
+            Self::Float32(v) => Ok(Value::Float32(v)),
+            Self::Float64(v) => Ok(Value::Float64(v)),
+            Self::Int(v) => Ok(Value::Int(v)),
+            Self::Int128(v) => Ok(Value::Int128(v)),
+            Self::IntBig(v) => Ok(Value::IntBig(v)),
+            Self::List(items) => {
+                let items = items
+                    .into_iter()
+                    .map(Self::into_value)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Value::List(items))
+            }
+            Self::Map(entries) => {
+                let entries = entries
+                    .into_iter()
+                    .map(|(key, value)| Ok((key.into_value()?, value.into_value()?)))
+                    .collect::<Result<Vec<_>, MapValueError>>()?;
+                Value::from_map(entries)
+            }
+            Self::Null => Ok(Value::Null),
+            Self::Principal(v) => Ok(Value::Principal(v)),
+            Self::Subaccount(v) => Ok(Value::Subaccount(v)),
+            Self::Text(v) => Ok(Value::Text(v)),
+            Self::Timestamp(v) => Ok(Value::Timestamp(v)),
+            Self::Uint(v) => Ok(Value::Uint(v)),
+            Self::Uint128(v) => Ok(Value::Uint128(v)),
+            Self::UintBig(v) => Ok(Value::UintBig(v)),
+            Self::Ulid(v) => Ok(Value::Ulid(v)),
+            Self::Unit => Ok(Value::Unit),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Value {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = ValueWire::deserialize(deserializer)?;
+        wire.into_value().map_err(serde::de::Error::custom)
+    }
 }
 
 // Local helpers to expand the scalar registry into match arms.
@@ -348,6 +437,7 @@ impl Value {
             return rank;
         }
 
+        #[allow(clippy::match_same_arms)]
         match (left, right) {
             (Self::Account(a), Self::Account(b)) => a.cmp(b),
             (Self::Blob(a), Self::Blob(b)) => a.cmp(b),
@@ -355,7 +445,7 @@ impl Value {
             (Self::Date(a), Self::Date(b)) => a.cmp(b),
             (Self::Decimal(a), Self::Decimal(b)) => a.cmp(b),
             (Self::Duration(a), Self::Duration(b)) => a.cmp(b),
-            (Self::Enum(a), Self::Enum(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
+            (Self::Enum(a), Self::Enum(b)) => Self::canonical_cmp_value_enum_key(a, b),
             (Self::E8s(a), Self::E8s(b)) => a.cmp(b),
             (Self::E18s(a), Self::E18s(b)) => a.cmp(b),
             (Self::Float32(a), Self::Float32(b)) => a.cmp(b),
@@ -363,6 +453,8 @@ impl Value {
             (Self::Int(a), Self::Int(b)) => a.cmp(b),
             (Self::Int128(a), Self::Int128(b)) => a.cmp(b),
             (Self::IntBig(a), Self::IntBig(b)) => a.cmp(b),
+            (Self::List(a), Self::List(b)) => Self::canonical_cmp_value_list_key(a, b),
+            (Self::Map(a), Self::Map(b)) => Self::canonical_cmp_value_map_key(a, b),
             (Self::Principal(a), Self::Principal(b)) => a.cmp(b),
             (Self::Subaccount(a), Self::Subaccount(b)) => a.cmp(b),
             (Self::Text(a), Self::Text(b)) => a.cmp(b),
@@ -371,6 +463,7 @@ impl Value {
             (Self::Uint128(a), Self::Uint128(b)) => a.cmp(b),
             (Self::UintBig(a), Self::UintBig(b)) => a.cmp(b),
             (Self::Ulid(a), Self::Ulid(b)) => a.cmp(b),
+            (Self::Null, Self::Null) | (Self::Unit, Self::Unit) => Ordering::Equal,
             _ => Ordering::Equal,
         }
     }
@@ -403,6 +496,52 @@ impl Value {
             Self::UintBig(_) => 23,
             Self::Ulid(_) => 24,
             Self::Unit => 25,
+        }
+    }
+
+    fn canonical_cmp_value_list_key(left: &[Self], right: &[Self]) -> Ordering {
+        for (left, right) in left.iter().zip(right.iter()) {
+            let cmp = Self::canonical_cmp_key(left, right);
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+        }
+
+        left.len().cmp(&right.len())
+    }
+
+    fn canonical_cmp_value_map_key(left: &[(Self, Self)], right: &[(Self, Self)]) -> Ordering {
+        for ((left_key, left_value), (right_key, right_value)) in left.iter().zip(right.iter()) {
+            let key_cmp = Self::canonical_cmp_key(left_key, right_key);
+            if key_cmp != Ordering::Equal {
+                return key_cmp;
+            }
+
+            let value_cmp = Self::canonical_cmp_key(left_value, right_value);
+            if value_cmp != Ordering::Equal {
+                return value_cmp;
+            }
+        }
+
+        left.len().cmp(&right.len())
+    }
+
+    fn canonical_cmp_value_enum_key(left: &ValueEnum, right: &ValueEnum) -> Ordering {
+        let cmp = left.variant.cmp(&right.variant);
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        let cmp = left.path.cmp(&right.path);
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+
+        match (&left.payload, &right.payload) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Less,
+            (Some(_), None) => Ordering::Greater,
+            (Some(left), Some(right)) => Self::canonical_cmp_key(left, right),
         }
     }
 

@@ -1,8 +1,9 @@
 //! IcyDB commit protocol and atomicity guardrails.
 //!
-//! Contract: once `begin_commit` succeeds, mutations must either complete
-//! successfully or roll back before `finish_commit` returns. The commit marker
-//! must cover all mutations, and recovery replays index ops before data ops.
+//! Contract:
+//! - `begin_commit` persists a marker that fully describes durable mutations.
+//! - Durable correctness is owned by marker replay in recovery (index ops, then data ops).
+//! - In-process apply guards are best-effort cleanup only and are not authoritative.
 //!
 //! ## Commit Boundary and Authority of CommitMarker
 //!
@@ -12,6 +13,7 @@
 //! ops. Recovery replays commit ops as recorded, not planner logic.
 
 mod decode;
+mod guard;
 mod memory;
 mod recovery;
 mod store;
@@ -32,6 +34,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::collections::BTreeSet;
 
+pub use guard::CommitApplyGuard;
 pub use recovery::{ensure_recovered, ensure_recovered_for_write};
 
 #[cfg(test)]
@@ -256,14 +259,19 @@ pub fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> 
 }
 
 /// Apply commit ops and clear the marker regardless of outcome.
+///
+/// The apply closure performs mechanical marker application only.
+/// Any in-process rollback guard used by the closure is non-authoritative
+/// transitional cleanup; durable authority remains the commit marker protocol.
 pub fn finish_commit(
     mut guard: CommitGuard,
     apply: impl FnOnce(&mut CommitGuard) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
     // COMMIT WINDOW:
-    // Apply must either complete successfully or roll back all mutations before
-    // returning an error. We clear the marker on any outcome so recovery does
-    // not replay an already-rolled-back write.
+    // Apply mutates stores from a prevalidated marker payload.
+    // Marker durability + recovery replay remain the atomicity authority.
+    // We clear the marker on any outcome so recovery does not reapply an
+    // already-attempted marker in this process.
     let result = apply(&mut guard);
     let commit_id = guard.marker.id;
     guard.clear();

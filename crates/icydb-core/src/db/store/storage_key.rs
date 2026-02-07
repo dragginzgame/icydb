@@ -1,8 +1,8 @@
 //! StorageKey is a fixed-width, ordered, storage-normalized scalar used
 //! exclusively by the storage and indexing layers.
 //!
-//! It MUST NOT be used as an identity or primary key abstraction.
-//! Typed identity is represented by `Id<E>`.
+//! It MUST NOT be used as a public primary-key abstraction.
+//! Typed primary-key values are represented by `Id<E>`.
 
 #![expect(clippy::cast_possible_truncation)]
 
@@ -55,7 +55,7 @@ impl From<StorageKeyEncodeError> for InternalError {
 /// Storage-normalized scalar key used by persistence and indexing.
 ///
 /// This type defines the *only* on-disk representation for scalar keys.
-/// It is deliberately separated from typed identity (`Id<E>`).
+/// It is deliberately separated from typed primary-key values (`Id<E>`).
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, Hash, PartialEq, Serialize)]

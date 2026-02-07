@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     db::query::{
         plan::planner::plan_access,
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo},
+        predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate, SchemaInfo},
     },
     model::{entity::EntityModel, field::EntityFieldKind, index::IndexModel},
     traits::EntitySchema,
@@ -99,4 +99,20 @@ fn plan_access_ignores_non_strict_predicates() {
     let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
 
     assert_eq!(plan, AccessPlan::full_scan());
+}
+
+#[test]
+fn plan_access_rejects_map_predicates() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::MapContainsEntry {
+        field: "tag".to_string(),
+        key: Value::Text("k".to_string()),
+        value: Value::Uint(1u64),
+        coercion: CoercionSpec::new(CoercionId::Strict),
+    };
+
+    let err = plan_access(model, &schema, Some(&predicate))
+        .expect_err("map predicates must be rejected during planning");
+    assert!(format!("{err}").contains("map predicates must be rejected before planning"));
 }

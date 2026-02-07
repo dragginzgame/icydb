@@ -71,7 +71,7 @@ mod tests {
     use super::*;
     use icydb::{
         traits::UpdateView,
-        view::{ListPatch, SetPatch, Update},
+        view::{ListPatch, MapPatch, SetPatch, Update},
     };
     use std::collections::{HashMap, HashSet};
 
@@ -79,7 +79,7 @@ mod tests {
         MergeProfile {
             bio: bio.into(),
             visits,
-            favorite_numbers: favorites.to_vec().into(),
+            favorite_numbers: favorites.to_vec(),
         }
     }
 
@@ -90,7 +90,7 @@ mod tests {
             name: "original".into(),
             score: 7,
             nickname: None,
-            scores: vec![1, 2, 3].into(),
+            scores: vec![1, 2, 3],
             tags: MergeTags::from(vec!["red".to_string(), "blue".to_string()]),
             settings: MergeSettings::from(vec![
                 ("volume".to_string(), 10u32),
@@ -136,7 +136,7 @@ mod tests {
 
         assert_eq!(entity.name, "updated");
         assert_eq!(entity.nickname.as_deref(), Some("nick"));
-        assert_eq!(entity.scores, vec![10, 20, 3].into());
+        assert_eq!(entity.scores, vec![10, 20, 3]);
 
         let tags: HashSet<_> = entity.tags.iter().cloned().collect();
         let expected_tags: HashSet<_> = vec!["green".to_string()].into_iter().collect();
@@ -167,7 +167,7 @@ mod tests {
             name: "original".into(),
             score: 7,
             nickname: Some("nick".into()),
-            scores: vec![1, 2, 3].into(),
+            scores: vec![1, 2, 3],
             tags: MergeTags::from(vec!["red".to_string(), "blue".to_string()]),
             settings: MergeSettings::from(vec![("volume".to_string(), 10u32)]),
             profile: profile("quiet", 1, &[10, 11]),
@@ -203,7 +203,7 @@ mod tests {
 
         assert_eq!(profile.bio, "updated");
         assert_eq!(profile.visits, 1);
-        assert_eq!(profile.favorite_numbers, vec![1, 2, 3].into());
+        assert_eq!(profile.favorite_numbers, vec![1, 2, 3]);
     }
 
     #[test]
@@ -222,20 +222,25 @@ mod tests {
 
         let mut settings =
             MergeSettings::from(vec![("keep".to_string(), 1u32), ("drop".to_string(), 2u32)]);
-        let panic = std::panic::catch_unwind(move || {
-            let patch: Update<MergeSettings> = ();
-            settings.merge(patch);
-        })
-        .expect_err("map updates must fail loudly");
-        let panic_text = panic
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| panic.downcast_ref::<&str>().copied())
-            .unwrap_or("unknown panic");
-        assert!(
-            panic_text.contains("map update is unsupported in icydb 0.7"),
-            "unexpected panic: {panic_text}"
-        );
+        let patch: Update<MergeSettings> = vec![
+            MapPatch::Remove {
+                key: "drop".to_string(),
+            },
+            MapPatch::Insert {
+                key: "fresh".to_string(),
+                value: 9u32,
+            },
+            MapPatch::Replace {
+                key: "keep".to_string(),
+                value: 7u32,
+            },
+        ];
+        settings.merge(patch);
+
+        let settings: HashMap<_, _> = settings.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        assert_eq!(settings.get("keep"), Some(&7u32));
+        assert_eq!(settings.get("fresh"), Some(&9u32));
+        assert!(!settings.contains_key("drop"));
     }
 
     #[test]
@@ -245,7 +250,7 @@ mod tests {
             name: "reset".into(),
             score: 2,
             nickname: None,
-            scores: vec![1, 2, 3].into(),
+            scores: vec![1, 2, 3],
             tags: MergeTags::from(vec!["old".to_string(), "stale".to_string()]),
             settings: MergeSettings::from(vec![("keep".to_string(), 1u32)]),
             profile: profile("overwrite", 0, &[]),
@@ -265,7 +270,7 @@ mod tests {
 
         entity.merge(update);
 
-        assert_eq!(entity.scores, vec![9, 8, 7].into());
+        assert_eq!(entity.scores, vec![9, 8, 7]);
 
         let tags: HashSet<_> = entity.tags.iter().cloned().collect();
         let expected_tags: HashSet<_> = vec!["fresh".to_string(), "new".to_string()]

@@ -68,6 +68,12 @@ mod tests {
     use icydb::traits::EntityValue;
 
     #[test]
+    fn internal_primary_key_uses_declared_field_type() {
+        let entity = Entity::default();
+        let _: Ulid = entity.id;
+    }
+
+    #[test]
     fn entity_name_defaults_and_override() {
         assert_eq!(
             <RenamedEntity as ::icydb::traits::EntityIdentity>::ENTITY_NAME,

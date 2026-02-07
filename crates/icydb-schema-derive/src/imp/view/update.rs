@@ -36,26 +36,7 @@ impl Imp<Set> for UpdateViewTrait {
 
 impl Imp<Map> for UpdateViewTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
-        let update_ident = node.update_ident();
-
-        let q = quote! {
-            type UpdateViewType = #update_ident;
-
-            fn merge(
-                &mut self,
-                _update: Self::UpdateViewType,
-            ) {
-                panic!(
-                    "map update is unsupported in icydb 0.7; map patching is intentionally disabled"
-                );
-            }
-        };
-
-        Some(TraitStrategy::from_impl(
-            Implementor::new(node.def(), TraitKind::UpdateView)
-                .set_tokens(q)
-                .to_token_stream(),
-        ))
+        Some(update_impl_delegate(node))
     }
 }
 

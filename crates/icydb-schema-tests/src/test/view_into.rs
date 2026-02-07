@@ -30,7 +30,7 @@ mod test {
         let mut entity = ViewIntoRoundTrip {
             name: "primary".into(),
             score: 42,
-            tags: vec!["alpha".into(), "beta".into()].into(),
+            tags: vec!["alpha".into(), "beta".into()],
             nickname: Some("prime".into()),
             ..Default::default()
         };
@@ -47,7 +47,7 @@ mod test {
         assert_eq!(from_view.score, 42);
         assert_eq!(
             from_view.tags,
-            vec!["alpha".to_string(), "beta".to_string()].into()
+            vec!["alpha".to_string(), "beta".to_string()]
         );
         assert_eq!(from_view.nickname.as_deref(), Some("prime"));
     }

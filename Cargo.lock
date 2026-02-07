@@ -901,10 +901,7 @@ name = "icydb-schema-tests"
 version = "0.6.53"
 dependencies = [
  "candid",
- "canic-cdk",
- "canic-utils",
  "icydb",
- "icydb-build",
  "serde",
 ]
 

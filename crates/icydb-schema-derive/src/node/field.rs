@@ -67,6 +67,7 @@ impl HasSchemaPart for FieldList {
 impl HasTypeExpr for FieldList {
     fn type_expr(&self) -> TokenStream {
         let fields = self.fields.iter().map(HasTypeExpr::type_expr);
+
         quote!(#(#fields),*)
     }
 }
@@ -155,13 +156,7 @@ impl Field {
             (Some(default), _) => quote!(#default.into()),
             (None, Cardinality::One) => quote!(Default::default()),
             (None, Cardinality::Opt) => quote!(None),
-            (None, Cardinality::Many) => {
-                if let Some(relation) = &self.value.item.relation {
-                    quote!(::icydb::types::IdSet::<#relation>::new())
-                } else {
-                    quote!(::icydb::types::OrderedList::new())
-                }
-            }
+            (None, Cardinality::Many) => quote!(Vec::default()),
         }
     }
 

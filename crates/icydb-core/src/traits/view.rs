@@ -340,6 +340,14 @@ where
     }
 }
 
+/// Internal representation used to normalize map patches before application.
+enum MapPatchOp<K, V> {
+    Insert { key: K, value: V },
+    Remove { key: K },
+    Replace { key: K, value: V },
+    Clear,
+}
+
 impl<K, V, S> UpdateView for HashMap<K, V, S>
 where
     K: UpdateView + Clone + Default + Eq + Hash,
@@ -349,42 +357,100 @@ where
     type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
 
     fn merge(&mut self, patches: Self::UpdateViewType) {
+        // Phase 1: decode patch payload into concrete keys.
+        let mut ops = Vec::with_capacity(patches.len());
         for patch in patches {
             match patch {
-                MapPatch::Upsert { key, value } => {
+                MapPatch::Insert { key, value } => {
                     let mut key_value = K::default();
                     key_value.merge(key);
-
-                    match self.entry(key_value) {
-                        HashMapEntry::Occupied(mut slot) => {
-                            slot.get_mut().merge(value);
-                        }
-                        HashMapEntry::Vacant(slot) => {
-                            let mut value_value = V::default();
-                            value_value.merge(value);
-                            slot.insert(value_value);
-                        }
-                    }
+                    ops.push(MapPatchOp::Insert {
+                        key: key_value,
+                        value,
+                    });
                 }
                 MapPatch::Remove { key } => {
                     let mut key_value = K::default();
                     key_value.merge(key);
-                    self.remove(&key_value);
+                    ops.push(MapPatchOp::Remove { key: key_value });
                 }
-                MapPatch::Overwrite { entries } => {
-                    self.clear();
-                    self.reserve(entries.len());
+                MapPatch::Replace { key, value } => {
+                    let mut key_value = K::default();
+                    key_value.merge(key);
+                    ops.push(MapPatchOp::Replace {
+                        key: key_value,
+                        value,
+                    });
+                }
+                MapPatch::Clear => ops.push(MapPatchOp::Clear),
+            }
+        }
 
-                    for (key, value) in entries {
-                        let mut key_value = K::default();
-                        key_value.merge(key);
+        // Phase 2: reject ambiguous patch batches to keep semantics deterministic.
+        let mut saw_clear = false;
+        let mut touched = HashSet::with_capacity(ops.len());
+        for op in &ops {
+            match op {
+                MapPatchOp::Clear => {
+                    assert!(
+                        !saw_clear,
+                        "map patch batch contains duplicate Clear operations"
+                    );
+                    saw_clear = true;
+                    assert!(
+                        ops.len() == 1,
+                        "map patch batch cannot combine Clear with key operations"
+                    );
+                }
+                MapPatchOp::Insert { key, .. }
+                | MapPatchOp::Remove { key }
+                | MapPatchOp::Replace { key, .. } => {
+                    assert!(
+                        !saw_clear,
+                        "map patch batch cannot combine Clear with key operations"
+                    );
+                    assert!(
+                        touched.insert(key.clone()),
+                        "map patch batch contains duplicate key operations"
+                    );
+                }
+            }
+        }
+        if saw_clear {
+            self.clear();
+            return;
+        }
 
+        // Phase 3: apply deterministic map operations.
+        for op in ops {
+            match op {
+                MapPatchOp::Insert { key, value } => match self.entry(key) {
+                    HashMapEntry::Occupied(mut slot) => {
+                        slot.get_mut().merge(value);
+                    }
+                    HashMapEntry::Vacant(slot) => {
                         let mut value_value = V::default();
                         value_value.merge(value);
-                        self.insert(key_value, value_value);
+                        slot.insert(value_value);
                     }
+                },
+                MapPatchOp::Remove { key } => {
+                    assert!(
+                        self.remove(&key).is_some(),
+                        "map patch remove target missing"
+                    );
                 }
-                MapPatch::Clear => self.clear(),
+                MapPatchOp::Replace { key, value } => match self.entry(key) {
+                    HashMapEntry::Occupied(mut slot) => {
+                        slot.get_mut().merge(value);
+                    }
+                    HashMapEntry::Vacant(_) => {
+                        panic!("map patch replace target missing");
+                    }
+                },
+                MapPatchOp::Clear => {
+                    unreachable!("map patch clear shape is handled before apply");
+                }
             }
         }
     }
@@ -432,41 +498,100 @@ where
     type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
 
     fn merge(&mut self, patches: Self::UpdateViewType) {
+        // Phase 1: decode patch payload into concrete keys.
+        let mut ops = Vec::with_capacity(patches.len());
         for patch in patches {
             match patch {
-                MapPatch::Upsert { key, value } => {
+                MapPatch::Insert { key, value } => {
                     let mut key_value = K::default();
                     key_value.merge(key);
-
-                    match self.entry(key_value) {
-                        BTreeMapEntry::Occupied(mut slot) => {
-                            slot.get_mut().merge(value);
-                        }
-                        BTreeMapEntry::Vacant(slot) => {
-                            let mut value_value = V::default();
-                            value_value.merge(value);
-                            slot.insert(value_value);
-                        }
-                    }
+                    ops.push(MapPatchOp::Insert {
+                        key: key_value,
+                        value,
+                    });
                 }
                 MapPatch::Remove { key } => {
                     let mut key_value = K::default();
                     key_value.merge(key);
-                    self.remove(&key_value);
+                    ops.push(MapPatchOp::Remove { key: key_value });
                 }
-                MapPatch::Overwrite { entries } => {
-                    self.clear();
+                MapPatch::Replace { key, value } => {
+                    let mut key_value = K::default();
+                    key_value.merge(key);
+                    ops.push(MapPatchOp::Replace {
+                        key: key_value,
+                        value,
+                    });
+                }
+                MapPatch::Clear => ops.push(MapPatchOp::Clear),
+            }
+        }
 
-                    for (key, value) in entries {
-                        let mut key_value = K::default();
-                        key_value.merge(key);
+        // Phase 2: reject ambiguous patch batches to keep semantics deterministic.
+        let mut saw_clear = false;
+        let mut touched = BTreeSet::new();
+        for op in &ops {
+            match op {
+                MapPatchOp::Clear => {
+                    assert!(
+                        !saw_clear,
+                        "map patch batch contains duplicate Clear operations"
+                    );
+                    saw_clear = true;
+                    assert!(
+                        ops.len() == 1,
+                        "map patch batch cannot combine Clear with key operations"
+                    );
+                }
+                MapPatchOp::Insert { key, .. }
+                | MapPatchOp::Remove { key }
+                | MapPatchOp::Replace { key, .. } => {
+                    assert!(
+                        !saw_clear,
+                        "map patch batch cannot combine Clear with key operations"
+                    );
+                    assert!(
+                        touched.insert(key.clone()),
+                        "map patch batch contains duplicate key operations"
+                    );
+                }
+            }
+        }
+        if saw_clear {
+            self.clear();
+            return;
+        }
 
+        // Phase 3: apply deterministic map operations.
+        for op in ops {
+            match op {
+                MapPatchOp::Insert { key, value } => match self.entry(key) {
+                    BTreeMapEntry::Occupied(mut slot) => {
+                        slot.get_mut().merge(value);
+                    }
+                    BTreeMapEntry::Vacant(slot) => {
                         let mut value_value = V::default();
                         value_value.merge(value);
-                        self.insert(key_value, value_value);
+                        slot.insert(value_value);
                     }
+                },
+                MapPatchOp::Remove { key } => {
+                    assert!(
+                        self.remove(&key).is_some(),
+                        "map patch remove target missing"
+                    );
                 }
-                MapPatch::Clear => self.clear(),
+                MapPatchOp::Replace { key, value } => match self.entry(key) {
+                    BTreeMapEntry::Occupied(mut slot) => {
+                        slot.get_mut().merge(value);
+                    }
+                    BTreeMapEntry::Vacant(_) => {
+                        panic!("map patch replace target missing");
+                    }
+                },
+                MapPatchOp::Clear => {
+                    unreachable!("map patch clear shape is handled before apply");
+                }
             }
         }
     }

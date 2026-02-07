@@ -1,4 +1,6 @@
 use crate::{
+    db::index::fingerprint::hash_value,
+    serialize::{deserialize, serialize},
     traits::NumFromPrimitive,
     types::{
         Account, Date, Decimal, Duration, E8s, E18s, Float32 as F32, Float64 as F64, Int, Int128,
@@ -334,6 +336,59 @@ fn partial_ord_cross_variant_is_none() {
     // PartialOrd stays within same variant; cross-variant returns None
     assert!(v_i(1).partial_cmp(&v_f64(1.0)).is_none());
     assert!(v_txt("a").partial_cmp(&v_txt("b")).is_some());
+}
+
+#[test]
+fn from_map_is_canonical_and_order_independent() {
+    let map_a = Value::from_map(vec![
+        (v_txt("c"), v_u(3)),
+        (v_txt("a"), v_u(1)),
+        (v_txt("b"), v_u(2)),
+    ])
+    .expect("map_a should normalize");
+    let map_b = Value::from_map(vec![
+        (v_txt("a"), v_u(1)),
+        (v_txt("b"), v_u(2)),
+        (v_txt("c"), v_u(3)),
+    ])
+    .expect("map_b should normalize");
+
+    assert_eq!(map_a, map_b);
+
+    let bytes_a = serialize(&map_a).expect("serialize map_a");
+    let bytes_b = serialize(&map_b).expect("serialize map_b");
+    assert_eq!(bytes_a, bytes_b);
+
+    let hash_a = hash_value(&map_a).expect("hash map_a");
+    let hash_b = hash_value(&map_b).expect("hash map_b");
+    assert_eq!(hash_a, hash_b);
+}
+
+#[test]
+fn deserialize_normalizes_non_canonical_map_encoding() {
+    let non_canonical = Value::Map(vec![(v_txt("z"), v_u(9)), (v_txt("a"), v_u(1))]);
+    let bytes = serialize(&non_canonical).expect("serialize non-canonical map payload");
+    let decoded = deserialize::<Value>(&bytes).expect("deserialization should normalize map");
+
+    let expected = Value::from_map(vec![(v_txt("a"), v_u(1)), (v_txt("z"), v_u(9))])
+        .expect("expected canonical map");
+    assert_eq!(decoded, expected);
+}
+
+#[test]
+fn canonical_cmp_key_is_total_for_enum_payloads() {
+    let left = Value::Enum(
+        ValueEnum::new("Any", Some("test::Enum")).with_payload(Value::from_slice(&[v_i(1)])),
+    );
+    let right = Value::Enum(
+        ValueEnum::new("Any", Some("test::Enum"))
+            .with_payload(Value::from_map(vec![(v_txt("k"), v_i(1))]).expect("map payload")),
+    );
+
+    let forward = Value::canonical_cmp_key(&left, &right);
+    let reverse = Value::canonical_cmp_key(&right, &left);
+    assert_eq!(forward, reverse.reverse());
+    assert_ne!(forward, Ordering::Equal);
 }
 
 // ---- list membership ---------------------------------------------------

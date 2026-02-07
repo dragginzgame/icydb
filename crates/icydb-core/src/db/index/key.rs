@@ -27,19 +27,18 @@ pub struct IndexId(pub IndexName);
 impl IndexId {
     /// Build an index id from static entity metadata.
     ///
-    /// This is the canonical constructor. Identity invariants are always enforced.
-    pub fn try_new<E: EntityKind>(index: &IndexModel) -> Result<Self, IndexIdError> {
-        let entity = EntityName::try_from_str(E::ENTITY_NAME)?;
-        let name = IndexName::try_from_parts(&entity, index.fields)?;
-        Ok(Self(name))
-    }
-
-    /// Build an index id from static metadata, panicking on invariant violation.
-    ///
-    /// This is intended for generated code and schema-defined indexes.
+    /// This is the canonical constructor. All invariants are expected
+    /// to hold for schema-defined indexes. Any violation is a programmer
+    /// or schema error and will panic.
     #[must_use]
     pub fn new<E: EntityKind>(index: &IndexModel) -> Self {
-        Self::try_new::<E>(index).expect("static IndexModel must define a valid IndexId")
+        let entity = EntityName::try_from_str(E::ENTITY_NAME)
+            .expect("EntityKind::ENTITY_NAME must be a valid EntityName");
+
+        let name = IndexName::try_from_parts(&entity, index.fields)
+            .expect("IndexModel must define a valid IndexName");
+
+        Self(name)
     }
 
     /// Maximum sentinel value for stable-memory bounds.

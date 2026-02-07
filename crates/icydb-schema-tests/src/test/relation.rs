@@ -102,3 +102,37 @@ pub struct RelationOwned;
     )
 )]
 pub struct CrossCanisterRelation;
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relation_fields_use_primitive_key_storage_types() {
+        let row = HasRelation {
+            id: Ulid::from_parts(1, 1),
+            a: Ulid::from_parts(1, 2),
+            b: 7u16,
+            c: Principal::anonymous(),
+            ..Default::default()
+        };
+
+        let _: Ulid = row.id;
+        let _: Ulid = row.a;
+        let _: u16 = row.b;
+        let _: Principal = row.c;
+    }
+
+    #[test]
+    fn relation_many_field_uses_primitive_collection_type() {
+        let _ = HasManyRelation {
+            id: Ulid::from_parts(2, 1),
+            a: vec![Ulid::from_parts(2, 2)],
+            ..Default::default()
+        };
+    }
+}

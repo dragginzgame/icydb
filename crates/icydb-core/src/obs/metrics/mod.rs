@@ -40,7 +40,6 @@ impl Default for EventState {
 pub struct EventOps {
     // Executor entrypoints
     pub load_calls: u64,
-    pub exists_calls: u64,
     pub save_calls: u64,
     pub delete_calls: u64,
 
@@ -68,7 +67,6 @@ pub struct EventOps {
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EntityCounters {
     pub load_calls: u64,
-    pub exists_calls: u64,
     pub save_calls: u64,
     pub delete_calls: u64,
     pub rows_loaded: u64,
@@ -152,7 +150,6 @@ pub struct EventReport {
 pub struct EntitySummary {
     pub path: String,
     pub load_calls: u64,
-    pub exists_calls: u64,
     pub delete_calls: u64,
     pub rows_loaded: u64,
     pub rows_scanned: u64,
@@ -224,7 +221,6 @@ pub fn report() -> EventReport {
         entity_counters.push(EntitySummary {
             path: path.clone(),
             load_calls: ops.load_calls,
-            exists_calls: ops.exists_calls,
             delete_calls: ops.delete_calls,
             rows_loaded: ops.rows_loaded,
             rows_scanned: ops.rows_scanned,

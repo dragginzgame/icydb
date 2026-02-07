@@ -5,10 +5,8 @@ pub mod index;
 pub mod query;
 pub mod response;
 pub mod store;
-mod write;
 
 pub(crate) use commit::*;
-pub(crate) use write::WriteUnit;
 
 use crate::{
     db::{
@@ -16,10 +14,6 @@ use crate::{
         index::IndexStoreRegistry,
         query::{
             Query, QueryError, QueryMode, ReadConsistency, SessionDeleteQuery, SessionLoadQuery,
-            diagnostics::{
-                QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceExecutorKind, finish_event,
-                start_event, trace_access_from_plan,
-            },
         },
         response::{Response, WriteBatchResponse, WriteResponse},
         store::DataStoreRegistry,
@@ -219,15 +213,6 @@ impl<C: CanisterKind> DbSession<C> {
     // Query diagnostics / execution (internal routing)
     // ---------------------------------------------------------------------
 
-    pub fn diagnose_query<E>(&self, query: &Query<E>) -> Result<QueryDiagnostics, QueryError>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        let explain = query.explain()?;
-
-        Ok(QueryDiagnostics::from(explain))
-    }
-
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<Response<E>, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
@@ -240,44 +225,6 @@ impl<C: CanisterKind> DbSession<C> {
         };
 
         result.map_err(QueryError::Execute)
-    }
-
-    pub fn execute_with_diagnostics<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<(Response<E>, QueryExecutionDiagnostics), QueryError>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        let plan = query.plan()?;
-        let fingerprint = plan.fingerprint();
-        let access = Some(trace_access_from_plan(plan.access()));
-        let executor = match query.mode() {
-            QueryMode::Load(_) => QueryTraceExecutorKind::Load,
-            QueryMode::Delete(_) => QueryTraceExecutorKind::Delete,
-        };
-
-        let start = start_event(fingerprint, access, executor);
-        let result = match query.mode() {
-            QueryMode::Load(_) => self.with_metrics(|| self.load_executor::<E>().execute(plan)),
-            QueryMode::Delete(_) => self.with_metrics(|| self.delete_executor::<E>().execute(plan)),
-        };
-
-        match result {
-            Ok(response) => {
-                // NOTE: Diagnostics are best-effort; overflow saturates for determinism.
-                let rows = u64::try_from(response.0.len()).unwrap_or(u64::MAX);
-                let finish = finish_event(fingerprint, access, executor, rows);
-                Ok((
-                    response,
-                    QueryExecutionDiagnostics {
-                        fingerprint,
-                        events: vec![start, finish],
-                    },
-                ))
-            }
-            Err(err) => Err(QueryError::Execute(err)),
-        }
     }
 
     // ---------------------------------------------------------------------

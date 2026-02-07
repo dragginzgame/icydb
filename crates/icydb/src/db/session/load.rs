@@ -42,7 +42,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         self
     }
 
-    /// Load multiple entities by typed identity.
+    /// Load multiple entities by typed primary-key values.
     #[must_use]
     pub fn by_ids<I>(mut self, ids: I) -> Self
     where

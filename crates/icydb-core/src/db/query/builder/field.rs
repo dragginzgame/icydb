@@ -1,7 +1,5 @@
 use crate::{
-    db::query::predicate::{
-        CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
-    },
+    db::query::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
     traits::FieldValue,
     value::Value,
 };
@@ -162,44 +160,6 @@ impl FieldRef {
         }
     }
 
-    // ------------------------------------------------------------------
-    // Map predicates
-    // ------------------------------------------------------------------
-
-    /// Map predicates are intentionally unsupported.
-    pub fn map_contains_key(
-        self,
-        _key: impl FieldValue,
-        _coercion: CoercionId,
-    ) -> Result<Predicate, UnsupportedQueryFeature> {
-        Err(UnsupportedQueryFeature::MapPredicate {
-            field: self.0.to_string(),
-        })
-    }
-
-    /// Map predicates are intentionally unsupported.
-    pub fn map_contains_value(
-        self,
-        _value: impl FieldValue,
-        _coercion: CoercionId,
-    ) -> Result<Predicate, UnsupportedQueryFeature> {
-        Err(UnsupportedQueryFeature::MapPredicate {
-            field: self.0.to_string(),
-        })
-    }
-
-    /// Map predicates are intentionally unsupported.
-    pub fn map_contains_entry(
-        self,
-        _key: impl FieldValue,
-        _value: impl FieldValue,
-        _coercion: CoercionId,
-    ) -> Result<Predicate, UnsupportedQueryFeature> {
-        Err(UnsupportedQueryFeature::MapPredicate {
-            field: self.0.to_string(),
-        })
-    }
-
     /// Case-sensitive substring match for text fields.
     #[must_use]
     pub fn text_contains(self, value: impl FieldValue) -> Predicate {
@@ -234,26 +194,5 @@ impl std::ops::Deref for FieldRef {
 
     fn deref(&self) -> &Self::Target {
         self.0
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::db::query::predicate::UnsupportedQueryFeature;
-
-    use super::FieldRef;
-
-    #[test]
-    fn map_predicate_builder_fails_immediately() {
-        let err = FieldRef::new("attributes")
-            .map_contains_entry("k", 1u64, super::CoercionId::Strict)
-            .expect_err("map predicate builder must fail immediately");
-
-        assert_eq!(
-            err,
-            UnsupportedQueryFeature::MapPredicate {
-                field: "attributes".to_string(),
-            }
-        );
     }
 }

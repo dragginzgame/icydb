@@ -40,20 +40,19 @@ mod tests {
     fn relation_primary_key_borrows_storage_key() {
         assert_storage_key::<UserProjects>();
 
-        let user_id: Id<User> =
-            <Id<User> as ::icydb::traits::AsView>::from_view(Ulid::from_parts(1, 42));
+        let user_key = Ulid::from_parts(1, 42);
         let projects = UserProjects {
-            user: user_id,
+            user: user_key,
             ..Default::default()
         };
 
-        // Field type is still a Ref<User>
-        let _: Id<User> = projects.user;
+        // Field type stores the declared primitive key.
+        let _: Ulid = projects.user;
 
         // Semantic identity is now Id<UserProjects>
         let id: Id<UserProjects> = projects.id();
 
         // Identity unwraps to the borrowed storage key
-        assert_eq!(id.to_value(), user_id.to_value());
+        assert_eq!(id.to_value(), user_key.to_value());
     }
 }

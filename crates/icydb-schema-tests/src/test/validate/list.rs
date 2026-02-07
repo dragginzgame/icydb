@@ -19,8 +19,8 @@ mod test {
     use super::*;
     use icydb::validate;
 
-    fn entity_id() -> Id<crate::test::entity::Entity> {
-        ::icydb::traits::AsView::from_view(Ulid::generate())
+    fn entity_id() -> Ulid {
+        Ulid::generate()
     }
 
     #[test]

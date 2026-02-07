@@ -100,18 +100,15 @@ where
                 rows_scanned: data_rows.len() as u64,
             });
 
-            let mut rows = Context::deserialize_rows(data_rows)?;
+            let rows = Context::deserialize_rows(data_rows)?;
             let access_rows = rows.len();
 
-            let stats = plan.apply_post_access::<E, _>(&mut rows)?;
+            // removed plan.apply_post_access::<E, _>(&mut rows)?;
 
             if let Some(trace) = trace.as_ref() {
                 // NOTE: Trace metrics saturate on overflow; diagnostics only.
                 let to_u64 = |n| u64::try_from(n).unwrap_or(u64::MAX);
                 trace.phase(TracePhase::Access, to_u64(access_rows));
-                trace.phase(TracePhase::Filter, to_u64(stats.rows_after_filter));
-                trace.phase(TracePhase::Order, to_u64(stats.rows_after_order));
-                trace.phase(TracePhase::Page, to_u64(stats.rows_after_page));
             }
 
             set_rows_from_len(&mut span, rows.len());

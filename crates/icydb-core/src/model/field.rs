@@ -81,6 +81,9 @@ pub enum EntityFieldKind {
     // Collections
     List(&'static Self),
     Set(&'static Self),
+    /// Deterministic, unordered key/value collection.
+    ///
+    /// Map fields are persistable and patchable, but not queryable or indexable.
     Map {
         key: &'static Self,
         value: &'static Self,

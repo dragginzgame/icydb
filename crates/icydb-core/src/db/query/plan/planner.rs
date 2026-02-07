@@ -3,7 +3,7 @@
 //! Determinism: the planner canonicalizes output so the same model and
 //! predicate shape always produce identical access plans.
 
-use super::{AccessPath, AccessPlan, PlanError, canonical, validate_plan_invariants_model};
+use super::{AccessPath, AccessPlan, PlanError, canonical};
 use crate::{
     db::{
         index::fingerprint,
@@ -12,7 +12,7 @@ use crate::{
             validate::literal_matches_type,
         },
     },
-    error::InternalError,
+    error::{ErrorClass, ErrorOrigin, InternalError},
     model::entity::EntityModel,
     model::index::IndexModel,
     value::Value,
@@ -55,7 +55,7 @@ pub(crate) fn plan_access(
     // - Field resolution uses SchemaInfo's name map (sorted by field name).
     let normalized = normalize(predicate);
     let plan = normalize_access_plan(plan_predicate(model, schema, &normalized)?);
-    validate_plan_invariants_model(&plan, schema, model, Some(&normalized))?;
+
     Ok(plan)
 }
 
@@ -73,10 +73,16 @@ fn plan_predicate(
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. }
         | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. }
-        | Predicate::MapContainsKey { .. }
+        | Predicate::TextContainsCi { .. } => AccessPlan::full_scan(),
+        Predicate::MapContainsKey { .. }
         | Predicate::MapContainsValue { .. }
-        | Predicate::MapContainsEntry { .. } => AccessPlan::full_scan(),
+        | Predicate::MapContainsEntry { .. } => {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                "map predicates must be rejected before planning",
+            ));
+        }
         Predicate::And(children) => {
             let mut plans = children
                 .iter()

@@ -16,8 +16,8 @@ use std::{
 ///
 /// Id
 ///
-/// Typed primary-key wrapper for entity identities.
-/// Carries entity context without changing the underlying key type.
+/// Typed primary-key value for an entity.
+/// Carries entity context to enforce entity-kind correctness at compile time.
 /// Serializes identically to `E::Key`.
 ///
 
@@ -35,14 +35,12 @@ where
     // Construction
     // ------------------------------------------------------------------
 
-    /// Construct an entity identity from raw storage key material.
+    /// Construct a typed primary-key value from raw storage key material.
     ///
     /// ## Semantics
-    /// This function is intended **only for entity construction**:
+    /// This function is intended **only for core/entity construction**:
     /// - handwritten constructors in schema crates
     /// - derive-generated entity initialization
-    ///
-    /// Application code must not invent identities arbitrarily.
     #[must_use]
     pub(crate) const fn from_storage_key(key: E::Key) -> Self {
         Self {
@@ -57,15 +55,15 @@ where
 
     /// Borrow the underlying storage key.
     ///
-    /// Core-only. Application code must not depend on storage identity.
+    /// Core-only boundary helper for planner/executor/storage code.
     #[must_use]
     pub(crate) const fn storage_key(&self) -> E::Key {
         self.key
     }
 
-    /// Consume this identity and return raw storage key material.
+    /// Consume this typed primary-key value and return raw storage key material.
     ///
-    /// Core-only. Use only at intent / execution boundaries.
+    /// Core-only boundary helper for planner/executor/storage code.
     #[must_use]
     pub(crate) const fn into_storage_key(self) -> E::Key {
         self.key
@@ -75,7 +73,7 @@ where
     // Diagnostics
     // ------------------------------------------------------------------
 
-    /// Convert this identity key into a semantic `Value`.
+    /// Convert this typed primary-key value into a semantic `Value`.
     ///
     /// Intended only for planner invariants, diagnostics,
     /// explain output, and fingerprinting.

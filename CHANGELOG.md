@@ -27,7 +27,7 @@ stacks on top of an incomplete commit.
 * Added `OrderedList::retain` plus `apply_patches` helpers on `OrderedList` and `IdSet` for explicit patch application.
 * Added `docs/collections.md` as the contract reference for collection and patch semantics.
 * Added `saturating_add`/`saturating_sub` helpers to arithmetic newtypes for explicit saturating math.
-* Added `Id<E>` as a typed primary-key wrapper for entity identities.
+* Added `Id<E>` as a typed primary-key value that preserves entity-kind correctness.
 * Added parity coverage to keep keyability conversion paths aligned across `ScalarType::is_keyable`, `Value::as_storage_key`, and `StorageKey::try_from_value`.
 
 ### 🪼 Changed
@@ -69,8 +69,8 @@ stacks on top of an incomplete commit.
 
 * Added `WriteResponse`/`WriteBatchResponse` helpers for write results, including key and view accessors.
 * Added `Nat::to_i64`/`to_u64` and `Int::to_i64`/`to_u64` for explicit integer conversion without deref.
-* Added by_ref() for query flow
-* Added many_refs() for query flow
+* Added `by_ref()` for query flow (later removed and replaced by `by_id()`/`by_ids()`).
+* Added `many_refs()` for query flow (later removed and replaced by `by_ids()`).
 
 ### 🥪 Changed
 
@@ -170,7 +170,7 @@ stacks on top of an incomplete commit.
 
 ### 🧱 Changed
 
-* Removed `Into<...>` from `by_key` functions to keep primary key boundaries explicit.
+* Removed `Into<...>` from `by_key` functions to keep primary key boundaries explicit (`by_key` was later replaced by `by_id`/`by_ids`).
 
 ---
 
@@ -481,7 +481,7 @@ The focus is **correctness, determinism, and architectural hardening**, not new 
 * Increased commit marker size cap to avoid rejecting valid commits with large index entries.
 
 **Identity & Documentation**
-* Removed panicking public identity constructors in favor of fallible APIs; unchecked constructors are crate-private for generated models.
+* Removed panicking public `Id<T>` constructors in favor of fallible APIs; unchecked constructors are crate-private for generated models.
 * Updated README and internal docs to reflect the actual query execution and atomicity model.
 
 ---

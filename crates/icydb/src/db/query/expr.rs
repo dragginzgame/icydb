@@ -144,23 +144,6 @@ pub enum FilterExpr {
     IsNotEmpty {
         field: String,
     },
-
-    // ─────────────────────────────────────────────────────────────
-    // Map predicates are retained only as a defensive decode/lowering backstop.
-    // ─────────────────────────────────────────────────────────────
-    MapContainsKey {
-        field: String,
-        key: Value,
-    },
-    MapContainsValue {
-        field: String,
-        value: Value,
-    },
-    MapContainsEntry {
-        field: String,
-        key: Value,
-        value: Value,
-    },
 }
 
 impl FilterExpr {
@@ -316,16 +299,6 @@ impl FilterExpr {
             Self::IsNotEmpty { field } => Predicate::IsNotEmpty {
                 field: field.clone(),
             },
-
-            Self::MapContainsKey { field, .. }
-            | Self::MapContainsValue { field, .. }
-            | Self::MapContainsEntry { field, .. } => {
-                return Err(QueryError::UnsupportedQueryFeature(
-                    UnsupportedQueryFeature::MapPredicate {
-                        field: field.clone(),
-                    },
-                ));
-            }
         };
 
         Ok(core::db::query::expr::FilterExpr(pred))

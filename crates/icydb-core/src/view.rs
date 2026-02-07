@@ -45,21 +45,29 @@ pub enum SetPatch<U> {
 ///
 /// MapPatch
 ///
-
-/// Map mutations applied sequentially; later operations win. `Overwrite` replaces
-/// the entire map with the provided entries.
+/// Deterministic map mutations.
+///
+/// - Maps are unordered values; insertion order is discarded.
+/// - `Insert` is an upsert.
+/// - `Replace` requires an existing key.
+/// - `Remove` requires an existing key.
+/// - `Clear` must be the only patch in the batch.
+///
+/// Invalid patch shapes and missing-key operations fail loudly.
+/// Missing-key operations are considered programmer errors and will pani
+///
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub enum MapPatch<K, V> {
-    Upsert { key: K, value: V },
+    Insert { key: K, value: V },
     Remove { key: K },
-    Overwrite { entries: Vec<(K, V)> },
+    Replace { key: K, value: V },
     Clear,
 }
 
 impl<K, V> From<(K, Option<V>)> for MapPatch<K, V> {
     fn from((key, value): (K, Option<V>)) -> Self {
         match value {
-            Some(value) => Self::Upsert { key, value },
+            Some(value) => Self::Insert { key, value },
             None => Self::Remove { key },
         }
     }
@@ -72,7 +80,7 @@ impl<K, V> From<(K, Option<V>)> for MapPatch<K, V> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeMap, HashMap, HashSet};
 
     #[test]
     fn vec_partial_patches() {
@@ -127,20 +135,20 @@ mod tests {
     }
 
     #[test]
-    fn map_upsert_in_place_and_remove() {
+    fn map_insert_in_place_and_remove() {
         let mut map: HashMap<String, u8> = [("a".into(), 1u8), ("keep".into(), 9u8)]
             .into_iter()
             .collect();
 
         let patches = vec![
-            MapPatch::Upsert {
+            MapPatch::Insert {
                 key: "a".to_string(),
                 value: 5u8,
             },
             MapPatch::Remove {
                 key: "keep".to_string(),
             },
-            MapPatch::Upsert {
+            MapPatch::Insert {
                 key: "insert".to_string(),
                 value: 7u8,
             },
@@ -154,24 +162,77 @@ mod tests {
     }
 
     #[test]
-    fn map_overwrite_replaces_contents() {
-        let mut map: HashMap<String, u8> = [("keep".into(), 1u8), ("drop".into(), 2u8)]
+    fn map_replace_updates_existing_entry() {
+        let mut map: HashMap<String, u8> = [("keep".into(), 1u8), ("replace".into(), 2u8)]
             .into_iter()
             .collect();
 
-        let patches = vec![MapPatch::Overwrite {
-            entries: vec![
-                ("first".to_string(), 9u8),
-                ("second".to_string(), 5u8),
-                ("first".to_string(), 1u8),
-            ],
+        let patches = vec![MapPatch::Replace {
+            key: "replace".to_string(),
+            value: 8u8,
         }];
 
         map.merge(patches);
 
-        assert_eq!(map.get("first"), Some(&1));
-        assert_eq!(map.get("second"), Some(&5));
-        assert!(!map.contains_key("keep"));
-        assert!(!map.contains_key("drop"));
+        assert_eq!(map.get("keep"), Some(&1));
+        assert_eq!(map.get("replace"), Some(&8));
+    }
+
+    #[test]
+    fn btree_map_clear_replaces_with_empty_map() {
+        let mut map: BTreeMap<String, u8> =
+            [("a".into(), 1u8), ("b".into(), 2u8)].into_iter().collect();
+
+        map.merge(vec![MapPatch::Clear]);
+
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "map patch remove target missing")]
+    fn map_remove_missing_key_panics() {
+        let mut map: HashMap<String, u8> = std::iter::once(("a".into(), 1u8)).collect();
+        map.merge(vec![MapPatch::Remove {
+            key: "missing".to_string(),
+        }]);
+    }
+
+    #[test]
+    #[should_panic(expected = "map patch replace target missing")]
+    fn map_replace_missing_key_panics() {
+        let mut map: HashMap<String, u8> = std::iter::once(("a".into(), 1u8)).collect();
+        map.merge(vec![MapPatch::Replace {
+            key: "missing".to_string(),
+            value: 3u8,
+        }]);
+    }
+
+    #[test]
+    #[should_panic(expected = "map patch batch cannot combine Clear with key operations")]
+    fn map_clear_with_other_operations_panics() {
+        let mut map: HashMap<String, u8> = std::iter::once(("a".into(), 1u8)).collect();
+        map.merge(vec![
+            MapPatch::Clear,
+            MapPatch::Insert {
+                key: "b".to_string(),
+                value: 2u8,
+            },
+        ]);
+    }
+
+    #[test]
+    #[should_panic(expected = "map patch batch contains duplicate key operations")]
+    fn map_duplicate_key_operations_panics() {
+        let mut map: HashMap<String, u8> = std::iter::once(("a".into(), 1u8)).collect();
+        map.merge(vec![
+            MapPatch::Insert {
+                key: "a".to_string(),
+                value: 3u8,
+            },
+            MapPatch::Replace {
+                key: "a".to_string(),
+                value: 4u8,
+            },
+        ]);
     }
 }

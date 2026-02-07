@@ -8,7 +8,7 @@
 //! - Diagnostics are observational only; they are not correctness proofs.
 
 pub use crate::db::executor::trace::{QueryTraceEvent, TraceAccess, TraceExecutorKind, TracePhase};
-use crate::db::query::plan::{AccessPath, AccessPlan, ExplainPlan, PlanFingerprint};
+use crate::db::query::plan::{ExplainPlan, PlanFingerprint};
 
 ///
 /// QueryDiagnostics
@@ -52,45 +52,6 @@ pub type QueryTraceExecutorKind = TraceExecutorKind;
 
 /// Public alias for trace phase kinds in query diagnostics.
 pub type QueryTracePhase = TracePhase;
-
-pub(crate) fn trace_access_from_plan<K>(plan: &AccessPlan<K>) -> TraceAccess {
-    match plan {
-        AccessPlan::Path(path) => trace_access_from_path(path),
-        AccessPlan::Union(children) => {
-            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
-            TraceAccess::Union {
-                branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
-            }
-        }
-        AccessPlan::Intersection(children) => {
-            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
-            TraceAccess::Intersection {
-                branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
-            }
-        }
-    }
-}
-
-fn trace_access_from_path<K>(path: &AccessPath<K>) -> TraceAccess {
-    match path {
-        AccessPath::ByKey(_) => TraceAccess::ByKey,
-        AccessPath::ByKeys(keys) => {
-            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
-            TraceAccess::ByKeys {
-                count: u32::try_from(keys.len()).unwrap_or(u32::MAX),
-            }
-        }
-        AccessPath::KeyRange { .. } => TraceAccess::KeyRange,
-        AccessPath::IndexPrefix { index, values } => {
-            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
-            TraceAccess::IndexPrefix {
-                name: index.name,
-                prefix_len: u32::try_from(values.len()).unwrap_or(u32::MAX),
-            }
-        }
-        AccessPath::FullScan => TraceAccess::FullScan,
-    }
-}
 
 #[must_use]
 pub const fn start_event(

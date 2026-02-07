@@ -40,10 +40,6 @@ mod tests {
     use super::*;
     use icydb::validate;
 
-    fn entity_id() -> Id<crate::test::entity::Entity> {
-        ::icydb::traits::AsView::from_view(Ulid::generate())
-    }
-
     fn ulid() -> Ulid {
         Ulid::generate()
     }
@@ -52,10 +48,10 @@ mod tests {
     fn list_allows_up_to_max_length() {
         let mut list = List::default();
 
-        list.push(entity_id());
+        list.push(ulid());
         assert!(validate(&list).is_ok(), "1 item should be valid");
 
-        list.push(entity_id());
+        list.push(ulid());
         assert!(validate(&list).is_ok(), "2 items should still be valid");
     }
 
@@ -63,9 +59,9 @@ mod tests {
     fn list_rejects_over_max_length() {
         let mut list = List::default();
 
-        list.push(entity_id());
-        list.push(entity_id());
-        list.push(entity_id());
+        list.push(ulid());
+        list.push(ulid());
+        list.push(ulid());
 
         let result = validate(&list);
         assert!(

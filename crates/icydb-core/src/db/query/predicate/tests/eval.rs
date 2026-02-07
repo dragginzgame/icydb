@@ -1,4 +1,4 @@
-use super::{
+use crate::db::query::predicate::{
     ast::{CompareOp, ComparePredicate, Predicate},
     coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
 };

@@ -199,19 +199,18 @@ impl Imp<Map> for FieldValueTrait {
                     return None;
                 };
 
-                if ::icydb::value::Value::validate_map_entries(entries.as_slice()).is_err() {
+                let normalized = ::icydb::value::Value::normalize_map_entries(entries.clone()).ok()?;
+                if normalized.as_slice() != entries.as_slice() {
                     return None;
                 }
 
                 let mut map = ::std::collections::BTreeMap::<#key_type, #value_type>::new();
-                for (entry_key, entry_value) in entries {
-                    let key = <#key_type as ::icydb::traits::FieldValue>::from_value(entry_key)?;
+                for (entry_key, entry_value) in normalized {
+                    let key = <#key_type as ::icydb::traits::FieldValue>::from_value(&entry_key)?;
                     let value =
-                        <#value_type as ::icydb::traits::FieldValue>::from_value(entry_value)?;
+                        <#value_type as ::icydb::traits::FieldValue>::from_value(&entry_value)?;
 
-                    if map.insert(key, value).is_some() {
-                        return None;
-                    }
+                    map.insert(key, value);
                 }
 
                 Some(Self(map))

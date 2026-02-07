@@ -14,11 +14,5 @@ candid = { workspace = true }
 icydb = { workspace = true }
 serde = { workspace = true }
 
-[build-dependencies]
-canic-cdk = { workspace = true }
-canic-utils = { workspace = true }
-icydb = { workspace = true }
-icydb-build = { workspace = true }
-
 [lints]
 workspace = true

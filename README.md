@@ -110,6 +110,8 @@ Key properties:
 * Entity type is fixed at construction (`Query<User>`).
 * Missing-row behavior is explicit (`ReadConsistency`).
 * Executors only accept validated, executable plans.
+* Primary-key predicates use the normal predicate surface; the planner may optimize them into key/index access paths.
+* `by_id`/`by_ids` are ergonomic helpers over typed primary-key values (`Id<E>`) for entity-kind correctness.
 * Ordering coercion defaults are unified across `FieldRef` and `FilterExpr` (`NumericWiden` for `Lt`/`Lte`/`Gt`/`Gte`). See `docs/QUERY_CONTRACT.md` and `docs/QUERY_PRACTICE.md` for full predicate semantics.
 
 ---

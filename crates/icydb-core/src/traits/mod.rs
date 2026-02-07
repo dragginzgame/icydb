@@ -88,7 +88,7 @@ pub trait EntityStorageKey {
 ///
 /// EntityIdentity
 ///
-/// Semantic identity facts about an entity.
+/// Semantic primary-key metadata about an entity.
 /// `IDENTITY_NAMESPACE` is the stable namespace used for one-way
 /// external identity projection and SHOULD remain unchanged across
 /// schema/type renames when external identity continuity is required.
