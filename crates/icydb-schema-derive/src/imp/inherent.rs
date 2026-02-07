@@ -49,6 +49,7 @@ impl Imp<Entity> for InherentTrait {
             .map(|(field, ident)| {
                 let name = field.ident.to_string();
                 let kind = model_kind_from_value(node, &field.value);
+                let runtime_determinism_guard = runtime_determinism_guard(field);
                 let deterministic_ident = model_field_determinism_ident(field);
                 let deterministic_message = format!(
                     "field '{name}' uses a non-deterministic collection; persisted and query-visible collections must have stable iteration order"
@@ -65,6 +66,7 @@ impl Imp<Entity> for InherentTrait {
                             ::icydb::model::field::EntityFieldKind::is_deterministic_collection_shape(&#kind),
                             #deterministic_message
                         );
+                        #runtime_determinism_guard
                     };
                 }
             })
@@ -323,7 +325,7 @@ impl Imp<Map> for InherentTrait {
 
 impl Imp<Record> for InherentTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        let kind = quote!(::icydb::model::field::EntityFieldKind::Unsupported);
+        let kind = quote!(::icydb::model::field::EntityFieldKind::Structured { queryable: false });
         let tokens = quote! {
             pub const KIND: ::icydb::model::field::EntityFieldKind = #kind;
         };
@@ -342,7 +344,7 @@ impl Imp<Record> for InherentTrait {
 
 impl Imp<Tuple> for InherentTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
-        let kind = quote!(::icydb::model::field::EntityFieldKind::Unsupported);
+        let kind = quote!(::icydb::model::field::EntityFieldKind::Structured { queryable: false });
         let tokens = quote! {
             pub const KIND: ::icydb::model::field::EntityFieldKind = #kind;
         };
@@ -365,11 +367,34 @@ fn model_field_determinism_ident(field: &Field) -> Ident {
     format_ident!("__MODEL_FIELD_DETERMINISM_{constant}")
 }
 
+fn runtime_determinism_guard(field: &Field) -> TokenStream {
+    if field.value.cardinality() != Cardinality::Many {
+        return quote! {};
+    }
+
+    let value_type = field.value.type_expr();
+
+    quote! {
+        let _ = || {
+            fn assert_deterministic_collection<
+                T: ::icydb::traits::DeterministicCollection,
+            >() {
+            }
+
+            let _ = assert_deterministic_collection::<#value_type>;
+        };
+    }
+}
+
 fn model_kind_from_value(_entity: &Entity, value: &Value) -> TokenStream {
     let base = model_kind_from_item(&value.item);
     match value.cardinality() {
         Cardinality::Many => {
-            quote!(::icydb::model::field::EntityFieldKind::List(&#base))
+            if value.item.relation.is_some() {
+                quote!(::icydb::model::field::EntityFieldKind::Set(&#base))
+            } else {
+                quote!(::icydb::model::field::EntityFieldKind::List(&#base))
+            }
         }
         Cardinality::One | Cardinality::Opt => base,
     }
@@ -379,7 +404,11 @@ fn model_kind_from_nested_value(value: &Value) -> TokenStream {
     let base = model_kind_from_item(&value.item);
     match value.cardinality() {
         Cardinality::Many => {
-            quote!(::icydb::model::field::EntityFieldKind::List(&#base))
+            if value.item.relation.is_some() {
+                quote!(::icydb::model::field::EntityFieldKind::Set(&#base))
+            } else {
+                quote!(::icydb::model::field::EntityFieldKind::List(&#base))
+            }
         }
         Cardinality::One | Cardinality::Opt => base,
     }

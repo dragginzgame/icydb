@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        View, Visitable,
+        AsView, FieldValue, Inner, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
+        ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -57,6 +57,18 @@ impl Blob {
     }
 }
 
+impl AsView for Blob {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
 impl Display for Blob {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[blob ({} bytes)]", self.0.len())
@@ -64,8 +76,19 @@ impl Display for Blob {
 }
 
 impl FieldValue for Blob {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Blob(self.0.to_vec())
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Blob(v) => Some(Self::from(v.clone())),
+            _ => None,
+        }
     }
 }
 
@@ -112,17 +135,5 @@ impl UpdateView for Blob {
 impl ValidateAuto for Blob {}
 
 impl ValidateCustom for Blob {}
-
-impl View for Blob {
-    type ViewType = Self;
-
-    fn to_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
 
 impl Visitable for Blob {}

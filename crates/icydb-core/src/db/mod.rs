@@ -292,14 +292,18 @@ impl<C: CanisterKind> DbSession<C> {
             .map(WriteResponse::new)
     }
 
-    pub fn insert_many<E>(
+    /// Insert a batch with explicitly non-atomic semantics.
+    ///
+    /// WARNING: fail-fast and non-atomic. Earlier inserts may commit before an error.
+    pub fn insert_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let entities = self.with_metrics(|| self.save_executor::<E>().insert_many(entities))?;
+        let entities =
+            self.with_metrics(|| self.save_executor::<E>().insert_many_non_atomic(entities))?;
 
         Ok(WriteBatchResponse::new(entities))
     }
@@ -312,14 +316,18 @@ impl<C: CanisterKind> DbSession<C> {
             .map(WriteResponse::new)
     }
 
-    pub fn replace_many<E>(
+    /// Replace a batch with explicitly non-atomic semantics.
+    ///
+    /// WARNING: fail-fast and non-atomic. Earlier replaces may commit before an error.
+    pub fn replace_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let entities = self.with_metrics(|| self.save_executor::<E>().replace_many(entities))?;
+        let entities =
+            self.with_metrics(|| self.save_executor::<E>().replace_many_non_atomic(entities))?;
 
         Ok(WriteBatchResponse::new(entities))
     }
@@ -332,14 +340,18 @@ impl<C: CanisterKind> DbSession<C> {
             .map(WriteResponse::new)
     }
 
-    pub fn update_many<E>(
+    /// Update a batch with explicitly non-atomic semantics.
+    ///
+    /// WARNING: fail-fast and non-atomic. Earlier updates may commit before an error.
+    pub fn update_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let entities = self.with_metrics(|| self.save_executor::<E>().update_many(entities))?;
+        let entities =
+            self.with_metrics(|| self.save_executor::<E>().update_many_non_atomic(entities))?;
 
         Ok(WriteBatchResponse::new(entities))
     }

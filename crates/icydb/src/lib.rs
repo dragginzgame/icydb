@@ -20,8 +20,12 @@
 //!   Internal code generation helpers used by macros and tests
 //!   (not intended for direct use).
 //!
-//! - `model` / `traits` / `types` / `value` / `view` / `visitor`
+//! - `traits` / `types` / `value` / `view` / `visitor`
 //!   Stable runtime and schema-facing building blocks used by generated code.
+//!
+//! - `model` / `obs` *(internal)*
+//!   Runtime model and metrics internals. Exposed for advanced tooling only;
+//!   not part of the supported semver surface.
 //!
 //! - `__internal::core` *(internal)*
 //!   Full engine internals for macros/tests. Not covered by semver guarantees.
@@ -65,7 +69,9 @@ pub use icydb_schema as schema;
 pub use icydb_schema_derive as macros;
 
 // core modules
-pub use icydb_core::{model, obs, traits, types, value, view, visitor};
+#[doc(hidden)]
+pub use icydb_core::{model, obs};
+pub use icydb_core::{traits, types, value, view, visitor};
 
 // canic modules
 pub mod base;
@@ -85,6 +91,7 @@ pub mod __internal {
 /// in the Cargo.toml file manually
 ///
 /// these have to be in icydb_core because of the base library not being able to import icydb
+#[doc(hidden)]
 pub mod __reexports {
     pub use canic_cdk;
     pub use canic_memory;
@@ -108,8 +115,8 @@ pub mod prelude {
             query::{FilterExpr, SortExpr, builder::FieldRef, predicate::Predicate},
         },
         traits::{
-            Collection as _, CreateView as _, EntityKind as _, Inner as _, MapCollection as _,
-            Path as _, UpdateView as _, View as _,
+            AsView, Collection as _, CreateView as _, EntityKind as _, Inner as _,
+            MapCollection as _, Path as _, UpdateView as _, View as _,
         },
         types::*,
         value::Value,
@@ -134,13 +141,13 @@ pub mod design {
             db::query::builder::FieldRef,
             macros::*,
             traits::{
-                Collection as _, EntityKind, FieldValue as _, Inner as _, MapCollection as _,
-                Path as _, Sanitize as _, Sanitizer, Serialize as _, Validate as _, ValidateCustom,
-                Validator, View as _, Visitable as _,
+                AsView, Collection as _, EntityKind, FieldValue as _, Inner as _,
+                MapCollection as _, Path as _, Sanitize as _, Sanitizer, Serialize as _,
+                Validate as _, ValidateCustom, Validator, Visitable as _,
             },
             types::*,
             value::Value,
-            view::View,
+            view::{Create, Update, View},
             visitor::VisitorContext,
         };
     }

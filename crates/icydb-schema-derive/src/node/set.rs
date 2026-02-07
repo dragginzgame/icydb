@@ -59,7 +59,11 @@ impl HasSchemaPart for Set {
 impl HasTraits for Set {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
-        traits.extend(vec![TraitKind::Collection, TraitKind::Inherent]);
+        traits.extend(vec![
+            TraitKind::Collection,
+            TraitKind::FieldValue,
+            TraitKind::Inherent,
+        ]);
 
         traits.into_vec()
     }
@@ -92,7 +96,7 @@ impl HasType for Set {
 
         quote! {
             #[repr(transparent)]
-            pub struct #ident(pub ::std::collections::HashSet<#item>);
+            pub struct #ident(pub ::std::collections::BTreeSet<#item>);
         }
     }
 }

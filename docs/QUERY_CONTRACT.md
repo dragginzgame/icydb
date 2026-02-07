@@ -66,6 +66,39 @@ Intent must not encode or imply any of the following:
 If no projection is specified, the intent is interpreted as “all fields.”
 Projection is an intent concern and must not be introduced by the planner.
 
+## Pagination Determinism Invariant (Required)
+
+Pagination requires explicit ordering that defines a total order for the page window.
+
+- `limit` and `offset` are illegal without `order_by(...)`.
+- The planner rejects unordered pagination with `PlanError::UnorderedPagination`.
+- The engine never applies implicit ordering from storage layout, index iteration,
+  or physical row order.
+- Callers should include a unique tie-breaker (for example, primary key) in
+  `order_by(...)` to guarantee total ordering.
+
+Rationale:
+- Pagination without a declared order is unstable and non-deterministic.
+- Different access paths or storage layouts may produce different row orders.
+
+Rejected (invalid):
+
+```rust
+let query = Query::<User>::new(ReadConsistency::MissingOk)
+    .limit(20)
+    .offset(40);
+```
+
+Accepted (stable intent):
+
+```rust
+let query = Query::<User>::new(ReadConsistency::MissingOk)
+    .order_by("created_at")
+    .order_by("id")
+    .limit(20)
+    .offset(40);
+```
+
 ## Missing-Row Semantics (Explicit)
 
 Missing-row behavior is an explicit part of intent and must be preserved through

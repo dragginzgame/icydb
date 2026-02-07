@@ -57,6 +57,7 @@ impl Imp<Map> for FromTrait {
             .set_tokens(q)
             .add_impl_constraint(quote!(IK: Into<#key>))
             .add_impl_constraint(quote!(IV: Into<#value>))
+            .add_impl_constraint(quote!(#key: ::std::cmp::Ord))
             .add_impl_generic(quote!(IK))
             .add_impl_generic(quote!(IV))
             .add_trait_generic(quote!(Vec<(IK, IV)>))
@@ -111,6 +112,7 @@ impl Imp<Set> for FromTrait {
         let tokens = Implementor::new(node.def(), TraitKind::From)
             .set_tokens(q)
             .add_impl_constraint(quote!(I: Into<#item>))
+            .add_impl_constraint(quote!(#item: ::std::cmp::Ord))
             .add_impl_generic(quote!(I))
             .add_trait_generic(quote!(Vec<I>))
             .to_token_stream();

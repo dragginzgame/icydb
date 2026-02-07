@@ -218,8 +218,19 @@ impl<'de> Deserialize<'de> for Decimal {
 }
 
 impl FieldValue for Decimal {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Decimal(*self)
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Decimal(v) => Some(*v),
+            _ => None,
+        }
     }
 }
 
@@ -412,7 +423,7 @@ impl ValidateCustom for Decimal {}
 impl View for Decimal {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         *self
     }
 

@@ -86,12 +86,20 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         self
     }
 
+    /// Bound the number of returned rows.
+    ///
+    /// Pagination is only valid with explicit ordering; combine `limit` and/or
+    /// `offset` with `order_by(...)` or planning fails.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
         self.inner = self.inner.limit(limit);
         self
     }
 
+    /// Skip a number of rows in the ordered result stream.
+    ///
+    /// Pagination is only valid with explicit ordering; combine `offset` and/or
+    /// `limit` with `order_by(...)` or planning fails.
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {
         self.inner = self.inner.offset(offset);
@@ -116,7 +124,8 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         Ok(self.inner.count()?)
     }
 
-    pub fn explain(&self) -> Result<core::db::query::plan::ExplainPlan, Error> {
+    #[doc(hidden)]
+    pub fn explain(&self) -> Result<crate::db::query::plan::ExplainPlan, Error> {
         Ok(self.inner.explain()?)
     }
 

@@ -108,8 +108,19 @@ impl DivAssign for Int {
 }
 
 impl FieldValue for Int {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::IntBig(self.clone())
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::IntBig(v) => Some(v.clone()),
+            _ => None,
+        }
     }
 }
 
@@ -160,7 +171,7 @@ impl ValidateCustom for Int {}
 impl View for Int {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.clone()
     }
 

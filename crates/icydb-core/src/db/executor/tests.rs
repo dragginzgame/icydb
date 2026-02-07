@@ -15,9 +15,9 @@ use crate::{
     },
     test_fixtures::entity_model_from_static,
     traits::{
-        CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
-        EntityStorageKey, EntityValue, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        AsView, CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement,
+        EntitySchema, EntityStorageKey, EntityValue, Path, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Id, Ulid},
 };
@@ -87,7 +87,7 @@ struct SimpleEntity {
 impl View for SimpleEntity {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.clone()
     }
 

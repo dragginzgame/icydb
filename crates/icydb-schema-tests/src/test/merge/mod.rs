@@ -117,7 +117,6 @@ mod tests {
             },
         ]);
         update.tags = Some(vec![SetPatch::Clear, SetPatch::Insert("green".to_string())]);
-        update.settings = Some(());
         update.profile = Some(MergeProfileUpdate {
             visits: Some(10),
             ..Default::default()
@@ -223,12 +222,20 @@ mod tests {
 
         let mut settings =
             MergeSettings::from(vec![("keep".to_string(), 1u32), ("drop".to_string(), 2u32)]);
-        let patch: Update<MergeSettings> = ();
-        settings.merge(patch);
-
-        let settings_map: HashMap<_, _> = settings.iter().map(|(k, v)| (k.clone(), *v)).collect();
-        assert_eq!(settings_map.get("keep"), Some(&1));
-        assert_eq!(settings_map.get("drop"), Some(&2));
+        let panic = std::panic::catch_unwind(move || {
+            let patch: Update<MergeSettings> = ();
+            settings.merge(patch);
+        })
+        .expect_err("map updates must fail loudly");
+        let panic_text = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap_or("unknown panic");
+        assert!(
+            panic_text.contains("map update is unsupported in icydb 0.7"),
+            "unexpected panic: {panic_text}"
+        );
     }
 
     #[test]
@@ -255,7 +262,6 @@ mod tests {
         update.tags = Some(vec![SetPatch::Overwrite {
             values: vec!["fresh".to_string(), "new".to_string()],
         }]);
-        update.settings = Some(());
 
         entity.merge(update);
 

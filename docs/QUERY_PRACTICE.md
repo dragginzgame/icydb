@@ -298,9 +298,34 @@ Validation is mandatory and occurs before evaluation:
 * `CoercionSpec` is allowed for the field type and operator.
 * List/map predicates use correctly typed literals.
 * Ordering operators are only used on orderable domains.
+* Pagination (`limit` / `offset`) requires explicit `order_by(...)`.
 
 Validation failures produce **Unsupported** errors.
 Evaluation must never panic.
+
+### Pagination Rule (Determinism)
+
+`limit` and `offset` without `order_by(...)` are rejected by design.
+Use `order_by(...)` fields that produce a total order for stable pagination.
+
+Rationale:
+* Unordered pagination is non-deterministic.
+* Physical/index/storage iteration order is not a query semantic.
+
+Rejected:
+
+```rust
+let query = Query::<User>::new(ReadConsistency::MissingOk).limit(10);
+```
+
+Accepted:
+
+```rust
+let query = Query::<User>::new(ReadConsistency::MissingOk)
+    .order_by("created_at")
+    .order_by("id")
+    .limit(10);
+```
 
 ### Semantic Contract (Non-Negotiable)
 

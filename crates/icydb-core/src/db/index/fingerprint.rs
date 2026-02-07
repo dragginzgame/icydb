@@ -36,7 +36,7 @@ pub enum ValueTag {
     IntBig = 14,
     List = 15,
     Map = 16,
-    None = 17,
+    Null = 17,
     Principal = 18,
     Subaccount = 19,
     Text = 20,
@@ -46,7 +46,6 @@ pub enum ValueTag {
     UintBig = 24,
     Ulid = 25,
     Unit = 26,
-    Unsupported = 27,
 }
 
 impl ValueTag {
@@ -78,7 +77,7 @@ const fn value_tag(value: &Value) -> u8 {
         Value::IntBig(_) => ValueTag::IntBig,
         Value::List(_) => ValueTag::List,
         Value::Map(_) => ValueTag::Map,
-        Value::None => ValueTag::None,
+        Value::Null => ValueTag::Null,
         Value::Principal(_) => ValueTag::Principal,
         Value::Subaccount(_) => ValueTag::Subaccount,
         Value::Text(_) => ValueTag::Text,
@@ -88,7 +87,6 @@ const fn value_tag(value: &Value) -> u8 {
         Value::UintBig(_) => ValueTag::UintBig,
         Value::Ulid(_) => ValueTag::Ulid,
         Value::Unit => ValueTag::Unit,
-        Value::Unsupported => ValueTag::Unsupported,
     }
     .to_u8()
 }
@@ -274,7 +272,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
         Value::Ulid(u) => {
             feed_bytes(h, &u.to_bytes());
         }
-        Value::None | Value::Unit | Value::Unsupported => {
+        Value::Null | Value::Unit => {
             // NOTE: Non-indexable values intentionally contribute no hash input.
         }
     }
@@ -301,7 +299,7 @@ pub fn hash_value(value: &Value) -> Result<[u8; 16], InternalError> {
 /// Index fingerprint semantics:
 ///
 /// - Only indexable values produce fingerprints.
-/// - `Value::None` and `Value::Unsupported` do not produce fingerprints and
+/// - `Value::Null` does not produce fingerprints and
 ///   therefore do not participate in indexing.
 /// - For unique indexes, uniqueness is enforced only over indexable values.
 ///   Multiple rows with non-indexable values are permitted.
@@ -310,7 +308,7 @@ pub fn hash_value(value: &Value) -> Result<[u8; 16], InternalError> {
 ///
 /// Stable 128-bit hash used for index keys; returns `None` for non-indexable values.
 pub fn to_index_fingerprint(value: &Value) -> Result<Option<[u8; 16]>, InternalError> {
-    if matches!(value, Value::None | Value::Unsupported) {
+    if matches!(value, Value::Null) {
         // Intentionally skipped: non-indexable values do not participate in indexes.
         return Ok(None);
     }

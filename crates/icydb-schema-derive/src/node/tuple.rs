@@ -63,6 +63,7 @@ impl HasSchemaPart for Tuple {
 impl HasTraits for Tuple {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
+        traits.add(TraitKind::FieldValue);
         traits.add(TraitKind::Inherent);
 
         traits.into_vec()
@@ -71,6 +72,7 @@ impl HasTraits for Tuple {
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
             TraitKind::Inherent => InherentTrait::strategy(self),
+            TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::UpdateView => UpdateViewTrait::strategy(self),
             TraitKind::View => ViewTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),

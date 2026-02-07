@@ -150,20 +150,20 @@ impl<E: EntityKind> Response<E> {
 
     pub fn view(&self) -> Result<View<E>, ResponseError> {
         self.require_one()?;
-        Ok(self.0[0].1.to_view())
+        Ok(self.0[0].1.as_view())
     }
 
     pub fn view_opt(&self) -> Result<Option<View<E>>, ResponseError> {
         match self.count() {
             0 => Ok(None),
-            1 => Ok(Some(self.0[0].1.to_view())),
+            1 => Ok(Some(self.0[0].1.as_view())),
             n => Err(ResponseError::not_unique::<E>(n)),
         }
     }
 
     #[must_use]
     pub fn views(&self) -> Vec<View<E>> {
-        self.0.iter().map(|(_, e)| e.to_view()).collect()
+        self.0.iter().map(|(_, e)| e.as_view()).collect()
     }
 }
 

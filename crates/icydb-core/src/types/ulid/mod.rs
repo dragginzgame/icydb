@@ -145,6 +145,10 @@ impl Default for Ulid {
 }
 
 impl FieldValue for Ulid {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Ulid(*self)
     }
@@ -237,7 +241,7 @@ impl ValidateCustom for Ulid {}
 impl View for Ulid {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         *self
     }
 

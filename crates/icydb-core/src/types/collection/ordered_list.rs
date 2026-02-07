@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        DeterministicCollection, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, DeterministicCollection, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
     view::ListPatch,
@@ -122,11 +122,40 @@ where
     }
 }
 
+impl<T: AsView> AsView for OrderedList<T> {
+    type ViewType = Vec<T::ViewType>;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.iter().map(AsView::as_view).collect()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        Self::from_vec(view.into_iter().map(T::from_view).collect())
+    }
+}
+
 impl<T> DeterministicCollection for OrderedList<T> {}
 
 impl<T: FieldValue> FieldValue for OrderedList<T> {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Structured { queryable: true }
+    }
+
     fn to_value(&self) -> Value {
         Value::List(self.0.iter().map(FieldValue::to_value).collect())
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        let Value::List(values) = value else {
+            return None;
+        };
+
+        let mut out = Vec::with_capacity(values.len());
+        for value in values {
+            out.push(T::from_value(value)?);
+        }
+
+        Some(Self(out))
     }
 }
 
@@ -212,18 +241,6 @@ impl<T: Visitable> Visitable for OrderedList<T> {
         for (i, value) in self.iter_mut().enumerate() {
             perform_visit_mut(visitor, value, i);
         }
-    }
-}
-
-impl<T: View> View for OrderedList<T> {
-    type ViewType = Vec<T::ViewType>;
-
-    fn to_view(&self) -> Self::ViewType {
-        self.iter().map(View::to_view).collect()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        Self::from_vec(view.into_iter().map(T::from_view).collect())
     }
 }
 

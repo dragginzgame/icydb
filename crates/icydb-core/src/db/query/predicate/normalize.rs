@@ -326,7 +326,7 @@ const VALUE_INT128: u8 = 13;
 const VALUE_INT_BIG: u8 = 14;
 const VALUE_LIST: u8 = 15;
 const VALUE_MAP: u8 = 16;
-const VALUE_NONE: u8 = 17;
+const VALUE_NULL: u8 = 17;
 const VALUE_PRINCIPAL: u8 = 18;
 const VALUE_SUBACCOUNT: u8 = 19;
 const VALUE_TEXT: u8 = 20;
@@ -336,7 +336,6 @@ const VALUE_UINT128: u8 = 23;
 const VALUE_UINT_BIG: u8 = 24;
 const VALUE_ULID: u8 = 25;
 const VALUE_UNIT: u8 = 26;
-const VALUE_UNSUPPORTED: u8 = 27;
 
 #[expect(clippy::too_many_lines)]
 fn encode_value_key(out: &mut Vec<u8>, value: &Value) {
@@ -421,7 +420,7 @@ fn encode_value_key(out: &mut Vec<u8>, value: &Value) {
                 push_value(out, value);
             }
         }
-        Value::None => out.push(VALUE_NONE),
+        Value::Null => out.push(VALUE_NULL),
         Value::Principal(v) => {
             out.push(VALUE_PRINCIPAL);
             push_bytes(out, v.as_slice());
@@ -455,7 +454,6 @@ fn encode_value_key(out: &mut Vec<u8>, value: &Value) {
             out.extend_from_slice(&v.to_bytes());
         }
         Value::Unit => out.push(VALUE_UNIT),
-        Value::Unsupported => out.push(VALUE_UNSUPPORTED),
     }
 }
 

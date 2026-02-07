@@ -463,6 +463,8 @@ impl<E: EntityKind> Query<E> {
     /// Apply a limit to the current mode.
     ///
     /// Load limits bound result size; delete limits bound mutation size.
+    /// For load queries, any use of `limit` or `offset` requires an explicit
+    /// `order_by(...)` so pagination is deterministic.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
         self.intent = self.intent.limit(limit);
@@ -470,6 +472,8 @@ impl<E: EntityKind> Query<E> {
     }
 
     /// Apply an offset to a load intent.
+    ///
+    /// Any use of `offset` or `limit` requires an explicit `order_by(...)`.
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {
         self.intent = self.intent.offset(offset);

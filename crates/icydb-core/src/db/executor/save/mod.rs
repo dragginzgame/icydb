@@ -18,7 +18,10 @@ use crate::{
         },
         query::{
             SaveMode,
-            predicate::validate::{SchemaInfo, literal_matches_type},
+            predicate::{
+                coercion::canonical_cmp,
+                validate::{SchemaInfo, literal_matches_type},
+            },
         },
         store::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
     },
@@ -34,6 +37,7 @@ use crate::{
 use std::{
     borrow::Cow,
     cell::RefCell,
+    cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     marker::PhantomData,
     sync::OnceLock,
@@ -176,54 +180,77 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     fn save_view(&self, mode: SaveMode, view: E::ViewType) -> Result<E::ViewType, InternalError> {
         let entity = E::from_view(view);
 
-        Ok(self.save_entity(mode, entity)?.to_view())
+        Ok(self.save_entity(mode, entity)?.as_view())
     }
 
     // ======================================================================
     // Batch save operations (fail-fast, non-atomic)
     // ======================================================================
 
-    pub fn insert_many(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, InternalError> {
-        // Batch semantics: fail-fast and non-atomic; partial successes remain.
-        // Retry-safe only with caller idempotency and conflict handling.
-        self.save_many(SaveMode::Insert, entities)
-    }
-
-    pub fn update_many(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, InternalError> {
-        // Batch semantics: fail-fast and non-atomic; partial successes remain.
-        // Retry-safe only if the caller tolerates already-updated rows.
-        self.save_many(SaveMode::Update, entities)
-    }
-
-    pub fn replace_many(
-        &self,
-        entities: impl IntoIterator<Item = E>,
-    ) -> Result<Vec<E>, InternalError> {
-        // Batch semantics: fail-fast and non-atomic; partial successes remain.
-        // Retry-safe only with caller idempotency and conflict handling.
-        self.save_many(SaveMode::Replace, entities)
-    }
-
-    // Shared batch save loop for insert/update/replace variants.
-    fn save_many(
+    /// Save a batch with explicitly non-atomic semantics.
+    ///
+    /// WARNING: this helper is fail-fast and non-atomic. If one element fails,
+    /// earlier elements in the batch remain committed.
+    pub fn save_batch_non_atomic(
         &self,
         mode: SaveMode,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
         let iter = entities.into_iter();
         let mut out = Vec::with_capacity(iter.size_hint().0);
+        let mut batch_index = 0usize;
 
         for entity in iter {
-            out.push(self.save_entity(mode, entity)?);
+            batch_index = batch_index.saturating_add(1);
+            match self.save_entity(mode, entity) {
+                Ok(saved) => out.push(saved),
+                Err(err) => {
+                    if !out.is_empty() {
+                        // Batch writes are intentionally non-atomic; surface partial commits loudly.
+                        println!(
+                            "[warn] icydb non-atomic batch partial commit: mode={mode:?} entity={} committed={} failed_at_item={} error={err}",
+                            E::PATH,
+                            out.len(),
+                            batch_index,
+                        );
+                    }
+
+                    return Err(err);
+                }
+            }
         }
 
         Ok(out)
+    }
+
+    /// Insert a batch with explicitly non-atomic semantics.
+    ///
+    /// WARNING: fail-fast and non-atomic. Earlier inserts may commit before an error.
+    pub fn insert_many_non_atomic(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<Vec<E>, InternalError> {
+        self.save_batch_non_atomic(SaveMode::Insert, entities)
+    }
+
+    /// Update a batch with explicitly non-atomic semantics.
+    ///
+    /// WARNING: fail-fast and non-atomic. Earlier updates may commit before an error.
+    pub fn update_many_non_atomic(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<Vec<E>, InternalError> {
+        self.save_batch_non_atomic(SaveMode::Update, entities)
+    }
+
+    /// Replace a batch with explicitly non-atomic semantics.
+    ///
+    /// WARNING: fail-fast and non-atomic. Earlier replaces may commit before an error.
+    pub fn replace_many_non_atomic(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<Vec<E>, InternalError> {
+        self.save_batch_non_atomic(SaveMode::Replace, entities)
     }
 
     #[expect(clippy::too_many_lines)]
@@ -503,7 +530,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 )
             })?;
 
-            if matches!(value, Value::None) {
+            if matches!(value, Value::Null) {
                 continue;
             }
 
@@ -512,26 +539,14 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 continue;
             }
 
-            if matches!(field.kind, EntityFieldKind::Unsupported) {
-                // Unsupported fields accept any runtime value; comparisons treat mismatches as
-                // incomparable, so we intentionally skip type validation here.
+            if !field.kind.value_kind().is_queryable() {
+                // Non-queryable structured fields are not planner-addressable.
+                // Skip predicate/index shape checks for this affordance class.
                 continue;
             }
 
-            if matches!(value, Value::Unsupported) {
-                return Err(InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Executor,
-                    format!(
-                        "entity field value is unsupported: {} field={}",
-                        E::PATH,
-                        field.name
-                    ),
-                ));
-            }
-
             let Some(field_type) = schema.field(field.name) else {
-                // Field is not part of schema (runtime-only); treat as unsupported.
+                // Field is not part of schema (runtime-only); treat as non-queryable.
                 continue;
             };
             if !literal_matches_type(&value, field_type) {
@@ -545,6 +560,111 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                     ),
                 ));
             }
+
+            // Phase 3: enforce deterministic collection/map encodings at runtime.
+            Self::validate_deterministic_field_value(field.name, &field.kind, &value)?;
+        }
+
+        Ok(())
+    }
+
+    /// Enforce deterministic value encodings for collection-like field kinds.
+    fn validate_deterministic_field_value(
+        field_name: &str,
+        kind: &EntityFieldKind,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        match kind {
+            EntityFieldKind::Set(_) => Self::validate_set_encoding(field_name, value),
+            EntityFieldKind::Map { .. } => Self::validate_map_encoding(field_name, value),
+            _ => Ok(()),
+        }
+    }
+
+    /// Validate canonical ordering + uniqueness for set-encoded list values.
+    fn validate_set_encoding(field_name: &str, value: &Value) -> Result<(), InternalError> {
+        if matches!(value, Value::Null) {
+            return Ok(());
+        }
+
+        let Value::List(items) = value else {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
+                format!(
+                    "set field must encode as Value::List: {} field={field_name}",
+                    E::PATH
+                ),
+            ));
+        };
+
+        for pair in items.windows(2) {
+            let [left, right] = pair else {
+                continue;
+            };
+            let ordering = canonical_cmp(left, right);
+            if ordering != Ordering::Less {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Executor,
+                    format!(
+                        "set field must be strictly ordered and deduplicated: {} field={field_name}",
+                        E::PATH
+                    ),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate canonical map entry invariants for persisted map values.
+    fn validate_map_encoding(field_name: &str, value: &Value) -> Result<(), InternalError> {
+        if matches!(value, Value::Null) {
+            return Ok(());
+        }
+
+        let Value::Map(entries) = value else {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
+                format!(
+                    "map field must encode as Value::Map: {} field={field_name}",
+                    E::PATH
+                ),
+            ));
+        };
+
+        Value::validate_map_entries(entries.as_slice()).map_err(|err| {
+            InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
+                format!(
+                    "map field entries violate map invariants: {} field={field_name} ({err})",
+                    E::PATH
+                ),
+            )
+        })?;
+
+        let normalized = Value::normalize_map_entries(entries.clone()).map_err(|err| {
+            InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
+                format!(
+                    "map field entries cannot be normalized: {} field={field_name} ({err})",
+                    E::PATH
+                ),
+            )
+        })?;
+        if normalized.as_slice() != entries.as_slice() {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
+                format!(
+                    "map field entries are not in canonical deterministic order: {} field={field_name}",
+                    E::PATH
+                ),
+            ));
         }
 
         Ok(())
@@ -573,13 +693,13 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                     // NOTE: relation List/Set shapes are represented as Value::List at runtime.
                     for item in items {
                         // NOTE: Optional list entries are allowed; skip explicit None values.
-                        if matches!(item, Value::None) {
+                        if matches!(item, Value::Null) {
                             continue;
                         }
                         self.validate_strong_relation_value(field.name, relation, item)?;
                     }
                 }
-                Value::None => {
+                Value::Null => {
                     // NOTE: Optional strong relations may be unset; None does not trigger RI.
                 }
                 _ => {

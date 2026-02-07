@@ -94,8 +94,19 @@ impl Rem for Nat128 {
 }
 
 impl FieldValue for Nat128 {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Uint128(*self)
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Uint128(v) => Some(*v),
+            _ => None,
+        }
     }
 }
 
@@ -208,7 +219,7 @@ impl ValidateCustom for Nat128 {}
 impl View for Nat128 {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         *self
     }
 

@@ -155,11 +155,6 @@ atomicity.
 * Scan and planning are pre-commit
 * Apply phase performs only raw removals and index updates
 
-### Upsert (unique index)
-
-* Fully atomic
-* Implemented as a validated save with uniqueness resolution
-
 ---
 
 ## Startup Recovery Window (Operational Guidance)

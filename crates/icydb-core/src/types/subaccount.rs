@@ -118,6 +118,10 @@ impl Display for Subaccount {
 }
 
 impl FieldValue for Subaccount {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Subaccount(*self)
     }
@@ -202,7 +206,7 @@ impl ValidateCustom for Subaccount {}
 impl View for Subaccount {
     type ViewType = SubaccountBytes;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.0
     }
 

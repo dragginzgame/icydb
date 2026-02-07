@@ -5,6 +5,8 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+---
+
 ## [0.7.0] – 2026-02-05 - Referential Integrity, Part III
 
 ### 🧁 Summary
@@ -20,7 +22,6 @@ stacks on top of an incomplete commit.
 ### 🥨 Added
 
 * Added `strong`/`weak` relation flags in the schema DSL, with `weak` as the default.
-* Added relation strength metadata to `EntityFieldKind::Ref` for runtime consumers.
 * Added a `Display` derive in `icydb-derive` for tuple newtypes.
 * Added collection types `OrderedList` and `IdSet` for explicit many-field semantics.
 * Added `OrderedList::retain` plus `apply_patches` helpers on `OrderedList` and `IdSet` for explicit patch application.
@@ -39,7 +40,6 @@ stacks on top of an incomplete commit.
 
 ### 🧢 Breaking
 
-* `EntityFieldKind::Ref` now carries target entity/store metadata and relation strength, so downstream enum matches must update.
 * Entity and record fields with `many` cardinality now emit `OrderedList<T>` instead of `Vec<T>`.
 * Relation fields with `many` cardinality now emit `IdSet<T>` instead of list types like `Vec<Id<T>>`.
 * Entity primary-key fields now emit `Id<E>` instead of raw key values, and `EntityValue::set_id` wraps raw keys into `Id<E>` so call sites must pass the raw key type.

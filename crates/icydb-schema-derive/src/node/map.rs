@@ -92,6 +92,7 @@ impl HasSchemaPart for Map {
 impl HasTraits for Map {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
+        traits.add(TraitKind::FieldValue);
         traits.add(TraitKind::MapCollection);
         traits.add(TraitKind::Inherent);
 
@@ -127,7 +128,7 @@ impl HasType for Map {
 
         quote! {
             #[repr(transparent)]
-            pub struct #ident(pub ::std::collections::HashMap<#key, #value>);
+            pub struct #ident(pub ::std::collections::BTreeMap<#key, #value>);
         }
     }
 }

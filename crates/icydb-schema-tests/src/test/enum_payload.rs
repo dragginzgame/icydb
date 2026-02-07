@@ -82,6 +82,6 @@ pub mod test {
         let none_val: Option<Value> = None;
 
         assert_eq!(FieldValue::to_value(&some_val), Value::Uint(7));
-        assert_eq!(FieldValue::to_value(&none_val), Value::None);
+        assert_eq!(FieldValue::to_value(&none_val), Value::Null);
     }
 }

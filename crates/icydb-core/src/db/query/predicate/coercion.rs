@@ -228,7 +228,7 @@ const fn canonical_rank(value: &Value) -> u8 {
         Value::IntBig(_) => 13,
         Value::List(_) => 14,
         Value::Map(_) => 15,
-        Value::None => 16,
+        Value::Null => 16,
         Value::Principal(_) => 17,
         Value::Subaccount(_) => 18,
         Value::Text(_) => 19,
@@ -238,7 +238,6 @@ const fn canonical_rank(value: &Value) -> u8 {
         Value::UintBig(_) => 23,
         Value::Ulid(_) => 24,
         Value::Unit => 25,
-        Value::Unsupported => 26,
     }
 }
 

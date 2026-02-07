@@ -133,8 +133,19 @@ impl Display for Date {
 }
 
 impl FieldValue for Date {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Date(*self)
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Date(v) => Some(*v),
+            _ => None,
+        }
     }
 }
 
@@ -218,7 +229,7 @@ impl ValidateCustom for Date {}
 impl View for Date {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         *self
     }
 

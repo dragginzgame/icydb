@@ -1,8 +1,8 @@
 use crate::{
     prelude::*,
     traits::{
-        FieldValue, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, FieldValue, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     visitor::VisitorContext,
 };
@@ -59,19 +59,22 @@ impl Float32 {
     }
 }
 
-#[derive(Debug, ThisError)]
-pub enum Float32DecodeError {
-    #[error("invalid float32 length: {len} bytes")]
-    InvalidSize { len: usize },
-    #[error("non-finite float32 payload")]
-    NonFinite,
-}
+impl AsView for Float32 {
+    type ViewType = f32;
 
-impl TryFrom<&[u8]> for Float32 {
-    type Error = Float32DecodeError;
+    fn as_view(&self) -> Self::ViewType {
+        self.0
+    }
 
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from_bytes(bytes)
+    // NOTE: View inputs are normalized to preserve invariants (finite only, -0.0 → 0.0).
+    fn from_view(view: f32) -> Self {
+        let normalized = if view.is_finite() {
+            if view == 0.0 { 0.0 } else { view }
+        } else {
+            0.0
+        };
+
+        Self::try_new(normalized).unwrap_or(Self(0.0))
     }
 }
 
@@ -84,8 +87,19 @@ impl PartialEq for Float32 {
 }
 
 impl FieldValue for Float32 {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Float32(*self)
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Float32(v) => Some(*v),
+            _ => None,
+        }
     }
 }
 
@@ -186,6 +200,26 @@ impl SanitizeAuto for Float32 {}
 
 impl SanitizeCustom for Float32 {}
 
+///
+/// Float32DecodeError
+///
+
+#[derive(Debug, ThisError)]
+pub enum Float32DecodeError {
+    #[error("invalid float32 length: {len} bytes")]
+    InvalidSize { len: usize },
+    #[error("non-finite float32 payload")]
+    NonFinite,
+}
+
+impl TryFrom<&[u8]> for Float32 {
+    type Error = Float32DecodeError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
+    }
+}
+
 impl UpdateView for Float32 {
     type UpdateViewType = Self;
 
@@ -201,25 +235,6 @@ impl ValidateCustom for Float32 {
         if !self.0.is_finite() {
             ctx.issue("Float32 must be finite");
         }
-    }
-}
-
-impl View for Float32 {
-    type ViewType = f32;
-
-    fn to_view(&self) -> Self::ViewType {
-        self.0
-    }
-
-    // NOTE: View inputs are normalized to preserve invariants (finite only, -0.0 → 0.0).
-    fn from_view(view: f32) -> Self {
-        let normalized = if view.is_finite() {
-            if view == 0.0 { 0.0 } else { view }
-        } else {
-            0.0
-        };
-
-        Self::try_new(normalized).unwrap_or(Self(0.0))
     }
 }
 

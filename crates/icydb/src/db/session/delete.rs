@@ -100,7 +100,8 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     // Execution
     // ------------------------------------------------------------------
 
-    pub fn explain(&self) -> Result<core::db::query::plan::ExplainPlan, Error> {
+    #[doc(hidden)]
+    pub fn explain(&self) -> Result<crate::db::query::plan::ExplainPlan, Error> {
         Ok(self.inner.explain()?)
     }
 

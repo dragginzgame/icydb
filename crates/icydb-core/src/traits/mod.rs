@@ -183,7 +183,7 @@ pub trait SingletonEntity: EntityValue {}
 
 pub trait TypeKind:
     Kind
-    + View
+    + AsView
     + Clone
     + Default
     + Serialize
@@ -197,7 +197,7 @@ pub trait TypeKind:
 
 impl<T> TypeKind for T where
     T: Kind
-        + View
+        + AsView
         + Clone
         + Default
         + DeserializeOwned
@@ -231,6 +231,18 @@ impl<T> TypeKind for T where
 ///
 
 pub trait DeterministicCollection {}
+
+///
+/// DeterministicMapCollection
+///
+/// Marker for map-collection types with stable key iteration and serialization
+/// semantics across process boundaries.
+///
+/// This trait intentionally has no methods; it encodes a hard determinism
+/// invariant at map-collection boundaries.
+///
+
+pub trait DeterministicMapCollection {}
 
 pub trait Collection {
     type Item;
@@ -289,6 +301,35 @@ pub trait FieldValues {
 }
 
 ///
+/// FieldValueKind
+///
+/// Schema affordance classification for query planning and validation.
+/// Describes whether a field is planner-addressable and predicate-queryable.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FieldValueKind {
+    /// Planner-addressable atomic value.
+    Atomic,
+
+    /// Structured value with known internal fields that the planner
+    /// does not reason about as an addressable query target.
+    Structured {
+        /// Whether predicates may be expressed against this field.
+        queryable: bool,
+    },
+}
+
+impl FieldValueKind {
+    #[must_use]
+    pub const fn is_queryable(self) -> bool {
+        match self {
+            Self::Atomic => true,
+            Self::Structured { queryable } => queryable,
+        }
+    }
+}
+
+///
 /// FieldValue
 ///
 /// Conversion boundary for values used in query predicates.
@@ -297,49 +338,104 @@ pub trait FieldValues {
 ///
 
 pub trait FieldValue {
-    fn to_value(&self) -> Value {
-        Value::Unsupported
-    }
+    fn kind() -> FieldValueKind
+    where
+        Self: Sized;
+
+    fn to_value(&self) -> Value;
 
     #[must_use]
-    fn from_value(_value: &Value) -> Option<Self>
+    fn from_value(value: &Value) -> Option<Self>
     where
-        Self: Sized,
-    {
+        Self: Sized;
+}
+
+impl FieldValue for &str {
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
+    }
+
+    fn to_value(&self) -> Value {
+        Value::Text((*self).to_string())
+    }
+
+    fn from_value(_value: &Value) -> Option<Self> {
         None
     }
 }
 
-impl FieldValue for &str {
-    fn to_value(&self) -> Value {
-        Value::Text((*self).to_string())
-    }
-}
-
 impl FieldValue for String {
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Text(self.clone())
     }
-}
 
-impl<T: FieldValue> FieldValue for Option<T> {
-    fn to_value(&self) -> Value {
-        match self {
-            Some(v) => v.to_value(),
-            None => Value::None,
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Text(v) => Some(v.clone()),
+            _ => None,
         }
     }
 }
 
+impl<T: FieldValue> FieldValue for Option<T> {
+    fn kind() -> FieldValueKind {
+        T::kind()
+    }
+
+    fn to_value(&self) -> Value {
+        match self {
+            Some(v) => v.to_value(),
+            None => Value::Null,
+        }
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        if matches!(value, Value::Null) {
+            return Some(None);
+        }
+
+        T::from_value(value).map(Some)
+    }
+}
+
 impl<T: FieldValue> FieldValue for Box<T> {
+    fn kind() -> FieldValueKind {
+        T::kind()
+    }
+
     fn to_value(&self) -> Value {
         (**self).to_value()
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        T::from_value(value).map(Box::new)
     }
 }
 
 impl<T: FieldValue> FieldValue for Vec<Box<T>> {
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Structured { queryable: true }
+    }
+
     fn to_value(&self) -> Value {
         Value::List(self.iter().map(FieldValue::to_value).collect())
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        let Value::List(items) = value else {
+            return None;
+        };
+
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            out.push(Box::new(T::from_value(item)?));
+        }
+
+        Some(out)
     }
 }
 
@@ -349,6 +445,10 @@ macro_rules! impl_field_value {
     ( $( $type:ty => $variant:ident ),* $(,)? ) => {
         $(
             impl FieldValue for $type {
+                fn kind() -> FieldValueKind {
+                    FieldValueKind::Atomic
+                }
+
                 fn to_value(&self) -> Value {
                     Value::$variant((*self).into())
                 }

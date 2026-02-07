@@ -200,8 +200,19 @@ impl Display for E18s {
 }
 
 impl FieldValue for E18s {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::E18s(*self)
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::E18s(v) => Some(*v),
+            _ => None,
+        }
     }
 }
 
@@ -276,7 +287,7 @@ impl ValidateCustom for E18s {}
 impl View for E18s {
     type ViewType = u128;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.0
     }
 

@@ -195,7 +195,6 @@ pub trait HasTraits: HasType {
             // Marker traits — empty impls
             // ─────────────────────────────
             TraitKind::CanisterKind
-            | TraitKind::FieldValue
             | TraitKind::SanitizeAuto
             | TraitKind::SanitizeCustom
             | TraitKind::ValidateAuto

@@ -51,9 +51,52 @@ impl Imp<Enum> for FieldValueTrait {
             }
         };
 
+        let from_arms = node.variants.iter().map(|v| {
+            let v_ident = &v.ident;
+            let v_name = v_ident.to_string();
+            if v.value.is_some() {
+                let payload_ty = v
+                    .value
+                    .as_ref()
+                    .expect("payload existence checked above")
+                    .type_expr();
+                quote! {
+                    #v_name => {
+                        let payload = v.payload.as_deref()?;
+                        let value = <#payload_ty as ::icydb::traits::FieldValue>::from_value(payload)?;
+                        Some(Self::#v_ident(value))
+                    }
+                }
+            } else {
+                quote! {
+                    #v_name => Some(Self::#v_ident)
+                }
+            }
+        });
+
         let field_value = quote! {
+            fn kind() -> ::icydb::traits::FieldValueKind {
+                ::icydb::traits::FieldValueKind::Atomic
+            }
+
             fn to_value(&self) -> ::icydb::value::Value {
                 ::icydb::value::Value::Enum(::icydb::traits::EnumValue::to_value_enum(self))
+            }
+
+            fn from_value(value: &::icydb::value::Value) -> Option<Self> {
+                let ::icydb::value::Value::Enum(v) = value else {
+                    return None;
+                };
+                if let Some(path) = &v.path
+                    && path != <Self as ::icydb::traits::Path>::PATH
+                {
+                    return None;
+                }
+
+                match v.variant.as_str() {
+                    #(#from_arms),*,
+                    _ => None,
+                }
             }
         };
 
@@ -79,7 +122,13 @@ impl Imp<Enum> for FieldValueTrait {
 
 impl Imp<List> for FieldValueTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
+        let item = node.item.type_expr();
+
         let q = quote! {
+            fn kind() -> ::icydb::traits::FieldValueKind {
+                ::icydb::traits::FieldValueKind::Structured { queryable: true }
+            }
+
             fn to_value(&self) -> ::icydb::value::Value {
                 use ::icydb::traits::Collection;
 
@@ -88,6 +137,19 @@ impl Imp<List> for FieldValueTrait {
                         .map(::icydb::traits::FieldValue::to_value)
                         .collect()
                 )
+            }
+
+            fn from_value(value: &::icydb::value::Value) -> Option<Self> {
+                let ::icydb::value::Value::List(values) = value else {
+                    return None;
+                };
+
+                let mut out = ::std::vec::Vec::<#item>::with_capacity(values.len());
+                for value in values {
+                    out.push(<#item as ::icydb::traits::FieldValue>::from_value(value)?);
+                }
+
+                Some(Self(out))
             }
         };
 
@@ -109,6 +171,10 @@ impl Imp<Map> for FieldValueTrait {
         let value_type = node.value.type_expr();
 
         let q = quote! {
+            fn kind() -> ::icydb::traits::FieldValueKind {
+                ::icydb::traits::FieldValueKind::Structured { queryable: false }
+            }
+
             fn to_value(&self) -> ::icydb::value::Value {
                 let entries = self
                     .0
@@ -138,10 +204,7 @@ impl Imp<Map> for FieldValueTrait {
                     return None;
                 }
 
-                let mut map =
-                    ::std::collections::HashMap::<#key_type, #value_type>::with_capacity(
-                        entries.len(),
-                    );
+                let mut map = ::std::collections::BTreeMap::<#key_type, #value_type>::new();
                 for (entry_key, entry_value) in entries {
                     let key = <#key_type as ::icydb::traits::FieldValue>::from_value(entry_key)?;
                     let value =
@@ -170,9 +233,20 @@ impl Imp<Map> for FieldValueTrait {
 
 impl Imp<Newtype> for FieldValueTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
+        let item = node.item.type_expr();
+
         let q = quote! {
+            fn kind() -> ::icydb::traits::FieldValueKind {
+                <#item as ::icydb::traits::FieldValue>::kind()
+            }
+
             fn to_value(&self) -> ::icydb::value::Value {
                 self.0.to_value()
+            }
+
+            fn from_value(value: &::icydb::value::Value) -> Option<Self> {
+                let inner = <#item as ::icydb::traits::FieldValue>::from_value(value)?;
+                Some(Self(inner))
             }
         };
 
@@ -190,7 +264,13 @@ impl Imp<Newtype> for FieldValueTrait {
 
 impl Imp<Set> for FieldValueTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
+        let item = node.item.type_expr();
+
         let q = quote! {
+            fn kind() -> ::icydb::traits::FieldValueKind {
+                ::icydb::traits::FieldValueKind::Structured { queryable: true }
+            }
+
             fn to_value(&self) -> ::icydb::value::Value {
                 use ::icydb::traits::Collection;
 
@@ -199,6 +279,78 @@ impl Imp<Set> for FieldValueTrait {
                         .map(::icydb::traits::FieldValue::to_value)
                         .collect()
                 )
+            }
+
+            fn from_value(value: &::icydb::value::Value) -> Option<Self> {
+                let ::icydb::value::Value::List(values) = value else {
+                    return None;
+                };
+
+                let mut out = ::std::collections::BTreeSet::<#item>::new();
+                for value in values {
+                    let item = <#item as ::icydb::traits::FieldValue>::from_value(value)?;
+                    if !out.insert(item) {
+                        return None;
+                    }
+                }
+
+                Some(Self(out))
+            }
+        };
+
+        let tokens = Implementor::new(node.def(), TraitKind::FieldValue)
+            .set_tokens(q)
+            .to_token_stream();
+
+        Some(TraitStrategy::from_impl(tokens))
+    }
+}
+
+///
+/// Record
+///
+
+impl Imp<Record> for FieldValueTrait {
+    fn strategy(node: &Record) -> Option<TraitStrategy> {
+        let q = quote! {
+            fn kind() -> ::icydb::traits::FieldValueKind {
+                ::icydb::traits::FieldValueKind::Structured { queryable: false }
+            }
+
+            fn to_value(&self) -> ::icydb::value::Value {
+                ::icydb::value::Value::Null
+            }
+
+            fn from_value(_value: &::icydb::value::Value) -> Option<Self> {
+                None
+            }
+        };
+
+        let tokens = Implementor::new(node.def(), TraitKind::FieldValue)
+            .set_tokens(q)
+            .to_token_stream();
+
+        Some(TraitStrategy::from_impl(tokens))
+    }
+}
+
+///
+/// Tuple
+///
+
+impl Imp<Tuple> for FieldValueTrait {
+    fn strategy(node: &Tuple) -> Option<TraitStrategy> {
+        let q = quote! {
+            fn kind() -> ::icydb::traits::FieldValueKind {
+                ::icydb::traits::FieldValueKind::Structured { queryable: false }
+            }
+
+            fn to_value(&self) -> ::icydb::value::Value {
+                ::icydb::value::Value::Null
+            }
+
+            fn from_value(_value: &::icydb::value::Value) -> Option<Self> {
+                None
             }
         };
 

@@ -18,7 +18,7 @@ use std::cmp::Ordering;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FieldPresence {
-    /// Field exists and has a value (including `Value::None`).
+    /// Field exists and has a value (including `Value::Null`).
     Present(Value),
     /// Field is not present on the row.
     Missing,
@@ -91,7 +91,7 @@ pub fn eval<R: Row + ?Sized>(row: &R, predicate: &Predicate) -> bool {
         Predicate::Compare(cmp) => eval_compare(row, cmp),
 
         Predicate::IsNull { field } => match row.field(field) {
-            FieldPresence::Present(Value::None) => true,
+            FieldPresence::Present(Value::Null) => true,
             _ => false,
         },
 

@@ -112,8 +112,19 @@ impl DivAssign for Nat {
 }
 
 impl FieldValue for Nat {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::UintBig(self.clone())
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::UintBig(v) => Some(v.clone()),
+            _ => None,
+        }
     }
 }
 
@@ -173,7 +184,7 @@ impl ValidateCustom for Nat {}
 impl View for Nat {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.clone()
     }
 

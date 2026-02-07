@@ -117,6 +117,7 @@ impl HasTraits for Enum {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
         traits.add(TraitKind::Inherent);
+        traits.add(TraitKind::FieldValue);
 
         // extra traits
         if self.is_unit_enum() {

@@ -1,12 +1,13 @@
 # Collections Contract
 
-## OrderedList vs UniqueList vs IdSet
+## OrderedList vs IdSet
 - `OrderedList<T>`: ordered list, duplicates allowed, preserves insertion order, serializes identically to `Vec<T>`.
-- `UniqueList<T>`: enforces uniqueness by `Eq + Hash`; deterministic order is first-seen insertion; serializes identically to `Vec<T>`.
 - `IdSet<E>`: ordered set of `Id<E>`; uniqueness by raw storage key (`E::Key`), order by ascending key; no cascades or ownership semantics.
 
 ## Transport vs Domain Semantics
-- Cardinality (`many`) is shape-only; schema and codegen do not imply uniqueness or ordering semantics beyond container choice.
+- Cardinality is explicit by container choice:
+  - relation `many` fields use set semantics (`IdSet`)
+  - non-relation `many` fields use list semantics (`OrderedList`)
 - Views are transport: many fields view as `Vec<T::ViewType>`, update views are patch sequences.
 - Domain semantics live in collection types and record methods; there is no implicit deduplication, indexing, or cascade behavior.
 
@@ -17,16 +18,10 @@
 
 ## Normalization Behavior on Ingest
 - `OrderedList` preserves incoming order and duplicates.
-- `UniqueList` removes later duplicates; order is first-seen.
 - `IdSet` removes duplicate keys and orders by ascending key.
-- `from_view` and serde deserialization for `UniqueList` and `IdSet` perform the same normalization as their constructors.
+- `from_view` and serde deserialization for `IdSet` perform the same normalization as its constructor.
 
 ## Predicate Behavior on Value::List
 - `In`/`NotIn` and `Contains` treat lists as collections; order does not affect match results.
 - `IsEmpty` on lists checks length only.
-- Map-like values are encoded as lists of `[key, value]` pairs; malformed encodings are treated as non-matches.
 - Normalization and fingerprint logic preserve list order for deterministic output.
-
-## Renames I Recommend (High Confidence)
-- `ListPatch` -> `IndexListPatch` (or `PositionalListPatch`)
-- Rationale: list patches are index-addressed, not identity-addressed; the current name is easily misread as semantic.

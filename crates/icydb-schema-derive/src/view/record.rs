@@ -31,7 +31,7 @@ impl View for RecordView<'_> {
 
             impl Default for #view_ident {
                 fn default() -> Self {
-                    #node_ident::default().to_view()
+                    #node_ident::default().as_view()
                 }
             }
         }

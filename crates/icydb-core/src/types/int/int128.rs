@@ -94,8 +94,19 @@ impl Rem for Int128 {
 }
 
 impl FieldValue for Int128 {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Int128(*self)
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Int128(v) => Some(*v),
+            _ => None,
+        }
     }
 }
 
@@ -226,7 +237,7 @@ impl ValidateCustom for Int128 {}
 impl View for Int128 {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         *self
     }
 

@@ -59,7 +59,7 @@ pub enum PlanError {
 
     /// Primary key field exists but is not key-compatible.
     #[error("primary key field '{field}' is not key-compatible")]
-    PrimaryKeyUnsupported { field: String },
+    PrimaryKeyNotKeyable { field: String },
 
     /// Supplied key does not match the primary key type.
     #[error("key '{key:?}' is incompatible with primary key '{field}'")]
@@ -84,6 +84,12 @@ pub enum PlanError {
     /// Delete limits require an explicit ordering.
     #[error("delete limit requires an explicit ordering")]
     DeleteLimitRequiresOrder,
+
+    /// Pagination requires an explicit ordering.
+    #[error(
+        "Unordered pagination is not allowed.\nThis query uses LIMIT or OFFSET without an ORDER BY clause.\nPagination without a total ordering is non-deterministic.\nAdd an explicit order_by(...) to make the query stable."
+    )]
+    UnorderedPagination,
 }
 
 /// Validate a logical plan using a prebuilt schema surface.
@@ -189,8 +195,19 @@ fn validate_plan_semantics<K>(plan: &LogicalPlan<K>) -> Result<(), PlanError> {
         }
     }
 
-    if plan.mode.is_load() && plan.delete_limit.is_some() {
-        return Err(PlanError::LoadPlanWithDeleteLimit);
+    if plan.mode.is_load() {
+        if plan.delete_limit.is_some() {
+            return Err(PlanError::LoadPlanWithDeleteLimit);
+        }
+
+        if plan.page.is_some()
+            && plan
+                .order
+                .as_ref()
+                .is_none_or(|order| order.fields.is_empty())
+        {
+            return Err(PlanError::UnorderedPagination);
+        }
     }
 
     Ok(())
@@ -264,7 +281,7 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
             })?;
 
         if !field_type.is_orderable() {
-            // CONTRACT: ORDER BY rejects unsupported or unordered fields.
+            // CONTRACT: ORDER BY rejects non-queryable or unordered fields.
             return Err(PlanError::UnorderableField {
                 field: field.clone(),
             });
@@ -446,12 +463,12 @@ where
 
     let field_type = schema
         .field(field)
-        .ok_or_else(|| PlanError::PrimaryKeyUnsupported {
+        .ok_or_else(|| PlanError::PrimaryKeyNotKeyable {
             field: field.to_string(),
         })?;
 
     if !field_type.is_keyable() {
-        return Err(PlanError::PrimaryKeyUnsupported {
+        return Err(PlanError::PrimaryKeyNotKeyable {
             field: field.to_string(),
         });
     }
@@ -477,12 +494,12 @@ fn validate_pk_value(
 
     let field_type = schema
         .field(field)
-        .ok_or_else(|| PlanError::PrimaryKeyUnsupported {
+        .ok_or_else(|| PlanError::PrimaryKeyNotKeyable {
             field: field.to_string(),
         })?;
 
     if !field_type.is_keyable() {
-        return Err(PlanError::PrimaryKeyUnsupported {
+        return Err(PlanError::PrimaryKeyNotKeyable {
             field: field.to_string(),
         });
     }
@@ -539,7 +556,7 @@ fn validate_index_prefix(
 
 /// Map scalar field types to compatible key variants.
 ///
-/// Non-scalar and unsupported field types are intentionally excluded.
+/// Non-scalar and non-queryable field types are intentionally excluded.
 ///
 /// TESTS
 ///
@@ -550,7 +567,7 @@ mod tests {
     use super::{PlanError, validate_logical_plan_model};
     use crate::{
         db::query::{
-            plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec},
+            plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec},
             predicate::{SchemaInfo, ValidateError},
         },
         model::{
@@ -684,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn model_rejects_index_unsupported_field() {
+    fn model_rejects_index_non_queryable_field() {
         const INDEX_FIELDS: [&str; 1] = ["broken"];
         const INDEX_MODEL: IndexModel =
             IndexModel::new("test::idx_broken", "test::IndexStore", &INDEX_FIELDS, false);
@@ -693,7 +710,7 @@ mod tests {
         let fields: &'static [EntityFieldModel] = Box::leak(
             vec![
                 field("id", EntityFieldKind::Ulid),
-                field("broken", EntityFieldKind::Unsupported),
+                field("broken", EntityFieldKind::Structured { queryable: false }),
             ]
             .into_boxed_slice(),
         );
@@ -707,7 +724,7 @@ mod tests {
 
         assert!(matches!(
             SchemaInfo::from_entity_model(&model),
-            Err(ValidateError::IndexFieldUnsupported { .. })
+            Err(ValidateError::IndexFieldNotQueryable { .. })
         ));
     }
 
@@ -745,7 +762,7 @@ mod tests {
 
         assert!(matches!(
             SchemaInfo::from_entity_model(&model),
-            Err(ValidateError::IndexFieldMapUnsupported { .. })
+            Err(ValidateError::IndexFieldMapNotQueryable { .. })
         ));
     }
 
@@ -869,5 +886,49 @@ mod tests {
         };
 
         validate_logical_plan_model(&schema, model, &plan).expect("valid plan");
+    }
+
+    #[test]
+    fn plan_rejects_unordered_pagination() {
+        let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+        let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+        let plan: LogicalPlan<Value> = LogicalPlan {
+            mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+            access: AccessPlan::Path(AccessPath::FullScan),
+            predicate: None,
+            order: None,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(10),
+                offset: 2,
+            }),
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        };
+
+        let err = validate_logical_plan_model(&schema, model, &plan)
+            .expect_err("pagination without ordering must be rejected");
+        assert!(matches!(err, PlanError::UnorderedPagination));
+    }
+
+    #[test]
+    fn plan_accepts_ordered_pagination() {
+        let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+        let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+        let plan: LogicalPlan<Value> = LogicalPlan {
+            mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+            access: AccessPlan::Path(AccessPath::FullScan),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(10),
+                offset: 2,
+            }),
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        };
+
+        validate_logical_plan_model(&schema, model, &plan).expect("ordered pagination is valid");
     }
 }

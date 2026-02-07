@@ -31,6 +31,10 @@ use serde::{Deserialize, Serialize};
 pub struct Unit;
 
 impl FieldValue for () {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Unit
     }
@@ -41,6 +45,10 @@ impl FieldValue for () {
 }
 
 impl FieldValue for Unit {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Unit
     }
@@ -75,7 +83,7 @@ impl ValidateCustom for Unit {}
 impl View for Unit {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         *self
     }
 

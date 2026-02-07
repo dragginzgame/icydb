@@ -45,7 +45,9 @@ impl Imp<Map> for UpdateViewTrait {
                 &mut self,
                 _update: Self::UpdateViewType,
             ) {
-                // Map patching is intentionally unsupported in 0.7.
+                panic!(
+                    "map update is unsupported in icydb 0.7; map patching is intentionally disabled"
+                );
             }
         };
 
@@ -190,7 +192,7 @@ fn update_impl_delegate(node: &impl HasType) -> TraitStrategy {
             &mut self,
             update: Self::UpdateViewType,
         ) {
-            // Forward to the inner collection (Vec, HashSet, HashMap)
+            // Forward to the inner collection (Vec, BTreeSet, BTreeMap)
             let mut next = self.clone();
             ::icydb::traits::UpdateView::merge(&mut next.0, update);
             *self = next;

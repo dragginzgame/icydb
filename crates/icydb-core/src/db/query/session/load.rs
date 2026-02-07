@@ -101,12 +101,20 @@ where
         self
     }
 
+    /// Bound the number of returned rows.
+    ///
+    /// Pagination is only valid with explicit ordering; combine `limit` and/or
+    /// `offset` with `order_by(...)` or planning fails.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
         self.query = self.query.limit(limit);
         self
     }
 
+    /// Skip a number of rows in the ordered result stream.
+    ///
+    /// Pagination is only valid with explicit ordering; combine `offset` and/or
+    /// `limit` with `order_by(...)` or planning fails.
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {
         self.query = self.query.offset(offset);

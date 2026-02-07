@@ -19,9 +19,8 @@ pub enum CoercionFamily {
     Collection, // List
     Blob,       // Blob(Vec<u8>)
     Bool,
-    Null, // Value::None
+    Null, // Value::Null
     Unit, // Value::Unit
-    Unsupported,
 }
 
 ///

@@ -194,6 +194,7 @@ git ls-remote --tags https://github.com/dragginzgame/icydb.git
 * Increasing test coverage across query and index paths.
 * Tracking memory usage and store statistics in production.
 * Reducing WASM size produced by `icydb_build`.
+* Defining and delivering future transactional semantics (see `docs/ROADMAP.md`).
 
 ---
 

@@ -44,7 +44,7 @@ impl<E> WriteResponse<E> {
     where
         E: View,
     {
-        self.entity.to_view()
+        self.entity.as_view()
     }
 }
 

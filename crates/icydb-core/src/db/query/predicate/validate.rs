@@ -5,6 +5,7 @@ use super::{
 use crate::{
     db::identity::{EntityName, EntityNameError, IndexName, IndexNameError},
     model::{entity::EntityModel, field::EntityFieldKind, index::IndexModel},
+    traits::FieldValueKind,
     value::{CoercionFamily, CoercionFamilyExt, Value},
 };
 use std::{
@@ -174,16 +175,28 @@ pub(crate) enum FieldType {
     List(Box<Self>),
     Set(Box<Self>),
     Map { key: Box<Self>, value: Box<Self> },
-    Unsupported,
+    Structured { queryable: bool },
 }
 
 impl FieldType {
+    #[must_use]
+    pub const fn value_kind(&self) -> FieldValueKind {
+        match self {
+            Self::Scalar(_) => FieldValueKind::Atomic,
+            Self::List(_) | Self::Set(_) => FieldValueKind::Structured { queryable: true },
+            Self::Map { .. } => FieldValueKind::Structured { queryable: false },
+            Self::Structured { queryable } => FieldValueKind::Structured {
+                queryable: *queryable,
+            },
+        }
+    }
+
     #[must_use]
     pub const fn coercion_family(&self) -> Option<CoercionFamily> {
         match self {
             Self::Scalar(inner) => Some(inner.coercion_family()),
             Self::List(_) | Self::Set(_) | Self::Map { .. } => Some(CoercionFamily::Collection),
-            Self::Unsupported => None,
+            Self::Structured { .. } => None,
         }
     }
 
@@ -278,15 +291,13 @@ fn validate_index_fields(
             // TODO(0.8): Lift this temporary guard once map runtime encoding is
             // standardized end-to-end for query + index semantics.
             if matches!(field_type, FieldType::Map { .. }) {
-                return Err(ValidateError::IndexFieldMapUnsupported {
+                return Err(ValidateError::IndexFieldMapNotQueryable {
                     index: **index,
                     field: (*field).to_string(),
                 });
             }
-            // Indexing is hash-based across all Value variants; only Unsupported is rejected here.
-            // Collisions are detected during unique enforcement and lookups.
-            if matches!(field_type, FieldType::Unsupported) {
-                return Err(ValidateError::IndexFieldUnsupported {
+            if !field_type.value_kind().is_queryable() {
+                return Err(ValidateError::IndexFieldNotQueryable {
                     index: **index,
                     field: (*field).to_string(),
                 });
@@ -388,8 +399,8 @@ pub enum ValidateError {
     #[error("unknown field '{field}'")]
     UnknownField { field: String },
 
-    #[error("unsupported field type for '{field}'")]
-    UnsupportedFieldType { field: String },
+    #[error("field '{field}' is not queryable")]
+    NonQueryableFieldType { field: String },
 
     #[error("duplicate field '{field}'")]
     DuplicateField { field: String },
@@ -400,19 +411,19 @@ pub enum ValidateError {
     #[error("primary key '{field}' not present in entity fields")]
     InvalidPrimaryKey { field: String },
 
-    #[error("primary key '{field}' has an unsupported type")]
+    #[error("primary key '{field}' has a non-keyable type")]
     InvalidPrimaryKeyType { field: String },
 
     #[error("index '{index}' references unknown field '{field}'")]
     IndexFieldUnknown { index: IndexModel, field: String },
 
-    #[error("index '{index}' references unsupported field '{field}'")]
-    IndexFieldUnsupported { index: IndexModel, field: String },
+    #[error("index '{index}' references non-queryable field '{field}'")]
+    IndexFieldNotQueryable { index: IndexModel, field: String },
 
     #[error(
         "index '{index}' references map field '{field}'; map fields are not queryable in icydb 0.7"
     )]
-    IndexFieldMapUnsupported { index: IndexModel, field: String },
+    IndexFieldMapNotQueryable { index: IndexModel, field: String },
 
     #[error("index '{index}' repeats field '{field}'")]
     IndexFieldDuplicate { index: IndexModel, field: String },
@@ -430,7 +441,7 @@ pub enum ValidateError {
     InvalidLiteral { field: String, message: String },
 }
 
-/// Reject policy-level unsupported features before planning.
+/// Reject policy-level non-queryable features before planning.
 pub fn reject_unsupported_query_features(
     predicate: &Predicate,
 ) -> Result<(), UnsupportedQueryFeature> {
@@ -474,15 +485,7 @@ pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), Valida
         Predicate::Not(inner) => validate(schema, inner),
         Predicate::Compare(cmp) => validate_compare(schema, cmp),
         Predicate::IsNull { field } | Predicate::IsMissing { field } => {
-            // CONTRACT: presence checks are the only predicates allowed on unsupported fields.
-            let field_type = ensure_field_exists(schema, field)?;
-            if matches!(field_type, FieldType::Map { .. }) {
-                return Err(UnsupportedQueryFeature::MapPredicate {
-                    field: field.clone(),
-                }
-                .into());
-            }
-
+            let _field_type = ensure_field(schema, field)?;
             Ok(())
         }
         Predicate::IsEmpty { field } => {
@@ -753,24 +756,13 @@ fn ensure_field<'a>(schema: &'a SchemaInfo, field: &str) -> Result<&'a FieldType
         .into());
     }
 
-    if matches!(field_type, FieldType::Unsupported) {
-        return Err(ValidateError::UnsupportedFieldType {
+    if !field_type.value_kind().is_queryable() {
+        return Err(ValidateError::NonQueryableFieldType {
             field: field.to_string(),
         });
     }
 
     Ok(field_type)
-}
-
-fn ensure_field_exists<'a>(
-    schema: &'a SchemaInfo,
-    field: &str,
-) -> Result<&'a FieldType, ValidateError> {
-    schema
-        .field(field)
-        .ok_or_else(|| ValidateError::UnknownField {
-            field: field.to_string(),
-        })
 }
 
 fn invalid_operator(field: &str, op: impl fmt::Display) -> ValidateError {
@@ -787,7 +779,7 @@ fn invalid_literal(field: &str, msg: &str) -> ValidateError {
     }
 }
 
-// Reject unsupported case-insensitive coercions for non-text comparisons.
+// Reject invalid case-insensitive coercions for non-text comparisons.
 fn ensure_no_text_casefold(field: &str, coercion: &CoercionSpec) -> Result<(), ValidateError> {
     if matches!(coercion.id, CoercionId::TextCasefold) {
         return Err(ValidateError::InvalidCoercion {
@@ -848,7 +840,7 @@ fn ensure_coercion(
         let left_family =
             field_type
                 .coercion_family()
-                .ok_or_else(|| ValidateError::UnsupportedFieldType {
+                .ok_or_else(|| ValidateError::NonQueryableFieldType {
                     field: field.to_string(),
                 })?;
         let right_family = literal.coercion_family();
@@ -924,8 +916,8 @@ pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> b
             }
             _ => false,
         },
-        FieldType::Unsupported => {
-            // NOTE: Unsupported field types never match predicate literals.
+        FieldType::Structured { .. } => {
+            // NOTE: non-queryable structured field types never match predicate literals.
             false
         }
     }
@@ -965,7 +957,9 @@ fn field_type_from_model_kind(kind: &EntityFieldKind) -> FieldType {
             key: Box::new(field_type_from_model_kind(key)),
             value: Box::new(field_type_from_model_kind(value)),
         },
-        EntityFieldKind::Unsupported => FieldType::Unsupported,
+        EntityFieldKind::Structured { queryable } => FieldType::Structured {
+            queryable: *queryable,
+        },
     }
 }
 
@@ -976,7 +970,9 @@ impl fmt::Display for FieldType {
             Self::List(inner) => write!(f, "List<{inner}>"),
             Self::Set(inner) => write!(f, "Set<{inner}>"),
             Self::Map { key, value } => write!(f, "Map<{key}, {value}>"),
-            Self::Unsupported => write!(f, "Unsupported"),
+            Self::Structured { queryable } => {
+                write!(f, "Structured<queryable={queryable}>")
+            }
         }
     }
 }
@@ -987,7 +983,7 @@ impl fmt::Display for FieldType {
 
 #[cfg(test)]
 mod tests {
-    // NOTE: Invalid helpers remain only for intentionally invalid or unsupported schemas.
+    // NOTE: Invalid helpers remain only for intentionally invalid or non-queryable schemas.
     use super::{FieldType, ScalarType, ValidateError, ensure_coercion, validate_model};
     use crate::{
         db::query::{
@@ -1245,11 +1241,11 @@ mod tests {
     }
 
     #[test]
-    fn validate_model_rejects_unsupported_fields() {
+    fn validate_model_rejects_non_queryable_fields() {
         let model = InvalidEntityModelBuilder::from_fields(
             vec![
                 field("id", EntityFieldKind::Ulid),
-                field("broken", EntityFieldKind::Unsupported),
+                field("broken", EntityFieldKind::Structured { queryable: false }),
             ],
             0,
         );
@@ -1258,7 +1254,7 @@ mod tests {
 
         assert!(matches!(
             validate_model(&model, &predicate),
-            Err(ValidateError::UnsupportedFieldType { field }) if field == "broken"
+            Err(ValidateError::NonQueryableFieldType { field }) if field == "broken"
         ));
     }
 

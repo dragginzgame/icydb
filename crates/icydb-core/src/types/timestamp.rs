@@ -103,6 +103,10 @@ impl Timestamp {
 }
 
 impl FieldValue for Timestamp {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Timestamp(*self)
     }
@@ -177,7 +181,7 @@ impl ValidateCustom for Timestamp {}
 impl View for Timestamp {
     type ViewType = u64;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.0
     }
 

@@ -1,6 +1,6 @@
 use crate::{design::prelude::*, traits::Validator};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     hash::BuildHasher,
 };
 
@@ -50,6 +50,18 @@ impl<T, S: BuildHasher> HasLen for HashSet<T, S> {
 }
 
 impl<K, V, S: BuildHasher> HasLen for HashMap<K, V, S> {
+    fn len(&self) -> usize {
+        Self::len(self)
+    }
+}
+
+impl<T> HasLen for BTreeSet<T> {
+    fn len(&self) -> usize {
+        Self::len(self)
+    }
+}
+
+impl<K, V> HasLen for BTreeMap<K, V> {
     fn len(&self) -> usize {
         Self::len(self)
     }

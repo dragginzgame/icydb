@@ -41,7 +41,7 @@ pub fn derive_field_values(input: TokenStream) -> TokenStream {
                 #field_name => {
                     match self.#field_ident.as_ref() {
                         Some(inner) => Some(FieldValue::to_value(inner)),
-                        None => Some(Value::None),
+                        None => Some(Value::Null),
                     }
                 }
             },

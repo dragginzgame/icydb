@@ -180,7 +180,7 @@ fn as_storage_key_some_for_keyable_variants() {
             .is_none()
     );
     assert!(Value::List(vec![]).as_storage_key().is_none());
-    assert!(Value::None.as_storage_key().is_none());
+    assert!(Value::Null.as_storage_key().is_none());
 }
 
 #[test]
@@ -644,13 +644,13 @@ fn e8s_e18s_text_and_list_do_not_compare() {
 #[test]
 fn eq_and_ne_none_semantics() {
     let some_val = v_i(42);
-    let none_val = Value::None;
+    let none_val = Value::Null;
 
     // eq(None) only true if both sides are None
-    assert!(none_val == Value::None);
-    assert!(some_val != Value::None);
+    assert!(none_val == Value::Null);
+    assert!(some_val != Value::Null);
 
     // ne(None) true if left is not None
-    assert!(none_val == Value::None);
-    assert!(some_val != Value::None);
+    assert!(none_val == Value::Null);
+    assert!(some_val != Value::Null);
 }

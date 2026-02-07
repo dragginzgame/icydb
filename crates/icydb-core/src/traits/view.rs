@@ -1,36 +1,40 @@
 use crate::view::{ListPatch, MapPatch, SetPatch};
 use candid::CandidType;
 use std::{
-    collections::{HashMap, HashSet, hash_map::Entry as HashMapEntry},
+    collections::{
+        BTreeMap, BTreeSet, HashMap, HashSet, btree_map::Entry as BTreeMapEntry,
+        hash_map::Entry as HashMapEntry,
+    },
     hash::{BuildHasher, Hash},
     iter::IntoIterator,
 };
 
 ///
-/// View
+/// AsView
+///
 /// Recursive for all field/value nodes
 /// `from_view` is infallible; view values are treated as canonical.
 ///
 
-pub trait View: Sized {
+pub trait AsView: Sized {
     type ViewType: Default;
 
-    fn to_view(&self) -> Self::ViewType;
+    fn as_view(&self) -> Self::ViewType;
     fn from_view(view: Self::ViewType) -> Self;
 }
 
-impl View for () {
+impl AsView for () {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {}
+    fn as_view(&self) -> Self::ViewType {}
 
     fn from_view((): Self::ViewType) -> Self {}
 }
 
-impl View for String {
+impl AsView for String {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.clone()
     }
 
@@ -40,12 +44,12 @@ impl View for String {
 }
 
 // Make Box<T> *not* appear in the view type
-impl<T: View> View for Box<T> {
+impl<T: AsView> AsView for Box<T> {
     type ViewType = T::ViewType;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         // Delegate to inner value
-        T::to_view(self.as_ref())
+        T::as_view(self.as_ref())
     }
 
     fn from_view(view: Self::ViewType) -> Self {
@@ -54,11 +58,11 @@ impl<T: View> View for Box<T> {
     }
 }
 
-impl<T: View> View for Option<T> {
+impl<T: AsView> AsView for Option<T> {
     type ViewType = Option<T::ViewType>;
 
-    fn to_view(&self) -> Self::ViewType {
-        self.as_ref().map(View::to_view)
+    fn as_view(&self) -> Self::ViewType {
+        self.as_ref().map(AsView::as_view)
     }
 
     fn from_view(view: Self::ViewType) -> Self {
@@ -66,11 +70,11 @@ impl<T: View> View for Option<T> {
     }
 }
 
-impl<T: View> View for Vec<T> {
+impl<T: AsView> AsView for Vec<T> {
     type ViewType = Vec<T::ViewType>;
 
-    fn to_view(&self) -> Self::ViewType {
-        self.iter().map(View::to_view).collect()
+    fn as_view(&self) -> Self::ViewType {
+        self.iter().map(AsView::as_view).collect()
     }
 
     fn from_view(view: Self::ViewType) -> Self {
@@ -78,15 +82,15 @@ impl<T: View> View for Vec<T> {
     }
 }
 
-impl<T, S> View for HashSet<T, S>
+impl<T, S> AsView for HashSet<T, S>
 where
-    T: View + Eq + Hash + Clone,
+    T: AsView + Eq + Hash + Clone,
     S: BuildHasher + Default,
 {
     type ViewType = Vec<T::ViewType>;
 
-    fn to_view(&self) -> Self::ViewType {
-        self.iter().map(View::to_view).collect()
+    fn as_view(&self) -> Self::ViewType {
+        self.iter().map(AsView::as_view).collect()
     }
 
     fn from_view(view: Self::ViewType) -> Self {
@@ -94,17 +98,52 @@ where
     }
 }
 
-impl<K, V, S> View for HashMap<K, V, S>
+impl<K, V, S> AsView for HashMap<K, V, S>
 where
-    K: View + Eq + Hash + Clone,
-    V: View,
+    K: AsView + Eq + Hash + Clone,
+    V: AsView,
     S: BuildHasher + Default,
 {
     type ViewType = Vec<(K::ViewType, V::ViewType)>;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.iter()
-            .map(|(k, v)| (k.to_view(), v.to_view()))
+            .map(|(k, v)| (k.as_view(), v.as_view()))
+            .collect()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view.into_iter()
+            .map(|(k, v)| (K::from_view(k), V::from_view(v)))
+            .collect()
+    }
+}
+
+impl<T> AsView for BTreeSet<T>
+where
+    T: AsView + Ord + Clone,
+{
+    type ViewType = Vec<T::ViewType>;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.iter().map(AsView::as_view).collect()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view.into_iter().map(T::from_view).collect()
+    }
+}
+
+impl<K, V> AsView for BTreeMap<K, V>
+where
+    K: AsView + Ord + Clone,
+    V: AsView,
+{
+    type ViewType = Vec<(K::ViewType, V::ViewType)>;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.iter()
+            .map(|(k, v)| (k.as_view(), v.as_view()))
             .collect()
     }
 
@@ -119,10 +158,10 @@ where
 macro_rules! impl_view {
     ($($type:ty),*) => {
         $(
-            impl View for $type {
+            impl AsView for $type {
                 type ViewType = Self;
 
-                fn to_view(&self) -> Self::ViewType {
+                fn as_view(&self) -> Self::ViewType {
                     *self
                 }
 
@@ -136,10 +175,10 @@ macro_rules! impl_view {
 
 impl_view!(bool, i8, i16, i32, i64, u8, u16, u32, u64);
 
-impl View for f32 {
+impl AsView for f32 {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         *self
     }
 
@@ -152,10 +191,10 @@ impl View for f32 {
     }
 }
 
-impl View for f64 {
+impl AsView for f64 {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         *self
     }
 
@@ -172,19 +211,26 @@ impl View for f64 {
 /// CreateView
 ///
 
-pub trait CreateView {
+pub trait CreateView: AsView {
+    /// Payload accepted when creating this value.
+    ///
+    /// This is often equal to ViewType, but may differ
+    /// (e.g. Option<T>, defaults, omissions).
     type CreateViewType: CandidType + Default;
+
+    fn from_create_view(view: Self::CreateViewType) -> Self;
 }
 
 ///
 /// UpdateView
 ///
 
-pub trait UpdateView {
+pub trait UpdateView: AsView {
+    /// Payload accepted when updating this value.
     type UpdateViewType: CandidType + Default;
 
-    /// merge the updateview into self
-    fn merge(&mut self, _: Self::UpdateViewType) {}
+    /// Merge the update payload into self.
+    fn merge(&mut self, update: Self::UpdateViewType);
 }
 
 impl<T> UpdateView for Option<T>
@@ -261,7 +307,7 @@ where
 
 impl<T, S> UpdateView for HashSet<T, S>
 where
-    T: UpdateView + Default + Eq + Hash,
+    T: UpdateView + Clone + Default + Eq + Hash,
     S: BuildHasher + Default,
 {
     type UpdateViewType = Vec<SetPatch<T::UpdateViewType>>;
@@ -296,7 +342,7 @@ where
 
 impl<K, V, S> UpdateView for HashMap<K, V, S>
 where
-    K: UpdateView + Default + Eq + Hash,
+    K: UpdateView + Clone + Default + Eq + Hash,
     V: UpdateView + Default,
     S: BuildHasher + Default,
 {
@@ -328,6 +374,88 @@ where
                 MapPatch::Overwrite { entries } => {
                     self.clear();
                     self.reserve(entries.len());
+
+                    for (key, value) in entries {
+                        let mut key_value = K::default();
+                        key_value.merge(key);
+
+                        let mut value_value = V::default();
+                        value_value.merge(value);
+                        self.insert(key_value, value_value);
+                    }
+                }
+                MapPatch::Clear => self.clear(),
+            }
+        }
+    }
+}
+
+impl<T> UpdateView for BTreeSet<T>
+where
+    T: UpdateView + Clone + Default + Ord,
+{
+    type UpdateViewType = Vec<SetPatch<T::UpdateViewType>>;
+
+    fn merge(&mut self, patches: Self::UpdateViewType) {
+        for patch in patches {
+            match patch {
+                SetPatch::Insert(value) => {
+                    let mut elem = T::default();
+                    elem.merge(value);
+                    self.insert(elem);
+                }
+                SetPatch::Remove(value) => {
+                    let mut elem = T::default();
+                    elem.merge(value);
+                    self.remove(&elem);
+                }
+                SetPatch::Overwrite { values } => {
+                    self.clear();
+
+                    for value in values {
+                        let mut elem = T::default();
+                        elem.merge(value);
+                        self.insert(elem);
+                    }
+                }
+                SetPatch::Clear => self.clear(),
+            }
+        }
+    }
+}
+
+impl<K, V> UpdateView for BTreeMap<K, V>
+where
+    K: UpdateView + Clone + Default + Ord,
+    V: UpdateView + Default,
+{
+    type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
+
+    fn merge(&mut self, patches: Self::UpdateViewType) {
+        for patch in patches {
+            match patch {
+                MapPatch::Upsert { key, value } => {
+                    let mut key_value = K::default();
+                    key_value.merge(key);
+
+                    match self.entry(key_value) {
+                        BTreeMapEntry::Occupied(mut slot) => {
+                            slot.get_mut().merge(value);
+                        }
+                        BTreeMapEntry::Vacant(slot) => {
+                            let mut value_value = V::default();
+                            value_value.merge(value);
+                            slot.insert(value_value);
+                        }
+                    }
+                }
+                MapPatch::Remove { key } => {
+                    let mut key_value = K::default();
+                    key_value.merge(key);
+                    self.remove(&key_value);
+                }
+                MapPatch::Overwrite { entries } => {
+                    self.clear();
 
                     for (key, value) in entries {
                         let mut key_value = K::default();

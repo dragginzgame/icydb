@@ -59,7 +59,7 @@ fn arb_scalar_value() -> impl Strategy<Value = Value> {
         any::<u8>().prop_map(|b| Value::Principal(Principal::from_slice(&[b]))),
         prop_oneof![Just("A"), Just("B"), Just("C")]
             .prop_map(|variant| Value::Enum(ValueEnum::new(variant, Some("TestEnum")))),
-        Just(Value::None),
+        Just(Value::Null),
         Just(Value::Unit),
     ]
 }
@@ -93,7 +93,7 @@ fn arb_map_value() -> impl Strategy<Value = Value> {
         any::<u8>().prop_map(|b| Value::Principal(Principal::from_slice(&[b]))),
         prop_oneof![Just("A"), Just("B"), Just("C")]
             .prop_map(|variant| Value::Enum(ValueEnum::new(variant, Some("TestEnum")))),
-        Just(Value::None),
+        Just(Value::Null),
     ]
 }
 

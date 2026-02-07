@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        AsView, EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -101,6 +101,22 @@ where
     }
 }
 
+impl<E> AsView for Id<E>
+where
+    E: EntityStorageKey,
+    E::Key: AsView,
+{
+    type ViewType = <E::Key as AsView>::ViewType;
+
+    fn as_view(&self) -> Self::ViewType {
+        AsView::as_view(&self.storage_key())
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        Self::from_storage_key(AsView::from_view(view))
+    }
+}
+
 #[allow(clippy::expl_impl_clone_on_copy)]
 impl<E> Clone for Id<E>
 where
@@ -195,6 +211,10 @@ where
     E: EntityStorageKey,
     E::Key: FieldValue,
 {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         self.key.to_value()
     }
@@ -259,22 +279,6 @@ where
 impl<E> ValidateAuto for Id<E> where E: EntityStorageKey {}
 
 impl<E> ValidateCustom for Id<E> where E: EntityStorageKey {}
-
-impl<E> View for Id<E>
-where
-    E: EntityStorageKey,
-    E::Key: View,
-{
-    type ViewType = <E::Key as View>::ViewType;
-
-    fn to_view(&self) -> Self::ViewType {
-        View::to_view(&self.storage_key())
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        Self::from_storage_key(View::from_view(view))
-    }
-}
 
 impl<E> UpdateView for Id<E>
 where

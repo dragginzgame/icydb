@@ -100,9 +100,8 @@ impl std::error::Error for MapValueError {}
 /// Value
 /// can be used in WHERE statements
 ///
-/// None        → the field’s value is Option::None (i.e., SQL NULL).
+/// Null        → the field’s value is Option::None (i.e., SQL NULL).
 /// Unit        → internal placeholder for RHS; not a real value.
-/// Unsupported → the field exists but isn’t filterable/indexable.
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -127,9 +126,9 @@ pub enum Value {
     List(Vec<Self>),
     /// Canonical map representation.
     /// Entries are always sorted by canonical key order and keys are unique.
-    /// Maps are persistable but not queryable or patchable in 0.7.
+    /// Maps are persistable but not queryable in 0.7.
     Map(Vec<(Self, Self)>),
-    None,
+    Null,
     Principal(Principal),
     Subaccount(Subaccount),
     Text(String),
@@ -139,7 +138,6 @@ pub enum Value {
     UintBig(Nat),
     Ulid(Ulid),
     Unit,
-    Unsupported,
 }
 
 // Local helpers to expand the scalar registry into match arms.
@@ -204,8 +202,7 @@ macro_rules! value_coercion_family_from_registry {
             $( $value_pat => $coercion_family, )*
             Value::List(_) => CoercionFamily::Collection,
             Value::Map(_) => CoercionFamily::Collection,
-            Value::None => CoercionFamily::Null,
-            Value::Unsupported => CoercionFamily::Unsupported,
+            Value::Null => CoercionFamily::Null,
         }
     };
 }
@@ -251,17 +248,17 @@ impl Value {
     /// Validate map entry invariants without changing order.
     pub fn validate_map_entries(entries: &[(Self, Self)]) -> Result<(), MapValueError> {
         for (index, (key, value)) in entries.iter().enumerate() {
-            if matches!(key, Self::None) {
+            if matches!(key, Self::Null) {
                 return Err(MapValueError::EmptyKey { index });
             }
-            if !key.is_scalar() || matches!(key, Self::Unsupported) {
+            if !key.is_scalar() {
                 return Err(MapValueError::NonScalarKey {
                     index,
                     key: key.clone(),
                 });
             }
 
-            if !value.is_scalar() || matches!(value, Self::Unsupported) {
+            if !value.is_scalar() {
                 return Err(MapValueError::NonScalarValue {
                     index,
                     value: value.clone(),
@@ -396,7 +393,7 @@ impl Value {
             Self::IntBig(_) => 13,
             Self::List(_) => 14,
             Self::Map(_) => 15,
-            Self::None => 16,
+            Self::Null => 16,
             Self::Principal(_) => 17,
             Self::Subaccount(_) => 18,
             Self::Text(_) => 19,
@@ -406,7 +403,6 @@ impl Value {
             Self::UintBig(_) => 23,
             Self::Ulid(_) => 24,
             Self::Unit => 25,
-            Self::Unsupported => 26,
         }
     }
 
@@ -432,7 +428,7 @@ impl Value {
     /// NOTE:
     /// `Unit` is intentionally treated as a valid storage key and indexable,
     /// used for singleton tables and synthetic identity entities.
-    /// Only `None` and `Unsupported` are non-indexable.
+    /// Only `Null` is non-indexable.
     #[must_use]
     pub const fn as_storage_key(&self) -> Option<StorageKey> {
         scalar_registry!(value_storage_key_from_registry, self)
@@ -662,8 +658,8 @@ impl Value {
             Self::Text(s) => Some(s.is_empty()),
             Self::Blob(b) => Some(b.is_empty()),
 
-            //  fields represented as Value::None:
-            Self::None => Some(true),
+            //  fields represented as Value::Null:
+            Self::Null => Some(true),
 
             _ => None,
         }
@@ -732,8 +728,16 @@ impl Value {
 }
 
 impl FieldValue for Value {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         self.clone()
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        Some(value.clone())
     }
 }
 

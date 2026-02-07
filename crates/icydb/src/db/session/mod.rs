@@ -141,7 +141,10 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(WriteResponse::from_core(self.inner.insert(entity)?))
     }
 
-    pub fn insert_many<E>(
+    /// Insert a batch with explicitly non-atomic semantics.
+    ///
+    /// WARNING: fail-fast and non-atomic. Earlier inserts may commit before an error.
+    pub fn insert_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, Error>
@@ -149,7 +152,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(WriteBatchResponse::from_core(
-            self.inner.insert_many(entities)?,
+            self.inner.insert_many_non_atomic(entities)?,
         ))
     }
 
@@ -160,7 +163,10 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(WriteResponse::from_core(self.inner.replace(entity)?))
     }
 
-    pub fn replace_many<E>(
+    /// Replace a batch with explicitly non-atomic semantics.
+    ///
+    /// WARNING: fail-fast and non-atomic. Earlier replaces may commit before an error.
+    pub fn replace_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, Error>
@@ -168,7 +174,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(WriteBatchResponse::from_core(
-            self.inner.replace_many(entities)?,
+            self.inner.replace_many_non_atomic(entities)?,
         ))
     }
 
@@ -179,7 +185,10 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(WriteResponse::from_core(self.inner.update(entity)?))
     }
 
-    pub fn update_many<E>(
+    /// Update a batch with explicitly non-atomic semantics.
+    ///
+    /// WARNING: fail-fast and non-atomic. Earlier updates may commit before an error.
+    pub fn update_many_non_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<WriteBatchResponse<E>, Error>
@@ -187,7 +196,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(WriteBatchResponse::from_core(
-            self.inner.update_many(entities)?,
+            self.inner.update_many_non_atomic(entities)?,
         ))
     }
 

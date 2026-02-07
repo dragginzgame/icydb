@@ -35,7 +35,7 @@ struct PlanEntity {
 impl View for PlanEntity {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.clone()
     }
 
@@ -116,7 +116,7 @@ struct PlanSingleton {
 impl View for PlanSingleton {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.clone()
     }
 
@@ -257,6 +257,56 @@ fn intent_rejects_delete_limit_without_order() {
         intent.validate_intent(),
         Err(IntentError::DeleteLimitRequiresOrder)
     ));
+}
+
+#[test]
+fn load_limit_without_order_rejects_unordered_pagination() {
+    let err = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .limit(1)
+        .plan()
+        .expect_err("limit without order must fail");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(crate::db::query::plan::PlanError::UnorderedPagination)
+    ));
+}
+
+#[test]
+fn load_offset_without_order_rejects_unordered_pagination() {
+    let err = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .offset(1)
+        .plan()
+        .expect_err("offset without order must fail");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(crate::db::query::plan::PlanError::UnorderedPagination)
+    ));
+}
+
+#[test]
+fn load_limit_and_offset_without_order_rejects_unordered_pagination() {
+    let err = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .limit(10)
+        .offset(2)
+        .plan()
+        .expect_err("limit+offset without order must fail");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(crate::db::query::plan::PlanError::UnorderedPagination)
+    ));
+}
+
+#[test]
+fn load_ordered_pagination_is_allowed() {
+    Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .order_by("name")
+        .limit(10)
+        .offset(2)
+        .plan()
+        .expect("ordered pagination should plan");
 }
 
 #[test]

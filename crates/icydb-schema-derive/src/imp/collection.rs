@@ -55,12 +55,13 @@ impl Imp<List> for CollectionTrait {
 
 impl Imp<Set> for CollectionTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
+        let ident = node.def.ident();
         let item = node.item.type_expr();
 
         let q = quote! {
             type Item = #item;
 
-            type Iter<'a> = ::std::collections::hash_set::Iter<'a, #item>
+            type Iter<'a> = ::std::collections::btree_set::Iter<'a, #item>
             where
                 Self: 'a;
 
@@ -77,7 +78,11 @@ impl Imp<Set> for CollectionTrait {
             .set_tokens(q)
             .to_token_stream();
 
-        Some(TraitStrategy::from_impl(tokens))
+        Some(TraitStrategy::from_impl(quote! {
+            #tokens
+
+            impl ::icydb::traits::DeterministicCollection for #ident {}
+        }))
     }
 }
 
@@ -87,6 +92,7 @@ impl Imp<Set> for CollectionTrait {
 
 impl Imp<Map> for MapCollectionTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
+        let ident = node.def.ident();
         let key = node.key.type_expr();
         let value = node.value.type_expr();
 
@@ -94,7 +100,7 @@ impl Imp<Map> for MapCollectionTrait {
             type Key = #key;
             type Value = #value;
 
-            type Iter<'a> = ::std::collections::hash_map::Iter<'a, #key, #value>
+            type Iter<'a> = ::std::collections::btree_map::Iter<'a, #key, #value>
             where
                 Self: 'a;
 
@@ -111,6 +117,10 @@ impl Imp<Map> for MapCollectionTrait {
             .set_tokens(q)
             .to_token_stream();
 
-        Some(TraitStrategy::from_impl(tokens))
+        Some(TraitStrategy::from_impl(quote! {
+            #tokens
+
+            impl ::icydb::traits::DeterministicMapCollection for #ident {}
+        }))
     }
 }

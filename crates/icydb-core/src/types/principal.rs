@@ -141,6 +141,10 @@ impl Default for Principal {
 }
 
 impl FieldValue for Principal {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Principal(*self)
     }
@@ -154,8 +158,19 @@ impl FieldValue for Principal {
 }
 
 impl FieldValue for WrappedPrincipal {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Principal(self.into())
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::Principal(v) => Some((*v).into()),
+            _ => None,
+        }
     }
 }
 
@@ -233,7 +248,7 @@ impl ValidateCustom for Principal {}
 impl View for Principal {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         *self
     }
 

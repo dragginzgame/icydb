@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        DeterministicCollection, EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
+        AsView, DeterministicCollection, EntityStorageKey, FieldValue, SanitizeAuto,
+        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Id,
     value::Value,
@@ -135,6 +135,22 @@ where
     }
 }
 
+impl<E> AsView for IdSet<E>
+where
+    E: EntityStorageKey,
+    Id<E>: AsView,
+{
+    type ViewType = Vec<<Id<E> as AsView>::ViewType>;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.iter().map(AsView::as_view).collect()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        Self::from_ids(view.into_iter().map(Id::<E>::from_view).collect())
+    }
+}
+
 impl<E> CandidType for IdSet<E>
 where
     E: EntityStorageKey,
@@ -182,8 +198,25 @@ impl<E> FieldValue for IdSet<E>
 where
     E: EntityStorageKey,
 {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Structured { queryable: true }
+    }
+
     fn to_value(&self) -> Value {
         Value::List(self.0.iter().map(FieldValue::to_value).collect())
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        let Value::List(values) = value else {
+            return None;
+        };
+
+        let mut out = Vec::with_capacity(values.len());
+        for value in values {
+            out.push(Id::<E>::from_value(value)?);
+        }
+
+        Some(Self::from_ids(out))
     }
 }
 
@@ -251,22 +284,6 @@ where
 
     fn drive_mut(&mut self, _visitor: &mut dyn VisitorMutCore) {
         // Intentionally empty: mutating identities can invalidate canonical ordering.
-    }
-}
-
-impl<E> View for IdSet<E>
-where
-    E: EntityStorageKey,
-    Id<E>: View,
-{
-    type ViewType = Vec<<Id<E> as View>::ViewType>;
-
-    fn to_view(&self) -> Self::ViewType {
-        self.iter().map(View::to_view).collect()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        Self::from_ids(view.into_iter().map(Id::<E>::from_view).collect())
     }
 }
 

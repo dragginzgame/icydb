@@ -46,7 +46,7 @@ impl HasSchemaPart for Sanitizer {
 
 impl HasTraits for Sanitizer {
     fn traits(&self) -> Vec<TraitKind> {
-        let mut traits = TraitBuilder::default().with_type_traits().build();
+        let mut traits = TraitBuilder::default().build();
         traits.add(TraitKind::Default);
 
         traits.into_vec()

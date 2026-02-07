@@ -223,8 +223,19 @@ impl Display for E8s {
 }
 
 impl FieldValue for E8s {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::E8s(*self)
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::E8s(v) => Some(*v),
+            _ => None,
+        }
     }
 }
 
@@ -307,7 +318,7 @@ impl ValidateCustom for E8s {}
 impl View for E8s {
     type ViewType = u64;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.0
     }
 

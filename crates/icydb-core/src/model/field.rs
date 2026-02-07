@@ -1,3 +1,5 @@
+use crate::traits::FieldValueKind;
+
 ///
 /// EntityFieldModel
 ///
@@ -84,11 +86,48 @@ pub enum EntityFieldKind {
         value: &'static Self,
     },
 
-    /// Marker for fields that are not filterable or indexable.
-    Unsupported,
+    /// Structured value with explicit queryability policy.
+    Structured {
+        queryable: bool,
+    },
 }
 
 impl EntityFieldKind {
+    #[must_use]
+    pub const fn value_kind(&self) -> FieldValueKind {
+        match self {
+            Self::Account
+            | Self::Blob
+            | Self::Bool
+            | Self::Date
+            | Self::Decimal
+            | Self::Duration
+            | Self::Enum
+            | Self::E8s
+            | Self::E18s
+            | Self::Float32
+            | Self::Float64
+            | Self::Int
+            | Self::Int128
+            | Self::IntBig
+            | Self::Principal
+            | Self::Subaccount
+            | Self::Text
+            | Self::Timestamp
+            | Self::Uint
+            | Self::Uint128
+            | Self::UintBig
+            | Self::Ulid
+            | Self::Unit
+            | Self::Ref { .. } => FieldValueKind::Atomic,
+            Self::List(_) | Self::Set(_) => FieldValueKind::Structured { queryable: true },
+            Self::Map { .. } => FieldValueKind::Structured { queryable: false },
+            Self::Structured { queryable } => FieldValueKind::Structured {
+                queryable: *queryable,
+            },
+        }
+    }
+
     /// Returns `true` if this field shape is permitted in
     /// persisted or query-visible schemas under the current
     /// determinism policy.

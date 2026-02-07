@@ -90,7 +90,7 @@ impl IndexKey {
     pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
 
     /// Build an index key; returns `Ok(None)` if any indexed field is missing or non-indexable.
-    /// `Value::None` and `Value::Unsupported` are treated as non-indexable.
+    /// `Value::Null` is treated as non-indexable.
     pub fn new<E: EntityKind + EntityValue>(
         entity: &E,
         index: &IndexModel,

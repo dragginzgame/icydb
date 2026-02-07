@@ -183,6 +183,10 @@ impl Display for Account {
 }
 
 impl FieldValue for Account {
+    fn kind() -> crate::traits::FieldValueKind {
+        crate::traits::FieldValueKind::Atomic
+    }
+
     fn to_value(&self) -> Value {
         Value::Account(*self)
     }
@@ -293,7 +297,7 @@ impl ValidateCustom for Account {}
 impl View for Account {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         *self
     }
 

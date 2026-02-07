@@ -11,9 +11,9 @@ use crate::{
     },
     test_fixtures::entity_model_from_static,
     traits::{
-        CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement, EntitySchema,
-        EntityStorageKey, EntityValue, Path, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        AsView, CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement,
+        EntitySchema, EntityStorageKey, EntityValue, Path, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Id, IdSet, Ulid},
 };
@@ -108,10 +108,10 @@ struct TargetEntity {
     id: Id<Self>,
 }
 
-impl View for TargetEntity {
+impl AsView for TargetEntity {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.clone()
     }
 
@@ -184,10 +184,10 @@ struct SourceEntity {
     target: Id<TargetEntity>,
 }
 
-impl View for SourceEntity {
+impl AsView for SourceEntity {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.clone()
     }
 
@@ -271,10 +271,10 @@ struct SourceSetEntity {
     targets: IdSet<TargetEntity>,
 }
 
-impl View for SourceSetEntity {
+impl AsView for SourceSetEntity {
     type ViewType = Self;
 
-    fn to_view(&self) -> Self::ViewType {
+    fn as_view(&self) -> Self::ViewType {
         self.clone()
     }
 
@@ -454,5 +454,59 @@ fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
     assert!(
         source_empty,
         "source save must be atomic: failed save must not persist partial rows"
+    );
+}
+
+#[test]
+fn set_field_encoding_requires_canonical_order_and_uniqueness() {
+    let kind = EntityFieldKind::Set(&EntityFieldKind::Ulid);
+    let lower = Value::Ulid(Ulid::from_u128(1));
+    let higher = Value::Ulid(Ulid::from_u128(2));
+
+    let err = SaveExecutor::<SourceSetEntity>::validate_deterministic_field_value(
+        "targets",
+        &kind,
+        &Value::List(vec![higher, lower]),
+    )
+    .expect_err("unordered set encoding must fail");
+    assert!(
+        err.message
+            .contains("set field must be strictly ordered and deduplicated"),
+        "unexpected error: {err:?}"
+    );
+
+    let dup = Value::Ulid(Ulid::from_u128(7));
+    let err = SaveExecutor::<SourceSetEntity>::validate_deterministic_field_value(
+        "targets",
+        &kind,
+        &Value::List(vec![dup.clone(), dup]),
+    )
+    .expect_err("duplicate set entries must fail");
+    assert!(
+        err.message
+            .contains("set field must be strictly ordered and deduplicated"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn map_field_encoding_requires_canonical_entry_order() {
+    let kind = EntityFieldKind::Map {
+        key: &EntityFieldKind::Text,
+        value: &EntityFieldKind::Uint,
+    };
+    let unordered = Value::Map(vec![
+        (Value::Text("z".to_string()), Value::Uint(9u64)),
+        (Value::Text("a".to_string()), Value::Uint(1u64)),
+    ]);
+
+    let err = SaveExecutor::<SourceSetEntity>::validate_deterministic_field_value(
+        "settings", &kind, &unordered,
+    )
+    .expect_err("unordered map entries must fail");
+    assert!(
+        err.message
+            .contains("map field entries are not in canonical deterministic order"),
+        "unexpected error: {err:?}"
     );
 }
