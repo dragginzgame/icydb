@@ -206,6 +206,24 @@ where
     }
 }
 
+impl<E> From<Id<E>> for Value
+where
+    E: EntityStorageKey,
+{
+    fn from(id: Id<E>) -> Self {
+        id.as_value()
+    }
+}
+
+impl<E> From<&Id<E>> for Value
+where
+    E: EntityStorageKey,
+{
+    fn from(id: &Id<E>) -> Self {
+        id.as_value()
+    }
+}
+
 impl<E> SanitizeAuto for Id<E> where E: EntityStorageKey {}
 
 impl<E> SanitizeCustom for Id<E> where E: EntityStorageKey {}
@@ -273,3 +291,46 @@ where
 }
 
 impl<E> Visitable for Id<E> where E: EntityStorageKey {}
+
+#[cfg(test)]
+mod tests {
+    use super::Id;
+    use crate::{
+        traits::{EntityStorageKey, FieldValue},
+        value::Value,
+    };
+
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    struct TestEntity;
+
+    impl EntityStorageKey for TestEntity {
+        type Key = u64;
+    }
+
+    #[test]
+    fn field_value_round_trip_uses_underlying_key() {
+        let id = Id::<TestEntity>::from_storage_key(7);
+        let value = id.to_value();
+        assert_eq!(value, Value::Uint(7));
+
+        let decoded = Id::<TestEntity>::from_value(&value).expect("u64 value should decode to Id");
+        assert_eq!(decoded, id);
+    }
+
+    #[test]
+    fn field_value_rejects_incompatible_value_kind() {
+        let decoded = Id::<TestEntity>::from_value(&Value::Text("not-a-key".to_string()));
+        assert!(decoded.is_none());
+    }
+
+    #[test]
+    fn into_value_for_owned_and_borrowed_id_match_as_value() {
+        let id = Id::<TestEntity>::from_storage_key(42);
+        let expected = id.as_value();
+        let borrowed = Value::from(&id);
+        let owned = Value::from(id);
+
+        assert_eq!(borrowed, expected);
+        assert_eq!(owned, expected);
+    }
+}
