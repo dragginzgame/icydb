@@ -41,17 +41,6 @@ where
         }
     }
 
-    #[cfg(test)]
-    #[must_use]
-    #[expect(dead_code)]
-    pub(crate) const fn with_trace_sink(
-        mut self,
-        sink: Option<&'static dyn QueryTraceSink>,
-    ) -> Self {
-        self.trace = sink;
-        self
-    }
-
     fn debug_log(&self, s: impl AsRef<str>) {
         if self.debug {
             println!("[debug] {}", s.as_ref());

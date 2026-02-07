@@ -77,28 +77,10 @@ macro_rules! scalar_supports_numeric_coercion_from_registry {
     };
 }
 
-#[cfg(test)]
-macro_rules! scalar_supports_arithmetic_from_registry {
-    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
-        match $self {
-            $( ScalarType::$scalar => $supports_arithmetic, )*
-        }
-    };
-}
-
 macro_rules! scalar_is_keyable_from_registry {
     ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
         match $self {
             $( ScalarType::$scalar => $is_keyable, )*
-        }
-    };
-}
-
-#[cfg(test)]
-macro_rules! scalar_supports_equality_from_registry {
-    ( @args $self:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
-        match $self {
-            $( ScalarType::$scalar => $supports_equality, )*
         }
     };
 }
@@ -135,22 +117,8 @@ impl ScalarType {
     }
 
     #[must_use]
-    #[cfg(test)]
-    #[expect(dead_code)]
-    pub const fn supports_arithmetic(&self) -> bool {
-        scalar_registry!(scalar_supports_arithmetic_from_registry, self)
-    }
-
-    #[must_use]
     pub const fn is_keyable(&self) -> bool {
         scalar_registry!(scalar_is_keyable_from_registry, self)
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    #[expect(dead_code)]
-    pub const fn supports_equality(&self) -> bool {
-        scalar_registry!(scalar_supports_equality_from_registry, self)
     }
 
     #[must_use]

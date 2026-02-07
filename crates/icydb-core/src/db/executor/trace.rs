@@ -39,7 +39,6 @@ pub enum TraceAccess {
     KeyRange,
     IndexPrefix { name: &'static str, prefix_len: u32 },
     FullScan,
-    UniqueIndex { name: &'static str },
     Union { branches: u32 },
     Intersection { branches: u32 },
 }

@@ -3,7 +3,7 @@ pub mod load;
 
 use crate::{
     db::{
-        query::{Query, QueryDiagnostics, QueryExecutionDiagnostics, ReadConsistency},
+        query::{Query, ReadConsistency},
         response::{Response, WriteBatchResponse, WriteResponse},
     },
     error::Error,
@@ -101,33 +101,14 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // ------------------------------------------------------------------
-    // Query diagnostics / execution
+    // Execution
     // ------------------------------------------------------------------
-
-    pub fn diagnose_query<E>(&self, query: &Query<E>) -> Result<QueryDiagnostics, Error>
-    where
-        E: EntityKind<Canister = C>,
-    {
-        Ok(self.inner.diagnose_query(query)?)
-    }
 
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<Response<E>, Error>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(Response::from_core(self.inner.execute_query(query)?))
-    }
-
-    pub fn execute_with_diagnostics<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<(Response<E>, QueryExecutionDiagnostics), Error>
-    where
-        E: EntityKind<Canister = C> + EntityValue,
-    {
-        let (response, diagnostics) = self.inner.execute_with_diagnostics(query)?;
-
-        Ok((Response::from_core(response), diagnostics))
     }
 
     // ------------------------------------------------------------------

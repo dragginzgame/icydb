@@ -32,6 +32,9 @@ pub enum StorageKeyEncodeError {
     #[error("account payload length mismatch: {len} bytes (expected {expected})")]
     AccountLengthMismatch { len: usize, expected: usize },
 
+    #[error("value kind '{kind}' is not storage-key encodable")]
+    UnsupportedValueKind { kind: &'static str },
+
     #[error("principal encoding failed: {0}")]
     Principal(#[from] PrincipalEncodeError),
 }
@@ -113,9 +116,8 @@ impl StorageKey {
         let is_storage_key_encodable =
             scalar_registry!(value_is_storage_key_encodable_from_registry, value);
         if !is_storage_key_encodable {
-            return Err(StorageKeyEncodeError::AccountLengthMismatch {
-                len: 0,
-                expected: 0,
+            return Err(StorageKeyEncodeError::UnsupportedValueKind {
+                kind: Self::value_kind_label(value),
             });
         }
 
@@ -129,10 +131,40 @@ impl StorageKey {
             Value::Ulid(v) => Ok(Self::Ulid(*v)),
             Value::Unit => Ok(Self::Unit),
 
-            _ => Err(StorageKeyEncodeError::AccountLengthMismatch {
-                len: 0,
-                expected: 0,
+            _ => Err(StorageKeyEncodeError::UnsupportedValueKind {
+                kind: Self::value_kind_label(value),
             }),
+        }
+    }
+
+    const fn value_kind_label(value: &Value) -> &'static str {
+        match value {
+            Value::Account(_) => "Account",
+            Value::Blob(_) => "Blob",
+            Value::Bool(_) => "Bool",
+            Value::Date(_) => "Date",
+            Value::Decimal(_) => "Decimal",
+            Value::Duration(_) => "Duration",
+            Value::Enum(_) => "Enum",
+            Value::E8s(_) => "E8s",
+            Value::E18s(_) => "E18s",
+            Value::Float32(_) => "Float32",
+            Value::Float64(_) => "Float64",
+            Value::Int(_) => "Int",
+            Value::Int128(_) => "Int128",
+            Value::IntBig(_) => "IntBig",
+            Value::List(_) => "List",
+            Value::Map(_) => "Map",
+            Value::Null => "Null",
+            Value::Principal(_) => "Principal",
+            Value::Subaccount(_) => "Subaccount",
+            Value::Text(_) => "Text",
+            Value::Timestamp(_) => "Timestamp",
+            Value::Uint(_) => "Uint",
+            Value::Uint128(_) => "Uint128",
+            Value::UintBig(_) => "UintBig",
+            Value::Ulid(_) => "Ulid",
+            Value::Unit => "Unit",
         }
     }
 
@@ -348,7 +380,7 @@ impl TryFrom<&[u8]> for StorageKey {
 
 #[cfg(test)]
 mod tests {
-    use super::StorageKey;
+    use super::{StorageKey, StorageKeyEncodeError};
     use crate::{
         types::{
             Account, Date, Decimal, Duration, E8s, E18s, Float32, Float64, Int, Int128, Nat,
@@ -459,6 +491,23 @@ mod tests {
         assert!(StorageKey::try_from_value(&Value::Decimal(Decimal::new(1, 0))).is_err());
         assert!(StorageKey::try_from_value(&Value::Text("x".to_string())).is_err());
         assert!(StorageKey::try_from_value(&Value::Account(Account::dummy(1))).is_ok());
+    }
+
+    #[test]
+    fn storage_key_unsupported_values_report_kind() {
+        let decimal_err = StorageKey::try_from_value(&Value::Decimal(Decimal::new(1, 0)))
+            .expect_err("Decimal is not storage-key encodable");
+        assert!(matches!(
+            decimal_err,
+            StorageKeyEncodeError::UnsupportedValueKind { kind } if kind == "Decimal"
+        ));
+
+        let text_err = StorageKey::try_from_value(&Value::Text("x".to_string()))
+            .expect_err("Text is not storage-key encodable");
+        assert!(matches!(
+            text_err,
+            StorageKeyEncodeError::UnsupportedValueKind { kind } if kind == "Text"
+        ));
     }
 
     #[test]

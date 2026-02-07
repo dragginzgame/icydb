@@ -55,9 +55,6 @@ pub enum MetricsEvent {
         entity_path: &'static str,
         rows_scanned: u64,
     },
-    ExistsCall {
-        entity_path: &'static str,
-    },
     UniqueViolation {
         entity_path: &'static str,
     },
@@ -179,14 +176,6 @@ impl MetricsSink for GlobalMetricsSink {
                     m.ops.rows_scanned = m.ops.rows_scanned.saturating_add(rows_scanned);
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
                     entry.rows_scanned = entry.rows_scanned.saturating_add(rows_scanned);
-                });
-            }
-
-            MetricsEvent::ExistsCall { entity_path } => {
-                metrics::with_state_mut(|m| {
-                    m.ops.exists_calls = m.ops.exists_calls.saturating_add(1);
-                    let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    entry.exists_calls = entry.exists_calls.saturating_add(1);
                 });
             }
 

@@ -44,16 +44,6 @@ where
             .with_data(|reg| reg.with_store(E::DataStore::PATH, f))
     }
 
-    #[cfg(test)]
-    #[expect(dead_code)]
-    pub fn with_store_mut<R>(
-        &self,
-        f: impl FnOnce(&mut DataStore) -> R,
-    ) -> Result<R, InternalError> {
-        self.db
-            .with_data(|reg| reg.with_store_mut(E::DataStore::PATH, f))
-    }
-
     // ------------------------------------------------------------------
     // Row reads
     // ------------------------------------------------------------------

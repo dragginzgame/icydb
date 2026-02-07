@@ -134,7 +134,7 @@ fn arb_compare_op() -> impl Strategy<Value = CompareOp> {
     ]
 }
 
-/// Arbitrary predicate generator.
+/// Arbitrary predicate generator for supported predicate shapes.
 ///
 /// NOTE: This intentionally generates *semantically invalid* predicates
 /// (e.g. ordering on lists, IN with non-lists, text ops on non-text).
@@ -165,6 +165,23 @@ fn arb_predicate() -> impl Strategy<Value = Predicate> {
                     coercion,
                 })
             }),
+        (arb_field(), arb_scalar_value())
+            .prop_map(|(field, value)| Predicate::TextContains { field, value }),
+        (arb_field(), arb_scalar_value())
+            .prop_map(|(field, value)| Predicate::TextContainsCi { field, value }),
+    ];
+
+    leaf.prop_recursive(3, 24, 4, |inner| {
+        prop_oneof![
+            prop::collection::vec(inner.clone(), 0..4).prop_map(Predicate::And),
+            prop::collection::vec(inner.clone(), 0..4).prop_map(Predicate::Or),
+            inner.prop_map(|p| Predicate::Not(Box::new(p))),
+        ]
+    })
+}
+
+fn arb_unsupported_map_predicate() -> impl Strategy<Value = Predicate> {
+    let leaf = prop_oneof![
         (arb_field(), arb_scalar_value(), arb_coercion_spec()).prop_map(
             |(field, key, coercion)| Predicate::MapContainsKey {
                 field,
@@ -193,10 +210,6 @@ fn arb_predicate() -> impl Strategy<Value = Predicate> {
                     coercion,
                 }
             }),
-        (arb_field(), arb_scalar_value())
-            .prop_map(|(field, value)| Predicate::TextContains { field, value }),
-        (arb_field(), arb_scalar_value())
-            .prop_map(|(field, value)| Predicate::TextContainsCi { field, value }),
     ];
 
     leaf.prop_recursive(3, 24, 4, |inner| {
@@ -338,4 +351,38 @@ fn not_in_invalid_values_are_false() {
         coercion: CoercionSpec::new(CoercionId::Strict),
     });
     assert!(!eval(&row, &wrong_list));
+}
+
+//
+// Unsupported-shape invariants (policy-disallowed map predicates)
+//
+
+mod unsupported_shapes {
+    use super::*;
+
+    proptest! {
+        #[test]
+        fn map_predicate_normalization_equivalence(
+            predicate in arb_unsupported_map_predicate(),
+            row in arb_row()
+        ) {
+            let normalized = normalize(&predicate);
+            prop_assert_eq!(
+                eval(&row, &predicate),
+                eval(&row, &normalized)
+            );
+        }
+
+        #[test]
+        fn map_predicate_scan_invariance(
+            predicate in arb_unsupported_map_predicate(),
+            rows in prop::collection::vec(arb_row(), 0..10)
+        ) {
+            let normalized = normalize(&predicate);
+            prop_assert_eq!(
+                scan(&rows, &predicate),
+                scan(&rows, &normalized)
+            );
+        }
+    }
 }
