@@ -1,5 +1,7 @@
 use crate::{
-    db::query::predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
+    db::query::predicate::{
+        CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
+    },
     traits::FieldValue,
     value::Value,
 };
@@ -164,40 +166,38 @@ impl FieldRef {
     // Map predicates
     // ------------------------------------------------------------------
 
-    /// Map field contains the given key.
-    #[must_use]
-    pub fn map_contains_key(self, key: impl FieldValue, coercion: CoercionId) -> Predicate {
-        Predicate::MapContainsKey {
+    /// Map predicates are intentionally unsupported.
+    pub fn map_contains_key(
+        self,
+        _key: impl FieldValue,
+        _coercion: CoercionId,
+    ) -> Result<Predicate, UnsupportedQueryFeature> {
+        Err(UnsupportedQueryFeature::MapPredicate {
             field: self.0.to_string(),
-            key: key.to_value(),
-            coercion: CoercionSpec::new(coercion),
-        }
+        })
     }
 
-    /// Map field contains the given value.
-    #[must_use]
-    pub fn map_contains_value(self, value: impl FieldValue, coercion: CoercionId) -> Predicate {
-        Predicate::MapContainsValue {
+    /// Map predicates are intentionally unsupported.
+    pub fn map_contains_value(
+        self,
+        _value: impl FieldValue,
+        _coercion: CoercionId,
+    ) -> Result<Predicate, UnsupportedQueryFeature> {
+        Err(UnsupportedQueryFeature::MapPredicate {
             field: self.0.to_string(),
-            value: value.to_value(),
-            coercion: CoercionSpec::new(coercion),
-        }
+        })
     }
 
-    /// Map field contains the given key/value pair.
-    #[must_use]
+    /// Map predicates are intentionally unsupported.
     pub fn map_contains_entry(
         self,
-        key: impl FieldValue,
-        value: impl FieldValue,
-        coercion: CoercionId,
-    ) -> Predicate {
-        Predicate::MapContainsEntry {
+        _key: impl FieldValue,
+        _value: impl FieldValue,
+        _coercion: CoercionId,
+    ) -> Result<Predicate, UnsupportedQueryFeature> {
+        Err(UnsupportedQueryFeature::MapPredicate {
             field: self.0.to_string(),
-            key: key.to_value(),
-            value: value.to_value(),
-            coercion: CoercionSpec::new(coercion),
-        }
+        })
     }
 
     /// Case-sensitive substring match for text fields.
@@ -234,5 +234,26 @@ impl std::ops::Deref for FieldRef {
 
     fn deref(&self) -> &Self::Target {
         self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db::query::predicate::UnsupportedQueryFeature;
+
+    use super::FieldRef;
+
+    #[test]
+    fn map_predicate_builder_fails_immediately() {
+        let err = FieldRef::new("attributes")
+            .map_contains_entry("k", 1u64, super::CoercionId::Strict)
+            .expect_err("map predicate builder must fail immediately");
+
+        assert_eq!(
+            err,
+            UnsupportedQueryFeature::MapPredicate {
+                field: "attributes".to_string(),
+            }
+        );
     }
 }

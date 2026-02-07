@@ -44,6 +44,9 @@ impl From<InternalError> for Error {
 impl From<QueryError> for Error {
     fn from(err: QueryError) -> Self {
         match err {
+            QueryError::UnsupportedQueryFeature(err) => {
+                Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
+            }
             QueryError::Validate(err) => {
                 Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
             }

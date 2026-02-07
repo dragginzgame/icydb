@@ -36,6 +36,11 @@ impl Imp<Entity> for InherentTrait {
             .iter()
             .map(model_field_ident)
             .collect::<Vec<_>>();
+        let model_field_determinism_idents = node
+            .fields
+            .iter()
+            .map(model_field_determinism_ident)
+            .collect::<Vec<_>>();
 
         let model_field_consts: Vec<TokenStream> = node
             .fields
@@ -44,12 +49,23 @@ impl Imp<Entity> for InherentTrait {
             .map(|(field, ident)| {
                 let name = field.ident.to_string();
                 let kind = model_kind_from_value(node, &field.value);
+                let deterministic_ident = model_field_determinism_ident(field);
+                let deterministic_message = format!(
+                    "field '{name}' uses a non-deterministic collection; persisted and query-visible collections must have stable iteration order"
+                );
                 quote! {
                     const #ident: ::icydb::model::field::EntityFieldModel =
                         ::icydb::model::field::EntityFieldModel {
                             name: #name,
                             kind: #kind,
                         };
+
+                    const #deterministic_ident: () = {
+                        assert!(
+                            ::icydb::model::field::EntityFieldKind::is_deterministic_collection_shape(&#kind),
+                            #deterministic_message
+                        );
+                    };
                 }
             })
             .collect();
@@ -64,6 +80,7 @@ impl Imp<Entity> for InherentTrait {
 
         let model_fields_ident = format_ident!("__MODEL_FIELDS");
         let model_ident = format_ident!("__ENTITY_MODEL");
+        let entity_ident = node.def.ident();
 
         let model_fields = quote! {
             const #model_fields_ident:
@@ -91,9 +108,16 @@ impl Imp<Entity> for InherentTrait {
         };
 
         // IMPORTANT: pass Trait::Inherent so Implementor will do `impl Entity { … }`
-        let tokens = Implementor::new(node.def(), TraitKind::Inherent)
+        let impl_tokens = Implementor::new(node.def(), TraitKind::Inherent)
             .set_tokens(tokens)
             .to_token_stream();
+        let tokens = quote! {
+            #impl_tokens
+
+            const _: () = {
+                #(let _ = #entity_ident::#model_field_determinism_idents;)*
+            };
+        };
 
         Some(TraitStrategy::from_impl(tokens))
     }
@@ -336,6 +360,11 @@ fn model_field_ident(field: &Field) -> Ident {
     format_ident!("__MODEL_FIELD_{constant}")
 }
 
+fn model_field_determinism_ident(field: &Field) -> Ident {
+    let constant = field.ident.to_string().to_case(Case::Constant);
+    format_ident!("__MODEL_FIELD_DETERMINISM_{constant}")
+}
+
 fn model_kind_from_value(_entity: &Entity, value: &Value) -> TokenStream {
     let base = model_kind_from_item(&value.item);
     match value.cardinality() {
@@ -369,6 +398,7 @@ fn model_kind_from_item(item: &Item) -> TokenStream {
         } else {
             quote!(::icydb::model::field::RelationStrength::Weak)
         };
+
         // Relation strength applies to Ref targets and collection-of-Ref shapes.
         return quote! {
             ::icydb::model::field::EntityFieldKind::Ref {

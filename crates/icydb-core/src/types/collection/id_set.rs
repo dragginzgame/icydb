@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, View, Visitable,
+        DeterministicCollection, EntityStorageKey, FieldValue, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, View, Visitable,
     },
     types::Id,
     value::Value,
@@ -151,6 +151,8 @@ where
         <Vec<Id<E>> as CandidType>::idl_serialize(&self.0, serializer)
     }
 }
+
+impl<E> DeterministicCollection for IdSet<E> where E: EntityStorageKey {}
 
 impl<E> IntoIterator for IdSet<E>
 where

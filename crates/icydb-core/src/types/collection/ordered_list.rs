@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        FieldValue, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, View,
-        Visitable,
+        DeterministicCollection, FieldValue, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, View, Visitable,
     },
     value::Value,
     view::ListPatch,
@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 ///
 /// Mutation is explicit and positional; `OrderedList` does not expose
 /// `DerefMut` to avoid accidental bypass of list semantics.
-
 ///
 
 #[repr(transparent)]
@@ -122,6 +121,8 @@ where
         self.merge(patches);
     }
 }
+
+impl<T> DeterministicCollection for OrderedList<T> {}
 
 impl<T: FieldValue> FieldValue for OrderedList<T> {
     fn to_value(&self) -> Value {
@@ -267,6 +268,10 @@ where
         }
     }
 }
+
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {

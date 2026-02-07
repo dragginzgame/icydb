@@ -18,6 +18,7 @@ pub struct MapCollectionTrait {}
 
 impl Imp<List> for CollectionTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
+        let ident = node.def.ident();
         let item = node.item.type_expr();
 
         let q = quote! {
@@ -40,7 +41,11 @@ impl Imp<List> for CollectionTrait {
             .set_tokens(q)
             .to_token_stream();
 
-        Some(TraitStrategy::from_impl(tokens))
+        Some(TraitStrategy::from_impl(quote! {
+            #tokens
+
+            impl ::icydb::traits::DeterministicCollection for #ident {}
+        }))
     }
 }
 

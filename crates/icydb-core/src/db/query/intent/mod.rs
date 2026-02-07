@@ -17,7 +17,10 @@ use crate::{
                 planner::{PlannerError, plan_access},
                 validate::validate_logical_plan_model,
             },
-            predicate::{Predicate, SchemaInfo, ValidateError, normalize},
+            predicate::{
+                Predicate, SchemaInfo, UnsupportedQueryFeature, ValidateError, normalize,
+                validate::reject_unsupported_query_features,
+            },
         },
         response::ResponseError,
     },
@@ -274,6 +277,10 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         // Phase 1: schema surface and intent validation.
         let schema_info = SchemaInfo::from_entity_model(self.model)?;
         self.validate_intent()?;
+
+        if let Some(predicate) = self.predicate.as_ref() {
+            reject_unsupported_query_features(predicate)?;
+        }
 
         // Phase 2: predicate normalization and access planning.
         let normalized_predicate = self.predicate.as_ref().map(normalize);
@@ -533,6 +540,9 @@ where
 
 #[derive(Debug, ThisError)]
 pub enum QueryError {
+    #[error("{0}")]
+    UnsupportedQueryFeature(#[from] UnsupportedQueryFeature),
+
     #[error("{0}")]
     Validate(#[from] ValidateError),
 

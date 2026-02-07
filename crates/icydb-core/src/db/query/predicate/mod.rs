@@ -7,7 +7,7 @@ pub mod validate;
 #[cfg(test)]
 mod tests;
 
-pub use ast::{CompareOp, ComparePredicate, Predicate};
+pub use ast::{CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use coercion::{CoercionId, CoercionSpec};
 pub(crate) use eval::eval;
 pub use normalize::normalize;

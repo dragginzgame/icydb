@@ -87,3 +87,27 @@ pub enum EntityFieldKind {
     /// Marker for fields that are not filterable or indexable.
     Unsupported,
 }
+
+impl EntityFieldKind {
+    /// Returns `true` if this field shape is permitted in
+    /// persisted or query-visible schemas under the current
+    /// determinism policy.
+    ///
+    /// This shape-level check is structural only; query-time policy
+    /// enforcement (for example, map predicate fencing) is applied at
+    /// query construction and validation boundaries.
+    #[must_use]
+    pub const fn is_deterministic_collection_shape(&self) -> bool {
+        match self {
+            Self::Ref { key_kind, .. } => key_kind.is_deterministic_collection_shape(),
+
+            Self::List(inner) | Self::Set(inner) => inner.is_deterministic_collection_shape(),
+
+            Self::Map { key, value } => {
+                key.is_deterministic_collection_shape() && value.is_deterministic_collection_shape()
+            }
+
+            _ => true,
+        }
+    }
+}

@@ -16,6 +16,7 @@ pub struct FilterExpr(pub Predicate);
 impl FilterExpr {
     /// Lower the filter expression into a validated predicate for the provided schema.
     pub fn lower_with(&self, schema: &SchemaInfo) -> Result<Predicate, ValidateError> {
+        predicate::validate::reject_unsupported_query_features(&self.0)?;
         predicate::validate(schema, &self.0)?;
 
         Ok(normalize(&self.0))

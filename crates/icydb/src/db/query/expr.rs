@@ -1,10 +1,13 @@
-use crate::{traits::EntityKind, value::Value};
+use crate::{
+    traits::{EntityKind, FieldValue},
+    value::Value,
+};
 use candid::CandidType;
 use icydb_core::{
     self as core,
     db::query::{
         QueryError,
-        predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -143,7 +146,7 @@ pub enum FilterExpr {
     },
 
     // ─────────────────────────────────────────────────────────────
-    // Map predicates (strict only)
+    // Map predicates are retained only as a defensive decode/lowering backstop.
     // ─────────────────────────────────────────────────────────────
     MapContainsKey {
         field: String,
@@ -314,24 +317,15 @@ impl FilterExpr {
                 field: field.clone(),
             },
 
-            Self::MapContainsKey { field, key } => Predicate::MapContainsKey {
-                field: field.clone(),
-                key: key.clone(),
-                coercion: CoercionSpec::new(CoercionId::Strict),
-            },
-
-            Self::MapContainsValue { field, value } => Predicate::MapContainsValue {
-                field: field.clone(),
-                value: value.clone(),
-                coercion: CoercionSpec::new(CoercionId::Strict),
-            },
-
-            Self::MapContainsEntry { field, key, value } => Predicate::MapContainsEntry {
-                field: field.clone(),
-                key: key.clone(),
-                value: value.clone(),
-                coercion: CoercionSpec::new(CoercionId::Strict),
-            },
+            Self::MapContainsKey { field, .. }
+            | Self::MapContainsValue { field, .. }
+            | Self::MapContainsEntry { field, .. } => {
+                return Err(QueryError::UnsupportedQueryFeature(
+                    UnsupportedQueryFeature::MapPredicate {
+                        field: field.clone(),
+                    },
+                ));
+            }
         };
 
         Ok(core::db::query::expr::FilterExpr(pred))
@@ -361,65 +355,65 @@ impl FilterExpr {
     // Scalar comparisons
     // ─────────────────────────────────────────────────────────────
 
-    pub fn eq(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn eq(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Eq {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
-    pub fn ne(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn ne(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Ne {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
-    pub fn lt(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn lt(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Lt {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
-    pub fn lte(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn lte(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Lte {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
-    pub fn gt(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn gt(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Gt {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
-    pub fn gte(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn gte(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Gte {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
     pub fn in_list(
         field: impl Into<String>,
-        values: impl IntoIterator<Item = impl Into<Value>>,
+        values: impl IntoIterator<Item = impl FieldValue>,
     ) -> Self {
         Self::In {
             field: field.into(),
-            values: values.into_iter().map(Into::into).collect(),
+            values: values.into_iter().map(|v| v.to_value()).collect(),
         }
     }
 
     pub fn not_in(
         field: impl Into<String>,
-        values: impl IntoIterator<Item = impl Into<Value>>,
+        values: impl IntoIterator<Item = impl FieldValue>,
     ) -> Self {
         Self::NotIn {
             field: field.into(),
-            values: values.into_iter().map(Into::into).collect(),
+            values: values.into_iter().map(|v| v.to_value()).collect(),
         }
     }
 
@@ -427,10 +421,10 @@ impl FilterExpr {
     // Collection
     // ─────────────────────────────────────────────────────────────
 
-    pub fn contains(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn contains(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::Contains {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
@@ -438,45 +432,45 @@ impl FilterExpr {
     // Text predicates
     // ─────────────────────────────────────────────────────────────
 
-    pub fn text_contains(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn text_contains(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::TextContains {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
-    pub fn text_contains_ci(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn text_contains_ci(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::TextContainsCi {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
-    pub fn starts_with(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn starts_with(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::StartsWith {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
-    pub fn starts_with_ci(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn starts_with_ci(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::StartsWithCi {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
-    pub fn ends_with(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn ends_with(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::EndsWith {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
-    pub fn ends_with_ci(field: impl Into<String>, value: impl Into<Value>) -> Self {
+    pub fn ends_with_ci(field: impl Into<String>, value: impl FieldValue) -> Self {
         Self::EndsWithCi {
             field: field.into(),
-            value: value.into(),
+            value: value.to_value(),
         }
     }
 
@@ -518,30 +512,32 @@ impl FilterExpr {
     // Map predicates
     // ─────────────────────────────────────────────────────────────
 
-    pub fn map_contains_key(field: impl Into<String>, key: impl Into<Value>) -> Self {
-        Self::MapContainsKey {
+    pub fn map_contains_key(
+        field: impl Into<String>,
+        _key: impl Into<Value>,
+    ) -> Result<Self, UnsupportedQueryFeature> {
+        Err(UnsupportedQueryFeature::MapPredicate {
             field: field.into(),
-            key: key.into(),
-        }
+        })
     }
 
-    pub fn map_contains_value(field: impl Into<String>, value: impl Into<Value>) -> Self {
-        Self::MapContainsValue {
+    pub fn map_contains_value(
+        field: impl Into<String>,
+        _value: impl Into<Value>,
+    ) -> Result<Self, UnsupportedQueryFeature> {
+        Err(UnsupportedQueryFeature::MapPredicate {
             field: field.into(),
-            value: value.into(),
-        }
+        })
     }
 
     pub fn map_contains_entry(
         field: impl Into<String>,
-        key: impl Into<Value>,
-        value: impl Into<Value>,
-    ) -> Self {
-        Self::MapContainsEntry {
+        _key: impl Into<Value>,
+        _value: impl Into<Value>,
+    ) -> Result<Self, UnsupportedQueryFeature> {
+        Err(UnsupportedQueryFeature::MapPredicate {
             field: field.into(),
-            key: key.into(),
-            value: value.into(),
-        }
+        })
     }
 }
 
@@ -581,4 +577,23 @@ impl SortExpr {
 pub enum OrderDirection {
     Asc,
     Desc,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FilterExpr;
+    use icydb_core::db::query::predicate::UnsupportedQueryFeature;
+
+    #[test]
+    fn map_filter_expr_constructors_fail_immediately() {
+        let err = FilterExpr::map_contains_key("attributes", "k")
+            .expect_err("map constructor must fail immediately");
+
+        assert_eq!(
+            err,
+            UnsupportedQueryFeature::MapPredicate {
+                field: "attributes".to_string(),
+            }
+        );
+    }
 }

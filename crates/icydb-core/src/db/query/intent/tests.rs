@@ -86,6 +86,28 @@ static PLAN_MODEL: EntityModel = entity_model_from_static(
     &PLAN_INDEXES,
 );
 
+static MAP_PLAN_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "attributes",
+        kind: EntityFieldKind::Map {
+            key: &EntityFieldKind::Text,
+            value: &EntityFieldKind::Uint,
+        },
+    },
+];
+static MAP_PLAN_INDEXES: [&IndexModel; 0] = [];
+static MAP_PLAN_MODEL: EntityModel = entity_model_from_static(
+    "intent_tests::MapPlanEntity",
+    "MapPlanEntity",
+    &MAP_PLAN_FIELDS[0],
+    &MAP_PLAN_FIELDS,
+    &MAP_PLAN_INDEXES,
+);
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 struct PlanSingleton {
     id: Id<Self>,
@@ -349,4 +371,28 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         .into_inner();
 
     assert_eq!(model_as_typed, typed_plan);
+}
+
+#[test]
+fn build_plan_model_rejects_map_predicates_before_planning() {
+    let intent = QueryModel::<Ulid>::new(&MAP_PLAN_MODEL, ReadConsistency::MissingOk).filter(
+        Predicate::MapContainsEntry {
+            field: "attributes".to_string(),
+            key: Value::Text("k".to_string()),
+            value: Value::Uint(1),
+            coercion: crate::db::query::predicate::CoercionSpec::new(
+                crate::db::query::predicate::CoercionId::Strict,
+            ),
+        },
+    );
+
+    let err = intent
+        .build_plan_model()
+        .expect_err("map predicates must be rejected before planning");
+    assert!(matches!(
+        err,
+        QueryError::UnsupportedQueryFeature(
+            crate::db::query::predicate::UnsupportedQueryFeature::MapPredicate { field }
+        ) if field == "attributes"
+    ));
 }

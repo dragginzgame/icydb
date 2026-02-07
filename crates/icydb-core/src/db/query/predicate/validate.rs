@@ -1,5 +1,5 @@
 use super::{
-    ast::{CompareOp, ComparePredicate, Predicate},
+    ast::{CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature},
     coercion::{CoercionId, CoercionSpec, supports_coercion},
 };
 use crate::{
@@ -394,6 +394,9 @@ pub enum ValidateError {
     #[error("duplicate field '{field}'")]
     DuplicateField { field: String },
 
+    #[error("{0}")]
+    UnsupportedQueryFeature(#[from] UnsupportedQueryFeature),
+
     #[error("primary key '{field}' not present in entity fields")]
     InvalidPrimaryKey { field: String },
 
@@ -425,12 +428,41 @@ pub enum ValidateError {
 
     #[error("invalid literal for field '{field}': {message}")]
     InvalidLiteral { field: String, message: String },
+}
 
-    #[error("Map fields are not queryable in icydb 0.7 (field '{field}')")]
-    MapFieldNotQueryable { field: String },
+/// Reject policy-level unsupported features before planning.
+pub fn reject_unsupported_query_features(
+    predicate: &Predicate,
+) -> Result<(), UnsupportedQueryFeature> {
+    match predicate {
+        Predicate::True
+        | Predicate::False
+        | Predicate::Compare(_)
+        | Predicate::IsNull { .. }
+        | Predicate::IsMissing { .. }
+        | Predicate::IsEmpty { .. }
+        | Predicate::IsNotEmpty { .. }
+        | Predicate::TextContains { .. }
+        | Predicate::TextContainsCi { .. } => Ok(()),
+        Predicate::And(children) | Predicate::Or(children) => {
+            for child in children {
+                reject_unsupported_query_features(child)?;
+            }
+
+            Ok(())
+        }
+        Predicate::Not(inner) => reject_unsupported_query_features(inner),
+        Predicate::MapContainsKey { field, .. }
+        | Predicate::MapContainsValue { field, .. }
+        | Predicate::MapContainsEntry { field, .. } => Err(UnsupportedQueryFeature::MapPredicate {
+            field: field.clone(),
+        }),
+    }
 }
 
 pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), ValidateError> {
+    reject_unsupported_query_features(predicate)?;
+
     match predicate {
         Predicate::True | Predicate::False => Ok(()),
         Predicate::And(children) | Predicate::Or(children) => {
@@ -445,9 +477,10 @@ pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), Valida
             // CONTRACT: presence checks are the only predicates allowed on unsupported fields.
             let field_type = ensure_field_exists(schema, field)?;
             if matches!(field_type, FieldType::Map { .. }) {
-                return Err(ValidateError::MapFieldNotQueryable {
+                return Err(UnsupportedQueryFeature::MapPredicate {
                     field: field.clone(),
-                });
+                }
+                .into());
             }
 
             Ok(())
@@ -714,9 +747,10 @@ fn ensure_field<'a>(schema: &'a SchemaInfo, field: &str) -> Result<&'a FieldType
         })?;
 
     if matches!(field_type, FieldType::Map { .. }) {
-        return Err(ValidateError::MapFieldNotQueryable {
+        return Err(UnsupportedQueryFeature::MapPredicate {
             field: field.to_string(),
-        });
+        }
+        .into());
     }
 
     if matches!(field_type, FieldType::Unsupported) {
@@ -958,11 +992,14 @@ mod tests {
     use crate::{
         db::query::{
             FieldRef,
-            predicate::{CoercionId, CoercionSpec, Predicate},
+            predicate::{
+                CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
+                UnsupportedQueryFeature,
+            },
         },
         model::field::{EntityFieldKind, EntityFieldModel},
         test_fixtures::InvalidEntityModelBuilder,
-        traits::EntitySchema,
+        traits::{EntitySchema, FieldValue},
         types::{
             Account, Date, Decimal, Duration, E8s, E18s, Float32, Float64, Int, Int128, Nat,
             Nat128, Principal, Subaccount, Timestamp, Ulid,
@@ -1161,21 +1198,26 @@ mod tests {
     }
 
     #[test]
-    fn validate_model_rejects_map_predicates_in_0_7_x() {
+    fn validate_model_rejects_map_predicates() {
         let model = <CollectionPredicateEntity as EntitySchema>::MODEL;
 
-        // Non-map collections remain queryable.
-        let allowed = Predicate::And(vec![
-            FieldRef::new("tags").is_empty(),
-            FieldRef::new("principals").is_not_empty(),
-        ]);
-        assert!(validate_model(model, &allowed).is_ok());
-
-        let map_contains =
+        let map_contains_builder =
             FieldRef::new("attributes").map_contains_entry("k", 1u64, CoercionId::Strict);
         assert!(matches!(
-            validate_model(model, &map_contains),
-            Err(ValidateError::MapFieldNotQueryable { field }) if field == "attributes"
+            map_contains_builder,
+            Err(UnsupportedQueryFeature::MapPredicate { field }) if field == "attributes"
+        ));
+
+        let map_contains_predicate = Predicate::MapContainsEntry {
+            field: "attributes".to_string(),
+            key: Value::Text("k".to_string()),
+            value: Value::Uint(1),
+            coercion: CoercionSpec::new(CoercionId::Strict),
+        };
+        assert!(matches!(
+            validate_model(model, &map_contains_predicate),
+            Err(ValidateError::UnsupportedQueryFeature(UnsupportedQueryFeature::MapPredicate { field }))
+                if field == "attributes"
         ));
 
         let map_presence = Predicate::IsMissing {
@@ -1183,8 +1225,23 @@ mod tests {
         };
         assert!(matches!(
             validate_model(model, &map_presence),
-            Err(ValidateError::MapFieldNotQueryable { field }) if field == "attributes"
+            Err(ValidateError::UnsupportedQueryFeature(UnsupportedQueryFeature::MapPredicate { field }))
+                if field == "attributes"
         ));
+    }
+
+    #[test]
+    fn validate_model_accepts_deterministic_set_predicates() {
+        let model = <CollectionPredicateEntity as EntitySchema>::MODEL;
+
+        let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+            "principals",
+            CompareOp::Contains,
+            Principal::anonymous().to_value(),
+            CoercionId::Strict,
+        ));
+
+        assert!(validate_model(model, &predicate).is_ok());
     }
 
     #[test]

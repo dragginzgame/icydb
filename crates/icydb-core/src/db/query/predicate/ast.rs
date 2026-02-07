@@ -3,6 +3,7 @@ use crate::{
     value::Value,
 };
 use std::ops::{BitAnd, BitOr};
+use thiserror::Error as ThisError;
 
 ///
 /// Predicate AST
@@ -261,4 +262,22 @@ impl BitOr for &Predicate {
     fn bitor(self, rhs: Self) -> Self::Output {
         Predicate::Or(vec![self.clone(), rhs.clone()])
     }
+}
+
+///
+/// UnsupportedQueryFeature
+///
+/// Policy-level query features that are intentionally not supported.
+///
+/// Map predicates are disallowed by design: map storage may exist, but query
+/// semantics over map structure are intentionally fenced for deterministic and
+/// stable query behavior.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+pub enum UnsupportedQueryFeature {
+    #[error(
+        "map field '{field}' is not queryable; map predicates are disabled. model queryable attributes as scalar/indexed fields or list entries"
+    )]
+    MapPredicate { field: String },
 }

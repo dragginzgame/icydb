@@ -220,6 +220,18 @@ impl<T> TypeKind for T where
 /// Avoids implicit deref-based access to inner collections.
 ///
 
+///
+/// DeterministicCollection
+///
+/// Marker for collection types with stable iteration, serialization, and
+/// equality semantics across process boundaries.
+///
+/// This trait intentionally has no methods; it exists to encode a hard
+/// determinism invariant at collection boundaries.
+///
+
+pub trait DeterministicCollection {}
+
 pub trait Collection {
     type Item;
 
