@@ -800,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.6.46"
+version = "0.6.47"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -821,7 +821,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.6.46"
+version = "0.6.47"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -831,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.6.46"
+version = "0.6.47"
 dependencies = [
  "bencher",
  "candid",
@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.6.46"
+version = "0.6.47"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -865,7 +865,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.6.46"
+version = "0.6.47"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.6.46"
+version = "0.6.47"
 dependencies = [
  "candid",
  "canic-utils",
@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.6.46"
+version = "0.6.47"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -1133,9 +1133,9 @@ dependencies = [
 
 [[package]]
 name = "psm"
-version = "0.1.29"
+version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fa96cb91275ed31d6da3e983447320c4eb219ac180fa1679a0889ff32861e2d"
+checksum = "3852766467df634d74f0b2d7819bf8dc483a0eb2e3b0f50f756f9cfe8b0d18d8"
 dependencies = [
  "ar_archive_writer",
  "cc",
@@ -1402,9 +1402,9 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "stacker"
-version = "0.1.22"
+version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1f8b29fb42aafcea4edeeb6b2f2d7ecd0d969c48b4cf0d2e64aafc471dd6e59"
+checksum = "08d74a23609d509411d10e2176dc2a4346e3b4aea2e7b1869f19fdedbc71c013"
 dependencies = [
  "cc",
  "cfg-if",
