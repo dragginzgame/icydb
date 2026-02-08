@@ -219,8 +219,10 @@ impl<'de> Deserialize<'de> for Nat128 {
 impl UpdateView for Nat128 {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
         *self = v;
+
+        Ok(())
     }
 }
 

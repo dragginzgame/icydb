@@ -248,8 +248,10 @@ impl TryFrom<&[u8]> for Principal {
 impl UpdateView for Principal {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
         *self = v;
+
+        Ok(())
     }
 }
 

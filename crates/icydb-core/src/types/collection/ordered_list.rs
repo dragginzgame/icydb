@@ -117,8 +117,11 @@ where
     T: UpdateView + Default,
 {
     /// Apply positional patches using `ListPatch` semantics.
-    pub fn apply_patches(&mut self, patches: Vec<ListPatch<T::UpdateViewType>>) {
-        self.merge(patches);
+    pub fn apply_patches(
+        &mut self,
+        patches: Vec<ListPatch<T::UpdateViewType>>,
+    ) -> Result<(), crate::traits::ViewPatchError> {
+        self.merge(patches)
     }
 }
 
@@ -248,22 +251,25 @@ where
 {
     type UpdateViewType = Vec<ListPatch<T::UpdateViewType>>;
 
-    fn merge(&mut self, patches: Self::UpdateViewType) {
+    fn merge(
+        &mut self,
+        patches: Self::UpdateViewType,
+    ) -> Result<(), crate::traits::ViewPatchError> {
         for patch in patches {
             match patch {
                 ListPatch::Update { index, patch } => {
                     if let Some(elem) = self.get_mut(index) {
-                        elem.merge(patch);
+                        elem.merge(patch)?;
                     }
                 }
                 ListPatch::Insert { index, value } => {
                     let mut elem = T::default();
-                    elem.merge(value);
+                    elem.merge(value)?;
                     self.insert(index, elem);
                 }
                 ListPatch::Push { value } => {
                     let mut elem = T::default();
-                    elem.merge(value);
+                    elem.merge(value)?;
                     self.push(elem);
                 }
                 ListPatch::Overwrite { values } => {
@@ -271,7 +277,7 @@ where
 
                     for value in values {
                         let mut elem = T::default();
-                        elem.merge(value);
+                        elem.merge(value)?;
                         self.push(elem);
                     }
                 }
@@ -281,6 +287,8 @@ where
                 ListPatch::Clear => self.clear(),
             }
         }
+
+        Ok(())
     }
 }
 
@@ -307,7 +315,8 @@ mod tests {
             ListPatch::Remove { index: 0 },
         ];
 
-        list.apply_patches(patches);
+        list.apply_patches(patches)
+            .expect("ordered list patch merge should succeed");
 
         let expected: OrderedList<u8> = vec![11, 99, 30].into();
         assert_eq!(list, expected);

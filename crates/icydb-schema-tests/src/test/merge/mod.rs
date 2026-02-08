@@ -132,7 +132,9 @@ mod tests {
             favorite_numbers: None,
         }));
 
-        entity.merge(update);
+        entity
+            .merge(update)
+            .expect("entity merge update should succeed");
 
         assert_eq!(entity.name, "updated");
         assert_eq!(entity.nickname.as_deref(), Some("nick"));
@@ -179,7 +181,9 @@ mod tests {
 
         // Leaving an option unset in the update should not change it.
         let update: Update<MergeEntity> = MergeEntityUpdate::default();
-        entity.merge(update);
+        entity
+            .merge(update)
+            .expect("entity merge update should preserve existing optional values");
         assert_eq!(entity.nickname.as_deref(), Some("nick"));
         assert!(entity.opt_profile.is_some());
 
@@ -187,7 +191,9 @@ mod tests {
         let mut update: Update<MergeEntity> = Default::default();
         update.nickname = Some(None);
         update.opt_profile = Some(None);
-        entity.merge(update);
+        entity
+            .merge(update)
+            .expect("entity merge should clear optional fields when explicitly requested");
 
         assert!(entity.nickname.is_none());
         assert!(entity.opt_profile.is_none());
@@ -199,7 +205,9 @@ mod tests {
         let mut profile = profile("start", 1, &[1, 2, 3]);
         let mut update: Update<MergeProfile> = Default::default();
         update.bio = Some("updated".into());
-        profile.merge(update);
+        profile
+            .merge(update)
+            .expect("record merge should apply partial update");
 
         assert_eq!(profile.bio, "updated");
         assert_eq!(profile.visits, 1);
@@ -213,7 +221,8 @@ mod tests {
             SetPatch::Clear,
             SetPatch::Insert("fresh".to_string()),
             SetPatch::Insert("new".to_string()),
-        ]);
+        ])
+        .expect("set patch merge should succeed");
         let tag_set: HashSet<_> = tags.iter().cloned().collect();
         let expected: HashSet<_> = vec!["fresh".to_string(), "new".to_string()]
             .into_iter()
@@ -235,7 +244,9 @@ mod tests {
                 value: 7u32,
             },
         ];
-        settings.merge(patch);
+        settings
+            .merge(patch)
+            .expect("map patch merge should succeed");
 
         let settings: HashMap<_, _> = settings.iter().map(|(k, v)| (k.clone(), *v)).collect();
         assert_eq!(settings.get("keep"), Some(&7u32));
@@ -268,7 +279,9 @@ mod tests {
             values: vec!["fresh".to_string(), "new".to_string()],
         }]);
 
-        entity.merge(update);
+        entity
+            .merge(update)
+            .expect("entity merge overwrite patch should succeed");
 
         assert_eq!(entity.scores, vec![9, 8, 7]);
 

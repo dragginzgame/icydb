@@ -270,8 +270,10 @@ impl SubAssign for Duration {
 impl UpdateView for Duration {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
         *self = v;
+
+        Ok(())
     }
 }
 

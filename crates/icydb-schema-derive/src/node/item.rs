@@ -51,6 +51,16 @@ impl Item {
                 "strong/weak may only be used with rel",
             ));
         }
+        if let Some(relation) = &self.relation
+            && self.primitive.is_none()
+        {
+            return Err(
+                DarlingError::custom(
+                    "rel fields must explicitly declare prim = \"...\"; implicit identity types are forbidden",
+                )
+                .with_span(relation),
+            );
+        }
 
         // Phase 3: enforce relation constraints.
         if let Some(relation) = &self.relation
@@ -64,7 +74,6 @@ impl Item {
         Ok(())
     }
 
-    // If rel is set and no is/primitive is specified, default to Ulid.
     pub fn target(&self) -> ItemTarget {
         debug_assert!(
             !(self.is.is_some() && self.primitive.is_some()),
@@ -76,9 +85,6 @@ impl Item {
         }
         if let Some(prim) = &self.primitive {
             return ItemTarget::Primitive(*prim);
-        }
-        if self.relation.is_some() {
-            return ItemTarget::Primitive(Primitive::Ulid);
         }
 
         ItemTarget::Primitive(Primitive::Unit)

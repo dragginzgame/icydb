@@ -65,7 +65,6 @@ pub struct ExternalPrimaryKeyEntity {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::traits::EntityValue;
 
     #[test]
     fn internal_primary_key_uses_declared_field_type() {
@@ -79,19 +78,5 @@ mod tests {
             <RenamedEntity as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
             "Potato"
         );
-    }
-
-    #[test]
-    fn external_primary_key_uses_declared_field_type_and_projects_identity() {
-        let wallet_pid = Principal::anonymous();
-        let entity = ExternalPrimaryKeyEntity {
-            pid: wallet_pid,
-            ..Default::default()
-        };
-
-        let _: Principal = entity.pid;
-
-        let id: Id<ExternalPrimaryKeyEntity> = entity.id();
-        assert_eq!(id.to_value(), wallet_pid.to_value());
     }
 }

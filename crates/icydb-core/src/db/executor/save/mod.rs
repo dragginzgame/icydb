@@ -30,7 +30,7 @@ use crate::{
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::serialize,
-    traits::{EntityKind, EntityValue, FieldValue, Path, Storable},
+    traits::{EntityKind, EntityValue, Path, Storable},
     validate::validate,
     value::Value,
 };
@@ -471,11 +471,8 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
     // Enforce trait boundary invariants for user-provided entities.
     fn validate_entity_invariants(entity: &E, schema: &SchemaInfo) -> Result<(), InternalError> {
-        let key = entity.id();
-
-        // Phase 1: validate primary key field presence and value.
-        let expected = key.to_value();
-        let actual = entity.get_value(E::PRIMARY_KEY).ok_or_else(|| {
+        // Phase 1: validate primary key field presence and *shape*.
+        let pk_value = entity.get_value(E::PRIMARY_KEY).ok_or_else(|| {
             InternalError::new(
                 ErrorClass::InvariantViolation,
                 ErrorOrigin::Executor,
@@ -486,13 +483,31 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 ),
             )
         })?;
-        if actual != expected {
+
+        // Primary key must not be Null or Unit.
+        if matches!(pk_value, Value::Null | Value::Unit) {
             return Err(InternalError::new(
                 ErrorClass::InvariantViolation,
                 ErrorOrigin::Executor,
                 format!(
-                    "entity primary key field mismatch: {} expected={expected:?} actual={actual:?}",
-                    E::PATH
+                    "entity primary key field has invalid value: {} field={} value={pk_value:?}",
+                    E::PATH,
+                    E::PRIMARY_KEY
+                ),
+            ));
+        }
+
+        // If schema knows the PK type, enforce literal shape compatibility.
+        if let Some(pk_type) = schema.field(E::PRIMARY_KEY)
+            && !literal_matches_type(&pk_value, pk_type)
+        {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
+                format!(
+                    "entity primary key field type mismatch: {} field={} value={pk_value:?}",
+                    E::PATH,
+                    E::PRIMARY_KEY
                 ),
             ));
         }
@@ -518,25 +533,21 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 )
             })?;
 
-            if matches!(value, Value::Null) {
-                continue;
-            }
-
-            if matches!(value, Value::Unit) {
-                // Unit is an executor-only sentinel for singleton presence; skip type checks.
+            if matches!(value, Value::Null | Value::Unit) {
+                // Null = absent, Unit = singleton sentinel; both skip type checks.
                 continue;
             }
 
             if !field.kind.value_kind().is_queryable() {
                 // Non-queryable structured fields are not planner-addressable.
-                // Skip predicate/index shape checks for this affordance class.
                 continue;
             }
 
             let Some(field_type) = schema.field(field.name) else {
-                // Field is not part of schema (runtime-only); treat as non-queryable.
+                // Runtime-only field; treat as non-queryable.
                 continue;
             };
+
             if !literal_matches_type(&value, field_type) {
                 return Err(InternalError::new(
                     ErrorClass::InvariantViolation,

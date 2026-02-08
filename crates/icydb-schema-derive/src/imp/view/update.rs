@@ -60,8 +60,10 @@ impl Imp<Enum> for UpdateViewTrait {
             fn merge(
                 &mut self,
                 update: Self::UpdateViewType,
-            ) {
+            ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
                 *self = update.into();
+
+                Ok(())
             }
         };
 
@@ -87,7 +89,7 @@ impl Imp<Tuple> for UpdateViewTrait {
             let idx = syn::Index::from(i);
             quote! {
                 if let Some(v) = update.#idx {
-                    ::icydb::traits::UpdateView::merge(&mut next.#idx, v);
+                    ::icydb::traits::UpdateView::merge(&mut next.#idx, v)?;
                 }
             }
         });
@@ -99,10 +101,12 @@ impl Imp<Tuple> for UpdateViewTrait {
             fn merge(
                 &mut self,
                 update: Self::UpdateViewType,
-            ) {
+            ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
                 let mut next = self.clone();
                 #(#merge_parts)*
                 *self = next;
+
+                Ok(())
             }
         };
 
@@ -132,7 +136,7 @@ where
         .map(|ident| {
             quote! {
                 if let Some(v) = update.#ident {
-                    ::icydb::traits::UpdateView::merge(&mut next.#ident, v);
+                    ::icydb::traits::UpdateView::merge(&mut next.#ident, v)?;
                 }
             }
         })
@@ -144,10 +148,12 @@ where
         fn merge(
             &mut self,
             update: Self::UpdateViewType,
-        ) {
+        ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
             let mut next = self.clone();
             #(#merge_pairs)*
             *self = next;
+
+            Ok(())
         }
     };
 
@@ -172,11 +178,13 @@ fn update_impl_delegate(node: &impl HasType) -> TraitStrategy {
         fn merge(
             &mut self,
             update: Self::UpdateViewType,
-        ) {
+        ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
             // Forward to the inner collection (Vec, BTreeSet, BTreeMap)
             let mut next = self.clone();
-            ::icydb::traits::UpdateView::merge(&mut next.0, update);
+            ::icydb::traits::UpdateView::merge(&mut next.0, update)?;
             *self = next;
+
+            Ok(())
         }
     };
 

@@ -1,10 +1,9 @@
 use crate::{
     traits::{
-        AsView, EntityKey, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, EntityKey, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
+        Visitable,
     },
     types::Id,
-    value::Value,
     view::SetPatch,
     visitor::{VisitorContext, VisitorCore, VisitorMutCore, perform_visit},
 };
@@ -126,8 +125,11 @@ where
     Id<E>: UpdateView + Default,
 {
     /// Apply set patches, enforcing primary-key uniqueness and deterministic ordering.
-    pub fn apply_patches(&mut self, patches: Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>) {
-        self.merge(patches);
+    pub fn apply_patches(
+        &mut self,
+        patches: Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>,
+    ) -> Result<(), crate::traits::ViewPatchError> {
+        self.merge(patches)
     }
 }
 
@@ -185,32 +187,6 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
-    }
-}
-
-impl<E> FieldValue for IdSet<E>
-where
-    E: EntityKey,
-{
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Structured { queryable: true }
-    }
-
-    fn to_value(&self) -> Value {
-        Value::List(self.0.iter().map(FieldValue::to_value).collect())
-    }
-
-    fn from_value(value: &Value) -> Option<Self> {
-        let Value::List(values) = value else {
-            return None;
-        };
-
-        let mut out = Vec::with_capacity(values.len());
-        for value in values {
-            out.push(Id::<E>::from_value(value)?);
-        }
-
-        Some(Self::from_ids(out))
     }
 }
 
@@ -275,29 +251,34 @@ where
 {
     type UpdateViewType = Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>;
 
-    fn merge(&mut self, patches: Self::UpdateViewType) {
+    fn merge(
+        &mut self,
+        patches: Self::UpdateViewType,
+    ) -> Result<(), crate::traits::ViewPatchError> {
         for patch in patches {
             match patch {
                 SetPatch::Insert(value) => {
                     let mut id = Id::<E>::default();
-                    id.merge(value);
+                    id.merge(value)?;
                     self.insert(id);
                 }
                 SetPatch::Remove(value) => {
                     let mut id = Id::<E>::default();
-                    id.merge(value);
+                    id.merge(value)?;
                     self.remove(&id);
                 }
                 SetPatch::Overwrite { values } => {
                     self.clear();
                     for value in values {
                         let mut id = Id::<E>::default();
-                        id.merge(value);
+                        id.merge(value)?;
                         self.insert(id);
                     }
                 }
                 SetPatch::Clear => self.clear(),
             }
         }
+
+        Ok(())
     }
 }

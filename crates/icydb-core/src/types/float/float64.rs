@@ -196,8 +196,10 @@ impl SanitizeCustom for Float64 {}
 impl UpdateView for Float64 {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
         *self = v;
+
+        Ok(())
     }
 }
 

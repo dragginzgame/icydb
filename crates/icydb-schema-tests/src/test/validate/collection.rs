@@ -5,7 +5,7 @@ use crate::prelude::*;
 ///
 
 #[list(
-    item(rel = "crate::test::entity::Entity"),
+    item(rel = "crate::test::entity::Entity", prim = "Ulid"),
     ty(validator(path = "base::validator::len::Max", args(2)))
 )]
 pub struct List {}

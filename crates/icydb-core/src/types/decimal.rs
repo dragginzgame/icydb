@@ -422,8 +422,10 @@ impl SanitizeCustom for Decimal {}
 impl UpdateView for Decimal {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
         *self = v;
+
+        Ok(())
     }
 }
 

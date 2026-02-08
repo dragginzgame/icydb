@@ -223,8 +223,10 @@ impl TryFrom<&[u8]> for Float32 {
 impl UpdateView for Float32 {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
         *self = v;
+
+        Ok(())
     }
 }
 

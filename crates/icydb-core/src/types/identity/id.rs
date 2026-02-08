@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        EntityKey, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, Visitable,
+        EntityKey, FieldValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        Visitable,
     },
     value::Value,
 };
@@ -144,16 +144,6 @@ where
     }
 }
 
-impl<E> Default for Id<E>
-where
-    E: EntityKey,
-    E::Key: Default,
-{
-    fn default() -> Self {
-        Self::from_key(E::Key::default())
-    }
-}
-
 impl<E> fmt::Display for Id<E>
 where
     E: EntityKey,
@@ -211,29 +201,6 @@ where
     }
 }
 
-// ----------------------------------------------------------------------
-// Value / validation integration
-// ----------------------------------------------------------------------
-
-impl<E> FieldValue for Id<E>
-where
-    E: EntityKey,
-    E::Key: FieldValue,
-{
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
-    }
-
-    fn to_value(&self) -> Value {
-        self.key.to_value()
-    }
-
-    fn from_value(value: &Value) -> Option<Self> {
-        let key = E::Key::from_value(value)?;
-        Some(Self::from_key(key))
-    }
-}
-
 impl<E> From<Id<E>> for Value
 where
     E: EntityKey,
@@ -278,32 +245,13 @@ impl<E> Visitable for Id<E> where E: EntityKey {}
 #[cfg(test)]
 mod tests {
     use super::Id;
-    use crate::{
-        traits::{EntityKey, FieldValue},
-        value::Value,
-    };
+    use crate::{traits::EntityKey, value::Value};
 
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     struct TestEntity;
 
     impl EntityKey for TestEntity {
         type Key = u64;
-    }
-
-    #[test]
-    fn field_value_round_trip_uses_underlying_key() {
-        let id = Id::<TestEntity>::from_key(7);
-        let value = id.to_value();
-        assert_eq!(value, Value::Uint(7));
-
-        let decoded = Id::<TestEntity>::from_value(&value).expect("u64 value should decode to Id");
-        assert_eq!(decoded, id);
-    }
-
-    #[test]
-    fn field_value_rejects_incompatible_value_kind() {
-        let decoded = Id::<TestEntity>::from_value(&Value::Text("not-a-key".to_string()));
-        assert!(decoded.is_none());
     }
 
     #[test]

@@ -29,30 +29,22 @@ pub struct UserProjects;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::{
-        traits::{EntityKey, EntityValue},
-        types::Ulid,
-    };
-
-    fn assert_storage_key<E: EntityKey<Key = Ulid>>() {}
+    use icydb::{traits::EntityValue, types::Ulid};
 
     #[test]
-    fn relation_primary_key_borrows_storage_key() {
-        assert_storage_key::<UserProjects>();
-
-        let user_key = Ulid::from_parts(1, 42);
+    fn relation_primary_key_uses_declared_primitive_type() {
+        let user = Ulid::from_parts(1, 42);
         let projects = UserProjects {
-            user: user_key,
+            user,
             ..Default::default()
         };
 
         // Field type stores the declared primitive key.
         let _: Ulid = projects.user;
 
-        // Semantic identity is now Id<UserProjects>
-        let id: Id<UserProjects> = projects.id();
+        // Entity has its own identity.
+        let _id: Id<UserProjects> = projects.id();
 
-        // Identity unwraps to the borrowed storage key
-        assert_eq!(id.to_value(), user_key.to_value());
+        // No identity ↔ primitive equivalence is asserted.
     }
 }

@@ -9,7 +9,7 @@ use crate::prelude::*;
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "a", value(item(rel = "EntityA"))),
+        field(ident = "a", value(item(rel = "EntityA", prim = "Ulid"))),
         field(ident = "b", value(item(rel = "EntityB", prim = "Nat16"))),
         field(ident = "c", value(item(rel = "EntityC", prim = "Principal"))),
     )
@@ -25,7 +25,7 @@ pub struct HasRelation;
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "a", value(many, item(rel = "EntityA"))),
+        field(ident = "a", value(many, item(rel = "EntityA", prim = "Ulid"))),
     )
 )]
 pub struct HasManyRelation;
@@ -83,7 +83,7 @@ pub struct RelationOwner;
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "owner", value(item(rel = "RelationOwner"))),
+        field(ident = "owner", value(item(rel = "RelationOwner", prim = "Ulid"))),
     )
 )]
 pub struct RelationOwned;
@@ -98,7 +98,7 @@ pub struct RelationOwned;
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "owner", value(item(rel = "RelationOwner"))),
+        field(ident = "owner", value(item(rel = "RelationOwner", prim = "Ulid"))),
     )
 )]
 pub struct CrossCanisterRelation;

@@ -131,16 +131,16 @@ pub struct ContainsOpts {}
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "a", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "b", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "c", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "d", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "e", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "f", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "g", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "h", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "i", value(many, item(rel = "ContainsBlob"))),
-        field(ident = "j", value(many, item(rel = "ContainsBlob")))
+        field(ident = "a", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
+        field(ident = "b", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
+        field(ident = "c", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
+        field(ident = "d", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
+        field(ident = "e", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
+        field(ident = "f", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
+        field(ident = "g", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
+        field(ident = "h", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
+        field(ident = "i", value(many, item(rel = "ContainsBlob", prim = "Ulid"))),
+        field(ident = "j", value(many, item(rel = "ContainsBlob", prim = "Ulid")))
     )
 )]
 pub struct ContainsManyRelations {}
@@ -210,7 +210,7 @@ pub struct IndexSanitized {}
     index(store = "TestIndexStore", fields = "create_blob"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
-        field(ident = "create_blob", value(item(rel = "BlobEntity")))
+        field(ident = "create_blob", value(item(rel = "BlobEntity", prim = "Ulid")))
     )
 )]
 pub struct IndexRelation {}
