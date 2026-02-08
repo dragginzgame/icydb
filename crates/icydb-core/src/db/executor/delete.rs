@@ -494,7 +494,7 @@ where
                     continue;
                 };
                 let raw_key = key.to_raw();
-                let entity_id = entity.id().into_storage_key();
+                let entity_id = entity.id().key();
 
                 // Lazily load and decode the existing index entry once per key.
                 let entry = match entries.entry(raw_key) {
@@ -632,7 +632,7 @@ fn decode_rows<E: EntityKind + EntityValue>(
             })?;
 
             let expected = dk.try_key::<E>()?;
-            let actual = entity.id().into_storage_key();
+            let actual = entity.id().key();
             if expected != actual {
                 return Err(ExecutorError::corruption(
                     ErrorOrigin::Store,

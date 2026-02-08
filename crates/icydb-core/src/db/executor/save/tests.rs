@@ -11,8 +11,8 @@ use crate::{
     },
     test_fixtures::entity_model_from_static,
     traits::{
-        AsView, CanisterKind, DataStoreKind, EntityIdentity, EntityKind, EntityPlacement,
-        EntitySchema, EntityStorageKey, EntityValue, Path, SanitizeAuto, SanitizeCustom,
+        AsView, CanisterKind, DataStoreKind, EntityIdentity, EntityKey, EntityKind,
+        EntityPlacement, EntitySchema, EntityValue, Path, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Id, IdSet, Ulid},
@@ -130,7 +130,7 @@ impl Path for TargetEntity {
     const PATH: &'static str = "save_tests::TargetEntity";
 }
 
-impl EntityStorageKey for TargetEntity {
+impl EntityKey for TargetEntity {
     type Key = Ulid;
 }
 
@@ -180,8 +180,8 @@ impl EntityValue for TargetEntity {
 
 #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
 struct SourceEntity {
-    id: Id<Self>,
-    target: Id<TargetEntity>,
+    id: Ulid,
+    target: Ulid,
 }
 
 impl AsView for SourceEntity {
@@ -206,7 +206,7 @@ impl Path for SourceEntity {
     const PATH: &'static str = "save_tests::SourceEntity";
 }
 
-impl EntityStorageKey for SourceEntity {
+impl EntityKey for SourceEntity {
     type Key = Ulid;
 }
 
@@ -256,7 +256,7 @@ impl EntityPlacement for SourceEntity {
 impl EntityKind for SourceEntity {}
 
 impl EntityValue for SourceEntity {
-    fn id(&self) -> Id<Self> {
+    fn id(&self) -> Ulid {
         self.id
     }
 }
@@ -267,8 +267,8 @@ impl EntityValue for SourceEntity {
 
 #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
 struct SourceSetEntity {
-    id: Id<Self>,
-    targets: IdSet<TargetEntity>,
+    id: Ulid,
+    targets: Vec<TargetEntity>,
 }
 
 impl AsView for SourceSetEntity {
@@ -293,7 +293,7 @@ impl Path for SourceSetEntity {
     const PATH: &'static str = "save_tests::SourceSetEntity";
 }
 
-impl EntityStorageKey for SourceSetEntity {
+impl EntityKey for SourceSetEntity {
     type Key = Ulid;
 }
 

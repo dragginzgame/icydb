@@ -69,20 +69,17 @@ pub trait IndexStoreKind: Kind {
 ///
 /// EntityKey
 ///
-/// Marker trait for raw entity key material used at storage boundaries.
+/// Associates an entity with the primitive type used as its primary key.
+///
+/// ## Semantics
+/// - Implemented for entity types
+/// - `Self::Key` is the *storage representation* of the primary key
+/// - Keys are plain values (Ulid, u64, Principal, …)
+/// - Typed identity is provided by `Id<Self>`, not by the key itself
 ///
 
-pub trait EntityKey: Copy + Debug + Eq + Ord + FieldValue + 'static {}
-impl<T> EntityKey for T where T: Copy + Debug + Eq + Ord + FieldValue + 'static {}
-
-///
-/// EntityStorageKey
-///
-/// Raw storage-key facts about an entity.
-///
-
-pub trait EntityStorageKey {
-    type Key: EntityKey;
+pub trait EntityKey {
+    type Key: Copy + Debug + Eq + Ord + FieldValue + 'static;
 }
 
 ///
@@ -94,7 +91,7 @@ pub trait EntityStorageKey {
 /// schema/type renames when external identity continuity is required.
 ///
 
-pub trait EntityIdentity: EntityStorageKey {
+pub trait EntityIdentity: EntityKey {
     const ENTITY_NAME: &'static str;
     const PRIMARY_KEY: &'static str;
     const IDENTITY_NAMESPACE: &'static str;

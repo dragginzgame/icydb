@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        AsView, EntityStorageKey, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        AsView, EntityKey, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -17,30 +17,46 @@ use std::{
 /// Id
 ///
 /// Typed primary-key value for an entity.
-/// Carries entity context to enforce entity-kind correctness at compile time.
-/// Serializes identically to `E::Key`.
+///
+/// ## Purpose
+/// `Id<E>` is a *boundary type*:
+/// - used at API, DTO, and query boundaries
+/// - enforces entity-kind correctness at compile time
+/// - prevents accidental mixing of primary keys across entities
+///
+/// ## Storage model
+/// - Entities themselves store **primitive key values only**
+/// - Conversion between `Id<E>` and the primitive key is explicit
+/// - `Id<E>` serializes identically to `E::Key`
+///
+/// ## Safety
+/// Construction from raw key material is intentionally restricted
+/// to prevent forging entity identities.
 ///
 
 #[repr(transparent)]
-pub struct Id<E: EntityStorageKey> {
+pub struct Id<E: EntityKey> {
     key: E::Key,
     _marker: PhantomData<fn() -> E>,
 }
 
 impl<E> Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
 {
     // ------------------------------------------------------------------
-    // Construction
+    // Construction (restricted)
     // ------------------------------------------------------------------
 
-    /// Construct a typed primary-key value from raw storage key material.
+    /// Construct a typed primary-key value from raw key material.
     ///
-    /// ## Semantics
-    /// This function is intended **only for core/entity construction**:
-    /// - handwritten constructors in schema crates
-    /// - derive-generated entity initialization
+    /// ## Invariant
+    /// This constructor is intentionally restricted:
+    /// callers must *already* know the key belongs to `E`.
+    ///
+    /// Used by:
+    /// - derive-generated entity code
+    /// - controlled decoding paths (e.g. deserialization)
     #[must_use]
     pub(crate) const fn from_storage_key(key: E::Key) -> Self {
         Self {
@@ -50,41 +66,46 @@ where
     }
 
     // ------------------------------------------------------------------
-    // Storage access (core-only)
+    // Boundary conversion
     // ------------------------------------------------------------------
 
-    /// Borrow the underlying storage key.
+    /// Return the underlying primitive primary-key value.
     ///
-    /// Core-only boundary helper for planner/executor/storage code.
+    /// ## Semantics
+    /// This is the *explicit boundary crossing* from typed identity
+    /// to storage-level representation.
+    ///
+    /// Typical use:
+    /// - assigning entity fields
+    /// - persistence
+    /// - foreign-key storage
     #[must_use]
-    pub(crate) const fn storage_key(&self) -> E::Key {
+    pub const fn key(&self) -> E::Key {
         self.key
     }
 
-    /// Consume this typed primary-key value and return raw storage key material.
-    ///
-    /// Core-only boundary helper for planner/executor/storage code.
-    #[must_use]
-    pub(crate) const fn into_storage_key(self) -> E::Key {
-        self.key
-    }
-
     // ------------------------------------------------------------------
-    // Diagnostics
+    // Diagnostics / value integration
     // ------------------------------------------------------------------
 
     /// Convert this typed primary-key value into a semantic `Value`.
     ///
-    /// Intended only for planner invariants, diagnostics,
-    /// explain output, and fingerprinting.
+    /// Intended for:
+    /// - query planning
+    /// - diagnostics / explain output
+    /// - fingerprinting
     pub fn as_value(&self) -> Value {
         self.key.to_value()
     }
 }
 
+// ----------------------------------------------------------------------
+// Wire / view integration
+// ----------------------------------------------------------------------
+
 impl<E> CandidType for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: CandidType,
 {
     fn _ty() -> candid::types::Type {
@@ -101,13 +122,13 @@ where
 
 impl<E> AsView for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: AsView,
 {
     type ViewType = <E::Key as AsView>::ViewType;
 
     fn as_view(&self) -> Self::ViewType {
-        AsView::as_view(&self.storage_key())
+        AsView::as_view(&self.key())
     }
 
     fn from_view(view: Self::ViewType) -> Self {
@@ -115,21 +136,25 @@ where
     }
 }
 
+// ----------------------------------------------------------------------
+// Standard trait impls
+// ----------------------------------------------------------------------
+
 #[allow(clippy::expl_impl_clone_on_copy)]
 impl<E> Clone for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
 {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<E> Copy for Id<E> where E: EntityStorageKey {}
+impl<E> Copy for Id<E> where E: EntityKey {}
 
 impl<E> fmt::Debug for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -139,7 +164,7 @@ where
 
 impl<E> Default for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: Default,
 {
     fn default() -> Self {
@@ -149,7 +174,7 @@ where
 
 impl<E> fmt::Display for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -159,14 +184,14 @@ where
 
 impl<E> Eq for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: Eq,
 {
 }
 
 impl<E> PartialEq for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
@@ -176,7 +201,7 @@ where
 
 impl<E> Hash for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: Hash,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -186,7 +211,7 @@ where
 
 impl<E> Ord for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: Ord,
 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
@@ -196,7 +221,7 @@ where
 
 impl<E> PartialOrd for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: PartialOrd,
 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -204,9 +229,13 @@ where
     }
 }
 
+// ----------------------------------------------------------------------
+// Value / validation integration
+// ----------------------------------------------------------------------
+
 impl<E> FieldValue for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: FieldValue,
 {
     fn kind() -> FieldValueKind {
@@ -219,14 +248,13 @@ where
 
     fn from_value(value: &Value) -> Option<Self> {
         let key = E::Key::from_value(value)?;
-
         Some(Self::from_storage_key(key))
     }
 }
 
 impl<E> From<Id<E>> for Value
 where
-    E: EntityStorageKey,
+    E: EntityKey,
 {
     fn from(id: Id<E>) -> Self {
         id.as_value()
@@ -235,20 +263,16 @@ where
 
 impl<E> From<&Id<E>> for Value
 where
-    E: EntityStorageKey,
+    E: EntityKey,
 {
     fn from(id: &Id<E>) -> Self {
         id.as_value()
     }
 }
 
-impl<E> SanitizeAuto for Id<E> where E: EntityStorageKey {}
-
-impl<E> SanitizeCustom for Id<E> where E: EntityStorageKey {}
-
 impl<E> Serialize for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -261,7 +285,7 @@ where
 
 impl<'de, E> Deserialize<'de> for Id<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -269,43 +293,32 @@ where
         D: Deserializer<'de>,
     {
         let key = E::Key::deserialize(deserializer)?;
-
         Ok(Self::from_storage_key(key))
     }
 }
 
-impl<E> ValidateAuto for Id<E> where E: EntityStorageKey {}
+impl<E> SanitizeAuto for Id<E> where E: EntityKey {}
+impl<E> SanitizeCustom for Id<E> where E: EntityKey {}
+impl<E> ValidateAuto for Id<E> where E: EntityKey {}
+impl<E> ValidateCustom for Id<E> where E: EntityKey {}
+impl<E> Visitable for Id<E> where E: EntityKey {}
 
-impl<E> ValidateCustom for Id<E> where E: EntityStorageKey {}
-
-impl<E> UpdateView for Id<E>
-where
-    E: EntityStorageKey,
-    E::Key: UpdateView,
-{
-    type UpdateViewType = <E::Key as UpdateView>::UpdateViewType;
-
-    fn merge(&mut self, update: Self::UpdateViewType) {
-        let mut next_key = self.storage_key();
-        next_key.merge(update);
-        *self = Self::from_storage_key(next_key);
-    }
-}
-
-impl<E> Visitable for Id<E> where E: EntityStorageKey {}
+// ----------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::Id;
     use crate::{
-        traits::{EntityStorageKey, FieldValue},
+        traits::{EntityKey, FieldValue},
         value::Value,
     };
 
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     struct TestEntity;
 
-    impl EntityStorageKey for TestEntity {
+    impl EntityKey for TestEntity {
         type Key = u64;
     }
 

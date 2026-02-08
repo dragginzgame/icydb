@@ -299,7 +299,7 @@ where
 
                 let key = key.try_key::<E>()?;
                 let identity = entity.id();
-                let identity_key = identity.into_storage_key();
+                let identity_key = identity.key();
                 if key != identity_key {
                     let expected = DataKey::try_new::<E>(key)?;
                     let found = DataKey::try_new::<E>(identity_key)?;

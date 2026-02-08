@@ -124,7 +124,7 @@ macro_rules! test_entity_schema {
                 );
         }
 
-        impl $crate::traits::EntityStorageKey for $name {
+        impl $crate::traits::EntityKey for $name {
             type Key = $id_ty;
         }
 

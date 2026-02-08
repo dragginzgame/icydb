@@ -55,7 +55,7 @@ where
     /// Set the access path to a single typed primary-key value.
     #[must_use]
     pub fn by_id(mut self, id: Id<E>) -> Self {
-        self.query = self.query.by_id(id.into_storage_key());
+        self.query = self.query.by_id(id.key());
         self
     }
 
@@ -65,7 +65,7 @@ where
     where
         I: IntoIterator<Item = Id<E>>,
     {
-        self.query = self.query.by_ids(ids.into_iter().map(Id::into_storage_key));
+        self.query = self.query.by_ids(ids.into_iter().map(|id| id.key()));
         self
     }
 

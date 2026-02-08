@@ -103,7 +103,7 @@ where
         }
 
         // Phase 2: normalize key material through the canonical storage-key boundary.
-        let key_value = FieldValue::to_value(&self.storage_key());
+        let key_value = FieldValue::to_value(&self.key());
         let Some(storage_key) = key_value.as_storage_key() else {
             return Err(IdentityProjectionError::UnsupportedPrimaryKey {
                 entity: E::ENTITY_NAME,
@@ -147,12 +147,12 @@ fn write_framed(hasher: &mut Sha256, label: &[u8], bytes: &[u8]) {
 #[cfg(test)]
 mod tests {
     use crate::{
-        traits::{EntityIdentity, EntityStorageKey},
+        traits::{EntityIdentity, EntityKey},
         types::{Id, Ulid},
     };
 
     struct VectorEntity;
-    impl EntityStorageKey for VectorEntity {
+    impl EntityKey for VectorEntity {
         type Key = Ulid;
     }
     impl EntityIdentity for VectorEntity {
@@ -162,7 +162,7 @@ mod tests {
     }
 
     struct NamespaceEntity;
-    impl EntityStorageKey for NamespaceEntity {
+    impl EntityKey for NamespaceEntity {
         type Key = Ulid;
     }
     impl EntityIdentity for NamespaceEntity {
@@ -172,7 +172,7 @@ mod tests {
     }
 
     struct UnsupportedKeyEntity;
-    impl EntityStorageKey for UnsupportedKeyEntity {
+    impl EntityKey for UnsupportedKeyEntity {
         type Key = bool;
     }
     impl EntityIdentity for UnsupportedKeyEntity {

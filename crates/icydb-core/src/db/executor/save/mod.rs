@@ -267,7 +267,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             // Enforce explicit strong relations before commit planning.
             self.validate_strong_relations(&entity)?;
 
-            let key = entity.id().into_storage_key();
+            let key = entity.id().key();
             let data_key = DataKey::try_new::<E>(key)?;
             let raw_key = data_key.to_raw()?;
 
@@ -284,7 +284,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                         })?;
 
                         let expected = data_key.try_key::<E>()?;
-                        let actual = stored.id().into_storage_key();
+                        let actual = stored.id().key();
                         if expected != actual {
                             return Err(ExecutorError::corruption(
                                 ErrorOrigin::Store,
@@ -311,7 +311,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                         )
                     })?;
                     let expected = data_key.try_key::<E>()?;
-                    let actual = old.id().into_storage_key();
+                    let actual = old.id().key();
                     if expected != actual {
                         return Err(ExecutorError::corruption(
                             ErrorOrigin::Store,
@@ -336,7 +336,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                         .transpose()?;
                     if let Some(old) = old.as_ref() {
                         let expected = data_key.try_key::<E>()?;
-                        let actual = old.id().into_storage_key();
+                        let actual = old.id().key();
                         if expected != actual {
                             return Err(ExecutorError::corruption(
                                 ErrorOrigin::Store,

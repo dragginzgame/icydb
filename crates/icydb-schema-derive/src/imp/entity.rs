@@ -23,7 +23,7 @@ impl Imp<Entity> for EntityKindTrait {
 
         let pk_ident = &node.primary_key.field;
         let key_type = if let Some(target) = &pk_entry.value.item.relation {
-            quote!(<#target as ::icydb::traits::EntityStorageKey>::Key)
+            quote!(<#target as ::icydb::traits::EntityKey>::Key)
         } else {
             pk_entry.value.item.type_expr()
         };
@@ -45,7 +45,7 @@ impl Imp<Entity> for EntityKindTrait {
         let ident = node.def.ident();
 
         let storage_tokens = quote! {
-            impl ::icydb::traits::EntityStorageKey for #ident {
+            impl ::icydb::traits::EntityKey for #ident {
                 type Key = #key_type;
             }
         };

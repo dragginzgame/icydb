@@ -30,11 +30,11 @@ pub struct UserProjects;
 mod tests {
     use super::*;
     use icydb::{
-        traits::{EntityStorageKey, EntityValue},
+        traits::{EntityKey, EntityValue},
         types::Ulid,
     };
 
-    fn assert_storage_key<E: EntityStorageKey<Key = Ulid>>() {}
+    fn assert_storage_key<E: EntityKey<Key = Ulid>>() {}
 
     #[test]
     fn relation_primary_key_borrows_storage_key() {

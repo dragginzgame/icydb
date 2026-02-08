@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        AsView, EntityStorageKey, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        AsView, EntityKey, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, UpdateView,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     types::Id,
     value::Value,
@@ -9,7 +9,7 @@ use crate::{
     visitor::{VisitorContext, VisitorCore, VisitorMutCore, perform_visit},
 };
 use candid::CandidType;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer};
 
 ///
 /// IdSet
@@ -25,11 +25,11 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[repr(transparent)]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct IdSet<E: EntityStorageKey>(Vec<Id<E>>);
+pub struct IdSet<E: EntityKey>(Vec<Id<E>>);
 
 impl<E> IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
 {
     /// Create an empty primary-key set.
     #[must_use]
@@ -66,7 +66,7 @@ where
 
     /// Insert a primary-key value, returning `true` if it was newly inserted.
     pub fn insert(&mut self, id: Id<E>) -> bool {
-        let key = id.into_storage_key();
+        let key = id.key();
 
         match self.find_index(&key) {
             Ok(_) => false,
@@ -79,7 +79,7 @@ where
 
     /// Remove a primary-key value, returning `true` if it was present.
     pub fn remove(&mut self, id: &Id<E>) -> bool {
-        let key = id.into_storage_key();
+        let key = id.key();
 
         match self.find_index(&key) {
             Ok(index) => {
@@ -93,7 +93,7 @@ where
     /// Returns `true` if the set contains the primary-key value.
     #[must_use]
     pub fn contains(&self, id: &Id<E>) -> bool {
-        self.contains_key(&id.into_storage_key())
+        self.contains_key(&id.key())
     }
 
     /// Returns `true` if the set contains the given storage key.
@@ -110,23 +110,19 @@ where
     /// Locate a key in the sorted identity list.
     fn find_index(&self, key: &E::Key) -> Result<usize, usize> {
         self.0
-            .binary_search_by(|candidate| candidate.into_storage_key().cmp(key))
+            .binary_search_by(|candidate| candidate.key().cmp(key))
     }
 
     #[cfg(debug_assertions)]
     #[allow(dead_code)]
     fn assert_sorted(&self) {
-        debug_assert!(
-            self.0
-                .windows(2)
-                .all(|w| w[0].into_storage_key() < w[1].into_storage_key())
-        );
+        debug_assert!(self.0.windows(2).all(|w| w[0].key() < w[1].key()));
     }
 }
 
 impl<E> IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     Id<E>: UpdateView + Default,
 {
     /// Apply set patches, enforcing primary-key uniqueness and deterministic ordering.
@@ -137,7 +133,7 @@ where
 
 impl<E> AsView for IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     Id<E>: AsView,
 {
     type ViewType = Vec<<Id<E> as AsView>::ViewType>;
@@ -153,7 +149,7 @@ where
 
 impl<E> CandidType for IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     E::Key: CandidType,
 {
     fn _ty() -> candid::types::Type {
@@ -170,7 +166,7 @@ where
 
 impl<E> IntoIterator for IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
 {
     type Item = Id<E>;
     type IntoIter = std::vec::IntoIter<Id<E>>;
@@ -182,7 +178,7 @@ where
 
 impl<'a, E> IntoIterator for &'a IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
 {
     type Item = &'a Id<E>;
     type IntoIter = std::slice::Iter<'a, Id<E>>;
@@ -194,7 +190,7 @@ where
 
 impl<E> FieldValue for IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
 {
     fn kind() -> FieldValueKind {
         FieldValueKind::Structured { queryable: true }
@@ -218,25 +214,12 @@ where
     }
 }
 
-impl<E> SanitizeAuto for IdSet<E> where E: EntityStorageKey {}
-impl<E> SanitizeCustom for IdSet<E> where E: EntityStorageKey {}
-
-impl<E> Serialize for IdSet<E>
-where
-    E: EntityStorageKey,
-    E::Key: Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.0.serialize(serializer)
-    }
-}
+impl<E> SanitizeAuto for IdSet<E> where E: EntityKey {}
+impl<E> SanitizeCustom for IdSet<E> where E: EntityKey {}
 
 impl<'de, E> Deserialize<'de> for IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     Id<E>: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -250,7 +233,7 @@ where
 
 impl<E> ValidateAuto for IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
 {
     fn validate_self(&self, ctx: &mut dyn VisitorContext) {
         for id in self {
@@ -261,7 +244,7 @@ where
 
 impl<E> ValidateCustom for IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
 {
     fn validate_custom(&self, ctx: &mut dyn VisitorContext) {
         for id in self {
@@ -272,7 +255,7 @@ where
 
 impl<E> Visitable for IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
 {
     fn drive(&self, visitor: &mut dyn VisitorCore) {
         for (i, id) in self.iter().enumerate() {
@@ -287,7 +270,7 @@ where
 
 impl<E> UpdateView for IdSet<E>
 where
-    E: EntityStorageKey,
+    E: EntityKey,
     Id<E>: UpdateView + Default,
 {
     type UpdateViewType = Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>;
