@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        EntityKey, EntityKeyBytes, FieldValue, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, Visitable,
+        EntityKey, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -193,6 +193,25 @@ where
 {
     fn eq(&self, other: &Self) -> bool {
         self.key == other.key
+    }
+}
+
+impl<E> FieldValue for Id<E>
+where
+    E: EntityKey,
+    E::Key: FieldValue,
+{
+    fn kind() -> FieldValueKind {
+        FieldValueKind::Atomic
+    }
+
+    fn to_value(&self) -> Value {
+        self.key().to_value()
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        let key = <E::Key as FieldValue>::from_value(value)?;
+        Some(Self::from_key(key))
     }
 }
 

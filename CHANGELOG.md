@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [0.7.1] – 2026-02-08 - Key Byte Contracts
+## [0.7.2] – 2026-02-08 - Key Byte Contracts
 
 ### 🧃 Summary
 
