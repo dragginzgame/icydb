@@ -38,15 +38,13 @@ impl<E: EntityKind> WriteResponse<E> {
         self.inner.entity()
     }
 
-    /// Return the stored entity's primary key.
-    ///
-    /// The value is non-secret and non-authoritative.
+    /// Return the stored entity's primary identity
     #[must_use]
-    pub fn key(&self) -> Id<E>
+    pub fn id(&self) -> Id<E>
     where
         E: EntityValue,
     {
-        self.inner.key()
+        self.inner.id()
     }
 
     /// Return the stored entity as its view type.

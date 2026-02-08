@@ -29,11 +29,9 @@ impl<E> WriteResponse<E> {
         self.entity
     }
 
-    /// Return the stored entity's primary key.
-    ///
-    /// Returned IDs are public correlation/reporting/lookup values, not authority-bearing tokens.
+    /// Return the stored entity's identity
     #[must_use]
-    pub fn key(&self) -> Id<E>
+    pub fn id(&self) -> Id<E>
     where
         E: EntityValue,
     {
@@ -104,7 +102,7 @@ impl<E> WriteBatchResponse<E> {
     where
         E: EntityValue,
     {
-        self.entries.iter().map(WriteResponse::key).collect()
+        self.entries.iter().map(WriteResponse::id).collect()
     }
 
     /// Return all views.
