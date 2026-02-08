@@ -7,17 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [0.7.0] – 2026-02-05 - Referential Integrity, Part III
+## [0.7.0] – 2026-02-08 - Contract Freeze
 
 ### 🧁 Summary
 
-0.7.0 finalizes the referential-integrity redesign introduced across late 0.6.x.
+0.7.0 freezes the core engine contracts for identity, query behavior, atomicity, and referential integrity.
 
-Relation intent is now explicit (strong vs weak), and save-time referential integrity is enforced only for relations explicitly marked strong. Enforcement is deterministic, schema-driven, and occurs during save preflight, with no load-time checks, inference, or cascading behavior.
+Identity is now explicitly typed (`Id<E>`), query intent/planning boundaries are formally locked, commit-marker discipline is specified as the atomicity source of truth, and RI remains explicit strong-only save-time validation with weak-by-default relations.
 
-This release locks in the new RI contract and stabilizes runtime behavior.
-Write paths now refuse to proceed while a prior commit marker is present, ensuring no mutation
-stacks on top of an incomplete commit.
+This release is the 0.7 baseline for deterministic behavior, compile-time schema rejection of illegal identity shapes, and bounded write-path enforcement without cascades.
 
 ### 🥨 Added
 
@@ -26,6 +24,10 @@ stacks on top of an incomplete commit.
 * Added collection types `OrderedList` and `IdSet` for explicit many-field semantics.
 * Added `OrderedList::retain` plus `apply_patches` helpers on `OrderedList` and `IdSet` for explicit patch application.
 * Added `docs/collections.md` as the contract reference for collection and patch semantics.
+* Added `docs/IDENTITY_CONTRACT.md` as the normative identity and primary-key contract for `Id<E>`, explicit construction, and declared-type authority.
+* Added `docs/QUERY_CONTRACT.md` as the intent/planning/execution boundary contract for query determinism and explicit missing-row policy.
+* Added `docs/ATOMICITY.md` as the normative single-message commit and recovery contract for write safety.
+* Added `docs/REF_INTEGRITY.md` as the normative RI contract for strong/weak relation behavior and bounded save-time validation.
 * Added `saturating_add`/`saturating_sub` helpers to arithmetic newtypes for explicit saturating math.
 * Added `Id<E>` as a typed primary-key value that preserves entity-kind correctness.
 * Added parity coverage to keep keyability conversion paths aligned across `ScalarType::is_keyable`, `Value::as_storage_key`, and `StorageKey::try_from_value`.
@@ -35,6 +37,8 @@ stacks on top of an incomplete commit.
 * Save operations now enforce referential integrity for `RelationStrength::Strong` fields and fail if targets are missing.
 * Write executors now perform a fast commit-marker check and replay recovery before mutations when needed; read recovery remains startup-only.
 * Entity macros now allow primary keys to be relations for identity-borrowing singleton entities.
+* Primary-key derivation now follows only the declared primary-key field type; relation metadata does not infer PK storage shape.
+* Illegal or ambiguous identity/primary-key schema shapes are now treated as compile-time derive failures instead of runtime checks.
 * ORDER BY and model key-range validation now use a shared canonical value comparator instead of `Value::partial_cmp`, keeping query ordering behavior consistent for all orderable key types.
 * Documented that `Value::partial_cmp` is not the canonical database ordering path and should not be used for ORDER BY or key-range semantics.
 

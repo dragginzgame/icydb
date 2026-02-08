@@ -6,7 +6,7 @@ use crate::{
         Account, Date, Decimal, Duration, E8s, E18s, Float32 as F32, Float64 as F64, Int, Int128,
         Nat, Nat128, Principal, Subaccount, Timestamp, Ulid,
     },
-    value::{CoercionFamily, CoercionFamilyExt, TextMode, Value, ValueEnum},
+    value::{CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum},
 };
 use std::{cmp::Ordering, str::FromStr};
 
@@ -362,6 +362,35 @@ fn from_map_is_canonical_and_order_independent() {
     let hash_a = hash_value(&map_a).expect("hash map_a");
     let hash_b = hash_value(&map_b).expect("hash map_b");
     assert_eq!(hash_a, hash_b);
+}
+
+#[test]
+fn try_from_map_vec_is_canonical_and_order_independent() {
+    let map_a = Value::try_from(vec![
+        (v_txt("c"), v_u(3)),
+        (v_txt("a"), v_u(1)),
+        (v_txt("b"), v_u(2)),
+    ])
+    .expect("map_a should normalize");
+    let map_b = Value::try_from(vec![
+        (v_txt("a"), v_u(1)),
+        (v_txt("b"), v_u(2)),
+        (v_txt("c"), v_u(3)),
+    ])
+    .expect("map_b should normalize");
+
+    assert_eq!(map_a, map_b);
+}
+
+#[test]
+fn try_from_map_vec_returns_schema_invariant_error() {
+    let err = Value::try_from(vec![(v_txt("a"), v_u(1)), (v_txt("a"), v_u(2))])
+        .expect_err("duplicate map keys should fail");
+
+    assert!(matches!(
+        err,
+        SchemaInvariantError::InvalidMapValue(crate::value::MapValueError::DuplicateKey { .. })
+    ));
 }
 
 #[test]

@@ -97,6 +97,32 @@ impl std::fmt::Display for MapValueError {
 impl std::error::Error for MapValueError {}
 
 ///
+/// SchemaInvariantError
+///
+/// Invariant violations encountered while materializing schema/runtime values.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SchemaInvariantError {
+    InvalidMapValue(MapValueError),
+}
+
+impl std::fmt::Display for SchemaInvariantError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidMapValue(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl std::error::Error for SchemaInvariantError {}
+
+impl From<MapValueError> for SchemaInvariantError {
+    fn from(value: MapValueError) -> Self {
+        Self::InvalidMapValue(value)
+    }
+}
+
+///
 /// Value
 /// can be used in WHERE statements
 ///
@@ -938,11 +964,11 @@ impl From<Vec<Self>> for Value {
     }
 }
 
-impl From<Vec<(Self, Self)>> for Value {
-    fn from(entries: Vec<(Self, Self)>) -> Self {
-        Self::from_map(entries).unwrap_or_else(|err| {
-            panic!("invalid map invariant while constructing Value::Map from Vec: {err}")
-        })
+impl TryFrom<Vec<(Self, Self)>> for Value {
+    type Error = SchemaInvariantError;
+
+    fn try_from(entries: Vec<(Self, Self)>) -> Result<Self, Self::Error> {
+        Self::from_map(entries).map_err(Self::Error::from)
     }
 }
 

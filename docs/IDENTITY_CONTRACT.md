@@ -62,3 +62,73 @@ For any legal schema:
 - generated code must not panic at runtime
 - identity accessors (for example `entity.id()`) must be infallible
 - schema validation must occur at derive/compile time
+
+## 6. Conceptual Layers (Naming Boundary)
+
+IcyDB keeps identity and key semantics split across explicit layers.
+
+- Schema/domain layer: fields express relations semantically (`customer`, `owner`, `invoice`), not storage syntax.
+- Identity layer: `Id<E>` (and `self.id()`) expresses entity identity at the type level.
+- Storage layer: primitive keys (`Ulid`, `Principal`, `u64`, etc.) are raw key material.
+- Query layer: predicates compare explicit key values; relation meaning is schema metadata, not inferred at runtime.
+
+## 7. Naming Conventions
+
+Use names that match the layer and call site purpose.
+
+Schema fields use relation semantics:
+
+```rust
+struct Order {
+    customer: Ulid,
+}
+```
+
+Not:
+
+```rust
+struct Order {
+    customer_id: Ulid,
+}
+```
+
+Loading an entity by its own key uses `*_id`:
+
+```rust
+fn load_customer(customer_id: Ulid) { /* ... */ }
+```
+
+Filtering other entities by a relation key uses `*_key`:
+
+```rust
+fn orders_for_customer(customer_key: Ulid) { /* ... */ }
+```
+
+Inside entity methods, use typed identity:
+
+```rust
+fn audit_label(&self) -> String {
+    format!("{:?}", self.id())
+}
+```
+
+## 8. Rationale
+
+`Id<E>` and primitive keys are not interchangeable concepts.
+
+- `Id<E>` is an entity-typed identity handle.
+- Primitive keys are storage/domain values used for persistence and explicit comparisons.
+
+Many ORMs hide this distinction by collapsing relation naming, identity, and key transport into one concept. IcyDB keeps them separate so code can state intent precisely:
+
+- relation meaning in schema names
+- identity meaning in `Id<E>`
+- storage meaning in primitive key values
+
+This separation improves correctness, prevents accidental cross-entity key mixing, and makes query boundaries auditable.
+
+## 9. Do Not Do This
+
+- Do not rename schema relation fields to `*_id` as a style default.
+- Do not pass `Id<E>` casually across API boundaries where a primitive key is the real contract.
+- Do not collapse identity (`Id<E>`) and storage key (`Ulid`/`Principal`/etc.) into one naming convention.
