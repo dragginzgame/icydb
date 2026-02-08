@@ -71,6 +71,7 @@ IcyDB will provide **stable, deterministic pagination** over ordered queries.
 * Safe API pagination
 * Reliable batch processing
 * Predictable query behavior
+* Structural execution guards that verify post-access phase application (filter, order, then pagination) so planner/executor contract regressions are caught early.
 
 **Non-Goals**
 
@@ -123,4 +124,3 @@ The following remain out of scope:
 It completes collection semantics, enforces schema-declared constraints,
 adds stable pagination, and closes remaining strong-RI gaps — all without
 expanding the atomicity or transactional contract.
-

@@ -194,6 +194,7 @@ impl EntityKeyBytes for Account {
         let encoded = self
             .to_bytes()
             .expect("account primary key encoding must remain valid");
+
         out.copy_from_slice(&encoded);
     }
 }
@@ -284,6 +285,7 @@ impl Ord for Account {
 
         let self_sub = self.subaccount.unwrap_or_default().to_array();
         let other_sub = other.subaccount.unwrap_or_default().to_array();
+
         self_sub.cmp(&other_sub)
     }
 }

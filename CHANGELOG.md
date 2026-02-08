@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [0.7.4] – 2026-02-08
+
+### 🛼 Added
+
+* Added contextual merge patch errors via `ViewPatchError::Context`, including `path()` and `leaf()` helpers, so callers can locate and classify update failures without depending on internal patch details.
+* Added explicit executor-level phase-order tests covering optional-field equality, `IN`/`CONTAINS`, and text predicates.
+* Added a structural post-access guard test plus `TracePhase::PostAccess` diagnostics so regressions in filter/order/pagination execution are detected at the executor boundary.
+
+### 🧂 Changed
+
+* Restored post-access query execution in load/delete paths so predicate evaluation, ordering, pagination, and delete limits are applied deterministically from the logical plan.
+
+---
+
 ## [0.7.3] – 2026-02-08
 * Added `EntityValue` back to the public prelude re-exports for easier trait access in downstream code.
 

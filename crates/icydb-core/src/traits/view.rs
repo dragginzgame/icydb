@@ -240,6 +240,69 @@ pub enum ViewPatchError {
 
     #[error("invalid patch cardinality: expected {expected}, found {actual}")]
     CardinalityViolation { expected: usize, actual: usize },
+
+    #[error("patch merge failed at {path}: {source}")]
+    Context {
+        path: String,
+        #[source]
+        source: Box<Self>,
+    },
+}
+
+impl ViewPatchError {
+    /// Prepend a field segment to the merge error path.
+    #[must_use]
+    pub fn with_field(self, field: impl AsRef<str>) -> Self {
+        self.with_path_segment(field.as_ref())
+    }
+
+    /// Prepend an index segment to the merge error path.
+    #[must_use]
+    pub fn with_index(self, index: usize) -> Self {
+        self.with_path_segment(format!("[{index}]"))
+    }
+
+    /// Return the full contextual path, if available.
+    #[must_use]
+    pub const fn path(&self) -> Option<&str> {
+        match self {
+            Self::Context { path, .. } => Some(path.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Return the innermost, non-context merge error variant.
+    #[must_use]
+    pub fn leaf(&self) -> &Self {
+        match self {
+            Self::Context { source, .. } => source.leaf(),
+            _ => self,
+        }
+    }
+
+    #[must_use]
+    fn with_path_segment(self, segment: impl Into<String>) -> Self {
+        let segment = segment.into();
+        match self {
+            Self::Context { path, source } => Self::Context {
+                path: Self::join_segments(segment.as_str(), path.as_str()),
+                source,
+            },
+            source => Self::Context {
+                path: segment,
+                source: Box::new(source),
+            },
+        }
+    }
+
+    #[must_use]
+    fn join_segments(prefix: &str, suffix: &str) -> String {
+        if suffix.starts_with('[') {
+            format!("{prefix}{suffix}")
+        } else {
+            format!("{prefix}.{suffix}")
+        }
+    }
 }
 
 ///
@@ -270,10 +333,14 @@ where
             }
             Some(inner_update) => {
                 if let Some(inner_value) = self.as_mut() {
-                    inner_value.merge(inner_update)?;
+                    inner_value
+                        .merge(inner_update)
+                        .map_err(|err| err.with_field("value"))?;
                 } else {
                     let mut new_value = T::default();
-                    new_value.merge(inner_update)?;
+                    new_value
+                        .merge(inner_update)
+                        .map_err(|err| err.with_field("value"))?;
                     *self = Some(new_value);
                 }
             }
@@ -295,27 +362,28 @@ where
             match patch {
                 ListPatch::Update { index, patch } => {
                     if let Some(elem) = self.get_mut(index) {
-                        elem.merge(patch)?;
+                        elem.merge(patch).map_err(|err| err.with_index(index))?;
                     }
                 }
                 ListPatch::Insert { index, value } => {
-                    let mut elem = T::default();
-                    elem.merge(value)?;
                     let idx = index.min(self.len());
+                    let mut elem = T::default();
+                    elem.merge(value).map_err(|err| err.with_index(idx))?;
                     self.insert(idx, elem);
                 }
                 ListPatch::Push { value } => {
+                    let idx = self.len();
                     let mut elem = T::default();
-                    elem.merge(value)?;
+                    elem.merge(value).map_err(|err| err.with_index(idx))?;
                     self.push(elem);
                 }
                 ListPatch::Overwrite { values } => {
                     self.clear();
                     self.reserve(values.len());
 
-                    for value in values {
+                    for (index, value) in values.into_iter().enumerate() {
                         let mut elem = T::default();
-                        elem.merge(value)?;
+                        elem.merge(value).map_err(|err| err.with_index(index))?;
                         self.push(elem);
                     }
                 }
@@ -344,20 +412,21 @@ where
             match patch {
                 SetPatch::Insert(value) => {
                     let mut elem = T::default();
-                    elem.merge(value)?;
+                    elem.merge(value).map_err(|err| err.with_field("insert"))?;
                     self.insert(elem);
                 }
                 SetPatch::Remove(value) => {
                     let mut elem = T::default();
-                    elem.merge(value)?;
+                    elem.merge(value).map_err(|err| err.with_field("remove"))?;
                     self.remove(&elem);
                 }
                 SetPatch::Overwrite { values } => {
                     self.clear();
 
-                    for value in values {
+                    for (index, value) in values.into_iter().enumerate() {
                         let mut elem = T::default();
-                        elem.merge(value)?;
+                        elem.merge(value)
+                            .map_err(|err| err.with_field("overwrite").with_index(index))?;
                         self.insert(elem);
                     }
                 }
@@ -393,7 +462,9 @@ where
             match patch {
                 MapPatch::Insert { key, value } => {
                     let mut key_value = K::default();
-                    key_value.merge(key)?;
+                    key_value
+                        .merge(key)
+                        .map_err(|err| err.with_field("insert").with_field("key"))?;
                     ops.push(MapPatchOp::Insert {
                         key: key_value,
                         value,
@@ -401,12 +472,16 @@ where
                 }
                 MapPatch::Remove { key } => {
                     let mut key_value = K::default();
-                    key_value.merge(key)?;
+                    key_value
+                        .merge(key)
+                        .map_err(|err| err.with_field("remove").with_field("key"))?;
                     ops.push(MapPatchOp::Remove { key: key_value });
                 }
                 MapPatch::Replace { key, value } => {
                     let mut key_value = K::default();
-                    key_value.merge(key)?;
+                    key_value
+                        .merge(key)
+                        .map_err(|err| err.with_field("replace").with_field("key"))?;
                     ops.push(MapPatchOp::Replace {
                         key: key_value,
                         value,
@@ -464,11 +539,15 @@ where
             match op {
                 MapPatchOp::Insert { key, value } => match self.entry(key) {
                     HashMapEntry::Occupied(mut slot) => {
-                        slot.get_mut().merge(value)?;
+                        slot.get_mut()
+                            .merge(value)
+                            .map_err(|err| err.with_field("insert").with_field("value"))?;
                     }
                     HashMapEntry::Vacant(slot) => {
                         let mut value_value = V::default();
-                        value_value.merge(value)?;
+                        value_value
+                            .merge(value)
+                            .map_err(|err| err.with_field("insert").with_field("value"))?;
                         slot.insert(value_value);
                     }
                 },
@@ -481,7 +560,9 @@ where
                 }
                 MapPatchOp::Replace { key, value } => match self.entry(key) {
                     HashMapEntry::Occupied(mut slot) => {
-                        slot.get_mut().merge(value)?;
+                        slot.get_mut()
+                            .merge(value)
+                            .map_err(|err| err.with_field("replace").with_field("value"))?;
                     }
                     HashMapEntry::Vacant(_) => {
                         return Err(ViewPatchError::MissingKey {
@@ -513,20 +594,21 @@ where
             match patch {
                 SetPatch::Insert(value) => {
                     let mut elem = T::default();
-                    elem.merge(value)?;
+                    elem.merge(value).map_err(|err| err.with_field("insert"))?;
                     self.insert(elem);
                 }
                 SetPatch::Remove(value) => {
                     let mut elem = T::default();
-                    elem.merge(value)?;
+                    elem.merge(value).map_err(|err| err.with_field("remove"))?;
                     self.remove(&elem);
                 }
                 SetPatch::Overwrite { values } => {
                     self.clear();
 
-                    for value in values {
+                    for (index, value) in values.into_iter().enumerate() {
                         let mut elem = T::default();
-                        elem.merge(value)?;
+                        elem.merge(value)
+                            .map_err(|err| err.with_field("overwrite").with_index(index))?;
                         self.insert(elem);
                     }
                 }
@@ -553,7 +635,9 @@ where
             match patch {
                 MapPatch::Insert { key, value } => {
                     let mut key_value = K::default();
-                    key_value.merge(key)?;
+                    key_value
+                        .merge(key)
+                        .map_err(|err| err.with_field("insert").with_field("key"))?;
                     ops.push(MapPatchOp::Insert {
                         key: key_value,
                         value,
@@ -561,12 +645,16 @@ where
                 }
                 MapPatch::Remove { key } => {
                     let mut key_value = K::default();
-                    key_value.merge(key)?;
+                    key_value
+                        .merge(key)
+                        .map_err(|err| err.with_field("remove").with_field("key"))?;
                     ops.push(MapPatchOp::Remove { key: key_value });
                 }
                 MapPatch::Replace { key, value } => {
                     let mut key_value = K::default();
-                    key_value.merge(key)?;
+                    key_value
+                        .merge(key)
+                        .map_err(|err| err.with_field("replace").with_field("key"))?;
                     ops.push(MapPatchOp::Replace {
                         key: key_value,
                         value,
@@ -624,11 +712,15 @@ where
             match op {
                 MapPatchOp::Insert { key, value } => match self.entry(key) {
                     BTreeMapEntry::Occupied(mut slot) => {
-                        slot.get_mut().merge(value)?;
+                        slot.get_mut()
+                            .merge(value)
+                            .map_err(|err| err.with_field("insert").with_field("value"))?;
                     }
                     BTreeMapEntry::Vacant(slot) => {
                         let mut value_value = V::default();
-                        value_value.merge(value)?;
+                        value_value
+                            .merge(value)
+                            .map_err(|err| err.with_field("insert").with_field("value"))?;
                         slot.insert(value_value);
                     }
                 },
@@ -641,7 +733,9 @@ where
                 }
                 MapPatchOp::Replace { key, value } => match self.entry(key) {
                     BTreeMapEntry::Occupied(mut slot) => {
-                        slot.get_mut().merge(value)?;
+                        slot.get_mut()
+                            .merge(value)
+                            .map_err(|err| err.with_field("replace").with_field("value"))?;
                     }
                     BTreeMapEntry::Vacant(_) => {
                         return Err(ViewPatchError::MissingKey {

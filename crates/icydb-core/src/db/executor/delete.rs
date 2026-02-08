@@ -72,6 +72,12 @@ where
     entity: E,
 }
 
+impl<E: EntityKind> crate::db::query::plan::logical::PlanRow<E> for DeleteRow<E> {
+    fn entity(&self) -> &E {
+        &self.entity
+    }
+}
+
 ///
 /// DeleteExecutor
 ///
@@ -177,13 +183,21 @@ where
             let access_rows = rows.len();
 
             // Post-access phase: filter, order, and apply delete limits.
-            // removed plan.apply_post_access::<E, _>(&mut rows)?;
+            let stats = plan.apply_post_access::<E, _>(&mut rows)?;
+            let post_access_rows = rows.len();
+            if stats.delete_was_limited {
+                self.debug_log(format!(
+                    "applied delete limit -> {} entities selected",
+                    rows.len()
+                ));
+            }
 
             if rows.is_empty() {
                 if let Some(trace) = trace.as_ref() {
                     // NOTE: Trace metrics saturate on overflow; diagnostics only.
                     let to_u64 = |len| u64::try_from(len).unwrap_or(u64::MAX);
                     trace.phase(TracePhase::Access, to_u64(access_rows));
+                    trace.phase(TracePhase::PostAccess, to_u64(post_access_rows));
                 }
                 set_rows_from_len(&mut span, 0);
                 self.debug_log("Delete complete -> 0 rows (nothing to commit)");
@@ -276,6 +290,7 @@ where
                 // NOTE: Trace metrics saturate on overflow; diagnostics only.
                 let to_u64 = |len| u64::try_from(len).unwrap_or(u64::MAX);
                 trace.phase(TracePhase::Access, to_u64(access_rows));
+                trace.phase(TracePhase::PostAccess, to_u64(post_access_rows));
             }
 
             let res = rows

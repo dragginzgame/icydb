@@ -260,19 +260,20 @@ where
             match patch {
                 SetPatch::Insert(value) => {
                     let mut id = Id::<E>::default();
-                    id.merge(value)?;
+                    id.merge(value).map_err(|err| err.with_field("insert"))?;
                     self.insert(id);
                 }
                 SetPatch::Remove(value) => {
                     let mut id = Id::<E>::default();
-                    id.merge(value)?;
+                    id.merge(value).map_err(|err| err.with_field("remove"))?;
                     self.remove(&id);
                 }
                 SetPatch::Overwrite { values } => {
                     self.clear();
-                    for value in values {
+                    for (index, value) in values.into_iter().enumerate() {
                         let mut id = Id::<E>::default();
-                        id.merge(value)?;
+                        id.merge(value)
+                            .map_err(|err| err.with_field("overwrite").with_index(index))?;
                         self.insert(id);
                     }
                 }

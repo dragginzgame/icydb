@@ -1,8 +1,8 @@
-use crate::db::query::predicate::{
-    ast::{CompareOp, ComparePredicate, Predicate},
-    coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
-};
 use crate::{
+    db::query::predicate::{
+        CompareOp, ComparePredicate, Predicate,
+        coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
+    },
     traits::FieldValues,
     value::{TextMode, Value},
 };
@@ -49,7 +49,7 @@ impl<T: FieldValues> Row for T {
     }
 }
 
-/// Evaluate a field predicate only when the field is present.
+// Evaluate a field predicate only when the field is present.
 fn on_present<R: Row + ?Sized>(row: &R, field: &str, f: impl FnOnce(&Value) -> bool) -> bool {
     match row.field(field) {
         FieldPresence::Present(value) => f(&value),
@@ -57,7 +57,7 @@ fn on_present<R: Row + ?Sized>(row: &R, field: &str, f: impl FnOnce(&Value) -> b
     }
 }
 
-/// Decode map entries into key/value pairs; malformed maps return None.
+// Decode map entries into key/value pairs; malformed maps return None.
 fn map_entries(map: &Value) -> Option<impl Iterator<Item = (&Value, &Value)>> {
     let Value::Map(entries) = map else {
         return None;

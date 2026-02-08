@@ -36,13 +36,10 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     }
 
     // ------------------------------------------------------------------
-    // Primary-key access (semantic)
+    // Primary-key access (query shaping)
     // ------------------------------------------------------------------
 
     /// Filter by a single typed primary-key value.
-    ///
-    /// `Id<E>` is a public identifier and is treated as untrusted input until
-    /// verified by explicit existence/authorization checks in caller policy.
     #[must_use]
     pub fn by_id(mut self, id: Id<E>) -> Self {
         self.inner = self.inner.by_id(id);
@@ -50,8 +47,6 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     }
 
     /// Filter by multiple typed primary-key values.
-    ///
-    /// IDs are correlation/lookup values only and do not grant authority.
     #[must_use]
     pub fn by_ids<I>(mut self, ids: I) -> Self
     where
@@ -62,7 +57,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     }
 
     // ------------------------------------------------------------------
-    // Query Refinement
+    // Query refinement
     // ------------------------------------------------------------------
 
     #[must_use]
@@ -102,7 +97,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     }
 
     // ------------------------------------------------------------------
-    // Execution
+    // Execution primitives
     // ------------------------------------------------------------------
 
     pub fn execute(&self) -> Result<Response<E>, Error>
@@ -146,6 +141,10 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
             .map_err(map_response_error)
     }
 
+    // ------------------------------------------------------------------
+    // Row materialization
+    // ------------------------------------------------------------------
+
     pub fn row(&self) -> Result<Row<E>, Error>
     where
         E: EntityValue,
@@ -166,6 +165,56 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     {
         Ok(self.inner.execute()?.rows())
     }
+
+    // ------------------------------------------------------------------
+    // Identity (Id<E>) materialization
+    // ------------------------------------------------------------------
+
+    pub fn id(&self) -> Result<Option<Id<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.execute()?.id())
+    }
+
+    pub fn require_id(&self) -> Result<Id<E>, Error>
+    where
+        E: EntityValue,
+    {
+        self.inner
+            .execute()?
+            .require_id()
+            .map_err(map_response_error)
+    }
+
+    pub fn try_id(&self) -> Result<Option<Id<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        self.inner
+            .execute()?
+            .try_row()
+            .map(|row| row.map(|(id, _)| id))
+            .map_err(map_response_error)
+    }
+
+    pub fn ids(&self) -> Result<Vec<Id<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.execute()?.ids())
+    }
+
+    pub fn contains_id(&self, id: &Id<E>) -> Result<bool, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.execute()?.contains_id(id))
+    }
+
+    // ------------------------------------------------------------------
+    // Entity materialization
+    // ------------------------------------------------------------------
 
     pub fn entity(&self) -> Result<E, Error>
     where
@@ -192,50 +241,8 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     }
 
     // ------------------------------------------------------------------
-    // Primary-key results (semantic)
+    // View materialization
     // ------------------------------------------------------------------
-
-    pub fn key(&self) -> Result<Option<Id<E>>, Error>
-    where
-        E: EntityValue,
-    {
-        Ok(self.inner.execute()?.id())
-    }
-
-    pub fn require_key(&self) -> Result<Id<E>, Error>
-    where
-        E: EntityValue,
-    {
-        self.inner
-            .execute()?
-            .require_id()
-            .map_err(map_response_error)
-    }
-
-    pub fn try_key(&self) -> Result<Option<Id<E>>, Error>
-    where
-        E: EntityValue,
-    {
-        self.inner
-            .execute()?
-            .try_row()
-            .map(|row| row.map(|(id, _)| id))
-            .map_err(map_response_error)
-    }
-
-    pub fn keys(&self) -> Result<Vec<Id<E>>, Error>
-    where
-        E: EntityValue,
-    {
-        Ok(self.inner.execute()?.ids())
-    }
-
-    pub fn contains_key(&self, id: &Id<E>) -> Result<bool, Error>
-    where
-        E: EntityValue,
-    {
-        Ok(self.inner.execute()?.contains_id(id))
-    }
 
     pub fn view(&self) -> Result<View<E>, Error>
     where

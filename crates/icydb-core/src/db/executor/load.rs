@@ -41,6 +41,12 @@ where
         }
     }
 
+    #[cfg(test)]
+    pub(crate) const fn with_trace(mut self, trace: &'static dyn QueryTraceSink) -> Self {
+        self.trace = Some(trace);
+        self
+    }
+
     fn debug_log(&self, s: impl AsRef<str>) {
         if self.debug {
             println!("[debug] {}", s.as_ref());
@@ -100,15 +106,17 @@ where
                 rows_scanned: data_rows.len() as u64,
             });
 
-            let rows = Context::deserialize_rows(data_rows)?;
+            let mut rows = Context::deserialize_rows(data_rows)?;
             let access_rows = rows.len();
 
-            // removed plan.apply_post_access::<E, _>(&mut rows)?;
+            plan.apply_post_access::<E, _>(&mut rows)?;
+            let post_access_rows = rows.len();
 
             if let Some(trace) = trace.as_ref() {
                 // NOTE: Trace metrics saturate on overflow; diagnostics only.
                 let to_u64 = |n| u64::try_from(n).unwrap_or(u64::MAX);
                 trace.phase(TracePhase::Access, to_u64(access_rows));
+                trace.phase(TracePhase::PostAccess, to_u64(post_access_rows));
             }
 
             set_rows_from_len(&mut span, rows.len());

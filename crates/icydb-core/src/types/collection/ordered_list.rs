@@ -259,25 +259,27 @@ where
             match patch {
                 ListPatch::Update { index, patch } => {
                     if let Some(elem) = self.get_mut(index) {
-                        elem.merge(patch)?;
+                        elem.merge(patch).map_err(|err| err.with_index(index))?;
                     }
                 }
                 ListPatch::Insert { index, value } => {
+                    let idx = index.min(self.len());
                     let mut elem = T::default();
-                    elem.merge(value)?;
+                    elem.merge(value).map_err(|err| err.with_index(idx))?;
                     self.insert(index, elem);
                 }
                 ListPatch::Push { value } => {
+                    let idx = self.len();
                     let mut elem = T::default();
-                    elem.merge(value)?;
+                    elem.merge(value).map_err(|err| err.with_index(idx))?;
                     self.push(elem);
                 }
                 ListPatch::Overwrite { values } => {
                     self.clear();
 
-                    for value in values {
+                    for (index, value) in values.into_iter().enumerate() {
                         let mut elem = T::default();
-                        elem.merge(value)?;
+                        elem.merge(value).map_err(|err| err.with_index(index))?;
                         self.push(elem);
                     }
                 }

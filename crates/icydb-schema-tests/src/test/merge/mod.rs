@@ -70,7 +70,7 @@ pub struct MergeTuple {}
 mod tests {
     use super::*;
     use icydb::{
-        traits::UpdateView,
+        traits::{UpdateView, ViewPatchError},
         view::{ListPatch, MapPatch, SetPatch, Update},
     };
     use std::collections::{HashMap, HashSet};
@@ -297,5 +297,31 @@ mod tests {
             .map(|(k, v)| (k.clone(), *v))
             .collect();
         assert_eq!(settings.get("keep"), Some(&1));
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn entity_merge_wraps_patch_errors_with_field_path() {
+        let mut entity = MergeEntity {
+            settings: MergeSettings::from(vec![("keep".to_string(), 1u32)]),
+            ..Default::default()
+        };
+
+        let mut update: Update<MergeEntity> = Default::default();
+        update.settings = Some(vec![MapPatch::Remove {
+            key: "missing".to_string(),
+        }]);
+
+        let err = entity
+            .merge(update)
+            .expect_err("missing map key should fail and preserve field path");
+
+        assert_eq!(err.path(), Some("settings[0]"));
+        assert!(matches!(
+            err.leaf(),
+            ViewPatchError::MissingKey {
+                operation: "remove"
+            }
+        ));
     }
 }

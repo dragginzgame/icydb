@@ -50,6 +50,7 @@ pub enum TraceAccess {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TracePhase {
     Access,
+    PostAccess,
 }
 
 ///

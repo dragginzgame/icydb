@@ -113,7 +113,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     }
 
     // ------------------------------------------------------------------
-    // Execution terminals
+    // Execution primitives
     // ------------------------------------------------------------------
 
     pub fn is_empty(&self) -> Result<bool, Error>
@@ -157,6 +157,10 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
             .map_err(map_response_error)
     }
 
+    // ------------------------------------------------------------------
+    // Row materialization
+    // ------------------------------------------------------------------
+
     pub fn row(&self) -> Result<Row<E>, Error>
     where
         E: EntityValue,
@@ -177,6 +181,56 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     {
         Ok(self.inner.execute()?.rows())
     }
+
+    // ------------------------------------------------------------------
+    // Identity (Id<E>) materialization
+    // ------------------------------------------------------------------
+
+    pub fn id(&self) -> Result<Option<Id<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.execute()?.id())
+    }
+
+    pub fn require_id(&self) -> Result<Id<E>, Error>
+    where
+        E: EntityValue,
+    {
+        self.inner
+            .execute()?
+            .require_id()
+            .map_err(map_response_error)
+    }
+
+    pub fn try_id(&self) -> Result<Option<Id<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        self.inner
+            .execute()?
+            .try_row()
+            .map(|row| row.map(|(id, _)| id))
+            .map_err(map_response_error)
+    }
+
+    pub fn ids(&self) -> Result<Vec<Id<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.execute()?.ids())
+    }
+
+    pub fn contains_id(&self, id: &Id<E>) -> Result<bool, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.execute()?.contains_id(id))
+    }
+
+    // ------------------------------------------------------------------
+    // Entity materialization
+    // ------------------------------------------------------------------
 
     pub fn entity(&self) -> Result<E, Error>
     where
@@ -202,6 +256,35 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         Ok(self.inner.execute()?.entities())
     }
 
+    // ------------------------------------------------------------------
+    // View materialization
+    // ------------------------------------------------------------------
+
+    pub fn view(&self) -> Result<View<E>, Error>
+    where
+        E: EntityValue,
+    {
+        self.inner.execute()?.view().map_err(map_response_error)
+    }
+
+    pub fn view_opt(&self) -> Result<Option<View<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        self.inner.execute()?.view_opt().map_err(map_response_error)
+    }
+
+    pub fn views(&self) -> Result<Vec<View<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.execute()?.views())
+    }
+
+    // ------------------------------------------------------------------
+    // Aggregation helpers
+    // ------------------------------------------------------------------
+
     pub fn group_count_by<K>(self, key: impl Fn(&E) -> K) -> Result<HashMap<K, u32>, Error>
     where
         E: EntityValue,
@@ -216,64 +299,8 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     }
 
     // ------------------------------------------------------------------
-    // Primary-key results (semantic)
+    // Convenience aliases (semantic sugar)
     // ------------------------------------------------------------------
-
-    pub fn key(&self) -> Result<Option<Id<E>>, Error>
-    where
-        E: EntityValue,
-    {
-        Ok(self.inner.execute()?.id())
-    }
-
-    pub fn require_key(&self) -> Result<Id<E>, Error>
-    where
-        E: EntityValue,
-    {
-        self.inner
-            .execute()?
-            .require_id()
-            .map_err(map_response_error)
-    }
-
-    pub fn try_key(&self) -> Result<Option<Id<E>>, Error>
-    where
-        E: EntityValue,
-    {
-        self.inner
-            .execute()?
-            .try_row()
-            .map(|row| row.map(|(id, _)| id))
-            .map_err(map_response_error)
-    }
-
-    pub fn keys(&self) -> Result<Vec<Id<E>>, Error>
-    where
-        E: EntityValue,
-    {
-        Ok(self.inner.execute()?.ids())
-    }
-
-    pub fn contains_key(&self, id: &Id<E>) -> Result<bool, Error>
-    where
-        E: EntityValue,
-    {
-        Ok(self.inner.execute()?.contains_id(id))
-    }
-
-    pub fn all(&self) -> Result<Vec<E>, Error>
-    where
-        E: EntityValue,
-    {
-        self.entities()
-    }
-
-    pub fn views(&self) -> Result<Vec<View<E>>, Error>
-    where
-        E: EntityValue,
-    {
-        Ok(self.inner.execute()?.views())
-    }
 
     pub fn one(&self) -> Result<E, Error>
     where
@@ -289,18 +316,11 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
         self.try_entity()
     }
 
-    pub fn view(&self) -> Result<View<E>, Error>
+    pub fn all(&self) -> Result<Vec<E>, Error>
     where
         E: EntityValue,
     {
-        self.inner.execute()?.view().map_err(map_response_error)
-    }
-
-    pub fn view_opt(&self) -> Result<Option<View<E>>, Error>
-    where
-        E: EntityValue,
-    {
-        self.inner.execute()?.view_opt().map_err(map_response_error)
+        self.entities()
     }
 }
 
