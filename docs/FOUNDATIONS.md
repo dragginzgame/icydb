@@ -8,13 +8,14 @@ and which constraints guide design decisions.
 This document is **interpretive, not normative**.
 
 > Where this document overlaps with formal contracts
-> (atomicity, referential integrity, query semantics),
+> (atomicity, referential integrity, query semantics, identity and PK invariants),
 > those contracts take precedence.
 
 Normative specifications live in:
 - `docs/atomicity.md`
 - `docs/REF_INTEGRITY.md`
 - `docs/QUERY_CONTRACT.md`
+- `docs/IDENTITY_CONTRACT.md`
 
 ---
 

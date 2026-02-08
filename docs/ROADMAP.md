@@ -98,3 +98,5 @@ IcyDB evolves deliberately:
 - nothing silently changes underneath users
 
 The roadmap is directional, not contractual.
+
+
