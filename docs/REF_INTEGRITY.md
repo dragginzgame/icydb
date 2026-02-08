@@ -47,13 +47,16 @@ Id<T>
 A reference:
 
 * identifies an entity by key
+* is a public, non-secret identifier value
 * does **not** imply ownership
+* does **not** imply authorization
 * does **not** imply lifecycle coupling
 * does **not** imply traversal, joins, or relational semantics
 
 References are **identity values**, not relationships in the relational sense.
 
 `Id<T>` is a *boundary type* used for entity-kind correctness. It is **not** automatically validated for existence.
+`Id<T>` values may be deserialized from untrusted input; validation is explicit and contextual.
 
 Existence validation occurs **only** where the schema explicitly declares a strong relation.
 

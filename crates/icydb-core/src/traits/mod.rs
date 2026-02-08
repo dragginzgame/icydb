@@ -76,25 +76,62 @@ pub trait IndexStoreKind: Kind {
 /// - `Self::Key` is the *storage representation* of the primary key
 /// - Keys are plain values (Ulid, u64, Principal, …)
 /// - Typed identity is provided by `Id<Self>`, not by the key itself
+/// - Keys are public identifiers and are never authority-bearing capabilities
 ///
 
 pub trait EntityKey {
-    type Key: Copy + Debug + Eq + Ord + FieldValue + 'static;
+    type Key: Copy + Debug + Eq + Ord + FieldValue + EntityKeyBytes + 'static;
+}
+
+///
+/// EntityKeyBytes
+///
+
+pub trait EntityKeyBytes {
+    /// Exact number of bytes produced.
+    const BYTE_LEN: usize;
+
+    /// Write bytes into the provided buffer.
+    fn write_bytes(&self, out: &mut [u8]);
+}
+
+macro_rules! impl_entity_key_bytes_numeric {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl EntityKeyBytes for $ty {
+                const BYTE_LEN: usize = ::core::mem::size_of::<Self>();
+
+                fn write_bytes(&self, out: &mut [u8]) {
+                    assert_eq!(out.len(), Self::BYTE_LEN);
+                    out.copy_from_slice(&self.to_be_bytes());
+                }
+            }
+        )*
+    };
+}
+
+impl_entity_key_bytes_numeric!(i8, i16, i32, i64, u8, u16, u32, u64);
+
+impl EntityKeyBytes for () {
+    const BYTE_LEN: usize = 0;
+
+    fn write_bytes(&self, out: &mut [u8]) {
+        assert_eq!(out.len(), Self::BYTE_LEN);
+    }
 }
 
 ///
 /// EntityIdentity
 ///
 /// Semantic primary-key metadata about an entity.
-/// `IDENTITY_NAMESPACE` is the stable namespace used for one-way
-/// external identity projection and SHOULD remain unchanged across
-/// schema/type renames when external identity continuity is required.
+///
+/// These constants name identity metadata only. They do not imply trust, ownership,
+/// authorization, or existence.
 ///
 
 pub trait EntityIdentity: EntityKey {
     const ENTITY_NAME: &'static str;
     const PRIMARY_KEY: &'static str;
-    const IDENTITY_NAMESPACE: &'static str;
 }
 
 ///
@@ -152,6 +189,7 @@ pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {}
 ///
 /// Implementors store primitive key material internally.
 /// `id()` constructs a typed `Id<Self>` view on demand.
+/// The returned `Id<Self>` is a public identifier, not proof of authority.
 ///
 
 pub trait EntityValue: EntityIdentity + FieldValues + Sized {

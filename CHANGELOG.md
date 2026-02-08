@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [0.7.1] – 2026-02-08 - Key Byte Contracts
+
+### 🧃 Summary
+
+0.7.1 standardizes primary-key byte encoding through `EntityKeyBytes` and simplifies external identity projection to hash canonical key bytes directly.
+This release also removes namespace-based projection metadata and makes key-byte encoding an explicit compile-time contract.
+
+### 🪴 Added
+
+* Added `EntityKeyBytes` with explicit `BYTE_LEN` and `write_bytes` requirements for primary-key encoding.
+* Added `Id<E>::KEY_BYTES` and `Id<E>::into_key()` for explicit key-size introspection and key extraction.
+
+### 🪀 Changed
+
+* `EntityKey::Key` now requires `EntityKeyBytes`, so key-encoding compatibility is checked at compile time.
+* `Id<E>::project()` is now a direct projection path over canonical key bytes using the projection domain tag.
+* Relaxed the docs so Codex stops faffing about the ID being a secret in a capability-first system
+
+### 🛟 Removed
+
+* Removed `Subaccount::from_ulid` in favor of explicit subaccount byte construction paths.
+
+---
+
 ## [0.7.0] – 2026-02-08 - Contract Freeze
 
 ### 🧁 Summary

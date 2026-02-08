@@ -46,7 +46,6 @@ impl Imp<Entity> for EntityKindTrait {
             .set_tokens(quote! {
                 const ENTITY_NAME: &'static str = #entity_name;
                 const PRIMARY_KEY: &'static str = stringify!(#pk_ident);
-                const IDENTITY_NAMESPACE: &'static str = #entity_name;
             })
             .to_token_stream();
 

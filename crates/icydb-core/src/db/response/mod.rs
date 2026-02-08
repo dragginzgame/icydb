@@ -42,6 +42,8 @@ impl ResponseError {
 /// Response
 ///
 /// Materialized query result: ordered `(Id, Entity)` pairs.
+/// IDs are returned for correlation, reporting, and lookup; they are public values and do not imply
+/// authorization, ownership, or row existence outside this response payload.
 ///
 
 #[derive(Debug)]
@@ -126,20 +128,26 @@ impl<E: EntityKind> Response<E> {
     // Ids (identity-level)
     // ------------------------------------------------------------------
 
+    /// Return the first row identifier, if present.
+    ///
+    /// This identifier is a public value for correlation, reporting, and lookup only.
     #[must_use]
     pub fn id(&self) -> Option<Id<E>> {
         self.0.first().map(|(id, _)| *id)
     }
 
+    /// Require exactly one row and return its identifier.
     pub fn require_id(self) -> Result<Id<E>, ResponseError> {
         self.row().map(|(id, _)| id)
     }
 
+    /// Return all row identifiers in response order for correlation/reporting/lookup.
     #[must_use]
     pub fn ids(&self) -> Vec<Id<E>> {
         self.0.iter().map(|(id, _)| *id).collect()
     }
 
+    /// Check whether the response contains the provided identifier.
     pub fn contains_id(&self, id: &Id<E>) -> bool {
         self.0.iter().any(|(k, _)| k == id)
     }

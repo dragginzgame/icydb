@@ -1,12 +1,12 @@
 use crate::{
     traits::{
-        EntityKey, FieldValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        Visitable,
+        EntityKey, EntityKeyBytes, FieldValue, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, Visitable,
     },
     value::Value,
 };
 use candid::CandidType;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer, de::Deserializer};
 use std::{
     fmt,
     hash::{Hash, Hasher},
@@ -23,6 +23,20 @@ use std::{
 /// - used at API, DTO, and query boundaries
 /// - enforces entity-kind correctness at compile time
 /// - prevents accidental mixing of primary keys across entities
+/// - carries identity shape only (not authority)
+///
+/// ## Security model
+/// `Id<E>` is a public identifier and is **not** a secret or capability.
+/// It may be deserialized from untrusted input.
+/// `Id<E>` is a public identifier. It is not a secret and must never be treated as proof of
+/// authorization, existence, or ownership.
+///
+/// Possession of an `Id<E>` does NOT imply:
+/// - existence of the referenced entity
+/// - authorization or ownership
+/// - correctness of the value
+///
+/// All uses of `Id<E>` must perform explicit lookup and validation.
 ///
 /// ## Storage model
 /// - Entities themselves store **primitive key values only**
@@ -30,8 +44,8 @@ use std::{
 /// - `Id<E>` serializes identically to `E::Key`
 ///
 /// ## Safety
-/// Construction from raw key material is intentionally restricted
-/// to prevent forging entity identities.
+/// Construction from raw key material is intentionally explicit so call sites show where typed
+/// identity values are introduced. This is not an authorization or trust boundary.
 ///
 
 #[repr(transparent)]
@@ -44,8 +58,10 @@ impl<E> Id<E>
 where
     E: EntityKey,
 {
+    pub const KEY_BYTES: usize = E::Key::BYTE_LEN;
+
     // ------------------------------------------------------------------
-    // Construction (restricted)
+    // Construction (explicit)
     // ------------------------------------------------------------------
 
     /// Construct a typed primary-key value from a raw key.
@@ -53,6 +69,7 @@ where
     /// ## Invariant
     /// Callers must already know that `key` is the primary key for `E`.
     /// This function does **not** validate the association.
+    /// It does not prove row existence, ownership, or authorization.
     ///
     /// This is an explicit boundary conversion from storage-level
     /// representation to a typed entity key.
@@ -77,8 +94,16 @@ where
     /// - assigning entity fields
     /// - persistence
     /// - foreign-key storage
+    ///
+    /// Exposing the primitive key does not change trust semantics: the value remains public and
+    /// non-authoritative until verified in context.
     #[must_use]
     pub const fn key(&self) -> E::Key {
+        self.key
+    }
+
+    #[must_use]
+    pub const fn into_key(self) -> E::Key {
         self.key
     }
 
@@ -229,6 +254,21 @@ where
         S: Serializer,
     {
         self.key.serialize(serializer)
+    }
+}
+
+impl<'de, E> Deserialize<'de> for Id<E>
+where
+    E: EntityKey,
+    E::Key: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let key = E::Key::deserialize(deserializer)?;
+
+        Ok(Self::from_key(key))
     }
 }
 

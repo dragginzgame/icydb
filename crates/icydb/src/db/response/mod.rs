@@ -16,6 +16,7 @@ pub use write::*;
 ///
 /// Public facade over a materialized query result.
 /// Wraps the core response and exposes only safe, policy-aware operations.
+/// Any returned `Id<E>` values are public identifiers for correlation, reporting, and lookup only.
 ///
 
 #[derive(Debug)]
@@ -99,11 +100,15 @@ impl<E: EntityKind> Response<E> {
     // ------------------------------------------------------------------
 
     /// Return the single key.
+    ///
+    /// This key is a public identifier and does not grant access or authority.
     pub fn key(self) -> Result<Id<E>, Error> {
         self.inner.require_id().map_err(map_response_error)
     }
 
     /// Return zero or one primary key.
+    ///
+    /// IDs are safe to transport and log; verification is always explicit and contextual.
     pub fn try_key(self) -> Result<Option<Id<E>>, Error> {
         self.inner
             .try_row()
@@ -111,7 +116,7 @@ impl<E: EntityKind> Response<E> {
             .map_err(map_response_error)
     }
 
-    /// Return all primary keys.
+    /// Return all primary keys for correlation, reporting, and lookup.
     #[must_use]
     pub fn keys(&self) -> Vec<Id<E>> {
         self.inner.ids()

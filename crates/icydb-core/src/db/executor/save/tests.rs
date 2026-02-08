@@ -137,7 +137,6 @@ impl EntityKey for TargetEntity {
 impl EntityIdentity for TargetEntity {
     const ENTITY_NAME: &'static str = "TargetEntity";
     const PRIMARY_KEY: &'static str = "id";
-    const IDENTITY_NAMESPACE: &'static str = "TargetEntity";
 }
 
 static TARGET_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
@@ -213,7 +212,6 @@ impl EntityKey for SourceEntity {
 impl EntityIdentity for SourceEntity {
     const ENTITY_NAME: &'static str = "SourceEntity";
     const PRIMARY_KEY: &'static str = "id";
-    const IDENTITY_NAMESPACE: &'static str = "SourceEntity";
 }
 
 static SOURCE_FIELDS: [EntityFieldModel; 2] = [
@@ -300,7 +298,6 @@ impl EntityKey for SourceSetEntity {
 impl EntityIdentity for SourceSetEntity {
     const ENTITY_NAME: &'static str = "SourceSetEntity";
     const PRIMARY_KEY: &'static str = "id";
-    const IDENTITY_NAMESPACE: &'static str = "SourceSetEntity";
 }
 
 static SOURCE_SET_TARGET_KIND: EntityFieldKind = EntityFieldKind::Relation {

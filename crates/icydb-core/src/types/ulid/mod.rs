@@ -3,8 +3,8 @@ pub mod generator;
 
 use crate::{
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
     visitor::VisitorContext,
@@ -149,6 +149,15 @@ impl CandidType for Ulid {
 impl Default for Ulid {
     fn default() -> Self {
         Self(WrappedUlid::nil())
+    }
+}
+
+impl EntityKeyBytes for Ulid {
+    const BYTE_LEN: usize = Self::STORED_SIZE as usize;
+
+    fn write_bytes(&self, out: &mut [u8]) {
+        assert_eq!(out.len(), Self::BYTE_LEN);
+        out.copy_from_slice(&self.to_bytes());
     }
 }
 

@@ -61,7 +61,6 @@ impl EntityKey for PlanEntity {
 impl EntityIdentity for PlanEntity {
     const ENTITY_NAME: &'static str = "PlanEntity";
     const PRIMARY_KEY: &'static str = "id";
-    const IDENTITY_NAMESPACE: &'static str = "PlanEntity";
 }
 
 static PLAN_FIELDS: [EntityFieldModel; 2] = [
@@ -142,7 +141,6 @@ impl EntityKey for PlanSingleton {
 impl EntityIdentity for PlanSingleton {
     const ENTITY_NAME: &'static str = "PlanSingleton";
     const PRIMARY_KEY: &'static str = "id";
-    const IDENTITY_NAMESPACE: &'static str = "PlanSingleton";
 }
 
 impl FieldValues for PlanSingleton {

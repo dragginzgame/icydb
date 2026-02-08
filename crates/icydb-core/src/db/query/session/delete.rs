@@ -53,6 +53,8 @@ where
     // ------------------------------------------------------------------
 
     /// Set the access path to a single typed primary-key value.
+    ///
+    /// `Id<E>` is treated as a plain query input value here. It does not grant access.
     #[must_use]
     pub fn by_id(mut self, id: Id<E>) -> Self {
         self.query = self.query.by_id(id.key());
@@ -60,6 +62,8 @@ where
     }
 
     /// Set the access path to multiple typed primary-key values.
+    ///
+    /// IDs are public and may come from untrusted input sources.
     #[must_use]
     pub fn by_ids<I>(mut self, ids: I) -> Self
     where

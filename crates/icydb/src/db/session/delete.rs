@@ -39,14 +39,19 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     // Primary-key access (semantic)
     // ------------------------------------------------------------------
 
-    /// Set the access path to a single typed primary-key value.
+    /// Filter by a single typed primary-key value.
+    ///
+    /// `Id<E>` is a public identifier and is treated as untrusted input until
+    /// verified by explicit existence/authorization checks in caller policy.
     #[must_use]
     pub fn by_id(mut self, id: Id<E>) -> Self {
         self.inner = self.inner.by_id(id);
         self
     }
 
-    /// Set the access path to multiple typed primary-key values.
+    /// Filter by multiple typed primary-key values.
+    ///
+    /// IDs are correlation/lookup values only and do not grant authority.
     #[must_use]
     pub fn by_ids<I>(mut self, ids: I) -> Self
     where

@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -143,6 +143,20 @@ impl AsView for Principal {
 impl Default for Principal {
     fn default() -> Self {
         Self(WrappedPrincipal::from_slice(&[]))
+    }
+}
+
+impl EntityKeyBytes for Principal {
+    const BYTE_LEN: usize = 1 + Self::MAX_LENGTH_IN_BYTES as usize;
+
+    fn write_bytes(&self, out: &mut [u8]) {
+        assert_eq!(out.len(), Self::BYTE_LEN);
+        out.fill(0);
+
+        let principal = self.as_slice();
+        let len = principal.len();
+        out[0] = u8::try_from(len).expect("principal length must fit in one byte");
+        out[1..=len].copy_from_slice(principal);
     }
 }
 

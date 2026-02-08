@@ -8,7 +8,7 @@ use crate::{
 /// WriteResponse
 ///
 /// Result of a single write operation.
-/// Provides explicit access to the stored entity and its identity.
+/// Provides explicit access to the stored entity and its identifier.
 ///
 
 #[derive(Debug)]
@@ -30,6 +30,8 @@ impl<E> WriteResponse<E> {
     }
 
     /// Return the stored entity's primary key.
+    ///
+    /// Returned IDs are public correlation/reporting/lookup values, not authority-bearing tokens.
     #[must_use]
     pub fn key(&self) -> Id<E>
     where
@@ -52,7 +54,7 @@ impl<E> WriteResponse<E> {
 /// WriteBatchResponse
 ///
 /// Result of a batch write operation.
-/// Provides explicit access to stored entities and their identities.
+/// Provides explicit access to stored entities and their identifiers.
 ///
 
 #[derive(Debug)]
@@ -96,7 +98,7 @@ impl<E> WriteBatchResponse<E> {
             .collect()
     }
 
-    /// Return all primary keys.
+    /// Return all primary keys for correlation, reporting, and lookup.
     #[must_use]
     pub fn keys(&self) -> Vec<Id<E>>
     where

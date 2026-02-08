@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Principal, PrincipalEncodeError, Subaccount},
     value::Value,
@@ -183,6 +183,18 @@ impl AsView for Account {
 impl Display for Account {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_icrc_type())
+    }
+}
+
+impl EntityKeyBytes for Account {
+    const BYTE_LEN: usize = Self::STORED_SIZE as usize;
+
+    fn write_bytes(&self, out: &mut [u8]) {
+        assert_eq!(out.len(), Self::BYTE_LEN);
+        let encoded = self
+            .to_bytes()
+            .expect("account primary key encoding must remain valid");
+        out.copy_from_slice(&encoded);
     }
 }
 

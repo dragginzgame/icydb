@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Principal, Ulid},
     value::Value,
@@ -52,15 +52,6 @@ impl Subaccount {
     #[must_use]
     pub const fn from_array(array: [u8; 32]) -> Self {
         Self(array)
-    }
-
-    #[must_use]
-    /// Encode a ULID into the lower 16 bytes of a subaccount.
-    pub fn from_ulid(ulid: Ulid) -> Self {
-        let mut bytes = [0u8; 32];
-        bytes[16..].copy_from_slice(&ulid.to_bytes()); // right-align ULID
-
-        Self::from_array(bytes)
     }
 
     #[must_use]
@@ -126,6 +117,15 @@ impl Display for Subaccount {
         }
 
         Ok(())
+    }
+}
+
+impl EntityKeyBytes for Subaccount {
+    const BYTE_LEN: usize = 32;
+
+    fn write_bytes(&self, out: &mut [u8]) {
+        assert_eq!(out.len(), Self::BYTE_LEN);
+        out.copy_from_slice(&self.to_bytes());
     }
 }
 
@@ -292,25 +292,5 @@ mod tests {
 
         // Must be valid hex
         assert!(hex.chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn round_trip_ulid_to_subaccount_and_back() {
-        let ulid = Ulid::default();
-        let sub = Subaccount::from_ulid(ulid);
-        let ulid2 = sub.to_ulid();
-
-        assert_eq!(ulid, ulid2);
-    }
-
-    #[test]
-    fn different_ulids_produce_different_subaccounts() {
-        seed_rng();
-        let ulid1 = Ulid::generate();
-        let ulid2 = Ulid::generate();
-        assert_ne!(
-            Subaccount::from_ulid(ulid1).to_array(),
-            Subaccount::from_ulid(ulid2).to_array()
-        );
     }
 }

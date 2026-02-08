@@ -1,7 +1,7 @@
 use crate::{
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
+        UpdateView, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -39,6 +39,14 @@ impl AsView for Unit {
 
     fn from_view(view: Self::ViewType) -> Self {
         view
+    }
+}
+
+impl EntityKeyBytes for Unit {
+    const BYTE_LEN: usize = 0;
+
+    fn write_bytes(&self, out: &mut [u8]) {
+        assert_eq!(out.len(), Self::BYTE_LEN);
     }
 }
 

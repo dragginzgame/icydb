@@ -155,6 +155,17 @@ This keeps validation centralized and avoids superlinear maintenance cost as ent
 
 ---
 
+### 3.4 Identity Trust Model
+
+`Id<E>` values are typed identifiers, not capabilities.
+
+- IDs are public and non-secret.
+- IDs may be deserialized from untrusted input.
+- Possession of an ID does not prove authorization, ownership, correctness, or existence.
+- Trust decisions are explicit checks performed after lookup and policy verification.
+
+---
+
 ## 4. Unsupported and opaque values
 
 `Value::Unsupported` represents runtime values that:

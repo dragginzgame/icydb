@@ -73,6 +73,10 @@ paths when that preserves query semantics.
 values (`Id<E>`). They are not privileged access paths and are not required for
 primary-key filtering.
 
+IDs in query inputs are public values and may come from untrusted sources.
+Query matching by ID is a lookup operation only; it does not imply authorization,
+ownership, or entity existence beyond what execution returns.
+
 ## Projection Semantics
 
 If no projection is specified, the intent is interpreted as “all fields.”

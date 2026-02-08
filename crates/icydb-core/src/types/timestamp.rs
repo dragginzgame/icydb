@@ -1,7 +1,8 @@
 use crate::{
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
-        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive,
+        NumToPrimitive, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
+        Visitable,
     },
     value::Value,
 };
@@ -111,6 +112,15 @@ impl AsView for Timestamp {
 
     fn from_view(view: Self::ViewType) -> Self {
         Self(view)
+    }
+}
+
+impl EntityKeyBytes for Timestamp {
+    const BYTE_LEN: usize = ::core::mem::size_of::<u64>();
+
+    fn write_bytes(&self, out: &mut [u8]) {
+        assert_eq!(out.len(), Self::BYTE_LEN);
+        out.copy_from_slice(&self.get().to_be_bytes());
     }
 }
 

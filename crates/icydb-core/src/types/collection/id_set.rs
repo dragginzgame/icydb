@@ -20,6 +20,7 @@ use serde::{Deserialize, Deserializer};
 /// - No ordering-based or predicate-based mutation APIs are provided.
 /// - In-place mutation of elements is forbidden to preserve ordering invariants.
 /// - This type stores primary-key values only; it does not imply resolvability or existence checks.
+/// - IDs in this set are public identifiers and do not grant authorization or ownership.
 ///
 
 #[repr(transparent)]

@@ -131,7 +131,6 @@ macro_rules! test_entity_schema {
         impl $crate::traits::EntityIdentity for $name {
             const ENTITY_NAME: &'static str = $entity_name;
             const PRIMARY_KEY: &'static str = $primary_key;
-            const IDENTITY_NAMESPACE: &'static str = $entity_name;
         }
 
         impl $crate::traits::EntitySchema for $name {

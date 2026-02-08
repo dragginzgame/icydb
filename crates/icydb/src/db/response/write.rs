@@ -11,6 +11,7 @@ use icydb_core::db::response::{
 /// WriteResponse
 ///
 /// Facade over a single write result with explicit accessors.
+/// Returned IDs are public identifiers used for correlation, reporting, and lookup.
 ///
 
 #[derive(Debug)]
@@ -38,6 +39,8 @@ impl<E: EntityKind> WriteResponse<E> {
     }
 
     /// Return the stored entity's primary key.
+    ///
+    /// The value is non-secret and non-authoritative.
     #[must_use]
     pub fn key(&self) -> Id<E>
     where
@@ -111,7 +114,7 @@ impl<E: EntityKind> WriteBatchResponse<E> {
             .collect()
     }
 
-    /// Return all primary keys.
+    /// Return all primary keys for correlation, reporting, and lookup.
     #[must_use]
     pub fn keys(&self) -> Vec<Id<E>>
     where
