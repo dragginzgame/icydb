@@ -30,6 +30,27 @@ pub struct Entity {
     pub traits: TraitBuilder,
 }
 
+// Primary keys must use scalar primitives with deterministic key encoding.
+const fn supports_primary_key_primitive(primitive: Primitive) -> bool {
+    matches!(
+        primitive,
+        Primitive::Account
+            | Primitive::Int8
+            | Primitive::Int16
+            | Primitive::Int32
+            | Primitive::Int64
+            | Primitive::Nat8
+            | Primitive::Nat16
+            | Primitive::Nat32
+            | Primitive::Nat64
+            | Primitive::Principal
+            | Primitive::Subaccount
+            | Primitive::Timestamp
+            | Primitive::Ulid
+            | Primitive::Unit
+    )
+}
+
 impl Entity {
     /// All user-editable fields (no PK, no system fields).
     pub fn iter_editable_fields(&self) -> impl Iterator<Item = &Field> {
@@ -125,6 +146,39 @@ impl ValidateNode for Entity {
                     pk_ident,
                     format!(
                         "primary key field `{}` is a relation but has no declared primitive type; explicit prim = \"...\" is required for PK fields",
+                        self.primary_key.field
+                    ),
+                ));
+            }
+        }
+        if pk_field.value.item.indirect {
+            errors.push(syn::Error::new_spanned(
+                pk_ident,
+                format!(
+                    "primary key field '{}' cannot use indirect item storage",
+                    self.primary_key.field
+                ),
+            ));
+        }
+
+        match pk_field.value.item.target() {
+            ItemTarget::Primitive(primitive) => {
+                if !supports_primary_key_primitive(primitive) {
+                    errors.push(syn::Error::new_spanned(
+                        pk_ident,
+                        format!(
+                            "primary key field '{}' must use a scalar key primitive; got '{}'",
+                            self.primary_key.field, primitive
+                        ),
+                    ));
+                }
+            }
+            ItemTarget::Is(_) => {
+                errors.push(syn::Error::new_spanned(
+                    pk_ident,
+                    format!(
+                        "primary key field '{}' must declare a scalar primitive key type via \
+                         prim = \"...\"; derived item(is = \"...\") types are not allowed for PKs",
                         self.primary_key.field
                     ),
                 ));

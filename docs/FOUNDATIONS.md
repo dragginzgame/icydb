@@ -142,6 +142,19 @@ traditional database engines.
 
 ---
 
+### 3.3 Schema Validation vs Compile-Time Boilerplate
+
+IcyDB prefers a single validation boundary in the schema pass.
+
+Policy:
+- if an invariant can be enforced in a few lines in schema validation (`validate` / `fatal_errors`), enforce it there
+- do not add large codegen boilerplate solely to force extra compile-time assertion errors
+- use generated compile-time assertions only for invariants that cannot be expressed in the schema pass without comparable complexity
+
+This keeps validation centralized and avoids superlinear maintenance cost as entity count grows.
+
+---
+
 ## 4. Unsupported and opaque values
 
 `Value::Unsupported` represents runtime values that:

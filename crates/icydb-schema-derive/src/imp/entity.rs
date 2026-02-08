@@ -7,33 +7,14 @@ use crate::prelude::*;
 pub struct EntityKindTrait {}
 
 impl Imp<Entity> for EntityKindTrait {
-    #[expect(clippy::too_many_lines)]
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let store = &node.store;
 
-        let Some(pk_entry) = node.fields.get(&node.primary_key.field) else {
-            let msg = LitStr::new(
-                &format!(
-                    "primary key field '{}' not found in entity fields",
-                    node.primary_key.field
-                ),
-                Span::call_site(),
-            );
-            return Some(TraitStrategy::from_impl(quote!(compile_error!(#msg))));
-        };
-
+        let pk_entry = node
+            .fields
+            .get(&node.primary_key.field)
+            .expect("primary key field must be validated before derive generation");
         let pk_ident = &node.primary_key.field;
-        if pk_entry.value.item.is_relation() && pk_entry.value.item.primitive.is_none() {
-            let msg = LitStr::new(
-                &format!(
-                    "primary key field `{}` is a relation but has no declared primitive type; \
-                     explicit prim = \"...\" is required for PK fields",
-                    node.primary_key.field
-                ),
-                Span::call_site(),
-            );
-            return Some(TraitStrategy::from_impl(quote!(compile_error!(#msg))));
-        }
 
         // PK key shape must always follow the declared field type.
         let pk_key_type = pk_entry.value.item.type_expr();
@@ -100,7 +81,6 @@ impl Imp<Entity> for EntityKindTrait {
         tokens.extend(placement_tokens);
         tokens.extend(kind_tokens);
 
-        // Existing consistency test stays valid
         let test_mod = format_ident!("__entity_model_test_{ident}");
         tokens.extend(quote! {
             #[cfg(test)]
@@ -125,7 +105,7 @@ impl Imp<Entity> for EntityKindTrait {
             }
         });
 
-        // Unit-key logic remains tied to the schema layer.
+        // Unit primary keys model singleton entities.
         if matches!(
             pk_entry.value.item.target(),
             ItemTarget::Primitive(Primitive::Unit)

@@ -106,11 +106,6 @@ The goal is **equivalence verification**, not parallel authoring.
 - [x] Reserve manual model construction only for invalid-schema tests
 - [x] Gradually migrate legacy tests to typed-first definitions
 
----
-
-## Additional TODO
-
-- [ ] Implement `saturating_sub` in the inherent trait for numeric newtypes that require it
 
 ---
 
