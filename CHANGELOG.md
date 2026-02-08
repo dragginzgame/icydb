@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [0.7.3] – 2026-02-08
+* Added `EntityValue` back to the public prelude re-exports for easier trait access in downstream code.
+
+---
+
 ## [0.7.2] – 2026-02-08 - Key Byte Contracts
 
 ### 🧃 Summary

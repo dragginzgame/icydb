@@ -114,8 +114,8 @@ pub mod prelude {
             query::{FilterExpr, SortExpr, builder::FieldRef, predicate::Predicate},
         },
         traits::{
-            AsView, Collection as _, CreateView as _, EntityKind as _, Inner as _,
-            MapCollection as _, Path as _, UpdateView as _,
+            AsView, Collection as _, CreateView as _, EntityKind as _, EntityValue as _,
+            Inner as _, MapCollection as _, Path as _, UpdateView as _,
         },
         types::*,
         value::Value,
@@ -140,7 +140,7 @@ pub mod design {
             db::query::builder::FieldRef,
             macros::*,
             traits::{
-                AsView, Collection as _, EntityKind, FieldValue as _, Inner as _,
+                AsView, Collection as _, EntityKind, EntityValue as _, FieldValue as _, Inner as _,
                 MapCollection as _, Path as _, Sanitize as _, Sanitizer, Serialize as _,
                 Validate as _, ValidateCustom, Validator, Visitable as _,
             },
