@@ -118,7 +118,7 @@ impl<E: EntityKind> WriteBatchResponse<E> {
     where
         E: EntityValue,
     {
-        self.entries.iter().map(WriteResponse::key).collect()
+        self.entries.iter().map(WriteResponse::id).collect()
     }
 
     /// Return all views.
