@@ -6,7 +6,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Serialize, Serializer};
 use std::{
     fmt,
     hash::{Hash, Hasher},
@@ -48,20 +48,18 @@ where
     // Construction (restricted)
     // ------------------------------------------------------------------
 
-    /// Construct a typed primary-key value from raw key material.
+    /// Construct a typed primary-key value from a raw key.
     ///
     /// ## Invariant
-    /// This constructor is intentionally restricted:
-    /// callers must *already* know the key belongs to `E`.
+    /// Callers must already know that `key` is the primary key for `E`.
+    /// This function does **not** validate the association.
     ///
-    /// Used by:
-    /// - derive-generated entity code
-    /// - controlled decoding paths (e.g. deserialization)
-    #[must_use]
-    pub(crate) const fn from_storage_key(key: E::Key) -> Self {
+    /// This is an explicit boundary conversion from storage-level
+    /// representation to a typed entity key.
+    pub fn from_key(key: E::Key) -> Self {
         Self {
             key,
-            _marker: PhantomData,
+            _marker: ::core::marker::PhantomData,
         }
     }
 
@@ -152,7 +150,7 @@ where
     E::Key: Default,
 {
     fn default() -> Self {
-        Self::from_storage_key(E::Key::default())
+        Self::from_key(E::Key::default())
     }
 }
 
@@ -232,7 +230,7 @@ where
 
     fn from_value(value: &Value) -> Option<Self> {
         let key = E::Key::from_value(value)?;
-        Some(Self::from_storage_key(key))
+        Some(Self::from_key(key))
     }
 }
 
@@ -267,20 +265,6 @@ where
     }
 }
 
-impl<'de, E> Deserialize<'de> for Id<E>
-where
-    E: EntityKey,
-    E::Key: Deserialize<'de>,
-{
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let key = E::Key::deserialize(deserializer)?;
-        Ok(Self::from_storage_key(key))
-    }
-}
-
 impl<E> SanitizeAuto for Id<E> where E: EntityKey {}
 impl<E> SanitizeCustom for Id<E> where E: EntityKey {}
 impl<E> ValidateAuto for Id<E> where E: EntityKey {}
@@ -308,7 +292,7 @@ mod tests {
 
     #[test]
     fn field_value_round_trip_uses_underlying_key() {
-        let id = Id::<TestEntity>::from_storage_key(7);
+        let id = Id::<TestEntity>::from_key(7);
         let value = id.to_value();
         assert_eq!(value, Value::Uint(7));
 
@@ -324,7 +308,7 @@ mod tests {
 
     #[test]
     fn into_value_for_owned_and_borrowed_id_match_as_value() {
-        let id = Id::<TestEntity>::from_storage_key(42);
+        let id = Id::<TestEntity>::from_key(42);
         let expected = id.as_value();
         let borrowed = Value::from(&id);
         let owned = Value::from(id);

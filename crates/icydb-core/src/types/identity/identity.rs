@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn projection_is_deterministic_for_known_vector() {
-        let id = Id::<VectorEntity>::from_storage_key(Ulid::from_bytes([
+        let id = Id::<VectorEntity>::from_key(Ulid::from_bytes([
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
             0xee, 0xff,
         ]));
@@ -256,10 +256,10 @@ mod tests {
     #[test]
     fn projection_changes_when_namespace_changes() {
         let key = Ulid::from_bytes([0x42; 16]);
-        let a = Id::<VectorEntity>::from_storage_key(key)
+        let a = Id::<VectorEntity>::from_key(key)
             .project()
             .expect("projection should succeed");
-        let b = Id::<NamespaceEntity>::from_storage_key(key)
+        let b = Id::<NamespaceEntity>::from_key(key)
             .project()
             .expect("projection should succeed");
 
@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn projection_rejects_non_keyable_primary_keys() {
-        let id = Id::<UnsupportedKeyEntity>::from_storage_key(true);
+        let id = Id::<UnsupportedKeyEntity>::from_key(true);
         let err = id.project().expect_err("bool key should not project");
 
         assert!(matches!(

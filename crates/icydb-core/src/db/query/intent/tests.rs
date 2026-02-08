@@ -28,7 +28,7 @@ fn basic_model() -> &'static EntityModel {
 // Test-only entity to compare typed vs model planning without schema macros.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 struct PlanEntity {
-    id: Id<Self>,
+    id: Ulid,
     name: String,
 }
 
@@ -110,7 +110,7 @@ static MAP_PLAN_MODEL: EntityModel = entity_model_from_static(
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 struct PlanSingleton {
-    id: Id<Self>,
+    id: Unit,
 }
 
 impl AsView for PlanSingleton {
@@ -156,7 +156,7 @@ impl FieldValues for PlanSingleton {
 
 impl EntityValue for PlanSingleton {
     fn id(&self) -> Id<Self> {
-        self.id
+        Id::from_key(self.id)
     }
 }
 

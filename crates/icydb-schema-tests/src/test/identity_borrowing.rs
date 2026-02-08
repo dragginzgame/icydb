@@ -18,7 +18,7 @@ pub struct User;
 #[entity(
     store = "TestDataStore",
     pk(field = "user"),
-    fields(field(ident = "user", value(item(rel = "User"))))
+    fields(field(ident = "user", value(item(rel = "User", prim = "Ulid"))))
 )]
 pub struct UserProjects;
 

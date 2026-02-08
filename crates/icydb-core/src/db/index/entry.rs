@@ -173,7 +173,7 @@ impl RawIndexEntry {
             keys.push(key);
         }
 
-        Self::try_from_storage_keys(keys)
+        Self::try_from_keys(keys)
     }
 
     pub fn try_decode<E: EntityKind>(&self) -> Result<IndexEntry<E>, IndexEntryCorruption> {
@@ -195,7 +195,7 @@ impl RawIndexEntry {
         Ok(IndexEntry { ids })
     }
 
-    pub fn try_from_storage_keys<I>(keys: I) -> Result<Self, IndexEntryEncodeError>
+    pub fn try_from_keys<I>(keys: I) -> Result<Self, IndexEntryEncodeError>
     where
         I: IntoIterator<Item = StorageKey>,
     {

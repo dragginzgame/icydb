@@ -235,7 +235,7 @@ impl IndexStore {
             out.extend(
                 storage_keys
                     .into_iter()
-                    .map(|sk| DataKey::from_storage_key::<E>(sk)),
+                    .map(|sk| DataKey::from_key::<E>(sk)),
             );
         }
 

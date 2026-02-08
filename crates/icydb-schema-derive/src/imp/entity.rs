@@ -7,6 +7,7 @@ use crate::prelude::*;
 pub struct EntityKindTrait {}
 
 impl Imp<Entity> for EntityKindTrait {
+    #[expect(clippy::too_many_lines)]
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let store = &node.store;
 
@@ -22,11 +23,20 @@ impl Imp<Entity> for EntityKindTrait {
         };
 
         let pk_ident = &node.primary_key.field;
-        let key_type = if let Some(target) = &pk_entry.value.item.relation {
-            quote!(<#target as ::icydb::traits::EntityKey>::Key)
-        } else {
-            pk_entry.value.item.type_expr()
-        };
+        if pk_entry.value.item.is_relation() && pk_entry.value.item.primitive.is_none() {
+            let msg = LitStr::new(
+                &format!(
+                    "primary key field `{}` is a relation but has no declared primitive type; \
+                     explicit prim = \"...\" is required for PK fields",
+                    node.primary_key.field
+                ),
+                Span::call_site(),
+            );
+            return Some(TraitStrategy::from_impl(quote!(compile_error!(#msg))));
+        }
+
+        // PK key shape must always follow the declared field type.
+        let pk_key_type = pk_entry.value.item.type_expr();
 
         let entity_name = if let Some(name) = &node.name {
             quote!(#name)
@@ -42,11 +52,12 @@ impl Imp<Entity> for EntityKindTrait {
             .iter()
             .map(Index::runtime_part)
             .collect::<Vec<_>>();
+
         let ident = node.def.ident();
 
         let storage_tokens = quote! {
             impl ::icydb::traits::EntityKey for #ident {
-                type Key = #key_type;
+                type Key = #pk_key_type;
             }
         };
 
@@ -137,21 +148,13 @@ pub struct EntityValueTrait {}
 impl Imp<Entity> for EntityValueTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let pk_ident = &node.primary_key.field;
-        let id_expr = quote!({
-            let value = ::icydb::traits::FieldValue::to_value(&self.#pk_ident);
-
-            <::icydb::types::Id<Self> as ::icydb::traits::FieldValue>::from_value(&value)
-                .expect("primary key must decode into Id<Self>")
-        });
-
-        let q = quote! {
-            fn id(&self) -> ::icydb::types::Id<Self> {
-                #id_expr
-            }
-        };
 
         let tokens = Implementor::new(&node.def, TraitKind::EntityValue)
-            .set_tokens(q)
+            .set_tokens(quote! {
+                fn id(&self) -> ::icydb::types::Id<Self> {
+                    ::icydb::types::Id::from_key(self.#pk_ident.clone())
+                }
+            })
             .to_token_stream();
 
         Some(TraitStrategy::from_impl(tokens))

@@ -311,7 +311,7 @@ where
                     .into());
                 }
 
-                Ok((Id::from_storage_key(key), entity))
+                Ok((Id::from_key(key), entity))
             })
             .collect()
     }

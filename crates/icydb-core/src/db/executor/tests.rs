@@ -81,7 +81,7 @@ fn test_memory(id: u8) -> VirtualMemory<DefaultMemoryImpl> {
 
 #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
 struct SimpleEntity {
-    id: Id<Self>,
+    id: Ulid,
 }
 
 impl AsView for SimpleEntity {
@@ -146,7 +146,7 @@ impl EntityKind for SimpleEntity {}
 
 impl EntityValue for SimpleEntity {
     fn id(&self) -> Id<Self> {
-        self.id
+        Id::from_key(self.id)
     }
 }
 
@@ -165,7 +165,7 @@ fn executor_save_then_delete_round_trip() {
     let delete = DeleteExecutor::<SimpleEntity>::new(DB, false);
 
     let entity = SimpleEntity {
-        id: Id::from_storage_key(Ulid::generate()),
+        id: Ulid::generate(),
     };
     let saved = save.insert(entity).expect("save should succeed");
 
@@ -199,7 +199,7 @@ fn delete_replays_incomplete_commit_marker() {
     let delete = DeleteExecutor::<SimpleEntity>::new(DB, false);
 
     let entity = SimpleEntity {
-        id: Id::from_storage_key(Ulid::generate()),
+        id: Ulid::generate(),
     };
     let saved = save.insert(entity).expect("save should succeed");
 

@@ -119,13 +119,16 @@ impl ValidateNode for Entity {
         }
 
         if pk_field.value.item.is_relation() {
-            // PK-as-relation is only allowed as identity-borrowing (singleton-by-X).
-            // At this point:
-            // - this field *is* the primary key
-            // - cardinality is enforced to One
-            // Therefore this is allowed.
-            //
-            // Any other relation-as-PK cases are already structurally impossible.
+            // PK relation fields must declare the storage key type explicitly.
+            if pk_field.value.item.primitive.is_none() {
+                errors.push(syn::Error::new_spanned(
+                    pk_ident,
+                    format!(
+                        "primary key field `{}` is a relation but has no declared primitive type; explicit prim = \"...\" is required for PK fields",
+                        self.primary_key.field
+                    ),
+                ));
+            }
         }
 
         errors

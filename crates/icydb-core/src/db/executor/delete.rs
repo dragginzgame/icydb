@@ -280,7 +280,7 @@ where
 
             let res = rows
                 .into_iter()
-                .map(|row| Ok((Id::from_storage_key(row.key.try_key::<E>()?), row.entity)))
+                .map(|row| Ok((Id::from_key(row.key.try_key::<E>()?), row.entity)))
                 .collect::<Result<Vec<_>, InternalError>>()?;
             set_rows_from_len(&mut span, res.len());
             self.debug_log(format!("Delete committed -> {} rows", res.len()));

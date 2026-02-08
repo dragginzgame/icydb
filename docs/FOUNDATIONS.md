@@ -101,7 +101,7 @@ The executor:
 - enforces execution-time invariants
 - operates deterministically
 
-+ Any valid plan must be executable without fallible logic beyond mechanical data access.
+Any valid plan must be executable without fallible logic beyond mechanical data access.
 
 
 ---

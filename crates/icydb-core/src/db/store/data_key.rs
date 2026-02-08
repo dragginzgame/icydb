@@ -139,7 +139,7 @@ impl DataKey {
 
     /// Construct a DataKey from a raw StorageKey using entity metadata.
     #[must_use]
-    pub fn from_storage_key<E: EntityKind>(key: StorageKey) -> Self {
+    pub fn from_key<E: EntityKind>(key: StorageKey) -> Self {
         Self {
             entity: Self::entity_for::<E>(),
             key,

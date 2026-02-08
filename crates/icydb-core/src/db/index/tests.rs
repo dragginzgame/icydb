@@ -116,7 +116,7 @@ fn index_key_ordering_matches_bytes() {
 fn raw_index_entry_round_trip() {
     let keys = vec![StorageKey::Int(1), StorageKey::Uint(2)];
 
-    let raw = RawIndexEntry::try_from_storage_keys(keys.clone()).expect("encode index entry");
+    let raw = RawIndexEntry::try_from_keys(keys.clone()).expect("encode index entry");
     let decoded = raw.decode_keys().expect("decode index entry");
 
     assert_eq!(decoded.len(), keys.len());
@@ -128,7 +128,7 @@ fn raw_index_entry_round_trip() {
 fn raw_index_entry_roundtrip_via_bytes() {
     let keys = vec![StorageKey::Int(9), StorageKey::Uint(10)];
 
-    let raw = RawIndexEntry::try_from_storage_keys(keys.clone()).expect("encode index entry");
+    let raw = RawIndexEntry::try_from_keys(keys.clone()).expect("encode index entry");
     let encoded = Storable::to_bytes(&raw);
     let raw = RawIndexEntry::from_bytes(encoded);
     let decoded = raw.decode_keys().expect("decode index entry");

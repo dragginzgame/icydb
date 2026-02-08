@@ -170,7 +170,7 @@ impl EntityKind for TargetEntity {}
 
 impl EntityValue for TargetEntity {
     fn id(&self) -> Id<Self> {
-        Id::from_storage_key(self.id)
+        Id::from_key(self.id)
     }
 }
 
@@ -257,7 +257,7 @@ impl EntityKind for SourceEntity {}
 
 impl EntityValue for SourceEntity {
     fn id(&self) -> Id<Self> {
-        Id::from_storage_key(self.id)
+        Id::from_key(self.id)
     }
 }
 
@@ -345,7 +345,7 @@ impl EntityKind for SourceSetEntity {}
 
 impl EntityValue for SourceSetEntity {
     fn id(&self) -> Id<Self> {
-        Id::from_storage_key(self.id)
+        Id::from_key(self.id)
     }
 }
 
