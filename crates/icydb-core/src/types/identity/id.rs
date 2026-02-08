@@ -1,6 +1,6 @@
 use crate::{
     traits::{
-        AsView, EntityKey, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        EntityKey, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, Visitable,
     },
     value::Value,
@@ -117,22 +117,6 @@ where
         S: candid::types::Serializer,
     {
         self.key.idl_serialize(serializer)
-    }
-}
-
-impl<E> AsView for Id<E>
-where
-    E: EntityKey,
-    E::Key: AsView,
-{
-    type ViewType = <E::Key as AsView>::ViewType;
-
-    fn as_view(&self) -> Self::ViewType {
-        AsView::as_view(&self.key())
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        Self::from_storage_key(AsView::from_view(view))
     }
 }
 

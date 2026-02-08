@@ -65,9 +65,9 @@ pub enum EntityFieldKind {
     Ulid,
     Unit,
 
-    /// Typed entity reference; `key_kind` reflects the referenced key type.
+    /// Typed relation; `key_kind` reflects the referenced key type.
     /// `strength` encodes strong vs. weak relation intent.
-    Ref {
+    Relation {
         /// Fully-qualified Rust type path for diagnostics.
         target_path: &'static str,
         /// Stable external name used in storage keys.
@@ -124,7 +124,7 @@ impl EntityFieldKind {
             | Self::UintBig
             | Self::Ulid
             | Self::Unit
-            | Self::Ref { .. } => FieldValueKind::Atomic,
+            | Self::Relation { .. } => FieldValueKind::Atomic,
             Self::List(_) | Self::Set(_) => FieldValueKind::Structured { queryable: true },
             Self::Map { .. } => FieldValueKind::Structured { queryable: false },
             Self::Structured { queryable } => FieldValueKind::Structured {
@@ -143,7 +143,7 @@ impl EntityFieldKind {
     #[must_use]
     pub const fn is_deterministic_collection_shape(&self) -> bool {
         match self {
-            Self::Ref { key_kind, .. } => key_kind.is_deterministic_collection_shape(),
+            Self::Relation { key_kind, .. } => key_kind.is_deterministic_collection_shape(),
 
             Self::List(inner) | Self::Set(inner) => inner.is_deterministic_collection_shape(),
 

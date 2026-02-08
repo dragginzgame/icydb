@@ -76,21 +76,21 @@ struct StrongRelationInfo {
 // Resolve a field-kind into strong relation metadata (if applicable).
 const fn strong_relation_from_kind(kind: &EntityFieldKind) -> Option<StrongRelationInfo> {
     match kind {
-        EntityFieldKind::Ref {
+        EntityFieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,
             strength: RelationStrength::Strong,
             ..
         }
-        | EntityFieldKind::List(EntityFieldKind::Ref {
+        | EntityFieldKind::List(EntityFieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,
             strength: RelationStrength::Strong,
             ..
         })
-        | EntityFieldKind::Set(EntityFieldKind::Ref {
+        | EntityFieldKind::Set(EntityFieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,

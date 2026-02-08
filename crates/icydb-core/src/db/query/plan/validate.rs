@@ -244,7 +244,11 @@ fn validate_executor_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(),
     validate_order(schema, order)
 }
 
-// Adapter for key validation and ordering across access-plan representations.
+///
+/// AccessPlanKeyAdapter
+/// Adapter for key validation and ordering across access-plan representations.
+///
+
 trait AccessPlanKeyAdapter<K> {
     /// Validate a key against the entity's primary key type.
     fn validate_pk_key(
@@ -264,7 +268,11 @@ trait AccessPlanKeyAdapter<K> {
     ) -> Result<(), PlanError>;
 }
 
-// Adapter for typed key plans (FieldValue + Ord).
+///
+/// GenericKeyAdapater
+/// Adapter for typed key plans (FieldValue + Ord)
+///
+
 struct GenericKeyAdapter;
 
 impl<K> AccessPlanKeyAdapter<K> for GenericKeyAdapter
@@ -297,7 +305,11 @@ where
     }
 }
 
-// Adapter for model-level Value plans (partial ordering).
+///
+/// ValueKeyAdapter
+/// Adapter for model-level Value plans (partial ordering).
+///
+
 struct ValueKeyAdapter;
 
 impl AccessPlanKeyAdapter<Value> for ValueKeyAdapter {

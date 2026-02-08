@@ -223,7 +223,7 @@ static SOURCE_FIELDS: [EntityFieldModel; 2] = [
     },
     EntityFieldModel {
         name: "target",
-        kind: EntityFieldKind::Ref {
+        kind: EntityFieldKind::Relation {
             target_path: TargetEntity::PATH,
             target_entity_name: TargetEntity::ENTITY_NAME,
             target_store_path: TargetStore::PATH,
@@ -303,7 +303,7 @@ impl EntityIdentity for SourceSetEntity {
     const IDENTITY_NAMESPACE: &'static str = "SourceSetEntity";
 }
 
-static SOURCE_SET_TARGET_KIND: EntityFieldKind = EntityFieldKind::Ref {
+static SOURCE_SET_TARGET_KIND: EntityFieldKind = EntityFieldKind::Relation {
     target_path: TargetEntity::PATH,
     target_entity_name: TargetEntity::ENTITY_NAME,
     target_store_path: TargetStore::PATH,

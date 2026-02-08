@@ -5,8 +5,8 @@ use quote::quote;
 
 /// Returns the persisted model kind for a value.
 ///
-/// This reflects the *storage shape* only.
-/// Relations and identity semantics are not represented here.
+/// This preserves semantic field intent (relation vs primitive)
+/// while keeping relation key representation storage-compatible.
 pub fn model_kind_from_value(value: &Value) -> TokenStream {
     let base = model_kind_from_item(&value.item);
     match value.cardinality() {
@@ -22,9 +22,40 @@ pub fn model_kind_from_nested_value(value: &Value) -> TokenStream {
 
 /// Returns the persisted model kind for an item.
 ///
-/// This function must not inspect relations or identity metadata.
-/// It reflects only the declared target type.
+/// Relation items emit `EntityFieldKind::Relation` metadata while preserving
+/// the declared/derived storage key shape as `key_kind`.
 pub fn model_kind_from_item(item: &Item) -> TokenStream {
+    let key_kind = model_storage_kind_from_item(item);
+    let Some(target) = &item.relation else {
+        return key_kind;
+    };
+
+    let strength = if item.strong {
+        quote!(::icydb::model::field::RelationStrength::Strong)
+    } else if item.weak {
+        quote!(::icydb::model::field::RelationStrength::Weak)
+    } else {
+        // Default relation strength is weak unless `strong` is explicitly set.
+        quote!(::icydb::model::field::RelationStrength::Weak)
+    };
+
+    quote! {
+        ::icydb::model::field::EntityFieldKind::Relation {
+            target_path: <#target as ::icydb::traits::Path>::PATH,
+            target_entity_name: <#target as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
+            target_store_path:
+                <<#target as ::icydb::traits::EntityPlacement>::DataStore as ::icydb::traits::Path>::PATH,
+            key_kind: &#key_kind,
+            strength: #strength,
+        }
+    }
+}
+
+/// Returns the persisted storage shape for an item.
+///
+/// This intentionally ignores relation semantics and reflects only the
+/// underlying key representation used at persistence boundaries.
+fn model_storage_kind_from_item(item: &Item) -> TokenStream {
     match item.target() {
         ItemTarget::Primitive(prim) => model_kind_from_primitive(prim),
         ItemTarget::Is(path) => quote!(#path::KIND),
