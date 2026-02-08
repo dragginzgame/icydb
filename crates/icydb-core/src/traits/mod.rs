@@ -148,10 +148,10 @@ pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {}
 ///
 /// EntityValue
 ///
-/// A concrete entity value.
+/// A concrete entity value that can present a typed identity at boundaries.
 ///
-/// This trait is intentionally lighter than `EntityKind`.
-/// It does NOT imply storage placement.
+/// Implementors store primitive key material internally.
+/// `id()` constructs a typed `Id<Self>` view on demand.
 ///
 
 pub trait EntityValue: EntityIdentity + FieldValues + Sized {

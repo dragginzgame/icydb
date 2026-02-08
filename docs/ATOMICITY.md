@@ -217,7 +217,8 @@ Violating any invariant is a **bug**, not an acceptable failure mode.
 * Atomicity is an **IcyDB guarantee**, independent of IC rollback semantics
 * Traps are treated as catastrophic failures, not control flow
 * Partial state visibility is prevented for writes; reads may observe partial state
-  after a post-startup trap until a write triggers recovery or the process restarts
+  after a post-startup trap until a write triggers recovery or the process restarts.
+  This situation can occur only if a trap happens after startup recovery has completed and before a subsequent guarded write or restart, and only for direct durable reads that bypass guarded entrypoints.
 * Release builds enforce invariants explicitly (no `debug_assert!` reliance)
 
 ---

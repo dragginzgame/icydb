@@ -15,7 +15,7 @@ use crate::{
         EntityPlacement, EntitySchema, EntityValue, Path, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
-    types::{Id, IdSet, Ulid},
+    types::{Id, Ulid},
 };
 use canic_cdk::structures::{
     DefaultMemoryImpl,
@@ -105,7 +105,7 @@ fn reset_store() {
 
 #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
 struct TargetEntity {
-    id: Id<Self>,
+    id: Ulid,
 }
 
 impl AsView for TargetEntity {
@@ -170,7 +170,7 @@ impl EntityKind for TargetEntity {}
 
 impl EntityValue for TargetEntity {
     fn id(&self) -> Id<Self> {
-        self.id
+        Id::from_storage_key(self.id)
     }
 }
 
@@ -256,8 +256,8 @@ impl EntityPlacement for SourceEntity {
 impl EntityKind for SourceEntity {}
 
 impl EntityValue for SourceEntity {
-    fn id(&self) -> Ulid {
-        self.id
+    fn id(&self) -> Id<Self> {
+        Id::from_storage_key(self.id)
     }
 }
 
@@ -268,7 +268,7 @@ impl EntityValue for SourceEntity {
 #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
 struct SourceSetEntity {
     id: Ulid,
-    targets: Vec<TargetEntity>,
+    targets: Vec<Ulid>,
 }
 
 impl AsView for SourceSetEntity {
@@ -345,7 +345,7 @@ impl EntityKind for SourceSetEntity {}
 
 impl EntityValue for SourceSetEntity {
     fn id(&self) -> Id<Self> {
-        self.id
+        Id::from_storage_key(self.id)
     }
 }
 
@@ -354,8 +354,8 @@ fn strong_relation_missing_fails_preflight() {
     let executor = SaveExecutor::<SourceEntity>::new(DB, false);
 
     let entity = SourceEntity {
-        id: Id::from_storage_key(Ulid::generate()),
-        target: Id::from_storage_key(Ulid::generate()), // non-existent target
+        id: Ulid::generate(),
+        target: Ulid::generate(), // non-existent target
     };
 
     let err = executor
@@ -374,10 +374,10 @@ fn strong_set_relation_missing_key_fails_save() {
     reset_store();
 
     let executor = SaveExecutor::<SourceSetEntity>::new(DB, false);
-    let missing = Id::from_storage_key(Ulid::generate());
+    let missing = Ulid::generate();
     let entity = SourceSetEntity {
-        id: Id::from_storage_key(Ulid::generate()),
-        targets: IdSet::from_ids(vec![missing]),
+        id: Ulid::generate(),
+        targets: vec![missing],
     };
 
     let err = executor
@@ -403,8 +403,8 @@ fn strong_set_relation_all_present_save_succeeds() {
     reset_store();
 
     let target_save = SaveExecutor::<TargetEntity>::new(DB, false);
-    let target_a = Id::from_storage_key(Ulid::generate());
-    let target_b = Id::from_storage_key(Ulid::generate());
+    let target_a = Ulid::generate();
+    let target_b = Ulid::generate();
     target_save
         .insert(TargetEntity { id: target_a })
         .expect("target A save should succeed");
@@ -415,8 +415,8 @@ fn strong_set_relation_all_present_save_succeeds() {
     let source_save = SaveExecutor::<SourceSetEntity>::new(DB, false);
     let saved = source_save
         .insert(SourceSetEntity {
-            id: Id::from_storage_key(Ulid::generate()),
-            targets: IdSet::from_ids(vec![target_a, target_b]),
+            id: Ulid::generate(),
+            targets: vec![target_a, target_b],
         })
         .expect("source save should succeed when all targets exist");
 
@@ -430,17 +430,17 @@ fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
     reset_store();
 
     let target_save = SaveExecutor::<TargetEntity>::new(DB, false);
-    let valid = Id::from_storage_key(Ulid::generate());
+    let valid = Ulid::generate();
     target_save
         .insert(TargetEntity { id: valid })
         .expect("valid target save should succeed");
 
-    let invalid = Id::from_storage_key(Ulid::generate());
+    let invalid = Ulid::generate();
     let source_save = SaveExecutor::<SourceSetEntity>::new(DB, false);
     let err = source_save
         .insert(SourceSetEntity {
-            id: Id::from_storage_key(Ulid::generate()),
-            targets: IdSet::from_ids(vec![valid, invalid]),
+            id: Ulid::generate(),
+            targets: vec![valid, invalid],
         })
         .expect_err("mixed valid/invalid set relation should fail");
     assert!(

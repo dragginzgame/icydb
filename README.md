@@ -32,7 +32,7 @@ and mechanical enforcement of architectural boundaries.
 - **Entity macros** — define schema-first entities declaratively.
 - **Typed query intent** — build queries as `Query<E>` with explicit semantics.
 - **Deterministic planning** — validated, executor-safe plans only.
-- **Stable storage** — data is persisted in stable memory (not heap), backed by CanIC B-trees.
+- **Stable storage** — data is persisted in stable memory (not heap), with deterministic commit and recovery, backed by CanIC B-trees.
 - **Path dispatch** — `icydb_build` generates internal routing helpers.
 - **Observability endpoints** — `icydb_snapshot`, `icydb_metrics`, `icydb_metrics_reset`.
 - **IC integration** — ergonomic `icydb::start!` and `icydb::build_actor!` macros.
@@ -69,7 +69,7 @@ icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
 use icydb::prelude::*;
 
 #[entity(
-    sk(field = "id"),
+    pk(field = "id", source = "internal"), // use "external" when IDs are supplied externally
     fields(
         field(ident = "id", value(item(is = "types::Ulid"))),
         field(ident = "name", value(item(is = "text::Name"))),
@@ -78,6 +78,8 @@ use icydb::prelude::*;
 )]
 pub struct User {}
 ```
+
+Primary keys use `pk(field = "id", source = "internal" | "external")`.
 
 ---
 

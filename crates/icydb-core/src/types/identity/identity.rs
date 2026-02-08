@@ -1,7 +1,17 @@
 //! One-way identity projection for external systems.
 //!
-//! This module intentionally exposes only a one-way projection surface.
-//! No API here may reveal raw storage keys or permit identity reconstruction.
+//! ## Purpose
+//! This module defines a **one-way, non-reversible identity projection**
+//! intended for use *outside* IcyDB trust boundaries.
+//!
+//! It is **not** a storage abstraction and does **not** attempt to hide
+//! raw primary-key values internally. Instead, it provides:
+//!
+//! - an opaque, stable external identifier
+//! - domain separation across entities and namespaces
+//! - protection against accidental key reuse or correlation
+//!
+//! No API here permits reconstruction of `Id<E>` or recovery of storage keys.
 
 use crate::{
     traits::{EntityIdentity, FieldValue},
@@ -14,21 +24,39 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 use thiserror::Error as ThisError;
 
+// -----------------------------------------------------------------------------
+// Projection framing constants
+// -----------------------------------------------------------------------------
+
+/// Domain separator for the projection protocol.
+///
+/// Bump this if the projection envelope changes incompatibly.
 const PROJECTION_DOMAIN_TAG: &[u8] = b"icydb:identity-projection:v2";
+
+/// Framing labels used inside the hash envelope.
+///
+/// These labels make the hash forward-compatible and unambiguous.
 const FRAME_NAMESPACE: &[u8] = b"entity-namespace";
 const FRAME_PRIMARY_KEY: &[u8] = b"primary-key";
 const FRAME_STORAGE_KEY: &[u8] = b"storage-key-v1";
 
+// -----------------------------------------------------------------------------
+// Errors
+// -----------------------------------------------------------------------------
+
 ///
 /// IdentityProjectionError
-/// Errors emitted when projecting `Id<E>` into external identity bytes.
 ///
-
+/// Errors emitted when projecting `Id<E>` into an external identity.
+/// These are *boundary errors*, not storage or validation failures.
+///
 #[derive(Debug, ThisError)]
 pub enum IdentityProjectionError {
+    /// The entity does not define a stable external namespace.
     #[error("identity namespace is empty for entity '{entity}'")]
     EmptyNamespace { entity: &'static str },
 
+    /// The entity primary key cannot be encoded as a canonical storage key.
     #[error(
         "primary key '{primary_key}' for entity '{entity}' is not storage-key encodable: {value:?}"
     )]
@@ -38,18 +66,30 @@ pub enum IdentityProjectionError {
         value: Value,
     },
 
+    /// Canonical key-to-bytes encoding failed.
     #[error("failed to encode storage key during identity projection: {reason}")]
     StorageKeyEncoding { reason: String },
 }
+
+// -----------------------------------------------------------------------------
+// Projected identity
+// -----------------------------------------------------------------------------
 
 ///
 /// ProjectedIdentity
 ///
 /// Stable, opaque output of one-way identity projection.
-/// This value is safe to expose outside IcyDB boundaries.
-/// It MUST NOT be treated as reversible identity material.
 ///
-
+/// ## Guarantees
+/// - Deterministic
+/// - Non-reversible
+/// - Safe to expose externally
+///
+/// ## Non-goals
+/// - Does NOT preserve ordering
+/// - Does NOT permit identity reconstruction
+/// - Does NOT imply entity existence
+///
 #[repr(transparent)]
 #[derive(
     CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
@@ -57,13 +97,13 @@ pub enum IdentityProjectionError {
 pub struct ProjectedIdentity([u8; 32]);
 
 impl ProjectedIdentity {
-    /// Borrow the projected bytes.
+    /// Borrow the projected identity bytes.
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 
-    /// Consume and return the projected bytes.
+    /// Consume and return the projected identity bytes.
     #[must_use]
     pub const fn into_bytes(self) -> [u8; 32] {
         self.0
@@ -75,34 +115,43 @@ impl fmt::Display for ProjectedIdentity {
         for byte in &self.0 {
             write!(f, "{byte:02x}")?;
         }
-
         Ok(())
     }
 }
+
+// -----------------------------------------------------------------------------
+// Projection implementation
+// -----------------------------------------------------------------------------
 
 impl<E> Id<E>
 where
     E: EntityIdentity,
 {
-    /// Project this identity into deterministic, one-way external bytes.
     ///
-    /// Projection is domain-separated by:
+    /// Project this typed identity into deterministic, one-way external bytes.
+    ///
+    /// ## Envelope structure
+    /// The hash input is domain-separated and framed as:
+    ///
     /// - projection protocol version
     /// - entity identity namespace
-    /// - primary key name
-    /// - canonical storage-key encoding
+    /// - primary key field name
+    /// - canonical storage-key byte encoding
     ///
-    /// This API is intentionally one-way and does not allow reconstitution
-    /// of `Id<E>` from projected bytes.
+    /// ## Notes
+    /// - This API is intentionally **one-way**
+    /// - Projected identities MUST NOT be treated as reversible identifiers
+    /// - Different entities or namespaces will never collide
+    ///
     pub fn project(&self) -> Result<ProjectedIdentity, IdentityProjectionError> {
-        // Phase 1: validate stable namespace input.
+        // Phase 1: validate external namespace stability.
         if E::IDENTITY_NAMESPACE.is_empty() {
             return Err(IdentityProjectionError::EmptyNamespace {
                 entity: E::ENTITY_NAME,
             });
         }
 
-        // Phase 2: normalize key material through the canonical storage-key boundary.
+        // Phase 2: normalize the key through the canonical storage-key boundary.
         let key_value = FieldValue::to_value(&self.key());
         let Some(storage_key) = key_value.as_storage_key() else {
             return Err(IdentityProjectionError::UnsupportedPrimaryKey {
@@ -122,6 +171,7 @@ where
         // Phase 3: hash a framed envelope for deterministic forward compatibility.
         let mut hasher = Sha256::new();
         hasher.update(PROJECTION_DOMAIN_TAG);
+
         write_framed(
             &mut hasher,
             FRAME_NAMESPACE,
@@ -134,6 +184,10 @@ where
     }
 }
 
+// -----------------------------------------------------------------------------
+// Framing helper
+// -----------------------------------------------------------------------------
+
 fn write_framed(hasher: &mut Sha256, label: &[u8], bytes: &[u8]) {
     let label_len = u32::try_from(label.len()).unwrap_or(u32::MAX);
     hasher.update(label_len.to_be_bytes());
@@ -143,6 +197,10 @@ fn write_framed(hasher: &mut Sha256, label: &[u8], bytes: &[u8]) {
     hasher.update(bytes_len.to_be_bytes());
     hasher.update(bytes);
 }
+
+// -----------------------------------------------------------------------------
+// Tests
+// -----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
