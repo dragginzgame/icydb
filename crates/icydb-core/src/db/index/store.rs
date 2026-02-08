@@ -140,7 +140,7 @@ impl IndexStore {
     }
 
     pub fn insert(&mut self, key: RawIndexKey, value: RawIndexEntry) -> Option<RawIndexEntry> {
-        let nt = Self::entry_fingerprint(&key, &value);
+        let fingerprint = Self::entry_fingerprint(&key, &value);
         let prev = self.entry_map().insert(key, value);
 
         // NOTE: Mid-write traps may cause divergence. This is acceptable;
