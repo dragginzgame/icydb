@@ -114,8 +114,8 @@ pub mod prelude {
             query::{FilterExpr, SortExpr, builder::FieldRef, predicate::Predicate},
         },
         traits::{
-            AsView, Collection as _, CreateView as _, EntityKind as _, EntityValue as _,
-            Inner as _, MapCollection as _, Path as _, UpdateView as _,
+            AsView, Collection as _, CreateView as _, EntityKind as _, EntityValue, Inner as _,
+            MapCollection as _, Path as _, UpdateView as _,
         },
         types::*,
         value::Value,

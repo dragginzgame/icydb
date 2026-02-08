@@ -99,17 +99,17 @@ impl<E: EntityKind> Response<E> {
     // Identity (facade-friendly naming)
     // ------------------------------------------------------------------
 
-    /// Return the single key.
+    /// Return the single identity.
     ///
     /// This key is a public identifier and does not grant access or authority.
-    pub fn key(self) -> Result<Id<E>, Error> {
+    pub fn require_id(self) -> Result<Id<E>, Error> {
         self.inner.require_id().map_err(map_response_error)
     }
 
     /// Return zero or one primary key.
     ///
     /// IDs are safe to transport and log; verification is always explicit and contextual.
-    pub fn try_key(self) -> Result<Option<Id<E>>, Error> {
+    pub fn try_id(self) -> Result<Option<Id<E>>, Error> {
         self.inner
             .try_row()
             .map(|row| row.map(|(id, _)| id))
@@ -118,12 +118,12 @@ impl<E: EntityKind> Response<E> {
 
     /// Return all primary keys for correlation, reporting, and lookup.
     #[must_use]
-    pub fn keys(&self) -> Vec<Id<E>> {
+    pub fn ids(&self) -> Vec<Id<E>> {
         self.inner.ids()
     }
 
     /// Check whether the response contains the given primary key.
-    pub fn contains_key(&self, id: &Id<E>) -> bool {
+    pub fn contains_id(&self, id: &Id<E>) -> bool {
         self.inner.contains_id(id)
     }
 }

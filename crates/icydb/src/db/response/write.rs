@@ -116,7 +116,7 @@ impl<E: EntityKind> WriteBatchResponse<E> {
 
     /// Return all primary keys for correlation, reporting, and lookup.
     #[must_use]
-    pub fn keys(&self) -> Vec<Id<E>>
+    pub fn ids(&self) -> Vec<Id<E>>
     where
         E: EntityValue,
     {
