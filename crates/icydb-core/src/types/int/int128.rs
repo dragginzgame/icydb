@@ -237,7 +237,7 @@ impl<'de> Deserialize<'de> for Int128 {
 impl UpdateView for Int128 {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::Error> {
         *self = v;
 
         Ok(())

@@ -184,7 +184,7 @@ impl TryFrom<i32> for Nat {
 impl UpdateView for Nat {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::Error> {
         *self = v;
 
         Ok(())

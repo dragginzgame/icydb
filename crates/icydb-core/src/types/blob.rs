@@ -128,7 +128,7 @@ impl SanitizeCustom for Blob {}
 impl UpdateView for Blob {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::Error> {
         *self = v;
 
         Ok(())

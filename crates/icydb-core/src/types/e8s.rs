@@ -318,7 +318,7 @@ impl SanitizeCustom for E8s {}
 impl UpdateView for E8s {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::Error> {
         *self = v;
 
         Ok(())

@@ -171,7 +171,7 @@ impl Sum for Int {
 impl UpdateView for Int {
     type UpdateViewType = Self;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
+    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::Error> {
         *self = v;
 
         Ok(())

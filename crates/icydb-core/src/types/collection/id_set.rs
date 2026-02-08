@@ -129,7 +129,7 @@ where
     pub fn apply_patches(
         &mut self,
         patches: Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>,
-    ) -> Result<(), crate::traits::ViewPatchError> {
+    ) -> Result<(), crate::traits::Error> {
         self.merge(patches)
     }
 }
@@ -252,10 +252,7 @@ where
 {
     type UpdateViewType = Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>;
 
-    fn merge(
-        &mut self,
-        patches: Self::UpdateViewType,
-    ) -> Result<(), crate::traits::ViewPatchError> {
+    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), crate::traits::Error> {
         for patch in patches {
             match patch {
                 SetPatch::Insert(value) => {

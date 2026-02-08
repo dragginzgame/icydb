@@ -319,9 +319,9 @@ mod tests {
         assert_eq!(err.path(), Some("settings[0]"));
         assert!(matches!(
             err.leaf(),
-            ViewPatchError::MissingKey {
+            Some(ViewPatchError::MissingKey {
                 operation: "remove"
-            }
+            })
         ));
     }
 }

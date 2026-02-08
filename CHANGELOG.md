@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [0.7.7] – 2026-02-08 - Error Boundary and ID Naming
+
+### 🧲 Changed
+
+* `UpdateView::merge` now returns `Error` instead of `ViewPatchError`, with patch failures bubbled through `InternalError` via `ErrorDetail::ViewPatch` while preserving contextual path/leaf diagnostics.
+* Standardized a broad set of accessor methods from `key()` to `id()` to align naming with typed identity usage across the public API.
+
+---
+
 ## [0.7.4] – 2026-02-08
 
 ### 🛼 Added

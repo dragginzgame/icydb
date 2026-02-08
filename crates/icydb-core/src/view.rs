@@ -53,8 +53,9 @@ pub enum SetPatch<U> {
 /// - `Remove` requires an existing key.
 /// - `Clear` must be the only patch in the batch.
 ///
-/// Invalid patch shapes and missing-key operations are returned as typed
-/// `ViewPatchError` values by `UpdateView::merge`.
+/// Invalid patch shapes and missing-key operations are returned by
+/// `UpdateView::merge` as `Error` values with
+/// `ErrorDetail::ViewPatch` detail.
 ///
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub enum MapPatch<K, V> {
@@ -80,6 +81,8 @@ impl<K, V> From<(K, Option<V>)> for MapPatch<K, V> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::ErrorClass;
+    use crate::traits::ViewPatchError;
     use std::collections::{BTreeMap, HashMap, HashSet};
 
     #[test]
@@ -201,12 +204,13 @@ mod tests {
                 key: "missing".to_string(),
             }])
             .expect_err("missing remove key should fail");
-        assert_eq!(
-            err,
-            crate::traits::ViewPatchError::MissingKey {
+        assert_eq!(err.class, ErrorClass::NotFound);
+        assert!(matches!(
+            err.leaf(),
+            Some(ViewPatchError::MissingKey {
                 operation: "remove"
-            }
-        );
+            })
+        ));
     }
 
     #[test]
@@ -218,12 +222,13 @@ mod tests {
                 value: 3u8,
             }])
             .expect_err("missing replace key should fail");
-        assert_eq!(
-            err,
-            crate::traits::ViewPatchError::MissingKey {
+        assert_eq!(err.class, ErrorClass::NotFound);
+        assert!(matches!(
+            err.leaf(),
+            Some(ViewPatchError::MissingKey {
                 operation: "replace"
-            }
-        );
+            })
+        ));
     }
 
     #[test]
@@ -238,13 +243,14 @@ mod tests {
                 },
             ])
             .expect_err("clear combined with key ops should fail");
-        assert_eq!(
-            err,
-            crate::traits::ViewPatchError::CardinalityViolation {
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert!(matches!(
+            err.leaf(),
+            Some(ViewPatchError::CardinalityViolation {
                 expected: 1,
                 actual: 2,
-            }
-        );
+            })
+        ));
     }
 
     #[test]
@@ -262,12 +268,13 @@ mod tests {
                 },
             ])
             .expect_err("duplicate key operations should fail");
-        assert_eq!(
-            err,
-            crate::traits::ViewPatchError::InvalidPatchShape {
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert!(matches!(
+            err.leaf(),
+            Some(ViewPatchError::InvalidPatchShape {
                 expected: "unique key operations per map patch batch",
                 actual: "duplicate key operation",
-            }
-        );
+            })
+        ));
     }
 }

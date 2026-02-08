@@ -84,6 +84,8 @@ impl InternalError {
 pub enum ErrorDetail {
     #[error("{0}")]
     Store(StoreError),
+    #[error("{0}")]
+    ViewPatch(crate::traits::ViewPatchError),
     // Future-proofing:
     // #[error("{0}")]
     // Index(IndexError),
