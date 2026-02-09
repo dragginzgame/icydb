@@ -59,6 +59,7 @@ const PROJECTION_DOMAIN_TAG: &[u8] = b"icydb:identity-projection:v2";
 /// - Does NOT permit identity reconstruction
 /// - Does NOT imply entity existence
 ///
+
 #[repr(transparent)]
 #[derive(
     CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,

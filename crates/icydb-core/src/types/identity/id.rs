@@ -1,9 +1,9 @@
 use crate::{
     traits::{
-        EntityKey, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, Visitable,
+        EntityIdentity, EntityKey, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto,
+        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
-    types::GenerateKey,
+    types::{GenerateKey, Subaccount},
     value::Value,
 };
 use candid::CandidType;
@@ -120,6 +120,21 @@ where
     /// - fingerprinting
     pub fn as_value(&self) -> Value {
         self.key.to_value()
+    }
+}
+
+impl<E> Id<E>
+where
+    E: EntityIdentity,
+    E::Key: EntityKeyBytes,
+{
+    /// Derive the ledger subaccount for this identity.
+    ///
+    /// This is a pure, deterministic identity projection.
+    /// It does NOT imply ownership, authorization, or existence.
+    #[must_use]
+    pub fn subaccount(&self) -> Subaccount {
+        Subaccount::from_array(self.project().into_bytes())
     }
 }
 
@@ -338,5 +353,32 @@ mod tests {
 
         assert_eq!(borrowed, expected);
         assert_eq!(owned, expected);
+    }
+
+    #[test]
+    fn subaccount_is_deterministic_for_same_id() {
+        use crate::{
+            traits::{EntityIdentity, EntityKey},
+            types::{Id, Subaccount},
+        };
+
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        struct TestEntity;
+
+        impl EntityKey for TestEntity {
+            type Key = u64;
+        }
+
+        impl EntityIdentity for TestEntity {
+            const ENTITY_NAME: &'static str = "TestEntity";
+            const PRIMARY_KEY: &'static str = "id";
+        }
+
+        let id = Id::<TestEntity>::from_key(42);
+
+        let a: Subaccount = id.subaccount();
+        let b: Subaccount = id.subaccount();
+
+        assert_eq!(a, b);
     }
 }
