@@ -21,7 +21,6 @@ impl AsView for () {
     type ViewType = Self;
 
     fn as_view(&self) -> Self::ViewType {}
-
     fn from_view((): Self::ViewType) -> Self {}
 }
 

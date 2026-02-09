@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [0.7.8] – 2026-02-09 - Relation ID Accessors
+## [0.7.9] – 2026-02-09 - Relation ID Accessors
 
 ### 🛶 Added
 
