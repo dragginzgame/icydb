@@ -5,9 +5,8 @@ use crate::{
         response::{Response, map_response_error},
     },
     error::Error,
-    traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
+    traits::{AsView, CanisterKind, EntityKind, EntityValue, SingletonEntity},
     types::Id,
-    view::View,
 };
 use icydb_core as core;
 use std::{collections::HashMap, hash::Hash};
@@ -260,21 +259,21 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     // View materialization
     // ------------------------------------------------------------------
 
-    pub fn view(&self) -> Result<View<E>, Error>
+    pub fn view(&self) -> Result<<E as AsView>::ViewType, Error>
     where
         E: EntityValue,
     {
         self.inner.execute()?.view().map_err(map_response_error)
     }
 
-    pub fn view_opt(&self) -> Result<Option<View<E>>, Error>
+    pub fn view_opt(&self) -> Result<Option<<E as AsView>::ViewType>, Error>
     where
         E: EntityValue,
     {
         self.inner.execute()?.view_opt().map_err(map_response_error)
     }
 
-    pub fn views(&self) -> Result<Vec<View<E>>, Error>
+    pub fn views(&self) -> Result<Vec<<E as AsView>::ViewType>, Error>
     where
         E: EntityValue,
     {

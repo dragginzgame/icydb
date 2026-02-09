@@ -2,9 +2,8 @@ mod write;
 
 use crate::{
     error::{Error, ErrorClass, ErrorOrigin},
-    traits::EntityKind,
+    traits::{AsView, EntityKind},
     types::Id,
-    view::View,
 };
 use icydb_core::db::response::{Response as CoreResponse, ResponseError};
 
@@ -80,18 +79,18 @@ impl<E: EntityKind> Response<E> {
     // ------------------------------------------------------------------
 
     /// Return the single view.
-    pub fn view(&self) -> Result<View<E>, Error> {
+    pub fn view(&self) -> Result<<E as AsView>::ViewType, Error> {
         self.inner.view().map_err(map_response_error)
     }
 
     /// Return zero or one view.
-    pub fn view_opt(&self) -> Result<Option<View<E>>, Error> {
+    pub fn view_opt(&self) -> Result<Option<<E as AsView>::ViewType>, Error> {
         self.inner.view_opt().map_err(map_response_error)
     }
 
     /// Return all views.
     #[must_use]
-    pub fn views(&self) -> Vec<View<E>> {
+    pub fn views(&self) -> Vec<<E as AsView>::ViewType> {
         self.inner.views()
     }
 

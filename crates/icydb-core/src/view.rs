@@ -1,24 +1,16 @@
-use crate::traits::{AsView, CreateView, UpdateView};
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
 ///
-/// Type Aliases
-///
-
-pub type View<T> = <T as AsView>::ViewType;
-pub type Create<T> = <T as CreateView>::CreateViewType;
-pub type Update<T> = <T as UpdateView>::UpdateViewType;
-
-///
 /// ListPatch
 ///
-
 /// Positional list patches applied in order.
 /// Indices refer to the list state at the time each patch executes.
 /// `Insert` clamps out-of-bounds indices to the tail; `Remove` ignores invalid indices.
 /// `Update` only applies to existing elements and never creates new entries.
 /// `Overwrite` replaces the entire list with the provided values.
+///
+
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub enum ListPatch<U> {
     Update { index: usize, patch: U },
@@ -32,8 +24,9 @@ pub enum ListPatch<U> {
 ///
 /// SetPatch
 ///
-
 /// Set operations applied in-order; `Overwrite` replaces the entire set.
+///
+
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub enum SetPatch<U> {
     Insert(U),
@@ -54,9 +47,9 @@ pub enum SetPatch<U> {
 /// - `Clear` must be the only patch in the batch.
 ///
 /// Invalid patch shapes and missing-key operations are returned by
-/// `UpdateView::merge` as `Error` values with
-/// `ErrorDetail::ViewPatch` detail.
+/// `UpdateView::merge` as `ViewPatchError`.
 ///
+
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub enum MapPatch<K, V> {
     Insert { key: K, value: V },
@@ -81,8 +74,7 @@ impl<K, V> From<(K, Option<V>)> for MapPatch<K, V> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::ErrorClass;
-    use crate::traits::ViewPatchError;
+    use crate::traits::{UpdateView, ViewPatchError};
     use std::collections::{BTreeMap, HashMap, HashSet};
 
     #[test]
@@ -204,12 +196,11 @@ mod tests {
                 key: "missing".to_string(),
             }])
             .expect_err("missing remove key should fail");
-        assert_eq!(err.class, ErrorClass::NotFound);
         assert!(matches!(
             err.leaf(),
-            Some(ViewPatchError::MissingKey {
+            ViewPatchError::MissingKey {
                 operation: "remove"
-            })
+            }
         ));
     }
 
@@ -222,12 +213,11 @@ mod tests {
                 value: 3u8,
             }])
             .expect_err("missing replace key should fail");
-        assert_eq!(err.class, ErrorClass::NotFound);
         assert!(matches!(
             err.leaf(),
-            Some(ViewPatchError::MissingKey {
+            ViewPatchError::MissingKey {
                 operation: "replace"
-            })
+            }
         ));
     }
 
@@ -243,13 +233,12 @@ mod tests {
                 },
             ])
             .expect_err("clear combined with key ops should fail");
-        assert_eq!(err.class, ErrorClass::Unsupported);
         assert!(matches!(
             err.leaf(),
-            Some(ViewPatchError::CardinalityViolation {
+            ViewPatchError::CardinalityViolation {
                 expected: 1,
                 actual: 2,
-            })
+            }
         ));
     }
 
@@ -268,13 +257,12 @@ mod tests {
                 },
             ])
             .expect_err("duplicate key operations should fail");
-        assert_eq!(err.class, ErrorClass::Unsupported);
         assert!(matches!(
             err.leaf(),
-            Some(ViewPatchError::InvalidPatchShape {
+            ViewPatchError::InvalidPatchShape {
                 expected: "unique key operations per map patch batch",
                 actual: "duplicate key operation",
-            })
+            }
         ));
     }
 }

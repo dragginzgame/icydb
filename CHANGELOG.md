@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [0.7.8] – 2026-02-09 - Relation ID Accessors
+
+### 🛶 Added
+
+* Added generated relation ID accessors on entity and record inherent impls for relation-backed fields, including `*_id()` for single/optional relations and `*_ids()` for many relations.
+* Accessors now return typed IDs (`Id<Relation>`) derived from stored primitive relation keys, so relation fields can remain `pub(crate)` without losing ergonomic read access.
+
+### 🧩 Changed
+
+* Split inherent code generation into smaller focused modules (`entity`, `record`, `collection`, and relation accessor generation) to reduce coupling and make future schema macro changes easier to review.
+* Split view/mutation traits into dedicated modules so behavior contracts are clearer: `AsView` stays in `traits::view`, `CreateView` moved to `traits::create`, and `UpdateView` + `ViewPatchError` now live in `traits::update`.
+
+### 🦖 Breaking
+
+* `UpdateView::merge` now returns `ViewPatchError` directly instead of `InternalError`, and patch classification (`NotFound`/`Unsupported`) is now applied at the error boundary via explicit conversion.
+* Removed `view` type aliases (`View<T>`, `Create<T>`, `Update<T>`); call sites now use associated types (`<T as AsView>::ViewType`, `<T as CreateView>::CreateViewType`, `<T as UpdateView>::UpdateViewType`).
+
+---
+
 ## [0.7.7] – 2026-02-08 - Error Boundary and ID Naming
 
 ### 🧲 Changed

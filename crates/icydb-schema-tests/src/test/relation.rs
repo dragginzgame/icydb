@@ -31,6 +31,20 @@ pub struct HasRelation;
 pub struct HasManyRelation;
 
 ///
+/// HasPluralRelation
+///
+
+#[entity(
+    store = "TestDataStore",
+    pk(field = "id"),
+    fields(
+        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
+        field(ident = "orders", value(many, item(rel = "Orders", prim = "Ulid"))),
+    )
+)]
+pub struct HasPluralRelation;
+
+///
 /// EntityA
 ///
 
@@ -64,6 +78,17 @@ pub struct EntityB;
 pub struct EntityC;
 
 ///
+/// Orders
+///
+
+#[entity(
+    store = "TestDataStore",
+    pk(field = "id"),
+    fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+)]
+pub struct Orders;
+
+///
 /// RelationOwner
 ///
 
@@ -87,6 +112,23 @@ pub struct RelationOwner;
     )
 )]
 pub struct RelationOwned;
+
+///
+/// RelationRecord
+///
+
+#[record(fields(
+    field(ident = "owner", value(item(rel = "RelationOwner", prim = "Ulid"))),
+    field(
+        ident = "optional_owner",
+        value(opt, item(rel = "RelationOwner", prim = "Ulid"))
+    ),
+    field(
+        ident = "many_owners",
+        value(many, item(rel = "RelationOwner", prim = "Ulid"))
+    ),
+))]
+pub struct RelationRecord;
 
 ///
 /// CrossCanisterRelation
@@ -134,5 +176,66 @@ mod tests {
             a: vec![Ulid::from_parts(2, 2)],
             ..Default::default()
         };
+    }
+
+    #[test]
+    fn entity_relation_accessors_return_typed_ids() {
+        let owner_key = Ulid::from_parts(3, 1);
+        let row = RelationOwned {
+            id: Ulid::from_parts(3, 2),
+            owner: owner_key,
+            ..Default::default()
+        };
+        let owner_id: Id<RelationOwner> = row.owner_id();
+        assert_eq!(owner_id.key(), owner_key);
+    }
+
+    #[test]
+    fn entity_many_relation_accessors_return_typed_ids() {
+        let owner_key = Ulid::from_parts(4, 1);
+        let row = HasManyRelation {
+            id: Ulid::from_parts(4, 2),
+            a: vec![owner_key],
+            ..Default::default()
+        };
+
+        let ids = row.a_ids();
+        assert_eq!(ids.len(), 1);
+        assert_eq!(ids[0].key(), owner_key);
+    }
+
+    #[test]
+    fn plural_relation_accessor_keeps_field_name_prefix() {
+        let order_key = Ulid::from_parts(4, 10);
+        let row = HasPluralRelation {
+            id: Ulid::from_parts(4, 11),
+            orders: vec![order_key],
+            ..Default::default()
+        };
+
+        let ids = row.orders_ids();
+        assert_eq!(ids.len(), 1);
+        assert_eq!(ids[0].key(), order_key);
+    }
+
+    #[test]
+    fn record_relation_accessors_return_typed_ids() {
+        let owner_a = Ulid::from_parts(5, 1);
+        let owner_b = Ulid::from_parts(5, 2);
+        let record = RelationRecord {
+            owner: owner_a,
+            optional_owner: Some(owner_b),
+            many_owners: vec![owner_a, owner_b],
+        };
+
+        let owner_id: Id<RelationOwner> = record.owner_id();
+        assert_eq!(owner_id.key(), owner_a);
+
+        let optional_owner: Option<Id<RelationOwner>> = record.optional_owner_id();
+        assert_eq!(optional_owner.map(|id| id.key()), Some(owner_b));
+
+        let many_owner_ids: Vec<Id<RelationOwner>> = record.many_owners_ids();
+        let keys: Vec<Ulid> = many_owner_ids.into_iter().map(|id| id.key()).collect();
+        assert_eq!(keys, vec![owner_a, owner_b]);
     }
 }

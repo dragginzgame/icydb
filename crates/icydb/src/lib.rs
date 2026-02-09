@@ -119,7 +119,6 @@ pub mod prelude {
         },
         types::*,
         value::Value,
-        view::{Create, Update, View},
     };
     pub use candid::CandidType;
     pub use serde::{Deserialize, Serialize};
@@ -146,7 +145,6 @@ pub mod design {
             },
             types::*,
             value::Value,
-            view::{Create, Update, View},
             visitor::VisitorContext,
         };
     }

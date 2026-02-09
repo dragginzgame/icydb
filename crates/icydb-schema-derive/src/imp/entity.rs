@@ -131,7 +131,7 @@ impl Imp<Entity> for EntityValueTrait {
         let tokens = Implementor::new(&node.def, TraitKind::EntityValue)
             .set_tokens(quote! {
                 fn id(&self) -> ::icydb::types::Id<Self> {
-                    ::icydb::types::Id::from_key(self.#pk_ident.clone())
+                    ::icydb::types::Id::from_key(self.#pk_ident)
                 }
             })
             .to_token_stream();

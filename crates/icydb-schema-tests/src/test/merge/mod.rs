@@ -71,9 +71,11 @@ mod tests {
     use super::*;
     use icydb::{
         traits::{UpdateView, ViewPatchError},
-        view::{ListPatch, MapPatch, SetPatch, Update},
+        view::{ListPatch, MapPatch, SetPatch},
     };
     use std::collections::{HashMap, HashSet};
+
+    type Update<T> = <T as UpdateView>::UpdateViewType;
 
     fn profile(bio: &str, visits: u32, favorites: &[u32]) -> MergeProfile {
         MergeProfile {
@@ -319,9 +321,9 @@ mod tests {
         assert_eq!(err.path(), Some("settings[0]"));
         assert!(matches!(
             err.leaf(),
-            Some(ViewPatchError::MissingKey {
+            ViewPatchError::MissingKey {
                 operation: "remove"
-            })
+            }
         ));
     }
 }

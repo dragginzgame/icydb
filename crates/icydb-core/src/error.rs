@@ -73,6 +73,22 @@ impl InternalError {
     }
 }
 
+impl From<crate::traits::ViewPatchError> for InternalError {
+    fn from(err: crate::traits::ViewPatchError) -> Self {
+        let class = match err.leaf() {
+            crate::traits::ViewPatchError::MissingKey { .. } => ErrorClass::NotFound,
+            _ => ErrorClass::Unsupported,
+        };
+
+        Self {
+            class,
+            origin: ErrorOrigin::Interface,
+            message: err.to_string(),
+            detail: Some(ErrorDetail::ViewPatch(err)),
+        }
+    }
+}
+
 ///
 /// ErrorDetail
 ///

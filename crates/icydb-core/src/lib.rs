@@ -19,6 +19,8 @@ pub mod visitor;
 #[cfg(test)]
 pub(crate) mod test_fixtures;
 
+pub use error::InternalError;
+
 ///
 /// CONSTANTS
 ///

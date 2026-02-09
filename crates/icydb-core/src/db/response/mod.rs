@@ -1,6 +1,6 @@
 mod write;
 
-use crate::{prelude::*, types::Id, view::View};
+use crate::{prelude::*, traits::AsView, types::Id};
 use thiserror::Error as ThisError;
 
 // re-exports
@@ -156,12 +156,12 @@ impl<E: EntityKind> Response<E> {
     // Views
     // ------------------------------------------------------------------
 
-    pub fn view(&self) -> Result<View<E>, ResponseError> {
+    pub fn view(&self) -> Result<<E as AsView>::ViewType, ResponseError> {
         self.require_one()?;
         Ok(self.0[0].1.as_view())
     }
 
-    pub fn view_opt(&self) -> Result<Option<View<E>>, ResponseError> {
+    pub fn view_opt(&self) -> Result<Option<<E as AsView>::ViewType>, ResponseError> {
         match self.count() {
             0 => Ok(None),
             1 => Ok(Some(self.0[0].1.as_view())),
@@ -170,7 +170,7 @@ impl<E: EntityKind> Response<E> {
     }
 
     #[must_use]
-    pub fn views(&self) -> Vec<View<E>> {
+    pub fn views(&self) -> Vec<<E as AsView>::ViewType> {
         self.0.iter().map(|(_, e)| e.as_view()).collect()
     }
 }

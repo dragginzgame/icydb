@@ -54,7 +54,7 @@ impl TypeSanitizer {
         let args = &self.args;
 
         if args.is_empty() {
-            quote! { #path::default() }
+            quote! { #path }
         } else {
             quote! { #path::new(#(#args),*) }
         }
@@ -94,7 +94,7 @@ impl TypeValidator {
         let args = &self.args;
 
         if args.is_empty() {
-            quote! { #path::default() }
+            quote! { #path }
         } else {
             quote! { #path::new(#(#args),*) }
         }

@@ -60,7 +60,7 @@ impl Imp<Enum> for UpdateViewTrait {
             fn merge(
                 &mut self,
                 update: Self::UpdateViewType,
-            ) -> ::core::result::Result<(), ::icydb::traits::Error> {
+            ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
                 *self = update.into();
 
                 Ok(())
@@ -90,7 +90,6 @@ impl Imp<Tuple> for UpdateViewTrait {
             quote! {
                 if let Some(v) = update.#idx {
                     ::icydb::traits::UpdateView::merge(&mut next.#idx, v)
-                        .map_err(::icydb::traits::Error::from)
                         .map_err(|err| err.with_index(#i))?;
                 }
             }
@@ -103,7 +102,7 @@ impl Imp<Tuple> for UpdateViewTrait {
             fn merge(
                 &mut self,
                 update: Self::UpdateViewType,
-            ) -> ::core::result::Result<(), ::icydb::traits::Error> {
+            ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
                 let mut next = self.clone();
                 #(#merge_parts)*
                 *self = next;
@@ -139,7 +138,6 @@ where
             quote! {
                 if let Some(v) = update.#ident {
                     ::icydb::traits::UpdateView::merge(&mut next.#ident, v)
-                        .map_err(::icydb::traits::Error::from)
                         .map_err(|err| err.with_field(stringify!(#ident)))?;
                 }
             }
@@ -152,7 +150,7 @@ where
         fn merge(
             &mut self,
             update: Self::UpdateViewType,
-        ) -> ::core::result::Result<(), ::icydb::traits::Error> {
+        ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
             let mut next = self.clone();
             #(#merge_pairs)*
             *self = next;
@@ -182,11 +180,10 @@ fn update_impl_delegate(node: &impl HasType) -> TraitStrategy {
         fn merge(
             &mut self,
             update: Self::UpdateViewType,
-        ) -> ::core::result::Result<(), ::icydb::traits::Error> {
+        ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
             // Forward to the inner collection (Vec, BTreeSet, BTreeMap)
             let mut next = self.clone();
             ::icydb::traits::UpdateView::merge(&mut next.0, update)
-                .map_err(::icydb::traits::Error::from)
                 .map_err(|err| err.with_index(0))?;
             *self = next;
 

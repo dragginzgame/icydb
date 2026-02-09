@@ -1,7 +1,6 @@
 use crate::{
     traits::{AsView, EntityKind, EntityValue},
     types::Id,
-    view::View as EntityView,
 };
 use icydb_core::db::response::{
     WriteBatchResponse as CoreWriteBatchResponse, WriteResponse as CoreWriteResponse,
@@ -49,7 +48,7 @@ impl<E: EntityKind> WriteResponse<E> {
 
     /// Return the stored entity as its view type.
     #[must_use]
-    pub fn view(&self) -> EntityView<E>
+    pub fn view(&self) -> <E as AsView>::ViewType
     where
         E: AsView,
     {
@@ -123,7 +122,7 @@ impl<E: EntityKind> WriteBatchResponse<E> {
 
     /// Return all views.
     #[must_use]
-    pub fn views(&self) -> Vec<EntityView<E>>
+    pub fn views(&self) -> Vec<<E as AsView>::ViewType>
     where
         E: AsView,
     {
