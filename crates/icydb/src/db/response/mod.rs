@@ -1,11 +1,11 @@
 mod write;
 
 use crate::{
-    error::{Error, ErrorClass, ErrorOrigin},
+    error::Error,
     traits::{AsView, EntityKind},
     types::Id,
 };
-use icydb_core::db::response::{Response as CoreResponse, ResponseError};
+use icydb_core::db::response::Response as CoreResponse;
 
 // re-exports
 pub use write::*;
@@ -46,12 +46,12 @@ impl<E: EntityKind> Response<E> {
 
     /// Require exactly one row.
     pub fn require_one(&self) -> Result<(), Error> {
-        self.inner.require_one().map_err(map_response_error)
+        self.inner.require_one().map_err(Into::into)
     }
 
     /// Require at least one row.
     pub fn require_some(&self) -> Result<(), Error> {
-        self.inner.require_some().map_err(map_response_error)
+        self.inner.require_some().map_err(Into::into)
     }
 
     // ------------------------------------------------------------------
@@ -60,12 +60,12 @@ impl<E: EntityKind> Response<E> {
 
     /// Return the single entity.
     pub fn entity(self) -> Result<E, Error> {
-        self.inner.entity().map_err(map_response_error)
+        self.inner.entity().map_err(Into::into)
     }
 
     /// Return zero or one entity.
     pub fn try_entity(self) -> Result<Option<E>, Error> {
-        self.inner.try_entity().map_err(map_response_error)
+        self.inner.try_entity().map_err(Into::into)
     }
 
     /// Return all entities.
@@ -80,12 +80,12 @@ impl<E: EntityKind> Response<E> {
 
     /// Return the single view.
     pub fn view(&self) -> Result<<E as AsView>::ViewType, Error> {
-        self.inner.view().map_err(map_response_error)
+        self.inner.view().map_err(Into::into)
     }
 
     /// Return zero or one view.
     pub fn view_opt(&self) -> Result<Option<<E as AsView>::ViewType>, Error> {
-        self.inner.view_opt().map_err(map_response_error)
+        self.inner.view_opt().map_err(Into::into)
     }
 
     /// Return all views.
@@ -102,7 +102,7 @@ impl<E: EntityKind> Response<E> {
     ///
     /// This key is a public identifier and does not grant access or authority.
     pub fn require_id(self) -> Result<Id<E>, Error> {
-        self.inner.require_id().map_err(map_response_error)
+        self.inner.require_id().map_err(Into::into)
     }
 
     /// Return zero or one primary key.
@@ -112,7 +112,7 @@ impl<E: EntityKind> Response<E> {
         self.inner
             .try_row()
             .map(|row| row.map(|(id, _)| id))
-            .map_err(map_response_error)
+            .map_err(Into::into)
     }
 
     /// Return all primary keys for correlation, reporting, and lookup.
@@ -124,21 +124,5 @@ impl<E: EntityKind> Response<E> {
     /// Check whether the response contains the given primary key.
     pub fn contains_id(&self, id: &Id<E>) -> bool {
         self.inner.contains_id(id)
-    }
-}
-
-// ----------------------------------------------------------------------
-// Error mapping
-// ----------------------------------------------------------------------
-
-/// Map core response cardinality errors to public errors.
-pub(crate) fn map_response_error(err: ResponseError) -> Error {
-    match err {
-        ResponseError::NotFound { .. } => {
-            Error::new(ErrorClass::NotFound, ErrorOrigin::Response, err.to_string())
-        }
-        ResponseError::NotUnique { .. } => {
-            Error::new(ErrorClass::Conflict, ErrorOrigin::Response, err.to_string())
-        }
     }
 }

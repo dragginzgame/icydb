@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [0.7.10] – 2026-02-09 - Facade Error Kinds
+
+### 🪑 Added
+
+* Added structured facade error categories in `icydb::error` via `ErrorKind`, `QueryErrorKind`, `UpdateErrorKind`, `PatchError`, and `StoreErrorKind` so callers can branch on stable semantic error kinds instead of parsing messages.
+* Added explicit patch error lowering from `ViewPatchError` into facade `PatchError` variants, keeping patch failure handling user-facing and predictable.
+
+### 🧄 Changed
+
+* Query error mapping in the facade now classifies validation/planning/intent failures as `Query(Invalid)`, unsupported features as `Query(Unsupported)`, and response cardinality failures as `Query(NotFound|NotUnique)`.
+* Internal execution failures continue to cross the facade as `ErrorKind::Internal` with preserved origin and message context.
+
+### 🦭 Breaking
+
+* `icydb::Error` now exposes `kind` instead of the previous class-style taxonomy field, and the old facade `ErrorClass` surface is replaced by the new structured `ErrorKind` family.
+
+---
+
 ## [0.7.9] – 2026-02-09 - Relation ID Accessors
 
 ### 🛶 Added

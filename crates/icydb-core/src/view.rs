@@ -259,7 +259,7 @@ mod tests {
             .expect_err("duplicate key operations should fail");
         assert!(matches!(
             err.leaf(),
-            ViewPatchError::InvalidPatchShape {
+            ViewPatchError::InvalidShape {
                 expected: "unique key operations per map patch batch",
                 actual: "duplicate key operation",
             }

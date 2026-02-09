@@ -2,7 +2,7 @@ use crate::{
     db::{
         Row,
         query::{FilterExpr, Predicate, Query, SortExpr},
-        response::{Response, map_response_error},
+        response::Response,
     },
     error::Error,
     traits::{AsView, CanisterKind, EntityKind, EntityValue, SingletonEntity},
@@ -140,20 +140,14 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     where
         E: EntityValue,
     {
-        self.inner
-            .execute()?
-            .require_one()
-            .map_err(map_response_error)
+        self.inner.execute()?.require_one().map_err(Into::into)
     }
 
     pub fn require_some(&self) -> Result<(), Error>
     where
         E: EntityValue,
     {
-        self.inner
-            .execute()?
-            .require_some()
-            .map_err(map_response_error)
+        self.inner.execute()?.require_some().map_err(Into::into)
     }
 
     // ------------------------------------------------------------------
@@ -164,14 +158,14 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     where
         E: EntityValue,
     {
-        self.inner.execute()?.row().map_err(map_response_error)
+        self.inner.execute()?.row().map_err(Into::into)
     }
 
     pub fn try_row(&self) -> Result<Option<Row<E>>, Error>
     where
         E: EntityValue,
     {
-        self.inner.execute()?.try_row().map_err(map_response_error)
+        self.inner.execute()?.try_row().map_err(Into::into)
     }
 
     pub fn rows(&self) -> Result<Vec<Row<E>>, Error>
@@ -196,10 +190,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     where
         E: EntityValue,
     {
-        self.inner
-            .execute()?
-            .require_id()
-            .map_err(map_response_error)
+        self.inner.execute()?.require_id().map_err(Into::into)
     }
 
     pub fn try_id(&self) -> Result<Option<Id<E>>, Error>
@@ -210,7 +201,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
             .execute()?
             .try_row()
             .map(|row| row.map(|(id, _)| id))
-            .map_err(map_response_error)
+            .map_err(Into::into)
     }
 
     pub fn ids(&self) -> Result<Vec<Id<E>>, Error>
@@ -235,17 +226,14 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     where
         E: EntityValue,
     {
-        self.inner.execute()?.entity().map_err(map_response_error)
+        self.inner.execute()?.entity().map_err(Into::into)
     }
 
     pub fn try_entity(&self) -> Result<Option<E>, Error>
     where
         E: EntityValue,
     {
-        self.inner
-            .execute()?
-            .try_entity()
-            .map_err(map_response_error)
+        self.inner.execute()?.try_entity().map_err(Into::into)
     }
 
     pub fn entities(&self) -> Result<Vec<E>, Error>
@@ -263,14 +251,14 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'_, C, E> {
     where
         E: EntityValue,
     {
-        self.inner.execute()?.view().map_err(map_response_error)
+        self.inner.execute()?.view().map_err(Into::into)
     }
 
     pub fn view_opt(&self) -> Result<Option<<E as AsView>::ViewType>, Error>
     where
         E: EntityValue,
     {
-        self.inner.execute()?.view_opt().map_err(map_response_error)
+        self.inner.execute()?.view_opt().map_err(Into::into)
     }
 
     pub fn views(&self) -> Result<Vec<<E as AsView>::ViewType>, Error>

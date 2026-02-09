@@ -2,7 +2,8 @@ use candid::CandidType;
 use derive_more::Display;
 use icydb_core::{
     db::{query::QueryError, response::ResponseError},
-    error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin, InternalError},
+    error::{ErrorOrigin as CoreErrorOrigin, InternalError},
+    traits::ViewPatchError,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
@@ -15,16 +16,15 @@ use thiserror::Error as ThisError;
 #[derive(CandidType, Debug, Deserialize, Serialize, ThisError)]
 #[error("{message}")]
 pub struct Error {
-    pub class: ErrorClass,
+    pub kind: ErrorKind,
     pub origin: ErrorOrigin,
     pub message: String,
 }
 
 impl Error {
-    #[must_use]
-    pub fn new(class: ErrorClass, origin: ErrorOrigin, message: impl Into<String>) -> Self {
+    pub fn new(kind: ErrorKind, origin: ErrorOrigin, message: impl Into<String>) -> Self {
         Self {
-            class,
+            kind,
             origin,
             message: message.into(),
         }
@@ -33,68 +33,146 @@ impl Error {
 
 impl From<InternalError> for Error {
     fn from(err: InternalError) -> Self {
-        Self {
-            class: err.class.into(),
-            origin: err.origin.into(),
-            message: err.message,
-        }
+        Self::new(ErrorKind::Internal, err.origin.into(), err.message)
     }
 }
 
 impl From<QueryError> for Error {
     fn from(err: QueryError) -> Self {
         match err {
-            QueryError::UnsupportedQueryFeature(err) => {
-                Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
-            }
-            QueryError::Validate(err) => {
-                Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
-            }
-            QueryError::Plan(err) => {
-                Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
-            }
-            QueryError::Intent(err) => {
-                Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, err.to_string())
-            }
-            QueryError::Response(err) => match err {
-                ResponseError::NotFound { .. } => {
-                    Self::new(ErrorClass::NotFound, ErrorOrigin::Response, err.to_string())
-                }
-                ResponseError::NotUnique { .. } => {
-                    Self::new(ErrorClass::Conflict, ErrorOrigin::Response, err.to_string())
-                }
-            },
-            QueryError::Execute(err) => Self::from(err),
+            QueryError::Validate(_) | QueryError::Intent(_) | QueryError::Plan(_) => Self::new(
+                ErrorKind::Query(QueryErrorKind::Invalid),
+                ErrorOrigin::Query,
+                err.to_string(),
+            ),
+
+            QueryError::UnsupportedQueryFeature(_) => Self::new(
+                ErrorKind::Query(QueryErrorKind::Unsupported),
+                ErrorOrigin::Query,
+                err.to_string(),
+            ),
+
+            QueryError::Response(ResponseError::NotFound { .. }) => Self::new(
+                ErrorKind::Query(QueryErrorKind::NotFound),
+                ErrorOrigin::Response,
+                err.to_string(),
+            ),
+
+            QueryError::Response(ResponseError::NotUnique { .. }) => Self::new(
+                ErrorKind::Query(QueryErrorKind::NotUnique),
+                ErrorOrigin::Response,
+                err.to_string(),
+            ),
+
+            QueryError::Execute(err) => err.into(),
+        }
+    }
+}
+
+impl From<ResponseError> for Error {
+    fn from(err: ResponseError) -> Self {
+        match err {
+            ResponseError::NotFound { .. } => Self::new(
+                ErrorKind::Query(QueryErrorKind::NotFound),
+                ErrorOrigin::Query,
+                err.to_string(),
+            ),
+
+            ResponseError::NotUnique { .. } => Self::new(
+                ErrorKind::Query(QueryErrorKind::NotUnique),
+                ErrorOrigin::Query,
+                err.to_string(),
+            ),
         }
     }
 }
 
 ///
-/// ErrorClass
+/// ErrorKind
 /// Public error taxonomy for callers and canister interfaces.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Display, Eq, PartialEq, Serialize)]
-pub enum ErrorClass {
-    Conflict,
-    Corruption,
-    NotFound,
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ErrorKind {
+    Query(QueryErrorKind),
+    Update(UpdateErrorKind),
+    Store(StoreErrorKind),
+
+    /// The caller cannot remediate this.
     Internal,
-    InvariantViolation,
-    Unsupported,
 }
 
-impl From<CoreErrorClass> for ErrorClass {
-    fn from(class: CoreErrorClass) -> Self {
-        match class {
-            CoreErrorClass::Conflict => Self::Conflict,
-            CoreErrorClass::Corruption => Self::Corruption,
-            CoreErrorClass::NotFound => Self::NotFound,
-            CoreErrorClass::Internal => Self::Internal,
-            CoreErrorClass::InvariantViolation => Self::InvariantViolation,
-            CoreErrorClass::Unsupported => Self::Unsupported,
+///
+/// QueryErrorKind
+///
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum QueryErrorKind {
+    /// Query shape is invalid (unknown fields, bad predicates).
+    Invalid,
+
+    /// The query is valid but requests an unsupported feature.
+    Unsupported,
+
+    /// Pagination requires ordering but none was provided.
+    UnorderedPagination,
+
+    /// Valid query, but no rows matched.
+    NotFound,
+
+    /// Query expected one row but matched many.
+    NotUnique,
+}
+
+///
+/// UpdateErrorKind
+///
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum UpdateErrorKind {
+    /// Patch application failed for semantic reasons.
+    Patch(PatchError),
+
+    /// Target entity does not exist.
+    NotFound,
+
+    /// Domain or schema constraint violated.
+    ConstraintViolation,
+
+    /// Concurrent or state conflict.
+    Conflict,
+}
+
+///
+/// PatchError
+///
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum PatchError {
+    InvalidShape,
+    MissingKey,
+    CardinalityViolation,
+}
+
+impl From<ViewPatchError> for PatchError {
+    fn from(err: ViewPatchError) -> Self {
+        match err {
+            ViewPatchError::InvalidShape { .. } => Self::InvalidShape,
+            ViewPatchError::MissingKey { .. } => Self::MissingKey,
+            ViewPatchError::CardinalityViolation { .. } => Self::CardinalityViolation,
+            ViewPatchError::Context { source, .. } => (*source).into(),
         }
     }
+}
+
+///
+/// StoreErrorKind
+///
+
+#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum StoreErrorKind {
+    NotFound,
+    Unavailable,
 }
 
 ///

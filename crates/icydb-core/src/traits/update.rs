@@ -21,7 +21,7 @@ use thiserror::Error as ThisError;
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
 pub enum ViewPatchError {
     #[error("invalid patch shape: expected {expected}, found {actual}")]
-    InvalidPatchShape {
+    InvalidShape {
         expected: &'static str,
         actual: &'static str,
     },
@@ -289,7 +289,7 @@ where
             match op {
                 MapPatchOp::Clear => {
                     if saw_clear {
-                        return Err(ViewPatchError::InvalidPatchShape {
+                        return Err(ViewPatchError::InvalidShape {
                             expected: "at most one Clear operation per map patch batch",
                             actual: "duplicate Clear operations",
                         });
@@ -306,13 +306,13 @@ where
                 | MapPatchOp::Remove { key }
                 | MapPatchOp::Replace { key, .. } => {
                     if saw_clear {
-                        return Err(ViewPatchError::InvalidPatchShape {
+                        return Err(ViewPatchError::InvalidShape {
                             expected: "Clear must be the only operation in a map patch batch",
                             actual: "Clear combined with key operation",
                         });
                     }
                     if !touched.insert(key.clone()) {
-                        return Err(ViewPatchError::InvalidPatchShape {
+                        return Err(ViewPatchError::InvalidShape {
                             expected: "unique key operations per map patch batch",
                             actual: "duplicate key operation",
                         });
@@ -362,7 +362,7 @@ where
                     }
                 },
                 MapPatchOp::Clear => {
-                    return Err(ViewPatchError::InvalidPatchShape {
+                    return Err(ViewPatchError::InvalidShape {
                         expected: "Clear to be handled before apply phase",
                         actual: "Clear reached apply phase",
                     });
@@ -462,7 +462,7 @@ where
             match op {
                 MapPatchOp::Clear => {
                     if saw_clear {
-                        return Err(ViewPatchError::InvalidPatchShape {
+                        return Err(ViewPatchError::InvalidShape {
                             expected: "at most one Clear operation per map patch batch",
                             actual: "duplicate Clear operations",
                         });
@@ -479,13 +479,13 @@ where
                 | MapPatchOp::Remove { key }
                 | MapPatchOp::Replace { key, .. } => {
                     if saw_clear {
-                        return Err(ViewPatchError::InvalidPatchShape {
+                        return Err(ViewPatchError::InvalidShape {
                             expected: "Clear must be the only operation in a map patch batch",
                             actual: "Clear combined with key operation",
                         });
                     }
                     if !touched.insert(key.clone()) {
-                        return Err(ViewPatchError::InvalidPatchShape {
+                        return Err(ViewPatchError::InvalidShape {
                             expected: "unique key operations per map patch batch",
                             actual: "duplicate key operation",
                         });
@@ -535,7 +535,7 @@ where
                     }
                 },
                 MapPatchOp::Clear => {
-                    return Err(ViewPatchError::InvalidPatchShape {
+                    return Err(ViewPatchError::InvalidShape {
                         expected: "Clear to be handled before apply phase",
                         actual: "Clear reached apply phase",
                     });
