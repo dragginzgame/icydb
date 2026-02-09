@@ -2,9 +2,8 @@ pub mod fixture;
 pub mod generator;
 
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
+        AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     types::GenerateKey,
@@ -135,7 +134,7 @@ impl AsView for Ulid {
     }
 }
 
-impl AtomicPatch for Ulid {}
+impl Atomic for Ulid {}
 
 impl CandidType for Ulid {
     fn _ty() -> candid::types::Type {
@@ -191,16 +190,6 @@ impl From<WrappedUlid> for Ulid {
 impl GenerateKey for Ulid {
     fn generate() -> Self {
         Self::generate()
-    }
-}
-
-impl Inner<Self> for Ulid {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

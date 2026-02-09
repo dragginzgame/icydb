@@ -8,7 +8,7 @@ use crate::{
     },
     error::{Error, ErrorKind, ErrorOrigin, UpdateErrorKind},
     patch::MergePatch,
-    traits::{CanisterKind, EntityKind, EntityValue},
+    traits::{CanisterKind, EntityKind, EntityValue, UpdateView},
     types::Id,
 };
 use icydb_core as core;
@@ -175,7 +175,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn patch_by_id<E>(
         &self,
         id: Id<E>,
-        patch: <E as MergePatch>::Patch,
+        patch: <E as UpdateView>::UpdateViewType,
     ) -> Result<WriteResponse<E>, Error>
     where
         E: EntityKind<Canister = C> + EntityValue + MergePatch,

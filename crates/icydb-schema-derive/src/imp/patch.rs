@@ -52,14 +52,10 @@ impl Imp<Newtype> for MergePatchTrait {
 
 impl Imp<Enum> for MergePatchTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
-        let patch_ident = node.update_ident();
-
         let q = quote! {
-            type Patch = #patch_ident;
-
             fn merge(
                 &mut self,
-                patch: Self::Patch,
+                patch: Self::UpdateViewType,
             ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
                 *self = patch.into();
 
@@ -81,7 +77,6 @@ impl Imp<Enum> for MergePatchTrait {
 
 impl Imp<Tuple> for MergePatchTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
-        let patch_ident = node.update_ident();
         let values = &node.values;
 
         // paths
@@ -97,11 +92,9 @@ impl Imp<Tuple> for MergePatchTrait {
 
         // quote
         let q = quote! {
-            type Patch = #patch_ident;
-
             fn merge(
                 &mut self,
-                patch: Self::Patch,
+                patch: Self::UpdateViewType,
             ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
                 let mut next = self.clone();
                 #(#merge_parts)*
@@ -128,7 +121,6 @@ where
     N: HasType,
     F: Fn(&N) -> Vec<syn::Ident>,
 {
-    let patch_ident = node.update_ident();
     let field_idents = iter_fields(node);
 
     // paths
@@ -145,11 +137,9 @@ where
         .collect();
 
     let q = quote! {
-        type Patch = #patch_ident;
-
         fn merge(
             &mut self,
-            patch: Self::Patch,
+            patch: Self::UpdateViewType,
         ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
             let mut next = self.clone();
             #(#merge_pairs)*
@@ -171,15 +161,11 @@ where
 }
 
 fn merge_impl_delegate(node: &impl HasType) -> TraitStrategy {
-    let patch_ident = node.update_ident();
-
     // quote
     let q = quote! {
-        type Patch = #patch_ident;
-
         fn merge(
             &mut self,
-            patch: Self::Patch,
+            patch: Self::UpdateViewType,
         ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
             // Forward to the inner collection (Vec, BTreeSet, BTreeMap)
             let mut next = self.clone();

@@ -1,7 +1,6 @@
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive,
+        AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, NumCast, NumFromPrimitive,
         NumToPrimitive, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
@@ -115,7 +114,7 @@ impl AsView for Timestamp {
     }
 }
 
-impl AtomicPatch for Timestamp {}
+impl Atomic for Timestamp {}
 
 impl EntityKeyBytes for Timestamp {
     const BYTE_LEN: usize = ::core::mem::size_of::<u64>();
@@ -146,16 +145,6 @@ impl FieldValue for Timestamp {
 impl From<u64> for Timestamp {
     fn from(u: u64) -> Self {
         Self(u)
-    }
-}
-
-impl Inner<Self> for Timestamp {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

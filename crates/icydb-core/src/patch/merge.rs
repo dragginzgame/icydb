@@ -1,6 +1,6 @@
 use crate::{
-    patch::{AtomicPatch, ListPatch, MapPatch, SetPatch},
-    traits::UpdateView,
+    patch::{ListPatch, MapPatch, SetPatch},
+    traits::{Atomic, UpdateView},
 };
 use std::{
     collections::{
@@ -21,12 +21,11 @@ pub trait MergePatch: UpdateView {
 
 impl<T> MergePatch for T
 where
-    T: AtomicPatch,
+    T: Atomic + UpdateView<UpdateViewType = T>,
 {
-    type Patch = Self;
-
-    fn merge(&mut self, patch: Self) -> Result<(), MergePatchError> {
+    fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
         *self = patch;
+
         Ok(())
     }
 }
@@ -119,9 +118,7 @@ impl<T> MergePatch for Option<T>
 where
     T: MergePatch + Default,
 {
-    type Patch = Option<T::Patch>;
-
-    fn merge(&mut self, patch: Self::Patch) -> Result<(), MergePatchError> {
+    fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
         match patch {
             None => {
                 // Explicit delete
@@ -150,9 +147,7 @@ impl<T> MergePatch for Vec<T>
 where
     T: MergePatch + Default,
 {
-    type Patch = Vec<ListPatch<T::Patch>>;
-
-    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
+    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), MergePatchError> {
         for patch in patches {
             match patch {
                 ListPatch::Update { index, patch } => {
@@ -205,9 +200,7 @@ where
     T: MergePatch + Clone + Default + Eq + Hash,
     S: BuildHasher + Default,
 {
-    type Patch = Vec<SetPatch<T::Patch>>;
-
-    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
+    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), MergePatchError> {
         for patch in patches {
             match patch {
                 SetPatch::Insert(value) => {
@@ -255,10 +248,8 @@ where
     V: MergePatch + Default,
     S: BuildHasher + Default,
 {
-    type Patch = Vec<MapPatch<K::Patch, V::Patch>>;
-
     #[expect(clippy::too_many_lines)]
-    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
+    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), MergePatchError> {
         // Phase 1: decode patch payload into concrete keys.
         let mut ops = Vec::with_capacity(patches.len());
         for patch in patches {
@@ -394,9 +385,7 @@ impl<T> MergePatch for BTreeSet<T>
 where
     T: MergePatch + Clone + Default + Ord,
 {
-    type Patch = Vec<SetPatch<T::Patch>>;
-
-    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
+    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), MergePatchError> {
         for patch in patches {
             match patch {
                 SetPatch::Insert(value) => {
@@ -432,10 +421,8 @@ where
     K: MergePatch + Clone + Default + Ord,
     V: MergePatch + Default,
 {
-    type Patch = Vec<MapPatch<K::Patch, V::Patch>>;
-
     #[expect(clippy::too_many_lines)]
-    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
+    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), MergePatchError> {
         // Phase 1: decode patch payload into concrete keys.
         let mut ops = Vec::with_capacity(patches.len());
         for patch in patches {
@@ -562,23 +549,3 @@ where
         Ok(())
     }
 }
-
-macro_rules! impl_update_view {
-    ($($type:ty),*) => {
-        $(
-            impl MergePatch for $type {
-                type Patch = Self;
-
-                fn merge(
-                    &mut self,
-                    patch: Self::Patch,
-                ) -> Result<(), MergePatchError> {
-                    *self = patch;
-                    Ok(())
-                }
-            }
-        )*
-    };
-}
-
-impl_update_view!(bool, i8, i16, i32, i64, u8, u16, u32, u64, String);

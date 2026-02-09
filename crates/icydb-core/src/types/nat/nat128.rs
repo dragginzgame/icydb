@@ -1,7 +1,6 @@
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumToPrimitive, SanitizeAuto,
+        AsView, Atomic, FieldValue, FieldValueKind, NumCast, NumToPrimitive, SanitizeAuto,
         SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
@@ -70,7 +69,7 @@ impl AsView for Nat128 {
     }
 }
 
-impl AtomicPatch for Nat128 {}
+impl Atomic for Nat128 {}
 
 impl Div for Nat128 {
     type Output = Self;
@@ -106,16 +105,6 @@ impl FieldValue for Nat128 {
 impl From<u128> for Nat128 {
     fn from(u: u128) -> Self {
         Self(u)
-    }
-}
-
-impl Inner<Self> for Nat128 {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

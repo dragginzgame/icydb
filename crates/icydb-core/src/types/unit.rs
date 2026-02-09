@@ -1,7 +1,6 @@
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
+        AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
@@ -79,21 +78,11 @@ impl FieldValue for Unit {
     }
 }
 
-impl Inner<Self> for Unit {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
-    }
-}
-
 impl SanitizeAuto for Unit {}
 
 impl SanitizeCustom for Unit {}
 
-impl AtomicPatch for Unit {}
+impl Atomic for Unit {}
 
 impl ValidateAuto for Unit {}
 

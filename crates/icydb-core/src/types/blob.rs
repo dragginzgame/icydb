@@ -1,7 +1,6 @@
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        AsView, Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, Visitable,
     },
     value::Value,
@@ -71,7 +70,7 @@ impl AsView for Blob {
     }
 }
 
-impl AtomicPatch for Blob {}
+impl Atomic for Blob {}
 
 impl Display for Blob {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -111,16 +110,6 @@ impl From<&[u8]> for Blob {
 impl<const N: usize> From<&[u8; N]> for Blob {
     fn from(bytes: &[u8; N]) -> Self {
         Self(ByteBuf::from(&bytes[..]))
-    }
-}
-
-impl Inner<Self> for Blob {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

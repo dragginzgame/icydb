@@ -1,3 +1,7 @@
+use crate::{
+    patch::{list::ListPatch, map::MapPatch, set::SetPatch},
+    traits::Atomic,
+};
 use candid::CandidType;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -224,15 +228,55 @@ pub trait UpdateView: AsView {
     type UpdateViewType: CandidType + Default;
 }
 
-#[macro_export]
-macro_rules! impl_update_view {
-    ($($type:ty),*) => {
-        $(
-            impl UpdateView for $type {
-                type UpdateViewType = Self;
-            }
-        )*
-    };
+impl<T> UpdateView for T
+where
+    T: Atomic + AsView + CandidType + Default,
+{
+    type UpdateViewType = Self;
 }
 
-impl_update_view!(bool, i8, i16, i32, i64, u8, u16, u32, u64);
+impl<T> UpdateView for Option<T>
+where
+    T: UpdateView,
+{
+    type UpdateViewType = Option<T::UpdateViewType>;
+}
+
+impl<T> UpdateView for Vec<T>
+where
+    T: UpdateView,
+{
+    type UpdateViewType = Vec<ListPatch<T::UpdateViewType>>;
+}
+
+impl<T, S> UpdateView for HashSet<T, S>
+where
+    T: UpdateView + Clone + Eq + Hash,
+    S: BuildHasher + Default,
+{
+    type UpdateViewType = Vec<SetPatch<T::UpdateViewType>>;
+}
+
+impl<K, V, S> UpdateView for HashMap<K, V, S>
+where
+    K: UpdateView + Clone + Eq + Hash,
+    V: UpdateView,
+    S: BuildHasher + Default,
+{
+    type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
+}
+
+impl<T> UpdateView for BTreeSet<T>
+where
+    T: UpdateView + Clone + Ord,
+{
+    type UpdateViewType = Vec<SetPatch<T::UpdateViewType>>;
+}
+
+impl<K, V> UpdateView for BTreeMap<K, V>
+where
+    K: UpdateView + Clone + Ord,
+    V: UpdateView,
+{
+    type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
+}

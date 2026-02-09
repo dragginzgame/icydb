@@ -1,7 +1,6 @@
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
+        AsView, Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
@@ -159,7 +158,7 @@ impl AsView for E18s {
     }
 }
 
-impl AtomicPatch for E18s {}
+impl Atomic for E18s {}
 
 impl Div for E18s {
     type Output = Self;
@@ -214,16 +213,6 @@ impl TryFrom<i32> for E18s {
 impl From<u128> for E18s {
     fn from(n: u128) -> Self {
         Self(n)
-    }
-}
-
-impl Inner<Self> for E18s {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

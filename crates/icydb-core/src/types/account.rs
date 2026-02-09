@@ -1,7 +1,6 @@
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
+        AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Principal, PrincipalEncodeError, Subaccount},
@@ -179,7 +178,7 @@ impl AsView for Account {
     }
 }
 
-impl AtomicPatch for Account {}
+impl Atomic for Account {}
 
 // Display logic is a bit convoluted and the code's in the icrc_ledger_types
 // repo that I don't really want to wrap
@@ -253,16 +252,6 @@ impl<P: Into<Principal>> From<P> for Account {
             owner: owner.into(),
             subaccount: None,
         }
-    }
-}
-
-impl Inner<Self> for Account {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

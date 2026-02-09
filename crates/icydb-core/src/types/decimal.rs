@@ -1,7 +1,6 @@
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
+        AsView, Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
@@ -193,7 +192,7 @@ impl AsView for Decimal {
     }
 }
 
-impl AtomicPatch for Decimal {}
+impl Atomic for Decimal {}
 
 impl CandidType for Decimal {
     fn _ty() -> candid::types::Type {
@@ -246,16 +245,6 @@ impl FieldValue for Decimal {
             Value::Decimal(v) => Some(*v),
             _ => None,
         }
-    }
-}
-
-impl Inner<Self> for Decimal {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

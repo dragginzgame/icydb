@@ -1,7 +1,6 @@
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
+        AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
@@ -141,7 +140,7 @@ impl AsView for Principal {
     }
 }
 
-impl AtomicPatch for Principal {}
+impl Atomic for Principal {}
 
 impl Default for Principal {
     fn default() -> Self {
@@ -225,16 +224,6 @@ impl FromStr for Principal {
             .map_err(|e| PrincipalError::Wrapped(e.to_string()))?;
 
         Ok(this)
-    }
-}
-
-impl Inner<Self> for Principal {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

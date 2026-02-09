@@ -26,6 +26,6 @@ impl ViewExpr for ItemUpdate<'_> {
         let node = self.0;
         let ty = node.type_expr();
 
-        quote!(<#ty as ::icydb::patch::MergePatch>::Patch).into()
+        quote!(<#ty as ::icydb::traits::UpdateView>::UpdateViewType).into()
     }
 }

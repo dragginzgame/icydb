@@ -1,7 +1,6 @@
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
+        AsView, Atomic, FieldValue, FieldValueKind, NumCast, NumFromPrimitive, NumToPrimitive,
         SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
@@ -132,7 +131,7 @@ impl AsView for Date {
     }
 }
 
-impl AtomicPatch for Date {}
+impl Atomic for Date {}
 
 impl Debug for Date {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -161,16 +160,6 @@ impl FieldValue for Date {
             Value::Date(v) => Some(*v),
             _ => None,
         }
-    }
-}
-
-impl Inner<Self> for Date {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

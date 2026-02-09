@@ -69,10 +69,13 @@ pub struct MergeTuple {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::patch::{ListPatch, MapPatch, MergePatch, MergePatchError, SetPatch};
+    use icydb::{
+        patch::{ListPatch, MapPatch, MergePatch, MergePatchError, SetPatch},
+        traits::UpdateView,
+    };
     use std::collections::{HashMap, HashSet};
 
-    type Patch<T> = <T as MergePatch>::Patch;
+    type Patch<T> = <T as UpdateView>::UpdateViewType;
 
     fn profile(bio: &str, visits: u32, favorites: &[u32]) -> MergeProfile {
         MergeProfile {

@@ -3,10 +3,9 @@ mod int128;
 pub use int128::*;
 
 use crate::{
-    patch::AtomicPatch,
     prelude::*,
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        AsView, Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, Visitable,
     },
 };
@@ -92,7 +91,7 @@ impl AsView for Int {
     }
 }
 
-impl AtomicPatch for Int {}
+impl Atomic for Int {}
 
 impl Div for Int {
     type Output = Self;
@@ -134,16 +133,6 @@ impl From<i32> for Int {
 impl From<WrappedInt> for Int {
     fn from(i: WrappedInt) -> Self {
         Self(i)
-    }
-}
-
-impl Inner<Self> for Int {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

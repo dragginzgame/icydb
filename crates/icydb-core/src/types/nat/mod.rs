@@ -3,9 +3,8 @@ mod nat128;
 pub use nat128::*;
 
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        AsView, Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, Visitable,
     },
     value::Value,
@@ -96,7 +95,7 @@ impl AsView for Nat {
     }
 }
 
-impl AtomicPatch for Nat {}
+impl Atomic for Nat {}
 
 impl Div for Nat {
     type Output = Self;
@@ -152,16 +151,6 @@ impl Mul for Nat {
 impl MulAssign for Nat {
     fn mul_assign(&mut self, other: Self) {
         self.0 *= other.0;
-    }
-}
-
-impl Inner<Self> for Nat {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

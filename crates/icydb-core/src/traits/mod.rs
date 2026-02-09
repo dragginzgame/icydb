@@ -1,10 +1,12 @@
 mod aliases;
 #[macro_use]
 mod macros;
+mod atomic;
 mod view;
 mod visitor;
 
 pub use aliases::*;
+pub use atomic::*;
 pub use view::*;
 pub use visitor::*;
 
@@ -503,26 +505,18 @@ pub trait Inner<T> {
     fn into_inner(self) -> T;
 }
 
-// impl_inner
-#[macro_export]
-macro_rules! impl_inner {
-    ($($type:ty),*) => {
-        $(
-            impl Inner<$type> for $type {
-                fn inner(&self) -> &$type {
-                    &self
-                }
-                fn into_inner(self) -> $type {
-                    self
-                }
-            }
-        )*
-    };
-}
+impl<T> Inner<T> for T
+where
+    T: Atomic,
+{
+    fn inner(&self) -> &T {
+        self
+    }
 
-impl_inner!(
-    bool, f32, f64, i8, i16, i32, i64, i128, String, u8, u16, u32, u64, u128
-);
+    fn into_inner(self) -> T {
+        self
+    }
+}
 
 /// ============================================================================
 /// SANITIZATION / VALIDATION

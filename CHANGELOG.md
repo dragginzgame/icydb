@@ -7,16 +7,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [0.7.12] – 2026-02-09 - MergePatch Derive Consolidation
+## [0.7.12] – 2026-02-09
 
 ### 🥝 Added
 
-* Added `AtomicPatch` for `Unit` so newtype and wrapper patch delegation resolves through the unified `MergePatch` path.
+* Added `UpdateView` trait generation for schema-derived list/set/map/newtype/record/tuple/enum/entity types so patch payload typing is explicit at the view boundary.
+* Added `UpdateView` coverage for core container wrappers (`OrderedList`, `IdSet`) and structural containers (`Option`, `Vec`, `HashMap`, `HashSet`, `BTreeMap`, `BTreeSet`) using `ListPatch`/`SetPatch`/`MapPatch` payload shapes.
 
 ### 🛰️ Changed
 
 * Schema derives now route patch generation through `MergePatch` end-to-end (trait wiring, node dispatch, and emitted merge calls), while preserving existing `*Update` payload type names and patch shapes.
-* Generated collection patch payloads now consistently reference `::icydb::patch::{ListPatch, SetPatch, MapPatch}` and nested payloads through `<T as MergePatch>::Patch`.
+* Merge payload typing now resolves through `<T as UpdateView>::UpdateViewType`; `MergePatch` implementations no longer define or consume a separate `Patch` associated type.
+* Atomic merge semantics now consistently use `traits::Atomic` in type modules, and the blanket `MergePatch` path applies full-replacement updates from `UpdateViewType = Self`.
 
 ---
 

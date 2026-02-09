@@ -1,8 +1,7 @@
 use crate::{
-    patch::AtomicPatch,
     prelude::*,
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
+        AsView, Atomic, FieldValue, FieldValueKind, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
         SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     visitor::VisitorContext,
@@ -91,7 +90,7 @@ impl AsView for Float64 {
     }
 }
 
-impl AtomicPatch for Float64 {}
+impl Atomic for Float64 {}
 
 impl Eq for Float64 {}
 
@@ -121,16 +120,6 @@ impl FieldValue for Float64 {
 impl From<i32> for Float64 {
     fn from(n: i32) -> Self {
         Self(f64::from(n))
-    }
-}
-
-impl Inner<Self> for Float64 {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

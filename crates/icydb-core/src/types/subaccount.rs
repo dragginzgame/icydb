@@ -1,7 +1,6 @@
 use crate::{
-    patch::AtomicPatch,
     traits::{
-        AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
+        AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Principal, Ulid},
@@ -111,7 +110,7 @@ impl AsView for Subaccount {
     }
 }
 
-impl AtomicPatch for Subaccount {}
+impl Atomic for Subaccount {}
 
 impl Display for Subaccount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -177,16 +176,6 @@ impl From<Subaccount> for SubaccountBytes {
 impl From<SubaccountBytes> for Subaccount {
     fn from(wrap: SubaccountBytes) -> Self {
         Self(wrap)
-    }
-}
-
-impl Inner<Self> for Subaccount {
-    fn inner(&self) -> &Self {
-        self
-    }
-
-    fn into_inner(self) -> Self {
-        self
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::{
     patch::{ListPatch, MergePatch, MergePatchError},
     traits::{
-        AsView, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        AsView, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
         ValidateCustom, Visitable,
     },
     value::Value,
@@ -190,9 +190,7 @@ impl<T> MergePatch for OrderedList<T>
 where
     T: MergePatch + Default,
 {
-    type Patch = Vec<ListPatch<<T as MergePatch>::Patch>>;
-
-    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
+    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), MergePatchError> {
         for patch in patches {
             match patch {
                 ListPatch::Update { index, patch } => {
@@ -236,6 +234,13 @@ where
 
         Ok(())
     }
+}
+
+impl<T> UpdateView for OrderedList<T>
+where
+    T: UpdateView,
+{
+    type UpdateViewType = Vec<ListPatch<T::UpdateViewType>>;
 }
 
 impl<T: SanitizeAuto> SanitizeAuto for OrderedList<T> {
