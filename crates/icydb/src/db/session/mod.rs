@@ -6,8 +6,9 @@ use crate::{
         query::{Query, ReadConsistency},
         response::{Response, WriteBatchResponse, WriteResponse},
     },
-    error::{Error, ErrorKind, ErrorOrigin, UpdateErrorKind},
-    patch::MergePatch,
+    error::Error,
+    obs::sink::MetricsSink,
+    patch::{MergePatch, apply_patch},
     traits::{CanisterKind, EntityKind, EntityValue, UpdateView},
     types::Id,
 };
@@ -47,7 +48,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[must_use]
-    pub const fn metrics_sink(mut self, sink: &'static dyn core::obs::sink::MetricsSink) -> Self {
+    pub const fn metrics_sink(mut self, sink: &'static dyn MetricsSink) -> Self {
         self.inner = self.inner.metrics_sink(sink);
         self
     }
@@ -182,14 +183,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let mut entity = self.load::<E>().by_id(id).entity()?;
 
-        entity.merge(patch).map_err(|err| {
-            let message = err.to_string();
-            Error::new(
-                ErrorKind::Update(UpdateErrorKind::Patch(err.into())),
-                ErrorOrigin::Interface,
-                message,
-            )
-        })?;
+        apply_patch(&mut entity, patch)?;
 
         self.update(entity)
     }

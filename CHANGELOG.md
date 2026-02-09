@@ -5,11 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.7.13] – 2026-02-09
+## [0.7.14] – 2026-02-09
 
 ### 🥝 Added
 
 * Any Id<E> can now be turned into a ledger subaccount with `.subaccount()`
+* Added `apply_patch` in the icydb::patch module to go alongside `DbSession::patch_by_id`
 
 ---
 

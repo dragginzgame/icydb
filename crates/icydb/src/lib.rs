@@ -70,12 +70,13 @@ pub use icydb_schema_derive as macros;
 
 // core modules
 #[doc(hidden)]
-pub use icydb_core::{model, obs, patch, traits, types, value, visitor};
+pub use icydb_core::{model, obs, traits, types, value, visitor};
 
-// canic modules
+// facade modules
 pub mod base;
 pub mod db;
 pub mod error;
+pub mod patch;
 pub use error::Error;
 
 /// Internal
@@ -113,7 +114,6 @@ pub mod prelude {
             query,
             query::{FilterExpr, SortExpr, builder::FieldRef, predicate::Predicate},
         },
-        patch::MergePatch as _,
         traits::{
             AsView, Collection as _, Create, CreateView as _, EntityKind as _, EntityValue,
             Inner as _, MapCollection as _, Path as _, Update, UpdateView as _, View,
