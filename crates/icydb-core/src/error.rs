@@ -1,3 +1,4 @@
+use crate::patch::MergePatchError;
 use std::fmt;
 use thiserror::Error as ThisError;
 
@@ -7,6 +8,7 @@ use thiserror::Error as ThisError;
 /// Structured runtime error with a stable internal classification.
 /// Not a stable API; intended for internal use and may change without notice.
 ///
+
 #[derive(Debug, ThisError)]
 #[error("{message}")]
 pub struct InternalError {
@@ -73,22 +75,6 @@ impl InternalError {
     }
 }
 
-impl From<crate::traits::ViewPatchError> for InternalError {
-    fn from(err: crate::traits::ViewPatchError) -> Self {
-        let class = match err.leaf() {
-            crate::traits::ViewPatchError::MissingKey { .. } => ErrorClass::NotFound,
-            _ => ErrorClass::Unsupported,
-        };
-
-        Self {
-            class,
-            origin: ErrorOrigin::Interface,
-            message: err.to_string(),
-            detail: Some(ErrorDetail::ViewPatch(err)),
-        }
-    }
-}
-
 ///
 /// ErrorDetail
 ///
@@ -101,7 +87,7 @@ pub enum ErrorDetail {
     #[error("{0}")]
     Store(StoreError),
     #[error("{0}")]
-    ViewPatch(crate::traits::ViewPatchError),
+    ViewPatch(crate::patch::MergePatchError),
     // Future-proofing:
     // #[error("{0}")]
     // Index(IndexError),
@@ -111,6 +97,22 @@ pub enum ErrorDetail {
     //
     // #[error("{0}")]
     // Executor(ExecutorErrorDetail),
+}
+
+impl From<MergePatchError> for InternalError {
+    fn from(err: MergePatchError) -> Self {
+        let class = match err.leaf() {
+            MergePatchError::MissingKey { .. } => ErrorClass::NotFound,
+            _ => ErrorClass::Unsupported,
+        };
+
+        Self {
+            class,
+            origin: ErrorOrigin::Interface,
+            message: err.to_string(),
+            detail: Some(ErrorDetail::ViewPatch(err)),
+        }
+    }
 }
 
 ///

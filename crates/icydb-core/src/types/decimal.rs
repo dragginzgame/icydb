@@ -1,7 +1,8 @@
 use crate::{
+    patch::AtomicPatch,
     traits::{
         AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
-        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -191,6 +192,8 @@ impl AsView for Decimal {
         view
     }
 }
+
+impl AtomicPatch for Decimal {}
 
 impl CandidType for Decimal {
     fn _ty() -> candid::types::Type {
@@ -418,16 +421,6 @@ impl PartialOrd<Decimal> for WrappedDecimal {
 impl SanitizeAuto for Decimal {}
 
 impl SanitizeCustom for Decimal {}
-
-impl UpdateView for Decimal {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
-    }
-}
 
 impl ValidateAuto for Decimal {}
 

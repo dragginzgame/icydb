@@ -1,7 +1,8 @@
 use crate::{
+    patch::AtomicPatch,
     traits::{
         AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -140,6 +141,8 @@ impl AsView for Principal {
     }
 }
 
+impl AtomicPatch for Principal {}
+
 impl Default for Principal {
     fn default() -> Self {
         Self(WrappedPrincipal::from_slice(&[]))
@@ -256,16 +259,6 @@ impl TryFrom<&[u8]> for Principal {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Self::try_from_bytes(bytes)
-    }
-}
-
-impl UpdateView for Principal {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
     }
 }
 

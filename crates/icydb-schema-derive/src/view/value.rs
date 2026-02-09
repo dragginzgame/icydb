@@ -38,7 +38,7 @@ impl ViewExpr for ValueUpdate<'_> {
         match node.cardinality() {
             Cardinality::One => quote!(#item),
             Cardinality::Opt => quote!(Option<#item>),
-            Cardinality::Many => quote!(Vec<::icydb::view::ListPatch<#item>>),
+            Cardinality::Many => quote!(Vec<::icydb::patch::ListPatch<#item>>),
         }
         .into()
     }

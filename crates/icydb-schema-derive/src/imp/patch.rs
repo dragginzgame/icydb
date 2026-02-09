@@ -1,48 +1,48 @@
 use crate::prelude::*;
 
 ///
-/// UpdateViewTrait
+/// MergePatchTrait
 ///
 
-pub struct UpdateViewTrait {}
+pub struct MergePatchTrait {}
 
-impl Imp<Entity> for UpdateViewTrait {
+impl Imp<Entity> for MergePatchTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        Some(update_impl_fields(node, |n| {
+        Some(merge_impl_fields(node, |n| {
             n.iter_editable_fields().map(|f| f.ident.clone()).collect()
         }))
     }
 }
 
-impl Imp<Record> for UpdateViewTrait {
+impl Imp<Record> for MergePatchTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(update_impl_fields(node, |n| {
+        Some(merge_impl_fields(node, |n| {
             n.fields.iter().map(|f| f.ident.clone()).collect()
         }))
     }
 }
 
-impl Imp<List> for UpdateViewTrait {
+impl Imp<List> for MergePatchTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
-        Some(update_impl_delegate(node))
+        Some(merge_impl_delegate(node))
     }
 }
 
-impl Imp<Set> for UpdateViewTrait {
+impl Imp<Set> for MergePatchTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
-        Some(update_impl_delegate(node))
+        Some(merge_impl_delegate(node))
     }
 }
 
-impl Imp<Map> for UpdateViewTrait {
+impl Imp<Map> for MergePatchTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
-        Some(update_impl_delegate(node))
+        Some(merge_impl_delegate(node))
     }
 }
 
-impl Imp<Newtype> for UpdateViewTrait {
+impl Imp<Newtype> for MergePatchTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
-        Some(update_impl_delegate(node))
+        Some(merge_impl_delegate(node))
     }
 }
 
@@ -50,25 +50,25 @@ impl Imp<Newtype> for UpdateViewTrait {
 /// Enum
 ///
 
-impl Imp<Enum> for UpdateViewTrait {
+impl Imp<Enum> for MergePatchTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
-        let update_ident = node.update_ident();
+        let patch_ident = node.update_ident();
 
         let q = quote! {
-            type UpdateViewType = #update_ident;
+            type Patch = #patch_ident;
 
             fn merge(
                 &mut self,
-                update: Self::UpdateViewType,
-            ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
-                *self = update.into();
+                patch: Self::Patch,
+            ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
+                *self = patch.into();
 
                 Ok(())
             }
         };
 
         Some(TraitStrategy::from_impl(
-            Implementor::new(node.def(), TraitKind::UpdateView)
+            Implementor::new(node.def(), TraitKind::MergePatch)
                 .set_tokens(q)
                 .to_token_stream(),
         ))
@@ -79,17 +79,17 @@ impl Imp<Enum> for UpdateViewTrait {
 /// Tuple
 ///
 
-impl Imp<Tuple> for UpdateViewTrait {
+impl Imp<Tuple> for MergePatchTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
-        let update_ident = node.update_ident();
+        let patch_ident = node.update_ident();
         let values = &node.values;
 
         // paths
         let merge_parts = values.iter().enumerate().map(|(i, _)| {
             let idx = syn::Index::from(i);
             quote! {
-                if let Some(v) = update.#idx {
-                    ::icydb::traits::UpdateView::merge(&mut next.#idx, v)
+                if let Some(v) = patch.#idx {
+                    ::icydb::patch::MergePatch::merge(&mut next.#idx, v)
                         .map_err(|err| err.with_index(#i))?;
                 }
             }
@@ -97,12 +97,12 @@ impl Imp<Tuple> for UpdateViewTrait {
 
         // quote
         let q = quote! {
-            type UpdateViewType = #update_ident;
+            type Patch = #patch_ident;
 
             fn merge(
                 &mut self,
-                update: Self::UpdateViewType,
-            ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
+                patch: Self::Patch,
+            ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
                 let mut next = self.clone();
                 #(#merge_parts)*
                 *self = next;
@@ -112,7 +112,7 @@ impl Imp<Tuple> for UpdateViewTrait {
         };
 
         Some(TraitStrategy::from_impl(
-            Implementor::new(node.def(), TraitKind::UpdateView)
+            Implementor::new(node.def(), TraitKind::MergePatch)
                 .set_tokens(q)
                 .to_token_stream(),
         ))
@@ -123,12 +123,12 @@ impl Imp<Tuple> for UpdateViewTrait {
 /// Shared Generators
 ///
 
-fn update_impl_fields<N, F>(node: &N, iter_fields: F) -> TraitStrategy
+fn merge_impl_fields<N, F>(node: &N, iter_fields: F) -> TraitStrategy
 where
     N: HasType,
     F: Fn(&N) -> Vec<syn::Ident>,
 {
-    let update_ident = node.update_ident();
+    let patch_ident = node.update_ident();
     let field_idents = iter_fields(node);
 
     // paths
@@ -136,8 +136,8 @@ where
         .iter()
         .map(|ident| {
             quote! {
-                if let Some(v) = update.#ident {
-                    ::icydb::traits::UpdateView::merge(&mut next.#ident, v)
+                if let Some(v) = patch.#ident {
+                    ::icydb::patch::MergePatch::merge(&mut next.#ident, v)
                         .map_err(|err| err.with_field(stringify!(#ident)))?;
                 }
             }
@@ -145,12 +145,12 @@ where
         .collect();
 
     let q = quote! {
-        type UpdateViewType = #update_ident;
+        type Patch = #patch_ident;
 
         fn merge(
             &mut self,
-            update: Self::UpdateViewType,
-        ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
+            patch: Self::Patch,
+        ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
             let mut next = self.clone();
             #(#merge_pairs)*
             *self = next;
@@ -159,31 +159,31 @@ where
         }
     };
 
-    let update_impl = Implementor::new(node.def(), TraitKind::UpdateView)
+    let merge_impl = Implementor::new(node.def(), TraitKind::MergePatch)
         .set_tokens(q)
         .to_token_stream();
 
     let tokens = quote! {
-        #update_impl
+        #merge_impl
     };
 
     TraitStrategy::from_impl(tokens)
 }
 
-fn update_impl_delegate(node: &impl HasType) -> TraitStrategy {
-    let update_ident = node.update_ident();
+fn merge_impl_delegate(node: &impl HasType) -> TraitStrategy {
+    let patch_ident = node.update_ident();
 
     // quote
     let q = quote! {
-        type UpdateViewType = #update_ident;
+        type Patch = #patch_ident;
 
         fn merge(
             &mut self,
-            update: Self::UpdateViewType,
-        ) -> ::core::result::Result<(), ::icydb::traits::ViewPatchError> {
+            patch: Self::Patch,
+        ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
             // Forward to the inner collection (Vec, BTreeSet, BTreeMap)
             let mut next = self.clone();
-            ::icydb::traits::UpdateView::merge(&mut next.0, update)
+            ::icydb::patch::MergePatch::merge(&mut next.0, patch)
                 .map_err(|err| err.with_index(0))?;
             *self = next;
 
@@ -192,7 +192,7 @@ fn update_impl_delegate(node: &impl HasType) -> TraitStrategy {
     };
 
     TraitStrategy::from_impl(
-        Implementor::new(node.def(), TraitKind::UpdateView)
+        Implementor::new(node.def(), TraitKind::MergePatch)
             .set_tokens(q)
             .to_token_stream(),
     )

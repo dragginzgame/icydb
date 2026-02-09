@@ -1,7 +1,8 @@
 use crate::{
+    patch::AtomicPatch,
     traits::{
         AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
-        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -131,6 +132,8 @@ impl AsView for Date {
     }
 }
 
+impl AtomicPatch for Date {}
+
 impl Debug for Date {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Date({self})")
@@ -223,16 +226,6 @@ impl<'de> Deserialize<'de> for Date {
     {
         let s = String::deserialize(deserializer)?;
         Self::parse(&s).ok_or_else(|| serde::de::Error::custom(format!("invalid date: {s}")))
-    }
-}
-
-impl UpdateView for Date {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
     }
 }
 

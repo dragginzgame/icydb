@@ -1,7 +1,8 @@
 use crate::{
+    patch::AtomicPatch,
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -70,6 +71,8 @@ impl AsView for Blob {
     }
 }
 
+impl AtomicPatch for Blob {}
+
 impl Display for Blob {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[blob ({} bytes)]", self.0.len())
@@ -124,16 +127,6 @@ impl Inner<Self> for Blob {
 impl SanitizeAuto for Blob {}
 
 impl SanitizeCustom for Blob {}
-
-impl UpdateView for Blob {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
-    }
-}
 
 impl ValidateAuto for Blob {}
 

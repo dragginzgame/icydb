@@ -1,8 +1,4 @@
-use crate::{
-    traits::AsView,
-    view::{ListPatch, MapPatch, SetPatch},
-};
-use candid::CandidType;
+use crate::patch::{AtomicPatch, ListPatch, MapPatch, SetPatch};
 use std::{
     collections::{
         BTreeMap, BTreeSet, HashMap, HashSet, btree_map::Entry as BTreeMapEntry,
@@ -13,13 +9,35 @@ use std::{
 use thiserror::Error as ThisError;
 
 ///
-/// ViewPatchError
+/// MergePatch
+///
+
+pub trait MergePatch {
+    type Patch;
+
+    fn merge(&mut self, patch: Self::Patch) -> Result<(), MergePatchError>;
+}
+
+impl<T> MergePatch for T
+where
+    T: AtomicPatch,
+{
+    type Patch = Self;
+
+    fn merge(&mut self, patch: Self) -> Result<(), MergePatchError> {
+        *self = patch;
+        Ok(())
+    }
+}
+
+///
+/// MergePatchError
 ///
 /// Structured failures for user-driven patch application.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
-pub enum ViewPatchError {
+pub enum MergePatchError {
     #[error("invalid patch shape: expected {expected}, found {actual}")]
     InvalidShape {
         expected: &'static str,
@@ -40,7 +58,7 @@ pub enum ViewPatchError {
     },
 }
 
-impl ViewPatchError {
+impl MergePatchError {
     /// Prepend a field segment to the merge error path.
     #[must_use]
     pub fn with_field(self, field: impl AsRef<str>) -> Self {
@@ -96,41 +114,27 @@ impl ViewPatchError {
     }
 }
 
-///
-/// UpdateView
-///
-
-pub trait UpdateView: AsView {
-    /// Payload accepted when updating this value.
-    type UpdateViewType: CandidType + Default;
-
-    /// Merge the update payload into self.
-    fn merge(&mut self, _update: Self::UpdateViewType) -> Result<(), ViewPatchError> {
-        Ok(())
-    }
-}
-
-impl<T> UpdateView for Option<T>
+impl<T> MergePatch for Option<T>
 where
-    T: UpdateView + Default,
+    T: MergePatch + Default,
 {
-    type UpdateViewType = Option<T::UpdateViewType>;
+    type Patch = Option<T::Patch>;
 
-    fn merge(&mut self, update: Self::UpdateViewType) -> Result<(), ViewPatchError> {
-        match update {
+    fn merge(&mut self, patch: Self::Patch) -> Result<(), MergePatchError> {
+        match patch {
             None => {
-                // Field was provided (outer Some), inner None means explicit delete
+                // Explicit delete
                 *self = None;
             }
-            Some(inner_update) => {
+            Some(inner_patch) => {
                 if let Some(inner_value) = self.as_mut() {
                     inner_value
-                        .merge(inner_update)
+                        .merge(inner_patch)
                         .map_err(|err| err.with_field("value"))?;
                 } else {
                     let mut new_value = T::default();
                     new_value
-                        .merge(inner_update)
+                        .merge(inner_patch)
                         .map_err(|err| err.with_field("value"))?;
                     *self = Some(new_value);
                 }
@@ -141,14 +145,13 @@ where
     }
 }
 
-impl<T> UpdateView for Vec<T>
+impl<T> MergePatch for Vec<T>
 where
-    T: UpdateView + Default,
+    T: MergePatch + Default,
 {
-    // Payload is T::UpdateViewType, which *is* CandidType
-    type UpdateViewType = Vec<ListPatch<T::UpdateViewType>>;
+    type Patch = Vec<ListPatch<T::Patch>>;
 
-    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), ViewPatchError> {
+    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
         for patch in patches {
             match patch {
                 ListPatch::Update { index, patch } => {
@@ -156,18 +159,21 @@ where
                         elem.merge(patch).map_err(|err| err.with_index(index))?;
                     }
                 }
+
                 ListPatch::Insert { index, value } => {
                     let idx = index.min(self.len());
                     let mut elem = T::default();
                     elem.merge(value).map_err(|err| err.with_index(idx))?;
                     self.insert(idx, elem);
                 }
+
                 ListPatch::Push { value } => {
                     let idx = self.len();
                     let mut elem = T::default();
                     elem.merge(value).map_err(|err| err.with_index(idx))?;
                     self.push(elem);
                 }
+
                 ListPatch::Overwrite { values } => {
                     self.clear();
                     self.reserve(values.len());
@@ -178,11 +184,13 @@ where
                         self.push(elem);
                     }
                 }
+
                 ListPatch::Remove { index } => {
                     if index < self.len() {
                         self.remove(index);
                     }
                 }
+
                 ListPatch::Clear => self.clear(),
             }
         }
@@ -191,14 +199,14 @@ where
     }
 }
 
-impl<T, S> UpdateView for HashSet<T, S>
+impl<T, S> MergePatch for HashSet<T, S>
 where
-    T: UpdateView + Clone + Default + Eq + Hash,
+    T: MergePatch + Clone + Default + Eq + Hash,
     S: BuildHasher + Default,
 {
-    type UpdateViewType = Vec<SetPatch<T::UpdateViewType>>;
+    type Patch = Vec<SetPatch<T::Patch>>;
 
-    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), ViewPatchError> {
+    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
         for patch in patches {
             match patch {
                 SetPatch::Insert(value) => {
@@ -206,11 +214,13 @@ where
                     elem.merge(value).map_err(|err| err.with_field("insert"))?;
                     self.insert(elem);
                 }
+
                 SetPatch::Remove(value) => {
                     let mut elem = T::default();
                     elem.merge(value).map_err(|err| err.with_field("remove"))?;
                     self.remove(&elem);
                 }
+
                 SetPatch::Overwrite { values } => {
                     self.clear();
 
@@ -221,6 +231,7 @@ where
                         self.insert(elem);
                     }
                 }
+
                 SetPatch::Clear => self.clear(),
             }
         }
@@ -237,16 +248,16 @@ enum MapPatchOp<K, V> {
     Clear,
 }
 
-impl<K, V, S> UpdateView for HashMap<K, V, S>
+impl<K, V, S> MergePatch for HashMap<K, V, S>
 where
-    K: UpdateView + Clone + Default + Eq + Hash,
-    V: UpdateView + Default,
+    K: MergePatch + Clone + Default + Eq + Hash,
+    V: MergePatch + Default,
     S: BuildHasher + Default,
 {
-    type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
+    type Patch = Vec<MapPatch<K::Patch, V::Patch>>;
 
     #[expect(clippy::too_many_lines)]
-    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), ViewPatchError> {
+    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
         // Phase 1: decode patch payload into concrete keys.
         let mut ops = Vec::with_capacity(patches.len());
         for patch in patches {
@@ -289,14 +300,14 @@ where
             match op {
                 MapPatchOp::Clear => {
                     if saw_clear {
-                        return Err(ViewPatchError::InvalidShape {
+                        return Err(MergePatchError::InvalidShape {
                             expected: "at most one Clear operation per map patch batch",
                             actual: "duplicate Clear operations",
                         });
                     }
                     saw_clear = true;
                     if ops.len() != 1 {
-                        return Err(ViewPatchError::CardinalityViolation {
+                        return Err(MergePatchError::CardinalityViolation {
                             expected: 1,
                             actual: ops.len(),
                         });
@@ -306,13 +317,13 @@ where
                 | MapPatchOp::Remove { key }
                 | MapPatchOp::Replace { key, .. } => {
                     if saw_clear {
-                        return Err(ViewPatchError::InvalidShape {
+                        return Err(MergePatchError::InvalidShape {
                             expected: "Clear must be the only operation in a map patch batch",
                             actual: "Clear combined with key operation",
                         });
                     }
                     if !touched.insert(key.clone()) {
-                        return Err(ViewPatchError::InvalidShape {
+                        return Err(MergePatchError::InvalidShape {
                             expected: "unique key operations per map patch batch",
                             actual: "duplicate key operation",
                         });
@@ -320,6 +331,7 @@ where
                 }
             }
         }
+
         if saw_clear {
             self.clear();
             return Ok(());
@@ -342,13 +354,15 @@ where
                         slot.insert(value_value);
                     }
                 },
+
                 MapPatchOp::Remove { key } => {
                     if self.remove(&key).is_none() {
-                        return Err(ViewPatchError::MissingKey {
+                        return Err(MergePatchError::MissingKey {
                             operation: "remove",
                         });
                     }
                 }
+
                 MapPatchOp::Replace { key, value } => match self.entry(key) {
                     HashMapEntry::Occupied(mut slot) => {
                         slot.get_mut()
@@ -356,13 +370,14 @@ where
                             .map_err(|err| err.with_field("replace").with_field("value"))?;
                     }
                     HashMapEntry::Vacant(_) => {
-                        return Err(ViewPatchError::MissingKey {
+                        return Err(MergePatchError::MissingKey {
                             operation: "replace",
                         });
                     }
                 },
+
                 MapPatchOp::Clear => {
-                    return Err(ViewPatchError::InvalidShape {
+                    return Err(MergePatchError::InvalidShape {
                         expected: "Clear to be handled before apply phase",
                         actual: "Clear reached apply phase",
                     });
@@ -374,13 +389,13 @@ where
     }
 }
 
-impl<T> UpdateView for BTreeSet<T>
+impl<T> MergePatch for BTreeSet<T>
 where
-    T: UpdateView + Clone + Default + Ord,
+    T: MergePatch + Clone + Default + Ord,
 {
-    type UpdateViewType = Vec<SetPatch<T::UpdateViewType>>;
+    type Patch = Vec<SetPatch<T::Patch>>;
 
-    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), ViewPatchError> {
+    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
         for patch in patches {
             match patch {
                 SetPatch::Insert(value) => {
@@ -411,15 +426,15 @@ where
     }
 }
 
-impl<K, V> UpdateView for BTreeMap<K, V>
+impl<K, V> MergePatch for BTreeMap<K, V>
 where
-    K: UpdateView + Clone + Default + Ord,
-    V: UpdateView + Default,
+    K: MergePatch + Clone + Default + Ord,
+    V: MergePatch + Default,
 {
-    type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
+    type Patch = Vec<MapPatch<K::Patch, V::Patch>>;
 
     #[expect(clippy::too_many_lines)]
-    fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), ViewPatchError> {
+    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
         // Phase 1: decode patch payload into concrete keys.
         let mut ops = Vec::with_capacity(patches.len());
         for patch in patches {
@@ -462,14 +477,14 @@ where
             match op {
                 MapPatchOp::Clear => {
                     if saw_clear {
-                        return Err(ViewPatchError::InvalidShape {
+                        return Err(MergePatchError::InvalidShape {
                             expected: "at most one Clear operation per map patch batch",
                             actual: "duplicate Clear operations",
                         });
                     }
                     saw_clear = true;
                     if ops.len() != 1 {
-                        return Err(ViewPatchError::CardinalityViolation {
+                        return Err(MergePatchError::CardinalityViolation {
                             expected: 1,
                             actual: ops.len(),
                         });
@@ -479,13 +494,13 @@ where
                 | MapPatchOp::Remove { key }
                 | MapPatchOp::Replace { key, .. } => {
                     if saw_clear {
-                        return Err(ViewPatchError::InvalidShape {
+                        return Err(MergePatchError::InvalidShape {
                             expected: "Clear must be the only operation in a map patch batch",
                             actual: "Clear combined with key operation",
                         });
                     }
                     if !touched.insert(key.clone()) {
-                        return Err(ViewPatchError::InvalidShape {
+                        return Err(MergePatchError::InvalidShape {
                             expected: "unique key operations per map patch batch",
                             actual: "duplicate key operation",
                         });
@@ -517,7 +532,7 @@ where
                 },
                 MapPatchOp::Remove { key } => {
                     if self.remove(&key).is_none() {
-                        return Err(ViewPatchError::MissingKey {
+                        return Err(MergePatchError::MissingKey {
                             operation: "remove",
                         });
                     }
@@ -529,13 +544,13 @@ where
                             .map_err(|err| err.with_field("replace").with_field("value"))?;
                     }
                     BTreeMapEntry::Vacant(_) => {
-                        return Err(ViewPatchError::MissingKey {
+                        return Err(MergePatchError::MissingKey {
                             operation: "replace",
                         });
                     }
                 },
                 MapPatchOp::Clear => {
-                    return Err(ViewPatchError::InvalidShape {
+                    return Err(MergePatchError::InvalidShape {
                         expected: "Clear to be handled before apply phase",
                         actual: "Clear reached apply phase",
                     });
@@ -550,15 +565,14 @@ where
 macro_rules! impl_update_view {
     ($($type:ty),*) => {
         $(
-            impl UpdateView for $type {
-                type UpdateViewType = Self;
+            impl MergePatch for $type {
+                type Patch = Self;
 
                 fn merge(
                     &mut self,
-                    update: Self::UpdateViewType,
-                ) -> Result<(), ViewPatchError> {
-                    *self = update;
-
+                    patch: Self::Patch,
+                ) -> Result<(), MergePatchError> {
+                    *self = patch;
                     Ok(())
                 }
             }

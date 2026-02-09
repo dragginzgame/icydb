@@ -1,7 +1,8 @@
 use crate::{
+    patch::AtomicPatch,
     traits::{
         AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Principal, Ulid},
     value::Value,
@@ -110,6 +111,8 @@ impl AsView for Subaccount {
     }
 }
 
+impl AtomicPatch for Subaccount {}
+
 impl Display for Subaccount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in &self.0 {
@@ -202,16 +205,6 @@ impl PartialEq<SubaccountBytes> for Subaccount {
 impl SanitizeAuto for Subaccount {}
 
 impl SanitizeCustom for Subaccount {}
-
-impl UpdateView for Subaccount {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
-    }
-}
 
 impl ValidateAuto for Subaccount {}
 

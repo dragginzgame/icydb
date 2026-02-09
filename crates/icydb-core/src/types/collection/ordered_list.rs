@@ -1,10 +1,10 @@
 use crate::{
+    patch::{ListPatch, MergePatch, MergePatchError},
     traits::{
-        AsView, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto,
-        ValidateCustom, ViewPatchError, Visitable,
+        AsView, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, Visitable,
     },
     value::Value,
-    view::ListPatch,
     visitor::{VisitorContext, VisitorCore, VisitorMutCore, perform_visit, perform_visit_mut},
 };
 use candid::CandidType;
@@ -112,19 +112,6 @@ impl<T> OrderedList<T> {
     }
 }
 
-impl<T> OrderedList<T>
-where
-    T: UpdateView + Default,
-{
-    /// Apply positional patches using `ListPatch` semantics.
-    pub fn apply_patches(
-        &mut self,
-        patches: Vec<ListPatch<T::UpdateViewType>>,
-    ) -> Result<(), ViewPatchError> {
-        self.merge(patches)
-    }
-}
-
 impl<T: AsView> AsView for OrderedList<T> {
     type ViewType = Vec<T::ViewType>;
 
@@ -199,6 +186,58 @@ impl<'a, T> IntoIterator for &'a mut OrderedList<T> {
     }
 }
 
+impl<T> MergePatch for OrderedList<T>
+where
+    T: MergePatch + Default,
+{
+    type Patch = Vec<ListPatch<<T as MergePatch>::Patch>>;
+
+    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
+        for patch in patches {
+            match patch {
+                ListPatch::Update { index, patch } => {
+                    if let Some(elem) = self.get_mut(index) {
+                        elem.merge(patch).map_err(|err| err.with_index(index))?;
+                    }
+                }
+
+                ListPatch::Insert { index, value } => {
+                    let idx = index.min(self.len());
+                    let mut elem = T::default();
+                    elem.merge(value).map_err(|err| err.with_index(idx))?;
+                    self.insert(idx, elem);
+                }
+
+                ListPatch::Push { value } => {
+                    let idx = self.len();
+                    let mut elem = T::default();
+                    elem.merge(value).map_err(|err| err.with_index(idx))?;
+                    self.push(elem);
+                }
+
+                ListPatch::Overwrite { values } => {
+                    self.clear();
+                    for (index, value) in values.into_iter().enumerate() {
+                        let mut elem = T::default();
+                        elem.merge(value).map_err(|err| err.with_index(index))?;
+                        self.push(elem);
+                    }
+                }
+
+                ListPatch::Remove { index } => {
+                    self.remove(index);
+                }
+
+                ListPatch::Clear => {
+                    self.clear();
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl<T: SanitizeAuto> SanitizeAuto for OrderedList<T> {
     fn sanitize_self(&mut self, ctx: &mut dyn VisitorContext) {
         for v in self.iter_mut() {
@@ -245,55 +284,6 @@ impl<T: Visitable> Visitable for OrderedList<T> {
     }
 }
 
-impl<T> UpdateView for OrderedList<T>
-where
-    T: UpdateView + Default,
-{
-    type UpdateViewType = Vec<ListPatch<T::UpdateViewType>>;
-
-    fn merge(
-        &mut self,
-        patches: Self::UpdateViewType,
-    ) -> Result<(), crate::traits::ViewPatchError> {
-        for patch in patches {
-            match patch {
-                ListPatch::Update { index, patch } => {
-                    if let Some(elem) = self.get_mut(index) {
-                        elem.merge(patch).map_err(|err| err.with_index(index))?;
-                    }
-                }
-                ListPatch::Insert { index, value } => {
-                    let idx = index.min(self.len());
-                    let mut elem = T::default();
-                    elem.merge(value).map_err(|err| err.with_index(idx))?;
-                    self.insert(index, elem);
-                }
-                ListPatch::Push { value } => {
-                    let idx = self.len();
-                    let mut elem = T::default();
-                    elem.merge(value).map_err(|err| err.with_index(idx))?;
-                    self.push(elem);
-                }
-                ListPatch::Overwrite { values } => {
-                    self.clear();
-
-                    for (index, value) in values.into_iter().enumerate() {
-                        let mut elem = T::default();
-                        elem.merge(value).map_err(|err| err.with_index(index))?;
-                        self.push(elem);
-                    }
-                }
-                ListPatch::Remove { index } => {
-                    self.remove(index);
-                }
-                ListPatch::Clear => self.clear(),
-            }
-        }
-
-        Ok(())
-    }
-}
-
 ///
 /// TESTS
 ///
@@ -301,28 +291,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn ordered_list_patches_are_positional() {
-        let mut list: OrderedList<u8> = vec![10, 20, 30].into();
-        let patches = vec![
-            ListPatch::Update {
-                index: 1,
-                patch: 99,
-            },
-            ListPatch::Insert {
-                index: 1,
-                value: 11,
-            },
-            ListPatch::Remove { index: 0 },
-        ];
-
-        list.apply_patches(patches)
-            .expect("ordered list patch merge should succeed");
-
-        let expected: OrderedList<u8> = vec![11, 99, 30].into();
-        assert_eq!(list, expected);
-    }
 
     #[test]
     fn ordered_list_retain_filters_items() {

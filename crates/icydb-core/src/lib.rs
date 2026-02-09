@@ -7,13 +7,13 @@ pub mod db;
 pub mod error;
 pub mod model;
 pub mod obs;
+pub mod patch;
 pub mod sanitize;
 pub mod serialize;
 pub mod traits;
 pub mod types;
 pub mod validate;
 pub mod value;
-pub mod view;
 pub mod visitor;
 
 #[cfg(test)]

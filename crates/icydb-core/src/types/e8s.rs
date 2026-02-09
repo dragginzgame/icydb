@@ -1,7 +1,8 @@
 use crate::{
+    patch::AtomicPatch,
     traits::{
         AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
-        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -174,6 +175,8 @@ impl AsView for E8s {
     }
 }
 
+impl AtomicPatch for E8s {}
+
 impl Div for E8s {
     type Output = Self;
 
@@ -314,16 +317,6 @@ impl NumToPrimitive for E8s {
 impl SanitizeAuto for E8s {}
 
 impl SanitizeCustom for E8s {}
-
-impl UpdateView for E8s {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
-    }
-}
 
 impl ValidateAuto for E8s {}
 

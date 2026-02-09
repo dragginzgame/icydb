@@ -73,7 +73,7 @@ impl HasTraits for Record {
             TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
-            TraitKind::UpdateView => UpdateViewTrait::strategy(self),
+            TraitKind::MergePatch => MergePatchTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 

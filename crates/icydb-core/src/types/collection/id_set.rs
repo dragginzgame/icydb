@@ -1,10 +1,9 @@
 use crate::{
+    patch::{MergePatch, MergePatchError, SetPatch},
     traits::{
-        AsView, EntityKey, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        ViewPatchError, Visitable,
+        AsView, EntityKey, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Id,
-    view::SetPatch,
     visitor::{VisitorContext, VisitorCore, VisitorMutCore, perform_visit},
 };
 use candid::CandidType;
@@ -120,20 +119,6 @@ where
     }
 }
 
-impl<E> IdSet<E>
-where
-    E: EntityKey,
-    Id<E>: UpdateView + Default,
-{
-    /// Apply set patches, enforcing primary-key uniqueness and deterministic ordering.
-    pub fn apply_patches(
-        &mut self,
-        patches: Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>,
-    ) -> Result<(), ViewPatchError> {
-        self.merge(patches)
-    }
-}
-
 impl<E> AsView for IdSet<E>
 where
     E: EntityKey,
@@ -191,6 +176,48 @@ where
     }
 }
 
+impl<E> MergePatch for IdSet<E>
+where
+    E: EntityKey,
+    Id<E>: MergePatch + Default,
+{
+    type Patch = Vec<SetPatch<<Id<E> as MergePatch>::Patch>>;
+
+    fn merge(&mut self, patches: Self::Patch) -> Result<(), MergePatchError> {
+        for patch in patches {
+            match patch {
+                SetPatch::Insert(value) => {
+                    let mut id = Id::<E>::default();
+                    id.merge(value).map_err(|err| err.with_field("insert"))?;
+                    self.insert(id);
+                }
+
+                SetPatch::Remove(value) => {
+                    let mut id = Id::<E>::default();
+                    id.merge(value).map_err(|err| err.with_field("remove"))?;
+                    self.remove(&id);
+                }
+
+                SetPatch::Overwrite { values } => {
+                    self.clear();
+                    for (index, value) in values.into_iter().enumerate() {
+                        let mut id = Id::<E>::default();
+                        id.merge(value)
+                            .map_err(|err| err.with_field("overwrite").with_index(index))?;
+                        self.insert(id);
+                    }
+                }
+
+                SetPatch::Clear => {
+                    self.clear();
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl<E> SanitizeAuto for IdSet<E> where E: EntityKey {}
 impl<E> SanitizeCustom for IdSet<E> where E: EntityKey {}
 
@@ -242,45 +269,5 @@ where
 
     fn drive_mut(&mut self, _visitor: &mut dyn VisitorMutCore) {
         // Intentionally empty: mutating identities can invalidate canonical ordering.
-    }
-}
-
-impl<E> UpdateView for IdSet<E>
-where
-    E: EntityKey,
-    Id<E>: UpdateView + Default,
-{
-    type UpdateViewType = Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>;
-
-    fn merge(
-        &mut self,
-        patches: Self::UpdateViewType,
-    ) -> Result<(), crate::traits::ViewPatchError> {
-        for patch in patches {
-            match patch {
-                SetPatch::Insert(value) => {
-                    let mut id = Id::<E>::default();
-                    id.merge(value).map_err(|err| err.with_field("insert"))?;
-                    self.insert(id);
-                }
-                SetPatch::Remove(value) => {
-                    let mut id = Id::<E>::default();
-                    id.merge(value).map_err(|err| err.with_field("remove"))?;
-                    self.remove(&id);
-                }
-                SetPatch::Overwrite { values } => {
-                    self.clear();
-                    for (index, value) in values.into_iter().enumerate() {
-                        let mut id = Id::<E>::default();
-                        id.merge(value)
-                            .map_err(|err| err.with_field("overwrite").with_index(index))?;
-                        self.insert(id);
-                    }
-                }
-                SetPatch::Clear => self.clear(),
-            }
-        }
-
-        Ok(())
     }
 }

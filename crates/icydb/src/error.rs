@@ -3,7 +3,7 @@ use derive_more::Display;
 use icydb_core::{
     db::{query::QueryError, response::ResponseError},
     error::{ErrorOrigin as CoreErrorOrigin, InternalError},
-    traits::ViewPatchError,
+    patch::MergePatchError,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
@@ -154,13 +154,13 @@ pub enum PatchError {
     CardinalityViolation,
 }
 
-impl From<ViewPatchError> for PatchError {
-    fn from(err: ViewPatchError) -> Self {
+impl From<MergePatchError> for PatchError {
+    fn from(err: MergePatchError) -> Self {
         match err {
-            ViewPatchError::InvalidShape { .. } => Self::InvalidShape,
-            ViewPatchError::MissingKey { .. } => Self::MissingKey,
-            ViewPatchError::CardinalityViolation { .. } => Self::CardinalityViolation,
-            ViewPatchError::Context { source, .. } => (*source).into(),
+            MergePatchError::InvalidShape { .. } => Self::InvalidShape,
+            MergePatchError::MissingKey { .. } => Self::MissingKey,
+            MergePatchError::CardinalityViolation { .. } => Self::CardinalityViolation,
+            MergePatchError::Context { source, .. } => (*source).into(),
         }
     }
 }

@@ -1,3 +1,4 @@
+use candid::CandidType;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     hash::{BuildHasher, Hash},
@@ -198,4 +199,27 @@ impl AsView for f64 {
             0.0
         }
     }
+}
+
+///
+/// CreateView
+///
+
+pub trait CreateView: AsView {
+    /// Payload accepted when creating this value.
+    ///
+    /// This is often equal to ViewType, but may differ
+    /// (e.g. Option<T>, defaults, omissions).
+    type CreateViewType: CandidType + Default;
+
+    fn from_create_view(view: Self::CreateViewType) -> Self;
+}
+
+///
+/// UpdateView
+///
+
+pub trait UpdateView: AsView {
+    /// Payload accepted when updating this value.
+    type UpdateViewType: CandidType + Default;
 }

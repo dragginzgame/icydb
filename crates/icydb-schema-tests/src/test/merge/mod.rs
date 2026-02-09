@@ -69,13 +69,10 @@ pub struct MergeTuple {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::{
-        traits::{UpdateView, ViewPatchError},
-        view::{ListPatch, MapPatch, SetPatch},
-    };
+    use icydb::patch::{ListPatch, MapPatch, MergePatch, MergePatchError, SetPatch};
     use std::collections::{HashMap, HashSet};
 
-    type Update<T> = <T as UpdateView>::UpdateViewType;
+    type Patch<T> = <T as MergePatch>::Patch;
 
     fn profile(bio: &str, visits: u32, favorites: &[u32]) -> MergeProfile {
         MergeProfile {
@@ -105,7 +102,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut update: Update<MergeEntity> = Default::default();
+        let mut update: Patch<MergeEntity> = Default::default();
         update.name = Some("updated".into());
         update.nickname = Some(Some("nick".into()));
         update.scores = Some(vec![
@@ -182,7 +179,7 @@ mod tests {
         };
 
         // Leaving an option unset in the update should not change it.
-        let update: Update<MergeEntity> = MergeEntityUpdate::default();
+        let update: Patch<MergeEntity> = MergeEntityUpdate::default();
         entity
             .merge(update)
             .expect("entity merge update should preserve existing optional values");
@@ -190,7 +187,7 @@ mod tests {
         assert!(entity.opt_profile.is_some());
 
         // Setting `Some(None)` should clear the optional field.
-        let mut update: Update<MergeEntity> = Default::default();
+        let mut update: Patch<MergeEntity> = Default::default();
         update.nickname = Some(None);
         update.opt_profile = Some(None);
         entity
@@ -205,7 +202,7 @@ mod tests {
     #[allow(clippy::field_reassign_with_default)]
     fn record_merge_preserves_unset_fields() {
         let mut profile = profile("start", 1, &[1, 2, 3]);
-        let mut update: Update<MergeProfile> = Default::default();
+        let mut update: Patch<MergeProfile> = Default::default();
         update.bio = Some("updated".into());
         profile
             .merge(update)
@@ -233,7 +230,7 @@ mod tests {
 
         let mut settings =
             MergeSettings::from(vec![("keep".to_string(), 1u32), ("drop".to_string(), 2u32)]);
-        let patch: Update<MergeSettings> = vec![
+        let patch: Patch<MergeSettings> = vec![
             MapPatch::Remove {
                 key: "drop".to_string(),
             },
@@ -273,7 +270,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut update: Update<MergeEntity> = Default::default();
+        let mut update: Patch<MergeEntity> = Default::default();
         update.scores = Some(vec![ListPatch::Overwrite {
             values: vec![9u32, 8, 7],
         }]);
@@ -309,7 +306,7 @@ mod tests {
             ..Default::default()
         };
 
-        let mut update: Update<MergeEntity> = Default::default();
+        let mut update: Patch<MergeEntity> = Default::default();
         update.settings = Some(vec![MapPatch::Remove {
             key: "missing".to_string(),
         }]);
@@ -321,7 +318,7 @@ mod tests {
         assert_eq!(err.path(), Some("settings[0]"));
         assert!(matches!(
             err.leaf(),
-            ViewPatchError::MissingKey {
+            MergePatchError::MissingKey {
                 operation: "remove"
             }
         ));

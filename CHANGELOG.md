@@ -7,12 +7,27 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
+## [0.7.11] – 2026-02-09 - MergePatch Derive Consolidation
+
+### 🥝 Added
+
+* Added `AtomicPatch` for `Unit` so newtype and wrapper patch delegation resolves through the unified `MergePatch` path.
+
+### 🛰️ Changed
+
+* Schema derives now route patch generation through `MergePatch` end-to-end (trait wiring, node dispatch, and emitted merge calls), while preserving existing `*Update` payload type names and patch shapes.
+* Generated collection patch payloads now consistently reference `::icydb::patch::{ListPatch, SetPatch, MapPatch}` and nested payloads through `<T as MergePatch>::Patch`.
+
+---
+
 ## [0.7.10] – 2026-02-09 - Facade Error Kinds
 
 ### 🪑 Added
 
 * Added structured facade error categories in `icydb::error` via `ErrorKind`, `QueryErrorKind`, `UpdateErrorKind`, `PatchError`, and `StoreErrorKind` so callers can branch on stable semantic error kinds instead of parsing messages.
 * Added explicit patch error lowering from `ViewPatchError` into facade `PatchError` variants, keeping patch failure handling user-facing and predictable.
+* Added `DbSession::patch_by_id` in the facade to execute load-merge-save in one boundary-owned operation, mapping merge failures into `ErrorKind::Update(UpdateErrorKind::Patch)` without exposing core patch errors to callers.
+* Added a dedicated `types::identity::GenerateKey` module trait so key generation capability is explicitly modeled at the identity layer.
 
 ### 🧄 Changed
 

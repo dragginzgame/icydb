@@ -1,8 +1,8 @@
 use crate::{
+    patch::AtomicPatch,
     traits::{
         AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive,
-        NumToPrimitive, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
-        Visitable,
+        NumToPrimitive, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -115,6 +115,8 @@ impl AsView for Timestamp {
     }
 }
 
+impl AtomicPatch for Timestamp {}
+
 impl EntityKeyBytes for Timestamp {
     const BYTE_LEN: usize = ::core::mem::size_of::<u64>();
 
@@ -187,16 +189,6 @@ impl NumToPrimitive for Timestamp {
 impl SanitizeAuto for Timestamp {}
 
 impl SanitizeCustom for Timestamp {}
-
-impl UpdateView for Timestamp {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
-    }
-}
 
 impl ValidateAuto for Timestamp {}
 

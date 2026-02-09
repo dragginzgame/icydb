@@ -144,7 +144,7 @@ impl HasTraits for Newtype {
             TraitKind::PartialEq => PartialEqTrait::strategy(self).map(|s| s.with_derive(t)),
             TraitKind::PartialOrd => PartialOrdTrait::strategy(self).map(|s| s.with_derive(t)),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
-            TraitKind::UpdateView => UpdateViewTrait::strategy(self),
+            TraitKind::MergePatch => MergePatchTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 

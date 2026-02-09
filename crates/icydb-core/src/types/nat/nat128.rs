@@ -1,7 +1,8 @@
 use crate::{
+    patch::AtomicPatch,
     traits::{
         AsView, FieldValue, FieldValueKind, Inner, NumCast, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -68,6 +69,8 @@ impl AsView for Nat128 {
         view
     }
 }
+
+impl AtomicPatch for Nat128 {}
 
 impl Div for Nat128 {
     type Output = Self;
@@ -213,16 +216,6 @@ impl<'de> Deserialize<'de> for Nat128 {
         } else {
             Err(serde::de::Error::custom("expected 16 bytes"))
         }
-    }
-}
-
-impl UpdateView for Nat128 {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
     }
 }
 

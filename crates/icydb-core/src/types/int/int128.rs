@@ -1,8 +1,9 @@
 use crate::{
+    patch::AtomicPatch,
     prelude::*,
     traits::{
         AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
-        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
 };
 use candid::CandidType;
@@ -68,6 +69,8 @@ impl AsView for Int128 {
         view
     }
 }
+
+impl AtomicPatch for Int128 {}
 
 impl Div for Int128 {
     type Output = Self;
@@ -231,16 +234,6 @@ impl<'de> Deserialize<'de> for Int128 {
         } else {
             Err(serde::de::Error::custom("expected 16 bytes"))
         }
-    }
-}
-
-impl UpdateView for Int128 {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
     }
 }
 

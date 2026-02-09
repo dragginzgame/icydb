@@ -3,10 +3,11 @@ mod int128;
 pub use int128::*;
 
 use crate::{
+    patch::AtomicPatch,
     prelude::*,
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, Visitable,
     },
 };
 use candid::{CandidType, Int as WrappedInt};
@@ -91,6 +92,8 @@ impl AsView for Int {
     }
 }
 
+impl AtomicPatch for Int {}
+
 impl Div for Int {
     type Output = Self;
 
@@ -165,16 +168,6 @@ impl SanitizeCustom for Int {}
 impl Sum for Int {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.fold(Self::default(), |acc, x| acc + x)
-    }
-}
-
-impl UpdateView for Int {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
     }
 }
 

@@ -2,10 +2,12 @@ pub mod fixture;
 pub mod generator;
 
 use crate::{
+    patch::AtomicPatch,
     traits::{
         AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        ValidateAuto, ValidateCustom, Visitable,
     },
+    types::GenerateKey,
     value::Value,
     visitor::VisitorContext,
 };
@@ -133,6 +135,8 @@ impl AsView for Ulid {
     }
 }
 
+impl AtomicPatch for Ulid {}
+
 impl CandidType for Ulid {
     fn _ty() -> candid::types::Type {
         candid::types::TypeInner::Text.into()
@@ -181,6 +185,12 @@ impl FieldValue for Ulid {
 impl From<WrappedUlid> for Ulid {
     fn from(ulid: WrappedUlid) -> Self {
         Self(ulid)
+    }
+}
+
+impl GenerateKey for Ulid {
+    fn generate() -> Self {
+        Self::generate()
     }
 }
 
@@ -242,16 +252,6 @@ impl TryFrom<&[u8]> for Ulid {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Self::try_from_bytes(bytes)
-    }
-}
-
-impl UpdateView for Ulid {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
     }
 }
 

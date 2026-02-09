@@ -3,9 +3,10 @@ mod nat128;
 pub use nat128::*;
 
 use crate::{
+    patch::AtomicPatch,
     traits::{
-        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, UpdateView,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -95,6 +96,8 @@ impl AsView for Nat {
     }
 }
 
+impl AtomicPatch for Nat {}
+
 impl Div for Nat {
     type Output = Self;
 
@@ -178,16 +181,6 @@ impl TryFrom<i32> for Nat {
     fn try_from(n: i32) -> Result<Self, Self::Error> {
         let v = Self(WrappedNat::from(u32::try_from(n)?));
         Ok(v)
-    }
-}
-
-impl UpdateView for Nat {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
     }
 }
 

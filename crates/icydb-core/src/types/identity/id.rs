@@ -3,6 +3,7 @@ use crate::{
         EntityKey, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
+    types::GenerateKey,
     value::Value,
 };
 use candid::CandidType;
@@ -119,6 +120,21 @@ where
     /// - fingerprinting
     pub fn as_value(&self) -> Value {
         self.key.to_value()
+    }
+}
+
+impl<E> Id<E>
+where
+    E: EntityKey,
+    E::Key: GenerateKey,
+{
+    /// Generate a new typed primary-key value for entities whose
+    /// key type supports local generation.
+    ///
+    /// This method does not imply persistence or existence.
+    #[must_use]
+    pub fn generate() -> Self {
+        Self::from_key(E::Key::generate())
     }
 }
 

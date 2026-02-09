@@ -6,8 +6,10 @@ use crate::{
         query::{Query, ReadConsistency},
         response::{Response, WriteBatchResponse, WriteResponse},
     },
-    error::Error,
+    error::{Error, ErrorKind, ErrorOrigin, UpdateErrorKind},
+    patch::MergePatch,
     traits::{CanisterKind, EntityKind, EntityValue},
+    types::Id,
 };
 use icydb_core as core;
 
@@ -164,6 +166,32 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(WriteResponse::from_core(self.inner.update(entity)?))
+    }
+
+    /// Load one entity by id, apply a merge patch, and persist it.
+    ///
+    /// Patch semantics are handled at this facade boundary so callers do not
+    /// need to interact with core patch errors directly.
+    pub fn patch_by_id<E>(
+        &self,
+        id: Id<E>,
+        patch: <E as MergePatch>::Patch,
+    ) -> Result<WriteResponse<E>, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue + MergePatch,
+    {
+        let mut entity = self.load::<E>().by_id(id).entity()?;
+
+        entity.merge(patch).map_err(|err| {
+            let message = err.to_string();
+            Error::new(
+                ErrorKind::Update(UpdateErrorKind::Patch(err.into())),
+                ErrorOrigin::Interface,
+                message,
+            )
+        })?;
+
+        self.update(entity)
     }
 
     /// Update a batch with explicitly non-atomic semantics.

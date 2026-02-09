@@ -1,7 +1,8 @@
 use crate::{
+    patch::AtomicPatch,
     traits::{
         AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Principal, PrincipalEncodeError, Subaccount},
     value::Value,
@@ -178,6 +179,8 @@ impl AsView for Account {
     }
 }
 
+impl AtomicPatch for Account {}
+
 // Display logic is a bit convoluted and the code's in the icrc_ledger_types
 // repo that I don't really want to wrap
 impl Display for Account {
@@ -305,16 +308,6 @@ impl TryFrom<&[u8]> for Account {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Self::try_from_bytes(bytes)
-    }
-}
-
-impl UpdateView for Account {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
     }
 }
 

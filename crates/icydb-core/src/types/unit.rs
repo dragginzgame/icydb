@@ -1,7 +1,8 @@
 use crate::{
+    patch::AtomicPatch,
     traits::{
         AsView, EntityKeyBytes, FieldValue, FieldValueKind, Inner, SanitizeAuto, SanitizeCustom,
-        UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -92,9 +93,7 @@ impl SanitizeAuto for Unit {}
 
 impl SanitizeCustom for Unit {}
 
-impl UpdateView for Unit {
-    type UpdateViewType = Self;
-}
+impl AtomicPatch for Unit {}
 
 impl ValidateAuto for Unit {}
 

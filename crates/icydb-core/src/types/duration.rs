@@ -1,7 +1,8 @@
 use crate::{
+    patch::{MergePatch, MergePatchError},
     traits::{
         AsView, FieldValue, FieldValueKind, Inner, NumCast, NumFromPrimitive, NumToPrimitive,
-        SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -222,6 +223,16 @@ impl Inner<Self> for Duration {
     }
 }
 
+impl MergePatch for Duration {
+    type Patch = Self;
+
+    fn merge(&mut self, v: Self::Patch) -> Result<(), MergePatchError> {
+        *self = v;
+
+        Ok(())
+    }
+}
+
 impl NumCast for Duration {
     fn from<T: NumToPrimitive>(n: T) -> Option<Self> {
         n.to_u64().map(Self)
@@ -264,16 +275,6 @@ impl Sub for Duration {
 impl SubAssign for Duration {
     fn sub_assign(&mut self, rhs: Self) {
         self.0 = self.0.saturating_sub(rhs.0);
-    }
-}
-
-impl UpdateView for Duration {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
     }
 }
 

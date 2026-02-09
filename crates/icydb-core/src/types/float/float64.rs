@@ -1,8 +1,9 @@
 use crate::{
+    patch::AtomicPatch,
     prelude::*,
     traits::{
         AsView, FieldValue, FieldValueKind, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     visitor::VisitorContext,
 };
@@ -14,6 +15,18 @@ use std::{
     hash::{Hash, Hasher},
 };
 use thiserror::Error as ThisError;
+
+///
+/// Float64DecodeError
+///
+
+#[derive(Debug, ThisError)]
+pub enum Float64DecodeError {
+    #[error("invalid float64 length: {len} bytes")]
+    InvalidSize { len: usize },
+    #[error("non-finite float64 payload")]
+    NonFinite,
+}
 
 ///
 /// Float64
@@ -59,21 +72,26 @@ impl Float64 {
     }
 }
 
-#[derive(Debug, ThisError)]
-pub enum Float64DecodeError {
-    #[error("invalid float64 length: {len} bytes")]
-    InvalidSize { len: usize },
-    #[error("non-finite float64 payload")]
-    NonFinite,
-}
+impl AsView for Float64 {
+    type ViewType = f64;
 
-impl TryFrom<&[u8]> for Float64 {
-    type Error = Float64DecodeError;
+    fn as_view(&self) -> Self::ViewType {
+        self.0
+    }
 
-    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Self::try_from_bytes(bytes)
+    // NOTE: View inputs are normalized to preserve invariants (finite only, -0.0 → 0.0).
+    fn from_view(view: f64) -> Self {
+        let normalized = if view.is_finite() {
+            if view == 0.0 { 0.0 } else { view }
+        } else {
+            0.0
+        };
+
+        Self::try_new(normalized).unwrap_or(Self(0.0))
     }
 }
+
+impl AtomicPatch for Float64 {}
 
 impl Eq for Float64 {}
 
@@ -193,13 +211,11 @@ impl SanitizeAuto for Float64 {}
 
 impl SanitizeCustom for Float64 {}
 
-impl UpdateView for Float64 {
-    type UpdateViewType = Self;
+impl TryFrom<&[u8]> for Float64 {
+    type Error = Float64DecodeError;
 
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::try_from_bytes(bytes)
     }
 }
 
@@ -210,25 +226,6 @@ impl ValidateCustom for Float64 {
         if !self.0.is_finite() {
             ctx.issue("Float64 must be finite");
         }
-    }
-}
-
-impl AsView for Float64 {
-    type ViewType = f64;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.0
-    }
-
-    // NOTE: View inputs are normalized to preserve invariants (finite only, -0.0 → 0.0).
-    fn from_view(view: f64) -> Self {
-        let normalized = if view.is_finite() {
-            if view == 0.0 { 0.0 } else { view }
-        } else {
-            0.0
-        };
-
-        Self::try_new(normalized).unwrap_or(Self(0.0))
     }
 }
 

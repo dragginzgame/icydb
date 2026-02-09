@@ -1,8 +1,9 @@
 use crate::{
+    patch::AtomicPatch,
     prelude::*,
     traits::{
         AsView, FieldValue, FieldValueKind, Inner, NumFromPrimitive, NumToPrimitive, SanitizeAuto,
-        SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom, Visitable,
+        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     visitor::VisitorContext,
 };
@@ -77,6 +78,8 @@ impl AsView for Float32 {
         Self::try_new(normalized).unwrap_or(Self(0.0))
     }
 }
+
+impl AtomicPatch for Float32 {}
 
 impl Eq for Float32 {}
 
@@ -217,16 +220,6 @@ impl TryFrom<&[u8]> for Float32 {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Self::try_from_bytes(bytes)
-    }
-}
-
-impl UpdateView for Float32 {
-    type UpdateViewType = Self;
-
-    fn merge(&mut self, v: Self::UpdateViewType) -> Result<(), crate::traits::ViewPatchError> {
-        *self = v;
-
-        Ok(())
     }
 }
 

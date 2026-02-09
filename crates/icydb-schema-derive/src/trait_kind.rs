@@ -74,6 +74,7 @@ pub enum TraitKind {
     From,
     Inner,
     MapCollection,
+    MergePatch,
     NumCast,
     NumFromPrimitive,
     NumToPrimitive,
@@ -101,7 +102,7 @@ static TYPE_TRAITS: LazyLock<Vec<TraitKind>> = LazyLock::new(|| {
         TraitKind::SanitizeAuto,
         TraitKind::SanitizeCustom,
         TraitKind::Serialize,
-        TraitKind::UpdateView,
+        TraitKind::MergePatch,
         TraitKind::ValidateAuto,
         TraitKind::ValidateCustom,
         TraitKind::Visitable,
@@ -189,6 +190,11 @@ impl FromMeta for TraitKind {
 
 impl ToTokens for TraitKind {
     fn to_tokens(&self, tokens: &mut TokenStream) {
+        if matches!(self, Self::MergePatch) {
+            quote!(::icydb::patch::MergePatch).to_tokens(tokens);
+            return;
+        }
+
         let trait_name = format_ident!("{}", self.to_string());
 
         // quote
