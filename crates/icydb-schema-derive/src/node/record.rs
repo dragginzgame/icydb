@@ -77,10 +77,7 @@ impl HasTraits for Record {
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 
-            _ => {
-                // NOTE: Unsupported traits are intentionally ignored for Record nodes.
-                None
-            }
+            _ => None,
         }
     }
 
@@ -88,10 +85,7 @@ impl HasTraits for Record {
         match t {
             TraitKind::Default => TraitKind::Default.derive_attribute(),
 
-            _ => {
-                // NOTE: Only Default emits a derive attribute for records.
-                None
-            }
+            _ => None,
         }
     }
 }

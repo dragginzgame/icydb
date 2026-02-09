@@ -113,6 +113,7 @@ pub mod prelude {
             query,
             query::{FilterExpr, SortExpr, builder::FieldRef, predicate::Predicate},
         },
+        patch::MergePatch as _,
         traits::{
             AsView, Collection as _, Create, CreateView as _, EntityKind as _, EntityValue,
             Inner as _, MapCollection as _, Path as _, Update, UpdateView as _, View,

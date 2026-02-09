@@ -85,10 +85,7 @@ impl HasTraits for IndexStore {
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
             TraitKind::IndexStoreKind => IndexStoreKindTrait::strategy(self),
-            _ => {
-                // NOTE: Only IndexStoreKind is supported for IndexStore nodes.
-                None
-            }
+            _ => None,
         }
     }
 }

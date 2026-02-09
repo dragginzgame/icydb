@@ -44,10 +44,7 @@ impl ValidateNode for Newtype {
             (None, Some(_)) => Err(DarlingError::custom(
                 "invalid #[newtype] config: item has a primitive but outer 'primitive' is not set",
             )),
-            _ => {
-                // NOTE: All other primitive combinations are intentionally allowed.
-                Ok(())
-            }
+            _ => Ok(()),
         }
     }
 }
@@ -148,10 +145,7 @@ impl HasTraits for Newtype {
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 
-            _ => {
-                // NOTE: Unsupported traits are intentionally ignored for Newtype nodes.
-                None
-            }
+            _ => None,
         }
     }
 }

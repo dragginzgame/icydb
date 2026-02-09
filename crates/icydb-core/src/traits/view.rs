@@ -220,6 +220,19 @@ pub trait CreateView: AsView {
 ///
 
 pub trait UpdateView: AsView {
-    /// Payload accepted when updating this value.
+    /// A view payload that may be applied to `Self`.
     type UpdateViewType: CandidType + Default;
 }
+
+#[macro_export]
+macro_rules! impl_update_view {
+    ($($type:ty),*) => {
+        $(
+            impl UpdateView for $type {
+                type UpdateViewType = Self;
+            }
+        )*
+    };
+}
+
+impl_update_view!(bool, i8, i16, i32, i64, u8, u16, u32, u64);

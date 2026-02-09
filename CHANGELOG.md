@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ---
 
-## [0.7.11] – 2026-02-09 - MergePatch Derive Consolidation
+## [0.7.12] – 2026-02-09 - MergePatch Derive Consolidation
 
 ### 🥝 Added
 

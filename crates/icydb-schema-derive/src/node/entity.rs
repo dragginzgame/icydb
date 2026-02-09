@@ -245,23 +245,18 @@ impl HasTraits for Entity {
             TraitKind::EntityKind => EntityKindTrait::strategy(self),
             TraitKind::EntityValue => EntityValueTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
+            TraitKind::UpdateView => UpdateViewTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 
-            _ => {
-                // NOTE: Unsupported traits are intentionally ignored for Entity nodes.
-                None
-            }
+            _ => None,
         }
     }
 
     fn map_attribute(&self, t: TraitKind) -> Option<TokenStream> {
         match t {
             TraitKind::Default => TraitKind::Default.derive_attribute(),
-            _ => {
-                // NOTE: Only Default emits a derive attribute for entities.
-                None
-            }
+            _ => None,
         }
     }
 }

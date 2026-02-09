@@ -80,10 +80,7 @@ impl HasTraits for List {
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 
-            _ => {
-                // NOTE: Unsupported traits are intentionally ignored for List nodes.
-                None
-            }
+            _ => None,
         }
     }
 }

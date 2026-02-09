@@ -77,10 +77,7 @@ impl HasTraits for Tuple {
             TraitKind::MergePatch => MergePatchTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 
-            _ => {
-                // NOTE: Unsupported traits are intentionally ignored for Tuple nodes.
-                None
-            }
+            _ => None,
         }
     }
 }

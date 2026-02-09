@@ -111,10 +111,7 @@ impl HasTraits for Map {
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 
-            _ => {
-                // NOTE: Unsupported traits are intentionally ignored for Map nodes.
-                None
-            }
+            _ => None,
         }
     }
 }

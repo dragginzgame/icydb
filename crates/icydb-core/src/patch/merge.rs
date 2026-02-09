@@ -1,4 +1,7 @@
-use crate::patch::{AtomicPatch, ListPatch, MapPatch, SetPatch};
+use crate::{
+    patch::{AtomicPatch, ListPatch, MapPatch, SetPatch},
+    traits::UpdateView,
+};
 use std::{
     collections::{
         BTreeMap, BTreeSet, HashMap, HashSet, btree_map::Entry as BTreeMapEntry,
@@ -12,10 +15,8 @@ use thiserror::Error as ThisError;
 /// MergePatch
 ///
 
-pub trait MergePatch {
-    type Patch;
-
-    fn merge(&mut self, patch: Self::Patch) -> Result<(), MergePatchError>;
+pub trait MergePatch: UpdateView {
+    fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError>;
 }
 
 impl<T> MergePatch for T

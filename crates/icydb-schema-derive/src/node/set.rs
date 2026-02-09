@@ -79,11 +79,7 @@ impl HasTraits for Set {
             TraitKind::MergePatch => MergePatchTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
-
-            _ => {
-                // NOTE: Unsupported traits are intentionally ignored for Set nodes.
-                None
-            }
+            _ => None,
         }
     }
 }

@@ -204,10 +204,7 @@ pub trait HasTraits: HasType {
                 Some(TraitStrategy::from_impl(tokens))
             }
 
-            _ => {
-                // NOTE: Traits without a built-in strategy must be mapped by the node.
-                None
-            }
+            _ => None,
         }
     }
 }
