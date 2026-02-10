@@ -3,6 +3,7 @@ use crate::{
         AsView, Atomic, EntityKeyBytes, FieldValue, FieldValueKind, NumCast, NumFromPrimitive,
         NumToPrimitive, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
+    types::Duration,
     value::Value,
 };
 use candid::CandidType;
@@ -148,6 +149,110 @@ impl From<u64> for Timestamp {
     }
 }
 
+impl std::ops::Add<u64> for Timestamp {
+    type Output = Self;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        Self(self.0.saturating_add(rhs))
+    }
+}
+
+impl std::ops::AddAssign<u64> for Timestamp {
+    fn add_assign(&mut self, rhs: u64) {
+        self.0 = self.0.saturating_add(rhs);
+    }
+}
+
+impl std::ops::Add<i64> for Timestamp {
+    type Output = Self;
+
+    fn add(self, rhs: i64) -> Self::Output {
+        if rhs >= 0 {
+            Self(self.0.saturating_add(rhs.unsigned_abs()))
+        } else {
+            Self(self.0.saturating_sub(rhs.unsigned_abs()))
+        }
+    }
+}
+
+impl std::ops::AddAssign<i64> for Timestamp {
+    fn add_assign(&mut self, rhs: i64) {
+        if rhs >= 0 {
+            self.0 = self.0.saturating_add(rhs.unsigned_abs());
+        } else {
+            self.0 = self.0.saturating_sub(rhs.unsigned_abs());
+        }
+    }
+}
+
+impl std::ops::Sub<u64> for Timestamp {
+    type Output = Self;
+
+    fn sub(self, rhs: u64) -> Self::Output {
+        Self(self.0.saturating_sub(rhs))
+    }
+}
+
+impl std::ops::SubAssign<u64> for Timestamp {
+    fn sub_assign(&mut self, rhs: u64) {
+        self.0 = self.0.saturating_sub(rhs);
+    }
+}
+
+impl std::ops::Sub<i64> for Timestamp {
+    type Output = Self;
+
+    fn sub(self, rhs: i64) -> Self::Output {
+        if rhs >= 0 {
+            Self(self.0.saturating_sub(rhs.unsigned_abs()))
+        } else {
+            Self(self.0.saturating_add(rhs.unsigned_abs()))
+        }
+    }
+}
+
+impl std::ops::SubAssign<i64> for Timestamp {
+    fn sub_assign(&mut self, rhs: i64) {
+        if rhs >= 0 {
+            self.0 = self.0.saturating_sub(rhs.unsigned_abs());
+        } else {
+            self.0 = self.0.saturating_add(rhs.unsigned_abs());
+        }
+    }
+}
+
+impl std::ops::Add<Duration> for Timestamp {
+    type Output = Self;
+
+    fn add(self, rhs: Duration) -> Self::Output {
+        // Timestamp stores seconds, so duration is truncated from millis to whole seconds.
+        Self(self.0.saturating_add(rhs.as_secs()))
+    }
+}
+
+impl std::ops::AddAssign<Duration> for Timestamp {
+    fn add_assign(&mut self, rhs: Duration) {
+        // Timestamp stores seconds, so duration is truncated from millis to whole seconds.
+        self.0 = self.0.saturating_add(rhs.as_secs());
+    }
+}
+
+impl std::ops::Sub<Duration> for Timestamp {
+    type Output = Self;
+
+    fn sub(self, rhs: Duration) -> Self::Output {
+        // Timestamp stores seconds, so duration is truncated from millis to whole seconds.
+        Self(self.0.saturating_sub(rhs.as_secs()))
+    }
+}
+
+impl std::ops::SubAssign<Duration> for Timestamp {
+    fn sub_assign(&mut self, rhs: Duration) {
+        // Timestamp stores seconds, so duration is truncated from millis to whole seconds.
+        self.0 = self.0.saturating_sub(rhs.as_secs());
+    }
+}
+
 impl NumCast for Timestamp {
     fn from<T: NumToPrimitive>(n: T) -> Option<Self> {
         n.to_u64().map(Self)
@@ -284,5 +389,64 @@ mod tests {
         let t = Timestamp::from_seconds(77);
         let v = t.to_value();
         assert_eq!(v, Value::Timestamp(t));
+    }
+
+    #[test]
+    fn test_add_and_sub_with_u64() {
+        let mut t = Timestamp::from_seconds(10);
+
+        assert_eq!((t + 5_u64).get(), 15);
+        assert_eq!((t - 3_u64).get(), 7);
+
+        t += 8_u64;
+        assert_eq!(t.get(), 18);
+
+        t -= 20_u64;
+        assert_eq!(t.get(), 0);
+    }
+
+    #[test]
+    fn test_add_and_sub_with_i64() {
+        let mut t = Timestamp::from_seconds(10);
+
+        assert_eq!((t + 5_i64).get(), 15);
+        assert_eq!((t + (-3_i64)).get(), 7);
+        assert_eq!((t - 3_i64).get(), 7);
+        assert_eq!((t - (-5_i64)).get(), 15);
+
+        t += 8_i64;
+        assert_eq!(t.get(), 18);
+
+        t += -20_i64;
+        assert_eq!(t.get(), 0);
+
+        t -= -3_i64;
+        assert_eq!(t.get(), 3);
+
+        t -= 10_i64;
+        assert_eq!(t.get(), 0);
+
+        // Ensure i64::MIN does not overflow and saturates safely.
+        assert_eq!((Timestamp::from_seconds(5) + i64::MIN).get(), 0);
+        assert_eq!(
+            (Timestamp::from_seconds(5) - i64::MIN).get(),
+            5_u64.saturating_add(i64::MIN.unsigned_abs())
+        );
+    }
+
+    #[test]
+    fn test_add_and_sub_with_duration() {
+        let mut t = Timestamp::from_seconds(10);
+        let delta = Duration::from_millis(2_500);
+
+        // Duration is milliseconds; Timestamp arithmetic truncates to whole seconds.
+        assert_eq!((t + delta).get(), 12);
+        assert_eq!((t - delta).get(), 8);
+
+        t += delta;
+        assert_eq!(t.get(), 12);
+
+        t -= Duration::from_secs(20);
+        assert_eq!(t.get(), 0);
     }
 }

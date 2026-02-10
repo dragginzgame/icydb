@@ -168,6 +168,42 @@ impl AddAssign for Duration {
     }
 }
 
+impl Add<u64> for Duration {
+    type Output = Self;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        Self(self.0.saturating_add(rhs))
+    }
+}
+
+impl AddAssign<u64> for Duration {
+    fn add_assign(&mut self, rhs: u64) {
+        self.0 = self.0.saturating_add(rhs);
+    }
+}
+
+impl Add<i64> for Duration {
+    type Output = Self;
+
+    fn add(self, rhs: i64) -> Self::Output {
+        if rhs >= 0 {
+            Self(self.0.saturating_add(rhs.unsigned_abs()))
+        } else {
+            Self(self.0.saturating_sub(rhs.unsigned_abs()))
+        }
+    }
+}
+
+impl AddAssign<i64> for Duration {
+    fn add_assign(&mut self, rhs: i64) {
+        if rhs >= 0 {
+            self.0 = self.0.saturating_add(rhs.unsigned_abs());
+        } else {
+            self.0 = self.0.saturating_sub(rhs.unsigned_abs());
+        }
+    }
+}
+
 impl AsView for Duration {
     type ViewType = u64;
 
@@ -259,6 +295,42 @@ impl SubAssign for Duration {
     }
 }
 
+impl Sub<u64> for Duration {
+    type Output = Self;
+
+    fn sub(self, rhs: u64) -> Self::Output {
+        Self(self.0.saturating_sub(rhs))
+    }
+}
+
+impl SubAssign<u64> for Duration {
+    fn sub_assign(&mut self, rhs: u64) {
+        self.0 = self.0.saturating_sub(rhs);
+    }
+}
+
+impl Sub<i64> for Duration {
+    type Output = Self;
+
+    fn sub(self, rhs: i64) -> Self::Output {
+        if rhs >= 0 {
+            Self(self.0.saturating_sub(rhs.unsigned_abs()))
+        } else {
+            Self(self.0.saturating_add(rhs.unsigned_abs()))
+        }
+    }
+}
+
+impl SubAssign<i64> for Duration {
+    fn sub_assign(&mut self, rhs: i64) {
+        if rhs >= 0 {
+            self.0 = self.0.saturating_sub(rhs.unsigned_abs());
+        } else {
+            self.0 = self.0.saturating_add(rhs.unsigned_abs());
+        }
+    }
+}
+
 impl ValidateAuto for Duration {}
 
 impl ValidateCustom for Duration {}
@@ -277,5 +349,48 @@ mod tests {
     fn test_from_i64_rejects_negative() {
         let t = <Duration as NumFromPrimitive>::from_i64(-1);
         assert!(t.is_none());
+    }
+
+    #[test]
+    fn test_add_and_sub_with_u64() {
+        let mut d = Duration::from_millis(10);
+
+        assert_eq!((d + 5_u64).get(), 15);
+        assert_eq!((d - 3_u64).get(), 7);
+
+        d += 8_u64;
+        assert_eq!(d.get(), 18);
+
+        d -= 20_u64;
+        assert_eq!(d.get(), 0);
+    }
+
+    #[test]
+    fn test_add_and_sub_with_i64() {
+        let mut d = Duration::from_millis(10);
+
+        assert_eq!((d + 5_i64).get(), 15);
+        assert_eq!((d + (-3_i64)).get(), 7);
+        assert_eq!((d - 3_i64).get(), 7);
+        assert_eq!((d - (-5_i64)).get(), 15);
+
+        d += 8_i64;
+        assert_eq!(d.get(), 18);
+
+        d += -20_i64;
+        assert_eq!(d.get(), 0);
+
+        d -= -3_i64;
+        assert_eq!(d.get(), 3);
+
+        d -= 10_i64;
+        assert_eq!(d.get(), 0);
+
+        // Ensure i64::MIN does not overflow and saturates safely.
+        assert_eq!((Duration::from_millis(5) + i64::MIN).get(), 0);
+        assert_eq!(
+            (Duration::from_millis(5) - i64::MIN).get(),
+            5_u64.saturating_add(i64::MIN.unsigned_abs())
+        );
     }
 }

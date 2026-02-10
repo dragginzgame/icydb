@@ -5,11 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.7.16] – 2026-02-10
+## [0.7.17] – 2026-02-10
 
 ### 🥝 Added
 
 * Icrc1::TokenAmount and Icrc1::Tokens provide a .units() -> u64 call
+
+### 🛶 Changed
+
+* `Timestamp` now supports signed and unsigned scalar arithmetic (`u64`/`i64`) via `+`, `-`, `+=`, and `-=`, using saturating behavior for underflow/overflow and negative deltas.
+* `Duration` now supports the same signed and unsigned scalar arithmetic ergonomics (`u64`/`i64`) with saturating semantics.
+* `Timestamp` arithmetic with `Duration` is now directly supported (`Timestamp +/- Duration` and assign variants), applying duration values in whole seconds.
 
 ## [0.7.15] – 2026-02-09
 
