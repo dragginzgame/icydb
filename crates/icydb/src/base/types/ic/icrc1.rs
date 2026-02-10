@@ -22,6 +22,13 @@ pub struct Payment {}
 ))]
 pub struct TokenAmount {}
 
+impl TokenAmount {
+    #[must_use]
+    pub fn units(&self) -> u64 {
+        self.tokens.units()
+    }
+}
+
 ///
 /// Icrc1 Tokens
 /// just the raw number of tokens
@@ -29,3 +36,10 @@ pub struct TokenAmount {}
 
 #[newtype(primitive = "Nat64", item(prim = "Nat64"))]
 pub struct Tokens {}
+
+impl Tokens {
+    #[must_use]
+    pub fn units(&self) -> u64 {
+        *self.inner()
+    }
+}

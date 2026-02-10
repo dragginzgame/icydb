@@ -234,11 +234,7 @@ mod tests {
         let optional_owner: Option<Id<RelationOwner>> = record.optional_owner_id();
         assert_eq!(optional_owner.map(|id| id.key()), Some(owner_b));
 
-        let keys: Vec<Ulid> = record
-            .many_owners_ids()
-            .into_iter()
-            .map(|id| id.key())
-            .collect();
+        let keys: Vec<Ulid> = record.many_owners_ids().map(|id| id.key()).collect();
         assert_eq!(keys, vec![owner_a, owner_b]);
     }
 }

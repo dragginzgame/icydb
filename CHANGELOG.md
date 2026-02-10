@@ -5,6 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.7.16] – 2026-02-10
+
+### 🥝 Added
+
+* Icrc1::TokenAmount and Icrc1::Tokens provide a .units() -> u64 call
+
 ## [0.7.15] – 2026-02-09
 
 ### 🥝 Added
