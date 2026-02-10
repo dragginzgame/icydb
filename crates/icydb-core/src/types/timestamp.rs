@@ -149,6 +149,86 @@ impl From<u64> for Timestamp {
     }
 }
 
+impl PartialEq<u64> for Timestamp {
+    fn eq(&self, other: &u64) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialOrd<u64> for Timestamp {
+    fn partial_cmp(&self, other: &u64) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(other)
+    }
+}
+
+impl PartialEq<i64> for Timestamp {
+    fn eq(&self, other: &i64) -> bool {
+        if *other < 0 {
+            false
+        } else {
+            self.0 == other.unsigned_abs()
+        }
+    }
+}
+
+impl PartialOrd<i64> for Timestamp {
+    fn partial_cmp(&self, other: &i64) -> Option<std::cmp::Ordering> {
+        if *other < 0 {
+            Some(std::cmp::Ordering::Greater)
+        } else {
+            self.0.partial_cmp(&other.unsigned_abs())
+        }
+    }
+}
+
+impl PartialEq<Timestamp> for u64 {
+    fn eq(&self, other: &Timestamp) -> bool {
+        *self == other.0
+    }
+}
+
+impl PartialOrd<Timestamp> for u64 {
+    fn partial_cmp(&self, other: &Timestamp) -> Option<std::cmp::Ordering> {
+        self.partial_cmp(&other.0)
+    }
+}
+
+impl PartialEq<Timestamp> for i64 {
+    fn eq(&self, other: &Timestamp) -> bool {
+        if *self < 0 {
+            false
+        } else {
+            self.unsigned_abs() == other.0
+        }
+    }
+}
+
+impl PartialOrd<Timestamp> for i64 {
+    fn partial_cmp(&self, other: &Timestamp) -> Option<std::cmp::Ordering> {
+        if *self < 0 {
+            Some(std::cmp::Ordering::Less)
+        } else {
+            self.unsigned_abs().partial_cmp(&other.0)
+        }
+    }
+}
+
+impl std::ops::Sub<Timestamp> for u64 {
+    type Output = Self;
+
+    fn sub(self, rhs: Timestamp) -> Self::Output {
+        self.saturating_sub(rhs.0)
+    }
+}
+
+impl std::ops::Sub<Timestamp> for i64 {
+    type Output = Self;
+
+    fn sub(self, rhs: Timestamp) -> Self::Output {
+        self.saturating_sub(Self::try_from(rhs.0).unwrap_or(Self::MAX))
+    }
+}
+
 impl std::ops::Add<u64> for Timestamp {
     type Output = Self;
 
@@ -448,5 +528,36 @@ mod tests {
 
         t -= Duration::from_secs(20);
         assert_eq!(t.get(), 0);
+    }
+
+    #[test]
+    fn test_compare_with_scalars() {
+        let t = Timestamp::from_seconds(10);
+
+        assert!(t > 9_u64);
+        assert!(t >= 10_u64);
+        assert!(t < 11_u64);
+        assert_eq!(t, 10_u64);
+
+        assert!(t > -1_i64);
+        assert!(t > 0_i64);
+        assert!(t < 11_i64);
+        assert_eq!(t, 10_i64);
+
+        assert!(9_u64 < t);
+        assert!(10_u64 <= t);
+        assert!(11_i64 > t);
+        assert!(-1_i64 < t);
+    }
+
+    #[test]
+    fn test_sub_from_scalars() {
+        let t = Timestamp::from_seconds(10);
+
+        assert_eq!(15_u64 - t, 5);
+        assert_eq!(5_u64 - t, 0);
+
+        assert_eq!(15_i64 - t, 5);
+        assert_eq!(0_i64 - t, -10);
     }
 }

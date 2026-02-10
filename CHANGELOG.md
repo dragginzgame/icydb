@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.7.17] – 2026-02-10
+## [0.7.18] – 2026-02-10
 
 ### 🥝 Added
 
@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * `Timestamp` now supports signed and unsigned scalar arithmetic (`u64`/`i64`) via `+`, `-`, `+=`, and `-=`, using saturating behavior for underflow/overflow and negative deltas.
 * `Duration` now supports the same signed and unsigned scalar arithmetic ergonomics (`u64`/`i64`) with saturating semantics.
 * `Timestamp` arithmetic with `Duration` is now directly supported (`Timestamp +/- Duration` and assign variants), applying duration values in whole seconds.
+* `Timestamp` and `Duration` now support direct scalar comparisons against `u64` and `i64` (`<`, `<=`, `>`, `>=`, `==`) in both directions.
+* Scalar-left subtraction is now supported for both time types (`u64/i64 - Timestamp` and `u64/i64 - Duration`) so raw numeric timestamps and durations can be subtracted from wrapped values without manual conversion.
 
 ## [0.7.15] – 2026-02-09
 
