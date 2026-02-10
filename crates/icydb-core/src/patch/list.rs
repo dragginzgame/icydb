@@ -28,7 +28,7 @@ pub enum ListPatch<U> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::patch::merge::MergePatch;
+    use crate::traits::UpdateView;
 
     #[test]
     fn vec_partial_patches() {

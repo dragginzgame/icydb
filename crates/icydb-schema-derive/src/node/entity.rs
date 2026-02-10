@@ -241,7 +241,6 @@ impl HasTraits for Entity {
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::CreateView => CreateViewTrait::strategy(self),
             TraitKind::Default => DefaultTrait::strategy(self),
-            TraitKind::MergePatch => MergePatchTrait::strategy(self),
             TraitKind::EntityKind => EntityKindTrait::strategy(self),
             TraitKind::EntityValue => EntityValueTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),

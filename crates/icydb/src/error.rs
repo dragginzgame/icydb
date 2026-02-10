@@ -3,7 +3,7 @@ use derive_more::Display;
 use icydb_core::{
     db::{query::QueryError, response::ResponseError},
     error::{ErrorOrigin as CoreErrorOrigin, InternalError},
-    patch::MergePatchError,
+    patch::MergePatchError as CoreMergePatchError,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
@@ -28,6 +28,16 @@ impl Error {
             origin,
             message: message.into(),
         }
+    }
+
+    pub(crate) fn from_merge_patch_error(err: CoreMergePatchError) -> Self {
+        let message = err.to_string();
+        let patch_error = PatchError::from_merge_patch_error(err);
+        Self::new(
+            ErrorKind::Update(UpdateErrorKind::Patch(patch_error)),
+            ErrorOrigin::Interface,
+            message,
+        )
     }
 }
 
@@ -154,13 +164,13 @@ pub enum PatchError {
     CardinalityViolation,
 }
 
-impl From<MergePatchError> for PatchError {
-    fn from(err: MergePatchError) -> Self {
+impl PatchError {
+    pub(crate) fn from_merge_patch_error(err: CoreMergePatchError) -> Self {
         match err {
-            MergePatchError::InvalidShape { .. } => Self::InvalidShape,
-            MergePatchError::MissingKey { .. } => Self::MissingKey,
-            MergePatchError::CardinalityViolation { .. } => Self::CardinalityViolation,
-            MergePatchError::Context { source, .. } => (*source).into(),
+            CoreMergePatchError::InvalidShape { .. } => Self::InvalidShape,
+            CoreMergePatchError::MissingKey { .. } => Self::MissingKey,
+            CoreMergePatchError::CardinalityViolation { .. } => Self::CardinalityViolation,
+            CoreMergePatchError::Context { source, .. } => Self::from_merge_patch_error(*source),
         }
     }
 }

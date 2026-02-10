@@ -70,12 +70,13 @@ pub struct MergeTuple {}
 mod tests {
     use super::*;
     use icydb::{
-        patch::{ListPatch, MapPatch, MergePatch, MergePatchError, SetPatch},
-        traits::UpdateView,
+        error::{ErrorKind, PatchError, UpdateErrorKind},
+        patch::{ListPatch, MapPatch, SetPatch},
+        traits::{Update, UpdateView},
     };
     use std::collections::{HashMap, HashSet};
 
-    type Patch<T> = <T as UpdateView>::UpdateViewType;
+    type Patch<T> = Update<T>;
 
     fn profile(bio: &str, visits: u32, favorites: &[u32]) -> MergeProfile {
         MergeProfile {
@@ -318,12 +319,11 @@ mod tests {
             .merge(update)
             .expect_err("missing map key should fail and preserve field path");
 
-        assert_eq!(err.path(), Some("settings[0]"));
+        assert_eq!(err.origin, icydb::error::ErrorOrigin::Interface);
+        assert!(err.message.contains("settings[0]"));
         assert!(matches!(
-            err.leaf(),
-            MergePatchError::MissingKey {
-                operation: "remove"
-            }
+            err.kind,
+            ErrorKind::Update(UpdateErrorKind::Patch(PatchError::MissingKey))
         ));
     }
 }

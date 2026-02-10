@@ -9,7 +9,7 @@ use crate::{
         response::Response,
     },
     error::Error,
-    traits::{AsView, CanisterKind, EntityKind, EntityValue, SingletonEntity},
+    traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity, View},
     types::Id,
 };
 use icydb_core as core;
@@ -231,21 +231,21 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     // View materialization
     // ------------------------------------------------------------------
 
-    pub fn view(&self) -> Result<<E as AsView>::ViewType, Error>
+    pub fn view(&self) -> Result<View<E>, Error>
     where
         E: EntityValue,
     {
         self.inner.execute()?.view().map_err(Into::into)
     }
 
-    pub fn view_opt(&self) -> Result<Option<<E as AsView>::ViewType>, Error>
+    pub fn view_opt(&self) -> Result<Option<View<E>>, Error>
     where
         E: EntityValue,
     {
         self.inner.execute()?.view_opt().map_err(Into::into)
     }
 
-    pub fn views(&self) -> Result<Vec<<E as AsView>::ViewType>, Error>
+    pub fn views(&self) -> Result<Vec<View<E>>, Error>
     where
         E: EntityValue,
     {

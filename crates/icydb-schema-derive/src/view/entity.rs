@@ -31,7 +31,7 @@ impl View for EntityView<'_> {
 
             impl Default for #view_ident {
                 fn default() -> Self {
-                    #node_ident::default().as_view()
+                    ::icydb::__internal::core::traits::AsView::as_view(&#node_ident::default())
                 }
             }
         }
@@ -61,7 +61,7 @@ impl View for EntityCreate<'_> {
         let defaults = node.iter_editable_fields().map(|f| {
             let ident = &f.ident;
 
-            quote!(#ident: ::icydb::traits::AsView::as_view(&entity.#ident))
+            quote!(#ident: ::icydb::__internal::core::traits::AsView::as_view(&entity.#ident))
         });
 
         let derives = self.traits();

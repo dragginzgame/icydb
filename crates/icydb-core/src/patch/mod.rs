@@ -5,5 +5,5 @@ pub mod set;
 
 pub use list::ListPatch;
 pub use map::MapPatch;
-pub use merge::{MergePatch, MergePatchError};
+pub use merge::MergePatchError;
 pub use set::SetPatch;

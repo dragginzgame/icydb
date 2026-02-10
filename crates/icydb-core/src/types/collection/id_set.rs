@@ -1,5 +1,5 @@
 use crate::{
-    patch::{MergePatch, MergePatchError, SetPatch},
+    patch::{MergePatchError, SetPatch},
     traits::{
         AsView, EntityKey, SanitizeAuto, SanitizeCustom, UpdateView, ValidateAuto, ValidateCustom,
         Visitable,
@@ -177,11 +177,13 @@ where
     }
 }
 
-impl<E> MergePatch for IdSet<E>
+impl<E> UpdateView for IdSet<E>
 where
     E: EntityKey,
-    Id<E>: MergePatch + Default,
+    Id<E>: UpdateView + Default,
 {
+    type UpdateViewType = Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>;
+
     fn merge(&mut self, patches: Self::UpdateViewType) -> Result<(), MergePatchError> {
         for patch in patches {
             match patch {
@@ -215,14 +217,6 @@ where
 
         Ok(())
     }
-}
-
-impl<E> UpdateView for IdSet<E>
-where
-    E: EntityKey,
-    Id<E>: UpdateView,
-{
-    type UpdateViewType = Vec<SetPatch<<Id<E> as UpdateView>::UpdateViewType>>;
 }
 
 impl<E> SanitizeAuto for IdSet<E> where E: EntityKey {}

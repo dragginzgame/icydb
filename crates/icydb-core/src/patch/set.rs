@@ -22,7 +22,7 @@ pub enum SetPatch<U> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::patch::merge::MergePatch;
+    use crate::traits::UpdateView;
     use std::collections::HashSet;
 
     #[test]

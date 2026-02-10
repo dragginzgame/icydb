@@ -18,7 +18,7 @@
 ///
 /// This trait has no methods. It exists solely to declare value-level
 /// indivisibility, which is *consumed* by higher-level mechanisms
-/// (e.g. blanket `MergePatch` implementations).
+/// (e.g. blanket `UpdateView` merge implementations).
 ///
 
 pub trait Atomic: Sized {}

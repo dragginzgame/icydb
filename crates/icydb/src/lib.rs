@@ -70,13 +70,14 @@ pub use icydb_schema_derive as macros;
 
 // core modules
 #[doc(hidden)]
-pub use icydb_core::{model, obs, traits, types, value, visitor};
+pub use icydb_core::{model, obs, types, value, visitor};
 
 // facade modules
 pub mod base;
 pub mod db;
 pub mod error;
 pub mod patch;
+pub mod traits;
 pub use error::Error;
 
 /// Internal

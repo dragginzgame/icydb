@@ -37,7 +37,7 @@ impl<K, V> From<(K, Option<V>)> for MapPatch<K, V> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::patch::merge::{MergePatch, MergePatchError};
+    use crate::{patch::MergePatchError, traits::UpdateView};
     use std::collections::{BTreeMap, HashMap};
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::{
-    patch::{list::ListPatch, map::MapPatch, set::SetPatch},
+    patch::{ListPatch, MapPatch, MergePatchError, SetPatch, merge},
     traits::Atomic,
 };
 use candid::CandidType;
@@ -226,6 +226,7 @@ pub trait CreateView: AsView {
 pub trait UpdateView: AsView {
     /// A view payload that may be applied to `Self`.
     type UpdateViewType: CandidType + Default;
+    fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError>;
 }
 
 impl<T> UpdateView for T
@@ -233,50 +234,78 @@ where
     T: Atomic + AsView + CandidType + Default,
 {
     type UpdateViewType = Self;
+
+    fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
+        merge::merge_atomic(self, patch)
+    }
 }
 
 impl<T> UpdateView for Option<T>
 where
-    T: UpdateView,
+    T: UpdateView + Default,
 {
     type UpdateViewType = Option<T::UpdateViewType>;
+
+    fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
+        merge::merge_option(self, patch)
+    }
 }
 
 impl<T> UpdateView for Vec<T>
 where
-    T: UpdateView,
+    T: UpdateView + Default,
 {
     type UpdateViewType = Vec<ListPatch<T::UpdateViewType>>;
+
+    fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
+        merge::merge_vec(self, patch)
+    }
 }
 
 impl<T, S> UpdateView for HashSet<T, S>
 where
-    T: UpdateView + Clone + Eq + Hash,
+    T: UpdateView + Clone + Default + Eq + Hash,
     S: BuildHasher + Default,
 {
     type UpdateViewType = Vec<SetPatch<T::UpdateViewType>>;
+
+    fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
+        merge::merge_hash_set(self, patch)
+    }
 }
 
 impl<K, V, S> UpdateView for HashMap<K, V, S>
 where
-    K: UpdateView + Clone + Eq + Hash,
-    V: UpdateView,
+    K: UpdateView + Clone + Default + Eq + Hash,
+    V: UpdateView + Default,
     S: BuildHasher + Default,
 {
     type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
+
+    fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
+        merge::merge_hash_map(self, patch)
+    }
 }
 
 impl<T> UpdateView for BTreeSet<T>
 where
-    T: UpdateView + Clone + Ord,
+    T: UpdateView + Clone + Default + Ord,
 {
     type UpdateViewType = Vec<SetPatch<T::UpdateViewType>>;
+
+    fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
+        merge::merge_btree_set(self, patch)
+    }
 }
 
 impl<K, V> UpdateView for BTreeMap<K, V>
 where
-    K: UpdateView + Clone + Ord,
-    V: UpdateView,
+    K: UpdateView + Clone + Default + Ord,
+    V: UpdateView + Default,
 {
     type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
+
+    fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
+        merge::merge_btree_map(self, patch)
+    }
 }

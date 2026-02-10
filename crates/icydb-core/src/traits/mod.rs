@@ -1,11 +1,9 @@
-mod aliases;
 #[macro_use]
 mod macros;
 mod atomic;
 mod view;
 mod visitor;
 
-pub use aliases::*;
 pub use atomic::*;
 pub use view::*;
 pub use visitor::*;

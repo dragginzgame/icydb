@@ -74,7 +74,6 @@ impl HasTraits for Tuple {
             TraitKind::AsView => AsViewTrait::strategy(self),
             TraitKind::FieldValue => FieldValueTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
-            TraitKind::MergePatch => MergePatchTrait::strategy(self),
             TraitKind::UpdateView => UpdateViewTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 

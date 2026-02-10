@@ -8,8 +8,7 @@ use crate::{
     },
     error::Error,
     obs::sink::MetricsSink,
-    patch::{MergePatch, apply_patch},
-    traits::{CanisterKind, EntityKind, EntityValue, UpdateView},
+    traits::{CanisterKind, EntityKind, EntityValue, Update, UpdateView},
     types::Id,
 };
 use icydb_core as core;
@@ -173,17 +172,13 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// Patch semantics are handled at this facade boundary so callers do not
     /// need to interact with core patch errors directly.
-    pub fn patch_by_id<E>(
-        &self,
-        id: Id<E>,
-        patch: <E as UpdateView>::UpdateViewType,
-    ) -> Result<WriteResponse<E>, Error>
+    pub fn patch_by_id<E>(&self, id: Id<E>, patch: Update<E>) -> Result<WriteResponse<E>, Error>
     where
-        E: EntityKind<Canister = C> + EntityValue + MergePatch,
+        E: EntityKind<Canister = C> + EntityValue + UpdateView,
     {
         let mut entity = self.load::<E>().by_id(id).entity()?;
 
-        apply_patch(&mut entity, patch)?;
+        UpdateView::merge(&mut entity, patch)?;
 
         self.update(entity)
     }
