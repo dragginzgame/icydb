@@ -312,7 +312,7 @@ impl PartialOrd<Duration> for i64 {
     }
 }
 
-impl std::ops::Sub<Duration> for u64 {
+impl Sub<Duration> for u64 {
     type Output = Self;
 
     fn sub(self, rhs: Duration) -> Self::Output {
@@ -320,7 +320,7 @@ impl std::ops::Sub<Duration> for u64 {
     }
 }
 
-impl std::ops::Sub<Duration> for i64 {
+impl Sub<Duration> for i64 {
     type Output = Self;
 
     fn sub(self, rhs: Duration) -> Self::Output {
