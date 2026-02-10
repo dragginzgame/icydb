@@ -212,7 +212,7 @@ impl HasTypeExpr for Field {
         let value = self.value.type_expr();
 
         quote! {
-            pub(crate) #ident: #value
+            #ident: #value
         }
     }
 }

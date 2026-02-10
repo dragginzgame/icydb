@@ -5,6 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.7.19] – 2026-02-10
+
+### 🥨 Changed
+
+* `icydb-schema-derive` now treats field visibility as an entity/record responsibility: base `Field`/`FieldList` emission no longer hardcodes `pub(crate)`, entity fields are emitted as `pub(crate)`, and record fields are emitted as `pub`.
+
 ## [0.7.18] – 2026-02-10
 
 ### 🥝 Added

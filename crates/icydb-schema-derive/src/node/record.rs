@@ -93,11 +93,17 @@ impl HasTraits for Record {
 impl HasType for Record {
     fn type_part(&self) -> TokenStream {
         let ident = self.def.ident();
-        let fields = self.fields.type_expr();
+        let fields = self.fields.iter().map(|field| {
+            let expr = field.type_expr();
+
+            quote! {
+                pub #expr
+            }
+        });
 
         quote! {
             pub struct #ident {
-                #fields
+                #(#fields),*
             }
         }
     }
