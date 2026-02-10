@@ -36,12 +36,11 @@ fn relation_accessor_tokens_for_field(field: &Field) -> Option<TokenStream> {
             quote! {
                 /// Returns typed relation IDs for all values in this field.
                 #[must_use]
-                pub fn #method_ident(&self) -> Vec<::icydb::types::Id<#relation>> {
+                pub fn #method_ident(&self) -> impl Iterator<Item = ::icydb::types::Id<#relation>> + '_ {
                     self.#field_ident
                         .iter()
                         .copied()
                         .map(::icydb::types::Id::from_key)
-                        .collect()
                 }
             }
         }

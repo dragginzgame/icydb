@@ -199,7 +199,7 @@ mod tests {
             ..Default::default()
         };
 
-        let ids = row.a_ids();
+        let ids: Vec<_> = row.a_ids().collect();
         assert_eq!(ids.len(), 1);
         assert_eq!(ids[0].key(), owner_key);
     }
@@ -213,7 +213,7 @@ mod tests {
             ..Default::default()
         };
 
-        let ids = row.orders_ids();
+        let ids: Vec<_> = row.orders_ids().collect();
         assert_eq!(ids.len(), 1);
         assert_eq!(ids[0].key(), order_key);
     }
@@ -234,8 +234,11 @@ mod tests {
         let optional_owner: Option<Id<RelationOwner>> = record.optional_owner_id();
         assert_eq!(optional_owner.map(|id| id.key()), Some(owner_b));
 
-        let many_owner_ids: Vec<Id<RelationOwner>> = record.many_owners_ids();
-        let keys: Vec<Ulid> = many_owner_ids.into_iter().map(|id| id.key()).collect();
+        let keys: Vec<Ulid> = record
+            .many_owners_ids()
+            .into_iter()
+            .map(|id| id.key())
+            .collect();
         assert_eq!(keys, vec![owner_a, owner_b]);
     }
 }

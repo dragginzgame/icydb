@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Any Id<E> can now be turned into a ledger subaccount with `.subaccount()`
 * Added facade-level `UpdateView::merge` error promotion so patch failures are surfaced as `icydb::Error` with `ErrorKind::Update(UpdateErrorKind::Patch(...))`.
 
+### 🧪 Changed
+
+* Generated relation `*_ids()` accessors for `many` cardinality now return `impl Iterator<Item = Id<Relation>> + '_` instead of allocating a `Vec<Id<Relation>>`, while preserving key-to-`Id` projection behavior.
+
 ### 🧸 Breaking
 
 * `icydb::patch` no longer exports `MergePatch` or `MergePatchError`; callers should use `UpdateView::merge` and handle facade `icydb::Error`.
