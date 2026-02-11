@@ -77,12 +77,6 @@ impl From<QueryError> for Error {
                 err.to_string(),
             ),
 
-            QueryError::UnsupportedQueryFeature(_) => Self::new(
-                ErrorKind::Query(QueryErrorKind::Unsupported),
-                ErrorOrigin::Query,
-                err.to_string(),
-            ),
-
             QueryError::Response(ResponseError::NotFound { .. }) => Self::new(
                 ErrorKind::Query(QueryErrorKind::NotFound),
                 ErrorOrigin::Response,
@@ -127,7 +121,6 @@ impl From<ResponseError> for Error {
 pub enum ErrorKind {
     Query(QueryErrorKind),
     Update(UpdateErrorKind),
-    Store(StoreErrorKind),
 
     /// The caller cannot remediate this.
     Internal,
@@ -148,9 +141,6 @@ pub enum QueryErrorKind {
     /// Planning rejected the query.
     Plan,
 
-    /// The query is valid but requests an unsupported feature.
-    Unsupported,
-
     /// Pagination requires ordering but none was provided.
     UnorderedPagination,
 
@@ -169,15 +159,6 @@ pub enum QueryErrorKind {
 pub enum UpdateErrorKind {
     /// Patch application failed for semantic reasons.
     Patch(PatchError),
-
-    /// Target entity does not exist.
-    NotFound,
-
-    /// Domain or schema constraint violated.
-    ConstraintViolation,
-
-    /// Concurrent or state conflict.
-    Conflict,
 }
 
 ///
@@ -187,7 +168,6 @@ pub enum UpdateErrorKind {
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum PatchError {
     InvalidShape,
-    MissingKey,
     CardinalityViolation,
 }
 
@@ -195,21 +175,10 @@ impl PatchError {
     pub(crate) fn from_merge_patch_error(err: CoreMergePatchError) -> Self {
         match err {
             CoreMergePatchError::InvalidShape { .. } => Self::InvalidShape,
-            CoreMergePatchError::MissingKey { .. } => Self::MissingKey,
             CoreMergePatchError::CardinalityViolation { .. } => Self::CardinalityViolation,
             CoreMergePatchError::Context { source, .. } => Self::from_merge_patch_error(*source),
         }
     }
-}
-
-///
-/// StoreErrorKind
-///
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub enum StoreErrorKind {
-    NotFound,
-    Unavailable,
 }
 
 ///

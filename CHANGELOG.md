@@ -5,6 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.7.21] – 2026-02-11
+
+### 🧰 Changed
+
+* Removed the dormant `QueryError::UnsupportedQueryFeature` layer and route unsupported-feature policy failures through `ValidateError`, keeping query error boundaries single-path and explicit.
+* Pruned un-emitted facade error variants (`ErrorKind::Store`, `StoreErrorKind`, and unused `UpdateErrorKind` cases) so public error taxonomy matches emitted runtime behavior.
+
+### 🧪 Fixed
+
+* Save-time schema validation caching is now isolated per entity type, preventing cross-entity cache bleed that could surface false primary-key type mismatch errors.
+* Save invariant checks now allow unit primary keys for singleton entities while continuing to reject null primary-key values.
+* Removed dead map-patch missing-key error branches (`MergePatchError::MissingKey` / `PatchError::MissingKey`) that were no longer reachable after no-op missing-key semantics.
+* Added executor regression coverage for unit-key singleton insert + `only()` load round trips.
+
 ## [0.7.20] – 2026-02-11 - Calm After the Storm
 
 ### 🧭 Changed
@@ -24,10 +38,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Fixed recursive map generation type inference for ICRC-3 style value trees (e.g. `map<Text, Value>`), preventing `E0282` at `#[map(...)]` expansion sites.
 * Row decode errors now preserve underlying deserialize diagnostics instead of collapsing failures into a generic message, improving corruption triage and execution-boundary reporting.
 * Direct `ResponseError` conversions in the facade now keep `ErrorOrigin::Response` for consistent error-origin attribution.
-* Save-time schema validation caching is now isolated per entity type, preventing cross-entity cache bleed that could surface false primary-key type mismatch errors.
-* Save invariant checks now allow unit primary keys for singleton entities while continuing to reject null primary-key values.
 * Added regression coverage for map value validation and read-side replay of incomplete commit markers.
-* Added executor regression coverage for unit-key singleton insert + `only()` load round trips.
 * Updated query and merge regression coverage for the new map-field rejection path and consistent map patch no-op behavior on missing keys.
 
 ## [0.7.19] – 2026-02-10

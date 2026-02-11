@@ -599,7 +599,6 @@ fn validate_text_compare(
     ensure_coercion(field, field_type, value, coercion)
 }
 
-// Ensure a field exists and is a map, returning key/value types.
 /// Validate substring predicates on text fields.
 fn validate_text_contains(
     schema: &SchemaInfo,

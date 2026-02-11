@@ -25,9 +25,6 @@ pub enum MergePatchError {
         actual: &'static str,
     },
 
-    #[error("missing key for map operation: {operation}")]
-    MissingKey { operation: &'static str },
-
     #[error("invalid patch cardinality: expected {expected}, found {actual}")]
     CardinalityViolation { expected: usize, actual: usize },
 

@@ -18,7 +18,7 @@ use crate::{
                 validate::validate_logical_plan_model,
             },
             predicate::{
-                Predicate, SchemaInfo, UnsupportedQueryFeature, ValidateError, normalize,
+                Predicate, SchemaInfo, ValidateError, normalize,
                 validate::reject_unsupported_query_features,
             },
         },
@@ -279,7 +279,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         self.validate_intent()?;
 
         if let Some(predicate) = self.predicate.as_ref() {
-            reject_unsupported_query_features(predicate)?;
+            reject_unsupported_query_features(predicate).map_err(ValidateError::from)?;
         }
 
         // Phase 2: predicate normalization and access planning.
@@ -544,9 +544,6 @@ where
 
 #[derive(Debug, ThisError)]
 pub enum QueryError {
-    #[error("{0}")]
-    UnsupportedQueryFeature(#[from] UnsupportedQueryFeature),
-
     #[error("{0}")]
     Validate(#[from] ValidateError),
 

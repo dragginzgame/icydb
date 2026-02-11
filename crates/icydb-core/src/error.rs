@@ -101,13 +101,8 @@ pub enum ErrorDetail {
 
 impl From<MergePatchError> for InternalError {
     fn from(err: MergePatchError) -> Self {
-        let class = match err.leaf() {
-            MergePatchError::MissingKey { .. } => ErrorClass::NotFound,
-            _ => ErrorClass::Unsupported,
-        };
-
         Self {
-            class,
+            class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Interface,
             message: err.to_string(),
             detail: Some(ErrorDetail::ViewPatch(err)),
