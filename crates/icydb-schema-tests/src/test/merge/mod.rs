@@ -311,19 +311,26 @@ mod tests {
         };
 
         let mut update: Patch<MergeEntity> = Default::default();
-        update.settings = Some(vec![MapPatch::Remove {
-            key: "missing".to_string(),
-        }]);
+        update.settings = Some(vec![
+            MapPatch::Insert {
+                key: "keep".to_string(),
+                value: 2u32,
+            },
+            MapPatch::Replace {
+                key: "keep".to_string(),
+                value: 3u32,
+            },
+        ]);
 
         let err = entity
             .merge(update)
-            .expect_err("missing map key should fail and preserve field path");
+            .expect_err("duplicate map-key operations should fail and preserve field path");
 
         assert_eq!(err.origin, icydb::error::ErrorOrigin::Interface);
         assert!(err.message.contains("settings[0]"));
         assert!(matches!(
             err.kind,
-            ErrorKind::Update(UpdateErrorKind::Patch(PatchError::MissingKey))
+            ErrorKind::Update(UpdateErrorKind::Patch(PatchError::InvalidShape))
         ));
     }
 }

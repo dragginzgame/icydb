@@ -200,38 +200,6 @@ fn hash_predicate(hasher: &mut Sha256, predicate: &ExplainPredicate) {
             write_tag(hasher, 0x2a);
             write_str(hasher, field);
         }
-        ExplainPredicate::MapContainsKey {
-            field,
-            key,
-            coercion,
-        } => {
-            write_tag(hasher, 0x2b);
-            write_str(hasher, field);
-            write_value(hasher, key);
-            hash_coercion(hasher, coercion.id, &coercion.params);
-        }
-        ExplainPredicate::MapContainsValue {
-            field,
-            value,
-            coercion,
-        } => {
-            write_tag(hasher, 0x2c);
-            write_str(hasher, field);
-            write_value(hasher, value);
-            hash_coercion(hasher, coercion.id, &coercion.params);
-        }
-        ExplainPredicate::MapContainsEntry {
-            field,
-            key,
-            value,
-            coercion,
-        } => {
-            write_tag(hasher, 0x2d);
-            write_str(hasher, field);
-            write_value(hasher, key);
-            write_value(hasher, value);
-            hash_coercion(hasher, coercion.id, &coercion.params);
-        }
         ExplainPredicate::TextContains { field, value } => {
             write_tag(hasher, 0x2e);
             write_str(hasher, field);

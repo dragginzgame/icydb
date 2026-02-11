@@ -12,7 +12,7 @@ use crate::{
             validate::literal_matches_type,
         },
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     model::entity::EntityModel,
     model::index::IndexModel,
     value::Value,
@@ -74,15 +74,6 @@ fn plan_predicate(
         | Predicate::IsNotEmpty { .. }
         | Predicate::TextContains { .. }
         | Predicate::TextContainsCi { .. } => AccessPlan::full_scan(),
-        Predicate::MapContainsKey { .. }
-        | Predicate::MapContainsValue { .. }
-        | Predicate::MapContainsEntry { .. } => {
-            return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
-                "map predicates must be rejected before planning",
-            ));
-        }
         Predicate::And(children) => {
             let mut plans = children
                 .iter()

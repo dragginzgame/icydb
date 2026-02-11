@@ -23,7 +23,7 @@ use crate::{
     traits::{
         AsView, CanisterKind, DataStoreKind, EntityIdentity, EntityKey, EntityKind,
         EntityPlacement, EntitySchema, EntityValue, Path, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, Visitable,
+        SingletonEntity, ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Id, Ulid},
     value::Value,
@@ -179,6 +179,88 @@ impl EntityPlacement for SimpleEntity {
 impl EntityKind for SimpleEntity {}
 
 impl EntityValue for SimpleEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+///
+/// SingletonUnitEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct SingletonUnitEntity {
+    id: (),
+    label: String,
+}
+
+impl AsView for SingletonUnitEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for SingletonUnitEntity {}
+impl SanitizeCustom for SingletonUnitEntity {}
+impl ValidateAuto for SingletonUnitEntity {}
+impl ValidateCustom for SingletonUnitEntity {}
+impl Visitable for SingletonUnitEntity {}
+
+impl Path for SingletonUnitEntity {
+    const PATH: &'static str = "executor_tests::SingletonUnitEntity";
+}
+
+impl EntityKey for SingletonUnitEntity {
+    type Key = ();
+}
+
+impl EntityIdentity for SingletonUnitEntity {
+    const ENTITY_NAME: &'static str = "SingletonUnitEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static SINGLETON_UNIT_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Unit,
+    },
+    EntityFieldModel {
+        name: "label",
+        kind: EntityFieldKind::Text,
+    },
+];
+static SINGLETON_UNIT_FIELD_NAMES: [&str; 2] = ["id", "label"];
+static SINGLETON_UNIT_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static SINGLETON_UNIT_MODEL: EntityModel = entity_model_from_static(
+    "executor_tests::SingletonUnitEntity",
+    "SingletonUnitEntity",
+    &SINGLETON_UNIT_FIELDS[0],
+    &SINGLETON_UNIT_FIELDS,
+    &SINGLETON_UNIT_INDEXES,
+);
+
+impl EntitySchema for SingletonUnitEntity {
+    const MODEL: &'static EntityModel = &SINGLETON_UNIT_MODEL;
+    const FIELDS: &'static [&'static str] = &SINGLETON_UNIT_FIELD_NAMES;
+    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &SINGLETON_UNIT_INDEXES;
+}
+
+impl EntityPlacement for SingletonUnitEntity {
+    type DataStore = TestDataStore;
+    type Canister = TestCanister;
+}
+
+impl EntityKind for SingletonUnitEntity {}
+impl SingletonEntity for SingletonUnitEntity {}
+
+impl EntityValue for SingletonUnitEntity {
+    #[allow(clippy::unit_arg)]
     fn id(&self) -> Id<Self> {
         Id::from_key(self.id)
     }
@@ -357,6 +439,35 @@ fn delete_replays_incomplete_commit_marker() {
 }
 
 #[test]
+fn load_replays_incomplete_commit_marker_after_startup_recovery() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let marker = CommitMarker::new(CommitKind::Save, Vec::new(), Vec::new())
+        .expect("marker creation should succeed");
+    let _guard = begin_commit(marker).expect("begin_commit should persist marker");
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be present before load"
+    );
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .plan()
+        .expect("load plan should build");
+    let response = load.execute(plan).expect("load should succeed");
+
+    assert!(
+        response.0.is_empty(),
+        "empty store should still load after recovery replay"
+    );
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after read recovery"
+    );
+}
+
+#[test]
 fn load_applies_order_and_pagination() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
@@ -383,6 +494,38 @@ fn load_applies_order_and_pagination() {
         response.0[0].1.id,
         Ulid::from_u128(2),
         "pagination should run after canonical ordering by id"
+    );
+}
+
+#[test]
+fn singleton_unit_key_insert_and_only_load_round_trip() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SingletonUnitEntity>::new(DB, false);
+    let load = LoadExecutor::<SingletonUnitEntity>::new(DB, false);
+    let expected = SingletonUnitEntity {
+        id: (),
+        label: "project".to_string(),
+    };
+
+    save.insert(expected.clone())
+        .expect("singleton save should succeed");
+
+    let plan = Query::<SingletonUnitEntity>::new(ReadConsistency::MissingOk)
+        .only()
+        .plan()
+        .expect("singleton load plan should build");
+    let response = load.execute(plan).expect("singleton load should succeed");
+
+    assert_eq!(
+        response.0.len(),
+        1,
+        "singleton only() should match exactly one row"
+    );
+    assert_eq!(
+        response.0[0].1, expected,
+        "loaded singleton should match inserted row"
     );
 }
 

@@ -40,7 +40,7 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     marker::PhantomData,
-    sync::OnceLock,
+    sync::{Mutex, OnceLock},
     thread::LocalKey,
 };
 
@@ -452,19 +452,28 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
     // Cache schema validation results per entity type.
     fn schema_info() -> Result<&'static SchemaInfo, InternalError> {
-        static CACHE: OnceLock<Result<SchemaInfo, CachedInvariant>> = OnceLock::new();
-        let cached = CACHE.get_or_init(|| {
-            SchemaInfo::from_entity_model(E::MODEL).map_err(|err| {
-                CachedInvariant::from_error(InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Executor,
-                    format!("entity schema invalid for {}: {err}", E::PATH),
-                ))
-            })
+        type SchemaCache = BTreeMap<&'static str, Result<&'static SchemaInfo, CachedInvariant>>;
+        static CACHE: OnceLock<Mutex<SchemaCache>> = OnceLock::new();
+
+        let cache = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
+        let mut cache_guard = cache
+            .lock()
+            .expect("schema cache lock should not be poisoned");
+
+        let entry = cache_guard.entry(E::PATH).or_insert_with(|| {
+            SchemaInfo::from_entity_model(E::MODEL)
+                .map(|schema| Box::leak(Box::new(schema)) as &'static SchemaInfo)
+                .map_err(|err| {
+                    CachedInvariant::from_error(InternalError::new(
+                        ErrorClass::InvariantViolation,
+                        ErrorOrigin::Executor,
+                        format!("entity schema invalid for {}: {err}", E::PATH),
+                    ))
+                })
         });
 
-        match cached {
-            Ok(schema) => Ok(schema),
+        match entry {
+            Ok(schema) => Ok(*schema),
             Err(err) => Err(err.to_error()),
         }
     }
@@ -484,8 +493,9 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             )
         })?;
 
-        // Primary key must not be Null or Unit.
-        if matches!(pk_value, Value::Null | Value::Unit) {
+        // Primary key must not be Null.
+        // Unit is valid for singleton entities and is enforced by schema shape checks below.
+        if matches!(pk_value, Value::Null) {
             return Err(InternalError::new(
                 ErrorClass::InvariantViolation,
                 ErrorOrigin::Executor,
@@ -506,6 +516,20 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 ErrorOrigin::Executor,
                 format!(
                     "entity primary key field type mismatch: {} field={} value={pk_value:?}",
+                    E::PATH,
+                    E::PRIMARY_KEY
+                ),
+            ));
+        }
+
+        // The declared PK field value must exactly match the runtime identity key.
+        let identity_pk = crate::traits::FieldValue::to_value(&entity.id().key());
+        if pk_value != identity_pk {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Executor,
+                format!(
+                    "entity primary key mismatch: {} field={} field_value={pk_value:?} id_key={identity_pk:?}",
                     E::PATH,
                     E::PRIMARY_KEY
                 ),

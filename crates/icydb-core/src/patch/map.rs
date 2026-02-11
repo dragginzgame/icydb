@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// - Maps are unordered values; insertion order is discarded.
 /// - `Insert` is an upsert.
-/// - `Replace` requires an existing key.
-/// - `Remove` requires an existing key.
+/// - `Replace` is a no-op when the key is missing.
+/// - `Remove` is a no-op when the key is missing.
 /// - `Clear` must be the only patch in the batch.
 ///
 
@@ -69,36 +69,24 @@ mod tests {
     }
 
     #[test]
-    fn map_remove_missing_key_returns_error() {
+    fn map_remove_missing_key_is_noop() {
         let mut map: HashMap<String, u8> = std::iter::once(("a".into(), 1u8)).collect();
-        let err = map
-            .merge(vec![MapPatch::Remove {
-                key: "missing".to_string(),
-            }])
-            .expect_err("missing remove key should fail");
-        assert!(matches!(
-            err.leaf(),
-            MergePatchError::MissingKey {
-                operation: "remove"
-            }
-        ));
+        map.merge(vec![MapPatch::Remove {
+            key: "missing".to_string(),
+        }])
+        .expect("missing remove key should be ignored");
+        assert_eq!(map.get("a"), Some(&1));
     }
 
     #[test]
-    fn map_replace_missing_key_returns_error() {
+    fn map_replace_missing_key_is_noop() {
         let mut map: HashMap<String, u8> = std::iter::once(("a".into(), 1u8)).collect();
-        let err = map
-            .merge(vec![MapPatch::Replace {
-                key: "missing".to_string(),
-                value: 3u8,
-            }])
-            .expect_err("missing replace key should fail");
-        assert!(matches!(
-            err.leaf(),
-            MergePatchError::MissingKey {
-                operation: "replace"
-            }
-        ));
+        map.merge(vec![MapPatch::Replace {
+            key: "missing".to_string(),
+            value: 3u8,
+        }])
+        .expect("missing replace key should be ignored");
+        assert_eq!(map.get("a"), Some(&1));
     }
 
     #[test]

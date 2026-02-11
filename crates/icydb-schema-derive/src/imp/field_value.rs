@@ -175,7 +175,10 @@ impl Imp<Map> for FieldValueTrait {
             }
 
             fn to_value(&self) -> ::icydb::value::Value {
-                let entries = self
+                let mut entries: ::std::vec::Vec<(
+                    ::icydb::value::Value,
+                    ::icydb::value::Value,
+                )> = self
                     .0
                     .iter()
                     .map(|(key, value)| {
@@ -186,12 +189,35 @@ impl Imp<Map> for FieldValueTrait {
                     })
                     .collect();
 
-                ::icydb::value::Value::from_map(entries).unwrap_or_else(|err| {
-                    panic!(
+                if let Err(err) = ::icydb::value::Value::validate_map_entries(entries.as_slice()) {
+                    debug_assert!(
+                        false,
                         "invalid map field value for {}: {err}",
                         <Self as ::icydb::traits::Path>::PATH,
-                    )
-                })
+                    );
+                    return ::icydb::value::Value::Map(entries);
+                }
+
+                entries.sort_by(|(left_key, _), (right_key, _)| {
+                    ::icydb::value::Value::canonical_cmp_key(left_key, right_key)
+                });
+
+                for i in 1..entries.len() {
+                    let (left_key, _) = &entries[i - 1];
+                    let (right_key, _) = &entries[i];
+                    if ::icydb::value::Value::canonical_cmp_key(left_key, right_key)
+                        == ::std::cmp::Ordering::Equal
+                    {
+                        debug_assert!(
+                            false,
+                            "duplicate map key in {} after FieldValue::to_value canonicalization",
+                            <Self as ::icydb::traits::Path>::PATH,
+                        );
+                        break;
+                    }
+                }
+
+                ::icydb::value::Value::Map(entries)
             }
 
             fn from_value(value: &::icydb::value::Value) -> Option<Self> {

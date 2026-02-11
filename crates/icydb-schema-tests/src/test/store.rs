@@ -68,6 +68,6 @@ mod tests {
         let row = RawRow::try_new(bytes).unwrap();
         let err = row.try_decode::<StoreTestEntity>().unwrap_err();
 
-        assert!(matches!(err, RowDecodeError::Deserialize));
+        assert!(matches!(err, RowDecodeError::Deserialize { .. }));
     }
 }

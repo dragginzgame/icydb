@@ -60,6 +60,17 @@ impl ValidateNode for Map {
             return Err(DarlingError::custom("map value cannot be Unit"));
         }
 
+        // Relations inside map values are currently unsupported.
+        if self.value.item.relation.is_some() {
+            return Err(DarlingError::custom(
+                "map value cannot be a relation in icydb 0.7",
+            ));
+        }
+
+        if self.value.item.indirect {
+            return Err(DarlingError::custom("map value cannot be indirect"));
+        }
+
         Ok(())
     }
 }
@@ -132,5 +143,58 @@ impl HasType for Map {
 impl ToTokens for Map {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.extend(self.all_tokens());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Map;
+    use crate::prelude::*;
+
+    fn map_node() -> Map {
+        Map {
+            def: Def::default(),
+            key: Item {
+                primitive: Some(Primitive::Text),
+                ..Default::default()
+            },
+            value: Value {
+                item: Item {
+                    primitive: Some(Primitive::Nat32),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ty: Type::default(),
+            traits: TraitBuilder::default(),
+        }
+    }
+
+    #[test]
+    fn map_value_relation_is_rejected() {
+        let mut node = map_node();
+        node.value.item.relation = Some(syn::parse_quote!(SomeEntity));
+
+        let err = node
+            .validate()
+            .expect_err("map relation values should fail");
+        assert!(
+            err.to_string().contains("map value cannot be a relation"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn map_value_indirect_is_rejected() {
+        let mut node = map_node();
+        node.value.item.indirect = true;
+
+        let err = node
+            .validate()
+            .expect_err("indirect map values should fail");
+        assert!(
+            err.to_string().contains("map value cannot be indirect"),
+            "unexpected error: {err}"
+        );
     }
 }

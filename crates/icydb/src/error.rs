@@ -1,7 +1,10 @@
 use candid::CandidType;
 use derive_more::Display;
 use icydb_core::{
-    db::{query::QueryError, response::ResponseError},
+    db::{
+        query::{QueryError, plan::PlanError},
+        response::ResponseError,
+    },
     error::{ErrorOrigin as CoreErrorOrigin, InternalError},
     patch::MergePatchError as CoreMergePatchError,
 };
@@ -50,8 +53,26 @@ impl From<InternalError> for Error {
 impl From<QueryError> for Error {
     fn from(err: QueryError) -> Self {
         match err {
-            QueryError::Validate(_) | QueryError::Intent(_) | QueryError::Plan(_) => Self::new(
-                ErrorKind::Query(QueryErrorKind::Invalid),
+            QueryError::Validate(_) => Self::new(
+                ErrorKind::Query(QueryErrorKind::Validate),
+                ErrorOrigin::Query,
+                err.to_string(),
+            ),
+
+            QueryError::Intent(_) => Self::new(
+                ErrorKind::Query(QueryErrorKind::Intent),
+                ErrorOrigin::Query,
+                err.to_string(),
+            ),
+
+            QueryError::Plan(PlanError::UnorderedPagination) => Self::new(
+                ErrorKind::Query(QueryErrorKind::UnorderedPagination),
+                ErrorOrigin::Query,
+                err.to_string(),
+            ),
+
+            QueryError::Plan(_) => Self::new(
+                ErrorKind::Query(QueryErrorKind::Plan),
                 ErrorOrigin::Query,
                 err.to_string(),
             ),
@@ -84,13 +105,13 @@ impl From<ResponseError> for Error {
         match err {
             ResponseError::NotFound { .. } => Self::new(
                 ErrorKind::Query(QueryErrorKind::NotFound),
-                ErrorOrigin::Query,
+                ErrorOrigin::Response,
                 err.to_string(),
             ),
 
             ResponseError::NotUnique { .. } => Self::new(
                 ErrorKind::Query(QueryErrorKind::NotUnique),
-                ErrorOrigin::Query,
+                ErrorOrigin::Response,
                 err.to_string(),
             ),
         }
@@ -118,8 +139,14 @@ pub enum ErrorKind {
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum QueryErrorKind {
-    /// Query shape is invalid (unknown fields, bad predicates).
-    Invalid,
+    /// Predicate/model validation failed.
+    Validate,
+
+    /// Query intent contract was violated before planning.
+    Intent,
+
+    /// Planning rejected the query.
+    Plan,
 
     /// The query is valid but requests an unsupported feature.
     Unsupported,
@@ -212,5 +239,60 @@ impl From<CoreErrorOrigin> for ErrorOrigin {
             CoreErrorOrigin::Serialize => Self::Serialize,
             CoreErrorOrigin::Store => Self::Store,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use icydb_core::db::query::{IntentError, QueryError, predicate::ValidateError};
+
+    #[test]
+    fn query_validate_maps_to_validate_kind() {
+        let err = QueryError::Validate(ValidateError::UnknownField {
+            field: "field".to_string(),
+        });
+        let facade = Error::from(err);
+
+        assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::Validate));
+        assert_eq!(facade.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn query_intent_maps_to_intent_kind() {
+        let err = QueryError::Intent(IntentError::DeleteLimitRequiresOrder);
+        let facade = Error::from(err);
+
+        assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::Intent));
+        assert_eq!(facade.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn plan_unordered_pagination_maps_to_dedicated_kind() {
+        let err = QueryError::Plan(PlanError::UnorderedPagination);
+        let facade = Error::from(err);
+
+        assert_eq!(
+            facade.kind,
+            ErrorKind::Query(QueryErrorKind::UnorderedPagination),
+        );
+        assert_eq!(facade.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn plan_errors_map_to_plan_kind() {
+        let err = QueryError::Plan(PlanError::EmptyOrderSpec);
+        let facade = Error::from(err);
+
+        assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::Plan));
+        assert_eq!(facade.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn response_error_maps_with_response_origin() {
+        let facade = Error::from(ResponseError::NotFound { entity: "Entity" });
+
+        assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::NotFound));
+        assert_eq!(facade.origin, ErrorOrigin::Response);
     }
 }

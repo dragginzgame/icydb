@@ -3,6 +3,7 @@ use crate::{
     db::query::{
         FieldRef,
         plan::{AccessPath, AccessPlan, LogicalPlan},
+        predicate::{CompareOp, ComparePredicate},
     },
     model::{
         entity::EntityModel,
@@ -422,25 +423,25 @@ fn typed_plan_matches_model_plan_for_same_intent() {
 }
 
 #[test]
-fn build_plan_model_rejects_map_predicates_before_planning() {
+fn build_plan_model_rejects_map_field_predicates_before_planning() {
     let intent = QueryModel::<Ulid>::new(&MAP_PLAN_MODEL, ReadConsistency::MissingOk).filter(
-        Predicate::MapContainsEntry {
-            field: "attributes".to_string(),
-            key: Value::Text("k".to_string()),
-            value: Value::Uint(1),
-            coercion: crate::db::query::predicate::CoercionSpec::new(
-                crate::db::query::predicate::CoercionId::Strict,
-            ),
-        },
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "attributes",
+            CompareOp::Eq,
+            Value::Map(Vec::new()),
+            crate::db::query::predicate::CoercionId::Strict,
+        )),
     );
 
     let err = intent
         .build_plan_model()
-        .expect_err("map predicates must be rejected before planning");
+        .expect_err("map field predicates must be rejected before planning");
     assert!(matches!(
         err,
-        QueryError::UnsupportedQueryFeature(
-            crate::db::query::predicate::UnsupportedQueryFeature::MapPredicate { field }
-        ) if field == "attributes"
+        QueryError::Plan(crate::db::query::plan::PlanError::PredicateInvalid(
+            crate::db::query::predicate::ValidateError::UnsupportedQueryFeature(
+                crate::db::query::predicate::UnsupportedQueryFeature::MapPredicate { field }
+            )
+        )) if field == "attributes"
     ));
 }

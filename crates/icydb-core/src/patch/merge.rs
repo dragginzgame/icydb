@@ -352,11 +352,8 @@ where
             },
 
             MapPatchOp::Remove { key } => {
-                if values.remove(&key).is_none() {
-                    return Err(MergePatchError::MissingKey {
-                        operation: "remove",
-                    });
-                }
+                // Align with list/set semantics: removing a missing entry is a no-op.
+                values.remove(&key);
             }
 
             MapPatchOp::Replace { key, value } => match values.entry(key) {
@@ -365,11 +362,8 @@ where
                         .merge(value)
                         .map_err(|err| err.with_field("replace").with_field("value"))?;
                 }
-                HashMapEntry::Vacant(_) => {
-                    return Err(MergePatchError::MissingKey {
-                        operation: "replace",
-                    });
-                }
+                // Align with list/set semantics: replacing a missing entry is a no-op.
+                HashMapEntry::Vacant(_) => {}
             },
 
             MapPatchOp::Clear => {
@@ -529,11 +523,8 @@ where
                 }
             },
             MapPatchOp::Remove { key } => {
-                if values.remove(&key).is_none() {
-                    return Err(MergePatchError::MissingKey {
-                        operation: "remove",
-                    });
-                }
+                // Align with list/set semantics: removing a missing entry is a no-op.
+                values.remove(&key);
             }
             MapPatchOp::Replace { key, value } => match values.entry(key) {
                 BTreeMapEntry::Occupied(mut slot) => {
@@ -541,11 +532,8 @@ where
                         .merge(value)
                         .map_err(|err| err.with_field("replace").with_field("value"))?;
                 }
-                BTreeMapEntry::Vacant(_) => {
-                    return Err(MergePatchError::MissingKey {
-                        operation: "replace",
-                    });
-                }
+                // Align with list/set semantics: replacing a missing entry is a no-op.
+                BTreeMapEntry::Vacant(_) => {}
             },
             MapPatchOp::Clear => {
                 return Err(MergePatchError::InvalidShape {

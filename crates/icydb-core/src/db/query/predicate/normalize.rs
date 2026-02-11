@@ -48,38 +48,6 @@ pub fn normalize(predicate: &Predicate) -> Predicate {
         Predicate::IsNotEmpty { field } => Predicate::IsNotEmpty {
             field: field.clone(),
         },
-
-        Predicate::MapContainsKey {
-            field,
-            key,
-            coercion,
-        } => Predicate::MapContainsKey {
-            field: field.clone(),
-            key: key.clone(),
-            coercion: coercion.clone(),
-        },
-
-        Predicate::MapContainsValue {
-            field,
-            value,
-            coercion,
-        } => Predicate::MapContainsValue {
-            field: field.clone(),
-            value: value.clone(),
-            coercion: coercion.clone(),
-        },
-
-        Predicate::MapContainsEntry {
-            field,
-            key,
-            value,
-            coercion,
-        } => Predicate::MapContainsEntry {
-            field: field.clone(),
-            key: key.clone(),
-            value: value.clone(),
-            coercion: coercion.clone(),
-        },
         Predicate::TextContains { field, value } => Predicate::TextContains {
             field: field.clone(),
             value: value.clone(),
@@ -213,9 +181,6 @@ const PRED_IS_NULL: u8 = 0x06;
 const PRED_IS_MISSING: u8 = 0x07;
 const PRED_IS_EMPTY: u8 = 0x08;
 const PRED_IS_NOT_EMPTY: u8 = 0x09;
-const PRED_MAP_CONTAINS_KEY: u8 = 0x0A;
-const PRED_MAP_CONTAINS_VALUE: u8 = 0x0B;
-const PRED_MAP_CONTAINS_ENTRY: u8 = 0x0C;
 const PRED_TEXT_CONTAINS: u8 = 0x0D;
 const PRED_TEXT_CONTAINS_CI: u8 = 0x0E;
 
@@ -264,38 +229,6 @@ fn encode_predicate_key(out: &mut Vec<u8>, predicate: &Predicate) {
         Predicate::IsNotEmpty { field } => {
             out.push(PRED_IS_NOT_EMPTY);
             push_str(out, field);
-        }
-        Predicate::MapContainsKey {
-            field,
-            key,
-            coercion,
-        } => {
-            out.push(PRED_MAP_CONTAINS_KEY);
-            push_str(out, field);
-            push_value(out, key);
-            push_coercion(out, coercion);
-        }
-        Predicate::MapContainsValue {
-            field,
-            value,
-            coercion,
-        } => {
-            out.push(PRED_MAP_CONTAINS_VALUE);
-            push_str(out, field);
-            push_value(out, value);
-            push_coercion(out, coercion);
-        }
-        Predicate::MapContainsEntry {
-            field,
-            key,
-            value,
-            coercion,
-        } => {
-            out.push(PRED_MAP_CONTAINS_ENTRY);
-            push_str(out, field);
-            push_value(out, key);
-            push_value(out, value);
-            push_coercion(out, coercion);
         }
         Predicate::TextContains { field, value } => {
             out.push(PRED_TEXT_CONTAINS);

@@ -57,15 +57,6 @@ fn on_present<R: Row + ?Sized>(row: &R, field: &str, f: impl FnOnce(&Value) -> b
     }
 }
 
-// Decode map entries into key/value pairs; malformed maps return None.
-fn map_entries(map: &Value) -> Option<impl Iterator<Item = (&Value, &Value)>> {
-    let Value::Map(entries) = map else {
-        return None;
-    };
-
-    Some(entries.iter().map(|(key, value)| (key, value)))
-}
-
 ///
 /// Evaluate a predicate against a single row.
 ///
@@ -100,29 +91,6 @@ pub fn eval<R: Row + ?Sized>(row: &R, predicate: &Predicate) -> bool {
         Predicate::IsEmpty { field } => on_present(row, field, is_empty_value),
 
         Predicate::IsNotEmpty { field } => on_present(row, field, |value| !is_empty_value(value)),
-
-        Predicate::MapContainsKey {
-            field,
-            key,
-            coercion,
-        } => on_present(row, field, |value| map_contains_key(value, key, coercion)),
-
-        Predicate::MapContainsValue {
-            field,
-            value,
-            coercion,
-        } => on_present(row, field, |actual| {
-            map_contains_value(actual, value, coercion)
-        }),
-
-        Predicate::MapContainsEntry {
-            field,
-            key,
-            value,
-            coercion,
-        } => on_present(row, field, |actual| {
-            map_contains_entry(actual, key, value, coercion)
-        }),
         Predicate::TextContains { field, value } => on_present(row, field, |actual| {
             // NOTE: Invalid text comparisons are treated as non-matches.
             actual.text_contains(value, TextMode::Cs).unwrap_or(false)
@@ -227,66 +195,4 @@ fn contains(actual: &Value, needle: &Value, coercion: &CoercionSpec) -> bool {
         .iter()
         // Invalid comparisons are treated as non-matches.
         .any(|item| compare_eq(item, needle, coercion).unwrap_or(false))
-}
-
-///
-/// Check whether a map-like value contains a given key.
-///
-/// Maps are represented as `Value::Map(Vec<(Value, Value)>)`.
-///
-fn map_contains_key(map: &Value, key: &Value, coercion: &CoercionSpec) -> bool {
-    let Some(entries) = map_entries(map) else {
-        // CONTRACT: malformed map encoding short-circuits to false.
-        return false;
-    };
-
-    for (entry_key, _) in entries {
-        // Invalid comparisons are treated as non-matches.
-        if compare_eq(entry_key, key, coercion).unwrap_or(false) {
-            return true;
-        }
-    }
-
-    false
-}
-
-///
-/// Check whether a map-like value contains a given value.
-///
-fn map_contains_value(map: &Value, value: &Value, coercion: &CoercionSpec) -> bool {
-    let Some(entries) = map_entries(map) else {
-        // CONTRACT: malformed map encoding short-circuits to false.
-        return false;
-    };
-
-    for (_, entry_value) in entries {
-        // Invalid comparisons are treated as non-matches.
-        if compare_eq(entry_value, value, coercion).unwrap_or(false) {
-            return true;
-        }
-    }
-
-    false
-}
-
-///
-/// Check whether a map-like value contains an exact key/value pair.
-///
-fn map_contains_entry(map: &Value, key: &Value, value: &Value, coercion: &CoercionSpec) -> bool {
-    let Some(entries) = map_entries(map) else {
-        // CONTRACT: malformed map encoding short-circuits to false.
-        return false;
-    };
-
-    for (entry_key, entry_value) in entries {
-        // Invalid comparisons are treated as non-matches.
-        let key_match = compare_eq(entry_key, key, coercion).unwrap_or(false);
-        let value_match = compare_eq(entry_value, value, coercion).unwrap_or(false);
-
-        if key_match && value_match {
-            return true;
-        }
-    }
-
-    false
 }

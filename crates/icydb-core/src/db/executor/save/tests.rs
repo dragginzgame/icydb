@@ -346,6 +346,86 @@ impl EntityValue for SourceSetEntity {
     }
 }
 
+///
+/// MismatchedPkEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct MismatchedPkEntity {
+    id: Ulid,
+    actual_id: Ulid,
+}
+
+impl AsView for MismatchedPkEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for MismatchedPkEntity {}
+impl SanitizeCustom for MismatchedPkEntity {}
+impl ValidateAuto for MismatchedPkEntity {}
+impl ValidateCustom for MismatchedPkEntity {}
+impl Visitable for MismatchedPkEntity {}
+
+impl Path for MismatchedPkEntity {
+    const PATH: &'static str = "save_tests::MismatchedPkEntity";
+}
+
+impl EntityKey for MismatchedPkEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for MismatchedPkEntity {
+    const ENTITY_NAME: &'static str = "MismatchedPkEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static MISMATCHED_PK_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "actual_id",
+        kind: EntityFieldKind::Ulid,
+    },
+];
+static MISMATCHED_PK_FIELD_NAMES: [&str; 2] = ["id", "actual_id"];
+static MISMATCHED_PK_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static MISMATCHED_PK_MODEL: EntityModel = entity_model_from_static(
+    "save_tests::MismatchedPkEntity",
+    "MismatchedPkEntity",
+    &MISMATCHED_PK_FIELDS[0],
+    &MISMATCHED_PK_FIELDS,
+    &MISMATCHED_PK_INDEXES,
+);
+
+impl EntitySchema for MismatchedPkEntity {
+    const MODEL: &'static EntityModel = &MISMATCHED_PK_MODEL;
+    const FIELDS: &'static [&'static str] = &MISMATCHED_PK_FIELD_NAMES;
+    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &MISMATCHED_PK_INDEXES;
+}
+
+impl EntityPlacement for MismatchedPkEntity {
+    type DataStore = SourceStore;
+    type Canister = TestCanister;
+}
+
+impl EntityKind for MismatchedPkEntity {}
+
+impl EntityValue for MismatchedPkEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.actual_id)
+    }
+}
+
 #[test]
 fn strong_relation_missing_fails_preflight() {
     let executor = SaveExecutor::<SourceEntity>::new(DB, false);
@@ -505,5 +585,33 @@ fn map_field_encoding_requires_canonical_entry_order() {
         err.message
             .contains("map field entries are not in canonical deterministic order"),
         "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn save_rejects_primary_key_field_and_identity_mismatch() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let executor = SaveExecutor::<MismatchedPkEntity>::new(DB, false);
+    let entity = MismatchedPkEntity {
+        id: Ulid::from_u128(10),
+        actual_id: Ulid::from_u128(20),
+    };
+
+    let err = executor
+        .insert(entity)
+        .expect_err("mismatched primary key identity should fail save");
+    assert!(
+        err.message.contains("entity primary key mismatch"),
+        "unexpected error: {err:?}"
+    );
+
+    let source_empty = DB
+        .with_data(|reg| reg.with_store(SourceStore::PATH, |store| store.iter().next().is_none()))
+        .expect("source store access should succeed");
+    assert!(
+        source_empty,
+        "failed invariant checks must not persist rows"
     );
 }

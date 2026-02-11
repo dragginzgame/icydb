@@ -179,47 +179,6 @@ fn arb_predicate() -> impl Strategy<Value = Predicate> {
     })
 }
 
-fn arb_unsupported_map_predicate() -> impl Strategy<Value = Predicate> {
-    let leaf = prop_oneof![
-        (arb_field(), arb_scalar_value(), arb_coercion_spec()).prop_map(
-            |(field, key, coercion)| Predicate::MapContainsKey {
-                field,
-                key,
-                coercion,
-            },
-        ),
-        (arb_field(), arb_scalar_value(), arb_coercion_spec()).prop_map(
-            |(field, value, coercion)| Predicate::MapContainsValue {
-                field,
-                value,
-                coercion,
-            },
-        ),
-        (
-            arb_field(),
-            arb_scalar_value(),
-            arb_scalar_value(),
-            arb_coercion_spec(),
-        )
-            .prop_map(|(field, key, value, coercion)| {
-                Predicate::MapContainsEntry {
-                    field,
-                    key,
-                    value,
-                    coercion,
-                }
-            }),
-    ];
-
-    leaf.prop_recursive(3, 24, 4, |inner| {
-        prop_oneof![
-            prop::collection::vec(inner.clone(), 0..4).prop_map(Predicate::And),
-            prop::collection::vec(inner.clone(), 0..4).prop_map(Predicate::Or),
-            inner.prop_map(|p| Predicate::Not(Box::new(p))),
-        ]
-    })
-}
-
 fn arb_row() -> impl Strategy<Value = TestRow> {
     prop::collection::vec(
         prop_oneof![Just(None), arb_value().prop_map(Some)],
@@ -350,38 +309,4 @@ fn not_in_invalid_values_are_false() {
         coercion: CoercionSpec::new(CoercionId::Strict),
     });
     assert!(!eval(&row, &wrong_list));
-}
-
-//
-// Unsupported-shape invariants (policy-disallowed map predicates)
-//
-
-mod unsupported_shapes {
-    use super::*;
-
-    proptest! {
-        #[test]
-        fn map_predicate_normalization_equivalence(
-            predicate in arb_unsupported_map_predicate(),
-            row in arb_row()
-        ) {
-            let normalized = normalize(&predicate);
-            prop_assert_eq!(
-                eval(&row, &predicate),
-                eval(&row, &normalized)
-            );
-        }
-
-        #[test]
-        fn map_predicate_scan_invariance(
-            predicate in arb_unsupported_map_predicate(),
-            rows in prop::collection::vec(arb_row(), 0..10)
-        ) {
-            let normalized = normalize(&predicate);
-            prop_assert_eq!(
-                scan(&rows, &predicate),
-                scan(&rows, &normalized)
-            );
-        }
-    }
 }

@@ -136,42 +136,12 @@ pub enum Predicate {
     Or(Vec<Self>),
     Not(Box<Self>),
     Compare(ComparePredicate),
-    IsNull {
-        field: String,
-    },
-    IsMissing {
-        field: String,
-    },
-    IsEmpty {
-        field: String,
-    },
-    IsNotEmpty {
-        field: String,
-    },
-    MapContainsKey {
-        field: String,
-        key: Value,
-        coercion: CoercionSpec,
-    },
-    MapContainsValue {
-        field: String,
-        value: Value,
-        coercion: CoercionSpec,
-    },
-    MapContainsEntry {
-        field: String,
-        key: Value,
-        value: Value,
-        coercion: CoercionSpec,
-    },
-    TextContains {
-        field: String,
-        value: Value,
-    },
-    TextContainsCi {
-        field: String,
-        value: Value,
-    },
+    IsNull { field: String },
+    IsMissing { field: String },
+    IsEmpty { field: String },
+    IsNotEmpty { field: String },
+    TextContains { field: String, value: Value },
+    TextContainsCi { field: String, value: Value },
 }
 
 impl Predicate {

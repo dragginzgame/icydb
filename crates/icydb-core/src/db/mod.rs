@@ -59,7 +59,10 @@ impl<C: CanisterKind> Db<C> {
         Context::new(self)
     }
 
-    /// Return a recovery-guarded context for read paths (startup recovery only).
+    /// Return a recovery-guarded context for read paths.
+    ///
+    /// This enforces startup recovery and a fast persisted-marker check so reads
+    /// do not proceed while an incomplete commit is pending replay.
     pub(crate) fn recovered_context<E>(&self) -> Result<Context<'_, E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,

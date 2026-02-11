@@ -5,6 +5,31 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.7.20] – 2026-02-11 - Calm After the Storm
+
+### 🧭 Changed
+
+* Read recovery now performs a fast persisted-marker check after startup and replays pending commit markers before load execution.
+* `ensure_recovered_for_write` now routes through the same recovery path as reads, keeping recovery behavior consistent across operation entry points.
+* Save invariant checks now require the declared primary-key field value to exactly match `entity.id().key()`, so manual `EntityValue` implementations cannot persist identity-divergent rows.
+* Facade query error mapping now preserves `Validate`/`Intent`/`Plan` boundaries, with `UnorderedPagination` surfaced as a dedicated query error kind.
+* Facade query exports are now narrowed to boundary-safe types (`Query`, `ReadConsistency`, `FieldRef`, `Predicate`, and expr DTOs) instead of re-exporting full core query modules.
+* Map patch semantics are now consistent with list/set behavior: `Remove` and `Replace` operations on missing keys are treated as no-ops.
+* Removed internal map-predicate AST/explain/eval branches that were policy-disabled, reducing query-path semantic dead code.
+
+### 🥑 Fixed
+
+* `#[map(...)]` derive validation now rejects map values configured as relations or indirect types, so unsupported map value shapes fail at compile time.
+* Generated map `FieldValue::to_value` no longer panics when map entry invariants are violated; it now uses non-panicking canonicalization with debug assertions for invariant visibility.
+* Fixed recursive map generation type inference for ICRC-3 style value trees (e.g. `map<Text, Value>`), preventing `E0282` at `#[map(...)]` expansion sites.
+* Row decode errors now preserve underlying deserialize diagnostics instead of collapsing failures into a generic message, improving corruption triage and execution-boundary reporting.
+* Direct `ResponseError` conversions in the facade now keep `ErrorOrigin::Response` for consistent error-origin attribution.
+* Save-time schema validation caching is now isolated per entity type, preventing cross-entity cache bleed that could surface false primary-key type mismatch errors.
+* Save invariant checks now allow unit primary keys for singleton entities while continuing to reject null primary-key values.
+* Added regression coverage for map value validation and read-side replay of incomplete commit markers.
+* Added executor regression coverage for unit-key singleton insert + `only()` load round trips.
+* Updated query and merge regression coverage for the new map-field rejection path and consistent map patch no-op behavior on missing keys.
+
 ## [0.7.19] – 2026-02-10
 
 ### 🥨 Changed

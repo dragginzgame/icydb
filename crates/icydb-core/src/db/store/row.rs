@@ -1,6 +1,6 @@
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
-    serialize::deserialize,
+    serialize::{SerializeError, deserialize},
     traits::{EntityKind, Storable},
 };
 use canic_cdk::structures::storable::Bound;
@@ -43,8 +43,11 @@ impl From<RawRowError> for InternalError {
 
 #[derive(Debug, ThisError)]
 pub enum RowDecodeError {
-    #[error("row failed to deserialize")]
-    Deserialize,
+    #[error("row failed to deserialize: {source}")]
+    Deserialize {
+        #[source]
+        source: SerializeError,
+    },
 }
 
 ///
@@ -86,7 +89,7 @@ impl RawRow {
 
     /// Decode into an entity.
     pub fn try_decode<E: EntityKind>(&self) -> Result<E, RowDecodeError> {
-        deserialize::<E>(&self.0).map_err(|_| RowDecodeError::Deserialize)
+        deserialize::<E>(&self.0).map_err(|source| RowDecodeError::Deserialize { source })
     }
 }
 

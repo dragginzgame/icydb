@@ -5,9 +5,9 @@
 //! commit before any new operation proceeds.
 //!
 //! Important semantic notes:
-//! - Recovery runs once at startup for read paths.
-//! - Write paths perform a cheap marker check and replay if needed.
-//! - Reads may observe partial commit state if a trap occurs after startup.
+//! - Recovery runs once at startup.
+//! - Read and write paths both perform a cheap marker check and replay if needed.
+//! - Reads must not proceed while a persisted partial commit marker is present.
 //!
 //! Invocation from read or mutation entrypoints is permitted only as an
 //! unconditional invariant-restoration step. Recovery must not be
@@ -38,18 +38,22 @@ static RECOVERED: OnceLock<()> = OnceLock::new();
 ///
 /// This function is:
 /// - **Not part of mutation atomicity**
-/// - **Mandatory before read execution at startup**
+/// - **Mandatory before read execution**
 /// - **Not conditional on read semantics**
 ///
 /// It may be invoked at operation boundaries (including read or mutation
 /// entrypoints), but must always complete **before** any operation-specific
 /// planning, validation, or apply phase begins.
 pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {
-    if RECOVERED.get().is_some() {
-        return Ok(());
+    if RECOVERED.get().is_none() {
+        return perform_recovery(db);
     }
 
-    perform_recovery(db)
+    if commit_marker_present_fast()? {
+        return perform_recovery(db);
+    }
+
+    Ok(())
 }
 
 /// Ensure recovery has been performed before any write operation proceeds.
@@ -63,15 +67,7 @@ pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(),
 pub fn ensure_recovered_for_write(
     db: &Db<impl crate::traits::CanisterKind>,
 ) -> Result<(), InternalError> {
-    if RECOVERED.get().is_none() {
-        return perform_recovery(db);
-    }
-
-    if commit_marker_present_fast()? {
-        return perform_recovery(db);
-    }
-
-    Ok(())
+    ensure_recovered(db)
 }
 
 fn perform_recovery(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {

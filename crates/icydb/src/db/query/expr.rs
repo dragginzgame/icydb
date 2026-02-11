@@ -7,7 +7,7 @@ use icydb_core::{
     self as core,
     db::query::{
         QueryError,
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature},
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -480,38 +480,6 @@ impl FilterExpr {
             field: field.into(),
         }
     }
-
-    // ─────────────────────────────────────────────────────────────
-    // Map predicates
-    // ─────────────────────────────────────────────────────────────
-
-    pub fn map_contains_key(
-        field: impl Into<String>,
-        _key: impl Into<Value>,
-    ) -> Result<Self, UnsupportedQueryFeature> {
-        Err(UnsupportedQueryFeature::MapPredicate {
-            field: field.into(),
-        })
-    }
-
-    pub fn map_contains_value(
-        field: impl Into<String>,
-        _value: impl Into<Value>,
-    ) -> Result<Self, UnsupportedQueryFeature> {
-        Err(UnsupportedQueryFeature::MapPredicate {
-            field: field.into(),
-        })
-    }
-
-    pub fn map_contains_entry(
-        field: impl Into<String>,
-        _key: impl Into<Value>,
-        _value: impl Into<Value>,
-    ) -> Result<Self, UnsupportedQueryFeature> {
-        Err(UnsupportedQueryFeature::MapPredicate {
-            field: field.into(),
-        })
-    }
 }
 
 ///
@@ -550,23 +518,4 @@ impl SortExpr {
 pub enum OrderDirection {
     Asc,
     Desc,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::FilterExpr;
-    use icydb_core::db::query::predicate::UnsupportedQueryFeature;
-
-    #[test]
-    fn map_filter_expr_constructors_fail_immediately() {
-        let err = FilterExpr::map_contains_key("attributes", "k")
-            .expect_err("map constructor must fail immediately");
-
-        assert_eq!(
-            err,
-            UnsupportedQueryFeature::MapPredicate {
-                field: "attributes".to_string(),
-            }
-        );
-    }
 }

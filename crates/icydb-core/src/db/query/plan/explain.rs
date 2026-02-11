@@ -83,22 +83,6 @@ pub enum ExplainPredicate {
     IsNotEmpty {
         field: String,
     },
-    MapContainsKey {
-        field: String,
-        key: Value,
-        coercion: CoercionSpec,
-    },
-    MapContainsValue {
-        field: String,
-        value: Value,
-        coercion: CoercionSpec,
-    },
-    MapContainsEntry {
-        field: String,
-        key: Value,
-        value: Value,
-        coercion: CoercionSpec,
-    },
     TextContains {
         field: String,
         value: Value,
@@ -243,35 +227,6 @@ impl ExplainPredicate {
             },
             Predicate::IsNotEmpty { field } => Self::IsNotEmpty {
                 field: field.clone(),
-            },
-            Predicate::MapContainsKey {
-                field,
-                key,
-                coercion,
-            } => Self::MapContainsKey {
-                field: field.clone(),
-                key: key.clone(),
-                coercion: coercion.clone(),
-            },
-            Predicate::MapContainsValue {
-                field,
-                value,
-                coercion,
-            } => Self::MapContainsValue {
-                field: field.clone(),
-                value: value.clone(),
-                coercion: coercion.clone(),
-            },
-            Predicate::MapContainsEntry {
-                field,
-                key,
-                value,
-                coercion,
-            } => Self::MapContainsEntry {
-                field: field.clone(),
-                key: key.clone(),
-                value: value.clone(),
-                coercion: coercion.clone(),
             },
             Predicate::TextContains { field, value } => Self::TextContains {
                 field: field.clone(),

@@ -184,22 +184,6 @@ impl FieldType {
     }
 
     #[must_use]
-    pub const fn is_map(&self) -> bool {
-        matches!(self, Self::Map { .. })
-    }
-
-    #[must_use]
-    pub fn map_types(&self) -> Option<(&Self, &Self)> {
-        match self {
-            Self::Map { key, value } => Some((key.as_ref(), value.as_ref())),
-            _ => {
-                // NOTE: Only map field types expose key/value type pairs.
-                None
-            }
-        }
-    }
-
-    #[must_use]
     pub const fn is_orderable(&self) -> bool {
         match self {
             Self::Scalar(inner) => inner.is_orderable(),
@@ -431,11 +415,6 @@ pub fn reject_unsupported_query_features(
             Ok(())
         }
         Predicate::Not(inner) => reject_unsupported_query_features(inner),
-        Predicate::MapContainsKey { field, .. }
-        | Predicate::MapContainsValue { field, .. }
-        | Predicate::MapContainsEntry { field, .. } => Err(UnsupportedQueryFeature::MapPredicate {
-            field: field.clone(),
-        }),
     }
 }
 
@@ -472,22 +451,6 @@ pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), Valida
                 Err(invalid_operator(field, "is_not_empty"))
             }
         }
-        Predicate::MapContainsKey {
-            field,
-            key,
-            coercion,
-        } => validate_map_key(schema, field, key, coercion),
-        Predicate::MapContainsValue {
-            field,
-            value,
-            coercion,
-        } => validate_map_value(schema, field, value, coercion),
-        Predicate::MapContainsEntry {
-            field,
-            key,
-            value,
-            coercion,
-        } => validate_map_entry(schema, field, key, value, coercion),
         Predicate::TextContains { field, value } => {
             validate_text_contains(schema, field, value, "text_contains")
         }
@@ -530,8 +493,6 @@ fn validate_eq_ne(
 ) -> Result<(), ValidateError> {
     if field_type.is_list_like() {
         ensure_list_literal(field, value, field_type)?;
-    } else if field_type.is_map() {
-        ensure_map_literal(field, value, field_type)?;
     } else {
         ensure_scalar_literal(field, value)?;
     }
@@ -639,60 +600,6 @@ fn validate_text_compare(
 }
 
 // Ensure a field exists and is a map, returning key/value types.
-fn ensure_map_types<'a>(
-    schema: &'a SchemaInfo,
-    field: &str,
-    op: &str,
-) -> Result<(&'a FieldType, &'a FieldType), ValidateError> {
-    let field_type = ensure_field(schema, field)?;
-    field_type
-        .map_types()
-        .ok_or_else(|| invalid_operator(field, op))
-}
-
-fn validate_map_key(
-    schema: &SchemaInfo,
-    field: &str,
-    key: &Value,
-    coercion: &CoercionSpec,
-) -> Result<(), ValidateError> {
-    ensure_no_text_casefold(field, coercion)?;
-
-    let (key_type, _) = ensure_map_types(schema, field, "map_contains_key")?;
-
-    ensure_coercion(field, key_type, key, coercion)
-}
-
-fn validate_map_value(
-    schema: &SchemaInfo,
-    field: &str,
-    value: &Value,
-    coercion: &CoercionSpec,
-) -> Result<(), ValidateError> {
-    ensure_no_text_casefold(field, coercion)?;
-
-    let (_, value_type) = ensure_map_types(schema, field, "map_contains_value")?;
-
-    ensure_coercion(field, value_type, value, coercion)
-}
-
-fn validate_map_entry(
-    schema: &SchemaInfo,
-    field: &str,
-    key: &Value,
-    value: &Value,
-    coercion: &CoercionSpec,
-) -> Result<(), ValidateError> {
-    ensure_no_text_casefold(field, coercion)?;
-
-    let (key_type, value_type) = ensure_map_types(schema, field, "map_contains_entry")?;
-
-    ensure_coercion(field, key_type, key, coercion)?;
-    ensure_coercion(field, value_type, value, coercion)?;
-
-    Ok(())
-}
-
 /// Validate substring predicates on text fields.
 fn validate_text_contains(
     schema: &SchemaInfo,
@@ -745,18 +652,6 @@ fn invalid_literal(field: &str, msg: &str) -> ValidateError {
         field: field.to_string(),
         message: msg.to_string(),
     }
-}
-
-// Reject invalid case-insensitive coercions for non-text comparisons.
-fn ensure_no_text_casefold(field: &str, coercion: &CoercionSpec) -> Result<(), ValidateError> {
-    if matches!(coercion.id, CoercionId::TextCasefold) {
-        return Err(ValidateError::InvalidCoercion {
-            field: field.to_string(),
-            coercion: coercion.id,
-        });
-    }
-
-    Ok(())
 }
 
 // Ensure the literal is text to match text-only operators.
@@ -844,21 +739,6 @@ fn ensure_list_literal(
         return Err(invalid_literal(
             field,
             "list literal does not match field element type",
-        ));
-    }
-
-    Ok(())
-}
-
-fn ensure_map_literal(
-    field: &str,
-    literal: &Value,
-    field_type: &FieldType,
-) -> Result<(), ValidateError> {
-    if !literal_matches_type(literal, field_type) {
-        return Err(invalid_literal(
-            field,
-            "map literal does not match field key/value types",
         ));
     }
 
