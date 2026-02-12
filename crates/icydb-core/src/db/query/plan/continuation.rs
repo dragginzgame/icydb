@@ -288,35 +288,17 @@ impl ExplainPlan {
     pub fn continuation_signature(&self, entity_path: &'static str) -> ContinuationSignature {
         let mut hasher = Sha256::new();
         hasher.update(b"contsig:v1");
-
-        hash_parts::write_tag(&mut hasher, 0x01);
-        hash_parts::write_str(&mut hasher, entity_path);
-
-        hash_parts::write_tag(&mut hasher, 0x02);
-        hash_parts::hash_mode(&mut hasher, self.mode);
-
-        hash_parts::write_tag(&mut hasher, 0x03);
-        hash_parts::hash_access(&mut hasher, &self.access);
-
-        hash_parts::write_tag(&mut hasher, 0x04);
-        hash_parts::hash_predicate(&mut hasher, &self.predicate);
-
-        hash_parts::write_tag(&mut hasher, 0x05);
-        hash_parts::hash_order(&mut hasher, &self.order_by);
-
-        hash_parts::write_tag(&mut hasher, 0x06);
-        hash_projection(&mut hasher);
+        hash_parts::hash_explain_plan_profile(
+            &mut hasher,
+            self,
+            hash_parts::ExplainHashProfile::ContinuationV1 { entity_path },
+        );
 
         let digest = hasher.finalize();
         let mut out = [0u8; 32];
         out.copy_from_slice(&digest);
         ContinuationSignature::from_bytes(out)
     }
-}
-
-// Phase 1 projection surface is always full row `(Id<E>, E)`.
-fn hash_projection(hasher: &mut Sha256) {
-    hash_parts::write_tag(hasher, 0x70);
 }
 
 ///

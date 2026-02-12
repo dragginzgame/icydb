@@ -1,11 +1,8 @@
 //! Deterministic plan fingerprinting derived from the explain projection.
 #![allow(clippy::cast_possible_truncation)]
 
-use super::{ExplainDeleteLimit, ExplainPagination, ExplainPlan};
-use crate::{
-    db::query::{ReadConsistency, plan::hash_parts},
-    traits::FieldValue,
-};
+use super::ExplainPlan;
+use crate::{db::query::plan::hash_parts, traits::FieldValue};
 use sha2::{Digest, Sha256};
 
 ///
@@ -56,68 +53,15 @@ impl ExplainPlan {
     pub fn fingerprint(&self) -> PlanFingerprint {
         let mut hasher = Sha256::new();
         hasher.update(b"planfp:v2");
-        hash_explain_plan(&mut hasher, self);
+        hash_parts::hash_explain_plan_profile(
+            &mut hasher,
+            self,
+            hash_parts::ExplainHashProfile::FingerprintV2,
+        );
         let digest = hasher.finalize();
         let mut out = [0u8; 32];
         out.copy_from_slice(&digest);
         PlanFingerprint(out)
-    }
-}
-
-fn hash_explain_plan(hasher: &mut Sha256, plan: &ExplainPlan) {
-    hash_parts::write_tag(hasher, 0x01);
-    hash_parts::hash_access(hasher, &plan.access);
-
-    hash_parts::write_tag(hasher, 0x02);
-    hash_parts::hash_predicate(hasher, &plan.predicate);
-
-    hash_parts::write_tag(hasher, 0x03);
-    hash_parts::hash_order(hasher, &plan.order_by);
-
-    hash_parts::write_tag(hasher, 0x04);
-    hash_page(hasher, &plan.page);
-
-    hash_parts::write_tag(hasher, 0x05);
-    hash_delete_limit(hasher, &plan.delete_limit);
-
-    hash_parts::write_tag(hasher, 0x06);
-    hash_consistency(hasher, plan.consistency);
-
-    hash_parts::write_tag(hasher, 0x07);
-    hash_parts::hash_mode(hasher, plan.mode);
-}
-
-fn hash_page(hasher: &mut Sha256, page: &ExplainPagination) {
-    match page {
-        ExplainPagination::None => hash_parts::write_tag(hasher, 0x40),
-        ExplainPagination::Page { limit, offset } => {
-            hash_parts::write_tag(hasher, 0x41);
-            match limit {
-                Some(limit) => {
-                    hash_parts::write_tag(hasher, 0x01);
-                    hash_parts::write_u32(hasher, *limit);
-                }
-                None => hash_parts::write_tag(hasher, 0x00),
-            }
-            hash_parts::write_u32(hasher, *offset);
-        }
-    }
-}
-
-fn hash_delete_limit(hasher: &mut Sha256, limit: &ExplainDeleteLimit) {
-    match limit {
-        ExplainDeleteLimit::None => hash_parts::write_tag(hasher, 0x42),
-        ExplainDeleteLimit::Limit { max_rows } => {
-            hash_parts::write_tag(hasher, 0x43);
-            hash_parts::write_u32(hasher, *max_rows);
-        }
-    }
-}
-
-fn hash_consistency(hasher: &mut Sha256, consistency: ReadConsistency) {
-    match consistency {
-        ReadConsistency::MissingOk => hash_parts::write_tag(hasher, 0x50),
-        ReadConsistency::Strict => hash_parts::write_tag(hasher, 0x51),
     }
 }
 

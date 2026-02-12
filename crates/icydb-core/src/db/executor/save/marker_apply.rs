@@ -3,18 +3,18 @@ use crate::{
         CommitDataOp, CommitIndexOp,
         executor::{
             mutation::{
-                IndexEntryPresencePolicy, PreparedDataRollback, PreparedIndexRollback,
-                prepare_index_ops,
+                IndexEntryPresencePolicy, MarkerDataOpMode, PreparedDataRollback,
+                PreparedIndexRollback, prepare_index_ops, validate_marker_data_op,
             },
             save::SaveExecutor,
         },
         index::{IndexKey, IndexStore, plan::IndexApplyPlan},
-        store::{DataKey, RawDataKey, RawRow},
+        store::{DataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::{EntityKind, EntityValue, Path, Storable},
+    traits::{EntityKind, EntityValue, Path},
 };
-use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, thread::LocalKey};
+use std::{cell::RefCell, collections::BTreeMap, thread::LocalKey};
 
 impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     // ======================================================================
@@ -87,49 +87,14 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         }
 
         let op = &ops[0];
-        if op.store != E::DataStore::PATH {
-            return Err(InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Store,
-                format!(
-                    "commit marker references unexpected data store '{}' ({})",
-                    op.store,
-                    E::PATH
-                ),
-            ));
-        }
-        if op.key.len() != DataKey::STORED_SIZE_USIZE {
-            return Err(InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Store,
-                format!(
-                    "commit marker data key length {} does not match {} ({})",
-                    op.key.len(),
-                    DataKey::STORED_SIZE_USIZE,
-                    E::PATH
-                ),
-            ));
-        }
-        let Some(value) = &op.value else {
-            return Err(InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Store,
-                format!("commit marker save missing data payload ({})", E::PATH),
-            ));
-        };
-        if value.len() > crate::db::store::MAX_ROW_BYTES as usize {
-            return Err(InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Store,
-                format!(
-                    "commit marker data payload exceeds max size: {} bytes ({})",
-                    value.len(),
-                    E::PATH
-                ),
-            ));
-        }
-
-        let raw_key = RawDataKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
+        let raw_key = validate_marker_data_op(
+            op,
+            E::DataStore::PATH,
+            DataKey::STORED_SIZE_USIZE,
+            MarkerDataOpMode::SaveUpsert,
+            E::PATH,
+            Some(crate::db::store::MAX_ROW_BYTES as usize),
+        )?;
         Ok(vec![PreparedDataRollback {
             key: raw_key,
             value: old_row,

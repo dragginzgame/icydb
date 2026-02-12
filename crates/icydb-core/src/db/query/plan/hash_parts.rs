@@ -5,7 +5,7 @@ use crate::{
     db::{
         index::fingerprint::hash_value,
         query::{
-            QueryMode,
+            QueryMode, ReadConsistency,
             plan::{ExplainAccessPath, ExplainOrderBy, ExplainPredicate, OrderDirection},
             predicate::coercion::CoercionId,
         },
@@ -232,4 +232,105 @@ const fn order_direction_tag(direction: OrderDirection) -> u8 {
         OrderDirection::Asc => 0x01,
         OrderDirection::Desc => 0x02,
     }
+}
+
+///
+/// ExplainHashProfile
+///
+/// Hashing profiles that select canonical explain-surface fields.
+///
+
+pub enum ExplainHashProfile<'a> {
+    FingerprintV2,
+    ContinuationV1 { entity_path: &'a str },
+}
+
+/// Hash an `ExplainPlan` using a profile-specific canonical field set.
+pub fn hash_explain_plan_profile(
+    hasher: &mut Sha256,
+    plan: &crate::db::query::plan::ExplainPlan,
+    profile: ExplainHashProfile<'_>,
+) {
+    match profile {
+        ExplainHashProfile::FingerprintV2 => {
+            write_tag(hasher, 0x01);
+            hash_access(hasher, &plan.access);
+
+            write_tag(hasher, 0x02);
+            hash_predicate(hasher, &plan.predicate);
+
+            write_tag(hasher, 0x03);
+            hash_order(hasher, &plan.order_by);
+
+            write_tag(hasher, 0x04);
+            hash_page(hasher, &plan.page);
+
+            write_tag(hasher, 0x05);
+            hash_delete_limit(hasher, &plan.delete_limit);
+
+            write_tag(hasher, 0x06);
+            hash_consistency(hasher, plan.consistency);
+
+            write_tag(hasher, 0x07);
+            hash_mode(hasher, plan.mode);
+        }
+        ExplainHashProfile::ContinuationV1 { entity_path } => {
+            write_tag(hasher, 0x01);
+            write_str(hasher, entity_path);
+
+            write_tag(hasher, 0x02);
+            hash_mode(hasher, plan.mode);
+
+            write_tag(hasher, 0x03);
+            hash_access(hasher, &plan.access);
+
+            write_tag(hasher, 0x04);
+            hash_predicate(hasher, &plan.predicate);
+
+            write_tag(hasher, 0x05);
+            hash_order(hasher, &plan.order_by);
+
+            write_tag(hasher, 0x06);
+            hash_projection_default(hasher);
+        }
+    }
+}
+
+fn hash_page(hasher: &mut Sha256, page: &crate::db::query::plan::ExplainPagination) {
+    match page {
+        crate::db::query::plan::ExplainPagination::None => write_tag(hasher, 0x40),
+        crate::db::query::plan::ExplainPagination::Page { limit, offset } => {
+            write_tag(hasher, 0x41);
+            match limit {
+                Some(limit) => {
+                    write_tag(hasher, 0x01);
+                    write_u32(hasher, *limit);
+                }
+                None => write_tag(hasher, 0x00),
+            }
+            write_u32(hasher, *offset);
+        }
+    }
+}
+
+fn hash_delete_limit(hasher: &mut Sha256, limit: &crate::db::query::plan::ExplainDeleteLimit) {
+    match limit {
+        crate::db::query::plan::ExplainDeleteLimit::None => write_tag(hasher, 0x42),
+        crate::db::query::plan::ExplainDeleteLimit::Limit { max_rows } => {
+            write_tag(hasher, 0x43);
+            write_u32(hasher, *max_rows);
+        }
+    }
+}
+
+fn hash_consistency(hasher: &mut Sha256, consistency: ReadConsistency) {
+    match consistency {
+        ReadConsistency::MissingOk => write_tag(hasher, 0x50),
+        ReadConsistency::Strict => write_tag(hasher, 0x51),
+    }
+}
+
+// Phase 1 projection surface is always full row `(Id<E>, E)`.
+fn hash_projection_default(hasher: &mut Sha256) {
+    write_tag(hasher, 0x70);
 }

@@ -5,8 +5,8 @@ use crate::{
             ExecutorError,
             delete::DeleteExecutor,
             mutation::{
-                IndexEntryPresencePolicy, PreparedDataRollback, PreparedIndexRollback,
-                prepare_index_ops,
+                IndexEntryPresencePolicy, MarkerDataOpMode, PreparedDataRollback,
+                PreparedIndexRollback, prepare_index_ops, validate_marker_data_op,
             },
         },
         index::{
@@ -16,9 +16,9 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     prelude::*,
-    traits::{EntityKind, EntityValue, Path, Storable},
+    traits::{EntityKind, EntityValue, Path},
 };
-use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, thread::LocalKey};
+use std::{cell::RefCell, collections::BTreeMap, thread::LocalKey};
 
 ///
 /// IndexPlan
@@ -89,38 +89,14 @@ where
 
         // Validate marker ops and map them to rollback rows.
         for op in ops {
-            if op.store != E::DataStore::PATH {
-                return Err(InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Store,
-                    format!(
-                        "commit marker references unexpected data store '{}' ({})",
-                        op.store,
-                        E::PATH
-                    ),
-                ));
-            }
-            if op.key.len() != DataKey::STORED_SIZE_USIZE {
-                return Err(InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Store,
-                    format!(
-                        "commit marker data key length {} does not match {} ({})",
-                        op.key.len(),
-                        DataKey::STORED_SIZE_USIZE,
-                        E::PATH
-                    ),
-                ));
-            }
-            if op.value.is_some() {
-                return Err(InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Store,
-                    format!("commit marker delete includes data payload ({})", E::PATH),
-                ));
-            }
-
-            let raw_key = RawDataKey::from_bytes(Cow::Borrowed(op.key.as_slice()));
+            let raw_key = validate_marker_data_op(
+                op,
+                E::DataStore::PATH,
+                DataKey::STORED_SIZE_USIZE,
+                MarkerDataOpMode::DeleteRemove,
+                E::PATH,
+                None,
+            )?;
             let raw_row = rollback_rows.get(&raw_key).ok_or_else(|| {
                 InternalError::new(
                     ErrorClass::Internal,

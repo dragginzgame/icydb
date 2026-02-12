@@ -115,6 +115,76 @@ pub(super) fn prepare_index_ops(
     Ok((apply_stores, rollbacks))
 }
 
+/// Validate and decode a commit marker data op for a specific executor mode.
+///
+/// This is a pre-commit structural validation step. It ensures store/key shape
+/// and mode-specific payload semantics before marker apply begins.
+pub(super) fn validate_marker_data_op(
+    op: &CommitDataOp,
+    expected_store: &'static str,
+    expected_key_len: usize,
+    mode: MarkerDataOpMode,
+    entity_path: &'static str,
+    max_payload_len: Option<usize>,
+) -> Result<RawDataKey, InternalError> {
+    if op.store != expected_store {
+        return Err(InternalError::new(
+            ErrorClass::Internal,
+            ErrorOrigin::Store,
+            format!(
+                "commit marker references unexpected data store '{}' ({entity_path})",
+                op.store
+            ),
+        ));
+    }
+    if op.key.len() != expected_key_len {
+        return Err(InternalError::new(
+            ErrorClass::Internal,
+            ErrorOrigin::Store,
+            format!(
+                "commit marker data key length {} does not match {} ({entity_path})",
+                op.key.len(),
+                expected_key_len
+            ),
+        ));
+    }
+
+    match mode {
+        MarkerDataOpMode::SaveUpsert => {
+            let Some(value) = &op.value else {
+                return Err(InternalError::new(
+                    ErrorClass::Internal,
+                    ErrorOrigin::Store,
+                    format!("commit marker save missing data payload ({entity_path})"),
+                ));
+            };
+            if let Some(max_payload_len) = max_payload_len
+                && value.len() > max_payload_len
+            {
+                return Err(InternalError::new(
+                    ErrorClass::Internal,
+                    ErrorOrigin::Store,
+                    format!(
+                        "commit marker data payload exceeds max size: {} bytes ({entity_path})",
+                        value.len()
+                    ),
+                ));
+            }
+        }
+        MarkerDataOpMode::DeleteRemove => {
+            if op.value.is_some() {
+                return Err(InternalError::new(
+                    ErrorClass::Internal,
+                    ErrorOrigin::Store,
+                    format!("commit marker delete includes data payload ({entity_path})"),
+                ));
+            }
+        }
+    }
+
+    Ok(RawDataKey::from_bytes(Cow::Borrowed(op.key.as_slice())))
+}
+
 /// Apply rollback mutations for index entries using raw bytes.
 pub(super) fn apply_index_rollbacks(ops: Vec<PreparedIndexRollback>) {
     for op in ops {

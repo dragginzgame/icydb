@@ -49,6 +49,17 @@ Imports are considered part of a module’s public shape and architectural contr
 
 * All non-test modules MUST declare imports at the top of the file.
 * Prefer a single top-level `use crate::{ ... };` block per module.
+* Prefer grouping related module imports into that single block (instead of multiple top-level `use` lines) when possible, e.g.:
+
+```rust
+use crate::{
+    db::query::{
+        plan::{OrderSpec, validate::PlanError},
+        predicate::SchemaInfo,
+    },
+    model::entity::EntityModel,
+};
+```
 * Use nested paths to reflect hierarchy and ownership.
 
 ### Prohibited (by default)
