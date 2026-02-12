@@ -21,7 +21,9 @@ Date: 2026-02-12
   - Public token is hex-encoded bytes.
 - Boundary slots follow canonical order (user order fields + PK tie-break), so non-PK ordered fields can be present in token payload.
 - Pagination continuity is deterministic per request, but not snapshot-isolated across requests.
-- Under concurrent writes, continuation reflects live state (normal stateless cursor semantics).
+- Continuation is strict forward-only over the canonical boundary.
+- For a fixed query shape, rows are not duplicated across pages when ordered keys remain stable between requests.
+- Under concurrent writes, continuation reflects live state; updates that reorder rows can cause logical drift (skips/re-observation).
 
 ## Decision For This Checkpoint
 

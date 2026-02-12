@@ -139,7 +139,6 @@ impl ContinuationToken {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq, ThisError)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) enum ContinuationTokenError {
     #[error("failed to encode continuation token: {0}")]
     Encode(String),
@@ -150,6 +149,10 @@ pub(crate) enum ContinuationTokenError {
     #[error("unsupported continuation token version: {version}")]
     UnsupportedVersion { version: u8 },
 }
+
+///
+/// ContinuationTokenWire
+///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct ContinuationTokenWire {
@@ -253,6 +256,10 @@ fn validate_cursor_boundary_types(
 
     Ok(())
 }
+
+///
+/// LogicalPlan
+///
 
 impl<K> super::LogicalPlan<K>
 where

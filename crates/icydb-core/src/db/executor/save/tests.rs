@@ -2,12 +2,14 @@ use super::*;
 use crate::{
     db::{
         commit::{ensure_recovered_for_write, init_commit_store_for_tests},
-        index::IndexStoreRegistry,
+        index::{IndexStore, IndexStoreRegistry},
         store::{DataStore, DataStoreRegistry},
     },
+    error::{ErrorClass, ErrorOrigin},
     model::{
         entity::EntityModel,
         field::{EntityFieldKind, EntityFieldModel, RelationStrength},
+        index::IndexModel,
     },
     test_fixtures::entity_model_from_static,
     traits::{
@@ -70,13 +72,19 @@ thread_local! {
         RefCell::new(DataStore::init(test_memory(0)));
     static TARGET_DATA_STORE: RefCell<DataStore> =
         RefCell::new(DataStore::init(test_memory(1)));
+    static UNIQUE_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init(test_memory(2), test_memory(3)));
     static DATA_REGISTRY: DataStoreRegistry = {
         let mut reg = DataStoreRegistry::new();
         reg.register(SourceStore::PATH, &SOURCE_DATA_STORE);
         reg.register(TargetStore::PATH, &TARGET_DATA_STORE);
         reg
     };
-    static INDEX_REGISTRY: IndexStoreRegistry = IndexStoreRegistry::new();
+    static INDEX_REGISTRY: IndexStoreRegistry = {
+        let mut reg = IndexStoreRegistry::new();
+        reg.register(UNIQUE_INDEX_STORE_PATH, &UNIQUE_INDEX_STORE);
+        reg
+    };
 }
 
 static DB: Db<TestCanister> = Db::new(&DATA_REGISTRY, &INDEX_REGISTRY);
@@ -97,7 +105,13 @@ fn reset_store() {
         reg.with_store_mut(TargetStore::PATH, DataStore::clear)
             .expect("target store access should succeed");
     });
+    DB.with_index(|reg| {
+        reg.with_store_mut(UNIQUE_INDEX_STORE_PATH, IndexStore::clear)
+            .expect("unique index store access should succeed");
+    });
 }
+
+const UNIQUE_INDEX_STORE_PATH: &str = "save_tests::UniqueIndexStore";
 
 ///
 /// TargetEntity
@@ -341,6 +355,93 @@ impl EntityPlacement for SourceSetEntity {
 impl EntityKind for SourceSetEntity {}
 
 impl EntityValue for SourceSetEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+///
+/// UniqueEmailEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct UniqueEmailEntity {
+    id: Ulid,
+    email: String,
+}
+
+impl AsView for UniqueEmailEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for UniqueEmailEntity {}
+impl SanitizeCustom for UniqueEmailEntity {}
+impl ValidateAuto for UniqueEmailEntity {}
+impl ValidateCustom for UniqueEmailEntity {}
+impl Visitable for UniqueEmailEntity {}
+
+impl Path for UniqueEmailEntity {
+    const PATH: &'static str = "save_tests::UniqueEmailEntity";
+}
+
+impl EntityKey for UniqueEmailEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for UniqueEmailEntity {
+    const ENTITY_NAME: &'static str = "UniqueEmailEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static UNIQUE_EMAIL_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "email",
+        kind: EntityFieldKind::Text,
+    },
+];
+static UNIQUE_EMAIL_FIELD_NAMES: [&str; 2] = ["id", "email"];
+static UNIQUE_EMAIL_INDEX_FIELDS: [&str; 1] = ["email"];
+static UNIQUE_EMAIL_INDEX: IndexModel = IndexModel::new(
+    "save_tests::UniqueEmailEntity::email",
+    UNIQUE_INDEX_STORE_PATH,
+    &UNIQUE_EMAIL_INDEX_FIELDS,
+    true,
+);
+static UNIQUE_EMAIL_INDEXES: [&IndexModel; 1] = [&UNIQUE_EMAIL_INDEX];
+static UNIQUE_EMAIL_MODEL: EntityModel = entity_model_from_static(
+    "save_tests::UniqueEmailEntity",
+    "UniqueEmailEntity",
+    &UNIQUE_EMAIL_FIELDS[0],
+    &UNIQUE_EMAIL_FIELDS,
+    &UNIQUE_EMAIL_INDEXES,
+);
+
+impl EntitySchema for UniqueEmailEntity {
+    const MODEL: &'static EntityModel = &UNIQUE_EMAIL_MODEL;
+    const FIELDS: &'static [&'static str] = &UNIQUE_EMAIL_FIELD_NAMES;
+    const INDEXES: &'static [&'static IndexModel] = &UNIQUE_EMAIL_INDEXES;
+}
+
+impl EntityPlacement for UniqueEmailEntity {
+    type DataStore = SourceStore;
+    type Canister = TestCanister;
+}
+
+impl EntityKind for UniqueEmailEntity {}
+
+impl EntityValue for UniqueEmailEntity {
     fn id(&self) -> Id<Self> {
         Id::from_key(self.id)
     }
@@ -614,4 +715,87 @@ fn save_rejects_primary_key_field_and_identity_mismatch() {
         source_empty,
         "failed invariant checks must not persist rows"
     );
+}
+
+#[test]
+fn unique_index_violation_rejected_on_insert() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    save.insert(UniqueEmailEntity {
+        id: Ulid::from_u128(10),
+        email: "alice@example.com".to_string(),
+    })
+    .expect("first unique insert should succeed");
+
+    let err = save
+        .insert(UniqueEmailEntity {
+            id: Ulid::from_u128(11),
+            email: "alice@example.com".to_string(),
+        })
+        .expect_err("duplicate unique index value should fail");
+    assert_eq!(
+        err.class,
+        ErrorClass::Conflict,
+        "expected conflict error class"
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Index,
+        "expected index error origin"
+    );
+    assert!(
+        err.message.contains("index constraint violation"),
+        "unexpected error: {err:?}"
+    );
+
+    let rows = DB
+        .with_data(|reg| reg.with_store(SourceStore::PATH, |store| store.iter().count()))
+        .expect("source store access should succeed");
+    assert_eq!(rows, 1, "conflicting insert must not persist");
+}
+
+#[test]
+fn unique_index_violation_rejected_on_update() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    save.insert(UniqueEmailEntity {
+        id: Ulid::from_u128(20),
+        email: "alice@example.com".to_string(),
+    })
+    .expect("first unique row should save");
+    save.insert(UniqueEmailEntity {
+        id: Ulid::from_u128(21),
+        email: "bob@example.com".to_string(),
+    })
+    .expect("second unique row should save");
+
+    let err = save
+        .update(UniqueEmailEntity {
+            id: Ulid::from_u128(21),
+            email: "alice@example.com".to_string(),
+        })
+        .expect_err("update that collides with unique index should fail");
+    assert_eq!(
+        err.class,
+        ErrorClass::Conflict,
+        "expected conflict error class"
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Index,
+        "expected index error origin"
+    );
+    assert!(
+        err.message.contains("index constraint violation"),
+        "unexpected error: {err:?}"
+    );
+
+    let rows = DB
+        .with_data(|reg| reg.with_store(SourceStore::PATH, |store| store.iter().count()))
+        .expect("source store access should succeed");
+    assert_eq!(rows, 2, "failed update must not remove persisted rows");
 }

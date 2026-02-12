@@ -82,38 +82,140 @@ ownership, or entity existence beyond what execution returns.
 If no projection is specified, the intent is interpreted as “all fields.”
 Projection is an intent concern and must not be introduced by the planner.
 
-## Pagination Determinism Invariant (Required)
+## Pagination Guarantees
 
-Pagination requires explicit ordering that defines a total order for the page window.
+IcyDB provides deterministic, cursor-based pagination for ordered queries.
 
-- `limit` and `offset` are illegal without `order_by(...)`.
-- The planner rejects unordered pagination with `PlanError::UnorderedPagination`.
-- The engine never applies implicit ordering from storage layout, index iteration,
-  or physical row order.
-- Callers should include a unique tie-breaker (for example, primary key) in
-  `order_by(...)` to guarantee total ordering.
+Pagination is forward-only and bound to a canonical query shape.
+It is not snapshot-based and does not provide transactional consistency across page requests.
 
-Rationale:
-- Pagination without a declared order is unstable and non-deterministic.
-- Different access paths or storage layouts may produce different row orders.
+### 1. Requirements for Pagination
 
-Rejected (invalid):
+Pagination requires:
 
-```rust
-let query = Query::<User>::new(ReadConsistency::MissingOk)
-    .limit(20)
-    .offset(40);
-```
+- An explicit ORDER BY clause.
+- A total ordering over the result set.
 
-Accepted (stable intent):
+IcyDB enforces canonical total ordering by automatically appending the entity's
+primary key as a terminal tie-break field when necessary.
 
-```rust
-let query = Query::<User>::new(ReadConsistency::MissingOk)
-    .order_by("created_at")
-    .order_by("id")
-    .limit(20)
-    .offset(40);
-```
+Unordered pagination is rejected at planning time.
+
+### 2. Canonical Ordering
+
+All paginated queries execute over a canonical order defined as:
+
+`(user-specified order fields) + (primary key)`
+
+This ensures:
+
+- No two rows compare equal.
+- Continuation boundaries are unambiguous.
+- Deterministic traversal is guaranteed.
+
+### 3. Cursor Semantics
+
+Pagination uses an opaque continuation cursor.
+
+The cursor:
+
+- Encodes the last returned row's canonical boundary values.
+- Is cryptographically hashed against the canonical query shape.
+- Is versioned and type-validated during decode.
+- Is rejected if reused with a different entity, predicate, access path, or ordering.
+
+Continuation is strict:
+
+`next_page := rows WHERE row > boundary`
+
+The boundary comparison is strictly greater-than (`>`), not greater-or-equal (`>=`).
+
+For fixed query shape + stable ordered keys between requests, this guarantees:
+
+- No duplicate rows across pages.
+- No overlap between page windows.
+
+### 4. Forward-Only Iteration
+
+Pagination is forward-only.
+
+IcyDB does not provide:
+
+- Backward cursors.
+- Random page access via cursor.
+- Offset + cursor mixing.
+
+If a cursor is provided, offset-based pagination is disallowed.
+
+### 5. Determinism Guarantees
+
+For a fixed query shape and stable data state:
+
+- Identical inputs produce identical page sequences.
+- Rows will not be duplicated across pages.
+- Rows will not be skipped due to ordering ambiguity.
+- Cursor reuse with a modified query shape results in a validation error.
+
+### 6. Live-State Semantics (No Snapshot Isolation)
+
+Pagination operates over the current live state of the database.
+
+IcyDB does not provide snapshot isolation across page requests.
+
+This means:
+
+- Inserts occurring before the current boundary may not appear in subsequent pages.
+- Inserts occurring after the boundary may appear in subsequent pages.
+- Updates that modify ordered fields may shift rows between pages.
+- Deletes may reduce the total remaining result set.
+
+This behavior is intentional and documented.
+
+Applications requiring snapshot-consistent iteration must implement external
+version pinning or application-level snapshot mechanisms.
+
+### 7. Performance Model
+
+Cursor continuation is currently applied in the post-access phase.
+
+Each page request:
+
+- Executes the canonical access path.
+- Materializes candidate rows.
+- Applies filtering and ordering.
+- Applies cursor boundary.
+- Applies window slicing.
+
+Cursor boundary conditions are not currently pushed down into index seek/range
+operations.
+
+This ensures correctness and determinism, but may result in full candidate-set
+evaluation for large result sets.
+
+Future versions may introduce access-path pushdown optimizations without
+changing pagination semantics.
+
+### 8. Non-Goals
+
+Pagination does not provide:
+
+- Snapshot isolation.
+- Multi-entity transactional guarantees.
+- Backward or bidirectional cursors.
+- Implicit ordering.
+- Automatic page stabilization under concurrent writes.
+
+### Summary
+
+IcyDB pagination guarantees:
+
+- Deterministic total ordering.
+- Strict forward-only continuation.
+- No duplication across pages (for fixed query shape and stable ordered keys).
+- Cursor validation against canonical query shape.
+- Live-state iteration semantics.
+
+These guarantees are stable for the 0.8 contract.
 
 ## Missing-Row Semantics (Explicit)
 

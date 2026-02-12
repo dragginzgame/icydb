@@ -47,10 +47,10 @@ This direction governs all future feature work.
 
 ---
 
-## Planned for 0.9.x
+## Planned for 0.8.x
 
-- **Delete-side referential integrity enforcement for strong relations** is targeted for the 0.9 series.
-- This work is explicitly out of scope for 0.8.x.
+- **Delete-side referential integrity enforcement for strong relations** is targeted for a later `0.8.x` release.
+- This work is planned after `0.8.0` and before `0.9`.
 - Scope remains validation-only (no implicit cascades), unless a later spec says otherwise.
 
 ---
@@ -106,4 +106,3 @@ IcyDB evolves deliberately:
 - nothing silently changes underneath users
 
 The roadmap is directional, not contractual.
-
