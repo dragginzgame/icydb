@@ -1,7 +1,7 @@
 use crate::{
     db::{
-        CommitApplyGuard, CommitDataOp, CommitGuard, CommitIndexOp,
-        executor::commit_ops::resolve_index_key,
+        CommitApplyGuard, CommitDataOp, CommitGuard, CommitIndexOp, CommitMarker,
+        executor::commit_ops::{apply_marker_index_ops, resolve_index_key},
         finish_commit,
         index::{IndexStore, RawIndexEntry, RawIndexKey},
         store::{DataStore, RawDataKey, RawRow},
@@ -145,7 +145,7 @@ pub(super) fn apply_marker_data_ops(
             MarkerDataOpMode::SaveUpsert => {
                 assert!(
                     op.value.is_some(),
-                    "commit marker save missing data payload ({entity_path})",
+                    "invariant violation: commit marker save missing data payload ({entity_path})",
                 );
                 let value = op.value.as_ref().expect("checked above");
                 let raw_value = RawRow::from_bytes(Cow::Borrowed(value.as_slice()));
@@ -154,7 +154,7 @@ pub(super) fn apply_marker_data_ops(
             MarkerDataOpMode::DeleteRemove => {
                 assert!(
                     op.value.is_none(),
-                    "commit marker delete includes data payload ({entity_path})",
+                    "invariant violation: commit marker delete includes data payload ({entity_path})",
                 );
                 store.with_borrow_mut(|s| s.remove(&raw_key));
             }
@@ -176,6 +176,42 @@ pub(super) fn apply_data_rollbacks(
             }
         });
     }
+}
+
+///
+/// PreparedMarkerApply
+///
+/// Fully prepared commit-apply payload shared by save/delete executors.
+///
+
+pub(super) struct PreparedMarkerApply {
+    pub(super) index_apply_stores: Vec<&'static LocalKey<RefCell<IndexStore>>>,
+    pub(super) index_rollback_ops: Vec<PreparedIndexRollback>,
+    pub(super) data_store: &'static LocalKey<RefCell<DataStore>>,
+    pub(super) data_rollback_ops: Vec<PreparedDataRollback>,
+    pub(super) data_mode: MarkerDataOpMode,
+    pub(super) entity_path: &'static str,
+}
+
+/// Validate index op/store cardinality before entering the commit window.
+pub(super) fn validate_index_apply_stores_len(
+    marker: &CommitMarker,
+    stores_len: usize,
+    entity_path: &'static str,
+) -> Result<(), InternalError> {
+    if stores_len != marker.index_ops.len() {
+        return Err(InternalError::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Index,
+            format!(
+                "commit marker index ops length mismatch: {} ops vs {} stores ({entity_path})",
+                marker.index_ops.len(),
+                stores_len,
+            ),
+        ));
+    }
+
+    Ok(())
 }
 
 /// Execute the shared commit-window apply skeleton for save/delete executors.
@@ -206,4 +242,41 @@ pub(super) fn finish_commit_with_apply_guard(
 
         Ok(())
     })
+}
+
+/// Apply prevalidated commit marker ops with shared rollback scaffolding.
+pub(super) fn apply_prepared_marker_ops(
+    commit: CommitGuard,
+    apply_phase: &'static str,
+    prepared: PreparedMarkerApply,
+    on_index_applied: impl FnOnce(),
+    on_data_applied: impl FnOnce(),
+) -> Result<(), InternalError> {
+    let PreparedMarkerApply {
+        index_apply_stores,
+        index_rollback_ops,
+        data_store,
+        data_rollback_ops,
+        data_mode,
+        entity_path,
+    } = prepared;
+
+    finish_commit_with_apply_guard(
+        commit,
+        apply_phase,
+        |marker_index_ops, marker_data_ops, apply_guard| {
+            // Commit boundary: apply marker index mutations mechanically.
+            apply_guard.record_rollback(move || apply_index_rollbacks(index_rollback_ops));
+            apply_marker_index_ops(marker_index_ops, index_apply_stores);
+            on_index_applied();
+
+            // Commit boundary: apply marker data mutations mechanically.
+            apply_guard
+                .record_rollback(move || apply_data_rollbacks(data_store, data_rollback_ops));
+            apply_marker_data_ops(marker_data_ops, data_store, data_mode, entity_path);
+            on_data_applied();
+
+            Ok(())
+        },
+    )
 }

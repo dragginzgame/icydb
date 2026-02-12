@@ -170,9 +170,12 @@ impl DataKey {
 
     #[inline]
     fn entity_for<E: EntityKind>() -> EntityName {
-        // SAFETY: ENTITY_NAME is generated code and guaranteed valid.
-        // A failure here indicates a schema/codegen bug, not runtime input.
-        EntityName::try_from_str(E::ENTITY_NAME).unwrap()
+        // INVARIANT:
+        // `E::ENTITY_NAME` is compile-time schema/codegen metadata. Runtime
+        // user input cannot influence this value.
+        // A failure here is an internal model/codegen contract break.
+        EntityName::try_from_str(E::ENTITY_NAME)
+            .expect("invariant violation: invalid E::ENTITY_NAME (schema/codegen contract broken)")
     }
 
     // ------------------------------------------------------------------

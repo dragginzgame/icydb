@@ -4,9 +4,11 @@ use crate::{
     db::{
         CommitDataOp, CommitKind, CommitMarker, Db, begin_commit, ensure_recovered_for_write,
         executor::{
-            commit_ops::apply_marker_index_ops,
             debug::{access_summary, yes_no},
-            mutation::finish_commit_with_apply_guard,
+            mutation::{
+                MarkerDataOpMode, PreparedMarkerApply, apply_prepared_marker_ops,
+                validate_index_apply_stores_len,
+            },
             plan::{record_plan_metrics, set_rows_from_len},
             trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
         },
@@ -184,48 +186,31 @@ where
                 Self::prepare_index_delete_ops(&index_plans, &marker.index_ops)?;
             let data_rollback_ops =
                 Self::prepare_data_delete_ops(&marker.data_ops, &rollback_rows)?;
-            if index_apply_stores.len() != marker.index_ops.len() {
-                return Err(InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Index,
-                    format!(
-                        "commit marker index ops length mismatch: {} ops vs {} stores ({})",
-                        marker.index_ops.len(),
-                        index_apply_stores.len(),
-                        E::PATH
-                    ),
-                ));
-            }
+            validate_index_apply_stores_len(&marker, index_apply_stores.len(), E::PATH)?;
+            let prepared_apply = PreparedMarkerApply {
+                index_apply_stores,
+                index_rollback_ops,
+                data_store,
+                data_rollback_ops,
+                data_mode: MarkerDataOpMode::DeleteRemove,
+                entity_path: E::PATH,
+            };
             let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Delete commit window opened");
 
-            finish_commit_with_apply_guard(
+            apply_prepared_marker_ops(
                 commit,
                 "delete_marker_apply",
-                |marker_index_ops, marker_data_ops, apply_guard| {
-                    // Commit boundary: apply the marker's raw mutations mechanically.
-                    // Durable correctness is marker + recovery owned; guard rollback
-                    // here is best-effort, in-process cleanup only.
-                    let index_rollback_ops = index_rollback_ops;
-                    apply_guard
-                        .record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
-                    apply_marker_index_ops(marker_index_ops, index_apply_stores);
+                prepared_apply,
+                || {
                     for _ in 0..index_remove_count {
                         sink::record(MetricsEvent::IndexRemove {
                             entity_path: E::PATH,
                         });
                     }
-
-                    // Apply data mutations recorded in the marker.
-                    let data_rollback_ops = data_rollback_ops;
-                    apply_guard.record_rollback(move || {
-                        Self::apply_data_rollbacks(data_store, data_rollback_ops);
-                    });
-                    Self::apply_marker_data_ops(marker_data_ops, data_store);
-
-                    Ok(())
                 },
+                || {},
             )?;
 
             // Emit per-phase counts after the delete succeeds.

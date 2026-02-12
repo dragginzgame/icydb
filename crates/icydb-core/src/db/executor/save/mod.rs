@@ -11,15 +11,17 @@ use crate::{
         CommitDataOp, CommitKind, CommitMarker, Db, begin_commit, ensure_recovered_for_write,
         executor::{
             ExecutorError,
-            commit_ops::apply_marker_index_ops,
-            mutation::finish_commit_with_apply_guard,
+            mutation::{
+                MarkerDataOpMode, PreparedMarkerApply, apply_prepared_marker_ops,
+                validate_index_apply_stores_len,
+            },
             trace::{QueryTraceSink, TraceExecutorKind, start_exec_trace},
         },
         index::plan::plan_index_mutation_for_entity,
         query::SaveMode,
         store::{DataKey, RawRow},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::{ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::serialize,
@@ -309,34 +311,28 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 Self::prepare_index_save_ops(&index_plan.apply, &marker.index_ops)?;
             let (index_removes, index_inserts) = Self::plan_index_metrics(old.as_ref(), &entity)?;
             let data_rollback_ops = Self::prepare_data_save_ops(&marker.data_ops, old_raw)?;
-            if index_apply_stores.len() != marker.index_ops.len() {
-                return Err(InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Index,
-                    format!(
-                        "commit marker index ops length mismatch: {} ops vs {} stores ({})",
-                        marker.index_ops.len(),
-                        index_apply_stores.len(),
-                        E::PATH
-                    ),
-                ));
-            }
+            validate_index_apply_stores_len(&marker, index_apply_stores.len(), E::PATH)?;
             let data_store = self
                 .db
                 .with_data(|reg| reg.try_get_store(E::DataStore::PATH))?;
+            let prepared_apply = PreparedMarkerApply {
+                index_apply_stores,
+                index_rollback_ops,
+                data_store,
+                data_rollback_ops,
+                data_mode: MarkerDataOpMode::SaveUpsert,
+                entity_path: E::PATH,
+            };
             let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Save commit window opened");
 
             // FIRST STABLE WRITE: commit marker is persisted before any mutations.
-            finish_commit_with_apply_guard(
+            apply_prepared_marker_ops(
                 commit,
                 "save_marker_apply",
-                |marker_index_ops, marker_data_ops, apply_guard| {
-                    let index_rollback_ops = index_rollback_ops;
-                    apply_guard
-                        .record_rollback(move || Self::apply_index_rollbacks(index_rollback_ops));
-                    apply_marker_index_ops(marker_index_ops, index_apply_stores);
+                prepared_apply,
+                || {
                     for _ in 0..index_removes {
                         sink::record(MetricsEvent::IndexRemove {
                             entity_path: E::PATH,
@@ -347,16 +343,9 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                             entity_path: E::PATH,
                         });
                     }
-
-                    let data_rollback_ops = data_rollback_ops;
-                    apply_guard.record_rollback(move || {
-                        Self::apply_data_rollbacks(data_store, data_rollback_ops);
-                    });
-                    Self::apply_marker_data_ops(marker_data_ops, data_store);
-
+                },
+                || {
                     span.set_rows(1);
-
-                    Ok(())
                 },
             )?;
 

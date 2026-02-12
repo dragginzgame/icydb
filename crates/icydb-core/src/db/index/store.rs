@@ -32,6 +32,7 @@ Key properties:
 - Fingerprints are written and removed in lockstep with index entries.
 - Release builds do not read or validate fingerprints.
 - Debug builds verify fingerprints opportunistically and panic on mismatch.
+- These panics are intentional debug-time invariant sentinels only.
 - Divergence is detectable, not repaired.
 - Rebuild is the migration boundary for fingerprint format changes.
 
@@ -133,7 +134,9 @@ impl IndexStore {
         if let Some(ref value) = entry
             && let Err(err) = self.verify_entry_fingerprint(None, key, value)
         {
-            panic!("index fingerprint verification failed: {err:?} (debug-only)");
+            panic!(
+                "invariant violation (debug-only): index fingerprint verification failed: {err:?}"
+            );
         }
 
         entry
@@ -206,7 +209,9 @@ impl IndexStore {
 
             #[cfg(debug_assertions)]
             if let Err(err) = self.verify_entry_fingerprint(Some(index), raw_key, &raw_entry) {
-                panic!("index fingerprint verification failed: {err:?} (debug-only)");
+                panic!(
+                    "invariant violation (debug-only): index fingerprint verification failed: {err:?}"
+                );
             }
 
             // Validate index key structure
@@ -337,7 +342,7 @@ impl IndexStore {
         for fp in self.fingerprint_map().range(*start..=*end) {
             assert!(
                 self.entry_map().get(fp.key()).is_some(),
-                "index fingerprint orphaned: index='{}' key={:?} (debug-only)",
+                "invariant violation (debug-only): index fingerprint orphaned: index='{}' key={:?}",
                 index.name,
                 fp.key()
             );

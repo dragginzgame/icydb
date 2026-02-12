@@ -3,15 +3,13 @@ use crate::{
         CommitDataOp, CommitIndexOp,
         executor::{
             mutation::{
-                IndexEntryPresencePolicy, MarkerDataOpMode, PreparedDataRollback,
-                PreparedIndexRollback, apply_data_rollbacks as apply_data_rollbacks_mutation,
-                apply_index_rollbacks as apply_index_rollbacks_mutation,
-                apply_marker_data_ops as apply_marker_data_ops_mutation, prepare_index_ops,
+                IndexEntryPresencePolicy, PreparedDataRollback, PreparedIndexRollback,
+                prepare_index_ops,
             },
             save::SaveExecutor,
         },
         index::{IndexKey, IndexStore, plan::IndexApplyPlan},
-        store::{DataKey, DataStore, RawDataKey, RawRow},
+        store::{DataKey, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue, Path, Storable},
@@ -136,26 +134,5 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             key: raw_key,
             value: old_row,
         }])
-    }
-
-    /// Apply rollback mutations for index entries using raw bytes.
-    pub(super) fn apply_index_rollbacks(ops: Vec<PreparedIndexRollback>) {
-        apply_index_rollbacks_mutation(ops);
-    }
-
-    /// Apply commit marker data ops to the data store.
-    pub(super) fn apply_marker_data_ops(
-        ops: &[CommitDataOp],
-        store: &'static LocalKey<RefCell<DataStore>>,
-    ) {
-        apply_marker_data_ops_mutation(ops, store, MarkerDataOpMode::SaveUpsert, E::PATH);
-    }
-
-    /// Apply rollback mutations for saved rows.
-    pub(super) fn apply_data_rollbacks(
-        store: &'static LocalKey<RefCell<DataStore>>,
-        ops: Vec<PreparedDataRollback>,
-    ) {
-        apply_data_rollbacks_mutation(store, ops);
     }
 }

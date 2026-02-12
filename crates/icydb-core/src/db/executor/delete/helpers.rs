@@ -5,16 +5,14 @@ use crate::{
             ExecutorError,
             delete::DeleteExecutor,
             mutation::{
-                IndexEntryPresencePolicy, MarkerDataOpMode, PreparedDataRollback,
-                PreparedIndexRollback, apply_data_rollbacks as apply_data_rollbacks_mutation,
-                apply_index_rollbacks as apply_index_rollbacks_mutation,
-                apply_marker_data_ops as apply_marker_data_ops_mutation, prepare_index_ops,
+                IndexEntryPresencePolicy, PreparedDataRollback, PreparedIndexRollback,
+                prepare_index_ops,
             },
         },
         index::{
             IndexEntry, IndexEntryCorruption, IndexKey, IndexStore, RawIndexEntry, RawIndexKey,
         },
-        store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
+        store::{DataKey, DataRow, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     prelude::*,
@@ -137,27 +135,6 @@ where
         }
 
         Ok(rollbacks)
-    }
-
-    // Apply rollback mutations for index entries using raw bytes.
-    pub(super) fn apply_index_rollbacks(ops: Vec<PreparedIndexRollback>) {
-        apply_index_rollbacks_mutation(ops);
-    }
-
-    // Apply commit marker data deletes using raw keys only.
-    pub(super) fn apply_marker_data_ops(
-        ops: &[CommitDataOp],
-        store: &'static LocalKey<RefCell<DataStore>>,
-    ) {
-        apply_marker_data_ops_mutation(ops, store, MarkerDataOpMode::DeleteRemove, E::PATH);
-    }
-
-    // Apply rollback mutations for data rows.
-    pub(super) fn apply_data_rollbacks(
-        store: &'static LocalKey<RefCell<DataStore>>,
-        ops: Vec<PreparedDataRollback>,
-    ) {
-        apply_data_rollbacks_mutation(store, ops);
     }
 
     pub(super) fn build_index_plans(&self) -> Result<Vec<IndexPlan>, InternalError> {
