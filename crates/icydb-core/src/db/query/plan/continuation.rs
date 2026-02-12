@@ -1,17 +1,11 @@
 //! Continuation signature for cursor pagination compatibility checks.
 #![allow(clippy::cast_possible_truncation)]
 
-use super::{
-    CursorBoundary, CursorBoundarySlot, ExplainAccessPath, ExplainOrderBy, ExplainPlan,
-    ExplainPredicate, OrderSpec, PlanError,
-};
+use super::{CursorBoundary, CursorBoundarySlot, ExplainPlan, OrderSpec, PlanError};
 use crate::{
-    db::{
-        index::fingerprint::hash_value,
-        query::{
-            QueryMode,
-            predicate::{SchemaInfo, coercion::CoercionId, validate::literal_matches_type},
-        },
+    db::query::{
+        plan::hash_parts,
+        predicate::{SchemaInfo, validate::literal_matches_type},
     },
     model::entity::EntityModel,
     serialize::{deserialize_bounded, serialize},
@@ -295,22 +289,22 @@ impl ExplainPlan {
         let mut hasher = Sha256::new();
         hasher.update(b"contsig:v1");
 
-        write_tag(&mut hasher, 0x01);
-        write_str(&mut hasher, entity_path);
+        hash_parts::write_tag(&mut hasher, 0x01);
+        hash_parts::write_str(&mut hasher, entity_path);
 
-        write_tag(&mut hasher, 0x02);
-        hash_mode(&mut hasher, self.mode);
+        hash_parts::write_tag(&mut hasher, 0x02);
+        hash_parts::hash_mode(&mut hasher, self.mode);
 
-        write_tag(&mut hasher, 0x03);
-        hash_access(&mut hasher, &self.access);
+        hash_parts::write_tag(&mut hasher, 0x03);
+        hash_parts::hash_access(&mut hasher, &self.access);
 
-        write_tag(&mut hasher, 0x04);
-        hash_predicate(&mut hasher, &self.predicate);
+        hash_parts::write_tag(&mut hasher, 0x04);
+        hash_parts::hash_predicate(&mut hasher, &self.predicate);
 
-        write_tag(&mut hasher, 0x05);
-        hash_order(&mut hasher, &self.order_by);
+        hash_parts::write_tag(&mut hasher, 0x05);
+        hash_parts::hash_order(&mut hasher, &self.order_by);
 
-        write_tag(&mut hasher, 0x06);
+        hash_parts::write_tag(&mut hasher, 0x06);
         hash_projection(&mut hasher);
 
         let digest = hasher.finalize();
@@ -322,200 +316,7 @@ impl ExplainPlan {
 
 // Phase 1 projection surface is always full row `(Id<E>, E)`.
 fn hash_projection(hasher: &mut Sha256) {
-    write_tag(hasher, 0x70);
-}
-
-fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
-    match access {
-        ExplainAccessPath::ByKey { key } => {
-            write_tag(hasher, 0x10);
-            write_value(hasher, key);
-        }
-        ExplainAccessPath::ByKeys { keys } => {
-            write_tag(hasher, 0x11);
-            write_u32(hasher, keys.len() as u32);
-            for key in keys {
-                write_value(hasher, key);
-            }
-        }
-        ExplainAccessPath::KeyRange { start, end } => {
-            write_tag(hasher, 0x12);
-            write_value(hasher, start);
-            write_value(hasher, end);
-        }
-        ExplainAccessPath::IndexPrefix {
-            name,
-            fields,
-            prefix_len,
-            values,
-        } => {
-            write_tag(hasher, 0x13);
-            write_str(hasher, name);
-            write_u32(hasher, fields.len() as u32);
-            for field in fields {
-                write_str(hasher, field);
-            }
-            write_u32(hasher, *prefix_len as u32);
-            write_u32(hasher, values.len() as u32);
-            for value in values {
-                write_value(hasher, value);
-            }
-        }
-        ExplainAccessPath::FullScan => {
-            write_tag(hasher, 0x14);
-        }
-        ExplainAccessPath::Union(children) => {
-            write_tag(hasher, 0x15);
-            write_u32(hasher, children.len() as u32);
-            for child in children {
-                hash_access(hasher, child);
-            }
-        }
-        ExplainAccessPath::Intersection(children) => {
-            write_tag(hasher, 0x16);
-            write_u32(hasher, children.len() as u32);
-            for child in children {
-                hash_access(hasher, child);
-            }
-        }
-    }
-}
-
-fn hash_predicate(hasher: &mut Sha256, predicate: &ExplainPredicate) {
-    match predicate {
-        ExplainPredicate::None => write_tag(hasher, 0x20),
-        ExplainPredicate::True => write_tag(hasher, 0x21),
-        ExplainPredicate::False => write_tag(hasher, 0x22),
-        ExplainPredicate::And(children) => {
-            write_tag(hasher, 0x23);
-            write_u32(hasher, children.len() as u32);
-            for child in children {
-                hash_predicate(hasher, child);
-            }
-        }
-        ExplainPredicate::Or(children) => {
-            write_tag(hasher, 0x24);
-            write_u32(hasher, children.len() as u32);
-            for child in children {
-                hash_predicate(hasher, child);
-            }
-        }
-        ExplainPredicate::Not(inner) => {
-            write_tag(hasher, 0x25);
-            hash_predicate(hasher, inner);
-        }
-        ExplainPredicate::Compare {
-            field,
-            op,
-            value,
-            coercion,
-        } => {
-            write_tag(hasher, 0x26);
-            write_str(hasher, field);
-            write_tag(hasher, op.tag());
-            write_value(hasher, value);
-            hash_coercion(hasher, coercion.id, &coercion.params);
-        }
-        ExplainPredicate::IsNull { field } => {
-            write_tag(hasher, 0x27);
-            write_str(hasher, field);
-        }
-        ExplainPredicate::IsMissing { field } => {
-            write_tag(hasher, 0x28);
-            write_str(hasher, field);
-        }
-        ExplainPredicate::IsEmpty { field } => {
-            write_tag(hasher, 0x29);
-            write_str(hasher, field);
-        }
-        ExplainPredicate::IsNotEmpty { field } => {
-            write_tag(hasher, 0x2a);
-            write_str(hasher, field);
-        }
-        ExplainPredicate::TextContains { field, value } => {
-            write_tag(hasher, 0x2e);
-            write_str(hasher, field);
-            write_value(hasher, value);
-        }
-        ExplainPredicate::TextContainsCi { field, value } => {
-            write_tag(hasher, 0x2f);
-            write_str(hasher, field);
-            write_value(hasher, value);
-        }
-    }
-}
-
-fn hash_order(hasher: &mut Sha256, order: &ExplainOrderBy) {
-    match order {
-        ExplainOrderBy::None => write_tag(hasher, 0x30),
-        ExplainOrderBy::Fields(fields) => {
-            write_tag(hasher, 0x31);
-            write_u32(hasher, fields.len() as u32);
-            for field in fields {
-                write_str(hasher, &field.field);
-                write_tag(hasher, order_direction_tag(field.direction));
-            }
-        }
-    }
-}
-
-fn hash_mode(hasher: &mut Sha256, mode: QueryMode) {
-    match mode {
-        QueryMode::Load(_) => write_tag(hasher, 0x60),
-        QueryMode::Delete(_) => write_tag(hasher, 0x61),
-    }
-}
-
-fn hash_coercion(
-    hasher: &mut Sha256,
-    id: CoercionId,
-    params: &std::collections::BTreeMap<String, String>,
-) {
-    write_tag(hasher, coercion_id_tag(id));
-    write_u32(hasher, params.len() as u32);
-    for (key, value) in params {
-        write_str(hasher, key);
-        write_str(hasher, value);
-    }
-}
-
-fn write_value(hasher: &mut Sha256, value: &crate::value::Value) {
-    match hash_value(value) {
-        Ok(digest) => hasher.update(digest),
-        Err(err) => {
-            write_tag(hasher, 0xEE);
-            write_str(hasher, &err.display_with_class());
-        }
-    }
-}
-
-fn write_str(hasher: &mut Sha256, value: &str) {
-    write_u32(hasher, value.len() as u32);
-    hasher.update(value.as_bytes());
-}
-
-fn write_u32(hasher: &mut Sha256, value: u32) {
-    hasher.update(value.to_be_bytes());
-}
-
-fn write_tag(hasher: &mut Sha256, tag: u8) {
-    hasher.update([tag]);
-}
-
-const fn order_direction_tag(direction: crate::db::query::plan::OrderDirection) -> u8 {
-    match direction {
-        crate::db::query::plan::OrderDirection::Asc => 0x01,
-        crate::db::query::plan::OrderDirection::Desc => 0x02,
-    }
-}
-
-const fn coercion_id_tag(id: CoercionId) -> u8 {
-    match id {
-        CoercionId::Strict => 0x01,
-        CoercionId::NumericWiden => 0x02,
-        CoercionId::TextCasefold => 0x04,
-        CoercionId::CollectionElement => 0x05,
-    }
+    hash_parts::write_tag(hasher, 0x70);
 }
 
 ///

@@ -1,11 +1,11 @@
 use crate::{
-    db::query::predicate::SchemaInfo,
     db::query::{
         QueryMode,
         plan::{
             ContinuationSignature, CursorBoundary, ExplainPlan, LogicalPlan, PlanError,
             PlanFingerprint, continuation::decode_validated_cursor_boundary,
         },
+        predicate::SchemaInfo,
     },
     traits::{EntityKind, FieldValue},
 };

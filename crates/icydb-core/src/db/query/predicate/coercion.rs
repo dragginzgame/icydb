@@ -32,6 +32,19 @@ pub enum CoercionId {
     CollectionElement,
 }
 
+impl CoercionId {
+    /// Stable tag used by plan hash encodings (fingerprint/continuation).
+    #[must_use]
+    pub const fn plan_hash_tag(self) -> u8 {
+        match self {
+            Self::Strict => 0x01,
+            Self::NumericWiden => 0x02,
+            Self::TextCasefold => 0x04,
+            Self::CollectionElement => 0x05,
+        }
+    }
+}
+
 ///
 /// CoercionSpec
 ///

@@ -3,11 +3,14 @@
 use super::{
     AccessPath, AccessPlan, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
 };
-use crate::db::query::QueryMode;
-use crate::db::query::predicate::{
-    CompareOp, ComparePredicate, Predicate, coercion::CoercionSpec, normalize,
+use crate::{
+    db::query::{
+        QueryMode, ReadConsistency,
+        predicate::{CompareOp, ComparePredicate, Predicate, coercion::CoercionSpec, normalize},
+    },
+    traits::FieldValue,
+    value::Value,
 };
-use crate::{db::query::ReadConsistency, traits::FieldValue, value::Value};
 
 ///
 /// ExplainPlan

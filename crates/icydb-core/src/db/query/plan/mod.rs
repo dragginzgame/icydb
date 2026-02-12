@@ -5,6 +5,7 @@ pub mod continuation;
 pub(crate) mod executable;
 pub mod explain;
 pub mod fingerprint;
+mod hash_parts;
 pub(crate) mod logical;
 pub mod planner;
 #[cfg(test)]
