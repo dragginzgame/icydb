@@ -169,6 +169,56 @@ pub enum Value {
     Unit,
 }
 
+///
+/// ValueTag
+///
+/// Stable canonical value-variant tag used by hashing and ordering surfaces.
+///
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ValueTag {
+    Account = 1,
+    Blob = 2,
+    Bool = 3,
+    Date = 4,
+    Decimal = 5,
+    Duration = 6,
+    Enum = 7,
+    E8s = 8,
+    E18s = 9,
+    Float32 = 10,
+    Float64 = 11,
+    Int = 12,
+    Int128 = 13,
+    IntBig = 14,
+    List = 15,
+    Map = 16,
+    Null = 17,
+    Principal = 18,
+    Subaccount = 19,
+    Text = 20,
+    Timestamp = 21,
+    Uint = 22,
+    Uint128 = 23,
+    UintBig = 24,
+    Ulid = 25,
+    Unit = 26,
+}
+
+impl ValueTag {
+    /// Stable wire/hash byte tag for this variant.
+    #[must_use]
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+
+    /// Stable canonical rank used for cross-variant ordering.
+    #[must_use]
+    pub const fn rank(self) -> u8 {
+        self.to_u8() - 1
+    }
+}
+
 // Serde decode shape used to re-check Value::Map invariants during deserialization.
 #[derive(Deserialize)]
 enum ValueWire {
@@ -455,10 +505,49 @@ impl Value {
         }
     }
 
+    /// Stable canonical variant tag used by hash/fingerprint encodings.
+    #[must_use]
+    pub(crate) const fn canonical_tag(&self) -> ValueTag {
+        match self {
+            Self::Account(_) => ValueTag::Account,
+            Self::Blob(_) => ValueTag::Blob,
+            Self::Bool(_) => ValueTag::Bool,
+            Self::Date(_) => ValueTag::Date,
+            Self::Decimal(_) => ValueTag::Decimal,
+            Self::Duration(_) => ValueTag::Duration,
+            Self::Enum(_) => ValueTag::Enum,
+            Self::E8s(_) => ValueTag::E8s,
+            Self::E18s(_) => ValueTag::E18s,
+            Self::Float32(_) => ValueTag::Float32,
+            Self::Float64(_) => ValueTag::Float64,
+            Self::Int(_) => ValueTag::Int,
+            Self::Int128(_) => ValueTag::Int128,
+            Self::IntBig(_) => ValueTag::IntBig,
+            Self::List(_) => ValueTag::List,
+            Self::Map(_) => ValueTag::Map,
+            Self::Null => ValueTag::Null,
+            Self::Principal(_) => ValueTag::Principal,
+            Self::Subaccount(_) => ValueTag::Subaccount,
+            Self::Text(_) => ValueTag::Text,
+            Self::Timestamp(_) => ValueTag::Timestamp,
+            Self::Uint(_) => ValueTag::Uint,
+            Self::Uint128(_) => ValueTag::Uint128,
+            Self::UintBig(_) => ValueTag::UintBig,
+            Self::Ulid(_) => ValueTag::Ulid,
+            Self::Unit => ValueTag::Unit,
+        }
+    }
+
+    /// Stable canonical rank used by all cross-variant ordering surfaces.
+    #[must_use]
+    pub(crate) const fn canonical_rank(&self) -> u8 {
+        self.canonical_tag().rank()
+    }
+
     /// Total canonical comparator used for map-key normalization.
     #[must_use]
     pub fn canonical_cmp_key(left: &Self, right: &Self) -> Ordering {
-        let rank = Self::canonical_key_rank(left).cmp(&Self::canonical_key_rank(right));
+        let rank = left.canonical_rank().cmp(&right.canonical_rank());
         if rank != Ordering::Equal {
             return rank;
         }
@@ -491,37 +580,6 @@ impl Value {
             (Self::Ulid(a), Self::Ulid(b)) => a.cmp(b),
             (Self::Null, Self::Null) | (Self::Unit, Self::Unit) => Ordering::Equal,
             _ => Ordering::Equal,
-        }
-    }
-
-    const fn canonical_key_rank(value: &Self) -> u8 {
-        match value {
-            Self::Account(_) => 0,
-            Self::Blob(_) => 1,
-            Self::Bool(_) => 2,
-            Self::Date(_) => 3,
-            Self::Decimal(_) => 4,
-            Self::Duration(_) => 5,
-            Self::Enum(_) => 6,
-            Self::E8s(_) => 7,
-            Self::E18s(_) => 8,
-            Self::Float32(_) => 9,
-            Self::Float64(_) => 10,
-            Self::Int(_) => 11,
-            Self::Int128(_) => 12,
-            Self::IntBig(_) => 13,
-            Self::List(_) => 14,
-            Self::Map(_) => 15,
-            Self::Null => 16,
-            Self::Principal(_) => 17,
-            Self::Subaccount(_) => 18,
-            Self::Text(_) => 19,
-            Self::Timestamp(_) => 20,
-            Self::Uint(_) => 21,
-            Self::Uint128(_) => 22,
-            Self::UintBig(_) => 23,
-            Self::Ulid(_) => 24,
-            Self::Unit => 25,
         }
     }
 

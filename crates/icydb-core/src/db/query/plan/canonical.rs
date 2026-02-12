@@ -184,7 +184,7 @@ fn canonical_cmp_value_list(left: &[Value], right: &[Value]) -> Ordering {
 /// Do NOT reuse this logic for query execution or ORDER BY.
 ///
 fn canonical_cmp_value(left: &Value, right: &Value) -> Ordering {
-    let rank = canonical_value_rank(left).cmp(&canonical_value_rank(right));
+    let rank = left.canonical_rank().cmp(&right.canonical_rank());
     if rank != Ordering::Equal {
         return rank;
     }
@@ -218,40 +218,6 @@ fn canonical_cmp_value(left: &Value, right: &Value) -> Ordering {
             // NOTE: Mismatched variants of the same rank compare equal by design.
             Ordering::Equal
         }
-    }
-}
-
-/// Assigns a total ordering across value variants.
-///
-/// This must remain stable across versions.
-const fn canonical_value_rank(value: &Value) -> u8 {
-    match value {
-        Value::Account(_) => 0,
-        Value::Blob(_) => 1,
-        Value::Bool(_) => 2,
-        Value::Date(_) => 3,
-        Value::Decimal(_) => 4,
-        Value::Duration(_) => 5,
-        Value::Enum(_) => 6,
-        Value::E8s(_) => 7,
-        Value::E18s(_) => 8,
-        Value::Float32(_) => 9,
-        Value::Float64(_) => 10,
-        Value::Int(_) => 11,
-        Value::Int128(_) => 12,
-        Value::IntBig(_) => 13,
-        Value::List(_) => 14,
-        Value::Map(_) => 15,
-        Value::Null => 16,
-        Value::Principal(_) => 17,
-        Value::Subaccount(_) => 18,
-        Value::Text(_) => 19,
-        Value::Timestamp(_) => 20,
-        Value::Uint(_) => 21,
-        Value::Uint128(_) => 22,
-        Value::UintBig(_) => 23,
-        Value::Ulid(_) => 24,
-        Value::Unit => 25,
     }
 }
 

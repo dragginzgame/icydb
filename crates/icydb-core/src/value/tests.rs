@@ -208,6 +208,58 @@ fn storage_key_round_trips_through_value() {
     }
 }
 
+#[test]
+fn canonical_tag_and_rank_are_stable() {
+    let map = Value::Map(vec![]);
+    let list = Value::List(vec![]);
+    let cases = vec![
+        (Value::Account(Account::dummy(7)), 1u8),
+        (Value::Blob(vec![1u8]), 2),
+        (Value::Bool(true), 3),
+        (Value::Date(Date::new(2024, 1, 2)), 4),
+        (Value::Decimal(Decimal::new(123, 2)), 5),
+        (Value::Duration(Duration::from_secs(1)), 6),
+        (Value::Enum(ValueEnum::loose("example")), 7),
+        (Value::E8s(E8s::from_atomic(1)), 8),
+        (Value::E18s(E18s::from_atomic(1)), 9),
+        (
+            Value::Float32(F32::try_new(1.25).expect("Float32 sample should be finite")),
+            10,
+        ),
+        (
+            Value::Float64(F64::try_new(2.5).expect("Float64 sample should be finite")),
+            11,
+        ),
+        (Value::Int(-7), 12),
+        (Value::Int128(Int128::from(123i128)), 13),
+        (Value::IntBig(Int::from(99i32)), 14),
+        (list, 15),
+        (map, 16),
+        (Value::Null, 17),
+        (
+            Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
+            18,
+        ),
+        (Value::Subaccount(Subaccount::new([1u8; 32])), 19),
+        (Value::Text("example".to_string()), 20),
+        (Value::Timestamp(Timestamp::from_seconds(1)), 21),
+        (Value::Uint(7), 22),
+        (Value::Uint128(Nat128::from(9u128)), 23),
+        (Value::UintBig(Nat::from(11u64)), 24),
+        (Value::Ulid(Ulid::from_u128(42)), 25),
+        (Value::Unit, 26),
+    ];
+
+    for (value, expected_tag) in cases {
+        assert_eq!(
+            value.canonical_tag().to_u8(),
+            expected_tag,
+            "value: {value:?}"
+        );
+        assert_eq!(value.canonical_rank(), expected_tag - 1, "value: {value:?}");
+    }
+}
+
 // ---- numeric coercion & comparison ------------------------------------
 
 #[test]
