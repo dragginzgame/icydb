@@ -123,6 +123,7 @@ pub enum ScalarCoercionFamily {
     Enum,
     Blob,
     Bool,
+    Unit,
 }
 
 /// Ordered list of all scalar kinds in registry order.

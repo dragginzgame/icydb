@@ -303,6 +303,49 @@ fn value_coercion_family_matches_registry_flag() {
 }
 
 #[test]
+fn coercion_family_surface_is_stable_for_core_variants() {
+    assert_eq!(Value::Int(1).coercion_family(), CoercionFamily::Numeric);
+    assert_eq!(
+        Value::Decimal(Decimal::new(5, 1)).coercion_family(),
+        CoercionFamily::Numeric
+    );
+    assert_eq!(
+        Value::Text("x".to_string()).coercion_family(),
+        CoercionFamily::Textual
+    );
+    assert_eq!(
+        Value::Principal(Principal::from_slice(&[1u8, 2u8])).coercion_family(),
+        CoercionFamily::Identifier
+    );
+    assert_eq!(
+        Value::Enum(ValueEnum::loose("V")).coercion_family(),
+        CoercionFamily::Enum
+    );
+    assert_eq!(
+        Value::Blob(vec![1u8, 2u8]).coercion_family(),
+        CoercionFamily::Blob
+    );
+    assert_eq!(Value::Bool(true).coercion_family(), CoercionFamily::Bool);
+    assert_eq!(
+        Value::List(vec![Value::Int(1)]).coercion_family(),
+        CoercionFamily::Collection
+    );
+    assert_eq!(
+        Value::from_map(vec![(Value::Text("k".to_string()), Value::Int(1))])
+            .expect("map")
+            .coercion_family(),
+        CoercionFamily::Collection
+    );
+    assert_eq!(Value::Null.coercion_family(), CoercionFamily::Null);
+    assert_eq!(Value::Unit.coercion_family(), CoercionFamily::Unit);
+}
+
+#[test]
+fn value_unit_has_unit_coercion_family() {
+    assert_eq!(Value::Unit.coercion_family(), CoercionFamily::Unit);
+}
+
+#[test]
 fn cmp_numeric_int_nat_eq_and_order() {
     assert_eq!(v_i(10).cmp_numeric(&v_u(10)), Some(Ordering::Equal));
     assert_eq!(v_i(9).cmp_numeric(&v_u(10)), Some(Ordering::Less));
@@ -470,6 +513,26 @@ fn canonical_cmp_key_is_total_for_enum_payloads() {
     let reverse = Value::canonical_cmp_key(&right, &left);
     assert_eq!(forward, reverse.reverse());
     assert_ne!(forward, Ordering::Equal);
+}
+
+#[test]
+fn canonical_cmp_mixed_variant_follows_rank() {
+    let low = Value::Account(Account::dummy(1));
+    let high = Value::Text("x".to_string());
+
+    assert_eq!(Value::canonical_cmp(&low, &high), Ordering::Less);
+    assert_eq!(Value::canonical_cmp(&high, &low), Ordering::Greater);
+}
+
+#[test]
+fn canonical_cmp_key_matches_canonical_cmp() {
+    let left = Value::from_map(vec![(v_txt("a"), v_i(1))]).expect("map");
+    let right = Value::from_map(vec![(v_txt("a"), v_i(2))]).expect("map");
+
+    assert_eq!(
+        Value::canonical_cmp_key(&left, &right),
+        Value::canonical_cmp(&left, &right),
+    );
 }
 
 // ---- list membership ---------------------------------------------------

@@ -1,4 +1,7 @@
-mod family;
+mod coercion;
+mod compare;
+mod rank;
+mod tag;
 
 #[cfg(test)]
 mod tests;
@@ -14,7 +17,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::cmp::Ordering;
 
 // re-exports
-pub use family::{CoercionFamily, CoercionFamilyExt};
+pub use coercion::{CoercionFamily, CoercionFamilyExt};
+pub(crate) use tag::ValueTag;
 
 ///
 /// CONSTANTS
@@ -167,56 +171,6 @@ pub enum Value {
     UintBig(Nat),
     Ulid(Ulid),
     Unit,
-}
-
-///
-/// ValueTag
-///
-/// Stable canonical value-variant tag used by hashing and ordering surfaces.
-///
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ValueTag {
-    Account = 1,
-    Blob = 2,
-    Bool = 3,
-    Date = 4,
-    Decimal = 5,
-    Duration = 6,
-    Enum = 7,
-    E8s = 8,
-    E18s = 9,
-    Float32 = 10,
-    Float64 = 11,
-    Int = 12,
-    Int128 = 13,
-    IntBig = 14,
-    List = 15,
-    Map = 16,
-    Null = 17,
-    Principal = 18,
-    Subaccount = 19,
-    Text = 20,
-    Timestamp = 21,
-    Uint = 22,
-    Uint128 = 23,
-    UintBig = 24,
-    Ulid = 25,
-    Unit = 26,
-}
-
-impl ValueTag {
-    /// Stable wire/hash byte tag for this variant.
-    #[must_use]
-    pub const fn to_u8(self) -> u8 {
-        self as u8
-    }
-
-    /// Stable canonical rank used for cross-variant ordering.
-    #[must_use]
-    pub const fn rank(self) -> u8 {
-        self.to_u8() - 1
-    }
 }
 
 // Serde decode shape used to re-check Value::Map invariants during deserialization.
@@ -508,125 +462,33 @@ impl Value {
     /// Stable canonical variant tag used by hash/fingerprint encodings.
     #[must_use]
     pub(crate) const fn canonical_tag(&self) -> ValueTag {
-        match self {
-            Self::Account(_) => ValueTag::Account,
-            Self::Blob(_) => ValueTag::Blob,
-            Self::Bool(_) => ValueTag::Bool,
-            Self::Date(_) => ValueTag::Date,
-            Self::Decimal(_) => ValueTag::Decimal,
-            Self::Duration(_) => ValueTag::Duration,
-            Self::Enum(_) => ValueTag::Enum,
-            Self::E8s(_) => ValueTag::E8s,
-            Self::E18s(_) => ValueTag::E18s,
-            Self::Float32(_) => ValueTag::Float32,
-            Self::Float64(_) => ValueTag::Float64,
-            Self::Int(_) => ValueTag::Int,
-            Self::Int128(_) => ValueTag::Int128,
-            Self::IntBig(_) => ValueTag::IntBig,
-            Self::List(_) => ValueTag::List,
-            Self::Map(_) => ValueTag::Map,
-            Self::Null => ValueTag::Null,
-            Self::Principal(_) => ValueTag::Principal,
-            Self::Subaccount(_) => ValueTag::Subaccount,
-            Self::Text(_) => ValueTag::Text,
-            Self::Timestamp(_) => ValueTag::Timestamp,
-            Self::Uint(_) => ValueTag::Uint,
-            Self::Uint128(_) => ValueTag::Uint128,
-            Self::UintBig(_) => ValueTag::UintBig,
-            Self::Ulid(_) => ValueTag::Ulid,
-            Self::Unit => ValueTag::Unit,
-        }
+        tag::canonical_tag(self)
     }
 
     /// Stable canonical rank used by all cross-variant ordering surfaces.
     #[must_use]
     pub(crate) const fn canonical_rank(&self) -> u8 {
-        self.canonical_tag().rank()
+        rank::canonical_rank(self)
+    }
+
+    /// Total canonical comparator used by planner/predicate/fingerprint surfaces.
+    #[must_use]
+    pub(crate) fn canonical_cmp(left: &Self, right: &Self) -> Ordering {
+        compare::canonical_cmp(left, right)
     }
 
     /// Total canonical comparator used for map-key normalization.
     #[must_use]
     pub fn canonical_cmp_key(left: &Self, right: &Self) -> Ordering {
-        let rank = left.canonical_rank().cmp(&right.canonical_rank());
-        if rank != Ordering::Equal {
-            return rank;
-        }
-
-        #[allow(clippy::match_same_arms)]
-        match (left, right) {
-            (Self::Account(a), Self::Account(b)) => a.cmp(b),
-            (Self::Blob(a), Self::Blob(b)) => a.cmp(b),
-            (Self::Bool(a), Self::Bool(b)) => a.cmp(b),
-            (Self::Date(a), Self::Date(b)) => a.cmp(b),
-            (Self::Decimal(a), Self::Decimal(b)) => a.cmp(b),
-            (Self::Duration(a), Self::Duration(b)) => a.cmp(b),
-            (Self::Enum(a), Self::Enum(b)) => Self::canonical_cmp_value_enum_key(a, b),
-            (Self::E8s(a), Self::E8s(b)) => a.cmp(b),
-            (Self::E18s(a), Self::E18s(b)) => a.cmp(b),
-            (Self::Float32(a), Self::Float32(b)) => a.cmp(b),
-            (Self::Float64(a), Self::Float64(b)) => a.cmp(b),
-            (Self::Int(a), Self::Int(b)) => a.cmp(b),
-            (Self::Int128(a), Self::Int128(b)) => a.cmp(b),
-            (Self::IntBig(a), Self::IntBig(b)) => a.cmp(b),
-            (Self::List(a), Self::List(b)) => Self::canonical_cmp_value_list_key(a, b),
-            (Self::Map(a), Self::Map(b)) => Self::canonical_cmp_value_map_key(a, b),
-            (Self::Principal(a), Self::Principal(b)) => a.cmp(b),
-            (Self::Subaccount(a), Self::Subaccount(b)) => a.cmp(b),
-            (Self::Text(a), Self::Text(b)) => a.cmp(b),
-            (Self::Timestamp(a), Self::Timestamp(b)) => a.cmp(b),
-            (Self::Uint(a), Self::Uint(b)) => a.cmp(b),
-            (Self::Uint128(a), Self::Uint128(b)) => a.cmp(b),
-            (Self::UintBig(a), Self::UintBig(b)) => a.cmp(b),
-            (Self::Ulid(a), Self::Ulid(b)) => a.cmp(b),
-            (Self::Null, Self::Null) | (Self::Unit, Self::Unit) => Ordering::Equal,
-            _ => Ordering::Equal,
-        }
+        compare::canonical_cmp_key(left, right)
     }
 
-    fn canonical_cmp_value_list_key(left: &[Self], right: &[Self]) -> Ordering {
-        for (left, right) in left.iter().zip(right.iter()) {
-            let cmp = Self::canonical_cmp_key(left, right);
-            if cmp != Ordering::Equal {
-                return cmp;
-            }
-        }
-
-        left.len().cmp(&right.len())
-    }
-
-    fn canonical_cmp_value_map_key(left: &[(Self, Self)], right: &[(Self, Self)]) -> Ordering {
-        for ((left_key, left_value), (right_key, right_value)) in left.iter().zip(right.iter()) {
-            let key_cmp = Self::canonical_cmp_key(left_key, right_key);
-            if key_cmp != Ordering::Equal {
-                return key_cmp;
-            }
-
-            let value_cmp = Self::canonical_cmp_key(left_value, right_value);
-            if value_cmp != Ordering::Equal {
-                return value_cmp;
-            }
-        }
-
-        left.len().cmp(&right.len())
-    }
-
-    fn canonical_cmp_value_enum_key(left: &ValueEnum, right: &ValueEnum) -> Ordering {
-        let cmp = left.variant.cmp(&right.variant);
-        if cmp != Ordering::Equal {
-            return cmp;
-        }
-
-        let cmp = left.path.cmp(&right.path);
-        if cmp != Ordering::Equal {
-            return cmp;
-        }
-
-        match (&left.payload, &right.payload) {
-            (None, None) => Ordering::Equal,
-            (None, Some(_)) => Ordering::Less,
-            (Some(_), None) => Ordering::Greater,
-            (Some(left), Some(right)) => Self::canonical_cmp_key(left, right),
-        }
+    /// Strict comparator for identical orderable variants.
+    ///
+    /// Returns `None` for mismatched or non-orderable variants.
+    #[must_use]
+    pub(crate) fn strict_order_cmp(left: &Self, right: &Self) -> Option<Ordering> {
+        compare::strict_order_cmp(left, right)
     }
 
     fn numeric_repr(&self) -> NumericRepr {

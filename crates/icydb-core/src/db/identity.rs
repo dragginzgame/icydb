@@ -129,7 +129,19 @@ impl EntityName {
 
     #[must_use]
     pub fn as_str(&self) -> &str {
-        // Safe: ASCII enforced at construction
+        // SAFETY:
+        // Preconditions:
+        // - Constructors (`try_from_str`) and decoders (`from_bytes`) reject
+        //   non-ASCII inputs.
+        // - Stored slices returned by `as_bytes` are within initialized bounds.
+        //
+        // Aliasing:
+        // - This creates an immutable `&str` view over immutable bytes already
+        //   owned by `self`; no mutable aliasing is introduced.
+        //
+        // What would break this:
+        // - Any future constructor/decoder path that permits non-ASCII bytes.
+        // - Any mutation of `bytes[..len]` bypassing validation guarantees.
         unsafe { std::str::from_utf8_unchecked(self.as_bytes()) }
     }
 
@@ -267,6 +279,19 @@ impl IndexName {
 
     #[must_use]
     pub fn as_str(&self) -> &str {
+        // SAFETY:
+        // Preconditions:
+        // - `try_from_parts` validates all segments are ASCII.
+        // - `from_bytes` rejects non-ASCII payloads and malformed lengths.
+        // - `as_bytes` returns only initialized bytes within `len`.
+        //
+        // Aliasing:
+        // - We expose a shared `&str` over immutable storage; no mutable alias
+        //   is created while the reference is live.
+        //
+        // What would break this:
+        // - Accepting non-ASCII bytes in any construction/decoding path.
+        // - Mutating the underlying `bytes` without re-validating invariants.
         unsafe { std::str::from_utf8_unchecked(self.as_bytes()) }
     }
 
@@ -442,6 +467,13 @@ mod tests {
     }
 
     #[test]
+    fn entity_max_storable_is_ascii_utf8() {
+        let max = EntityName::max_storable();
+        assert_eq!(max.len(), MAX_ENTITY_NAME_LEN);
+        assert!(max.as_str().is_ascii());
+    }
+
+    #[test]
     fn entity_rejects_invalid_size() {
         let buf = vec![0u8; EntityName::STORED_SIZE_USIZE - 1];
         assert!(matches!(
@@ -517,6 +549,25 @@ mod tests {
         let bytes = idx.to_bytes();
         let decoded = IndexName::from_bytes(&bytes).unwrap();
         assert_eq!(idx, decoded);
+    }
+
+    #[test]
+    fn index_max_storable_is_ascii_utf8() {
+        let max = IndexName::max_storable();
+        assert_eq!(max.as_bytes().len(), MAX_INDEX_NAME_LEN);
+        assert!(max.as_str().is_ascii());
+    }
+
+    #[test]
+    fn index_rejects_non_ascii_from_bytes() {
+        let mut buf = [0u8; IndexName::STORED_SIZE_USIZE];
+        buf[..2].copy_from_slice(&1u16.to_be_bytes());
+        buf[2] = 0xFF;
+
+        assert!(matches!(
+            IndexName::from_bytes(&buf),
+            Err(IdentityDecodeError::NonAscii)
+        ));
     }
 
     // ------------------------------------------------------------------

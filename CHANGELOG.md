@@ -30,6 +30,8 @@ Delete-side strong-reference checks are not included in `0.8.0`; they are planne
 ### 🧰 Cleanup
 
 * Consolidated duplicated internal pipelines (plan hashing, mutation orchestration, scalar metadata wiring) to reduce drift risk and make future correctness work safer.
+* Consolidated canonical value ordering/tagging into `value/tag.rs`, `value/rank.rs`, and `value/compare.rs`, then routed planner canonicalization, predicate ordering, map-key ordering, and fingerprint tagging through that single authority with stability tests to lock tag/rank behavior.
+* Split `Unit` coercion routing from `Bool` by introducing an explicit `Unit` coercion family in shared scalar metadata and core mapping, with regression tests locking `Value::Unit -> CoercionFamily::Unit`.
 
 ---
 

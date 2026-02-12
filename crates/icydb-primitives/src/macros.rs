@@ -250,7 +250,7 @@ macro_rules! scalar_kind_registry_entries {
             ),
             (
                 Unit,
-                Bool,
+                Unit,
                 is_numeric_value = false,
                 supports_numeric_coercion = false,
                 supports_arithmetic = false,

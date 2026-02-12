@@ -191,7 +191,7 @@ pub fn compare_order(left: &Value, right: &Value, coercion: &CoercionSpec) -> Op
             if !same_variant(left, right) {
                 return None;
             }
-            strict_ordering(left, right)
+            Value::strict_order_cmp(left, right)
         }
         CoercionId::NumericWiden => {
             if !left.supports_numeric_coercion() || !right.supports_numeric_coercion() {
@@ -216,7 +216,7 @@ pub fn compare_order(left: &Value, right: &Value, coercion: &CoercionSpec) -> Op
 /// - key comparisons
 #[must_use]
 pub(crate) fn canonical_cmp(left: &Value, right: &Value) -> Ordering {
-    if let Some(ordering) = strict_ordering(left, right) {
+    if let Some(ordering) = Value::strict_order_cmp(left, right) {
         return ordering;
     }
 
@@ -255,61 +255,6 @@ pub fn compare_text(
 
 fn same_variant(left: &Value, right: &Value) -> bool {
     discriminant(left) == discriminant(right)
-}
-
-/// Strict ordering for identical value variants.
-///
-/// Returns `None` if values are of different variants
-/// or do not support ordering.
-fn strict_ordering(left: &Value, right: &Value) -> Option<Ordering> {
-    match (left, right) {
-        (Value::Account(a), Value::Account(b)) => Some(a.cmp(b)),
-        (Value::Bool(a), Value::Bool(b)) => a.partial_cmp(b),
-        (Value::Date(a), Value::Date(b)) => a.partial_cmp(b),
-        (Value::Decimal(a), Value::Decimal(b)) => a.partial_cmp(b),
-        (Value::Duration(a), Value::Duration(b)) => a.partial_cmp(b),
-        (Value::E8s(a), Value::E8s(b)) => a.partial_cmp(b),
-        (Value::E18s(a), Value::E18s(b)) => a.partial_cmp(b),
-        (Value::Enum(a), Value::Enum(b)) => a.partial_cmp(b),
-        (Value::Float32(a), Value::Float32(b)) => a.partial_cmp(b),
-        (Value::Float64(a), Value::Float64(b)) => a.partial_cmp(b),
-        (Value::Int(a), Value::Int(b)) => a.partial_cmp(b),
-        (Value::Int128(a), Value::Int128(b)) => a.partial_cmp(b),
-        (Value::IntBig(a), Value::IntBig(b)) => a.partial_cmp(b),
-        (Value::Map(a), Value::Map(b)) => map_ordering(a.as_slice(), b.as_slice()),
-        (Value::Principal(a), Value::Principal(b)) => a.partial_cmp(b),
-        (Value::Subaccount(a), Value::Subaccount(b)) => a.partial_cmp(b),
-        (Value::Text(a), Value::Text(b)) => a.partial_cmp(b),
-        (Value::Timestamp(a), Value::Timestamp(b)) => a.partial_cmp(b),
-        (Value::Uint(a), Value::Uint(b)) => a.partial_cmp(b),
-        (Value::Uint128(a), Value::Uint128(b)) => a.partial_cmp(b),
-        (Value::UintBig(a), Value::UintBig(b)) => a.partial_cmp(b),
-        (Value::Ulid(a), Value::Ulid(b)) => a.partial_cmp(b),
-        (Value::Unit, Value::Unit) => Some(Ordering::Equal),
-        _ => {
-            // NOTE: Non-matching or non-orderable variants do not define ordering.
-            None
-        }
-    }
-}
-
-fn map_ordering(left: &[(Value, Value)], right: &[(Value, Value)]) -> Option<Ordering> {
-    let limit = left.len().min(right.len());
-    for ((left_key, left_value), (right_key, right_value)) in
-        left.iter().zip(right.iter()).take(limit)
-    {
-        let key_cmp = Value::canonical_cmp_key(left_key, right_key);
-        if key_cmp != Ordering::Equal {
-            return Some(key_cmp);
-        }
-
-        let value_cmp = strict_ordering(left_value, right_value)?;
-        if value_cmp != Ordering::Equal {
-            return Some(value_cmp);
-        }
-    }
-
-    left.len().partial_cmp(&right.len())
 }
 
 fn compare_casefold(left: &Value, right: &Value) -> Option<bool> {

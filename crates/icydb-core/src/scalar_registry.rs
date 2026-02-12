@@ -26,6 +26,9 @@ macro_rules! scalar_registry_family {
     (Bool) => {
         $crate::value::CoercionFamily::Bool
     };
+    (Unit) => {
+        $crate::value::CoercionFamily::Unit
+    };
 }
 
 #[doc(hidden)]

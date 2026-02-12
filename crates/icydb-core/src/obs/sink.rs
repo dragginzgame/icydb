@@ -222,7 +222,23 @@ pub const GLOBAL_METRICS_SINK: GlobalMetricsSink = GlobalMetricsSink;
 pub fn record(event: MetricsEvent) {
     let override_ptr = SINK_OVERRIDE.with(|cell| *cell.borrow());
     if let Some(ptr) = override_ptr {
-        // SAFETY: override is scoped by with_metrics_sink and only used synchronously.
+        // SAFETY:
+        // Preconditions:
+        // - `ptr` was produced from a valid `&dyn MetricsSink` in `with_metrics_sink`.
+        // - `with_metrics_sink` always restores the previous pointer before returning,
+        //   including unwind paths via `Guard::drop`.
+        // - `record` is synchronous and never stores `ptr` beyond this call.
+        //
+        // Aliasing:
+        // - We materialize only a shared reference (`&dyn MetricsSink`), matching the
+        //   original shared borrow used to install the override.
+        // - No mutable alias to the same sink is created here.
+        //
+        // What would break this:
+        // - If `with_metrics_sink` failed to restore on all exits (normal + panic),
+        //   `ptr` could outlive the borrowed sink and become dangling.
+        // - If `record` were changed to store or dispatch asynchronously using `ptr`,
+        //   lifetime assumptions would no longer hold.
         unsafe { (&*ptr).record(event) };
     } else {
         GLOBAL_METRICS_SINK.record(event);
@@ -257,8 +273,19 @@ pub fn with_metrics_sink<T>(sink: &dyn MetricsSink, f: impl FnOnce() -> T) -> T 
         }
     }
 
-    // SAFETY: we erase the reference lifetime for scoped storage in TLS and
-    // restore the previous value on scope exit via Guard.
+    // SAFETY:
+    // Preconditions:
+    // - `sink_ptr` is installed only for this dynamic scope.
+    // - `Guard` always restores the previous slot on all exits, including panic.
+    // - `record` only dereferences synchronously and never persists `sink_ptr`.
+    //
+    // Aliasing:
+    // - We erase lifetime to a raw pointer, but still only expose shared access.
+    // - No mutable alias to the same sink is introduced by this conversion.
+    //
+    // What would break this:
+    // - Any async/deferred use of `sink_ptr` beyond this scope.
+    // - Any path that bypasses Guard restoration.
     let sink_ptr = unsafe { std::mem::transmute::<&dyn MetricsSink, *const dyn MetricsSink>(sink) };
     let prev = SINK_OVERRIDE.with(|cell| {
         let mut slot = cell.borrow_mut();
@@ -335,5 +362,110 @@ impl<E: EntityKind> Drop for Span<E> {
             self.finish_inner();
             self.finished = true;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingSink<'a> {
+        calls: &'a AtomicUsize,
+    }
+
+    impl MetricsSink for CountingSink<'_> {
+        fn record(&self, _: MetricsEvent) {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn with_metrics_sink_routes_and_restores_nested_overrides() {
+        SINK_OVERRIDE.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
+
+        let outer_calls = AtomicUsize::new(0);
+        let inner_calls = AtomicUsize::new(0);
+        let outer = CountingSink {
+            calls: &outer_calls,
+        };
+        let inner = CountingSink {
+            calls: &inner_calls,
+        };
+
+        // No override installed yet.
+        record(MetricsEvent::Plan {
+            kind: PlanKind::Keys,
+        });
+        assert_eq!(outer_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(inner_calls.load(Ordering::SeqCst), 0);
+
+        with_metrics_sink(&outer, || {
+            record(MetricsEvent::Plan {
+                kind: PlanKind::Index,
+            });
+            assert_eq!(outer_calls.load(Ordering::SeqCst), 1);
+            assert_eq!(inner_calls.load(Ordering::SeqCst), 0);
+
+            with_metrics_sink(&inner, || {
+                record(MetricsEvent::Plan {
+                    kind: PlanKind::Range,
+                });
+            });
+
+            // Inner override was restored to outer override.
+            record(MetricsEvent::Plan {
+                kind: PlanKind::FullScan,
+            });
+        });
+
+        assert_eq!(outer_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(inner_calls.load(Ordering::SeqCst), 1);
+
+        // Outer override was restored to previous (none).
+        SINK_OVERRIDE.with(|cell| {
+            assert!(cell.borrow().is_none());
+        });
+
+        record(MetricsEvent::Plan {
+            kind: PlanKind::Keys,
+        });
+        assert_eq!(outer_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(inner_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn with_metrics_sink_restores_override_on_panic() {
+        SINK_OVERRIDE.with(|cell| {
+            *cell.borrow_mut() = None;
+        });
+
+        let calls = AtomicUsize::new(0);
+        let sink = CountingSink { calls: &calls };
+
+        let panicked = catch_unwind(AssertUnwindSafe(|| {
+            with_metrics_sink(&sink, || {
+                record(MetricsEvent::Plan {
+                    kind: PlanKind::Index,
+                });
+                panic!("intentional panic for guard test");
+            });
+        }))
+        .is_err();
+        assert!(panicked);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // Guard restored TLS slot after unwind.
+        SINK_OVERRIDE.with(|cell| {
+            assert!(cell.borrow().is_none());
+        });
+
+        record(MetricsEvent::Plan {
+            kind: PlanKind::Range,
+        });
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }
