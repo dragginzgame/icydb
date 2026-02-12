@@ -14,6 +14,7 @@ use crate::{
         index::IndexStoreRegistry,
         query::{
             Query, QueryError, QueryMode, ReadConsistency, SessionDeleteQuery, SessionLoadQuery,
+            plan::PlanError,
         },
         response::{Response, WriteBatchResponse, WriteResponse},
         store::DataStoreRegistry,
@@ -230,6 +231,30 @@ impl<C: CanisterKind> DbSession<C> {
         result.map_err(QueryError::Execute)
     }
 
+    pub(crate) fn execute_load_query_paged<E>(
+        &self,
+        query: &Query<E>,
+        cursor_token: Option<&str>,
+    ) -> Result<(Response<E>, Option<Vec<u8>>), QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+        let cursor_bytes = match cursor_token {
+            Some(token) => Some(decode_hex_cursor(token).map_err(|reason| {
+                QueryError::from(PlanError::InvalidContinuationCursor { reason })
+            })?),
+            None => None,
+        };
+        let boundary = plan.plan_cursor_boundary(cursor_bytes.as_deref())?;
+
+        let page = self
+            .with_metrics(|| self.load_executor::<E>().execute_paged(plan, boundary))
+            .map_err(QueryError::Execute)?;
+
+        Ok((page.items, page.next_cursor))
+    }
+
     // ---------------------------------------------------------------------
     // High-level write API (public, intent-level)
     // ---------------------------------------------------------------------
@@ -344,5 +369,36 @@ impl<C: CanisterKind> DbSession<C> {
                 let _ = reg.with_store_mut(path, IndexStore::clear);
             }
         });
+    }
+}
+
+fn decode_hex_cursor(token: &str) -> Result<Vec<u8>, String> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err("cursor token is empty".to_string());
+    }
+    if !token.len().is_multiple_of(2) {
+        return Err("cursor token must have an even number of hex characters".to_string());
+    }
+
+    let mut out = Vec::with_capacity(token.len() / 2);
+    let bytes = token.as_bytes();
+    for idx in (0..bytes.len()).step_by(2) {
+        let hi = decode_hex_nibble(bytes[idx])
+            .ok_or_else(|| format!("invalid hex character at position {}", idx + 1))?;
+        let lo = decode_hex_nibble(bytes[idx + 1])
+            .ok_or_else(|| format!("invalid hex character at position {}", idx + 2))?;
+        out.push((hi << 4) | lo);
+    }
+
+    Ok(out)
+}
+
+const fn decode_hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }

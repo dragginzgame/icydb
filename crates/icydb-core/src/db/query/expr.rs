@@ -58,5 +58,11 @@ pub enum SortLowerError {
     Validate(#[from] ValidateError),
 
     #[error("{0}")]
-    Plan(#[from] PlanError),
+    Plan(Box<PlanError>),
+}
+
+impl From<PlanError> for SortLowerError {
+    fn from(err: PlanError) -> Self {
+        Self::Plan(Box::new(err))
+    }
 }

@@ -6,14 +6,31 @@ use crate::{
             plan::{record_plan_metrics, set_rows_from_len},
             trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
         },
-        query::plan::{ExecutablePlan, validate::validate_executor_plan},
+        query::plan::{
+            ContinuationSignature, ContinuationToken, CursorBoundary, ExecutablePlan, LogicalPlan,
+            validate::validate_executor_plan,
+        },
         response::Response,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     traits::{EntityKind, EntityValue},
+    types::Id,
 };
 use std::marker::PhantomData;
+
+///
+/// CursorPage
+/// Internal load page result with continuation cursor payload.
+///
+
+#[derive(Debug)]
+pub struct CursorPage<E: EntityKind> {
+    pub(crate) items: Response<E>,
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) next_cursor: Option<Vec<u8>>,
+}
 
 ///
 /// LoadExecutor
@@ -54,6 +71,14 @@ where
     }
 
     pub fn execute(&self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
+        self.execute_paged(plan, None).map(|page| page.items)
+    }
+
+    pub(crate) fn execute_paged(
+        &self,
+        plan: ExecutablePlan<E>,
+        cursor_boundary: Option<CursorBoundary>,
+    ) -> Result<CursorPage<E>, InternalError> {
         if !plan.mode().is_load() {
             return Err(InternalError::new(
                 ErrorClass::Unsupported,
@@ -62,6 +87,7 @@ where
             ));
         }
 
+        let continuation_signature = plan.continuation_signature();
         let trace = start_plan_trace(self.trace, TraceExecutorKind::Load, &plan);
 
         let result = (|| {
@@ -69,7 +95,6 @@ where
             let plan = plan.into_inner();
 
             validate_executor_plan::<E>(&plan)?;
-
             let ctx = self.db.recovered_context::<E>()?;
 
             if self.debug {
@@ -96,6 +121,10 @@ where
                     yes_no(ordered),
                     page
                 ));
+                self.debug_log(format!(
+                    "Cursor provided: {}",
+                    yes_no(cursor_boundary.is_some())
+                ));
             }
 
             record_plan_metrics(&plan.access);
@@ -109,8 +138,11 @@ where
             let mut rows = Context::deserialize_rows(data_rows)?;
             let access_rows = rows.len();
 
-            plan.apply_post_access::<E, _>(&mut rows)?;
+            let stats =
+                plan.apply_post_access_with_cursor::<E, _>(&mut rows, cursor_boundary.as_ref())?;
             let post_access_rows = rows.len();
+            let next_cursor =
+                Self::build_next_cursor(&plan, &rows, &stats, continuation_signature)?;
 
             if let Some(trace) = trace.as_ref() {
                 // NOTE: Trace metrics saturate on overflow; diagnostics only.
@@ -120,16 +152,58 @@ where
             }
 
             set_rows_from_len(&mut span, rows.len());
-            Ok(Response(rows))
+            Ok(CursorPage {
+                items: Response(rows),
+                next_cursor,
+            })
         })();
 
         if let Some(trace) = trace {
             match &result {
-                Ok(resp) => trace.finish(resp.0.len() as u64),
+                Ok(page) => trace.finish(page.items.0.len() as u64),
                 Err(err) => trace.error(err),
             }
         }
 
         result
+    }
+
+    fn build_next_cursor(
+        plan: &LogicalPlan<E::Key>,
+        rows: &[(Id<E>, E)],
+        stats: &crate::db::query::plan::logical::PostAccessStats,
+        signature: ContinuationSignature,
+    ) -> Result<Option<Vec<u8>>, InternalError> {
+        let Some(page) = plan.page.as_ref() else {
+            return Ok(None);
+        };
+        let Some(limit) = page.limit else {
+            return Ok(None);
+        };
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        // NOTE: post-access execution materializes full in-memory rows for Phase 1.
+        let page_end = (page.offset as usize).saturating_add(limit as usize);
+        if stats.rows_after_cursor <= page_end {
+            return Ok(None);
+        }
+
+        let Some((_, last_entity)) = rows.last() else {
+            return Ok(None);
+        };
+        let boundary = plan.cursor_boundary_from_entity(last_entity)?;
+
+        ContinuationToken::new(signature, boundary)
+            .encode()
+            .map(Some)
+            .map_err(|err| {
+                InternalError::new(
+                    ErrorClass::Internal,
+                    ErrorOrigin::Serialize,
+                    format!("failed to encode continuation cursor: {err}"),
+                )
+            })
     }
 }

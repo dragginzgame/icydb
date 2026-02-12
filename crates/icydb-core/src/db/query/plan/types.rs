@@ -1,6 +1,7 @@
 //! Pure plan-layer data types; must not embed planning semantics or validation.
 
 use crate::{model::index::IndexModel, value::Value};
+use serde::{Deserialize, Serialize};
 
 ///
 /// AccessPlan
@@ -95,4 +96,25 @@ pub struct DeleteLimitSpec {
 pub struct PageSpec {
     pub limit: Option<u32>,
     pub offset: u32,
+}
+
+///
+/// CursorBoundarySlot
+/// Slot value used for deterministic cursor boundaries.
+///
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum CursorBoundarySlot {
+    Missing,
+    Present(Value),
+}
+
+///
+/// CursorBoundary
+/// Ordered boundary tuple for continuation pagination.
+///
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CursorBoundary {
+    pub(crate) slots: Vec<CursorBoundarySlot>,
 }

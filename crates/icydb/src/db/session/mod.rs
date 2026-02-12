@@ -15,7 +15,7 @@ use icydb_core as core;
 
 // re-exports
 pub use delete::SessionDeleteQuery;
-pub use load::SessionLoadQuery;
+pub use load::{PagedLoadQuery, SessionLoadQuery};
 
 ///
 /// DbSession

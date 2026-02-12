@@ -1,3 +1,4 @@
+mod paged;
 mod write;
 
 use crate::{
@@ -8,6 +9,7 @@ use crate::{
 use icydb_core::db::response::Response as CoreResponse;
 
 // re-exports
+pub use paged::PagedResponse;
 pub use write::*;
 
 ///

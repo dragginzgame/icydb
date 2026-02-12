@@ -80,37 +80,13 @@ IcyDB will provide **stable, deterministic pagination** over ordered queries.
 
 ---
 
-### 4. Strong Referential Integrity — Delete-Time Validation (Constrained)
-
-IcyDB will complete **strong referential integrity enforcement** by adding
-**delete-time validation**.
-
-**Goals**
-
-* Deletes that would violate a strong relation are rejected
-* Enforcement is symmetric with insert/update validation
-* Checks are deterministic and fail-fast
-
-**Characteristics**
-
-* Implemented via internal reverse-lookup metadata
-* Validation only; no additional mutations are performed
-
-**Explicit Non-Goals**
-
-* Cascading deletes
-* Automatic cleanup of dependent entities
-* Weak-relation enforcement
-* Cross-entity transactional behavior
-
----
-
 ## Explicit Non-Goals (0.8.x)
 
 The following remain out of scope:
 
 * Multi-entity transactions
 * Cascading deletes
+* Delete-side referential integrity enforcement
 * Partial update semantics
 * Authorization or capability-based identity models
 * Relational query planning
@@ -122,5 +98,5 @@ The following remain out of scope:
 0.8.x is a **structural correctness release**.
 
 It completes collection semantics, enforces schema-declared constraints,
-adds stable pagination, and closes remaining strong-RI gaps — all without
-expanding the atomicity or transactional contract.
+and adds stable pagination — all without expanding the atomicity or
+transactional contract.

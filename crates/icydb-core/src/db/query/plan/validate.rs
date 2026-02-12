@@ -72,6 +72,10 @@ pub enum PlanError {
     #[error("order specification must include at least one field")]
     EmptyOrderSpec,
 
+    /// Ordered plans must terminate with the primary-key tie-break.
+    #[error("order specification must end with primary key '{field}' as deterministic tie-break")]
+    MissingPrimaryKeyTieBreak { field: String },
+
     /// Delete plans must not carry pagination.
     #[error("delete plans must not include pagination")]
     DeletePlanWithPagination,
@@ -89,6 +93,52 @@ pub enum PlanError {
         "Unordered pagination is not allowed.\nThis query uses LIMIT or OFFSET without an ORDER BY clause.\nPagination without a total ordering is non-deterministic.\nAdd an explicit order_by(...) to make the query stable."
     )]
     UnorderedPagination,
+
+    /// Cursor continuation requires an explicit ordering.
+    #[error("cursor pagination requires an explicit ordering")]
+    CursorRequiresOrder,
+
+    /// Cursor token could not be decoded.
+    #[error("invalid continuation cursor: {reason}")]
+    InvalidContinuationCursor { reason: String },
+
+    /// Cursor token version is unsupported.
+    #[error("unsupported continuation cursor version: {version}")]
+    ContinuationCursorVersionMismatch { version: u8 },
+
+    /// Cursor token does not belong to this canonical query shape.
+    #[error(
+        "continuation cursor does not match query plan signature for '{entity_path}': expected={expected}, actual={actual}"
+    )]
+    ContinuationCursorSignatureMismatch {
+        entity_path: &'static str,
+        expected: String,
+        actual: String,
+    },
+
+    /// Cursor boundary width does not match canonical order width.
+    #[error("continuation cursor boundary arity mismatch: expected {expected}, found {found}")]
+    ContinuationCursorBoundaryArityMismatch { expected: usize, found: usize },
+
+    /// Cursor boundary value type mismatch for a non-primary-key ordered field.
+    #[error(
+        "continuation cursor boundary type mismatch for field '{field}': expected {expected}, found {value:?}"
+    )]
+    ContinuationCursorBoundaryTypeMismatch {
+        field: String,
+        expected: String,
+        value: Value,
+    },
+
+    /// Cursor primary-key boundary does not match the entity key type.
+    #[error(
+        "continuation cursor primary key type mismatch for '{field}': expected {expected}, found {value:?}"
+    )]
+    ContinuationCursorPrimaryKeyTypeMismatch {
+        field: String,
+        expected: String,
+        value: Option<Value>,
+    },
 }
 
 /// Validate a logical plan with model-level key values.
@@ -110,6 +160,7 @@ pub(crate) fn validate_logical_plan_model(
 
     if let Some(order) = &plan.order {
         validate_order(schema, order)?;
+        validate_primary_key_tie_break(model, order)?;
     }
 
     validate_access_plan_model(schema, model, &plan.access)?;
@@ -196,6 +247,13 @@ pub(crate) fn validate_executor_plan<E: EntityKind>(
                 err.to_string(),
             )
         })?;
+        validate_primary_key_tie_break(E::MODEL, order).map_err(|err| {
+            InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                err.to_string(),
+            )
+        })?;
     }
 
     validate_access_plan(&schema, E::MODEL, &plan.access).map_err(|err| {
@@ -242,6 +300,33 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
 /// CONTRACT: executor ordering validation matches planner rules.
 fn validate_executor_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
     validate_order(schema, order)
+}
+
+// Ordered plans must include exactly one terminal primary-key field so ordering is total and
+// deterministic across explain, fingerprint, and executor comparison paths.
+fn validate_primary_key_tie_break(model: &EntityModel, order: &OrderSpec) -> Result<(), PlanError> {
+    if order.fields.is_empty() {
+        return Ok(());
+    }
+
+    let pk_field = model.primary_key.name;
+    let pk_count = order
+        .fields
+        .iter()
+        .filter(|(field, _)| field == pk_field)
+        .count();
+    let trailing_pk = order
+        .fields
+        .last()
+        .is_some_and(|(field, _)| field == pk_field);
+
+    if pk_count == 1 && trailing_pk {
+        Ok(())
+    } else {
+        Err(PlanError::MissingPrimaryKeyTieBreak {
+            field: pk_field.to_string(),
+        })
+    }
 }
 
 ///
@@ -888,5 +973,26 @@ mod tests {
         };
 
         validate_logical_plan_model(&schema, model, &plan).expect("ordered pagination is valid");
+    }
+
+    #[test]
+    fn plan_rejects_order_without_terminal_primary_key_tie_break() {
+        let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+        let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+        let plan: LogicalPlan<Value> = LogicalPlan {
+            mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+            access: AccessPlan::Path(AccessPath::FullScan),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("tag".to_string(), OrderDirection::Asc)],
+            }),
+            delete_limit: None,
+            page: None,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        };
+
+        let err =
+            validate_logical_plan_model(&schema, model, &plan).expect_err("missing PK tie-break");
+        assert!(matches!(err, PlanError::MissingPrimaryKeyTieBreak { .. }));
     }
 }

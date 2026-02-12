@@ -1,6 +1,7 @@
 //! Plan module wiring; must not implement planning or validation logic.
 
 pub mod canonical;
+pub mod continuation;
 pub(crate) mod executable;
 pub mod explain;
 pub mod fingerprint;
@@ -11,6 +12,8 @@ mod tests;
 mod types;
 pub mod validate;
 
+pub use continuation::ContinuationSignature;
+pub(crate) use continuation::ContinuationToken;
 ///
 /// Re-Exports
 ///
@@ -22,5 +25,8 @@ pub use explain::{
 pub use fingerprint::PlanFingerprint;
 pub(crate) use logical::LogicalPlan;
 pub use types::OrderDirection;
-pub(crate) use types::{AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec};
+pub(crate) use types::{
+    AccessPath, AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec, OrderSpec,
+    PageSpec,
+};
 pub use validate::PlanError;

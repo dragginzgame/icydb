@@ -20,7 +20,10 @@ pub use diagnostics::{
 pub use expr::{FilterExpr, SortExpr, SortLowerError};
 pub use intent::{DeleteSpec, IntentError, LoadSpec, Query, QueryError, QueryMode};
 pub(crate) use save::SaveMode;
-pub use session::{delete::SessionDeleteQuery, load::SessionLoadQuery};
+pub use session::{
+    delete::SessionDeleteQuery,
+    load::{PagedLoadQuery, SessionLoadQuery},
+};
 
 ///
 /// ReadConsistency

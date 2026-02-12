@@ -65,7 +65,7 @@ impl From<QueryError> for Error {
                 err.to_string(),
             ),
 
-            QueryError::Plan(PlanError::UnorderedPagination) => Self::new(
+            QueryError::Plan(err) if matches!(*err, PlanError::UnorderedPagination) => Self::new(
                 ErrorKind::Query(QueryErrorKind::UnorderedPagination),
                 ErrorOrigin::Query,
                 err.to_string(),
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn plan_unordered_pagination_maps_to_dedicated_kind() {
-        let err = QueryError::Plan(PlanError::UnorderedPagination);
+        let err = QueryError::Plan(Box::new(PlanError::UnorderedPagination));
         let facade = Error::from(err);
 
         assert_eq!(
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn plan_errors_map_to_plan_kind() {
-        let err = QueryError::Plan(PlanError::EmptyOrderSpec);
+        let err = QueryError::Plan(Box::new(PlanError::EmptyOrderSpec));
         let facade = Error::from(err);
 
         assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::Plan));

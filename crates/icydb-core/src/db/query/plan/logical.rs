@@ -3,7 +3,10 @@
 use crate::{
     db::query::{
         LoadSpec, QueryMode, ReadConsistency,
-        plan::{AccessPath, AccessPlan, DeleteLimitSpec, OrderDirection, OrderSpec, PageSpec},
+        plan::{
+            AccessPath, AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec,
+            OrderDirection, OrderSpec, PageSpec,
+        },
         predicate::{Predicate, coercion::canonical_cmp, eval as eval_predicate},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -82,10 +85,12 @@ impl<E: EntityKind> PlanRow<E> for (Id<E>, E) {
 pub struct PostAccessStats {
     pub(crate) filtered: bool,
     pub(crate) ordered: bool,
+    pub(crate) cursor_skipped: bool,
     pub(crate) paged: bool,
     pub(crate) delete_was_limited: bool,
     pub(crate) rows_after_filter: usize,
     pub(crate) rows_after_order: usize,
+    pub(crate) rows_after_cursor: usize,
     pub(crate) rows_after_page: usize,
     pub(crate) rows_after_delete_limit: usize,
 }
@@ -116,6 +121,20 @@ impl<K> LogicalPlan<K> {
         E: EntityKind + EntityValue,
         R: PlanRow<E>,
     {
+        self.apply_post_access_with_cursor::<E, R>(rows, None)
+    }
+
+    /// Apply predicate, ordering, cursor boundary, and pagination in plan order.
+    #[expect(clippy::too_many_lines)]
+    pub(crate) fn apply_post_access_with_cursor<E, R>(
+        &self,
+        rows: &mut Vec<R>,
+        cursor: Option<&CursorBoundary>,
+    ) -> Result<PostAccessStats, InternalError>
+    where
+        E: EntityKind + EntityValue,
+        R: PlanRow<E>,
+    {
         if self.mode.is_delete() && self.page.is_some() {
             return Err(InternalError::new(
                 ErrorClass::InvariantViolation,
@@ -128,6 +147,13 @@ impl<K> LogicalPlan<K> {
                 ErrorClass::InvariantViolation,
                 ErrorOrigin::Query,
                 "invalid logical plan: load plans must not carry delete limits".to_string(),
+            ));
+        }
+        if cursor.is_some() && !self.mode.is_load() {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                "invalid logical plan: delete plans must not carry cursor boundaries".to_string(),
             ));
         }
 
@@ -161,6 +187,35 @@ impl<K> LogicalPlan<K> {
         };
         let rows_after_order = rows.len();
 
+        // Cursor boundary (applied after ordering, before page slicing).
+        let cursor_skipped = if self.mode.is_load()
+            && let Some(boundary) = cursor
+        {
+            let Some(order) = self.order.as_ref() else {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Query,
+                    "executor invariant violated: cursor boundary requires ordering".to_string(),
+                ));
+            };
+
+            if !ordered {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Query,
+                    "executor invariant violated: cursor boundary must run after ordering"
+                        .to_string(),
+                ));
+            }
+
+            apply_cursor_boundary::<E, R>(rows, order, boundary)?;
+            true
+        } else {
+            false
+        };
+        let rows_after_cursor = rows.len();
+
+        // Offset/limit pagination after cursor boundary.
         let paged = if self.mode.is_load()
             && let Some(page) = &self.page
         {
@@ -199,40 +254,54 @@ impl<K> LogicalPlan<K> {
         Ok(PostAccessStats {
             filtered,
             ordered,
+            cursor_skipped,
             paged,
             delete_was_limited,
             rows_after_filter,
             rows_after_order,
+            rows_after_cursor,
             rows_after_page,
             rows_after_delete_limit,
+        })
+    }
+
+    /// Build a cursor boundary from one materialized entity using this plan's canonical ordering.
+    pub(crate) fn cursor_boundary_from_entity<E>(
+        &self,
+        entity: &E,
+    ) -> Result<CursorBoundary, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        let Some(order) = self.order.as_ref() else {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                "executor invariant violated: cannot build cursor boundary without ordering"
+                    .to_string(),
+            ));
+        };
+
+        Ok(CursorBoundary {
+            slots: order
+                .fields
+                .iter()
+                .map(|(field, _)| field_slot(entity, field))
+                .collect(),
         })
     }
 }
 
 // Sort rows by the configured order spec, using entity field values.
-fn apply_order_spec<E, R>(rows: &mut Vec<R>, order: &OrderSpec)
+fn apply_order_spec<E, R>(rows: &mut [R], order: &OrderSpec)
 where
     E: EntityKind + EntityValue,
     R: PlanRow<E>,
 {
-    // Phase 1: tag rows with their original position to preserve stability.
-    let mut indexed = Vec::with_capacity(rows.len());
-    for (idx, row) in rows.drain(..).enumerate() {
-        indexed.push((idx, row));
-    }
-
-    // Phase 2: stable ordering via position tie-breaker.
-    indexed.sort_by(|(left_idx, left), (right_idx, right)| {
-        let ordering = compare_entities::<E>(left.entity(), right.entity(), order);
-        if ordering == Ordering::Equal {
-            left_idx.cmp(right_idx)
-        } else {
-            ordering
-        }
-    });
-
-    // Phase 3: restore the ordered rows.
-    rows.extend(indexed.into_iter().map(|(_, row)| row));
+    // Canonical order already includes the PK tie-break; comparator equality should only occur
+    // for semantically equal rows. Avoid positional tie-breakers so cursor-boundary comparison can
+    // share this exact ordering contract.
+    rows.sort_by(|left, right| compare_entities::<E>(left.entity(), right.entity(), order));
 }
 
 // Compare two entities according to the order spec, returning the first non-equal field ordering.
@@ -242,16 +311,89 @@ fn compare_entities<E: EntityKind + EntityValue>(
     order: &OrderSpec,
 ) -> Ordering {
     for (field, direction) in &order.fields {
-        let left_value = left.get_value(field);
-        let right_value = right.get_value(field);
+        let left_slot = field_slot(left, field);
+        let right_slot = field_slot(right, field);
+        let ordering = compare_order_slots(&left_slot, &right_slot);
 
-        let ordering = match (left_value, right_value) {
-            (None, None) => continue,
-            (None, Some(_)) => Ordering::Less,
-            (Some(_), None) => Ordering::Greater,
-            (Some(left_value), Some(right_value)) => canonical_cmp(&left_value, &right_value),
+        let ordering = match direction {
+            OrderDirection::Asc => ordering,
+            OrderDirection::Desc => ordering.reverse(),
         };
 
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
+    }
+
+    Ordering::Equal
+}
+
+// Convert one field value into the explicit ordering slot used for deterministic comparisons.
+fn field_slot<E: EntityKind + EntityValue>(entity: &E, field: &str) -> CursorBoundarySlot {
+    match entity.get_value(field) {
+        Some(value) => CursorBoundarySlot::Present(value),
+        None => CursorBoundarySlot::Missing,
+    }
+}
+
+// Compare ordering slots using the same semantics used by query ordering:
+// - Missing values sort lower than present values in ascending order
+// - Present values use canonical value ordering
+fn compare_order_slots(left: &CursorBoundarySlot, right: &CursorBoundarySlot) -> Ordering {
+    match (left, right) {
+        (CursorBoundarySlot::Missing, CursorBoundarySlot::Missing) => Ordering::Equal,
+        (CursorBoundarySlot::Missing, CursorBoundarySlot::Present(_)) => Ordering::Less,
+        (CursorBoundarySlot::Present(_), CursorBoundarySlot::Missing) => Ordering::Greater,
+        (CursorBoundarySlot::Present(left_value), CursorBoundarySlot::Present(right_value)) => {
+            canonical_cmp(left_value, right_value)
+        }
+    }
+}
+
+// Apply a strict continuation boundary using the canonical order comparator.
+fn apply_cursor_boundary<E, R>(
+    rows: &mut Vec<R>,
+    order: &OrderSpec,
+    boundary: &CursorBoundary,
+) -> Result<(), InternalError>
+where
+    E: EntityKind + EntityValue,
+    R: PlanRow<E>,
+{
+    if boundary.slots.len() != order.fields.len() {
+        return Err(InternalError::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Query,
+            format!(
+                "invalid continuation boundary arity: expected {}, found {}",
+                order.fields.len(),
+                boundary.slots.len()
+            ),
+        ));
+    }
+
+    // Strict continuation: keep only rows greater than the boundary under canonical order.
+    let mut filtered = Vec::with_capacity(rows.len());
+    for row in rows.drain(..) {
+        let ordering = compare_entity_with_boundary::<E>(row.entity(), order, boundary);
+        if ordering == Ordering::Greater {
+            filtered.push(row);
+        }
+    }
+    *rows = filtered;
+
+    Ok(())
+}
+
+// Compare an entity with a continuation boundary using the exact canonical ordering semantics.
+fn compare_entity_with_boundary<E: EntityKind + EntityValue>(
+    entity: &E,
+    order: &OrderSpec,
+    boundary: &CursorBoundary,
+) -> Ordering {
+    for ((field, direction), boundary_slot) in order.fields.iter().zip(boundary.slots.iter()) {
+        let entity_slot = field_slot(entity, field);
+        let ordering = compare_order_slots(&entity_slot, boundary_slot);
         let ordering = match direction {
             OrderDirection::Asc => ordering,
             OrderDirection::Desc => ordering.reverse(),

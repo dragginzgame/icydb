@@ -26,10 +26,22 @@ use thiserror::Error as ThisError;
 #[derive(Debug, ThisError)]
 pub(crate) enum PlannerError {
     #[error("{0}")]
-    Plan(#[from] PlanError),
+    Plan(Box<PlanError>),
 
     #[error("{0}")]
-    Internal(#[from] InternalError),
+    Internal(Box<InternalError>),
+}
+
+impl From<PlanError> for PlannerError {
+    fn from(err: PlanError) -> Self {
+        Self::Plan(Box::new(err))
+    }
+}
+
+impl From<InternalError> for PlannerError {
+    fn from(err: InternalError) -> Self {
+        Self::Internal(Box::new(err))
+    }
 }
 
 /// Planner entrypoint that operates on a prebuilt schema surface.

@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        Context, Db,
+        Context, Db, DbSession,
         commit::{
             CommitKind, CommitMarker, begin_commit, commit_marker_present,
             ensure_recovered_for_write, init_commit_store_for_tests,
@@ -10,7 +10,8 @@ use crate::{
             trace::{QueryTraceEvent, QueryTraceSink, TracePhase},
         },
         query::{
-            Query, ReadConsistency,
+            IntentError, Query, QueryError, ReadConsistency,
+            plan::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
             predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         },
         store::{DataStore, DataStoreRegistry},
@@ -498,6 +499,526 @@ fn load_applies_order_and_pagination() {
 }
 
 #[test]
+fn load_cursor_pagination_skips_strictly_before_limit() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for row in [
+        PhaseEntity {
+            id: Ulid::from_u128(1100),
+            opt_rank: Some(10),
+            rank: 10,
+            tags: vec![1],
+            label: "r10".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1101),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![2],
+            label: "r20-a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1102),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![3],
+            label: "r20-b".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1103),
+            opt_rank: Some(30),
+            rank: 30,
+            tags: vec![4],
+            label: "r30".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+
+    let page1_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .expect("cursor page1 plan should build");
+    let page1_boundary = page1_plan
+        .plan_cursor_boundary(None)
+        .expect("cursor page1 boundary should plan");
+    let page1 = load
+        .execute_paged(page1_plan, page1_boundary)
+        .expect("cursor page1 should execute");
+    assert_eq!(page1.items.0.len(), 1, "page1 should return one row");
+    assert_eq!(page1.items.0[0].1.id, Ulid::from_u128(1100));
+
+    let cursor1 = page1
+        .next_cursor
+        .as_ref()
+        .expect("page1 should emit a continuation cursor");
+    let page2_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .expect("cursor page2 plan should build");
+    let page2_boundary = page2_plan
+        .plan_cursor_boundary(Some(cursor1.as_slice()))
+        .expect("cursor page2 boundary should plan");
+    let page2 = load
+        .execute_paged(page2_plan, page2_boundary)
+        .expect("cursor page2 should execute");
+    assert_eq!(page2.items.0.len(), 1, "page2 should return one row");
+    assert_eq!(
+        page2.items.0[0].1.id,
+        Ulid::from_u128(1101),
+        "cursor boundary must be applied before limit using strict ordering"
+    );
+
+    let cursor2 = page2
+        .next_cursor
+        .as_ref()
+        .expect("page2 should emit a continuation cursor");
+    let page3_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .expect("cursor page3 plan should build");
+    let page3_boundary = page3_plan
+        .plan_cursor_boundary(Some(cursor2.as_slice()))
+        .expect("cursor page3 boundary should plan");
+    let page3 = load
+        .execute_paged(page3_plan, page3_boundary)
+        .expect("cursor page3 should execute");
+    assert_eq!(page3.items.0.len(), 1, "page3 should return one row");
+    assert_eq!(
+        page3.items.0[0].1.id,
+        Ulid::from_u128(1102),
+        "strict cursor continuation must advance beyond the last returned row"
+    );
+}
+
+#[test]
+fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for row in [
+        PhaseEntity {
+            id: Ulid::from_u128(1200),
+            opt_rank: Some(10),
+            rank: 10,
+            tags: vec![1],
+            label: "r10".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1201),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![2],
+            label: "r20-a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1202),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![3],
+            label: "r20-b".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1203),
+            opt_rank: Some(30),
+            rank: 30,
+            tags: vec![4],
+            label: "r30".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let page1_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("cursor next-cursor plan should build");
+    let page1_boundary = page1_plan
+        .plan_cursor_boundary(None)
+        .expect("cursor page1 boundary should plan");
+    let page1 = load
+        .execute_paged(page1_plan, page1_boundary)
+        .expect("cursor page1 should execute");
+    assert_eq!(page1.items.0.len(), 2, "page1 should return two rows");
+    assert_eq!(page1.items.0[0].1.id, Ulid::from_u128(1200));
+    assert_eq!(
+        page1.items.0[1].1.id,
+        Ulid::from_u128(1201),
+        "page1 second row should be the PK tie-break winner for rank=20"
+    );
+
+    let cursor_bytes = page1
+        .next_cursor
+        .as_ref()
+        .expect("page1 should include next cursor");
+    let token = ContinuationToken::decode(cursor_bytes.as_slice())
+        .expect("continuation cursor should decode");
+    let comparison_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("comparison plan should build")
+        .into_inner();
+    let expected_boundary = comparison_plan
+        .cursor_boundary_from_entity(&page1.items.0[1].1)
+        .expect("expected boundary should build");
+    assert_eq!(
+        token.boundary(),
+        &expected_boundary,
+        "next cursor must encode the last returned row boundary"
+    );
+
+    let page2_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("cursor page2 plan should build");
+    let page2_boundary = page2_plan
+        .plan_cursor_boundary(Some(cursor_bytes.as_slice()))
+        .expect("cursor page2 boundary should plan");
+    let page2 = load
+        .execute_paged(page2_plan, page2_boundary)
+        .expect("cursor page2 should execute");
+    let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
+    assert_eq!(
+        page2_ids,
+        vec![Ulid::from_u128(1202), Ulid::from_u128(1203)],
+        "page2 should resume strictly after page1's final row"
+    );
+    assert!(
+        page2.next_cursor.is_none(),
+        "final page should not emit a continuation cursor"
+    );
+}
+
+#[test]
+fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for row in [
+        PhaseEntity {
+            id: Ulid::from_u128(1400),
+            opt_rank: Some(10),
+            rank: 10,
+            tags: vec![1],
+            label: "r10".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1401),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![2],
+            label: "r20-a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1402),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![3],
+            label: "r20-b".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1403),
+            opt_rank: Some(30),
+            rank: 30,
+            tags: vec![4],
+            label: "r30".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let page1_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by_desc("rank")
+        .limit(2)
+        .plan()
+        .expect("descending page1 plan should build");
+    let page1_boundary = page1_plan
+        .plan_cursor_boundary(None)
+        .expect("descending page1 boundary should plan");
+    let page1 = load
+        .execute_paged(page1_plan, page1_boundary)
+        .expect("descending page1 should execute");
+    let page1_ids: Vec<Ulid> = page1.items.0.iter().map(|(_, entity)| entity.id).collect();
+    assert_eq!(
+        page1_ids,
+        vec![Ulid::from_u128(1403), Ulid::from_u128(1401)],
+        "descending page1 should apply rank DESC then canonical PK tie-break"
+    );
+
+    let cursor = page1
+        .next_cursor
+        .as_ref()
+        .expect("descending page1 should emit continuation cursor");
+    let page2_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by_desc("rank")
+        .limit(2)
+        .plan()
+        .expect("descending page2 plan should build");
+    let page2_boundary = page2_plan
+        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .expect("descending page2 boundary should plan");
+    let page2 = load
+        .execute_paged(page2_plan, page2_boundary)
+        .expect("descending page2 should execute");
+    let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
+    assert_eq!(
+        page2_ids,
+        vec![Ulid::from_u128(1402), Ulid::from_u128(1400)],
+        "descending continuation must resume strictly after the boundary row"
+    );
+    assert!(
+        page2.next_cursor.is_none(),
+        "final descending page should not emit a continuation cursor"
+    );
+}
+
+#[test]
+fn load_cursor_rejects_signature_mismatch() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for row in [
+        PhaseEntity {
+            id: Ulid::from_u128(1300),
+            opt_rank: Some(1),
+            rank: 1,
+            tags: vec![1],
+            label: "a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(1301),
+            opt_rank: Some(2),
+            rank: 2,
+            tags: vec![2],
+            label: "b".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let asc_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .expect("ascending cursor plan should build");
+    let asc_boundary = asc_plan
+        .plan_cursor_boundary(None)
+        .expect("ascending boundary should plan");
+    let asc_page = load
+        .execute_paged(asc_plan, asc_boundary)
+        .expect("ascending cursor page should execute");
+    let cursor = asc_page
+        .next_cursor
+        .expect("ascending page should emit cursor");
+
+    let desc_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by_desc("rank")
+        .limit(1)
+        .plan()
+        .expect("descending plan should build");
+    let err = desc_plan
+        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .expect_err("cursor from different canonical plan should be rejected");
+    assert!(
+        matches!(
+            err,
+            crate::db::query::plan::PlanError::ContinuationCursorSignatureMismatch { .. }
+        ),
+        "planning should reject plan-signature mismatch"
+    );
+}
+
+#[test]
+fn paged_query_builder_requires_explicit_limit() {
+    let session = DbSession::new(DB);
+
+    let Err(err) = session.load::<PhaseEntity>().order_by("rank").page() else {
+        panic!("paged builder should require explicit limit")
+    };
+
+    assert!(
+        matches!(err, QueryError::Intent(IntentError::CursorRequiresLimit)),
+        "missing limit should be rejected at page-builder boundary"
+    );
+}
+
+#[test]
+fn paged_query_builder_rejects_offset() {
+    let session = DbSession::new(DB);
+
+    let Err(err) = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(10)
+        .offset(2)
+        .page()
+    else {
+        panic!("paged builder should reject offset usage")
+    };
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Intent(IntentError::CursorWithOffsetUnsupported)
+        ),
+        "offset should be rejected at page-builder boundary"
+    );
+}
+
+#[test]
+fn paged_query_builder_accepts_order_and_limit() {
+    let session = DbSession::new(DB);
+
+    session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(1)
+        .page()
+        .expect("paged builder should accept canonical cursor pagination intent");
+}
+
+#[test]
+fn load_cursor_rejects_version_mismatch_at_plan_time() {
+    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .expect("version-mismatch plan should build");
+    let boundary = CursorBoundary {
+        slots: vec![
+            CursorBoundarySlot::Present(Value::Uint(10)),
+            CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(2001))),
+        ],
+    };
+    let token = ContinuationToken::new(plan.continuation_signature(), boundary);
+    let version_mismatch_cursor = token
+        .encode_with_version_for_test(99)
+        .expect("version-mismatch cursor should encode");
+
+    let err = plan
+        .plan_cursor_boundary(Some(version_mismatch_cursor.as_slice()))
+        .expect_err("unsupported cursor version should be rejected during planning");
+    assert!(
+        matches!(
+            err,
+            crate::db::query::plan::PlanError::ContinuationCursorVersionMismatch { version: 99 }
+        ),
+        "planning should reject unsupported cursor versions"
+    );
+}
+
+#[test]
+fn load_cursor_rejects_boundary_value_type_mismatch_at_plan_time() {
+    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .expect("boundary-type plan should build");
+    let boundary = CursorBoundary {
+        slots: vec![
+            CursorBoundarySlot::Present(Value::Text("not-a-rank".to_string())),
+            CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(2002))),
+        ],
+    };
+    let cursor = ContinuationToken::new(plan.continuation_signature(), boundary)
+        .encode()
+        .expect("boundary-type cursor should encode");
+
+    let err = plan
+        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .expect_err("boundary field type mismatch should be rejected during planning");
+    assert!(
+        matches!(
+            err,
+            crate::db::query::plan::PlanError::ContinuationCursorBoundaryTypeMismatch { field, .. }
+            if field == "rank"
+        ),
+        "planning should reject non-PK boundary type mismatches"
+    );
+}
+
+#[test]
+fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
+    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .expect("pk-type plan should build");
+    let boundary = CursorBoundary {
+        slots: vec![
+            CursorBoundarySlot::Present(Value::Uint(10)),
+            CursorBoundarySlot::Present(Value::Text("not-a-ulid".to_string())),
+        ],
+    };
+    let cursor = ContinuationToken::new(plan.continuation_signature(), boundary)
+        .encode()
+        .expect("pk-type cursor should encode");
+
+    let err = plan
+        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .expect_err("pk type mismatch should be rejected during planning");
+    assert!(
+        matches!(
+            err,
+            crate::db::query::plan::PlanError::ContinuationCursorPrimaryKeyTypeMismatch { field, .. }
+            if field == "id"
+        ),
+        "planning should reject primary-key boundary type mismatches"
+    );
+}
+
+#[test]
+fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
+    let foreign_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(1)
+        .plan()
+        .expect("foreign entity plan should build");
+    let foreign_cursor = ContinuationToken::new(
+        foreign_plan.continuation_signature(),
+        CursorBoundary {
+            slots: vec![CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(
+                3001,
+            )))],
+        },
+    )
+    .encode()
+    .expect("foreign entity cursor should encode");
+
+    let local_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(1)
+        .plan()
+        .expect("local entity plan should build");
+    let err = local_plan
+        .plan_cursor_boundary(Some(foreign_cursor.as_slice()))
+        .expect_err("cursor from a different entity path should be rejected during planning");
+    assert!(
+        matches!(
+            err,
+            crate::db::query::plan::PlanError::ContinuationCursorSignatureMismatch { .. }
+        ),
+        "planning should reject wrong-entity cursors via plan-signature mismatch"
+    );
+}
+
+#[test]
 fn singleton_unit_key_insert_and_only_load_round_trip() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
@@ -710,6 +1231,86 @@ fn load_in_and_text_ops_respect_ordered_pagination() {
     assert_eq!(
         response.0[0].1.rank, 30,
         "pagination should apply to the filtered+ordered window"
+    );
+}
+
+#[test]
+fn load_ordering_treats_missing_values_consistently_with_direction() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for row in [
+        PhaseEntity {
+            id: Ulid::from_u128(902),
+            opt_rank: None,
+            rank: 2,
+            tags: vec![2],
+            label: "missing-b".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(901),
+            opt_rank: None,
+            rank: 1,
+            tags: vec![1],
+            label: "missing-a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(903),
+            opt_rank: Some(10),
+            rank: 3,
+            tags: vec![3],
+            label: "present-10".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(904),
+            opt_rank: Some(20),
+            rank: 4,
+            tags: vec![4],
+            label: "present-20".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+
+    let asc_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("opt_rank")
+        .plan()
+        .expect("ascending optional-order plan should build");
+    let asc = load
+        .execute(asc_plan)
+        .expect("ascending optional-order query should execute");
+    let asc_ids: Vec<Ulid> = asc.0.into_iter().map(|(_, entity)| entity.id).collect();
+    assert_eq!(
+        asc_ids,
+        vec![
+            Ulid::from_u128(901),
+            Ulid::from_u128(902),
+            Ulid::from_u128(903),
+            Ulid::from_u128(904),
+        ],
+        "ascending order should treat missing as lowest and use PK tie-break within missing rows"
+    );
+
+    let desc_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by_desc("opt_rank")
+        .plan()
+        .expect("descending optional-order plan should build");
+    let desc = load
+        .execute(desc_plan)
+        .expect("descending optional-order query should execute");
+    let desc_ids: Vec<Ulid> = desc.0.into_iter().map(|(_, entity)| entity.id).collect();
+    assert_eq!(
+        desc_ids,
+        vec![
+            Ulid::from_u128(904),
+            Ulid::from_u128(903),
+            Ulid::from_u128(901),
+            Ulid::from_u128(902),
+        ],
+        "descending order should reverse present/missing groups while preserving PK tie-break"
     );
 }
 

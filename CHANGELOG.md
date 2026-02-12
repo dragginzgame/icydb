@@ -5,19 +5,30 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.7.21] – 2026-02-11
+## [0.7.21] – 2026-02-11 - Cursor Pagination, Part I
 
 ### 🧰 Changed
 
-* Removed the dormant `QueryError::UnsupportedQueryFeature` layer and route unsupported-feature policy failures through `ValidateError`, keeping query error boundaries single-path and explicit.
-* Pruned un-emitted facade error variants (`ErrorKind::Store`, `StoreErrorKind`, and unused `UpdateErrorKind` cases) so public error taxonomy matches emitted runtime behavior.
+* Load execution now applies continuation boundaries in canonical order (`filter -> order -> cursor-skip -> limit/offset`), so cursor paging semantics match the same comparator contract used for sorting.
+* Added encoded continuation cursor payloads bound to `ContinuationSignature`, with cursor decoding/validation now performed at plan time before executor entry.
+* Added typed pagination mode via `.page()` / `PagedLoadQuery`, which preserves existing `.execute()` behavior while requiring explicit order+limit and rejecting offset before cursor execution.
+* Documented cursor paging consistency semantics explicitly: ordering is deterministic per request, but continuation requests are not snapshot-isolated across concurrent writes.
 
 ### 🧪 Fixed
 
 * Save-time schema validation caching is now isolated per entity type, preventing cross-entity cache bleed that could surface false primary-key type mismatch errors.
 * Save invariant checks now allow unit primary keys for singleton entities while continuing to reject null primary-key values.
-* Removed dead map-patch missing-key error branches (`MergePatchError::MissingKey` / `PatchError::MissingKey`) that were no longer reachable after no-op missing-key semantics.
 * Added executor regression coverage for unit-key singleton insert + `only()` load round trips.
+* `next_cursor` is now derived from the last returned row of the current page (not the input boundary), preventing continuation drift on tied order fields.
+* Added executor regressions for strict cursor continuation, plan-signature mismatch rejection, and canonical boundary encoding from the last emitted row.
+* Cursor planning now explicitly rejects malformed continuation tokens across version mismatch, boundary type mismatch, primary-key slot type mismatch, and wrong-entity cursor usage.
+
+### 🦜 Cleanup
+
+* Removed the dormant `QueryError::UnsupportedQueryFeature` layer.
+* Pruned un-emitted facade error variants (`ErrorKind::Store`, `StoreErrorKind`, and unused `UpdateErrorKind` cases) so public error taxonomy matches emitted runtime behavior.
+* Removed dead map-patch missing-key error branches (`MergePatchError::MissingKey` / `PatchError::MissingKey`) that were no longer reachable after no-op missing-key semantics.
+* Boxed `QueryError::Plan` to reduce large-`Err` footprint while preserving plan error diagnostics and public error mapping behavior.
 
 ## [0.7.20] – 2026-02-11 - Calm After the Storm
 

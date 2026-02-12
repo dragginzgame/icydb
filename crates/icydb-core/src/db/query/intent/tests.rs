@@ -267,7 +267,8 @@ fn load_limit_without_order_rejects_unordered_pagination() {
 
     assert!(matches!(
         err,
-        QueryError::Plan(crate::db::query::plan::PlanError::UnorderedPagination)
+        QueryError::Plan(ref plan_err)
+            if matches!(**plan_err, crate::db::query::plan::PlanError::UnorderedPagination)
     ));
 }
 
@@ -280,7 +281,8 @@ fn load_offset_without_order_rejects_unordered_pagination() {
 
     assert!(matches!(
         err,
-        QueryError::Plan(crate::db::query::plan::PlanError::UnorderedPagination)
+        QueryError::Plan(ref plan_err)
+            if matches!(**plan_err, crate::db::query::plan::PlanError::UnorderedPagination)
     ));
 }
 
@@ -294,7 +296,8 @@ fn load_limit_and_offset_without_order_rejects_unordered_pagination() {
 
     assert!(matches!(
         err,
-        QueryError::Plan(crate::db::query::plan::PlanError::UnorderedPagination)
+        QueryError::Plan(ref plan_err)
+            if matches!(**plan_err, crate::db::query::plan::PlanError::UnorderedPagination)
     ));
 }
 
@@ -306,6 +309,45 @@ fn load_ordered_pagination_is_allowed() {
         .offset(2)
         .plan()
         .expect("ordered pagination should plan");
+}
+
+#[test]
+fn ordered_plan_appends_primary_key_tie_break() {
+    let plan = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .order_by("name")
+        .plan()
+        .expect("ordered plan should build")
+        .into_inner();
+    let order = plan.order.expect("ordered query should carry order spec");
+
+    assert_eq!(
+        order.fields,
+        vec![
+            ("name".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+        "canonical order should append primary key as terminal tie-break"
+    );
+}
+
+#[test]
+fn ordered_plan_moves_primary_key_to_terminal_position() {
+    let plan = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .order_by_desc("id")
+        .order_by("name")
+        .plan()
+        .expect("ordered plan should build")
+        .into_inner();
+    let order = plan.order.expect("ordered query should carry order spec");
+
+    assert_eq!(
+        order.fields,
+        vec![
+            ("name".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+        "canonical order must keep exactly one terminal PK tie-break with requested direction"
+    );
 }
 
 #[test]
@@ -438,10 +480,16 @@ fn build_plan_model_rejects_map_field_predicates_before_planning() {
         .expect_err("map field predicates must be rejected before planning");
     assert!(matches!(
         err,
-        QueryError::Plan(crate::db::query::plan::PlanError::PredicateInvalid(
-            crate::db::query::predicate::ValidateError::UnsupportedQueryFeature(
-                crate::db::query::predicate::UnsupportedQueryFeature::MapPredicate { field }
+        QueryError::Plan(ref plan_err)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::PredicateInvalid(
+                    crate::db::query::predicate::ValidateError::UnsupportedQueryFeature(
+                        crate::db::query::predicate::UnsupportedQueryFeature::MapPredicate {
+                            ref field
+                        }
+                    )
+                ) if field == "attributes"
             )
-        )) if field == "attributes"
     ));
 }

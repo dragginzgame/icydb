@@ -147,6 +147,21 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         self.mode
     }
 
+    #[must_use]
+    fn has_explicit_order(&self) -> bool {
+        self.order
+            .as_ref()
+            .is_some_and(|order| !order.fields.is_empty())
+    }
+
+    #[must_use]
+    const fn load_spec(&self) -> Option<LoadSpec> {
+        match self.mode {
+            QueryMode::Load(spec) => Some(spec),
+            QueryMode::Delete(_) => None,
+        }
+    }
+
     /// Add a predicate, implicitly AND-ing with any existing predicate.
     #[must_use]
     pub fn filter(mut self, predicate: Predicate) -> Self {
@@ -171,7 +186,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         let order = match expr.lower_with(&schema) {
             Ok(order) => order,
             Err(SortLowerError::Validate(err)) => return Err(QueryError::Validate(err)),
-            Err(SortLowerError::Plan(err)) => return Err(QueryError::Plan(err)),
+            Err(SortLowerError::Plan(err)) => return Err(QueryError::from(*err)),
         };
 
         if order.fields.is_empty() {
@@ -294,7 +309,9 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             mode: self.mode,
             access: access_plan_value,
             predicate: normalized_predicate,
-            order: self.order.clone(),
+            // Canonicalize ORDER BY to include an explicit primary-key tie-break.
+            // This ensures explain/fingerprint/execution share one deterministic order shape.
+            order: canonicalize_order_spec(self.model, self.order.clone()),
             delete_limit: match self.mode {
                 QueryMode::Delete(spec) => spec.limit.map(|max_rows| DeleteLimitSpec { max_rows }),
                 QueryMode::Load(_) => None,
@@ -393,6 +410,16 @@ impl<E: EntityKind> Query<E> {
     #[must_use]
     pub const fn mode(&self) -> QueryMode {
         self.intent.mode()
+    }
+
+    #[must_use]
+    pub(crate) fn has_explicit_order(&self) -> bool {
+        self.intent.has_explicit_order()
+    }
+
+    #[must_use]
+    pub(crate) const fn load_spec(&self) -> Option<LoadSpec> {
+        self.intent.load_spec()
     }
 
     /// Add a predicate, implicitly AND-ing with any existing predicate.
@@ -548,7 +575,7 @@ pub enum QueryError {
     Validate(#[from] ValidateError),
 
     #[error("{0}")]
-    Plan(#[from] PlanError),
+    Plan(Box<PlanError>),
 
     #[error("{0}")]
     Intent(#[from] IntentError),
@@ -563,9 +590,15 @@ pub enum QueryError {
 impl From<PlannerError> for QueryError {
     fn from(err: PlannerError) -> Self {
         match err {
-            PlannerError::Plan(err) => Self::Plan(err),
-            PlannerError::Internal(err) => Self::Execute(err),
+            PlannerError::Plan(err) => Self::from(*err),
+            PlannerError::Internal(err) => Self::Execute(*err),
         }
+    }
+}
+
+impl From<PlanError> for QueryError {
+    fn from(err: PlanError) -> Self {
+        Self::Plan(Box::new(err))
     }
 }
 
@@ -589,6 +622,15 @@ pub enum IntentError {
 
     #[error("multiple key access methods were used on the same query")]
     KeyAccessConflict,
+
+    #[error("cursor pagination requires an explicit ordering")]
+    CursorRequiresOrder,
+
+    #[error("cursor pagination requires an explicit limit")]
+    CursorRequiresLimit,
+
+    #[error("cursor pagination does not support offset; use the cursor token for continuation")]
+    CursorWithOffsetUnsupported,
 }
 
 /// Helper to append an ordering field while preserving existing order spec.
@@ -602,4 +644,36 @@ fn push_order(order: Option<OrderSpec>, field: &str, direction: OrderDirection) 
             fields: vec![(field.to_string(), direction)],
         },
     }
+}
+
+// Normalize ORDER BY into a canonical, deterministic shape:
+// - preserve user field order
+// - remove explicit primary-key references from the user segment
+// - append exactly one primary-key field as the terminal tie-break
+fn canonicalize_order_spec(
+    model: &crate::model::entity::EntityModel,
+    order: Option<OrderSpec>,
+) -> Option<OrderSpec> {
+    let mut order = order?;
+    if order.fields.is_empty() {
+        return Some(order);
+    }
+
+    let pk_field = model.primary_key.name;
+    let mut pk_direction = None;
+    order.fields.retain(|(field, direction)| {
+        if field == pk_field {
+            if pk_direction.is_none() {
+                pk_direction = Some(*direction);
+            }
+            false
+        } else {
+            true
+        }
+    });
+
+    let pk_direction = pk_direction.unwrap_or(OrderDirection::Asc);
+    order.fields.push((pk_field.to_string(), pk_direction));
+
+    Some(order)
 }
