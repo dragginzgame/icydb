@@ -29,6 +29,7 @@ serde_bytes = { workspace = true }
 serde_cbor = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
+icydb-primitives = { workspace = true }
 ulid = { workspace = true }
 
 [dev-dependencies]

@@ -5,6 +5,34 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.8.0] – 2026-02-12 - Structural Correctness Baseline
+
+### 🥭 Summary
+
+0.8.0 is a correctness-focused release that locks down the core behavior of queries, pagination, and collection handling.
+
+The main goal is predictability: same inputs, same rules, and fewer hidden edge cases.
+
+Delete-side strong-reference checks are not included in `0.8.0`; they are planned for a later `0.8.x` release before `0.9`.
+
+### 🛷 Changed
+
+* Pagination behavior is now clearly defined and enforced: ordered, forward-only, and deterministic for a fixed query shape.
+* Collection semantics are now explicitly scoped and documented as three types only: `List` (`Vec`), `Set` (`BTreeSet`), and `Map` (`BTreeMap`).
+* Added `icydb-primitives` as a shared crate for scalar capability metadata, removing schema’s direct coupling to core internals.
+* Roadmap/docs were aligned to remove contract ambiguity around delete-side referential integrity timing.
+
+### 🧪 Fixed
+
+* Added broad regression coverage for cursor paging and uniqueness checks to catch skips/duplicates/invalid-cursor cases early.
+* Improved error-size and lint hygiene in planning/query code paths without changing user-visible query semantics.
+
+### 🧰 Cleanup
+
+* Consolidated duplicated internal pipelines (plan hashing, mutation orchestration, scalar metadata wiring) to reduce drift risk and make future correctness work safer.
+
+---
+
 ## [0.7.21] – 2026-02-11 - Cursor Pagination, Part I
 
 ### 🧰 Changed

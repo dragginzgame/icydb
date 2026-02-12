@@ -2,6 +2,7 @@ use crate::prelude::*;
 use candid::CandidType;
 use darling::FromMeta;
 use derive_more::{Display, FromStr};
+use icydb_primitives::ScalarKind;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 
@@ -73,47 +74,44 @@ pub enum Primitive {
     Unit,
 }
 
-// Local helper to map scalar registry variants to schema primitive variants.
-macro_rules! primitive_matches_scalar {
-    ( $primitive:expr, Int ) => {
-        matches!(
-            $primitive,
-            Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64
-        )
-    };
-    ( $primitive:expr, Uint ) => {
-        matches!(
-            $primitive,
-            Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64
-        )
-    };
-    ( $primitive:expr, Enum ) => {
-        false
-    };
-    ( $primitive:expr, IntBig ) => {
-        matches!($primitive, Primitive::Int)
-    };
-    ( $primitive:expr, UintBig ) => {
-        matches!($primitive, Primitive::Nat)
-    };
-    ( $primitive:expr, Uint128 ) => {
-        matches!($primitive, Primitive::Nat128)
-    };
-    ( $primitive:expr, $scalar:ident ) => {
-        matches!($primitive, Primitive::$scalar)
-    };
-}
-
-macro_rules! primitive_supports_arithmetic_from_registry {
-    ( @args $primitive:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
-        false $( || (primitive_matches_scalar!($primitive, $scalar) && $supports_arithmetic) )*
-    };
+const fn primitive_scalar_kind(primitive: Primitive) -> ScalarKind {
+    match primitive {
+        Primitive::Account => ScalarKind::Account,
+        Primitive::Blob => ScalarKind::Blob,
+        Primitive::Bool => ScalarKind::Bool,
+        Primitive::Date => ScalarKind::Date,
+        Primitive::Decimal => ScalarKind::Decimal,
+        Primitive::Duration => ScalarKind::Duration,
+        Primitive::E8s => ScalarKind::E8s,
+        Primitive::E18s => ScalarKind::E18s,
+        Primitive::Float32 => ScalarKind::Float32,
+        Primitive::Float64 => ScalarKind::Float64,
+        Primitive::Int => ScalarKind::IntBig,
+        Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64 => ScalarKind::Int,
+        Primitive::Int128 => ScalarKind::Int128,
+        Primitive::Nat => ScalarKind::UintBig,
+        Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => {
+            ScalarKind::Uint
+        }
+        Primitive::Nat128 => ScalarKind::Uint128,
+        Primitive::Principal => ScalarKind::Principal,
+        Primitive::Subaccount => ScalarKind::Subaccount,
+        Primitive::Text => ScalarKind::Text,
+        Primitive::Timestamp => ScalarKind::Timestamp,
+        Primitive::Ulid => ScalarKind::Ulid,
+        Primitive::Unit => ScalarKind::Unit,
+    }
 }
 
 impl Primitive {
     #[must_use]
     pub const fn supports_arithmetic(self) -> bool {
-        icydb_core::scalar_registry!(primitive_supports_arithmetic_from_registry, self)
+        primitive_scalar_kind(self).supports_arithmetic()
+    }
+
+    #[must_use]
+    pub const fn is_storage_key_encodable(self) -> bool {
+        primitive_scalar_kind(self).is_storage_key_encodable()
     }
 
     #[must_use]
@@ -171,7 +169,7 @@ impl Primitive {
     // both Ord and PartialOrd
     #[must_use]
     pub const fn supports_ord(self) -> bool {
-        !matches!(self, Self::Blob | Self::Unit)
+        primitive_scalar_kind(self).supports_ordering()
     }
 
     //

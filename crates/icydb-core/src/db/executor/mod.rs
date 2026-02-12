@@ -3,6 +3,7 @@ mod context;
 mod debug;
 mod delete;
 mod load;
+mod mutation;
 mod plan;
 mod save;
 #[cfg(test)]

@@ -869,6 +869,7 @@ dependencies = [
  "chrono",
  "derive_more",
  "icydb-derive",
+ "icydb-primitives",
  "num-traits",
  "proptest",
  "rust_decimal",
@@ -892,6 +893,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "icydb-primitives"
+version = "0.7.21"
+
+[[package]]
 name = "icydb-schema"
 version = "0.7.21"
 dependencies = [
@@ -899,7 +904,7 @@ dependencies = [
  "canic-cdk",
  "darling 0.23.0",
  "derive_more",
- "icydb-core",
+ "icydb-primitives",
  "proc-macro2",
  "quote",
  "remain",
