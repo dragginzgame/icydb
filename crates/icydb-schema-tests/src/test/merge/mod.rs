@@ -1,3 +1,4 @@
+#![allow(clippy::default_trait_access)]
 use crate::prelude::*;
 
 ///
