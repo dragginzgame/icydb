@@ -11,10 +11,6 @@ authors = { workspace = true }
 [lib]
 doctest = false
 
-[features]
-default = ["plan-cache"]
-plan-cache = []
-
 [dependencies]
 candid = { workspace = true }
 canic-cdk = { workspace = true }

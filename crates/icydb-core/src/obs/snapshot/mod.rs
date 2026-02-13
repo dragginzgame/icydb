@@ -60,14 +60,19 @@ pub struct IndexStoreSnapshot {
 pub struct EntitySnapshot {
     /// Store path (e.g., icydb_schema_tests::schema::TestDataStore)
     pub store: String,
+
     /// Entity path (e.g., icydb_schema_tests::canister::db::Index)
     pub path: String,
+
     /// Number of rows for this entity in the store
     pub entries: u64,
+
     /// Approximate bytes used (key + value)
     pub memory_bytes: u64,
+
     /// Minimum primary key for this entity (entity-local ordering)
     pub min_key: Option<Value>,
+
     /// Maximum primary key for this entity (entity-local ordering)
     pub max_key: Option<Value>,
 }
@@ -188,4 +193,121 @@ pub fn storage_report<C: CanisterKind>(
         corrupted_keys,
         corrupted_entries,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{
+            Db,
+            index::{IndexId, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
+            init_commit_store_for_tests,
+            store::{DataKey, DataStore, DataStoreRegistry, RawRow},
+        },
+        obs::snapshot::storage_report,
+        traits::{CanisterKind, Path, Storable},
+    };
+    use canic_cdk::structures::{
+        DefaultMemoryImpl,
+        memory::{MemoryId, MemoryManager, VirtualMemory},
+    };
+    use std::{borrow::Cow, cell::RefCell};
+
+    const DATA_STORE_PATH: &str = "snapshot_tests::DataStore";
+    const INDEX_STORE_PATH: &str = "snapshot_tests::IndexStore";
+
+    struct SnapshotTestCanister;
+
+    impl Path for SnapshotTestCanister {
+        const PATH: &'static str = "snapshot_tests::Canister";
+    }
+
+    impl CanisterKind for SnapshotTestCanister {}
+
+    thread_local! {
+        static SNAPSHOT_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(101)));
+        static SNAPSHOT_INDEX_STORE: RefCell<IndexStore> = RefCell::new(IndexStore::init(
+            test_memory(102),
+            test_memory(103),
+        ));
+        static SNAPSHOT_DATA_REGISTRY: DataStoreRegistry = {
+            let mut reg = DataStoreRegistry::new();
+            reg.register(DATA_STORE_PATH, &SNAPSHOT_DATA_STORE);
+            reg
+        };
+        static SNAPSHOT_INDEX_REGISTRY: IndexStoreRegistry = {
+            let mut reg = IndexStoreRegistry::new();
+            reg.register(INDEX_STORE_PATH, &SNAPSHOT_INDEX_STORE);
+            reg
+        };
+    }
+
+    static DB: Db<SnapshotTestCanister> =
+        Db::new(&SNAPSHOT_DATA_REGISTRY, &SNAPSHOT_INDEX_REGISTRY);
+
+    fn test_memory(id: u8) -> VirtualMemory<DefaultMemoryImpl> {
+        let manager = MemoryManager::init(DefaultMemoryImpl::default());
+        manager.get(MemoryId::new(id))
+    }
+
+    fn reset_snapshot_state() {
+        init_commit_store_for_tests().expect("commit store init should succeed");
+
+        DB.with_data(|reg| reg.with_store_mut(DATA_STORE_PATH, DataStore::clear))
+            .expect("data store reset should succeed");
+        DB.with_index(|reg| reg.with_store_mut(INDEX_STORE_PATH, IndexStore::clear))
+            .expect("index store reset should succeed");
+    }
+
+    #[test]
+    fn storage_report_lists_registered_store_snapshots() {
+        reset_snapshot_state();
+
+        let report = storage_report(&DB, &[]).expect("storage report should succeed");
+        assert_eq!(report.storage_data.len(), 1);
+        assert_eq!(report.storage_data[0].path, DATA_STORE_PATH);
+        assert_eq!(report.storage_data[0].entries, 0);
+        assert_eq!(report.storage_index.len(), 1);
+        assert_eq!(report.storage_index[0].path, INDEX_STORE_PATH);
+        assert_eq!(report.storage_index[0].entries, 0);
+        assert!(report.entity_storage.is_empty());
+        assert_eq!(report.corrupted_keys, 0);
+        assert_eq!(report.corrupted_entries, 0);
+    }
+
+    #[test]
+    fn storage_report_counts_entity_rows_and_corrupted_index_entries() {
+        reset_snapshot_state();
+
+        let data_key = DataKey::max_storable()
+            .to_raw()
+            .expect("max storable data key should encode");
+        let row = RawRow::try_new(vec![1, 2, 3]).expect("row bytes should be valid");
+        DB.with_data(|reg| {
+            reg.with_store_mut(DATA_STORE_PATH, |store| {
+                store.insert(data_key, row);
+            })
+        })
+        .expect("data insert should succeed");
+
+        let index_key = IndexKey::empty(IndexId::max_storable()).to_raw();
+        let malformed_index_entry = RawIndexEntry::from_bytes(Cow::Owned(vec![0, 0, 0, 0]));
+        DB.with_index(|reg| {
+            reg.with_store_mut(INDEX_STORE_PATH, |store| {
+                store.insert(index_key, malformed_index_entry);
+            })
+        })
+        .expect("index insert should succeed");
+
+        let report = storage_report(&DB, &[]).expect("storage report should succeed");
+        assert_eq!(report.storage_data[0].entries, 1);
+        assert_eq!(report.storage_index[0].entries, 1);
+        assert_eq!(report.entity_storage.len(), 1);
+        assert_eq!(report.entity_storage[0].path, "");
+        assert_eq!(report.entity_storage[0].entries, 1);
+        assert!(report.entity_storage[0].min_key.is_some());
+        assert!(report.entity_storage[0].max_key.is_some());
+        assert_eq!(report.corrupted_entries, 1);
+        assert_eq!(report.corrupted_keys, 0);
+    }
 }

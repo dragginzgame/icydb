@@ -20,7 +20,7 @@
 * `make build`: Release build for the workspace.
 * `make clippy`: Lints with warnings denied.
 * `make fmt` / `make fmt-check`: Format or verify formatting.
-* Versioning: `make version|tags|patch|minor|major|release` (see `VERSIONING.md`).
+* Versioning: `make version|tags|patch|minor|major|release`.
 
 ---
 

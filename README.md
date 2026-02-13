@@ -35,7 +35,7 @@ and mechanical enforcement of architectural boundaries.
 - **Stable storage** — data is persisted in stable memory (not heap), with deterministic commit and recovery, backed by CanIC B-trees.
 - **Path dispatch** — `icydb_build` generates internal routing helpers.
 - **Observability endpoints** — `icydb_snapshot`, `icydb_metrics`, `icydb_metrics_reset`.
-- **IC integration** — ergonomic `icydb::start!` and `icydb::build_actor!` macros.
+- **IC integration** — ergonomic `icydb::build!` and `icydb::start!` macros.
 - **Testability** — fixtures, predicate validation, index testing utilities.
 
 ---
@@ -71,12 +71,12 @@ use icydb::prelude::*;
 #[entity(
     pk(field = "id", source = "internal"), // use "external" when IDs are supplied externally
     fields(
-        field(ident = "id", value(item(is = "types::Ulid"))),
-        field(ident = "name", value(item(is = "text::Name"))),
-        field(ident = "description", value(item(is = "text::Description"))),
+        field(ident = "id", value(item(prim = "Ulid"))),
+        field(ident = "name", value(item(prim = "Text"))),
+        field(ident = "description", value(item(prim = "Text"))),
     ),
 )]
-pub struct User {}
+pub struct User;
 ```
 
 Primary keys use `pk(field = "id", source = "internal" | "external")`.
@@ -85,25 +85,23 @@ Primary keys use `pk(field = "id", source = "internal" | "external")`.
 
 ### Build and execute a query
 
-Queries are built as **typed intent**, explicitly planned, and then executed.
+Queries are built as **typed intent** and executed through the public session facade.
 For session-bound fluent queries, use `db!().load::<User>()` (returns `SessionLoadQuery`)
 or `db!().delete::<User>()` (returns `SessionDeleteQuery`).
 
 ```rust
 use icydb::prelude::*;
 
-#[query]
-pub fn users_named_ann() -> Result<Vec<UserView>, icydb::Error> {
-    let query = Query::<User>::new(ReadConsistency::MissingOk)
-        .filter(eq("name", "ann"))
+pub fn users_named_ann() -> Result<Vec<View<User>>, icydb::Error> {
+    let views = db!()
+        .load::<User>()
+        .filter_expr(FilterExpr::eq("name", "ann"))?
         .order_by("name")
         .offset(100)
-        .limit(50);
+        .limit(50)
+        .views()?;
 
-    let plan = query.plan()?;
-    let rows = db!().load_executor::<User>().execute(plan)?;
-
-    Ok(rows.views())
+    Ok(views)
 }
 ```
 
@@ -111,7 +109,7 @@ Key properties:
 
 * Entity type is fixed at construction (`Query<User>`).
 * Missing-row behavior is explicit (`ReadConsistency`).
-* Executors only accept validated, executable plans.
+* Session execution uses validated plans internally; planner/executor internals are not part of the facade contract.
 * Primary-key predicates use the normal predicate surface; the planner may optimize them into key/index access paths.
 * `by_id`/`by_ids` are ergonomic helpers over typed primary-key values (`Id<E>`) for entity-kind correctness; IDs are public lookup inputs, not authorization tokens.
 * Ordering coercion defaults are unified across `FieldRef` and `FilterExpr` (`NumericWiden` for `Lt`/`Lte`/`Gt`/`Gte`). See `docs/QUERY_CONTRACT.md` and `docs/QUERY_PRACTICE.md` for full predicate semantics.
@@ -136,14 +134,15 @@ Key properties:
 The following endpoints are generated automatically:
 
 * `icydb_snapshot()` → live `StorageReport`
-* `icydb_metrics()` → metrics since a given timestamp
+* `icydb_metrics(since_ms: Option<u64>)` → metrics window report, filtered by window start timestamp
 * `icydb_metrics_reset()` → clears metrics state
 
 Example usage:
 
 ```bash
 dfx canister call <canister> icydb_snapshot
-dfx canister call <canister> icydb_metrics
+dfx canister call <canister> icydb_metrics '(null)'
+dfx canister call <canister> icydb_metrics '(opt 1735689600000)'
 dfx canister call <canister> icydb_metrics_reset
 ```
 

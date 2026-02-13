@@ -164,18 +164,9 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> PagedLoadQuery<'_, C, E> {
 
         Ok(PagedResponse {
             items: items.views(),
-            next_cursor: next_cursor.map(|bytes| encode_hex_cursor(&bytes)),
+            next_cursor: next_cursor.map(|bytes| core::db::cursor::encode_cursor(&bytes)),
         })
     }
-}
-
-fn encode_hex_cursor(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        use std::fmt::Write as _;
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
 }
 
 impl<C: CanisterKind, E: EntityKind<Canister = C> + SingletonEntity> SessionLoadQuery<'_, C, E> {

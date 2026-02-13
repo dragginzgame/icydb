@@ -162,43 +162,31 @@ pub struct EntitySummary {
     pub unique_violations: u64,
 }
 
-///
-/// EventSelect
-/// Select which parts of the metrics report to include.
-///
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Serialize)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct EventSelect {
-    pub data: bool,
-    pub index: bool,
-    pub counters: bool,
-    pub entities: bool,
-}
-
-impl EventSelect {
-    #[must_use]
-    pub const fn all() -> Self {
-        Self {
-            data: true,
-            index: true,
-            counters: true,
-            entities: true,
-        }
-    }
-}
-
-impl Default for EventSelect {
-    fn default() -> Self {
-        Self::all()
-    }
-}
-
 /// Build a metrics report by inspecting in-memory counters only.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
 pub fn report() -> EventReport {
+    report_since(None)
+}
+
+/// Build a metrics report gated by `since_ms`.
+///
+/// This is a window-start filter:
+/// - If `since_ms` is `None`, return the current window.
+/// - If `since_ms <= state.since_ms`, return the current window.
+/// - If `since_ms > state.since_ms`, return an empty report.
+///
+/// IcyDB stores aggregate counters only, so it cannot produce a precise
+/// sub-window report after `state.since_ms`.
+#[must_use]
+#[allow(clippy::cast_precision_loss)]
+pub fn report_since(since_ms: Option<u64>) -> EventReport {
     let snap = with_state(Clone::clone);
+    if let Some(requested_since_ms) = since_ms
+        && requested_since_ms > snap.since_ms
+    {
+        return EventReport::default();
+    }
 
     let mut entity_counters: Vec<EntitySummary> = Vec::new();
     for (path, ops) in &snap.entities {

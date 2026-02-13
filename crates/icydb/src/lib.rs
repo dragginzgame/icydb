@@ -94,6 +94,7 @@ pub mod __internal {
 /// these have to be in icydb_core because of the base library not being able to import icydb
 #[doc(hidden)]
 pub mod __reexports {
+    pub use candid;
     pub use canic_cdk;
     pub use canic_memory;
     pub use ctor;
@@ -101,6 +102,7 @@ pub mod __reexports {
     pub use icydb_derive;
     pub use num_traits;
     pub use remain;
+    pub use serde;
 }
 
 ///

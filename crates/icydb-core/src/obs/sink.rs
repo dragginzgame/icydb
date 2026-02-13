@@ -246,9 +246,11 @@ pub fn record(event: MetricsEvent) {
 }
 
 /// Snapshot the current metrics state for endpoint/test plumbing.
+///
+/// `since_ms` filters by window start (`EventState::since_ms`), not by per-event timestamps.
 #[must_use]
-pub fn metrics_report() -> metrics::EventReport {
-    metrics::report()
+pub fn metrics_report(since_ms: Option<u64>) -> metrics::EventReport {
+    metrics::report_since(since_ms)
 }
 
 /// Reset ephemeral metrics counters.
@@ -467,5 +469,47 @@ mod tests {
             kind: PlanKind::Range,
         });
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn metrics_report_without_since_returns_counters() {
+        metrics_reset_all();
+        record(MetricsEvent::Plan {
+            kind: PlanKind::Index,
+        });
+
+        let report = metrics_report(None);
+        let counters = report
+            .counters
+            .expect("metrics report should include counters without since filter");
+        assert_eq!(counters.ops.plan_index, 1);
+    }
+
+    #[test]
+    fn metrics_report_since_before_window_returns_counters() {
+        metrics_reset_all();
+        let window_start = metrics::with_state(|m| m.since_ms);
+        record(MetricsEvent::Plan {
+            kind: PlanKind::Keys,
+        });
+
+        let report = metrics_report(Some(window_start.saturating_sub(1)));
+        let counters = report
+            .counters
+            .expect("metrics report should include counters when since_ms is before window");
+        assert_eq!(counters.ops.plan_keys, 1);
+    }
+
+    #[test]
+    fn metrics_report_since_after_window_returns_empty() {
+        metrics_reset_all();
+        let window_start = metrics::with_state(|m| m.since_ms);
+        record(MetricsEvent::Plan {
+            kind: PlanKind::FullScan,
+        });
+
+        let report = metrics_report(Some(window_start.saturating_add(1)));
+        assert!(report.counters.is_none());
+        assert!(report.entity_counters.is_empty());
     }
 }

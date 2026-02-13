@@ -12,7 +12,7 @@ This document is **interpretive, not normative**.
 > those contracts take precedence.
 
 Normative specifications live in:
-- `docs/atomicity.md`
+- `docs/ATOMICITY.md`
 - `docs/REF_INTEGRITY.md`
 - `docs/QUERY_CONTRACT.md`
 - `docs/IDENTITY_CONTRACT.md`
@@ -311,7 +311,7 @@ IcyDB relies on:
 Reads do not perform recovery checks after startup; a post-startup trap may expose
 partial state until recovery is triggered by a write or restart.
 
-> **Normative guarantees:** see `docs/atomicity.md`.
+> **Normative guarantees:** see `docs/ATOMICITY.md`.
 
 ---
 

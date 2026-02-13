@@ -58,7 +58,7 @@ Intent must not encode or imply any of the following:
 - access paths (key, index, scan, range)
 - index names or index choices
 - execution ordering or physical plan steps
-- plan cache keys or executor hints
+- internal cache keys or executor hints
 - read modes hidden in access paths
 
 ## Primary-Key Semantics

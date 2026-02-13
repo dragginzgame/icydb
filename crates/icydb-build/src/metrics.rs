@@ -13,10 +13,11 @@ pub fn generate(_builder: &ActorBuilder) -> TokenStream {
             Ok(::icydb::obs::snapshot::storage_report(&DB, &[])?)
         }
 
-        /// Ephemeral event report since the internal `since_ms` (counters + per-entity summaries).
+        /// Ephemeral event report with optional `since_ms` window-start filter.
+        /// If `since_ms` is newer than the current in-memory window start, returns an empty report.
         #[::icydb::__reexports::canic_cdk::query]
-        pub fn icydb_metrics() -> Result<::icydb::obs::EventReport, ::icydb::Error> {
-            Ok(::icydb::obs::sink::metrics_report())
+        pub fn icydb_metrics(since_ms: Option<u64>) -> Result<::icydb::obs::EventReport, ::icydb::Error> {
+            Ok(::icydb::obs::sink::metrics_report(since_ms))
         }
 
         /// Reset ephemeral event state and refresh `since_ms`.

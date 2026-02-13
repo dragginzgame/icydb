@@ -41,7 +41,7 @@ global database invariants (e.g. completing or rolling back a previously started
 commit) before operations proceed.
 
 System recovery:
-* Executes at startup before the first read or mutation pre-commit begins
+* Executes at startup before the first read or mutation pre-commit begins, and is re-enforced by guarded operation boundaries via a fast persisted-marker check
 * Leaves the database in a fully consistent state
 * Is not part of the current mutation’s atomicity scope
 * Is not observable by reads as partial state
@@ -73,8 +73,8 @@ call.
 
 Before the first read or mutation’s pre-commit phase begins, the system performs
 a mandatory **system recovery step** to restore global invariants from prior
-incomplete commits. Write entrypoints also perform a cheap marker check and
-replay recovery if a marker is present.
+incomplete commits. Guarded read and write entrypoints both perform a cheap
+marker check and replay recovery if a marker is present.
 
 This recovery step is conceptually separate from the current mutation and must
 complete successfully before any read execution, planning, or validation begins.
@@ -125,12 +125,11 @@ Commit markers are **authoritative**, not diagnostic.
 * Markers must not be observable as committed application state
 * Markers are applied during the apply phase after they are persisted
 * The system recovery step handles markers left behind by interrupted commits
-* Read entrypoints perform startup recovery before accessing durable stores
+* Read entrypoints enforce recovery before accessing durable stores
 * Write entrypoints perform a marker check and recovery before accessing durable stores;
   reads must not branch on marker presence outside recovery
-* Read entrypoints do not perform marker checks after startup; a post-startup
-  trap may leave partial state visible to reads until a write triggers recovery
-  or the process restarts
+* Guarded reads and writes both perform marker checks at entry; if a marker is
+  present, recovery replays before read or mutation execution proceeds
 
 ---
 
@@ -183,7 +182,7 @@ The following are **explicitly out of scope**:
 * Multi-message commits
 * Async or awaited mutation paths
 * Forward recovery after process crash
-* Lazy or deferred recovery during read execution (reads do not perform marker checks)
+* Lazy or deferred recovery interleaved with read execution logic (recovery runs at guarded entry boundaries before read execution)
 * Atomicity across independent mutation calls
 * Distributed or cross-canister transactions
 
@@ -203,8 +202,8 @@ The following invariants are **mandatory and non-negotiable**:
 * All mutation entrypoints must perform write-side recovery (marker check + replay) before pre-commit
 * Mutation correctness must not depend on recovery occurring after the commit
   boundary.
-* Startup recovery must complete before any read pre-commit, and write-side recovery
-  must complete before mutation pre-commit; recovery must not be interleaved with
+* Startup recovery must complete before any read pre-commit, and read/write entrypoint
+  marker checks must complete before operation-specific execution; recovery must not be interleaved with
   mutation planning or apply phases.
 * No `await`, yield, or re-entrancy during mutation execution
 
@@ -216,9 +215,9 @@ Violating any invariant is a **bug**, not an acceptable failure mode.
 
 * Atomicity is an **IcyDB guarantee**, independent of IC rollback semantics
 * Traps are treated as catastrophic failures, not control flow
-* Partial state visibility is prevented for writes; reads may observe partial state
-  after a post-startup trap until a write triggers recovery or the process restarts.
-  This situation can occur only if a trap happens after startup recovery has completed and before a subsequent guarded write or restart, and only for direct durable reads that bypass guarded entrypoints.
+* Partial state visibility is prevented for writes and for guarded reads.
+  Direct durable reads that bypass guarded entrypoints are out of contract and
+  may observe transient partial state.
 * Release builds enforce invariants explicitly (no `debug_assert!` reliance)
 
 ---
@@ -239,7 +238,8 @@ Then a new atomicity model must define:
 
 System recovery is expected to run synchronously at startup (before the first
 read or mutation) and is not a substitute for atomic apply-phase correctness.
-Write entrypoints also perform a cheap marker check and replay if needed.
+Guarded read and write entrypoints also perform a cheap marker check and replay
+if needed.
 
 Until then, this document is authoritative.
 

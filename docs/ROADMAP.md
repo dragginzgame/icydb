@@ -5,7 +5,7 @@ This document describes the **long-term direction** of IcyDB.
 It intentionally does **not** redefine the current contract.
 All guarantees, invariants, and limits for released versions are defined in:
 
-- `docs/atomicity.md`
+- `docs/ATOMICITY.md`
 - `docs/REF_INTEGRITY.md`
 
 This roadmap describes **where the system is going**, not what is currently guaranteed.

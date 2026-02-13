@@ -67,6 +67,7 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
         let mut derive_traits = Vec::new();
         let mut attrs = Vec::new();
         let mut impls = TokenStream::new();
+        let mut has_serde_derive = false;
 
         for tr in self.traits() {
             // Each trait can either have an explicit map or fallback to default.
@@ -81,9 +82,15 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
                 if let Some(derive_tr) = strategy.derive
                     && let Some(path) = derive_tr.derive_path()
                 {
+                    if matches!(derive_tr, TraitKind::Deserialize | TraitKind::Serialize) {
+                        has_serde_derive = true;
+                    }
                     derive_traits.push(path);
                 }
             } else if let Some(path) = tr.derive_path() {
+                if matches!(tr, TraitKind::Deserialize | TraitKind::Serialize) {
+                    has_serde_derive = true;
+                }
                 derive_traits.push(path);
             }
 
@@ -97,6 +104,10 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
         } else {
             quote!(#[derive(#(#derive_traits),*)])
         };
+
+        if has_serde_derive {
+            attrs.push(quote!(#[serde(crate = "::icydb::__reexports::serde")]));
+        }
 
         derive.extend(attrs);
 
