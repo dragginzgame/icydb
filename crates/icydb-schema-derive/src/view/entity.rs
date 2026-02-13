@@ -31,7 +31,7 @@ impl View for EntityView<'_> {
 
             impl Default for #view_ident {
                 fn default() -> Self {
-                    ::icydb::__internal::core::traits::AsView::as_view(&#node_ident::default())
+                    ::icydb::__internal::core::traits::AsView::as_view(&super::#node_ident::default())
                 }
             }
         }
@@ -74,7 +74,7 @@ impl View for EntityCreate<'_> {
 
             impl Default for #create_ident {
                 fn default() -> Self {
-                    let entity = #node_ident::default();
+                    let entity = super::#node_ident::default();
 
                     Self {
                         #(#defaults),*

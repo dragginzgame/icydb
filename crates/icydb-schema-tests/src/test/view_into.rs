@@ -35,7 +35,7 @@ mod test {
             ..Default::default()
         };
 
-        let view: ViewIntoRoundTripView = entity.clone().into();
+        let view: View<ViewIntoRoundTrip> = entity.clone().into();
         assert_eq!(view.name, "primary");
         assert_eq!(view.score, 42);
         assert_eq!(view.tags, vec!["alpha".to_string(), "beta".to_string()]);

@@ -6,7 +6,10 @@ use crate::{
         index::fingerprint::hash_value,
         query::{
             QueryMode, ReadConsistency,
-            plan::{ExplainAccessPath, ExplainOrderBy, ExplainPredicate, OrderDirection},
+            plan::{
+                ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination,
+                ExplainPlan, ExplainPredicate, OrderDirection,
+            },
             predicate::coercion::CoercionId,
         },
     },
@@ -245,61 +248,142 @@ pub enum ExplainHashProfile<'a> {
     ContinuationV1 { entity_path: &'a str },
 }
 
-/// Hash an `ExplainPlan` using a profile-specific canonical field set.
-pub fn hash_explain_plan_profile(
-    hasher: &mut Sha256,
-    plan: &crate::db::query::plan::ExplainPlan,
-    profile: ExplainHashProfile<'_>,
-) {
-    match profile {
-        ExplainHashProfile::FingerprintV2 => {
-            write_tag(hasher, 0x01);
-            hash_access(hasher, &plan.access);
+#[derive(Clone, Copy)]
+enum ExplainHashField {
+    EntityPath,
+    Mode,
+    Access,
+    Predicate,
+    Order,
+    Page,
+    DeleteLimit,
+    Consistency,
+    ProjectionDefault,
+}
 
-            write_tag(hasher, 0x02);
-            hash_predicate(hasher, &plan.predicate);
+#[derive(Clone, Copy)]
+struct ExplainHashStep {
+    section_tag: u8,
+    field: ExplainHashField,
+}
 
-            write_tag(hasher, 0x03);
-            hash_order(hasher, &plan.order_by);
+struct ExplainHashProfileSpec<'a> {
+    entity_path: Option<&'a str>,
+    steps: &'static [ExplainHashStep],
+}
 
-            write_tag(hasher, 0x04);
-            hash_page(hasher, &plan.page);
+const FINGERPRINT_V2_STEPS: [ExplainHashStep; 7] = [
+    ExplainHashStep {
+        section_tag: 0x01,
+        field: ExplainHashField::Access,
+    },
+    ExplainHashStep {
+        section_tag: 0x02,
+        field: ExplainHashField::Predicate,
+    },
+    ExplainHashStep {
+        section_tag: 0x03,
+        field: ExplainHashField::Order,
+    },
+    ExplainHashStep {
+        section_tag: 0x04,
+        field: ExplainHashField::Page,
+    },
+    ExplainHashStep {
+        section_tag: 0x05,
+        field: ExplainHashField::DeleteLimit,
+    },
+    ExplainHashStep {
+        section_tag: 0x06,
+        field: ExplainHashField::Consistency,
+    },
+    ExplainHashStep {
+        section_tag: 0x07,
+        field: ExplainHashField::Mode,
+    },
+];
 
-            write_tag(hasher, 0x05);
-            hash_delete_limit(hasher, &plan.delete_limit);
+const CONTINUATION_V1_STEPS: [ExplainHashStep; 6] = [
+    ExplainHashStep {
+        section_tag: 0x01,
+        field: ExplainHashField::EntityPath,
+    },
+    ExplainHashStep {
+        section_tag: 0x02,
+        field: ExplainHashField::Mode,
+    },
+    ExplainHashStep {
+        section_tag: 0x03,
+        field: ExplainHashField::Access,
+    },
+    ExplainHashStep {
+        section_tag: 0x04,
+        field: ExplainHashField::Predicate,
+    },
+    ExplainHashStep {
+        section_tag: 0x05,
+        field: ExplainHashField::Order,
+    },
+    ExplainHashStep {
+        section_tag: 0x06,
+        field: ExplainHashField::ProjectionDefault,
+    },
+];
 
-            write_tag(hasher, 0x06);
-            hash_consistency(hasher, plan.consistency);
-
-            write_tag(hasher, 0x07);
-            hash_mode(hasher, plan.mode);
-        }
-        ExplainHashProfile::ContinuationV1 { entity_path } => {
-            write_tag(hasher, 0x01);
-            write_str(hasher, entity_path);
-
-            write_tag(hasher, 0x02);
-            hash_mode(hasher, plan.mode);
-
-            write_tag(hasher, 0x03);
-            hash_access(hasher, &plan.access);
-
-            write_tag(hasher, 0x04);
-            hash_predicate(hasher, &plan.predicate);
-
-            write_tag(hasher, 0x05);
-            hash_order(hasher, &plan.order_by);
-
-            write_tag(hasher, 0x06);
-            hash_projection_default(hasher);
+impl<'a> ExplainHashProfile<'a> {
+    const fn spec(self) -> ExplainHashProfileSpec<'a> {
+        match self {
+            Self::FingerprintV2 => ExplainHashProfileSpec {
+                entity_path: None,
+                steps: &FINGERPRINT_V2_STEPS,
+            },
+            Self::ContinuationV1 { entity_path } => ExplainHashProfileSpec {
+                entity_path: Some(entity_path),
+                steps: &CONTINUATION_V1_STEPS,
+            },
         }
     }
 }
 
-fn hash_page(hasher: &mut Sha256, page: &crate::db::query::plan::ExplainPagination) {
+fn hash_explain_field(
+    hasher: &mut Sha256,
+    plan: &ExplainPlan,
+    field: ExplainHashField,
+    entity_path: Option<&str>,
+) {
+    match field {
+        ExplainHashField::EntityPath => {
+            let entity_path = entity_path.expect("entity path required by hash profile");
+            write_str(hasher, entity_path);
+        }
+        ExplainHashField::Mode => hash_mode(hasher, plan.mode),
+        ExplainHashField::Access => hash_access(hasher, &plan.access),
+        ExplainHashField::Predicate => hash_predicate(hasher, &plan.predicate),
+        ExplainHashField::Order => hash_order(hasher, &plan.order_by),
+        ExplainHashField::Page => hash_page(hasher, &plan.page),
+        ExplainHashField::DeleteLimit => hash_delete_limit(hasher, &plan.delete_limit),
+        ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency),
+        ExplainHashField::ProjectionDefault => hash_projection_default(hasher),
+    }
+}
+
+/// Hash an `ExplainPlan` using a profile-specific canonical field set.
+pub fn hash_explain_plan_profile(
+    hasher: &mut Sha256,
+    plan: &ExplainPlan,
+    profile: ExplainHashProfile<'_>,
+) {
+    let spec = profile.spec();
+    for step in spec.steps {
+        write_tag(hasher, step.section_tag);
+        hash_explain_field(hasher, plan, step.field, spec.entity_path);
+    }
+}
+
+fn hash_page(hasher: &mut Sha256, page: &ExplainPagination) {
     match page {
-        crate::db::query::plan::ExplainPagination::None => write_tag(hasher, 0x40),
-        crate::db::query::plan::ExplainPagination::Page { limit, offset } => {
+        ExplainPagination::None => write_tag(hasher, 0x40),
+        ExplainPagination::Page { limit, offset } => {
             write_tag(hasher, 0x41);
             match limit {
                 Some(limit) => {
@@ -313,10 +397,10 @@ fn hash_page(hasher: &mut Sha256, page: &crate::db::query::plan::ExplainPaginati
     }
 }
 
-fn hash_delete_limit(hasher: &mut Sha256, limit: &crate::db::query::plan::ExplainDeleteLimit) {
+fn hash_delete_limit(hasher: &mut Sha256, limit: &ExplainDeleteLimit) {
     match limit {
-        crate::db::query::plan::ExplainDeleteLimit::None => write_tag(hasher, 0x42),
-        crate::db::query::plan::ExplainDeleteLimit::Limit { max_rows } => {
+        ExplainDeleteLimit::None => write_tag(hasher, 0x42),
+        ExplainDeleteLimit::Limit { max_rows } => {
             write_tag(hasher, 0x43);
             write_u32(hasher, *max_rows);
         }

@@ -5,6 +5,7 @@ use crate::{
             IntentError, Query, QueryError,
             expr::{FilterExpr, SortExpr},
             plan::{ExecutablePlan, ExplainPlan},
+            policy::{self, CursorPagingPolicyError},
             predicate::Predicate,
         },
         response::Response,
@@ -266,17 +267,16 @@ where
 {
     fn paged_intent_error(&self) -> Option<IntentError> {
         let spec = self.query.load_spec()?;
-        if !self.query.has_explicit_order() {
-            return Some(IntentError::CursorRequiresOrder);
-        }
-        if spec.limit.is_none() {
-            return Some(IntentError::CursorRequiresLimit);
-        }
-        if spec.offset > 0 {
-            return Some(IntentError::CursorWithOffsetUnsupported);
-        }
 
-        None
+        policy::validate_cursor_paging_requirements(self.query.has_explicit_order(), spec)
+            .err()
+            .map(|err| match err {
+                CursorPagingPolicyError::CursorRequiresOrder => IntentError::CursorRequiresOrder,
+                CursorPagingPolicyError::CursorRequiresLimit => IntentError::CursorRequiresLimit,
+                CursorPagingPolicyError::CursorWithOffsetUnsupported => {
+                    IntentError::CursorWithOffsetUnsupported
+                }
+            })
     }
 
     fn refresh_cursor_intent_error(&mut self) {

@@ -5,6 +5,7 @@ use crate::{
             ContinuationSignature, CursorBoundary, ExplainPlan, LogicalPlan, PlanError,
             PlanFingerprint, continuation::decode_validated_cursor_boundary,
         },
+        policy::{self, CursorOrderPolicyError},
         predicate::SchemaInfo,
     },
     traits::{EntityKind, FieldValue},
@@ -66,12 +67,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
         let Some(cursor) = cursor else {
             return Ok(None);
         };
-        let Some(order) = self.plan.order.as_ref() else {
-            return Err(PlanError::CursorRequiresOrder);
-        };
-        if order.fields.is_empty() {
-            return Err(PlanError::CursorRequiresOrder);
-        }
+        let order =
+            policy::require_cursor_order(self.plan.order.as_ref()).map_err(|err| match err {
+                CursorOrderPolicyError::CursorRequiresOrder => PlanError::CursorRequiresOrder,
+            })?;
 
         let boundary = decode_validated_cursor_boundary(
             cursor,

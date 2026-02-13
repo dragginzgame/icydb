@@ -120,16 +120,16 @@ mod tests {
             },
         ]);
         update.tags = Some(vec![SetPatch::Clear, SetPatch::Insert("green".to_string())]);
-        update.profile = Some(MergeProfileUpdate {
+        update.profile = Some(Update::<MergeProfile> {
             visits: Some(10),
             ..Default::default()
         });
-        update.wrapper = Some(MergeWrapperUpdate {
+        update.wrapper = Some(Update::<MergeWrapper> {
             bio: Some("outer".into()),
             ..Default::default()
         });
         update.tuple_field = Some((Some("omega".into()), Some(99)));
-        update.opt_profile = Some(Some(MergeProfileUpdate {
+        update.opt_profile = Some(Some(Update::<MergeProfile> {
             bio: Some("loaded".into()),
             visits: Some(2),
             favorite_numbers: None,
@@ -183,7 +183,7 @@ mod tests {
         };
 
         // Leaving an option unset in the update should not change it.
-        let update: Patch<MergeEntity> = MergeEntityUpdate::default();
+        let update: Patch<MergeEntity> = Default::default();
         entity
             .merge(update)
             .expect("entity merge update should preserve existing optional values");

@@ -13,14 +13,14 @@ pub struct AsViewTrait {}
 impl Imp<Entity> for AsViewTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
         let ident = node.def.ident();
-        let view_ident = &node.view_ident();
+        let view_path = node.view_path();
 
         // tokens
-        let q = field_list(view_ident, &node.fields);
+        let q = field_list(view_path.clone(), &node.fields);
         let view_impl = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
             .to_token_stream();
-        let conversions = owned_view_conversions(&ident, view_ident);
+        let conversions = owned_view_conversions(&ident, view_path);
         let tokens = quote! {
             #view_impl
             #conversions
@@ -37,7 +37,7 @@ impl Imp<Entity> for AsViewTrait {
 impl Imp<Enum> for AsViewTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
         let ident = node.def.ident();
-        let view_ident = &node.view_ident();
+        let view_path = node.view_path();
 
         // as_view_arms
         let as_view_arms = node.variants.iter().map(|variant| {
@@ -72,7 +72,7 @@ impl Imp<Enum> for AsViewTrait {
         });
 
         let q = quote! {
-                type ViewType = #view_ident;
+                type ViewType = #view_path;
 
                 fn as_view(&self) -> Self::ViewType {
                     match self {
@@ -91,7 +91,7 @@ impl Imp<Enum> for AsViewTrait {
         let view_impl = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
             .to_token_stream();
-        let conversions = owned_view_conversions(&ident, view_ident);
+        let conversions = owned_view_conversions(&ident, view_path);
         let tokens = quote! {
             #view_impl
             #conversions
@@ -107,8 +107,8 @@ impl Imp<Enum> for AsViewTrait {
 
 impl Imp<List> for AsViewTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
-        let view_ident = &node.view_ident();
-        let q = quote_view_delegate(view_ident);
+        let view_path = node.view_path();
+        let q = quote_view_delegate(view_path);
 
         let tokens = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
@@ -124,8 +124,8 @@ impl Imp<List> for AsViewTrait {
 
 impl Imp<Map> for AsViewTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
-        let view_ident = &node.view_ident();
-        let q = quote_view_delegate(view_ident);
+        let view_path = node.view_path();
+        let q = quote_view_delegate(view_path);
 
         let tokens = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
@@ -141,8 +141,8 @@ impl Imp<Map> for AsViewTrait {
 
 impl Imp<Newtype> for AsViewTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
-        let view_ident = &node.view_ident();
-        let q = quote_view_delegate(view_ident);
+        let view_path = node.view_path();
+        let q = quote_view_delegate(view_path);
 
         let tokens = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
@@ -159,13 +159,13 @@ impl Imp<Newtype> for AsViewTrait {
 impl Imp<Record> for AsViewTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
         let ident = node.def.ident();
-        let view_ident = &node.view_ident();
-        let q = field_list(view_ident, &node.fields);
+        let view_path = node.view_path();
+        let q = field_list(view_path.clone(), &node.fields);
 
         let view_impl = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
             .to_token_stream();
-        let conversions = owned_view_conversions(&ident, view_ident);
+        let conversions = owned_view_conversions(&ident, view_path);
         let tokens = quote! {
             #view_impl
             #conversions
@@ -181,8 +181,8 @@ impl Imp<Record> for AsViewTrait {
 
 impl Imp<Set> for AsViewTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
-        let view_ident = &node.view_ident();
-        let q = quote_view_delegate(view_ident);
+        let view_path = node.view_path();
+        let q = quote_view_delegate(view_path);
 
         let tokens = Implementor::new(node.def(), TraitKind::AsView)
             .set_tokens(q)
@@ -198,7 +198,7 @@ impl Imp<Set> for AsViewTrait {
 
 impl Imp<Tuple> for AsViewTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
-        let view_ident = node.view_ident();
+        let view_path = node.view_path();
         let indices: Vec<_> = (0..node.values.len()).collect();
 
         let as_view_fields = indices.iter().map(|i| {
@@ -216,7 +216,7 @@ impl Imp<Tuple> for AsViewTrait {
         });
 
         let q = quote! {
-            type ViewType = #view_ident;
+            type ViewType = #view_path;
 
             fn as_view(&self) -> Self::ViewType {
                 (
@@ -244,7 +244,7 @@ impl Imp<Tuple> for AsViewTrait {
 ///
 
 // field_list
-fn field_list(view_ident: &Ident, fields: &FieldList) -> TokenStream {
+fn field_list(view_type: TokenStream, fields: &FieldList) -> TokenStream {
     let to_pairs: Vec<_> = fields
         .iter()
         .map(|field| {
@@ -266,10 +266,10 @@ fn field_list(view_ident: &Ident, fields: &FieldList) -> TokenStream {
         .collect();
 
     quote! {
-        type ViewType = #view_ident;
+        type ViewType = #view_type;
 
         fn as_view(&self) -> Self::ViewType {
-            #view_ident {
+            #view_type {
                 #(#to_pairs),*
             }
         }
@@ -282,7 +282,7 @@ fn field_list(view_ident: &Ident, fields: &FieldList) -> TokenStream {
     }
 }
 
-fn owned_view_conversions(ident: &Ident, view_ident: &Ident) -> TokenStream {
+fn owned_view_conversions(ident: &Ident, view_ident: TokenStream) -> TokenStream {
     quote! {
         impl From<#ident> for #view_ident {
             fn from(value: #ident) -> Self {
@@ -304,7 +304,7 @@ fn owned_view_conversions(ident: &Ident, view_ident: &Ident) -> TokenStream {
     }
 }
 
-fn quote_view_delegate(view_ident: &Ident) -> TokenStream {
+fn quote_view_delegate(view_ident: TokenStream) -> TokenStream {
     quote! {
         type ViewType = #view_ident;
 

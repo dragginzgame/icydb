@@ -120,17 +120,47 @@ pub trait HasType: HasDef {
         quote!()
     }
 
-    /// Naming shortcuts for views
+    /// Module that contains generated View/Create/Update companion types.
+    fn views_mod_ident(&self) -> Ident {
+        let base = self.def().ident().to_string().to_case(Case::Snake);
+        format_ident!("{base}_views")
+    }
+
+    /// Naming shortcuts for companion types.
     fn view_ident(&self) -> Ident {
-        format_ident!("{}View", self.def().ident())
+        format_ident!("View")
     }
 
     fn create_ident(&self) -> Ident {
-        format_ident!("{}Create", self.def().ident())
+        format_ident!("Create")
     }
 
     fn update_ident(&self) -> Ident {
-        format_ident!("{}Update", self.def().ident())
+        format_ident!("Update")
+    }
+
+    /// Fully-qualified path to the generated `View` type.
+    fn view_path(&self) -> TokenStream {
+        let views_mod_ident = self.views_mod_ident();
+        let view_ident = self.view_ident();
+
+        quote!(#views_mod_ident::#view_ident)
+    }
+
+    /// Fully-qualified path to the generated `Create` type.
+    fn create_path(&self) -> TokenStream {
+        let views_mod_ident = self.views_mod_ident();
+        let create_ident = self.create_ident();
+
+        quote!(#views_mod_ident::#create_ident)
+    }
+
+    /// Fully-qualified path to the generated `Update` type.
+    fn update_path(&self) -> TokenStream {
+        let views_mod_ident = self.views_mod_ident();
+        let update_ident = self.update_ident();
+
+        quote!(#views_mod_ident::#update_ident)
     }
 }
 

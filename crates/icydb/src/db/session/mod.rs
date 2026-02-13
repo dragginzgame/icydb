@@ -1,5 +1,6 @@
 pub mod delete;
 pub mod load;
+mod macros;
 
 use crate::{
     db::{

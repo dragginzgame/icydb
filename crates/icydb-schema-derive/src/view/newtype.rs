@@ -10,7 +10,7 @@ impl View for NewtypeView<'_> {
     fn generate(&self) -> TokenStream {
         let node = self.0;
         let view_ident = node.view_ident();
-        let view_type = node.item.type_expr();
+        let view_type = node.item.view_type_expr();
 
         // quote
         quote! {
@@ -35,7 +35,7 @@ impl View for NewtypeUpdate<'_> {
     fn generate(&self) -> TokenStream {
         let node = self.0;
         let update_ident = node.update_ident();
-        let update_type = node.item.type_expr();
+        let update_type = node.item.view_type_expr();
 
         // quote
         quote! {

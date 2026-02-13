@@ -119,6 +119,22 @@ impl Item {
     pub const fn is_primitive(&self) -> bool {
         self.primitive.is_some()
     }
+
+    /// Type expression used from within generated `<entity>_views` child modules.
+    /// Relative `item(is = "...")` paths must be resolved through `super::`.
+    pub fn view_type_expr(&self) -> TokenStream {
+        let ty = match self.target() {
+            ItemTarget::Is(path) if path.leading_colon.is_none() => quote!(super::#path),
+            ItemTarget::Is(path) => quote!(#path),
+            ItemTarget::Primitive(prim) => prim.as_type(),
+        };
+
+        if self.indirect {
+            quote!(Box<#ty>)
+        } else {
+            quote!(#ty)
+        }
+    }
 }
 
 impl HasSchemaPart for Item {

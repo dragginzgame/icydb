@@ -22,6 +22,11 @@ Delete-side strong-reference checks are not included in `0.8.0`; they are planne
 * Added `icydb-primitives` as a shared crate for scalar capability metadata, removing schema’s direct coupling to core internals.
 * Roadmap/docs were aligned to remove contract ambiguity around delete-side referential integrity timing.
 
+### 🦑 Breaking
+
+* Schema-derived companion payload types now generate inside entity-local modules (for example `rarity_views::{View, Create, Update}`) instead of top-level suffixed names like `RarityView`/`RarityCreate`/`RarityUpdate`.
+* Call sites should use prelude aliases (`View<T>`, `Create<T>`, `Update<T>`) or explicit module paths (`<entity>_views::View`, `<entity>_views::Create`, `<entity>_views::Update`).
+
 ### 🧪 Fixed
 
 * Added broad regression coverage for cursor paging and uniqueness checks to catch skips/duplicates/invalid-cursor cases early.

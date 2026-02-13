@@ -17,6 +17,7 @@ use crate::{
                 planner::{PlannerError, plan_access},
                 validate::validate_logical_plan_model,
             },
+            policy,
             predicate::{
                 Predicate, SchemaInfo, ValidateError, normalize,
                 validate::reject_unsupported_query_features,
@@ -149,9 +150,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     #[must_use]
     fn has_explicit_order(&self) -> bool {
-        self.order
-            .as_ref()
-            .is_some_and(|order| !order.fields.is_empty())
+        policy::has_explicit_order(self.order.as_ref())
     }
 
     #[must_use]
@@ -338,14 +337,12 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     }
 
     // Validate delete-specific intent rules before planning.
-    const fn validate_intent(&self) -> Result<(), IntentError> {
+    fn validate_intent(&self) -> Result<(), IntentError> {
         if self.key_access_conflict {
             return Err(IntentError::KeyAccessConflict);
         }
 
-        if let Some(order) = &self.order
-            && order.fields.is_empty()
-        {
+        if policy::has_empty_order(self.order.as_ref()) {
             return Err(IntentError::EmptyOrderSpec);
         }
 
@@ -366,7 +363,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         match self.mode {
             QueryMode::Load(_) => {}
             QueryMode::Delete(spec) => {
-                if spec.limit.is_some() && self.order.is_none() {
+                if spec.limit.is_some() && !policy::has_explicit_order(self.order.as_ref()) {
                     return Err(IntentError::DeleteLimitRequiresOrder);
                 }
             }

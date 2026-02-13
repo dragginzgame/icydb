@@ -36,22 +36,32 @@ macro_rules! define_gen {
                 // Expand helper
                 macro_rules! expand {
                     (_) => {
-                        quote!()
+                        TokenStream::new()
                     };
                     ($path:ident) => {
-                        $path(node)
+                        $path(node).to_token_stream()
                     };
                 }
 
                 let view = expand!($view);
                 let create = expand!($create);
                 let update = expand!($update);
+                let views_mod_ident = node.views_mod_ident();
+                let views_mod = if view.is_empty() && create.is_empty() && update.is_empty() {
+                    quote!()
+                } else {
+                    quote! {
+                        pub mod #views_mod_ident {
+                            #view
+                            #create
+                            #update
+                        }
+                    }
+                };
 
                 quote! {
                     #node
-                    #view
-                    #create
-                    #update
+                    #views_mod
                 }
             }
         }

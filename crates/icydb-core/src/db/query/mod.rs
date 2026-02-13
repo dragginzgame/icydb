@@ -8,6 +8,7 @@ pub mod diagnostics;
 pub mod expr;
 pub mod intent;
 pub mod plan;
+pub(crate) mod policy;
 pub mod predicate;
 mod save;
 pub mod session;

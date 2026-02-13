@@ -9,7 +9,7 @@ pub struct ItemView<'a>(pub &'a Item);
 impl ViewExpr for ItemView<'_> {
     fn expr(&self) -> Option<TokenStream> {
         let node = self.0;
-        let ty = node.type_expr();
+        let ty = node.view_type_expr();
 
         quote!(<#ty as ::icydb::__internal::core::traits::AsView>::ViewType).into()
     }
@@ -24,7 +24,7 @@ pub struct ItemUpdate<'a>(pub &'a Item);
 impl ViewExpr for ItemUpdate<'_> {
     fn expr(&self) -> Option<TokenStream> {
         let node = self.0;
-        let ty = node.type_expr();
+        let ty = node.view_type_expr();
 
         quote!(<#ty as ::icydb::__internal::core::traits::UpdateView>::UpdateViewType).into()
     }

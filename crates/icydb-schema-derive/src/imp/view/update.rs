@@ -148,9 +148,9 @@ fn update_impl_delegate(node: &impl HasType) -> TraitStrategy {
 }
 
 fn update_impl(node: &impl HasType, merge_fn: TokenStream) -> TraitStrategy {
-    let update_ident = node.update_ident();
+    let update_path = node.update_path();
     let q = quote! {
-        type UpdateViewType = #update_ident;
+        type UpdateViewType = #update_path;
 
         #merge_fn
     };

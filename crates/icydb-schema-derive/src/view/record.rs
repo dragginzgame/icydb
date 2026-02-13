@@ -31,7 +31,7 @@ impl View for RecordView<'_> {
 
             impl Default for #view_ident {
                 fn default() -> Self {
-                    ::icydb::__internal::core::traits::AsView::as_view(&#node_ident::default())
+                    ::icydb::__internal::core::traits::AsView::as_view(&super::#node_ident::default())
                 }
             }
         }

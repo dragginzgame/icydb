@@ -12,7 +12,7 @@ pub struct CreateViewTrait {}
 
 impl Imp<Entity> for CreateViewTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        let create_ident = node.create_ident();
+        let create_path = node.create_path();
         let ident = node.def().ident();
 
         // Collect field identifiers
@@ -33,7 +33,7 @@ impl Imp<Entity> for CreateViewTrait {
 
         // Build the trait implementation
         let q = quote! {
-            type CreateViewType = #create_ident;
+            type CreateViewType = #create_path;
 
             fn from_create_view(view: Self::CreateViewType) -> Self {
                 view.into()
@@ -46,8 +46,8 @@ impl Imp<Entity> for CreateViewTrait {
 
         // Generate From<Create> impl that performs the construction
         let conversions = quote! {
-            impl From<#create_ident> for #ident {
-                fn from(create: #create_ident) -> Self {
+            impl From<#create_path> for #ident {
+                fn from(create: #create_path) -> Self {
                     Self {
                         #(#init_pairs)*
                         ..Default::default()
