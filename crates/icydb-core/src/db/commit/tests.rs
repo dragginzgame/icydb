@@ -9,11 +9,8 @@ use crate::{
         store::{DataKey, DataStore, DataStoreRegistry, RawDataKey},
     },
     error::{ErrorClass, ErrorOrigin},
+    test_support::test_memory,
     traits::{CanisterKind, DataStoreKind, Path},
-};
-use canic_cdk::structures::{
-    DefaultMemoryImpl,
-    memory::{MemoryId, MemoryManager, VirtualMemory},
 };
 use std::cell::RefCell;
 
@@ -54,12 +51,6 @@ thread_local! {
 }
 
 static DB: Db<RecoveryTestCanister> = Db::new(&DATA_REGISTRY, &INDEX_REGISTRY);
-
-// Test-only stable memory allocation for in-memory stores.
-fn test_memory(id: u8) -> VirtualMemory<DefaultMemoryImpl> {
-    let manager = MemoryManager::init(DefaultMemoryImpl::default());
-    manager.get(MemoryId::new(id))
-}
 
 // Reset marker + data store to isolate recovery tests.
 fn reset_recovery_state() {

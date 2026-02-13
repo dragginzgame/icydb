@@ -205,11 +205,8 @@ mod tests {
             store::{DataKey, DataStore, DataStoreRegistry, RawRow},
         },
         obs::snapshot::storage_report,
+        test_support::test_memory,
         traits::{CanisterKind, Path, Storable},
-    };
-    use canic_cdk::structures::{
-        DefaultMemoryImpl,
-        memory::{MemoryId, MemoryManager, VirtualMemory},
     };
     use std::{borrow::Cow, cell::RefCell};
 
@@ -244,11 +241,6 @@ mod tests {
 
     static DB: Db<SnapshotTestCanister> =
         Db::new(&SNAPSHOT_DATA_REGISTRY, &SNAPSHOT_INDEX_REGISTRY);
-
-    fn test_memory(id: u8) -> VirtualMemory<DefaultMemoryImpl> {
-        let manager = MemoryManager::init(DefaultMemoryImpl::default());
-        manager.get(MemoryId::new(id))
-    }
 
     fn reset_snapshot_state() {
         init_commit_store_for_tests().expect("commit store init should succeed");

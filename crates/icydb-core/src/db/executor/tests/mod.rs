@@ -29,6 +29,7 @@ use crate::{
         field::{EntityFieldKind, EntityFieldModel},
     },
     test_fixtures::entity_model_from_static,
+    test_support::test_memory,
     traits::{
         AsView, CanisterKind, DataStoreKind, EntityIdentity, EntityKey, EntityKind,
         EntityPlacement, EntitySchema, EntityValue, Path, SanitizeAuto, SanitizeCustom,
@@ -36,10 +37,6 @@ use crate::{
     },
     types::{Id, Ulid},
     value::Value,
-};
-use canic_cdk::structures::{
-    DefaultMemoryImpl,
-    memory::{MemoryId, MemoryManager, VirtualMemory},
 };
 use icydb_derive::FieldValues;
 use serde::{Deserialize, Serialize};
@@ -110,13 +107,6 @@ fn take_trace_events() -> Vec<QueryTraceEvent> {
     let out = events.clone();
     events.clear();
     out
-}
-
-// Test-only stable memory allocation for in-memory stores.
-fn test_memory(id: u8) -> VirtualMemory<DefaultMemoryImpl> {
-    let manager = MemoryManager::init(DefaultMemoryImpl::default());
-
-    manager.get(MemoryId::new(id))
 }
 
 ///

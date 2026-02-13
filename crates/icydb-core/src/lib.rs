@@ -18,6 +18,8 @@ pub mod visitor;
 
 #[cfg(test)]
 pub(crate) mod test_fixtures;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use error::InternalError;
 
