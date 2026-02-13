@@ -63,16 +63,15 @@ fn paged_query_rejects_invalid_hex_cursor_token() {
         .execute()
         .expect_err("invalid hex cursor should fail at API boundary");
 
+    let QueryError::Plan(plan_err) = err else {
+        panic!("invalid cursor token should map to plan error");
+    };
+    let crate::db::query::plan::PlanError::InvalidContinuationCursor { reason } = &*plan_err else {
+        panic!("invalid cursor token should be classified as invalid continuation cursor");
+    };
     assert!(
-        matches!(
-            err,
-            QueryError::Plan(ref plan_err)
-                if matches!(
-                    **plan_err,
-                    crate::db::query::plan::PlanError::InvalidContinuationCursor { .. }
-                )
-        ),
-        "invalid cursor token should be classified as plan-time cursor error"
+        reason.contains("invalid hex character at position 1"),
+        "unexpected cursor decode reason: {reason}"
     );
 }
 
@@ -90,15 +89,40 @@ fn paged_query_rejects_odd_length_hex_cursor_token() {
         .execute()
         .expect_err("odd-length hex cursor should fail at API boundary");
 
+    let QueryError::Plan(plan_err) = err else {
+        panic!("odd-length cursor token should map to plan error");
+    };
+    let crate::db::query::plan::PlanError::InvalidContinuationCursor { reason } = &*plan_err else {
+        panic!("odd-length cursor token should be classified as invalid continuation cursor");
+    };
     assert!(
-        matches!(
-            err,
-            QueryError::Plan(ref plan_err)
-                if matches!(
-                    **plan_err,
-                    crate::db::query::plan::PlanError::InvalidContinuationCursor { .. }
-                )
-        ),
-        "odd-length cursor token should be classified as plan-time cursor error"
+        reason.contains("even number of hex characters"),
+        "unexpected cursor decode reason: {reason}"
+    );
+}
+
+#[test]
+fn paged_query_rejects_empty_cursor_token() {
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(1)
+        .page()
+        .expect("paged builder should accept order+limit")
+        .cursor("   ")
+        .execute()
+        .expect_err("empty cursor should fail at API boundary");
+
+    let QueryError::Plan(plan_err) = err else {
+        panic!("empty cursor token should map to plan error");
+    };
+    let crate::db::query::plan::PlanError::InvalidContinuationCursor { reason } = &*plan_err else {
+        panic!("empty cursor token should be classified as invalid continuation cursor");
+    };
+    assert!(
+        reason.contains("cursor token is empty"),
+        "unexpected cursor decode reason: {reason}"
     );
 }

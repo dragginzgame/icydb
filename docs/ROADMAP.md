@@ -13,16 +13,16 @@ Implementation cleanup tasks supporting this direction are tracked separately.
 
 ---
 
-## Current State (0.7.x)
+## Current State (0.8.x)
 
-As of the 0.7 series:
+As of the 0.8 series:
 
 - Single-entity save and delete operations are **atomic**
 - Save-time referential integrity is enforced **only for strong relations**
 - Batch write helpers are **fail-fast and non-atomic**
 - Atomicity and recovery guarantees are scoped to the current executor and commit model
 
-No transactional guarantees exist beyond what is explicitly documented in the 0.7 contract.
+No transactional guarantees exist beyond what is explicitly documented in the 0.8 contract.
 
 ---
 
@@ -47,10 +47,9 @@ This direction governs all future feature work.
 
 ---
 
-## Planned for 0.8.x
+## Planned for 0.9.x
 
-- **Delete-side referential integrity enforcement for strong relations** is targeted for a later `0.8.x` release.
-- This work is planned after `0.8.0` and before `0.9`.
+- **Delete-side referential integrity enforcement for strong relations** is targeted for an early `0.9.x` release.
 - Scope remains validation-only (no implicit cascades), unless a later spec says otherwise.
 
 ---
@@ -64,7 +63,7 @@ This direction governs all future feature work.
 Future releases may introduce transactional semantics that span multiple entities
 and/or multiple mutations.
 
-This goal does **not** change the 0.7 contract.
+This goal does **not** change the 0.8 contract.
 
 Specifically:
 

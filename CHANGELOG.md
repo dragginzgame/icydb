@@ -5,7 +5,25 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.8.0] – 2026-02-12 - Structural Correctness Baseline
+## [0.8.1] – 2026-02-13 - Cursor Boundary Hardening
+
+### 🥔 Testing
+
+* Tightened cursor pagination boundary handling with explicit API-boundary rejection coverage for invalid public cursor tokens (empty, malformed hex, and odd-length payloads).
+* Added live-state pagination regressions for insert/delete mutations between page requests, documenting continuation drift behavior under concurrent changes.
+* Added focused cursor codec unit tests for decode edge cases and stable encode/decode round-tripping.
+
+### 🍉 Fixed
+
+* Canister schema validation now enforces one memory-ID collision domain across `DataStore.memory_id`, `IndexStore.entry_memory_id`, and `IndexStore.fingerprint_memory_id`, and fails fast on overlaps before codegen/deployment.
+
+### 🛹 Cleanup
+
+* Refactored `db::index` into focused submodules (`key/{id,build,codec}`, `plan/{load,unique,commit_ops}`, `store/{registry,lookup,fingerprint_debug}`), co-located index tests with their modules, and removed `index::plan` coupling to `executor::ExecutorError`.
+
+---
+
+## [0.8.0] – 2026-02-13 - Structural Correctness Baseline
 
 ### 🥭 Summary
 

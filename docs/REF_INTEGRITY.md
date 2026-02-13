@@ -1,6 +1,6 @@
 # Referential Integrity (RI)
 
-## Status (IcyDB 0.7.x)
+## Status (IcyDB 0.8.x)
 
 IcyDB enforces **save-time referential integrity** for **explicitly declared strong relations only**.
 
@@ -14,7 +14,7 @@ This document is **normative**. It defines:
 
 It is not a roadmap.
 
-This specification applies to **IcyDB 0.7**.
+This specification applies to **IcyDB 0.8**.
 
 ---
 
@@ -109,7 +109,7 @@ Rules:
 * No partial state is written
 * No cascading inserts or deletes occur
 
-Supported strong shapes in 0.7.x:
+Supported strong shapes in 0.8.x:
 
 * `Id<T>`
 * `Option<Id<T>>`
@@ -209,9 +209,9 @@ They indicate invalid input, **not** corruption.
 
 ---
 
-## 8. Explicit non-goals (0.7)
+## 8. Explicit non-goals (0.8.x)
 
-The following are **out of scope** for IcyDB 0.7:
+The following are **out of scope** for IcyDB 0.8.x:
 
 * many-to-many relations
 * recursive existence validation

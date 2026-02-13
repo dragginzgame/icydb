@@ -71,6 +71,24 @@ impl From<QueryError> for Error {
                 err.to_string(),
             ),
 
+            QueryError::Plan(err)
+                if matches!(
+                    *err,
+                    PlanError::InvalidContinuationCursor { .. }
+                        | PlanError::ContinuationCursorVersionMismatch { .. }
+                        | PlanError::ContinuationCursorSignatureMismatch { .. }
+                        | PlanError::ContinuationCursorBoundaryArityMismatch { .. }
+                        | PlanError::ContinuationCursorBoundaryTypeMismatch { .. }
+                        | PlanError::ContinuationCursorPrimaryKeyTypeMismatch { .. }
+                ) =>
+            {
+                Self::new(
+                    ErrorKind::Query(QueryErrorKind::InvalidContinuationCursor),
+                    ErrorOrigin::Query,
+                    err.to_string(),
+                )
+            }
+
             QueryError::Plan(_) => Self::new(
                 ErrorKind::Query(QueryErrorKind::Plan),
                 ErrorOrigin::Query,
@@ -143,6 +161,9 @@ pub enum QueryErrorKind {
 
     /// Pagination requires ordering but none was provided.
     UnorderedPagination,
+
+    /// Continuation cursor token was invalid for this query.
+    InvalidContinuationCursor,
 
     /// Valid query, but no rows matched.
     NotFound,
@@ -244,6 +265,34 @@ mod tests {
         assert_eq!(
             facade.kind,
             ErrorKind::Query(QueryErrorKind::UnorderedPagination),
+        );
+        assert_eq!(facade.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn plan_invalid_continuation_cursor_maps_to_dedicated_kind() {
+        let err = QueryError::Plan(Box::new(PlanError::InvalidContinuationCursor {
+            reason: "cursor token is empty".to_string(),
+        }));
+        let facade = Error::from(err);
+
+        assert_eq!(
+            facade.kind,
+            ErrorKind::Query(QueryErrorKind::InvalidContinuationCursor),
+        );
+        assert_eq!(facade.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn plan_continuation_cursor_version_mismatch_maps_to_dedicated_kind() {
+        let err = QueryError::Plan(Box::new(PlanError::ContinuationCursorVersionMismatch {
+            version: 2,
+        }));
+        let facade = Error::from(err);
+
+        assert_eq!(
+            facade.kind,
+            ErrorKind::Query(QueryErrorKind::InvalidContinuationCursor),
         );
         assert_eq!(facade.origin, ErrorOrigin::Query);
     }

@@ -10,6 +10,7 @@ pub fn generate(builder: &ActorBuilder) -> TokenStream {
     tokens
 }
 
+#[expect(clippy::too_many_lines)]
 fn stores(builder: &ActorBuilder) -> TokenStream {
     let mut data_defs = quote!();
     let mut index_defs = quote!();
@@ -86,12 +87,14 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
     let canister_path: syn::Path = parse_str(&canister.def.path())
         .unwrap_or_else(|_| panic!("invalid canister path: {}", canister.def.path()));
 
+    let relation_validators = strong_relation_delete_validators(builder, &canister_path);
     let memory_min = canister.memory_min;
     let memory_max = canister.memory_max;
 
     quote! {
         #data_defs
         #index_defs
+        #relation_validators
         thread_local! {
             #[allow(unused_mut)]
             #[allow(clippy::let_and_return)]
@@ -117,9 +120,10 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         }
 
         static DB: ::icydb::__internal::core::db::Db<#canister_path> =
-            ::icydb::__internal::core::db::Db::<#canister_path>::new(
+            ::icydb::__internal::core::db::Db::<#canister_path>::new_with_relations(
                 &DATA_REGISTRY,
-                &INDEX_REGISTRY
+                &INDEX_REGISTRY,
+                STRONG_RELATION_DELETE_VALIDATORS
             );
 
         // reserve the ic memory range
@@ -136,5 +140,50 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         pub const fn db() -> ::icydb::db::DbSession<#canister_path> {
             ::icydb::db::DbSession::new(DB)
         }
+    }
+}
+
+fn strong_relation_delete_validators(
+    builder: &ActorBuilder,
+    canister_path: &syn::Path,
+) -> TokenStream {
+    let mut validator_defs = quote!();
+    let mut validator_inits = quote!();
+
+    for (i, (entity_path, _)) in builder.get_entities().into_iter().enumerate() {
+        let source_path: syn::Path = parse_str(&entity_path)
+            .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
+        let fn_ident = format_ident!("__icydb_delete_relation_validator_{i}");
+
+        validator_defs.extend(quote! {
+            fn #fn_ident(
+                db: &::icydb::__internal::core::db::Db<#canister_path>,
+                target_path: &str,
+                deleted_target_keys: &::std::collections::BTreeSet<
+                    ::icydb::__internal::core::db::store::RawDataKey
+                >,
+            ) -> ::std::result::Result<(), ::icydb::__internal::core::error::InternalError> {
+                ::icydb::__internal::core::db::validate_delete_strong_relations_for_source::<#source_path>(
+                    db,
+                    target_path,
+                    deleted_target_keys,
+                )
+            }
+        });
+        validator_inits.extend(quote! {
+            ::icydb::__internal::core::db::StrongRelationDeleteValidator::<#canister_path>::new(
+                #fn_ident
+            ),
+        });
+    }
+
+    quote! {
+        #validator_defs
+
+        static STRONG_RELATION_DELETE_VALIDATORS: &[
+            ::icydb::__internal::core::db::StrongRelationDeleteValidator<#canister_path>
+        ] = &[
+            #validator_inits
+        ];
     }
 }

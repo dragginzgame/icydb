@@ -50,3 +50,52 @@ const fn decode_hex_nibble(byte: u8) -> Option<u8> {
         _ => None,
     }
 }
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_cursor, encode_cursor};
+
+    #[test]
+    fn decode_cursor_rejects_empty_and_whitespace_tokens() {
+        let err = decode_cursor("").expect_err("empty token should be rejected");
+        assert_eq!(err, "cursor token is empty");
+
+        let err = decode_cursor("   \n\t").expect_err("whitespace token should be rejected");
+        assert_eq!(err, "cursor token is empty");
+    }
+
+    #[test]
+    fn decode_cursor_rejects_odd_length_tokens() {
+        let err = decode_cursor("abc").expect_err("odd-length token should be rejected");
+        assert_eq!(
+            err,
+            "cursor token must have an even number of hex characters"
+        );
+    }
+
+    #[test]
+    fn decode_cursor_rejects_invalid_hex_with_position() {
+        let err = decode_cursor("0x").expect_err("invalid hex nibble should be rejected");
+        assert_eq!(err, "invalid hex character at position 2");
+    }
+
+    #[test]
+    fn decode_cursor_accepts_mixed_case_and_surrounding_whitespace() {
+        let bytes = decode_cursor("  0aFf10  ").expect("mixed-case hex token should decode");
+        assert_eq!(bytes, vec![0x0a, 0xff, 0x10]);
+    }
+
+    #[test]
+    fn encode_decode_cursor_round_trip_is_stable() {
+        let raw = vec![0x00, 0x01, 0x0a, 0xff];
+        let encoded = encode_cursor(&raw);
+        assert_eq!(encoded, "00010aff");
+
+        let decoded = decode_cursor(&encoded).expect("encoded token should decode");
+        assert_eq!(decoded, raw);
+    }
+}

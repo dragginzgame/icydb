@@ -8,7 +8,7 @@ mod structural_trace;
 
 use crate::{
     db::{
-        Context, Db, DbSession,
+        Context, Db, DbSession, StrongRelationDeleteValidator,
         commit::{
             CommitKind, CommitMarker, begin_commit, commit_marker_present,
             ensure_recovered_for_write, init_commit_store_for_tests,
@@ -17,16 +17,18 @@ use crate::{
             DeleteExecutor, LoadExecutor, SaveExecutor,
             trace::{QueryTraceEvent, QueryTraceSink, TracePhase},
         },
+        index::IndexStoreRegistry,
         query::{
             IntentError, Query, QueryError, ReadConsistency,
             plan::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
             predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         },
-        store::{DataStore, DataStoreRegistry},
+        store::{DataStore, DataStoreRegistry, RawDataKey},
+        validate_delete_strong_relations_for_source,
     },
     model::{
         entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel},
+        field::{EntityFieldKind, EntityFieldModel, RelationStrength},
     },
     test_fixtures::entity_model_from_static,
     test_support::test_memory,
@@ -40,7 +42,7 @@ use crate::{
 };
 use icydb_derive::FieldValues;
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, sync::Mutex};
+use std::{cell::RefCell, collections::BTreeSet, sync::Mutex};
 
 ///
 /// TestCanister
@@ -366,4 +368,250 @@ impl EntityValue for PhaseEntity {
 fn reset_store() {
     ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
     DATA_STORE.with(|store| store.borrow_mut().clear());
+}
+
+///
+/// RelationTestCanister
+///
+
+struct RelationTestCanister;
+
+impl Path for RelationTestCanister {
+    const PATH: &'static str = "executor_tests::RelationTestCanister";
+}
+
+impl CanisterKind for RelationTestCanister {}
+
+///
+/// RelationSourceStore
+///
+
+struct RelationSourceStore;
+
+impl Path for RelationSourceStore {
+    const PATH: &'static str = "executor_tests::RelationSourceStore";
+}
+
+impl DataStoreKind for RelationSourceStore {
+    type Canister = RelationTestCanister;
+}
+
+///
+/// RelationTargetStore
+///
+
+struct RelationTargetStore;
+
+impl Path for RelationTargetStore {
+    const PATH: &'static str = "executor_tests::RelationTargetStore";
+}
+
+impl DataStoreKind for RelationTargetStore {
+    type Canister = RelationTestCanister;
+}
+
+thread_local! {
+    static REL_SOURCE_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(40)));
+    static REL_TARGET_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(41)));
+    static REL_DATA_REGISTRY: DataStoreRegistry = {
+        let mut reg = DataStoreRegistry::new();
+        reg.register(RelationSourceStore::PATH, &REL_SOURCE_STORE);
+        reg.register(RelationTargetStore::PATH, &REL_TARGET_STORE);
+        reg
+    };
+    static REL_INDEX_REGISTRY: IndexStoreRegistry = IndexStoreRegistry::new();
+}
+
+// Route source-entity relation scanning through the generic delete-side RI helper.
+fn validate_relation_source_delete_refs(
+    db: &Db<RelationTestCanister>,
+    target_path: &str,
+    deleted_target_keys: &BTreeSet<RawDataKey>,
+) -> Result<(), crate::error::InternalError> {
+    validate_delete_strong_relations_for_source::<RelationSourceEntity>(
+        db,
+        target_path,
+        deleted_target_keys,
+    )
+}
+
+static REL_DELETE_RELATION_VALIDATORS: &[StrongRelationDeleteValidator<RelationTestCanister>] =
+    &[StrongRelationDeleteValidator::new(
+        validate_relation_source_delete_refs,
+    )];
+
+static REL_DB: Db<RelationTestCanister> = Db::new_with_relations(
+    &REL_DATA_REGISTRY,
+    &REL_INDEX_REGISTRY,
+    REL_DELETE_RELATION_VALIDATORS,
+);
+
+///
+/// RelationTargetEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct RelationTargetEntity {
+    id: Ulid,
+}
+
+impl AsView for RelationTargetEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for RelationTargetEntity {}
+impl SanitizeCustom for RelationTargetEntity {}
+impl ValidateAuto for RelationTargetEntity {}
+impl ValidateCustom for RelationTargetEntity {}
+impl Visitable for RelationTargetEntity {}
+
+impl Path for RelationTargetEntity {
+    const PATH: &'static str = "executor_tests::RelationTargetEntity";
+}
+
+impl EntityKey for RelationTargetEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for RelationTargetEntity {
+    const ENTITY_NAME: &'static str = "RelationTargetEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static REL_TARGET_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
+    name: "id",
+    kind: EntityFieldKind::Ulid,
+}];
+static REL_TARGET_FIELD_NAMES: [&str; 1] = ["id"];
+static REL_TARGET_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static REL_TARGET_MODEL: EntityModel = entity_model_from_static(
+    "executor_tests::RelationTargetEntity",
+    "RelationTargetEntity",
+    &REL_TARGET_FIELDS[0],
+    &REL_TARGET_FIELDS,
+    &REL_TARGET_INDEXES,
+);
+
+impl EntitySchema for RelationTargetEntity {
+    const MODEL: &'static EntityModel = &REL_TARGET_MODEL;
+    const FIELDS: &'static [&'static str] = &REL_TARGET_FIELD_NAMES;
+    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &REL_TARGET_INDEXES;
+}
+
+impl EntityPlacement for RelationTargetEntity {
+    type DataStore = RelationTargetStore;
+    type Canister = RelationTestCanister;
+}
+
+impl EntityKind for RelationTargetEntity {}
+
+impl EntityValue for RelationTargetEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+///
+/// RelationSourceEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct RelationSourceEntity {
+    id: Ulid,
+    target: Ulid,
+}
+
+impl AsView for RelationSourceEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for RelationSourceEntity {}
+impl SanitizeCustom for RelationSourceEntity {}
+impl ValidateAuto for RelationSourceEntity {}
+impl ValidateCustom for RelationSourceEntity {}
+impl Visitable for RelationSourceEntity {}
+
+impl Path for RelationSourceEntity {
+    const PATH: &'static str = "executor_tests::RelationSourceEntity";
+}
+
+impl EntityKey for RelationSourceEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for RelationSourceEntity {
+    const ENTITY_NAME: &'static str = "RelationSourceEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static REL_SOURCE_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "target",
+        kind: EntityFieldKind::Relation {
+            target_path: RelationTargetEntity::PATH,
+            target_entity_name: RelationTargetEntity::ENTITY_NAME,
+            target_store_path: RelationTargetStore::PATH,
+            key_kind: &EntityFieldKind::Ulid,
+            strength: RelationStrength::Strong,
+        },
+    },
+];
+static REL_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "target"];
+static REL_SOURCE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static REL_SOURCE_MODEL: EntityModel = entity_model_from_static(
+    "executor_tests::RelationSourceEntity",
+    "RelationSourceEntity",
+    &REL_SOURCE_FIELDS[0],
+    &REL_SOURCE_FIELDS,
+    &REL_SOURCE_INDEXES,
+);
+
+impl EntitySchema for RelationSourceEntity {
+    const MODEL: &'static EntityModel = &REL_SOURCE_MODEL;
+    const FIELDS: &'static [&'static str] = &REL_SOURCE_FIELD_NAMES;
+    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &REL_SOURCE_INDEXES;
+}
+
+impl EntityPlacement for RelationSourceEntity {
+    type DataStore = RelationSourceStore;
+    type Canister = RelationTestCanister;
+}
+
+impl EntityKind for RelationSourceEntity {}
+
+impl EntityValue for RelationSourceEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+// Clear relation test stores and any pending commit marker between runs.
+fn reset_relation_stores() {
+    ensure_recovered_for_write(&REL_DB).expect("relation write-side recovery should succeed");
+    REL_DB.with_data(|reg| {
+        reg.with_store_mut(RelationSourceStore::PATH, DataStore::clear)
+            .expect("relation source store access should succeed");
+        reg.with_store_mut(RelationTargetStore::PATH, DataStore::clear)
+            .expect("relation target store access should succeed");
+    });
 }

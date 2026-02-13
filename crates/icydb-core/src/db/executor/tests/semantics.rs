@@ -435,3 +435,93 @@ fn delete_limit_applies_to_filtered_rows_only() {
         "only one row from the filtered window should be deleted"
     );
 }
+
+#[test]
+fn delete_blocks_when_target_has_strong_referrer() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_id = Ulid::from_u128(9_001);
+    let source_id = Ulid::from_u128(9_002);
+
+    let target_save = SaveExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    target_save
+        .insert(RelationTargetEntity { id: target_id })
+        .expect("target save should succeed");
+
+    let source_save = SaveExecutor::<RelationSourceEntity>::new(REL_DB, false);
+    source_save
+        .insert(RelationSourceEntity {
+            id: source_id,
+            target: target_id,
+        })
+        .expect("source save should succeed");
+
+    let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    let delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(target_id)
+        .plan()
+        .expect("target delete plan should build");
+    let err = target_delete
+        .execute(delete_plan)
+        .expect_err("target delete should be blocked by strong relation");
+
+    assert!(
+        err.message.contains("delete blocked by strong relation"),
+        "unexpected error: {err:?}"
+    );
+
+    let target_rows = REL_DB
+        .with_data(|reg| reg.with_store(RelationTargetStore::PATH, |store| store.iter().count()))
+        .expect("target store access should succeed");
+    let source_rows = REL_DB
+        .with_data(|reg| reg.with_store(RelationSourceStore::PATH, |store| store.iter().count()))
+        .expect("source store access should succeed");
+    assert_eq!(target_rows, 1, "blocked delete must keep target row");
+    assert_eq!(source_rows, 1, "blocked delete must keep source row");
+}
+
+#[test]
+fn delete_target_succeeds_after_strong_referrer_is_removed() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_id = Ulid::from_u128(9_101);
+    let source_id = Ulid::from_u128(9_102);
+
+    let target_save = SaveExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    target_save
+        .insert(RelationTargetEntity { id: target_id })
+        .expect("target save should succeed");
+
+    let source_save = SaveExecutor::<RelationSourceEntity>::new(REL_DB, false);
+    source_save
+        .insert(RelationSourceEntity {
+            id: source_id,
+            target: target_id,
+        })
+        .expect("source save should succeed");
+
+    let source_delete = DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false);
+    let source_delete_plan = Query::<RelationSourceEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(source_id)
+        .plan()
+        .expect("source delete plan should build");
+    let deleted_sources = source_delete
+        .execute(source_delete_plan)
+        .expect("source delete should succeed");
+    assert_eq!(deleted_sources.0.len(), 1, "source row should be removed");
+
+    let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    let target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(target_id)
+        .plan()
+        .expect("target delete plan should build");
+    let deleted_targets = target_delete
+        .execute(target_delete_plan)
+        .expect("target delete should succeed once referrer is removed");
+    assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
+}

@@ -4,10 +4,12 @@ pub(crate) mod executor;
 pub mod identity;
 pub mod index;
 pub mod query;
+mod relation;
 pub mod response;
 pub mod store;
 
 pub(crate) use commit::*;
+pub use relation::{StrongRelationDeleteValidator, validate_delete_strong_relations_for_source};
 
 use crate::{
     db::{
@@ -18,13 +20,13 @@ use crate::{
             plan::PlanError,
         },
         response::{Response, WriteBatchResponse, WriteResponse},
-        store::DataStoreRegistry,
+        store::{DataStoreRegistry, RawDataKey},
     },
     error::InternalError,
     obs::sink::{self, MetricsSink},
     traits::{CanisterKind, EntityKind, EntityValue},
 };
-use std::{marker::PhantomData, thread::LocalKey};
+use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
 #[cfg(test)]
 use crate::db::{index::IndexStore, store::DataStore};
@@ -37,6 +39,7 @@ use crate::db::{index::IndexStore, store::DataStore};
 pub struct Db<C: CanisterKind> {
     data: &'static LocalKey<DataStoreRegistry>,
     index: &'static LocalKey<IndexStoreRegistry>,
+    delete_relation_validators: &'static [StrongRelationDeleteValidator<C>],
     _marker: PhantomData<C>,
 }
 
@@ -46,9 +49,19 @@ impl<C: CanisterKind> Db<C> {
         data: &'static LocalKey<DataStoreRegistry>,
         index: &'static LocalKey<IndexStoreRegistry>,
     ) -> Self {
+        Self::new_with_relations(data, index, &[])
+    }
+
+    #[must_use]
+    pub const fn new_with_relations(
+        data: &'static LocalKey<DataStoreRegistry>,
+        index: &'static LocalKey<IndexStoreRegistry>,
+        delete_relation_validators: &'static [StrongRelationDeleteValidator<C>],
+    ) -> Self {
         Self {
             data,
             index,
+            delete_relation_validators,
             _marker: PhantomData,
         }
     }
@@ -92,6 +105,23 @@ impl<C: CanisterKind> Db<C> {
 
     pub(crate) fn with_index<R>(&self, f: impl FnOnce(&IndexStoreRegistry) -> R) -> R {
         self.index.with(|reg| f(reg))
+    }
+
+    // Validate strong relation constraints for delete-selected target keys.
+    pub(crate) fn validate_delete_strong_relations(
+        &self,
+        target_path: &str,
+        deleted_target_keys: &BTreeSet<RawDataKey>,
+    ) -> Result<(), InternalError> {
+        if deleted_target_keys.is_empty() {
+            return Ok(());
+        }
+
+        for validator in self.delete_relation_validators {
+            validator.validate(self, target_path, deleted_target_keys)?;
+        }
+
+        Ok(())
     }
 }
 

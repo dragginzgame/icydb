@@ -337,3 +337,130 @@ impl Storable for RawIndexEntry {
         is_fixed_size: false,
     };
 }
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{
+            index::{
+                IndexEntryCorruption, MAX_INDEX_ENTRY_BYTES, MAX_INDEX_ENTRY_KEYS, RawIndexEntry,
+            },
+            store::StorageKey,
+        },
+        traits::Storable,
+    };
+    use std::borrow::Cow;
+
+    #[test]
+    fn raw_index_entry_round_trip() {
+        let keys = vec![StorageKey::Int(1), StorageKey::Uint(2)];
+
+        let raw = RawIndexEntry::try_from_keys(keys.clone()).expect("encode index entry");
+        let decoded = raw.decode_keys().expect("decode index entry");
+
+        assert_eq!(decoded.len(), keys.len());
+        assert!(decoded.contains(&StorageKey::Int(1)));
+        assert!(decoded.contains(&StorageKey::Uint(2)));
+    }
+
+    #[test]
+    fn raw_index_entry_roundtrip_via_bytes() {
+        let keys = vec![StorageKey::Int(9), StorageKey::Uint(10)];
+
+        let raw = RawIndexEntry::try_from_keys(keys.clone()).expect("encode index entry");
+        let encoded = Storable::to_bytes(&raw);
+        let raw = RawIndexEntry::from_bytes(encoded);
+        let decoded = raw.decode_keys().expect("decode index entry");
+
+        assert_eq!(decoded.len(), keys.len());
+        assert!(decoded.contains(&StorageKey::Int(9)));
+        assert!(decoded.contains(&StorageKey::Uint(10)));
+    }
+
+    #[test]
+    fn raw_index_entry_rejects_empty() {
+        let bytes = vec![0, 0, 0, 0];
+        let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
+        assert!(matches!(
+            raw.decode_keys(),
+            Err(IndexEntryCorruption::EmptyEntry)
+        ));
+    }
+
+    #[test]
+    fn raw_index_entry_rejects_truncated_payload() {
+        let key = StorageKey::Int(1);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&key.to_bytes().expect("encode"));
+        bytes.truncate(bytes.len() - 1);
+
+        let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
+        assert!(matches!(
+            raw.decode_keys(),
+            Err(IndexEntryCorruption::LengthMismatch)
+        ));
+    }
+
+    #[test]
+    fn raw_index_entry_rejects_oversized_payload() {
+        let bytes = vec![0u8; MAX_INDEX_ENTRY_BYTES as usize + 1];
+        let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
+        assert!(matches!(
+            raw.decode_keys(),
+            Err(IndexEntryCorruption::TooLarge { .. })
+        ));
+    }
+
+    #[test]
+    #[expect(clippy::cast_possible_truncation)]
+    fn raw_index_entry_rejects_corrupted_length_field() {
+        let count = (MAX_INDEX_ENTRY_KEYS + 1) as u32;
+        let raw = RawIndexEntry::from_bytes(Cow::Owned(count.to_be_bytes().to_vec()));
+        assert!(matches!(
+            raw.decode_keys(),
+            Err(IndexEntryCorruption::TooManyKeys { .. })
+        ));
+    }
+
+    #[test]
+    fn raw_index_entry_rejects_duplicate_keys() {
+        let key = StorageKey::Int(1);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&2u32.to_be_bytes());
+        bytes.extend_from_slice(&key.to_bytes().expect("encode"));
+        bytes.extend_from_slice(&key.to_bytes().expect("encode"));
+
+        let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
+        assert!(matches!(
+            raw.decode_keys(),
+            Err(IndexEntryCorruption::DuplicateKey)
+        ));
+    }
+
+    #[test]
+    #[expect(clippy::cast_possible_truncation)]
+    fn raw_index_entry_decode_fuzz_does_not_panic() {
+        const RUNS: u64 = 1_000;
+        const MAX_LEN: usize = 256;
+
+        let mut seed = 0xA5A5_5A5A_u64;
+        for _ in 0..RUNS {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            let len = (seed as usize) % MAX_LEN;
+
+            let mut bytes = vec![0u8; len];
+            for byte in &mut bytes {
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                *byte = (seed >> 24) as u8;
+            }
+
+            let raw = RawIndexEntry::from_bytes(Cow::Owned(bytes));
+            let _ = raw.decode_keys();
+        }
+    }
+}

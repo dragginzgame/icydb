@@ -20,7 +20,10 @@ use crate::{
     traits::{EntityKind, EntityValue, Path},
     types::Id,
 };
-use std::{collections::BTreeMap, marker::PhantomData};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    marker::PhantomData,
+};
 
 ///
 /// DeleteExecutor
@@ -147,6 +150,14 @@ where
                 self.debug_log("Delete complete -> 0 rows (nothing to commit)");
                 return Ok(Response(Vec::new()));
             }
+
+            // Relation phase: reject target deletes that are still strongly referenced.
+            let deleted_target_keys = rows
+                .iter()
+                .map(|row| row.key.to_raw())
+                .collect::<Result<BTreeSet<_>, InternalError>>()?;
+            self.db
+                .validate_delete_strong_relations(E::PATH, &deleted_target_keys)?;
 
             let index_plans = self.build_index_plans()?;
             let (index_ops, index_remove_count) = {
