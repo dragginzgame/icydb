@@ -18,6 +18,7 @@ canic-memory = { workspace = true }
 canic-utils = { workspace = true }
 chrono = { workspace = true }
 derive_more = { workspace = true }
+icydb-primitives = { workspace = true }
 num-traits = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true }
@@ -25,7 +26,6 @@ serde_bytes = { workspace = true }
 serde_cbor = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
-icydb-primitives = { workspace = true }
 ulid = { workspace = true }
 
 [dev-dependencies]
