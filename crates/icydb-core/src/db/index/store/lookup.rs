@@ -52,14 +52,16 @@ impl IndexStore {
 
         for entry in self.entry_map().range(start_raw..=end_raw) {
             let raw_key = entry.key();
-            let raw_entry = entry.value();
+            let value = entry.value();
 
             #[cfg(debug_assertions)]
-            if let Err(err) = self.verify_entry_fingerprint(Some(index), raw_key, &raw_entry) {
+            if let Err(err) = Self::verify_entry_fingerprint(Some(index), raw_key, &value) {
                 panic!(
                     "invariant violation (debug-only): index fingerprint verification failed: {err:?}"
                 );
             }
+
+            let raw_entry = value.entry;
 
             // Validate index key structure.
             IndexKey::try_from_raw(raw_key).map_err(|err| {
@@ -90,9 +92,6 @@ impl IndexStore {
                     .map(|storage_key| DataKey::from_key::<E>(storage_key)),
             );
         }
-
-        #[cfg(debug_assertions)]
-        self.debug_verify_no_orphaned_fingerprints(index, &start_raw, &end_raw);
 
         Ok(out)
     }

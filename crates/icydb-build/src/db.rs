@@ -10,7 +10,6 @@ pub fn generate(builder: &ActorBuilder) -> TokenStream {
     tokens
 }
 
-#[expect(clippy::too_many_lines)]
 fn stores(builder: &ActorBuilder) -> TokenStream {
     let mut data_defs = quote!();
     let mut index_defs = quote!();
@@ -52,7 +51,6 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
     for (store_path, store) in builder.get_index_stores() {
         let cell_ident = format_ident!("{}", store.ident);
         let entry_memory_id = store.entry_memory_id;
-        let fingerprint_memory_id = store.fingerprint_memory_id;
         let store_path_lit = store_path;
 
         index_defs.extend(quote! {
@@ -64,10 +62,6 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
                         ::icydb::__reexports::canic_memory::ic_memory!(
                             ::icydb::__internal::core::db::index::IndexStore,
                             #entry_memory_id
-                        ),
-                        ::icydb::__reexports::canic_memory::ic_memory!(
-                            ::icydb::__internal::core::db::index::IndexStore,
-                            #fingerprint_memory_id
                         )
                     )
                 );

@@ -6,7 +6,7 @@ pub use registry::IndexStoreRegistry;
 
 use crate::{
     db::index::{
-        entry::RawIndexEntry,
+        entry::{MAX_INDEX_ENTRY_BYTES, RawIndexEntry},
         key::{IndexKey, RawIndexKey},
     },
     traits::Storable,
@@ -74,28 +74,77 @@ impl Storable for RawIndexFingerprint {
 }
 
 ///
+/// InlineIndexValue
+/// Raw entry plus a non-authoritative debug fingerprint in one stored value.
+/// Encoded as: `[RawIndexEntry bytes | 16-byte fingerprint]`.
+///
+
+#[derive(Clone, Debug)]
+struct InlineIndexValue {
+    entry: RawIndexEntry,
+    fingerprint: RawIndexFingerprint,
+}
+
+impl InlineIndexValue {
+    const STORED_SIZE: u32 = MAX_INDEX_ENTRY_BYTES + RawIndexFingerprint::STORED_SIZE;
+}
+
+impl Storable for InlineIndexValue {
+    fn to_bytes(&self) -> Cow<'_, [u8]> {
+        Cow::Owned(self.clone().into_bytes())
+    }
+
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
+        let bytes = bytes.as_ref();
+        let (entry_bytes, fingerprint_bytes) =
+            if bytes.len() < RawIndexFingerprint::STORED_SIZE as usize {
+                (bytes, &[][..])
+            } else {
+                bytes.split_at(bytes.len() - RawIndexFingerprint::STORED_SIZE as usize)
+            };
+
+        let mut out = [0u8; 16];
+        if fingerprint_bytes.len() == out.len() {
+            out.copy_from_slice(fingerprint_bytes);
+        }
+
+        Self {
+            entry: RawIndexEntry::from_bytes(Cow::Borrowed(entry_bytes)),
+            fingerprint: RawIndexFingerprint(out),
+        }
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        let mut bytes = self.entry.into_bytes();
+        bytes.extend_from_slice(&self.fingerprint.0);
+        bytes
+    }
+
+    const BOUND: Bound = Bound::Bounded {
+        max_size: Self::STORED_SIZE,
+        is_fixed_size: false,
+    };
+}
+
+///
 /// IndexStore
 ///
 
 pub struct IndexStore {
     entry: VirtualMemory<DefaultMemoryImpl>,
-    fingerprint: VirtualMemory<DefaultMemoryImpl>,
 }
 
 impl IndexStore {
     #[must_use]
-    pub const fn init(
-        entry: VirtualMemory<DefaultMemoryImpl>,
-        fingerprint: VirtualMemory<DefaultMemoryImpl>,
-    ) -> Self {
-        Self { entry, fingerprint }
+    pub const fn init(entry: VirtualMemory<DefaultMemoryImpl>) -> Self {
+        Self { entry }
     }
 
     /// Snapshot all index entry pairs (diagnostics only).
     pub fn entries(&self) -> Vec<(RawIndexKey, RawIndexEntry)> {
         self.entry_map()
             .iter()
-            .map(|entry| (*entry.key(), entry.value()))
+            .map(|entry| (*entry.key(), entry.value().entry))
             .collect()
     }
 
@@ -108,74 +157,55 @@ impl IndexStore {
     }
 
     pub fn get(&self, key: &RawIndexKey) -> Option<RawIndexEntry> {
-        let entry = self.entry_map().get(key);
+        let value = self.entry_map().get(key);
 
         // Debug-only verification: fingerprints are non-authoritative and
         // checked only to surface divergence during development.
         #[cfg(debug_assertions)]
-        if let Some(ref value) = entry
-            && let Err(err) = self.verify_entry_fingerprint(None, key, value)
+        if let Some(ref inline) = value
+            && let Err(err) = Self::verify_entry_fingerprint(None, key, inline)
         {
             panic!(
                 "invariant violation (debug-only): index fingerprint verification failed: {err:?}"
             );
         }
 
-        entry
+        value.map(|inline| inline.entry)
     }
 
     pub fn insert(&mut self, key: RawIndexKey, value: RawIndexEntry) -> Option<RawIndexEntry> {
         let fingerprint = Self::entry_fingerprint(&key, &value);
-        let prev = self.entry_map().insert(key, value);
-
-        // NOTE: Mid-write traps may cause divergence. This is acceptable;
-        // fingerprints are diagnostic only and verified in debug builds.
-        let _ = self.fingerprint_map().insert(key, fingerprint);
-
-        prev
+        let inline = InlineIndexValue {
+            entry: value,
+            fingerprint,
+        };
+        self.entry_map().insert(key, inline).map(|prev| prev.entry)
     }
 
     pub fn remove(&mut self, key: &RawIndexKey) -> Option<RawIndexEntry> {
-        let removed = self.entry_map().remove(key);
-
-        // See insert(): divergence is acceptable and detectable in debug builds.
-        let _ = self.fingerprint_map().remove(key);
-
-        removed
+        self.entry_map().remove(key).map(|prev| prev.entry)
     }
 
     pub fn clear(&mut self) {
         self.entry_map().clear();
-        self.fingerprint_map().clear();
     }
 
     pub fn memory_bytes(&self) -> u64 {
-        let entry_bytes = self
-            .entry_map()
+        self.entry_map()
             .iter()
             .map(|entry| {
-                let value: RawIndexEntry = entry.value();
-                IndexKey::STORED_SIZE_BYTES + value.len() as u64
+                let value: InlineIndexValue = entry.value();
+                IndexKey::STORED_SIZE_BYTES
+                    + value.entry.len() as u64
+                    + u64::from(RawIndexFingerprint::STORED_SIZE)
             })
-            .sum::<u64>();
-
-        let fingerprint_bytes = self
-            .fingerprint_map()
-            .iter()
-            .map(|_| IndexKey::STORED_SIZE_BYTES + u64::from(RawIndexFingerprint::STORED_SIZE))
-            .sum::<u64>();
-
-        entry_bytes.saturating_add(fingerprint_bytes)
+            .sum::<u64>()
     }
 
-    fn entry_map(&self) -> BTreeMap<RawIndexKey, RawIndexEntry, VirtualMemory<DefaultMemoryImpl>> {
-        BTreeMap::init(self.entry.clone())
-    }
-
-    fn fingerprint_map(
+    fn entry_map(
         &self,
-    ) -> BTreeMap<RawIndexKey, RawIndexFingerprint, VirtualMemory<DefaultMemoryImpl>> {
-        BTreeMap::init(self.fingerprint.clone())
+    ) -> BTreeMap<RawIndexKey, InlineIndexValue, VirtualMemory<DefaultMemoryImpl>> {
+        BTreeMap::init(self.entry.clone())
     }
 
     fn entry_fingerprint(key: &RawIndexKey, entry: &RawIndexEntry) -> RawIndexFingerprint {

@@ -223,10 +223,8 @@ mod tests {
 
     thread_local! {
         static SNAPSHOT_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(101)));
-        static SNAPSHOT_INDEX_STORE: RefCell<IndexStore> = RefCell::new(IndexStore::init(
-            test_memory(102),
-            test_memory(103),
-        ));
+        static SNAPSHOT_INDEX_STORE: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init(test_memory(102)));
         static SNAPSHOT_DATA_REGISTRY: DataStoreRegistry = {
             let mut reg = DataStoreRegistry::new();
             reg.register(DATA_STORE_PATH, &SNAPSHOT_DATA_STORE);

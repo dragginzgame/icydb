@@ -70,7 +70,7 @@ thread_local! {
     static TARGET_DATA_STORE: RefCell<DataStore> =
         RefCell::new(DataStore::init(test_memory(1)));
     static UNIQUE_INDEX_STORE: RefCell<IndexStore> =
-        RefCell::new(IndexStore::init(test_memory(2), test_memory(3)));
+        RefCell::new(IndexStore::init(test_memory(2)));
     static DATA_REGISTRY: DataStoreRegistry = {
         let mut reg = DataStoreRegistry::new();
         reg.register(SourceStore::PATH, &SOURCE_DATA_STORE);
