@@ -8,7 +8,8 @@ mod tests;
 use crate::value::Value;
 use crate::{
     db::{
-        CommitDataOp, CommitKind, CommitMarker, Db, begin_commit, ensure_recovered_for_write,
+        CommitDataOp, CommitKind, CommitMarker, CommitRowOp, Db, begin_commit,
+        ensure_recovered_for_write,
         executor::{
             ExecutorError,
             mutation::{
@@ -301,17 +302,30 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             // here is best-effort, in-process cleanup only.
             let index_plan =
                 plan_index_mutation_for_entity::<E>(&self.db, old.as_ref(), Some(&entity))?;
+            let after_bytes = row.as_bytes().to_vec();
             let data_op = CommitDataOp {
                 store: E::Store::PATH.to_string(),
                 key: raw_key.as_bytes().to_vec(),
-                value: Some(row.as_bytes().to_vec()),
+                value: Some(after_bytes.clone()),
             };
-            let marker = CommitMarker::new(CommitKind::Save, index_plan.commit_ops, vec![data_op])?;
+            let marker_index_ops = index_plan.commit_ops;
+            let marker_data_ops = vec![data_op];
+            let marker_row_ops = vec![CommitRowOp::new(
+                E::PATH,
+                raw_key.as_bytes().to_vec(),
+                old_raw.as_ref().map(|row| row.as_bytes().to_vec()),
+                Some(after_bytes),
+            )];
+            let marker = CommitMarker::new(CommitKind::Save, marker_row_ops)?;
             let (index_apply_stores, index_rollback_ops) =
-                Self::prepare_index_save_ops(&index_plan.apply, &marker.index_ops)?;
+                Self::prepare_index_save_ops(&index_plan.apply, &marker_index_ops)?;
             let (index_removes, index_inserts) = Self::plan_index_metrics(old.as_ref(), &entity)?;
-            let data_rollback_ops = Self::prepare_data_save_ops(&marker.data_ops, old_raw)?;
-            validate_index_apply_stores_len(&marker, index_apply_stores.len(), E::PATH)?;
+            let data_rollback_ops = Self::prepare_data_save_ops(&marker_data_ops, old_raw)?;
+            validate_index_apply_stores_len(
+                marker_index_ops.len(),
+                index_apply_stores.len(),
+                E::PATH,
+            )?;
             let data_store = self
                 .db
                 .with_store_registry(|reg| reg.try_get_data_store(E::Store::PATH))?;
@@ -331,6 +345,8 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             apply_prepared_marker_ops(
                 commit,
                 "save_marker_apply",
+                &marker_index_ops,
+                &marker_data_ops,
                 prepared_apply,
                 || {
                     for _ in 0..index_removes {

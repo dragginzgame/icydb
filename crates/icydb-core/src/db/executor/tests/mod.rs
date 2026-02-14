@@ -451,7 +451,7 @@ static REL_DELETE_RELATION_VALIDATORS: &[StrongRelationDeleteValidator<RelationT
     )];
 
 static REL_DB: Db<RelationTestCanister> =
-    Db::new_with_relations(&REL_STORE_REGISTRY, REL_DELETE_RELATION_VALIDATORS);
+    Db::new_with_relations(&REL_STORE_REGISTRY, REL_DELETE_RELATION_VALIDATORS, &[]);
 
 ///
 /// RelationTargetEntity

@@ -17,16 +17,13 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitKind, CommitMarker,
-            decode::{decode_data_key, decode_index_entry, decode_index_key},
+            CommitKind, CommitMarker, CommitRowOp, PreparedRowCommitOp, snapshot_row_rollback,
             store::{commit_marker_present_fast, with_commit_store},
         },
-        index::RawIndexEntry,
-        store::{DataStore, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
-use std::{cell::RefCell, sync::OnceLock, thread::LocalKey};
+use std::sync::OnceLock;
 
 static RECOVERED: OnceLock<()> = OnceLock::new();
 
@@ -73,8 +70,8 @@ pub fn ensure_recovered_for_write(
 fn perform_recovery(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {
     let marker = with_commit_store(|store| store.load())?;
     if let Some(marker) = marker {
-        let (index_ops, data_ops) = prevalidate_recovery(db, &marker)?;
-        apply_recovery_ops(index_ops, data_ops);
+        validate_recovery_marker(&marker)?;
+        replay_recovery_row_ops(db, &marker.row_ops)?;
         with_commit_store(|store| {
             store.clear_infallible();
             Ok(())
@@ -86,37 +83,13 @@ fn perform_recovery(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), Int
     Ok(())
 }
 
+/// Validate commit marker payload shape before recovery replay.
 ///
-/// DecodedIndexOp
-///
-
-struct DecodedIndexOp {
-    store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
-    key: crate::db::index::RawIndexKey,
-    value: Option<RawIndexEntry>,
-}
-
-///
-/// DecodedDataOp
-///
-
-struct DecodedDataOp {
-    store: &'static LocalKey<RefCell<DataStore>>,
-    key: RawDataKey,
-    value: Option<RawRow>,
-}
-
-/// Validate commit marker payloads and decode recovery ops.
-///
-/// All validation and decoding is performed **before** any recovery mutation
-/// is applied, ensuring the recovery apply phase is mechanical and infallible.
-fn prevalidate_recovery(
-    db: &Db<impl crate::traits::CanisterKind>,
-    marker: &CommitMarker,
-) -> Result<(Vec<DecodedIndexOp>, Vec<DecodedDataOp>), InternalError> {
+/// Recovery replays row ops sequentially so later ops see earlier writes.
+fn validate_recovery_marker(marker: &CommitMarker) -> Result<(), InternalError> {
     match marker.kind {
         CommitKind::Save => {
-            if marker.data_ops.iter().any(|op| op.value.is_none()) {
+            if marker.row_ops.iter().any(|op| op.after.is_none()) {
                 return Err(InternalError::new(
                     ErrorClass::Corruption,
                     ErrorOrigin::Store,
@@ -125,7 +98,7 @@ fn prevalidate_recovery(
             }
         }
         CommitKind::Delete => {
-            if marker.data_ops.iter().any(|op| op.value.is_some()) {
+            if marker.row_ops.iter().any(|op| op.after.is_some()) {
                 return Err(InternalError::new(
                     ErrorClass::Corruption,
                     ErrorOrigin::Store,
@@ -135,71 +108,38 @@ fn prevalidate_recovery(
         }
     }
 
-    let mut decoded_index = Vec::with_capacity(marker.index_ops.len());
-    let mut decoded_data = Vec::with_capacity(marker.data_ops.len());
-
-    for op in &marker.index_ops {
-        let store = db
-            .with_store_registry(|reg| reg.try_get_index_store(&op.store))
-            .map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Index,
-                    format!("missing index store '{}': {err}", op.store),
-                )
-            })?;
-        let key = decode_index_key(&op.key)?;
-        let value = match &op.value {
-            Some(bytes) => Some(decode_index_entry(bytes)?),
-            None => None,
-        };
-        decoded_index.push(DecodedIndexOp { store, key, value });
-    }
-
-    for op in &marker.data_ops {
-        let store = db
-            .with_store_registry(|reg| reg.try_get_data_store(&op.store))
-            .map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    format!("missing data store '{}': {err}", op.store),
-                )
-            })?;
-        let key = decode_data_key(&op.key)?;
-        let value = match &op.value {
-            Some(bytes) => Some(RawRow::try_new(bytes.clone())?),
-            None => None,
-        };
-        decoded_data.push(DecodedDataOp { store, key, value });
-    }
-
-    Ok((decoded_index, decoded_data))
+    Ok(())
 }
 
-/// Apply decoded recovery ops.
+/// Replay marker row ops in order, rolling back on any preparation error.
 ///
-/// Index operations are applied first, followed by data operations,
-/// mirroring executor commit ordering. This function performs only
-/// mechanical store mutations and must not fail.
-fn apply_recovery_ops(index_ops: Vec<DecodedIndexOp>, data_ops: Vec<DecodedDataOp>) {
-    for op in index_ops {
-        op.store.with_borrow_mut(|store| {
-            if let Some(value) = op.value {
-                store.insert(op.key, value);
-            } else {
-                store.remove(&op.key);
+/// Sequential replay is required for correctness when multiple row ops
+/// touch the same index entry in one marker.
+fn replay_recovery_row_ops(
+    db: &Db<impl crate::traits::CanisterKind>,
+    row_ops: &[CommitRowOp],
+) -> Result<(), InternalError> {
+    let mut rollbacks = Vec::<PreparedRowCommitOp>::with_capacity(row_ops.len());
+
+    for row_op in row_ops {
+        let prepared = match db.prepare_row_commit_op(row_op) {
+            Ok(op) => op,
+            Err(err) => {
+                rollback_recovery_ops(rollbacks);
+                return Err(err);
             }
-        });
+        };
+
+        rollbacks.push(snapshot_row_rollback(&prepared));
+        prepared.apply();
     }
 
-    for op in data_ops {
-        op.store.with_borrow_mut(|store| {
-            if let Some(value) = op.value {
-                store.insert(op.key, value);
-            } else {
-                store.remove(&op.key);
-            }
-        });
+    Ok(())
+}
+
+/// Best-effort rollback for recovery replay errors.
+fn rollback_recovery_ops(ops: Vec<PreparedRowCommitOp>) {
+    for op in ops.into_iter().rev() {
+        op.apply();
     }
 }

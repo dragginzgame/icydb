@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        CommitApplyGuard, CommitDataOp, CommitGuard, CommitIndexOp, CommitMarker,
+        CommitApplyGuard, CommitDataOp, CommitGuard, CommitIndexOp,
         executor::commit_ops::{apply_marker_index_ops, resolve_index_key},
         finish_commit,
         index::{IndexStore, RawIndexEntry, RawIndexKey},
@@ -265,18 +265,16 @@ pub(super) struct PreparedMarkerApply {
 
 /// Validate index op/store cardinality before entering the commit window.
 pub(super) fn validate_index_apply_stores_len(
-    marker: &CommitMarker,
+    index_ops_len: usize,
     stores_len: usize,
     entity_path: &'static str,
 ) -> Result<(), InternalError> {
-    if stores_len != marker.index_ops.len() {
+    if stores_len != index_ops_len {
         return Err(InternalError::new(
             ErrorClass::InvariantViolation,
             ErrorOrigin::Index,
             format!(
-                "commit marker index ops length mismatch: {} ops vs {} stores ({entity_path})",
-                marker.index_ops.len(),
-                stores_len,
+                "commit marker index ops length mismatch: {index_ops_len} ops vs {stores_len} stores ({entity_path})",
             ),
         ));
     }
@@ -295,6 +293,8 @@ pub(super) fn validate_index_apply_stores_len(
 pub(super) fn finish_commit_with_apply_guard(
     commit: CommitGuard,
     apply_phase: &'static str,
+    marker_index_ops: &[CommitIndexOp],
+    marker_data_ops: &[CommitDataOp],
     apply: impl FnOnce(
         &[CommitIndexOp],
         &[CommitDataOp],
@@ -303,11 +303,8 @@ pub(super) fn finish_commit_with_apply_guard(
 ) -> Result<(), InternalError> {
     finish_commit(commit, |guard| {
         let mut apply_guard = CommitApplyGuard::new(apply_phase);
-        apply(
-            &guard.marker.index_ops,
-            &guard.marker.data_ops,
-            &mut apply_guard,
-        )?;
+        let _ = guard;
+        apply(marker_index_ops, marker_data_ops, &mut apply_guard)?;
         apply_guard.finish()?;
 
         Ok(())
@@ -318,6 +315,8 @@ pub(super) fn finish_commit_with_apply_guard(
 pub(super) fn apply_prepared_marker_ops(
     commit: CommitGuard,
     apply_phase: &'static str,
+    marker_index_ops: &[CommitIndexOp],
+    marker_data_ops: &[CommitDataOp],
     prepared: PreparedMarkerApply,
     on_index_applied: impl FnOnce(),
     on_data_applied: impl FnOnce(),
@@ -334,6 +333,8 @@ pub(super) fn apply_prepared_marker_ops(
     finish_commit_with_apply_guard(
         commit,
         apply_phase,
+        marker_index_ops,
+        marker_data_ops,
         |marker_index_ops, marker_data_ops, apply_guard| {
             // Commit boundary: apply marker index mutations mechanically.
             apply_guard.record_rollback(move || apply_index_rollbacks(index_rollback_ops));

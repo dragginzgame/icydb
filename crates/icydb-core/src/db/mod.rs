@@ -8,7 +8,7 @@ mod relation;
 pub mod response;
 pub mod store;
 
-pub(crate) use commit::*;
+pub use commit::*;
 pub use relation::{StrongRelationDeleteValidator, validate_delete_strong_relations_for_source};
 
 use crate::{
@@ -38,23 +38,26 @@ use crate::db::{index::IndexStore, store::DataStore};
 pub struct Db<C: CanisterKind> {
     store: &'static LocalKey<StoreRegistry>,
     delete_relation_validators: &'static [StrongRelationDeleteValidator<C>],
+    row_commit_handlers: &'static [RowCommitHandler<C>],
     _marker: PhantomData<C>,
 }
 
 impl<C: CanisterKind> Db<C> {
     #[must_use]
     pub const fn new(store: &'static LocalKey<StoreRegistry>) -> Self {
-        Self::new_with_relations(store, &[])
+        Self::new_with_relations(store, &[], &[])
     }
 
     #[must_use]
     pub const fn new_with_relations(
         store: &'static LocalKey<StoreRegistry>,
         delete_relation_validators: &'static [StrongRelationDeleteValidator<C>],
+        row_commit_handlers: &'static [RowCommitHandler<C>],
     ) -> Self {
         Self {
             store,
             delete_relation_validators,
+            row_commit_handlers,
             _marker: PhantomData,
         }
     }
@@ -96,6 +99,28 @@ impl<C: CanisterKind> Db<C> {
         self.store.with(|reg| f(reg))
     }
 
+    pub(crate) fn prepare_row_commit_op(
+        &self,
+        op: &CommitRowOp,
+    ) -> Result<PreparedRowCommitOp, InternalError> {
+        let handler = self
+            .row_commit_handlers
+            .iter()
+            .find(|handler| handler.entity_path == op.entity_path.as_str())
+            .ok_or_else(|| {
+                InternalError::new(
+                    crate::error::ErrorClass::Corruption,
+                    crate::error::ErrorOrigin::Store,
+                    format!(
+                        "no row-commit handler registered for entity '{}'",
+                        op.entity_path
+                    ),
+                )
+            })?;
+
+        (handler.prepare)(self, op)
+    }
+
     // Validate strong relation constraints for delete-selected target keys.
     pub(crate) fn validate_delete_strong_relations(
         &self,
@@ -111,6 +136,30 @@ impl<C: CanisterKind> Db<C> {
         }
 
         Ok(())
+    }
+}
+
+///
+/// RowCommitHandler
+///
+/// Canister-local dispatcher from `entity_path` to typed row-op preparation.
+///
+
+pub struct RowCommitHandler<C: CanisterKind> {
+    pub entity_path: &'static str,
+    pub prepare: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
+}
+
+impl<C: CanisterKind> RowCommitHandler<C> {
+    #[must_use]
+    pub const fn new(
+        entity_path: &'static str,
+        prepare: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
+    ) -> Self {
+        Self {
+            entity_path,
+            prepare,
+        }
     }
 }
 

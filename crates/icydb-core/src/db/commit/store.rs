@@ -177,7 +177,7 @@ mod tests {
     use super::RawCommitMarker;
     use crate::{
         db::{
-            commit::{CommitDataOp, CommitIndexOp, CommitKind, CommitMarker, MAX_COMMIT_BYTES},
+            commit::{CommitKind, CommitMarker, CommitRowOp, MAX_COMMIT_BYTES},
             store::MAX_ROW_BYTES,
         },
         error::{ErrorClass, ErrorOrigin},
@@ -190,8 +190,7 @@ mod tests {
     struct CommitMarkerWithExtra {
         id: [u8; 16],
         kind: CommitKind,
-        index_ops: Vec<CommitIndexOp>,
-        data_ops: Vec<CommitDataOp>,
+        row_ops: Vec<CommitRowOp>,
         extra: u8,
     }
 
@@ -200,8 +199,7 @@ mod tests {
         let marker = CommitMarkerWithExtra {
             id: [0u8; 16],
             kind: CommitKind::Save,
-            index_ops: Vec::new(),
-            data_ops: Vec::new(),
+            row_ops: Vec::new(),
             extra: 1,
         };
 

@@ -70,6 +70,7 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         .unwrap_or_else(|_| panic!("invalid canister path: {}", canister.def.path()));
 
     let relation_validators = strong_relation_delete_validators(builder, &canister_path);
+    let row_handlers = row_commit_handlers(builder, &canister_path);
     let memory_min = canister.memory_min;
     let memory_max = canister.memory_max;
 
@@ -77,6 +78,7 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         #data_defs
         #index_defs
         #relation_validators
+        #row_handlers
         thread_local! {
             #[allow(unused_mut)]
             #[allow(clippy::let_and_return)]
@@ -93,7 +95,8 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         static DB: ::icydb::__internal::core::db::Db<#canister_path> =
             ::icydb::__internal::core::db::Db::<#canister_path>::new_with_relations(
                 &STORE_REGISTRY,
-                STRONG_RELATION_DELETE_VALIDATORS
+                STRONG_RELATION_DELETE_VALIDATORS,
+                ROW_COMMIT_HANDLERS
             );
 
         // reserve the ic memory range
@@ -110,6 +113,45 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         pub const fn db() -> ::icydb::db::DbSession<#canister_path> {
             ::icydb::db::DbSession::new(DB)
         }
+    }
+}
+
+fn row_commit_handlers(builder: &ActorBuilder, canister_path: &syn::Path) -> TokenStream {
+    let mut handler_defs = quote!();
+    let mut handler_inits = quote!();
+
+    for (i, (entity_path, _)) in builder.get_entities().into_iter().enumerate() {
+        let entity_ty: syn::Path = parse_str(&entity_path)
+            .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
+        let fn_ident = format_ident!("__icydb_prepare_row_commit_{i}");
+
+        handler_defs.extend(quote! {
+            fn #fn_ident(
+                db: &::icydb::__internal::core::db::Db<#canister_path>,
+                op: &::icydb::__internal::core::db::CommitRowOp,
+            ) -> ::std::result::Result<
+                ::icydb::__internal::core::db::PreparedRowCommitOp,
+                ::icydb::__internal::core::error::InternalError
+            > {
+                ::icydb::__internal::core::db::prepare_row_commit_for_entity::<#entity_ty>(db, op)
+            }
+        });
+        handler_inits.extend(quote! {
+            ::icydb::__internal::core::db::RowCommitHandler::<#canister_path>::new(
+                <#entity_ty as ::icydb::traits::Path>::PATH,
+                #fn_ident,
+            ),
+        });
+    }
+
+    quote! {
+        #handler_defs
+
+        static ROW_COMMIT_HANDLERS: &[
+            ::icydb::__internal::core::db::RowCommitHandler<#canister_path>
+        ] = &[
+            #handler_inits
+        ];
     }
 }
 

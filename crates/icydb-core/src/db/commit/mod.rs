@@ -2,15 +2,15 @@
 //!
 //! Contract:
 //! - `begin_commit` persists a marker that fully describes durable mutations.
-//! - Durable correctness is owned by marker replay in recovery (index ops, then data ops).
+//! - Durable correctness is owned by marker replay in recovery (row ops).
 //! - In-process apply guards are best-effort cleanup only and are not authoritative.
 //!
 //! ## Commit Boundary and Authority of CommitMarker
 //!
-//! The `CommitMarker` fully specifies every index and data mutation. After
+//! The `CommitMarker` fully specifies every row mutation. After
 //! the marker is persisted, executors must not re-derive semantics or branch
-//! on entity/index contents; apply logic deterministically replays the marker
-//! ops. Recovery replays commit ops as recorded, not planner logic.
+//! on entity/index contents; apply logic deterministically replays row ops.
+//! Recovery replays row ops as recorded, not planner logic.
 
 mod decode;
 mod guard;
@@ -21,8 +21,17 @@ mod store;
 mod tests;
 
 use crate::{
-    db::commit::store::{CommitStore, with_commit_store, with_commit_store_infallible},
+    db::{
+        Db,
+        commit::{
+            decode::{decode_data_key, decode_index_entry, decode_index_key},
+            store::{CommitStore, with_commit_store, with_commit_store_infallible},
+        },
+        index::{RawIndexEntry, RawIndexKey, plan::plan_index_mutation_for_entity},
+        store::{DataKey, DataStore, RawDataKey, RawRow},
+    },
     error::{ErrorClass, ErrorOrigin, InternalError},
+    traits::{EntityKind, EntityValue, Path},
     types::Ulid,
 };
 #[cfg(test)]
@@ -33,6 +42,7 @@ use canic_memory::{
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::collections::BTreeSet;
+use std::{cell::RefCell, collections::BTreeMap, thread::LocalKey};
 
 pub use guard::CommitApplyGuard;
 pub use recovery::{ensure_recovered, ensure_recovered_for_write};
@@ -131,7 +141,7 @@ pub fn init_commit_store_for_tests() -> Result<(), InternalError> {
 // Stage-2 invariant:
 // - We persist a commit marker before any stable mutation.
 // - After marker creation, executor apply phases are infallible or trap.
-// - Recovery replays the stored mutation plan (index ops, then data ops).
+// - Recovery replays the stored row mutation plan.
 // This makes partial mutations deterministic without a WAL.
 
 const COMMIT_LABEL: &str = "CommitMarker";
@@ -152,10 +162,44 @@ pub enum CommitKind {
 }
 
 ///
+/// CommitRowOp
+///
+/// Row-level mutation recorded in a commit marker.
+/// Store identity is derived from `entity_path` at apply/recovery time.
+///
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommitRowOp {
+    pub entity_path: String,
+    pub key: Vec<u8>,
+    pub before: Option<Vec<u8>>,
+    pub after: Option<Vec<u8>>,
+}
+
+impl CommitRowOp {
+    /// Construct a row-level commit operation.
+    #[must_use]
+    pub fn new(
+        entity_path: impl Into<String>,
+        key: Vec<u8>,
+        before: Option<Vec<u8>>,
+        after: Option<Vec<u8>>,
+    ) -> Self {
+        Self {
+            entity_path: entity_path.into(),
+            key,
+            before,
+            after,
+        }
+    }
+}
+
+///
 /// CommitIndexOp
 ///
-/// Raw index mutation recorded in a commit marker.
-/// Carries store identity plus raw key/value bytes.
+/// Internal index mutation used during row-op preparation/apply.
+/// Not persisted in commit markers.
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -168,8 +212,8 @@ pub struct CommitIndexOp {
 ///
 /// CommitDataOp
 ///
-/// Raw data-store mutation recorded in a commit marker.
-/// Carries store identity plus raw key/value bytes.
+/// Internal data-store mutation used during row-op preparation/apply.
+/// Not persisted in commit markers.
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -182,7 +226,7 @@ pub struct CommitDataOp {
 ///
 /// CommitMarker
 ///
-/// Persisted mutation plan covering all index and data operations.
+/// Persisted mutation plan covering row-level operations.
 /// Recovery replays the marker exactly as stored.
 /// Unknown fields are rejected as corruption; commit markers are not forward-compatible.
 /// This is internal commit-protocol metadata, not a user-schema type.
@@ -192,17 +236,12 @@ pub struct CommitDataOp {
 pub struct CommitMarker {
     pub id: [u8; COMMIT_ID_BYTES],
     pub kind: CommitKind,
-    pub index_ops: Vec<CommitIndexOp>,
-    pub data_ops: Vec<CommitDataOp>,
+    pub row_ops: Vec<CommitRowOp>,
 }
 
 impl CommitMarker {
     /// Construct a new commit marker with a fresh commit id.
-    pub fn new(
-        kind: CommitKind,
-        index_ops: Vec<CommitIndexOp>,
-        data_ops: Vec<CommitDataOp>,
-    ) -> Result<Self, InternalError> {
+    pub fn new(kind: CommitKind, row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
         let id = Ulid::try_generate()
             .map_err(|err| {
                 InternalError::new(
@@ -213,13 +252,200 @@ impl CommitMarker {
             })?
             .to_bytes();
 
-        Ok(Self {
-            id,
-            kind,
-            index_ops,
-            data_ops,
-        })
+        Ok(Self { id, kind, row_ops })
     }
+}
+
+///
+/// PreparedIndexMutation
+///
+/// Mechanical index mutation derived from a row op.
+///
+
+#[derive(Clone)]
+pub struct PreparedIndexMutation {
+    pub store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
+    pub key: RawIndexKey,
+    pub value: Option<RawIndexEntry>,
+}
+
+///
+/// PreparedRowCommitOp
+///
+/// Mechanical store mutation derived from one row op.
+///
+
+#[derive(Clone)]
+pub struct PreparedRowCommitOp {
+    pub index_ops: Vec<PreparedIndexMutation>,
+    pub data_store: &'static LocalKey<RefCell<DataStore>>,
+    pub data_key: RawDataKey,
+    pub data_value: Option<RawRow>,
+}
+
+impl PreparedRowCommitOp {
+    /// Apply the prepared row operation infallibly.
+    pub fn apply(self) {
+        for index_op in self.index_ops {
+            index_op.store.with_borrow_mut(|store| {
+                if let Some(value) = index_op.value {
+                    store.insert(index_op.key, value);
+                } else {
+                    store.remove(&index_op.key);
+                }
+            });
+        }
+
+        self.data_store.with_borrow_mut(|store| {
+            if let Some(value) = self.data_value {
+                store.insert(self.data_key, value);
+            } else {
+                store.remove(&self.data_key);
+            }
+        });
+    }
+}
+
+/// Capture the current store state needed to roll back one prepared row op.
+///
+/// The returned op writes the prior index/data values back when applied.
+#[must_use]
+pub fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
+    let mut index_ops = Vec::with_capacity(op.index_ops.len());
+    for index_op in &op.index_ops {
+        let existing = index_op.store.with_borrow(|store| store.get(&index_op.key));
+        index_ops.push(PreparedIndexMutation {
+            store: index_op.store,
+            key: index_op.key,
+            value: existing,
+        });
+    }
+
+    let data_value = op.data_store.with_borrow(|store| store.get(&op.data_key));
+
+    PreparedRowCommitOp {
+        index_ops,
+        data_store: op.data_store,
+        data_key: op.data_key,
+        data_value,
+    }
+}
+
+/// Prepare a typed row-level commit op for one entity type.
+///
+/// This resolves store handles and index/data mutations so commit/recovery
+/// apply can remain mechanical.
+pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
+    db: &Db<E::Canister>,
+    op: &CommitRowOp,
+) -> Result<PreparedRowCommitOp, InternalError> {
+    if op.entity_path != E::PATH {
+        return Err(InternalError::new(
+            ErrorClass::Corruption,
+            ErrorOrigin::Store,
+            format!(
+                "commit marker entity path mismatch: expected '{}', found '{}'",
+                E::PATH,
+                op.entity_path
+            ),
+        ));
+    }
+
+    let raw_key = decode_data_key(&op.key)?;
+    let data_key = DataKey::try_from_raw(&raw_key).map_err(|err| {
+        InternalError::new(
+            ErrorClass::Corruption,
+            ErrorOrigin::Store,
+            format!("commit marker data key corrupted: {err}"),
+        )
+    })?;
+    data_key.try_key::<E>()?;
+
+    let decode_entity = |bytes: &[u8], label: &str| -> Result<(RawRow, E), InternalError> {
+        let row = RawRow::try_new(bytes.to_vec())?;
+        let entity = row.try_decode::<E>().map_err(|err| {
+            InternalError::new(
+                ErrorClass::Corruption,
+                ErrorOrigin::Serialize,
+                format!("commit marker {label} row decode failed: {err}"),
+            )
+        })?;
+        let expected = data_key.try_key::<E>()?;
+        let actual = entity.id().key();
+        if expected != actual {
+            return Err(InternalError::new(
+                ErrorClass::Corruption,
+                ErrorOrigin::Store,
+                format!("commit marker row key mismatch: expected {expected:?}, found {actual:?}"),
+            ));
+        }
+
+        Ok((row, entity))
+    };
+
+    let old_pair = op
+        .before
+        .as_ref()
+        .map(|bytes| decode_entity(bytes, "before"))
+        .transpose()?;
+    let new_pair = op
+        .after
+        .as_ref()
+        .map(|bytes| decode_entity(bytes, "after"))
+        .transpose()?;
+
+    if old_pair.is_none() && new_pair.is_none() {
+        return Err(InternalError::new(
+            ErrorClass::Corruption,
+            ErrorOrigin::Store,
+            "commit marker row op is a no-op (before/after both missing)",
+        ));
+    }
+
+    let index_plan = plan_index_mutation_for_entity::<E>(
+        db,
+        old_pair.as_ref().map(|(_, entity)| entity),
+        new_pair.as_ref().map(|(_, entity)| entity),
+    )?;
+    let mut index_stores = BTreeMap::new();
+    for apply in &index_plan.apply {
+        index_stores.insert(apply.index.store, apply.store);
+    }
+
+    let mut index_ops = Vec::with_capacity(index_plan.commit_ops.len());
+    for index_op in index_plan.commit_ops {
+        let store = index_stores
+            .get(index_op.store.as_str())
+            .copied()
+            .ok_or_else(|| {
+                InternalError::new(
+                    ErrorClass::Corruption,
+                    ErrorOrigin::Index,
+                    format!(
+                        "missing index store '{}' for entity '{}'",
+                        index_op.store,
+                        E::PATH
+                    ),
+                )
+            })?;
+        let key = decode_index_key(&index_op.key)?;
+        let value = index_op
+            .value
+            .as_ref()
+            .map(|bytes| decode_index_entry(bytes))
+            .transpose()?;
+        index_ops.push(PreparedIndexMutation { store, key, value });
+    }
+
+    let data_store = db.with_store_registry(|reg| reg.try_get_data_store(E::Store::PATH))?;
+    let data_value = new_pair.map(|(row, _)| row);
+
+    Ok(PreparedRowCommitOp {
+        index_ops,
+        data_store,
+        data_key: raw_key,
+        data_value,
+    })
 }
 
 ///

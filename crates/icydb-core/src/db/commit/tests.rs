@@ -1,17 +1,31 @@
 use crate::{
     db::{
-        Db,
+        Db, PreparedRowCommitOp, RowCommitHandler,
         commit::{
-            CommitDataOp, CommitKind, CommitMarker, begin_commit, commit_marker_present,
-            ensure_recovered_for_write, finish_commit, init_commit_store_for_tests, store,
+            CommitKind, CommitMarker, CommitRowOp, begin_commit, commit_marker_present,
+            ensure_recovered_for_write, finish_commit, init_commit_store_for_tests,
+            prepare_row_commit_for_entity, store,
         },
         index::IndexStore,
         store::{DataKey, DataStore, RawDataKey, StoreRegistry},
     },
     error::{ErrorClass, ErrorOrigin},
+    model::{
+        entity::EntityModel,
+        field::{EntityFieldKind, EntityFieldModel},
+    },
+    serialize::serialize,
+    test_fixtures::entity_model_from_static,
     test_support::test_memory,
-    traits::{CanisterKind, Path, StoreKind},
+    traits::{
+        AsView, CanisterKind, EntityIdentity, EntityKey, EntityKind, EntityPlacement, EntitySchema,
+        EntityValue, Path, SanitizeAuto, SanitizeCustom, StoreKind, ValidateAuto, ValidateCustom,
+        Visitable,
+    },
+    types::{Id, Ulid},
 };
+use icydb_derive::FieldValues;
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 
 ///
@@ -40,6 +54,87 @@ impl StoreKind for RecoveryTestDataStore {
     type Canister = RecoveryTestCanister;
 }
 
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct RecoveryTestEntity {
+    id: Ulid,
+}
+
+impl AsView for RecoveryTestEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for RecoveryTestEntity {}
+impl SanitizeCustom for RecoveryTestEntity {}
+impl ValidateAuto for RecoveryTestEntity {}
+impl ValidateCustom for RecoveryTestEntity {}
+impl Visitable for RecoveryTestEntity {}
+
+impl Path for RecoveryTestEntity {
+    const PATH: &'static str = "commit_tests::RecoveryTestEntity";
+}
+
+impl EntityKey for RecoveryTestEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for RecoveryTestEntity {
+    const ENTITY_NAME: &'static str = "RecoveryTestEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static RECOVERY_TEST_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
+    name: "id",
+    kind: EntityFieldKind::Ulid,
+}];
+static RECOVERY_TEST_FIELD_NAMES: [&str; 1] = ["id"];
+static RECOVERY_TEST_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static RECOVERY_TEST_MODEL: EntityModel = entity_model_from_static(
+    "commit_tests::RecoveryTestEntity",
+    "RecoveryTestEntity",
+    &RECOVERY_TEST_FIELDS[0],
+    &RECOVERY_TEST_FIELDS,
+    &RECOVERY_TEST_INDEXES,
+);
+
+impl EntitySchema for RecoveryTestEntity {
+    const MODEL: &'static EntityModel = &RECOVERY_TEST_MODEL;
+    const FIELDS: &'static [&'static str] = &RECOVERY_TEST_FIELD_NAMES;
+    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &RECOVERY_TEST_INDEXES;
+}
+
+impl EntityPlacement for RecoveryTestEntity {
+    type Store = RecoveryTestDataStore;
+    type Canister = RecoveryTestCanister;
+}
+
+impl EntityKind for RecoveryTestEntity {}
+
+impl EntityValue for RecoveryTestEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+fn prepare_recovery_test_row_op(
+    db: &Db<RecoveryTestCanister>,
+    op: &CommitRowOp,
+) -> Result<PreparedRowCommitOp, crate::error::InternalError> {
+    prepare_row_commit_for_entity::<RecoveryTestEntity>(db, op)
+}
+
+static ROW_COMMIT_HANDLERS: &[RowCommitHandler<RecoveryTestCanister>] = &[RowCommitHandler::new(
+    RecoveryTestEntity::PATH,
+    prepare_recovery_test_row_op,
+)];
+
 thread_local! {
     static DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(19)));
     static INDEX_STORE: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(20)));
@@ -50,7 +145,8 @@ thread_local! {
     };
 }
 
-static DB: Db<RecoveryTestCanister> = Db::new(&STORE_REGISTRY);
+static DB: Db<RecoveryTestCanister> =
+    Db::new_with_relations(&STORE_REGISTRY, &[], ROW_COMMIT_HANDLERS);
 
 // Reset marker + data store to isolate recovery tests.
 fn reset_recovery_state() {
@@ -79,7 +175,7 @@ fn row_bytes_for(key: &RawDataKey) -> Option<Vec<u8>> {
 #[test]
 fn commit_marker_round_trip_clears_after_finish() {
     init_commit_store_for_tests().expect("commit store init should succeed");
-    let marker = CommitMarker::new(CommitKind::Save, Vec::new(), Vec::new())
+    let marker = CommitMarker::new(CommitKind::Save, Vec::new())
         .expect("commit marker creation should succeed");
 
     let guard = begin_commit(marker).expect("begin_commit should persist marker");
@@ -100,18 +196,22 @@ fn commit_marker_round_trip_clears_after_finish() {
 fn recovery_replay_is_idempotent() {
     reset_recovery_state();
 
-    let raw_key = DataKey::max_storable()
+    let entity = RecoveryTestEntity {
+        id: Ulid::from_u128(901),
+    };
+    let raw_key = DataKey::try_new::<RecoveryTestEntity>(entity.id)
+        .expect("data key should build")
         .to_raw()
         .expect("data key should encode");
-    let row_bytes = vec![1u8, 2, 3, 4];
+    let row_bytes = serialize(&entity).expect("entity serialization should succeed");
     let marker = CommitMarker::new(
         CommitKind::Save,
-        Vec::new(),
-        vec![CommitDataOp {
-            store: RecoveryTestDataStore::PATH.to_string(),
-            key: raw_key.as_bytes().to_vec(),
-            value: Some(row_bytes.clone()),
-        }],
+        vec![CommitRowOp::new(
+            RecoveryTestEntity::PATH,
+            raw_key.as_bytes().to_vec(),
+            None,
+            Some(row_bytes.clone()),
+        )],
     )
     .expect("commit marker creation should succeed");
 
@@ -140,14 +240,18 @@ fn recovery_replay_is_idempotent() {
 fn recovery_rejects_corrupt_marker_data_key_decode() {
     reset_recovery_state();
 
+    let row_bytes = serialize(&RecoveryTestEntity {
+        id: Ulid::from_u128(902),
+    })
+    .expect("entity serialization should succeed");
     let marker = CommitMarker::new(
         CommitKind::Save,
-        Vec::new(),
-        vec![CommitDataOp {
-            store: RecoveryTestDataStore::PATH.to_string(),
-            key: vec![0u8; DataKey::STORED_SIZE_USIZE.saturating_sub(1)],
-            value: Some(vec![9u8]),
-        }],
+        vec![CommitRowOp::new(
+            RecoveryTestEntity::PATH,
+            vec![0u8; DataKey::STORED_SIZE_USIZE.saturating_sub(1)],
+            None,
+            Some(row_bytes),
+        )],
     )
     .expect("commit marker creation should succeed");
 
