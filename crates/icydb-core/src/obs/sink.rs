@@ -58,11 +58,10 @@ pub enum MetricsEvent {
     UniqueViolation {
         entity_path: &'static str,
     },
-    IndexInsert {
+    IndexDelta {
         entity_path: &'static str,
-    },
-    IndexRemove {
-        entity_path: &'static str,
+        inserts: u64,
+        removes: u64,
     },
     Plan {
         kind: PlanKind,
@@ -187,19 +186,17 @@ impl MetricsSink for GlobalMetricsSink {
                 });
             }
 
-            MetricsEvent::IndexInsert { entity_path } => {
+            MetricsEvent::IndexDelta {
+                entity_path,
+                inserts,
+                removes,
+            } => {
                 metrics::with_state_mut(|m| {
-                    m.ops.index_inserts = m.ops.index_inserts.saturating_add(1);
+                    m.ops.index_inserts = m.ops.index_inserts.saturating_add(inserts);
+                    m.ops.index_removes = m.ops.index_removes.saturating_add(removes);
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    entry.index_inserts = entry.index_inserts.saturating_add(1);
-                });
-            }
-
-            MetricsEvent::IndexRemove { entity_path } => {
-                metrics::with_state_mut(|m| {
-                    m.ops.index_removes = m.ops.index_removes.saturating_add(1);
-                    let entry = m.entities.entry(entity_path.to_string()).or_default();
-                    entry.index_removes = entry.index_removes.saturating_add(1);
+                    entry.index_inserts = entry.index_inserts.saturating_add(inserts);
+                    entry.index_removes = entry.index_removes.saturating_add(removes);
                 });
             }
 

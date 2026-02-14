@@ -137,42 +137,6 @@ impl StoreRegistry {
             .copied()
             .ok_or_else(|| StoreRegistryError::StoreNotFound(path.to_string()).into())
     }
-
-    /// Borrow a row store immutably by path.
-    pub fn with_data_store<R>(
-        &self,
-        path: &str,
-        f: impl FnOnce(&DataStore) -> R,
-    ) -> Result<R, InternalError> {
-        Ok(self.try_get_store(path)?.with_data(f))
-    }
-
-    /// Borrow a row store mutably by path.
-    pub fn with_data_store_mut<R>(
-        &self,
-        path: &str,
-        f: impl FnOnce(&mut DataStore) -> R,
-    ) -> Result<R, InternalError> {
-        Ok(self.try_get_store(path)?.with_data_mut(f))
-    }
-
-    /// Borrow an index store immutably by path.
-    pub fn with_index_store<R>(
-        &self,
-        path: &str,
-        f: impl FnOnce(&IndexStore) -> R,
-    ) -> Result<R, InternalError> {
-        Ok(self.try_get_store(path)?.with_index(f))
-    }
-
-    /// Borrow an index store mutably by path.
-    pub fn with_index_store_mut<R>(
-        &self,
-        path: &str,
-        f: impl FnOnce(&mut IndexStore) -> R,
-    ) -> Result<R, InternalError> {
-        Ok(self.try_get_store(path)?.with_index_mut(f))
-    }
 }
 
 #[cfg(test)]

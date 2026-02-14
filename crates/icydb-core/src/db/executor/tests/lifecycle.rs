@@ -27,10 +27,13 @@ fn executor_save_then_delete_round_trip() {
     );
 
     DB.with_store_registry(|reg| {
-        reg.with_data_store(TestDataStore::PATH, |store| {
-            assert!(store.is_empty(), "store should be empty after delete");
-        })
-        .expect("store access should succeed");
+        reg.try_get_store(TestDataStore::PATH)
+            .map(|store| {
+                store.with_data(|data_store| {
+                    assert!(data_store.is_empty(), "store should be empty after delete");
+                });
+            })
+            .expect("store access should succeed");
     });
 }
 

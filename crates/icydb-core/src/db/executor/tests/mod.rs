@@ -711,9 +711,11 @@ impl EntityValue for RelationSourceEntity {
 fn reset_relation_stores() {
     ensure_recovered_for_write(&REL_DB).expect("relation write-side recovery should succeed");
     REL_DB.with_store_registry(|reg| {
-        reg.with_data_store_mut(RelationSourceStore::PATH, DataStore::clear)
+        reg.try_get_store(RelationSourceStore::PATH)
+            .map(|store| store.with_data_mut(DataStore::clear))
             .expect("relation source store access should succeed");
-        reg.with_data_store_mut(RelationTargetStore::PATH, DataStore::clear)
+        reg.try_get_store(RelationTargetStore::PATH)
+            .map(|store| store.with_data_mut(DataStore::clear))
             .expect("relation target store access should succeed");
     });
 }

@@ -319,16 +319,14 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 "save_row_apply",
                 prepared_row_ops,
                 || {
-                    for _ in 0..index_removes {
-                        sink::record(MetricsEvent::IndexRemove {
-                            entity_path: E::PATH,
-                        });
-                    }
-                    for _ in 0..index_inserts {
-                        sink::record(MetricsEvent::IndexInsert {
-                            entity_path: E::PATH,
-                        });
-                    }
+                    // NOTE: Trace metrics saturate on overflow; diagnostics only.
+                    let removes = u64::try_from(index_removes).unwrap_or(u64::MAX);
+                    let inserts = u64::try_from(index_inserts).unwrap_or(u64::MAX);
+                    sink::record(MetricsEvent::IndexDelta {
+                        entity_path: E::PATH,
+                        inserts,
+                        removes,
+                    });
                 },
                 || {
                     span.set_rows(1);

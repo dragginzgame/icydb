@@ -24,29 +24,37 @@ impl MetricsSink for CaptureSink {
 }
 
 fn count_index_inserts(events: &[MetricsEvent]) -> usize {
-    events
-        .iter()
-        .filter(|event| {
-            matches!(
-                event,
-                MetricsEvent::IndexInsert { entity_path }
-                    if *entity_path == IndexedMetricsEntity::PATH
-            )
-        })
-        .count()
+    events.iter().fold(0usize, |acc, event| {
+        let delta = match event {
+            MetricsEvent::IndexDelta {
+                entity_path,
+                inserts,
+                ..
+            } if *entity_path == IndexedMetricsEntity::PATH => {
+                usize::try_from(*inserts).unwrap_or(usize::MAX)
+            }
+            _ => 0,
+        };
+
+        acc.saturating_add(delta)
+    })
 }
 
 fn count_index_removes(events: &[MetricsEvent]) -> usize {
-    events
-        .iter()
-        .filter(|event| {
-            matches!(
-                event,
-                MetricsEvent::IndexRemove { entity_path }
-                    if *entity_path == IndexedMetricsEntity::PATH
-            )
-        })
-        .count()
+    events.iter().fold(0usize, |acc, event| {
+        let delta = match event {
+            MetricsEvent::IndexDelta {
+                entity_path,
+                removes,
+                ..
+            } if *entity_path == IndexedMetricsEntity::PATH => {
+                usize::try_from(*removes).unwrap_or(usize::MAX)
+            }
+            _ => 0,
+        };
+
+        acc.saturating_add(delta)
+    })
 }
 
 ///

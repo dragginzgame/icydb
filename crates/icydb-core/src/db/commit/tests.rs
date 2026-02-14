@@ -249,17 +249,18 @@ fn reset_recovery_state() {
     .expect("commit marker reset should succeed");
 
     DB.with_store_registry(|reg| {
-        reg.with_data_store_mut(RecoveryTestDataStore::PATH, DataStore::clear)
-            .expect("data store reset should succeed");
-        reg.with_index_store_mut(RecoveryTestDataStore::PATH, IndexStore::clear)
+        reg.try_get_store(RecoveryTestDataStore::PATH).map(|store| {
+            store.with_data_mut(DataStore::clear);
+            store.with_index_mut(IndexStore::clear);
+        })
     })
     .expect("index store reset should succeed");
 }
 
 fn row_bytes_for(key: &RawDataKey) -> Option<Vec<u8>> {
     DB.with_store_registry(|reg| {
-        reg.with_data_store(RecoveryTestDataStore::PATH, |store| {
-            store.get(key).map(|row| row.as_bytes().to_vec())
+        reg.try_get_store(RecoveryTestDataStore::PATH).map(|store| {
+            store.with_data(|data_store| data_store.get(key).map(|row| row.as_bytes().to_vec()))
         })
     })
     .expect("data store read should succeed")
@@ -273,13 +274,15 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
         .to_raw();
 
     DB.with_store_registry(|reg| {
-        reg.with_index_store(RecoveryTestDataStore::PATH, |store| {
-            store.get(&index_key).map(|entry| {
-                entry
-                    .try_decode::<RecoveryIndexedEntity>()
-                    .expect("index entry decode should succeed")
-                    .iter_ids()
-                    .collect::<BTreeSet<_>>()
+        reg.try_get_store(RecoveryTestDataStore::PATH).map(|store| {
+            store.with_index(|index_store| {
+                index_store.get(&index_key).map(|entry| {
+                    entry
+                        .try_decode::<RecoveryIndexedEntity>()
+                        .expect("index entry decode should succeed")
+                        .iter_ids()
+                        .collect::<BTreeSet<_>>()
+                })
             })
         })
     })
@@ -443,5 +446,86 @@ fn recovery_replay_merges_multi_row_shared_index_key() {
 
     let indexed_ids = indexed_ids_for(&first).expect("index entry should exist after replay");
     let expected_ids = [first.id, second.id].into_iter().collect::<BTreeSet<_>>();
+    assert_eq!(indexed_ids, expected_ids);
+}
+
+#[test]
+fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state() {
+    reset_recovery_state();
+
+    let first = RecoveryIndexedEntity {
+        id: Ulid::from_u128(905),
+        group: 8,
+    };
+    let second = RecoveryIndexedEntity {
+        id: Ulid::from_u128(906),
+        group: 8,
+    };
+
+    let first_key = DataKey::try_new::<RecoveryIndexedEntity>(first.id)
+        .expect("first data key should build")
+        .to_raw()
+        .expect("first data key should encode");
+    let second_key = DataKey::try_new::<RecoveryIndexedEntity>(second.id)
+        .expect("second data key should build")
+        .to_raw()
+        .expect("second data key should encode");
+    let first_row = serialize(&first).expect("first entity serialization should succeed");
+    let second_row = serialize(&second).expect("second entity serialization should succeed");
+
+    // Phase 1: replay two inserts sharing the same index key.
+    let save_marker = CommitMarker::new(
+        CommitKind::Save,
+        vec![
+            CommitRowOp::new(
+                RecoveryIndexedEntity::PATH,
+                first_key.as_bytes().to_vec(),
+                None,
+                Some(first_row.clone()),
+            ),
+            CommitRowOp::new(
+                RecoveryIndexedEntity::PATH,
+                second_key.as_bytes().to_vec(),
+                None,
+                Some(second_row.clone()),
+            ),
+        ],
+    )
+    .expect("commit marker creation should succeed");
+    begin_commit(save_marker).expect("begin_commit should persist marker");
+
+    ensure_recovered_for_write(&DB).expect("recovery replay should succeed");
+    assert_eq!(row_bytes_for(&first_key), Some(first_row.clone()));
+    assert_eq!(row_bytes_for(&second_key), Some(second_row.clone()));
+
+    let inserted_indexed_ids =
+        indexed_ids_for(&first).expect("index entry should exist after insert replay");
+    let inserted_expected_ids = [first.id, second.id].into_iter().collect::<BTreeSet<_>>();
+    assert_eq!(inserted_indexed_ids, inserted_expected_ids);
+
+    // Phase 2: replay a delete that removes one of the inserted rows.
+    let delete_marker = CommitMarker::new(
+        CommitKind::Delete,
+        vec![CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            second_key.as_bytes().to_vec(),
+            Some(second_row),
+            None,
+        )],
+    )
+    .expect("delete marker creation should succeed");
+    begin_commit(delete_marker).expect("delete begin_commit should persist marker");
+
+    ensure_recovered_for_write(&DB).expect("delete recovery replay should succeed");
+
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after replay"
+    );
+    assert_eq!(row_bytes_for(&first_key), Some(first_row));
+    assert_eq!(row_bytes_for(&second_key), None);
+
+    let indexed_ids = indexed_ids_for(&first).expect("index entry should exist after replay");
+    let expected_ids = std::iter::once(first.id).collect::<BTreeSet<_>>();
     assert_eq!(indexed_ids, expected_ids);
 }

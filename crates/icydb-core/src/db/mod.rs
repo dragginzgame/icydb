@@ -92,7 +92,7 @@ impl<C: CanisterKind> Db<C> {
         path: &'static str,
         f: impl FnOnce(&mut DataStore) -> R,
     ) -> Result<R, InternalError> {
-        self.with_store_registry(|reg| reg.with_data_store_mut(path, f))
+        self.with_store_registry(|reg| reg.try_get_store(path).map(|store| store.with_data_mut(f)))
     }
 
     pub(crate) fn with_store_registry<R>(&self, f: impl FnOnce(&StoreRegistry) -> R) -> R {

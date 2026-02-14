@@ -474,12 +474,14 @@ fn delete_blocks_when_target_has_strong_referrer() {
 
     let target_rows = REL_DB
         .with_store_registry(|reg| {
-            reg.with_data_store(RelationTargetStore::PATH, |store| store.iter().count())
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_data(|data_store| data_store.iter().count()))
         })
         .expect("target store access should succeed");
     let source_rows = REL_DB
         .with_store_registry(|reg| {
-            reg.with_data_store(RelationSourceStore::PATH, |store| store.iter().count())
+            reg.try_get_store(RelationSourceStore::PATH)
+                .map(|store| store.with_data(|data_store| data_store.iter().count()))
         })
         .expect("source store access should succeed");
     assert_eq!(target_rows, 1, "blocked delete must keep target row");

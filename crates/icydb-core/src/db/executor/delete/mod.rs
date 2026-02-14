@@ -188,11 +188,13 @@ where
                 "delete_row_apply",
                 prepared_row_ops,
                 || {
-                    for _ in 0..index_remove_count {
-                        sink::record(MetricsEvent::IndexRemove {
-                            entity_path: E::PATH,
-                        });
-                    }
+                    // NOTE: Trace metrics saturate on overflow; diagnostics only.
+                    let removes = u64::try_from(index_remove_count).unwrap_or(u64::MAX);
+                    sink::record(MetricsEvent::IndexDelta {
+                        entity_path: E::PATH,
+                        inserts: 0,
+                        removes,
+                    });
                 },
                 || {},
             )?;

@@ -89,15 +89,19 @@ static DB: Db<TestCanister> = Db::new(&STORE_REGISTRY);
 fn reset_store() {
     ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
     DB.with_store_registry(|reg| {
-        reg.with_data_store_mut(SourceStore::PATH, DataStore::clear)
+        reg.try_get_store(SourceStore::PATH)
+            .map(|store| store.with_data_mut(DataStore::clear))
             .expect("source store access should succeed");
-        reg.with_data_store_mut(TargetStore::PATH, DataStore::clear)
+        reg.try_get_store(TargetStore::PATH)
+            .map(|store| store.with_data_mut(DataStore::clear))
             .expect("target store access should succeed");
     });
     DB.with_store_registry(|reg| {
-        reg.with_index_store_mut(UNIQUE_INDEX_STORE_PATH, IndexStore::clear)
+        reg.try_get_store(UNIQUE_INDEX_STORE_PATH)
+            .map(|store| store.with_index_mut(IndexStore::clear))
             .expect("unique index store access should succeed");
-        reg.with_index_store_mut(TargetStore::PATH, IndexStore::clear)
+        reg.try_get_store(TargetStore::PATH)
+            .map(|store| store.with_index_mut(IndexStore::clear))
             .expect("target index store access should succeed");
     });
 }
@@ -557,7 +561,8 @@ fn strong_set_relation_missing_key_fails_save() {
 
     let source_empty = DB
         .with_store_registry(|reg| {
-            reg.with_data_store(SourceStore::PATH, |store| store.iter().next().is_none())
+            reg.try_get_store(SourceStore::PATH)
+                .map(|store| store.with_data(|data_store| data_store.iter().next().is_none()))
         })
         .expect("source store access should succeed");
     assert!(
@@ -619,7 +624,8 @@ fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
 
     let source_empty = DB
         .with_store_registry(|reg| {
-            reg.with_data_store(SourceStore::PATH, |store| store.iter().next().is_none())
+            reg.try_get_store(SourceStore::PATH)
+                .map(|store| store.with_data(|data_store| data_store.iter().next().is_none()))
         })
         .expect("source store access should succeed");
     assert!(
@@ -703,7 +709,8 @@ fn save_rejects_primary_key_field_and_identity_mismatch() {
 
     let source_empty = DB
         .with_store_registry(|reg| {
-            reg.with_data_store(SourceStore::PATH, |store| store.iter().next().is_none())
+            reg.try_get_store(SourceStore::PATH)
+                .map(|store| store.with_data(|data_store| data_store.iter().next().is_none()))
         })
         .expect("source store access should succeed");
     assert!(
@@ -747,7 +754,8 @@ fn unique_index_violation_rejected_on_insert() {
 
     let rows = DB
         .with_store_registry(|reg| {
-            reg.with_data_store(SourceStore::PATH, |store| store.iter().count())
+            reg.try_get_store(SourceStore::PATH)
+                .map(|store| store.with_data(|data_store| data_store.iter().count()))
         })
         .expect("source store access should succeed");
     assert_eq!(rows, 1, "conflicting insert must not persist");
@@ -793,7 +801,8 @@ fn unique_index_violation_rejected_on_update() {
 
     let rows = DB
         .with_store_registry(|reg| {
-            reg.with_data_store(SourceStore::PATH, |store| store.iter().count())
+            reg.try_get_store(SourceStore::PATH)
+                .map(|store| store.with_data(|data_store| data_store.iter().count()))
         })
         .expect("source store access should succeed");
     assert_eq!(rows, 2, "failed update must not remove persisted rows");
