@@ -1,6 +1,7 @@
 mod cursor_validation;
 mod lifecycle;
 mod live_state;
+mod metrics;
 mod paged_builder;
 mod pagination;
 mod semantics;
@@ -29,6 +30,7 @@ use crate::{
     model::{
         entity::EntityModel,
         field::{EntityFieldKind, EntityFieldModel, RelationStrength},
+        index::IndexModel,
     },
     test_fixtures::entity_model_from_static,
     test_support::test_memory,
@@ -179,6 +181,98 @@ impl EntityPlacement for SimpleEntity {
 impl EntityKind for SimpleEntity {}
 
 impl EntityValue for SimpleEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+///
+/// IndexedMetricsEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct IndexedMetricsEntity {
+    id: Ulid,
+    tag: u32,
+    label: String,
+}
+
+impl AsView for IndexedMetricsEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for IndexedMetricsEntity {}
+impl SanitizeCustom for IndexedMetricsEntity {}
+impl ValidateAuto for IndexedMetricsEntity {}
+impl ValidateCustom for IndexedMetricsEntity {}
+impl Visitable for IndexedMetricsEntity {}
+
+impl Path for IndexedMetricsEntity {
+    const PATH: &'static str = "executor_tests::IndexedMetricsEntity";
+}
+
+impl EntityKey for IndexedMetricsEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for IndexedMetricsEntity {
+    const ENTITY_NAME: &'static str = "IndexedMetricsEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static INDEXED_METRICS_FIELDS: [EntityFieldModel; 3] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "tag",
+        kind: EntityFieldKind::Uint,
+    },
+    EntityFieldModel {
+        name: "label",
+        kind: EntityFieldKind::Text,
+    },
+];
+static INDEXED_METRICS_FIELD_NAMES: [&str; 3] = ["id", "tag", "label"];
+static INDEXED_METRICS_INDEX_FIELDS: [&str; 1] = ["tag"];
+static INDEXED_METRICS_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "tag",
+    TestDataStore::PATH,
+    &INDEXED_METRICS_INDEX_FIELDS,
+    false,
+)];
+static INDEXED_METRICS_INDEXES: [&IndexModel; 1] = [&INDEXED_METRICS_INDEX_MODELS[0]];
+static INDEXED_METRICS_MODEL: EntityModel = entity_model_from_static(
+    "executor_tests::IndexedMetricsEntity",
+    "IndexedMetricsEntity",
+    &INDEXED_METRICS_FIELDS[0],
+    &INDEXED_METRICS_FIELDS,
+    &INDEXED_METRICS_INDEXES,
+);
+
+impl EntitySchema for IndexedMetricsEntity {
+    const MODEL: &'static EntityModel = &INDEXED_METRICS_MODEL;
+    const FIELDS: &'static [&'static str] = &INDEXED_METRICS_FIELD_NAMES;
+    const INDEXES: &'static [&'static IndexModel] = &INDEXED_METRICS_INDEXES;
+}
+
+impl EntityPlacement for IndexedMetricsEntity {
+    type Store = TestDataStore;
+    type Canister = TestCanister;
+}
+
+impl EntityKind for IndexedMetricsEntity {}
+
+impl EntityValue for IndexedMetricsEntity {
     fn id(&self) -> Id<Self> {
         Id::from_key(self.id)
     }
@@ -367,6 +461,7 @@ impl EntityValue for PhaseEntity {
 fn reset_store() {
     ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
     DATA_STORE.with(|store| store.borrow_mut().clear());
+    INDEX_STORE.with(|store| store.borrow_mut().clear());
 }
 
 ///

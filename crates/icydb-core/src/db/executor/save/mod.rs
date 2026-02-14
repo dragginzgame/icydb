@@ -13,7 +13,6 @@ use crate::{
             mutation::{apply_prepared_row_ops, preflight_prepare_row_ops},
             trace::{QueryTraceSink, TraceExecutorKind, start_exec_trace},
         },
-        index::IndexKey,
         query::SaveMode,
         store::{DataKey, RawRow},
     },
@@ -205,7 +204,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             let raw_key = data_key.to_raw()?;
 
             self.debug_log(format!("save {:?} on {} (key={})", mode, E::PATH, data_key));
-            let (old, old_raw) = match mode {
+            let (_old, old_raw) = match mode {
                 SaveMode::Insert => {
                     // Inserts must not load or decode existing rows; absence is expected.
                     if let Some(existing) = ctx.with_store(|store| store.get(&raw_key))? {
@@ -304,7 +303,12 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             )];
             let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &marker_row_ops)?;
             let marker = CommitMarker::new(CommitKind::Save, marker_row_ops)?;
-            let (index_removes, index_inserts) = Self::plan_index_metrics(old.as_ref(), &entity)?;
+            let index_removes = prepared_row_ops
+                .iter()
+                .fold(0usize, |acc, op| acc.saturating_add(op.index_removes.len()));
+            let index_inserts = prepared_row_ops
+                .iter()
+                .fold(0usize, |acc, op| acc.saturating_add(op.index_inserts.len()));
             let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Save commit window opened");
@@ -348,25 +352,6 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         }
 
         result
-    }
-
-    /// Precompute index mutation metrics before commit marker persistence.
-    fn plan_index_metrics(old: Option<&E>, new: &E) -> Result<(usize, usize), InternalError> {
-        let mut removes = 0usize;
-        let mut inserts = 0usize;
-
-        for index in E::INDEXES {
-            if let Some(old) = old
-                && IndexKey::new(old, index)?.is_some()
-            {
-                removes = removes.saturating_add(1);
-            }
-            if IndexKey::new(new, index)?.is_some() {
-                inserts = inserts.saturating_add(1);
-            }
-        }
-
-        Ok((removes, inserts))
     }
 }
 

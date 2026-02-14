@@ -27,7 +27,7 @@ use crate::{
             decode::{decode_data_key, decode_index_entry, decode_index_key},
             store::{CommitStore, with_commit_store, with_commit_store_infallible},
         },
-        index::{RawIndexEntry, RawIndexKey, plan::plan_index_mutation_for_entity},
+        index::{IndexKey, RawIndexEntry, RawIndexKey, plan::plan_index_mutation_for_entity},
         store::{DataKey, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -281,6 +281,8 @@ pub struct PreparedRowCommitOp {
     pub data_store: &'static LocalKey<RefCell<DataStore>>,
     pub data_key: RawDataKey,
     pub data_value: Option<RawRow>,
+    pub index_removes: Vec<RawIndexKey>,
+    pub index_inserts: Vec<RawIndexKey>,
 }
 
 impl PreparedRowCommitOp {
@@ -328,6 +330,8 @@ pub fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
         data_store: op.data_store,
         data_key: op.data_key,
         data_value,
+        index_removes: Vec::new(),
+        index_inserts: Vec::new(),
     }
 }
 
@@ -335,6 +339,7 @@ pub fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
 ///
 /// This resolves store handles and index/data mutations so commit/recovery
 /// apply can remain mechanical.
+#[expect(clippy::too_many_lines)]
 pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     op: &CommitRowOp,
@@ -407,6 +412,31 @@ pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
         old_pair.as_ref().map(|(_, entity)| entity),
         new_pair.as_ref().map(|(_, entity)| entity),
     )?;
+    let mut index_removes = Vec::with_capacity(E::INDEXES.len());
+    let mut index_inserts = Vec::with_capacity(E::INDEXES.len());
+    for index in E::INDEXES {
+        let old_key = old_pair
+            .as_ref()
+            .map(|(_, old_entity)| IndexKey::new(old_entity, index))
+            .transpose()?
+            .flatten()
+            .map(|key| key.to_raw());
+        let new_key = new_pair
+            .as_ref()
+            .map(|(_, new_entity)| IndexKey::new(new_entity, index))
+            .transpose()?
+            .flatten()
+            .map(|key| key.to_raw());
+
+        if old_key != new_key {
+            if let Some(key) = old_key {
+                index_removes.push(key);
+            }
+            if let Some(key) = new_key {
+                index_inserts.push(key);
+            }
+        }
+    }
     let mut index_stores = BTreeMap::new();
     for apply in &index_plan.apply {
         index_stores.insert(apply.index.store, apply.store);
@@ -445,6 +475,8 @@ pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
         data_store,
         data_key: raw_key,
         data_value,
+        index_removes,
+        index_inserts,
     })
 }
 

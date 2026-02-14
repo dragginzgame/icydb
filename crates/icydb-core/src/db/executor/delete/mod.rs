@@ -9,7 +9,6 @@ use crate::{
             plan::{record_plan_metrics, set_rows_from_len},
             trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
         },
-        index::IndexKey,
         query::plan::{ExecutablePlan, validate::validate_executor_plan},
         response::Response,
     },
@@ -154,9 +153,6 @@ where
             self.db
                 .validate_delete_strong_relations(E::PATH, &deleted_target_keys)?;
 
-            let index_remove_count =
-                Self::count_index_removals(rows.iter().map(|row| &row.entity))?;
-
             // Preflight store access to ensure no fallible work remains post-commit.
             ctx.with_store(|_| ())?;
             let row_ops = rows
@@ -179,6 +175,9 @@ where
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
             let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &row_ops)?;
+            let index_remove_count = prepared_row_ops
+                .iter()
+                .fold(0usize, |acc, op| acc.saturating_add(op.index_removes.len()));
             let marker = CommitMarker::new(CommitKind::Delete, row_ops)?;
             let commit = begin_commit(marker)?;
             commit_started = true;
@@ -229,24 +228,5 @@ where
         }
 
         result
-    }
-
-    /// Count index entries that will be removed for diagnostics/metrics.
-    fn count_index_removals<'a>(
-        entities: impl IntoIterator<Item = &'a E>,
-    ) -> Result<usize, InternalError>
-    where
-        E: 'a,
-    {
-        let mut removes = 0usize;
-        for entity in entities {
-            for index in E::INDEXES {
-                if IndexKey::new(entity, index)?.is_some() {
-                    removes = removes.saturating_add(1);
-                }
-            }
-        }
-
-        Ok(removes)
     }
 }
