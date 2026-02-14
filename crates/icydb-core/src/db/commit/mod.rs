@@ -28,6 +28,7 @@ use crate::{
             store::{CommitStore, with_commit_store, with_commit_store_infallible},
         },
         index::{IndexKey, RawIndexEntry, RawIndexKey, plan::plan_index_mutation_for_entity},
+        relation::prepare_reverse_relation_index_mutations_for_source,
         store::{DataKey, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -281,6 +282,8 @@ pub struct PreparedRowCommitOp {
     pub data_value: Option<RawRow>,
     pub index_remove_count: usize,
     pub index_insert_count: usize,
+    pub reverse_index_remove_count: usize,
+    pub reverse_index_insert_count: usize,
 }
 
 impl PreparedRowCommitOp {
@@ -330,6 +333,8 @@ pub fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
         data_value,
         index_remove_count: 0,
         index_insert_count: 0,
+        reverse_index_remove_count: 0,
+        reverse_index_insert_count: 0,
     }
 }
 
@@ -464,6 +469,13 @@ pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
             .transpose()?;
         index_ops.push(PreparedIndexMutation { store, key, value });
     }
+    let (reverse_index_ops, reverse_remove_count, reverse_insert_count) =
+        prepare_reverse_relation_index_mutations_for_source::<E>(
+            db,
+            old_pair.as_ref().map(|(_, entity)| entity),
+            new_pair.as_ref().map(|(_, entity)| entity),
+        )?;
+    index_ops.extend(reverse_index_ops);
 
     let data_store = db.with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
     let data_value = new_pair.map(|(row, _)| row);
@@ -475,6 +487,8 @@ pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
         data_value,
         index_remove_count,
         index_insert_count,
+        reverse_index_remove_count: reverse_remove_count,
+        reverse_index_insert_count: reverse_insert_count,
     })
 }
 

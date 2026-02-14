@@ -5,6 +5,22 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.8.2] – 2026-02-14 - Reverse Index Integrity
+
+### 🧲 Changed
+
+* Strong-relation delete validation now uses reverse index entries instead of scanning source rows, and reverse index mutations are applied through the same commit/recovery path as row writes.
+* Save/delete observability now emits `MetricsEvent::ReverseIndexDelta` and `MetricsEvent::RelationValidation` as operation-level deltas, so totals reflect exact applied lookup/insert/remove/block actions.
+* Storage snapshots now split index usage into `IndexStoreSnapshot.user_entries` and `IndexStoreSnapshot.system_entries`, making system index footprint visible in diagnostics.
+* Added compile-fail coverage for reserved index namespace enforcement so invalid schema changes fail during derive-time checks.
+
+### 🍇 Breaking
+
+* This release continues the no-shim transition: downstream code must use unified `Store`/`StoreRegistry` surfaces and should not expect compatibility aliases for legacy `DataStore`/`IndexStore` split APIs.
+* User-defined index names in the reserved `~` namespace are now rejected during schema derive validation.
+
+---
+
 ## [0.8.1] – 2026-02-13 - Cursor Boundary Hardening
 
 ### 🥔 Testing

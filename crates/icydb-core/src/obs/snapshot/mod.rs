@@ -48,6 +48,8 @@ pub struct DataStoreSnapshot {
 pub struct IndexStoreSnapshot {
     pub path: String,
     pub entries: u64,
+    pub user_entries: u64,
+    pub system_entries: u64,
     pub memory_bytes: u64,
 }
 
@@ -171,21 +173,33 @@ pub fn storage_report<C: CanisterKind>(
     db.with_store_registry(|reg| {
         reg.iter().for_each(|(path, store_handle)| {
             store_handle.with_index(|store| {
-                index.push(IndexStoreSnapshot {
-                    path: path.to_string(),
-                    entries: store.len(),
-                    memory_bytes: store.memory_bytes(),
-                });
+                let mut user_entries = 0u64;
+                let mut system_entries = 0u64;
 
                 for (key, value) in store.entries() {
-                    if IndexKey::try_from_raw(&key).is_err() {
+                    let Ok(decoded_key) = IndexKey::try_from_raw(&key) else {
                         corrupted_entries = corrupted_entries.saturating_add(1);
                         continue;
+                    };
+
+                    if decoded_key.uses_system_namespace() {
+                        system_entries = system_entries.saturating_add(1);
+                    } else {
+                        user_entries = user_entries.saturating_add(1);
                     }
+
                     if value.validate().is_err() {
                         corrupted_entries = corrupted_entries.saturating_add(1);
                     }
                 }
+
+                index.push(IndexStoreSnapshot {
+                    path: path.to_string(),
+                    entries: store.len(),
+                    user_entries,
+                    system_entries,
+                    memory_bytes: store.memory_bytes(),
+                });
             });
         });
     });
@@ -204,9 +218,10 @@ mod tests {
     use crate::{
         db::{
             Db,
+            identity::{EntityName, IndexName},
             index::{IndexId, IndexKey, IndexStore, RawIndexEntry},
             init_commit_store_for_tests,
-            store::{DataKey, DataStore, RawRow, StoreRegistry},
+            store::{DataKey, DataStore, RawRow, StorageKey, StoreRegistry},
         },
         obs::snapshot::storage_report,
         test_support::test_memory,
@@ -263,6 +278,8 @@ mod tests {
         assert_eq!(report.storage_index.len(), 1);
         assert_eq!(report.storage_index[0].path, STORE_PATH);
         assert_eq!(report.storage_index[0].entries, 0);
+        assert_eq!(report.storage_index[0].user_entries, 0);
+        assert_eq!(report.storage_index[0].system_entries, 0);
         assert!(report.entity_storage.is_empty());
         assert_eq!(report.corrupted_keys, 0);
         assert_eq!(report.corrupted_entries, 0);
@@ -293,6 +310,8 @@ mod tests {
         let report = storage_report(&DB, &[]).expect("storage report should succeed");
         assert_eq!(report.storage_data[0].entries, 1);
         assert_eq!(report.storage_index[0].entries, 1);
+        assert_eq!(report.storage_index[0].user_entries, 1);
+        assert_eq!(report.storage_index[0].system_entries, 0);
         assert_eq!(report.entity_storage.len(), 1);
         assert_eq!(report.entity_storage[0].path, "");
         assert_eq!(report.entity_storage[0].entries, 1);
@@ -300,5 +319,31 @@ mod tests {
         assert!(report.entity_storage[0].max_key.is_some());
         assert_eq!(report.corrupted_entries, 1);
         assert_eq!(report.corrupted_keys, 0);
+    }
+
+    #[test]
+    fn storage_report_splits_user_and_system_index_entries() {
+        reset_snapshot_state();
+
+        let entity = EntityName::try_from_str("snapshot_entity").expect("entity name should parse");
+        let user_index = IndexName::try_from_parts(&entity, &["email"]).expect("index name");
+        let system_index = IndexName::try_from_parts(&entity, &["~ri"]).expect("index name");
+        let user_key = IndexKey::empty(IndexId(user_index)).to_raw();
+        let system_key = IndexKey::empty(IndexId(system_index)).to_raw();
+        let entry = RawIndexEntry::try_from_keys([StorageKey::max_storable()])
+            .expect("entry should encode");
+
+        with_snapshot_store(|store| {
+            store.with_index_mut(|index_store| {
+                index_store.insert(user_key, entry.clone());
+                index_store.insert(system_key, entry);
+            });
+        });
+
+        let report = storage_report(&DB, &[]).expect("storage report should succeed");
+        assert_eq!(report.storage_index[0].entries, 2);
+        assert_eq!(report.storage_index[0].user_entries, 1);
+        assert_eq!(report.storage_index[0].system_entries, 1);
+        assert_eq!(report.corrupted_entries, 0);
     }
 }

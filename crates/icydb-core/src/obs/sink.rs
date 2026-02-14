@@ -63,6 +63,16 @@ pub enum MetricsEvent {
         inserts: u64,
         removes: u64,
     },
+    ReverseIndexDelta {
+        entity_path: &'static str,
+        inserts: u64,
+        removes: u64,
+    },
+    RelationValidation {
+        entity_path: &'static str,
+        reverse_lookups: u64,
+        blocked_deletes: u64,
+    },
     Plan {
         kind: PlanKind,
     },
@@ -197,6 +207,46 @@ impl MetricsSink for GlobalMetricsSink {
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
                     entry.index_inserts = entry.index_inserts.saturating_add(inserts);
                     entry.index_removes = entry.index_removes.saturating_add(removes);
+                });
+            }
+
+            MetricsEvent::ReverseIndexDelta {
+                entity_path,
+                inserts,
+                removes,
+            } => {
+                metrics::with_state_mut(|m| {
+                    m.ops.reverse_index_inserts =
+                        m.ops.reverse_index_inserts.saturating_add(inserts);
+                    m.ops.reverse_index_removes =
+                        m.ops.reverse_index_removes.saturating_add(removes);
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    entry.reverse_index_inserts =
+                        entry.reverse_index_inserts.saturating_add(inserts);
+                    entry.reverse_index_removes =
+                        entry.reverse_index_removes.saturating_add(removes);
+                });
+            }
+
+            MetricsEvent::RelationValidation {
+                entity_path,
+                reverse_lookups,
+                blocked_deletes,
+            } => {
+                metrics::with_state_mut(|m| {
+                    m.ops.relation_reverse_lookups = m
+                        .ops
+                        .relation_reverse_lookups
+                        .saturating_add(reverse_lookups);
+                    m.ops.relation_delete_blocks =
+                        m.ops.relation_delete_blocks.saturating_add(blocked_deletes);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    entry.relation_reverse_lookups = entry
+                        .relation_reverse_lookups
+                        .saturating_add(reverse_lookups);
+                    entry.relation_delete_blocks =
+                        entry.relation_delete_blocks.saturating_add(blocked_deletes);
                 });
             }
 
@@ -508,5 +558,38 @@ mod tests {
         let report = metrics_report(Some(window_start.saturating_add(1)));
         assert!(report.counters.is_none());
         assert!(report.entity_counters.is_empty());
+    }
+
+    #[test]
+    fn reverse_and_relation_metrics_events_accumulate() {
+        metrics_reset_all();
+
+        record(MetricsEvent::ReverseIndexDelta {
+            entity_path: "obs::tests::Entity",
+            inserts: 3,
+            removes: 2,
+        });
+        record(MetricsEvent::RelationValidation {
+            entity_path: "obs::tests::Entity",
+            reverse_lookups: 5,
+            blocked_deletes: 1,
+        });
+
+        let counters = metrics_report(None)
+            .counters
+            .expect("metrics report should include counters");
+        assert_eq!(counters.ops.reverse_index_inserts, 3);
+        assert_eq!(counters.ops.reverse_index_removes, 2);
+        assert_eq!(counters.ops.relation_reverse_lookups, 5);
+        assert_eq!(counters.ops.relation_delete_blocks, 1);
+
+        let entity = counters
+            .entities
+            .get("obs::tests::Entity")
+            .expect("entity counters should be present");
+        assert_eq!(entity.reverse_index_inserts, 3);
+        assert_eq!(entity.reverse_index_removes, 2);
+        assert_eq!(entity.relation_reverse_lookups, 5);
+        assert_eq!(entity.relation_delete_blocks, 1);
     }
 }

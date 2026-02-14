@@ -57,6 +57,10 @@ pub struct EventOps {
     // Index maintenance
     pub index_inserts: u64,
     pub index_removes: u64,
+    pub reverse_index_inserts: u64,
+    pub reverse_index_removes: u64,
+    pub relation_reverse_lookups: u64,
+    pub relation_delete_blocks: u64,
     pub unique_violations: u64,
 }
 
@@ -74,6 +78,10 @@ pub struct EntityCounters {
     pub rows_deleted: u64,
     pub index_inserts: u64,
     pub index_removes: u64,
+    pub reverse_index_inserts: u64,
+    pub reverse_index_removes: u64,
+    pub relation_reverse_lookups: u64,
+    pub relation_delete_blocks: u64,
     pub unique_violations: u64,
 }
 
@@ -159,6 +167,10 @@ pub struct EntitySummary {
     pub avg_rows_per_delete: f64,
     pub index_inserts: u64,
     pub index_removes: u64,
+    pub reverse_index_inserts: u64,
+    pub reverse_index_removes: u64,
+    pub relation_reverse_lookups: u64,
+    pub relation_delete_blocks: u64,
     pub unique_violations: u64,
 }
 
@@ -218,6 +230,10 @@ pub fn report_since(since_ms: Option<u64>) -> EventReport {
             avg_rows_per_delete: avg_delete,
             index_inserts: ops.index_inserts,
             index_removes: ops.index_removes,
+            reverse_index_inserts: ops.reverse_index_inserts,
+            reverse_index_removes: ops.reverse_index_removes,
+            relation_reverse_lookups: ops.relation_reverse_lookups,
+            relation_delete_blocks: ops.relation_delete_blocks,
             unique_violations: ops.unique_violations,
         });
     }

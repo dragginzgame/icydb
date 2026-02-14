@@ -309,6 +309,12 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             let index_inserts = prepared_row_ops
                 .iter()
                 .fold(0usize, |acc, op| acc.saturating_add(op.index_insert_count));
+            let reverse_index_removes = prepared_row_ops.iter().fold(0usize, |acc, op| {
+                acc.saturating_add(op.reverse_index_remove_count)
+            });
+            let reverse_index_inserts = prepared_row_ops.iter().fold(0usize, |acc, op| {
+                acc.saturating_add(op.reverse_index_insert_count)
+            });
             let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Save commit window opened");
@@ -326,6 +332,14 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                         entity_path: E::PATH,
                         inserts,
                         removes,
+                    });
+
+                    let reverse_removes = u64::try_from(reverse_index_removes).unwrap_or(u64::MAX);
+                    let reverse_inserts = u64::try_from(reverse_index_inserts).unwrap_or(u64::MAX);
+                    sink::record(MetricsEvent::ReverseIndexDelta {
+                        entity_path: E::PATH,
+                        inserts: reverse_inserts,
+                        removes: reverse_removes,
                     });
                 },
                 || {

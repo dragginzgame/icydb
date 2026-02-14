@@ -531,3 +531,385 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
         .expect("target delete should succeed once referrer is removed");
     assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
 }
+
+#[test]
+fn strong_relation_reverse_index_tracks_source_lifecycle() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_id = Ulid::from_u128(9_201);
+    let source_id = Ulid::from_u128(9_202);
+
+    let target_save = SaveExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    target_save
+        .insert(RelationTargetEntity { id: target_id })
+        .expect("target save should succeed");
+
+    let source_save = SaveExecutor::<RelationSourceEntity>::new(REL_DB, false);
+    source_save
+        .insert(RelationSourceEntity {
+            id: source_id,
+            target: target_id,
+        })
+        .expect("source save should succeed");
+
+    let reverse_rows_after_insert = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_after_insert, 1,
+        "target index store should contain one reverse-relation entry after source insert",
+    );
+
+    let source_delete = DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false);
+    let source_delete_plan = Query::<RelationSourceEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(source_id)
+        .plan()
+        .expect("source delete plan should build");
+    source_delete
+        .execute(source_delete_plan)
+        .expect("source delete should succeed");
+
+    let reverse_rows_after_delete = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_after_delete, 0,
+        "target index store reverse entry should be removed after source delete",
+    );
+}
+
+#[test]
+fn strong_relation_reverse_index_moves_on_fk_update() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_a = Ulid::from_u128(9_301);
+    let target_b = Ulid::from_u128(9_302);
+    let source_id = Ulid::from_u128(9_303);
+
+    let target_save = SaveExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    target_save
+        .insert(RelationTargetEntity { id: target_a })
+        .expect("target A save should succeed");
+    target_save
+        .insert(RelationTargetEntity { id: target_b })
+        .expect("target B save should succeed");
+
+    let source_save = SaveExecutor::<RelationSourceEntity>::new(REL_DB, false);
+    source_save
+        .insert(RelationSourceEntity {
+            id: source_id,
+            target: target_a,
+        })
+        .expect("source insert should succeed");
+
+    source_save
+        .replace(RelationSourceEntity {
+            id: source_id,
+            target: target_b,
+        })
+        .expect("source replace should move relation target");
+
+    let reverse_rows_after_update = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_after_update, 1,
+        "reverse index should remove old target entry and keep only the new one",
+    );
+
+    let old_target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(target_a)
+        .plan()
+        .expect("target A delete plan should build");
+    let deleted_a = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(old_target_delete_plan)
+        .expect("old target should be deletable after relation retarget");
+    assert_eq!(deleted_a.0.len(), 1, "old target should delete cleanly");
+
+    let protected_target_delete_plan =
+        Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+            .delete()
+            .by_id(target_b)
+            .plan()
+            .expect("target B delete plan should build");
+    let err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(protected_target_delete_plan)
+        .expect_err("new target should remain protected by strong relation");
+    assert!(
+        err.message.contains("delete blocked by strong relation"),
+        "unexpected error: {err:?}",
+    );
+}
+
+#[test]
+fn recovery_replays_reverse_relation_index_mutations() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_id = Ulid::from_u128(9_401);
+    let source_id = Ulid::from_u128(9_402);
+
+    let target_save = SaveExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    target_save
+        .insert(RelationTargetEntity { id: target_id })
+        .expect("target save should succeed");
+
+    let source = RelationSourceEntity {
+        id: source_id,
+        target: target_id,
+    };
+    let raw_key = crate::db::store::DataKey::try_new::<RelationSourceEntity>(source.id)
+        .expect("source data key should build")
+        .to_raw()
+        .expect("source data key should encode");
+    let row_bytes = crate::serialize::serialize(&source).expect("source row should serialize");
+
+    let marker = CommitMarker::new(vec![crate::db::CommitRowOp::new(
+        RelationSourceEntity::PATH,
+        raw_key.as_bytes().to_vec(),
+        None,
+        Some(row_bytes),
+    )])
+    .expect("commit marker creation should succeed");
+
+    begin_commit(marker).expect("begin_commit should persist marker");
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be present before recovery replay",
+    );
+
+    ensure_recovered_for_write(&REL_DB).expect("recovery replay should succeed");
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after recovery replay",
+    );
+
+    let reverse_rows_after_replay = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_after_replay, 1,
+        "recovery replay should materialize reverse relation index entries",
+    );
+
+    let target_delete = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    let delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(target_id)
+        .plan()
+        .expect("target delete plan should build");
+    let err = target_delete
+        .execute(delete_plan)
+        .expect_err("target delete should be blocked after replayed reverse index insert");
+    assert!(
+        err.message.contains("delete blocked by strong relation"),
+        "unexpected error: {err:?}",
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    // Phase 1: seed two targets and two source rows that both reference target A.
+    let target_a = Ulid::from_u128(9_501);
+    let target_b = Ulid::from_u128(9_502);
+    let source_1 = Ulid::from_u128(9_503);
+    let source_2 = Ulid::from_u128(9_504);
+
+    let target_save = SaveExecutor::<RelationTargetEntity>::new(REL_DB, false);
+    target_save
+        .insert(RelationTargetEntity { id: target_a })
+        .expect("target A save should succeed");
+    target_save
+        .insert(RelationTargetEntity { id: target_b })
+        .expect("target B save should succeed");
+
+    let source_save = SaveExecutor::<RelationSourceEntity>::new(REL_DB, false);
+    source_save
+        .insert(RelationSourceEntity {
+            id: source_1,
+            target: target_a,
+        })
+        .expect("source 1 save should succeed");
+    source_save
+        .insert(RelationSourceEntity {
+            id: source_2,
+            target: target_a,
+        })
+        .expect("source 2 save should succeed");
+
+    let seeded_reverse_rows = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        seeded_reverse_rows, 1,
+        "initially both referrers share one reverse entry on target A",
+    );
+
+    // Phase 2: persist a marker with a partial update in one block:
+    // - source 1 moves A -> B
+    // - source 2 stays on A (before==after relation value)
+    let source_1_key = crate::db::store::DataKey::try_new::<RelationSourceEntity>(source_1)
+        .expect("source 1 key should build")
+        .to_raw()
+        .expect("source 1 key should encode");
+    let source_2_key = crate::db::store::DataKey::try_new::<RelationSourceEntity>(source_2)
+        .expect("source 2 key should build")
+        .to_raw()
+        .expect("source 2 key should encode");
+
+    let source_1_before = crate::serialize::serialize(&RelationSourceEntity {
+        id: source_1,
+        target: target_a,
+    })
+    .expect("source 1 before row should serialize");
+    let source_1_after = crate::serialize::serialize(&RelationSourceEntity {
+        id: source_1,
+        target: target_b,
+    })
+    .expect("source 1 after row should serialize");
+    let source_2_same = crate::serialize::serialize(&RelationSourceEntity {
+        id: source_2,
+        target: target_a,
+    })
+    .expect("source 2 row should serialize");
+
+    let marker = CommitMarker::new(vec![
+        crate::db::CommitRowOp::new(
+            RelationSourceEntity::PATH,
+            source_1_key.as_bytes().to_vec(),
+            Some(source_1_before),
+            Some(source_1_after),
+        ),
+        crate::db::CommitRowOp::new(
+            RelationSourceEntity::PATH,
+            source_2_key.as_bytes().to_vec(),
+            Some(source_2_same.clone()),
+            Some(source_2_same),
+        ),
+    ])
+    .expect("commit marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be present before recovery replay",
+    );
+
+    // Phase 3: recovery replays row ops and reverse mutations from the marker.
+    ensure_recovered_for_write(&REL_DB).expect("recovery replay should succeed");
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after recovery replay",
+    );
+
+    let reverse_rows_after_replay = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_after_replay, 2,
+        "partial FK update should split reverse entries across old/new targets",
+    );
+
+    let delete_target_a = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(target_a)
+        .plan()
+        .expect("target A delete plan should build");
+    let blocked_delete_err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(delete_target_a)
+        .expect_err("target A should remain blocked by source 2");
+    assert!(
+        blocked_delete_err
+            .message
+            .contains("delete blocked by strong relation"),
+        "unexpected target A error: {blocked_delete_err:?}",
+    );
+
+    let delete_target_b = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(target_b)
+        .plan()
+        .expect("target B delete plan should build");
+    let blocked_delete_err = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(delete_target_b)
+        .expect_err("target B should be blocked by moved source 1");
+    assert!(
+        blocked_delete_err
+            .message
+            .contains("delete blocked by strong relation"),
+        "unexpected target B error: {blocked_delete_err:?}",
+    );
+
+    // Phase 4: remove remaining refs and ensure no orphan reverse entries remain.
+    let delete_source_2 = Query::<RelationSourceEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(source_2)
+        .plan()
+        .expect("source 2 delete plan should build");
+    DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false)
+        .execute(delete_source_2)
+        .expect("source 2 delete should succeed");
+
+    let retry_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(target_a)
+        .plan()
+        .expect("target A delete plan should build");
+    DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(retry_delete_plan)
+        .expect("target A should delete once source 2 is gone");
+
+    let delete_source_1 = Query::<RelationSourceEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(source_1)
+        .plan()
+        .expect("source 1 delete plan should build");
+    DeleteExecutor::<RelationSourceEntity>::new(REL_DB, false)
+        .execute(delete_source_1)
+        .expect("source 1 delete should succeed");
+
+    let retry_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(target_b)
+        .plan()
+        .expect("target B delete plan should build");
+    DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(retry_delete_plan)
+        .expect("target B should delete once source 1 is gone");
+
+    let final_reverse_rows = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        final_reverse_rows, 0,
+        "reverse index should be empty after all source refs are removed",
+    );
+}

@@ -9,7 +9,8 @@ mod structural_trace;
 
 use crate::{
     db::{
-        Context, Db, DbSession, StrongRelationDeleteValidator,
+        Context, Db, DbSession, PreparedRowCommitOp, RowCommitHandler,
+        StrongRelationDeleteValidator,
         commit::{
             CommitMarker, begin_commit, commit_marker_present, ensure_recovered_for_write,
             init_commit_store_for_tests,
@@ -548,8 +549,30 @@ static REL_DELETE_RELATION_VALIDATORS: &[StrongRelationDeleteValidator<RelationT
         validate_relation_source_delete_refs,
     )];
 
-static REL_DB: Db<RelationTestCanister> =
-    Db::new_with_relations(&REL_STORE_REGISTRY, REL_DELETE_RELATION_VALIDATORS, &[]);
+fn prepare_relation_target_row_op(
+    db: &Db<RelationTestCanister>,
+    op: &crate::db::CommitRowOp,
+) -> Result<PreparedRowCommitOp, crate::error::InternalError> {
+    crate::db::prepare_row_commit_for_entity::<RelationTargetEntity>(db, op)
+}
+
+fn prepare_relation_source_row_op(
+    db: &Db<RelationTestCanister>,
+    op: &crate::db::CommitRowOp,
+) -> Result<PreparedRowCommitOp, crate::error::InternalError> {
+    crate::db::prepare_row_commit_for_entity::<RelationSourceEntity>(db, op)
+}
+
+static REL_ROW_COMMIT_HANDLERS: &[RowCommitHandler<RelationTestCanister>] = &[
+    RowCommitHandler::new(RelationTargetEntity::PATH, prepare_relation_target_row_op),
+    RowCommitHandler::new(RelationSourceEntity::PATH, prepare_relation_source_row_op),
+];
+
+static REL_DB: Db<RelationTestCanister> = Db::new_with_relations(
+    &REL_STORE_REGISTRY,
+    REL_DELETE_RELATION_VALIDATORS,
+    REL_ROW_COMMIT_HANDLERS,
+);
 
 ///
 /// RelationTargetEntity
@@ -715,10 +738,16 @@ fn reset_relation_stores() {
     ensure_recovered_for_write(&REL_DB).expect("relation write-side recovery should succeed");
     REL_DB.with_store_registry(|reg| {
         reg.try_get_store(RelationSourceStore::PATH)
-            .map(|store| store.with_data_mut(DataStore::clear))
+            .map(|store| {
+                store.with_data_mut(DataStore::clear);
+                store.with_index_mut(IndexStore::clear);
+            })
             .expect("relation source store access should succeed");
         reg.try_get_store(RelationTargetStore::PATH)
-            .map(|store| store.with_data_mut(DataStore::clear))
+            .map(|store| {
+                store.with_data_mut(DataStore::clear);
+                store.with_index_mut(IndexStore::clear);
+            })
             .expect("relation target store access should succeed");
     });
 }

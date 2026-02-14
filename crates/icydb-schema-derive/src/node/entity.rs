@@ -86,6 +86,7 @@ impl Entity {
     }
 
     /// Validate index declarations against entity fields and naming constraints.
+    #[expect(clippy::too_many_lines)]
     fn validate_indexes(&self, entity_name: &str, def_ident: &Ident) -> Result<(), DarlingError> {
         // Per-index local validation.
         for index in &self.indexes {
@@ -135,6 +136,20 @@ impl Entity {
 
             // Use the same naming path as runtime index model generation.
             let index_name = index.generated_name(entity_name);
+            let uses_reserved_namespace = index_name.starts_with('~')
+                || index_name
+                    .split('|')
+                    .skip(1)
+                    .any(|segment| segment.starts_with('~'));
+            if uses_reserved_namespace {
+                return Err(with_index_span(
+                    DarlingError::custom(format!(
+                        "index name '{index_name}' uses reserved '~' namespace"
+                    )),
+                    index,
+                    def_ident,
+                ));
+            }
             if index_name.len() > MAX_INDEX_NAME_LEN {
                 return Err(with_index_span(
                     DarlingError::custom(format!(

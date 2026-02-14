@@ -1,0 +1,13 @@
+error: index name '~UiIndexedEntity|id' uses reserved '~' namespace
+  --> tests/ui/index_reserved_namespace.rs:14:1
+   |
+14 | / #[entity(
+15 | |     name = "~UiIndexedEntity",
+16 | |     store = "UiDataStore",
+17 | |     pk(field = "id"),
+18 | |     index(fields = "id"),
+19 | |     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
+20 | | )]
+   | |__^
+   |
+   = note: this error originates in the attribute macro `entity` (in Nightly builds, run with -Z macro-backtrace for more info)

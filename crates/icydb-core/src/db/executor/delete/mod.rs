@@ -178,6 +178,9 @@ where
             let index_remove_count = prepared_row_ops
                 .iter()
                 .fold(0usize, |acc, op| acc.saturating_add(op.index_remove_count));
+            let reverse_index_remove_count = prepared_row_ops.iter().fold(0usize, |acc, op| {
+                acc.saturating_add(op.reverse_index_remove_count)
+            });
             let marker = CommitMarker::new(row_ops)?;
             let commit = begin_commit(marker)?;
             commit_started = true;
@@ -194,6 +197,14 @@ where
                         entity_path: E::PATH,
                         inserts: 0,
                         removes,
+                    });
+
+                    let reverse_removes =
+                        u64::try_from(reverse_index_remove_count).unwrap_or(u64::MAX);
+                    sink::record(MetricsEvent::ReverseIndexDelta {
+                        entity_path: E::PATH,
+                        inserts: 0,
+                        removes: reverse_removes,
                     });
                 },
                 || {},

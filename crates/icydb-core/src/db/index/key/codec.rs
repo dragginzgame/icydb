@@ -88,6 +88,17 @@ impl IndexKey {
             values,
         })
     }
+
+    // System index keys reserve a first index field that starts with `~`.
+    #[must_use]
+    pub(crate) fn uses_system_namespace(&self) -> bool {
+        self.index_id
+            .0
+            .as_str()
+            .split('|')
+            .nth(1)
+            .is_some_and(|field| field.starts_with('~'))
+    }
 }
 
 ///
@@ -266,5 +277,18 @@ mod tests {
                 assert_eq!(raw.as_bytes(), reencoded.as_bytes());
             }
         }
+    }
+
+    #[test]
+    fn index_key_detects_system_namespace() {
+        let entity = EntityName::try_from_str("entity").expect("entity name should parse");
+
+        let user_id = IndexId(IndexName::try_from_parts(&entity, &["email"]).expect("index name"));
+        let user_key = IndexKey::empty(user_id);
+        assert!(!user_key.uses_system_namespace());
+
+        let system_id = IndexId(IndexName::try_from_parts(&entity, &["~ri"]).expect("index name"));
+        let system_key = IndexKey::empty(system_id);
+        assert!(system_key.uses_system_namespace());
     }
 }
