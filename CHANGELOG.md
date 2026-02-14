@@ -16,7 +16,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🍇 Breaking
 
-* This release continues the no-shim transition: downstream code must use unified `Store`/`StoreRegistry` surfaces and should not expect compatibility aliases for legacy `DataStore`/`IndexStore` split APIs.
 * User-defined index names in the reserved `~` namespace are now rejected during schema derive validation.
 
 ---

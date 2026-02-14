@@ -7,19 +7,6 @@ No implicit transactional behavior is introduced.
 
 ---
 
-## Progress Snapshot (as of 2026-02-14)
-
-Estimated completion toward the `0.9.x` goals in this plan:
-
-* Strong Referential Integrity - Delete-Time Validation: **~70%**
-* Explicit Transaction Semantics (Opt-In Surface): **~15%**
-* Pagination Efficiency Without Semantic Drift: **~35%**
-* Contract Hardening and Diagnostics: **~75%**
-
-Overall estimated progress: **~50%**
-
----
-
 ### 1. Strong Referential Integrity - Delete-Time Validation
 
 IcyDB 0.9 will enforce delete-time referential integrity for schema-declared

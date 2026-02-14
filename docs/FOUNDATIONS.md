@@ -18,6 +18,46 @@ Normative specifications live in:
 - `docs/IDENTITY_CONTRACT.md`
 
 ---
+Short answer: **yes — but surgically, not philosophically.**
+
+Your Foundations document is strong. It is internally coherent and database-theory clean.
+What it does *not* yet make explicit is the **execution substrate constraint** that drives many of your design choices.
+
+Right now it reads like a principled embedded database.
+
+It does *not yet clearly read like an engine designed for a deterministic Wasm actor running on the Internet Computer.*
+
+That distinction matters long-term.
+
+---
+
+## 0. Execution Environment Assumptions
+
+IcyDB is designed for deterministic, single-threaded execution environments.
+
+In particular, it assumes:
+
+* Wasm-based execution
+* Single-threaded actors
+* Deterministic replay
+* Explicit stable-memory persistence
+* No shared memory across instances
+* No background threads or asynchronous maintenance tasks
+* Message-bound execution with bounded instruction limits
+
+These assumptions influence:
+
+* The strict separation of intent → plan → execute
+* The absence of relational joins
+* The requirement for bounded validation cost
+* The use of explicit commit markers
+* The avoidance of implicit traversal or cascading semantics
+* The deterministic recovery model
+
+Where substrate constraints conflict with traditional database expectations,
+substrate constraints take precedence.
+
+---
 
 ## 1. What IcyDB is (and is not)
 
