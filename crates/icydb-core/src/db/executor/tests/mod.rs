@@ -33,9 +33,9 @@ use crate::{
     test_fixtures::entity_model_from_static,
     test_support::test_memory,
     traits::{
-        AsView, CanisterKind, DataStoreKind, EntityIdentity, EntityKey, EntityKind,
-        EntityPlacement, EntitySchema, EntityValue, Path, SanitizeAuto, SanitizeCustom,
-        SingletonEntity, ValidateAuto, ValidateCustom, Visitable,
+        AsView, CanisterKind, EntityIdentity, EntityKey, EntityKind, EntityPlacement, EntitySchema,
+        EntityValue, Path, SanitizeAuto, SanitizeCustom, SingletonEntity, StoreKind, ValidateAuto,
+        ValidateCustom, Visitable,
     },
     types::{Id, Ulid},
     value::Value,
@@ -66,7 +66,7 @@ impl Path for TestDataStore {
     const PATH: &'static str = "executor_tests::TestDataStore";
 }
 
-impl DataStoreKind for TestDataStore {
+impl StoreKind for TestDataStore {
     type Canister = TestCanister;
 }
 
@@ -173,7 +173,7 @@ impl EntitySchema for SimpleEntity {
 }
 
 impl EntityPlacement for SimpleEntity {
-    type DataStore = TestDataStore;
+    type Store = TestDataStore;
     type Canister = TestCanister;
 }
 
@@ -253,7 +253,7 @@ impl EntitySchema for SingletonUnitEntity {
 }
 
 impl EntityPlacement for SingletonUnitEntity {
-    type DataStore = TestDataStore;
+    type Store = TestDataStore;
     type Canister = TestCanister;
 }
 
@@ -352,7 +352,7 @@ impl EntitySchema for PhaseEntity {
 }
 
 impl EntityPlacement for PhaseEntity {
-    type DataStore = TestDataStore;
+    type Store = TestDataStore;
     type Canister = TestCanister;
 }
 
@@ -392,7 +392,7 @@ impl Path for RelationSourceStore {
     const PATH: &'static str = "executor_tests::RelationSourceStore";
 }
 
-impl DataStoreKind for RelationSourceStore {
+impl StoreKind for RelationSourceStore {
     type Canister = RelationTestCanister;
 }
 
@@ -406,7 +406,7 @@ impl Path for RelationTargetStore {
     const PATH: &'static str = "executor_tests::RelationTargetStore";
 }
 
-impl DataStoreKind for RelationTargetStore {
+impl StoreKind for RelationTargetStore {
     type Canister = RelationTestCanister;
 }
 
@@ -507,7 +507,7 @@ impl EntitySchema for RelationTargetEntity {
 }
 
 impl EntityPlacement for RelationTargetEntity {
-    type DataStore = RelationTargetStore;
+    type Store = RelationTargetStore;
     type Canister = RelationTestCanister;
 }
 
@@ -593,7 +593,7 @@ impl EntitySchema for RelationSourceEntity {
 }
 
 impl EntityPlacement for RelationSourceEntity {
-    type DataStore = RelationSourceStore;
+    type Store = RelationSourceStore;
     type Canister = RelationTestCanister;
 }
 

@@ -40,8 +40,7 @@ where
     // ------------------------------------------------------------------
 
     pub fn with_store<R>(&self, f: impl FnOnce(&DataStore) -> R) -> Result<R, InternalError> {
-        self.db
-            .with_data(|reg| reg.with_store(E::DataStore::PATH, f))
+        self.db.with_data(|reg| reg.with_store(E::Store::PATH, f))
     }
 
     // ------------------------------------------------------------------

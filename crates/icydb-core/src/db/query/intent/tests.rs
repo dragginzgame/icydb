@@ -12,9 +12,9 @@ use crate::{
     },
     test_fixtures::entity_model_from_static,
     traits::{
-        AsView, CanisterKind, DataStoreKind, EntityIdentity, EntityKey, EntityKind,
-        EntityPlacement, EntitySchema, EntityValue, FieldValue, FieldValues, Path, SanitizeAuto,
-        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        AsView, CanisterKind, EntityIdentity, EntityKey, EntityKind, EntityPlacement, EntitySchema,
+        EntityValue, FieldValue, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
+        ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Id, Ulid, Unit},
     value::Value,
@@ -188,7 +188,7 @@ impl Path for PlanDataStore {
     const PATH: &'static str = "intent_tests::PlanDataStore";
 }
 
-impl DataStoreKind for PlanDataStore {
+impl StoreKind for PlanDataStore {
     type Canister = PlanCanister;
 }
 
@@ -199,7 +199,7 @@ impl EntitySchema for PlanEntity {
 }
 
 impl EntityPlacement for PlanEntity {
-    type DataStore = PlanDataStore;
+    type Store = PlanDataStore;
     type Canister = PlanCanister;
 }
 
@@ -212,7 +212,7 @@ impl EntitySchema for PlanSingleton {
 }
 
 impl EntityPlacement for PlanSingleton {
-    type DataStore = PlanDataStore;
+    type Store = PlanDataStore;
     type Canister = PlanCanister;
 }
 

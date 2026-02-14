@@ -69,9 +69,9 @@ impl Imp<Entity> for EntityKindTrait {
 
         let placement_tokens = Implementor::new(&node.def, TraitKind::EntityPlacement)
             .set_tokens(quote! {
-                type DataStore = #store;
+                type Store = #store;
                 type Canister =
-                    <Self::DataStore as ::icydb::traits::DataStoreKind>::Canister;
+                    <Self::Store as ::icydb::traits::StoreKind>::Canister;
             })
             .to_token_stream();
 

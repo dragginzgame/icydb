@@ -4,13 +4,13 @@ pub use aliases::*;
 
 pub use icydb_core::traits::{
     Add, AddAssign, AsView as CoreAsView, Atomic, CanisterKind, Collection,
-    CreateView as CoreCreateView, DataStoreKind, Debug, Default, Deserialize, DeserializeOwned,
-    Div, DivAssign, EntityIdentity, EntityKey, EntityKeyBytes, EntityKind, EntityPlacement,
-    EntitySchema, EntityValue, EnumValue, Eq, FieldValue, FieldValueKind, FieldValues, From, Hash,
-    IndexStoreKind, Inner, Kind, MapCollection, Mul, MulAssign, NumCast, NumFromPrimitive,
-    NumToPrimitive, Ordering, PartialEq, Path, Rem, Sanitize, SanitizeAuto, SanitizeCustom,
-    Sanitizer, Serialize, SingletonEntity, Storable, Sub, SubAssign, TypeKind,
-    UpdateView as CoreUpdateView, Validate, ValidateAuto, ValidateCustom, Validator, Visitable,
+    CreateView as CoreCreateView, Debug, Default, Deserialize, DeserializeOwned, Div, DivAssign,
+    EntityIdentity, EntityKey, EntityKeyBytes, EntityKind, EntityPlacement, EntitySchema,
+    EntityValue, EnumValue, Eq, FieldValue, FieldValueKind, FieldValues, From, Hash, Inner, Kind,
+    MapCollection, Mul, MulAssign, NumCast, NumFromPrimitive, NumToPrimitive, Ordering, PartialEq,
+    Path, Rem, Sanitize, SanitizeAuto, SanitizeCustom, Sanitizer, Serialize, SingletonEntity,
+    Storable, StoreKind, Sub, SubAssign, TypeKind, UpdateView as CoreUpdateView, Validate,
+    ValidateAuto, ValidateCustom, Validator, Visitable,
 };
 
 use crate::error::Error;

@@ -10,7 +10,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin},
     test_support::test_memory,
-    traits::{CanisterKind, DataStoreKind, Path},
+    traits::{CanisterKind, Path, StoreKind},
 };
 use std::cell::RefCell;
 
@@ -36,7 +36,7 @@ impl Path for RecoveryTestDataStore {
     const PATH: &'static str = "commit_tests::RecoveryTestDataStore";
 }
 
-impl DataStoreKind for RecoveryTestDataStore {
+impl StoreKind for RecoveryTestDataStore {
     type Canister = RecoveryTestCanister;
 }
 

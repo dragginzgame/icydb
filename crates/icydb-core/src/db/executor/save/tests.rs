@@ -14,9 +14,9 @@ use crate::{
     test_fixtures::entity_model_from_static,
     test_support::test_memory,
     traits::{
-        AsView, CanisterKind, DataStoreKind, EntityIdentity, EntityKey, EntityKind,
-        EntityPlacement, EntitySchema, EntityValue, Path, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, Visitable,
+        AsView, CanisterKind, EntityIdentity, EntityKey, EntityKind, EntityPlacement, EntitySchema,
+        EntityValue, Path, SanitizeAuto, SanitizeCustom, StoreKind, ValidateAuto, ValidateCustom,
+        Visitable,
     },
     types::{Id, Ulid},
 };
@@ -46,7 +46,7 @@ impl Path for SourceStore {
     const PATH: &'static str = "save_tests::SourceStore";
 }
 
-impl DataStoreKind for SourceStore {
+impl StoreKind for SourceStore {
     type Canister = TestCanister;
 }
 
@@ -60,7 +60,7 @@ impl Path for TargetStore {
     const PATH: &'static str = "save_tests::TargetStore";
 }
 
-impl DataStoreKind for TargetStore {
+impl StoreKind for TargetStore {
     type Canister = TestCanister;
 }
 
@@ -165,7 +165,7 @@ impl EntitySchema for TargetEntity {
 }
 
 impl EntityPlacement for TargetEntity {
-    type DataStore = TargetStore;
+    type Store = TargetStore;
     type Canister = TestCanister;
 }
 
@@ -251,7 +251,7 @@ impl EntitySchema for SourceEntity {
 }
 
 impl EntityPlacement for SourceEntity {
-    type DataStore = SourceStore;
+    type Store = SourceStore;
     type Canister = TestCanister;
 }
 
@@ -338,7 +338,7 @@ impl EntitySchema for SourceSetEntity {
 }
 
 impl EntityPlacement for SourceSetEntity {
-    type DataStore = SourceStore;
+    type Store = SourceStore;
     type Canister = TestCanister;
 }
 
@@ -425,7 +425,7 @@ impl EntitySchema for UniqueEmailEntity {
 }
 
 impl EntityPlacement for UniqueEmailEntity {
-    type DataStore = SourceStore;
+    type Store = SourceStore;
     type Canister = TestCanister;
 }
 
@@ -505,7 +505,7 @@ impl EntitySchema for MismatchedPkEntity {
 }
 
 impl EntityPlacement for MismatchedPkEntity {
-    type DataStore = SourceStore;
+    type Store = SourceStore;
     type Canister = TestCanister;
 }
 

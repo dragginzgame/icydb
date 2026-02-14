@@ -4,7 +4,7 @@ mod metrics;
 
 use icydb_schema::{
     build::get_schema,
-    node::{Canister, DataStore, Entity, IndexStore, Schema},
+    node::{Canister, Entity, Schema, Store},
 };
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -59,22 +59,11 @@ impl ActorBuilder {
 
     /// All stores belonging to the current canister, keyed by path.
     #[must_use]
-    pub fn get_data_stores(&self) -> Vec<(String, DataStore)> {
+    pub fn get_stores(&self) -> Vec<(String, Store)> {
         let canister_path = self.canister.def.path();
 
         self.schema
-            .filter_nodes::<DataStore>(|node| node.canister == canister_path)
-            .map(|(path, store)| (path.to_string(), store.clone()))
-            .collect()
-    }
-
-    /// All stores belonging to the current canister, keyed by path.
-    #[must_use]
-    pub fn get_index_stores(&self) -> Vec<(String, IndexStore)> {
-        let canister_path = self.canister.def.path();
-
-        self.schema
-            .filter_nodes::<IndexStore>(|node| node.canister == canister_path)
+            .filter_nodes::<Store>(|node| node.canister == canister_path)
             .map(|(path, store)| (path.to_string(), store.clone()))
             .collect()
     }
@@ -87,7 +76,7 @@ impl ActorBuilder {
         self.schema
             .get_nodes::<Entity>()
             .filter_map(|(path, entity)| {
-                let store = self.schema.cast_node::<DataStore>(entity.store).ok()?;
+                let store = self.schema.cast_node::<Store>(entity.store).ok()?;
                 if store.canister == canister_path {
                     Some((path.to_string(), entity.clone()))
                 } else {

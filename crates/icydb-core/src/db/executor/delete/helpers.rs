@@ -91,7 +91,7 @@ where
         for op in ops {
             let raw_key = validate_marker_data_op(
                 op,
-                E::DataStore::PATH,
+                E::Store::PATH,
                 DataKey::STORED_SIZE_USIZE,
                 MarkerDataOpMode::DeleteRemove,
                 E::PATH,

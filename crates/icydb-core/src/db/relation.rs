@@ -110,7 +110,7 @@ where
         return Ok(());
     }
 
-    let source_store = db.with_data(|reg| reg.try_get_store(S::DataStore::PATH))?;
+    let source_store = db.with_data(|reg| reg.try_get_store(S::Store::PATH))?;
     source_store.with_borrow(|store| {
         validate_source_store_rows::<S>(store, target_path, deleted_target_keys)
     })

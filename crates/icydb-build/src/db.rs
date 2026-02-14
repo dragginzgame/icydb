@@ -15,14 +15,15 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
     let mut index_defs = quote!();
     let mut data_inits = quote!();
     let mut index_inits = quote!();
+    let stores = builder.get_stores();
     // -------------------------
     // Data stores
     // -------------------------
 
-    for (store_path, store) in builder.get_data_stores() {
-        let cell_ident = format_ident!("{}", store.ident);
-        let memory_id = store.memory_id;
-        let store_path_lit = store_path;
+    for (store_path, store) in &stores {
+        let cell_ident = format_ident!("{}_DATA", store.ident);
+        let memory_id = store.data_memory_id;
+        let store_path_lit = store_path.as_str();
 
         data_defs.extend(quote! {
             ::icydb::__reexports::canic_memory::eager_static! {
@@ -48,10 +49,10 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
     // Index stores
     // -------------------------
 
-    for (store_path, store) in builder.get_index_stores() {
-        let cell_ident = format_ident!("{}", store.ident);
-        let entry_memory_id = store.entry_memory_id;
-        let store_path_lit = store_path;
+    for (store_path, store) in &stores {
+        let cell_ident = format_ident!("{}_INDEX", store.ident);
+        let entry_memory_id = store.index_memory_id;
+        let store_path_lit = store_path.as_str();
 
         index_defs.extend(quote! {
             ::icydb::__reexports::canic_memory::eager_static! {

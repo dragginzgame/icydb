@@ -51,12 +51,7 @@ impl<T> Kind for T where T: Path + 'static {}
 pub trait CanisterKind: Kind {}
 
 /// Marker for data stores bound to a canister.
-pub trait DataStoreKind: Kind {
-    type Canister: CanisterKind;
-}
-
-/// Marker for index stores bound to a canister.
-pub trait IndexStoreKind: Kind {
+pub trait StoreKind: Kind {
     type Canister: CanisterKind;
 }
 
@@ -162,7 +157,7 @@ pub trait EntitySchema: EntityIdentity {
 ///
 
 pub trait EntityPlacement {
-    type DataStore: DataStoreKind;
+    type Store: StoreKind;
     type Canister: CanisterKind;
 }
 

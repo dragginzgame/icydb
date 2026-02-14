@@ -167,9 +167,7 @@ where
 
             // Preflight store access to ensure no fallible work remains post-commit.
             ctx.with_store(|_| ())?;
-            let data_store = self
-                .db
-                .with_data(|reg| reg.try_get_store(E::DataStore::PATH))?;
+            let data_store = self.db.with_data(|reg| reg.try_get_store(E::Store::PATH))?;
 
             let mut rollback_rows = BTreeMap::new();
             let data_ops = rows
@@ -185,7 +183,7 @@ where
                     })?;
                     rollback_rows.insert(raw_key, raw_row);
                     Ok(CommitDataOp {
-                        store: E::DataStore::PATH.to_string(),
+                        store: E::Store::PATH.to_string(),
                         key: raw_key.as_bytes().to_vec(),
                         value: None,
                     })

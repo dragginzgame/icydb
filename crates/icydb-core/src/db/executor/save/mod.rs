@@ -302,7 +302,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             let index_plan =
                 plan_index_mutation_for_entity::<E>(&self.db, old.as_ref(), Some(&entity))?;
             let data_op = CommitDataOp {
-                store: E::DataStore::PATH.to_string(),
+                store: E::Store::PATH.to_string(),
                 key: raw_key.as_bytes().to_vec(),
                 value: Some(row.as_bytes().to_vec()),
             };
@@ -312,9 +312,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             let (index_removes, index_inserts) = Self::plan_index_metrics(old.as_ref(), &entity)?;
             let data_rollback_ops = Self::prepare_data_save_ops(&marker.data_ops, old_raw)?;
             validate_index_apply_stores_len(&marker, index_apply_stores.len(), E::PATH)?;
-            let data_store = self
-                .db
-                .with_data(|reg| reg.try_get_store(E::DataStore::PATH))?;
+            let data_store = self.db.with_data(|reg| reg.try_get_store(E::Store::PATH))?;
             let prepared_apply = PreparedMarkerApply {
                 index_apply_stores,
                 index_rollback_ops,

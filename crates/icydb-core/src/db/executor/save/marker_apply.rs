@@ -89,7 +89,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         let op = &ops[0];
         let raw_key = validate_marker_data_op(
             op,
-            E::DataStore::PATH,
+            E::Store::PATH,
             DataKey::STORED_SIZE_USIZE,
             MarkerDataOpMode::SaveUpsert,
             E::PATH,

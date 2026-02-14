@@ -44,7 +44,7 @@ pub fn model_kind_from_item(item: &Item) -> TokenStream {
             target_path: <#target as ::icydb::traits::Path>::PATH,
             target_entity_name: <#target as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
             target_store_path:
-                <<#target as ::icydb::traits::EntityPlacement>::DataStore as ::icydb::traits::Path>::PATH,
+                <<#target as ::icydb::traits::EntityPlacement>::Store as ::icydb::traits::Path>::PATH,
             key_kind: &#key_kind,
             strength: #strength,
         }

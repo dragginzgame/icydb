@@ -54,12 +54,11 @@ pub enum TraitKind {
 
     // kind
     CanisterKind,
-    DataStoreKind,
+    StoreKind,
     EntityIdentity,
     EntitySchema,
     EntityPlacement,
     EntityKind,
-    IndexStoreKind,
 
     // value
     EntityValue,

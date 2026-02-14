@@ -66,14 +66,14 @@ impl HasSchemaPart for Store {
 impl HasTraits for Store {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = TraitBuilder::default().build();
-        traits.add(TraitKind::DataStoreKind);
+        traits.add(TraitKind::StoreKind);
 
         traits.into_vec()
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::DataStoreKind => DataStoreKindTrait::strategy(self),
+            TraitKind::StoreKind => StoreKindTrait::strategy(self),
             _ => None,
         }
     }
