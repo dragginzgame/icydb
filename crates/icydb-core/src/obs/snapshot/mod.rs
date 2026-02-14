@@ -127,62 +127,66 @@ pub fn storage_report<C: CanisterKind>(
     let mut corrupted_keys = 0u64;
     let mut corrupted_entries = 0u64;
 
-    db.with_data(|reg| {
-        reg.for_each(|path, store| {
-            data.push(DataStoreSnapshot {
-                path: path.to_string(),
-                entries: store.len(),
-                memory_bytes: store.memory_bytes(),
-            });
-
-            // Track per-entity counts, memory, and min/max Keys (not DataKeys)
-            let mut by_entity: BTreeMap<EntityName, EntityStats> = BTreeMap::new();
-
-            for entry in store.iter() {
-                let Ok(dk) = DataKey::try_from_raw(entry.key()) else {
-                    corrupted_keys = corrupted_keys.saturating_add(1);
-                    continue;
-                };
-
-                let value_len = entry.value().len() as u64;
-
-                by_entity
-                    .entry(*dk.entity_name())
-                    .or_default()
-                    .update(&dk, value_len);
-            }
-
-            for (entity_name, stats) in by_entity {
-                let path_name = name_map.get(entity_name.as_str()).copied().unwrap_or("");
-                entity_storage.push(EntitySnapshot {
-                    store: path.to_string(),
-                    path: path_name.to_string(),
-                    entries: stats.entries,
-                    memory_bytes: stats.memory_bytes,
-                    min_key: stats.min_key.map(|key| key.as_value()),
-                    max_key: stats.max_key.map(|key| key.as_value()),
+    db.with_store_registry(|reg| {
+        reg.iter().for_each(|(path, store_handle)| {
+            store_handle.with_data(|store| {
+                data.push(DataStoreSnapshot {
+                    path: path.to_string(),
+                    entries: store.len(),
+                    memory_bytes: store.memory_bytes(),
                 });
-            }
+
+                // Track per-entity counts, memory, and min/max Keys (not DataKeys)
+                let mut by_entity: BTreeMap<EntityName, EntityStats> = BTreeMap::new();
+
+                for entry in store.iter() {
+                    let Ok(dk) = DataKey::try_from_raw(entry.key()) else {
+                        corrupted_keys = corrupted_keys.saturating_add(1);
+                        continue;
+                    };
+
+                    let value_len = entry.value().len() as u64;
+
+                    by_entity
+                        .entry(*dk.entity_name())
+                        .or_default()
+                        .update(&dk, value_len);
+                }
+
+                for (entity_name, stats) in by_entity {
+                    let path_name = name_map.get(entity_name.as_str()).copied().unwrap_or("");
+                    entity_storage.push(EntitySnapshot {
+                        store: path.to_string(),
+                        path: path_name.to_string(),
+                        entries: stats.entries,
+                        memory_bytes: stats.memory_bytes,
+                        min_key: stats.min_key.map(|key| key.as_value()),
+                        max_key: stats.max_key.map(|key| key.as_value()),
+                    });
+                }
+            });
         });
     });
 
-    db.with_index(|reg| {
-        reg.for_each(|path, store| {
-            index.push(IndexStoreSnapshot {
-                path: path.to_string(),
-                entries: store.len(),
-                memory_bytes: store.memory_bytes(),
-            });
+    db.with_store_registry(|reg| {
+        reg.iter().for_each(|(path, store_handle)| {
+            store_handle.with_index(|store| {
+                index.push(IndexStoreSnapshot {
+                    path: path.to_string(),
+                    entries: store.len(),
+                    memory_bytes: store.memory_bytes(),
+                });
 
-            for (key, value) in store.entries() {
-                if IndexKey::try_from_raw(&key).is_err() {
-                    corrupted_entries = corrupted_entries.saturating_add(1);
-                    continue;
+                for (key, value) in store.entries() {
+                    if IndexKey::try_from_raw(&key).is_err() {
+                        corrupted_entries = corrupted_entries.saturating_add(1);
+                        continue;
+                    }
+                    if value.validate().is_err() {
+                        corrupted_entries = corrupted_entries.saturating_add(1);
+                    }
                 }
-                if value.validate().is_err() {
-                    corrupted_entries = corrupted_entries.saturating_add(1);
-                }
-            }
+            });
         });
     });
 
@@ -200,9 +204,9 @@ mod tests {
     use crate::{
         db::{
             Db,
-            index::{IndexId, IndexKey, IndexStore, IndexStoreRegistry, RawIndexEntry},
+            index::{IndexId, IndexKey, IndexStore, RawIndexEntry},
             init_commit_store_for_tests,
-            store::{DataKey, DataStore, DataStoreRegistry, RawRow},
+            store::{DataKey, DataStore, RawRow, StoreRegistry},
         },
         obs::snapshot::storage_report,
         test_support::test_memory,
@@ -210,8 +214,7 @@ mod tests {
     };
     use std::{borrow::Cow, cell::RefCell};
 
-    const DATA_STORE_PATH: &str = "snapshot_tests::DataStore";
-    const INDEX_STORE_PATH: &str = "snapshot_tests::IndexStore";
+    const STORE_PATH: &str = "snapshot_tests::Store";
 
     struct SnapshotTestCanister;
 
@@ -225,27 +228,21 @@ mod tests {
         static SNAPSHOT_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(101)));
         static SNAPSHOT_INDEX_STORE: RefCell<IndexStore> =
             RefCell::new(IndexStore::init(test_memory(102)));
-        static SNAPSHOT_DATA_REGISTRY: DataStoreRegistry = {
-            let mut reg = DataStoreRegistry::new();
-            reg.register(DATA_STORE_PATH, &SNAPSHOT_DATA_STORE);
-            reg
-        };
-        static SNAPSHOT_INDEX_REGISTRY: IndexStoreRegistry = {
-            let mut reg = IndexStoreRegistry::new();
-            reg.register(INDEX_STORE_PATH, &SNAPSHOT_INDEX_STORE);
+        static SNAPSHOT_STORE_REGISTRY: StoreRegistry = {
+            let mut reg = StoreRegistry::new();
+            reg.register_store(STORE_PATH, &SNAPSHOT_DATA_STORE, &SNAPSHOT_INDEX_STORE);
             reg
         };
     }
 
-    static DB: Db<SnapshotTestCanister> =
-        Db::new(&SNAPSHOT_DATA_REGISTRY, &SNAPSHOT_INDEX_REGISTRY);
+    static DB: Db<SnapshotTestCanister> = Db::new(&SNAPSHOT_STORE_REGISTRY);
 
     fn reset_snapshot_state() {
         init_commit_store_for_tests().expect("commit store init should succeed");
 
-        DB.with_data(|reg| reg.with_store_mut(DATA_STORE_PATH, DataStore::clear))
+        DB.with_store_registry(|reg| reg.with_data_store_mut(STORE_PATH, DataStore::clear))
             .expect("data store reset should succeed");
-        DB.with_index(|reg| reg.with_store_mut(INDEX_STORE_PATH, IndexStore::clear))
+        DB.with_store_registry(|reg| reg.with_index_store_mut(STORE_PATH, IndexStore::clear))
             .expect("index store reset should succeed");
     }
 
@@ -255,10 +252,10 @@ mod tests {
 
         let report = storage_report(&DB, &[]).expect("storage report should succeed");
         assert_eq!(report.storage_data.len(), 1);
-        assert_eq!(report.storage_data[0].path, DATA_STORE_PATH);
+        assert_eq!(report.storage_data[0].path, STORE_PATH);
         assert_eq!(report.storage_data[0].entries, 0);
         assert_eq!(report.storage_index.len(), 1);
-        assert_eq!(report.storage_index[0].path, INDEX_STORE_PATH);
+        assert_eq!(report.storage_index[0].path, STORE_PATH);
         assert_eq!(report.storage_index[0].entries, 0);
         assert!(report.entity_storage.is_empty());
         assert_eq!(report.corrupted_keys, 0);
@@ -273,8 +270,8 @@ mod tests {
             .to_raw()
             .expect("max storable data key should encode");
         let row = RawRow::try_new(vec![1, 2, 3]).expect("row bytes should be valid");
-        DB.with_data(|reg| {
-            reg.with_store_mut(DATA_STORE_PATH, |store| {
+        DB.with_store_registry(|reg| {
+            reg.with_data_store_mut(STORE_PATH, |store| {
                 store.insert(data_key, row);
             })
         })
@@ -282,8 +279,8 @@ mod tests {
 
         let index_key = IndexKey::empty(IndexId::max_storable()).to_raw();
         let malformed_index_entry = RawIndexEntry::from_bytes(Cow::Owned(vec![0, 0, 0, 0]));
-        DB.with_index(|reg| {
-            reg.with_store_mut(INDEX_STORE_PATH, |store| {
+        DB.with_store_registry(|reg| {
+            reg.with_index_store_mut(STORE_PATH, |store| {
                 store.insert(index_key, malformed_index_entry);
             })
         })

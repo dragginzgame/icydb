@@ -312,7 +312,9 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             let (index_removes, index_inserts) = Self::plan_index_metrics(old.as_ref(), &entity)?;
             let data_rollback_ops = Self::prepare_data_save_ops(&marker.data_ops, old_raw)?;
             validate_index_apply_stores_len(&marker, index_apply_stores.len(), E::PATH)?;
-            let data_store = self.db.with_data(|reg| reg.try_get_store(E::Store::PATH))?;
+            let data_store = self
+                .db
+                .with_store_registry(|reg| reg.try_get_data_store(E::Store::PATH))?;
             let prepared_apply = PreparedMarkerApply {
                 index_apply_stores,
                 index_rollback_ops,

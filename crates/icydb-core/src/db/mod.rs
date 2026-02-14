@@ -14,13 +14,12 @@ pub use relation::{StrongRelationDeleteValidator, validate_delete_strong_relatio
 use crate::{
     db::{
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor},
-        index::IndexStoreRegistry,
         query::{
             Query, QueryError, QueryMode, ReadConsistency, SessionDeleteQuery, SessionLoadQuery,
             plan::PlanError,
         },
         response::{Response, WriteBatchResponse, WriteResponse},
-        store::{DataStoreRegistry, RawDataKey},
+        store::{RawDataKey, StoreRegistry},
     },
     error::InternalError,
     obs::sink::{self, MetricsSink},
@@ -37,30 +36,24 @@ use crate::db::{index::IndexStore, store::DataStore};
 /// A handle to the set of stores registered for a specific canister domain.
 ///
 pub struct Db<C: CanisterKind> {
-    data: &'static LocalKey<DataStoreRegistry>,
-    index: &'static LocalKey<IndexStoreRegistry>,
+    store: &'static LocalKey<StoreRegistry>,
     delete_relation_validators: &'static [StrongRelationDeleteValidator<C>],
     _marker: PhantomData<C>,
 }
 
 impl<C: CanisterKind> Db<C> {
     #[must_use]
-    pub const fn new(
-        data: &'static LocalKey<DataStoreRegistry>,
-        index: &'static LocalKey<IndexStoreRegistry>,
-    ) -> Self {
-        Self::new_with_relations(data, index, &[])
+    pub const fn new(store: &'static LocalKey<StoreRegistry>) -> Self {
+        Self::new_with_relations(store, &[])
     }
 
     #[must_use]
     pub const fn new_with_relations(
-        data: &'static LocalKey<DataStoreRegistry>,
-        index: &'static LocalKey<IndexStoreRegistry>,
+        store: &'static LocalKey<StoreRegistry>,
         delete_relation_validators: &'static [StrongRelationDeleteValidator<C>],
     ) -> Self {
         Self {
-            data,
-            index,
+            store,
             delete_relation_validators,
             _marker: PhantomData,
         }
@@ -96,15 +89,11 @@ impl<C: CanisterKind> Db<C> {
         path: &'static str,
         f: impl FnOnce(&mut DataStore) -> R,
     ) -> Result<R, InternalError> {
-        self.with_data(|reg| reg.with_store_mut(path, f))
+        self.with_store_registry(|reg| reg.with_data_store_mut(path, f))
     }
 
-    pub(crate) fn with_data<R>(&self, f: impl FnOnce(&DataStoreRegistry) -> R) -> R {
-        self.data.with(|reg| f(reg))
-    }
-
-    pub(crate) fn with_index<R>(&self, f: impl FnOnce(&IndexStoreRegistry) -> R) -> R {
-        self.index.with(|reg| f(reg))
+    pub(crate) fn with_store_registry<R>(&self, f: impl FnOnce(&StoreRegistry) -> R) -> R {
+        self.store.with(|reg| f(reg))
     }
 
     // Validate strong relation constraints for delete-selected target keys.
@@ -387,17 +376,10 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(test)]
     #[doc(hidden)]
     pub fn clear_stores_for_tests(&self) {
-        // Data stores.
-        self.db.with_data(|reg| {
-            for (path, _) in reg.iter() {
-                let _ = reg.with_store_mut(path, DataStore::clear);
-            }
-        });
-
-        // Index stores.
-        self.db.with_index(|reg| {
-            for (path, _) in reg.iter() {
-                let _ = reg.with_store_mut(path, IndexStore::clear);
+        self.db.with_store_registry(|reg| {
+            for (_, store) in reg.iter() {
+                store.with_data_mut(DataStore::clear);
+                store.with_index_mut(IndexStore::clear);
             }
         });
     }

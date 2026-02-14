@@ -40,7 +40,8 @@ where
     // ------------------------------------------------------------------
 
     pub fn with_store<R>(&self, f: impl FnOnce(&DataStore) -> R) -> Result<R, InternalError> {
-        self.db.with_data(|reg| reg.with_store(E::Store::PATH, f))
+        self.db
+            .with_store_registry(|reg| reg.with_data_store(E::Store::PATH, f))
     }
 
     // ------------------------------------------------------------------
@@ -109,7 +110,9 @@ where
             })??,
 
             AccessPath::IndexPrefix { index, values } => {
-                let index_store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
+                let index_store = self
+                    .db
+                    .with_store_registry(|reg| reg.try_get_index_store(index.store))?;
                 index_store.with_borrow(|s| s.resolve_data_values::<E>(index, values))?
             }
         };

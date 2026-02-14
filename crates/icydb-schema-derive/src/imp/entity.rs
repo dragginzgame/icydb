@@ -22,8 +22,7 @@ impl Imp<Entity> for EntityKindTrait {
         let resolved_entity_name = node
             .name
             .as_ref()
-            .map(LitStr::value)
-            .unwrap_or_else(|| node.def.ident().to_string());
+            .map_or_else(|| node.def.ident().to_string(), LitStr::value);
 
         let entity_name = if let Some(name) = &node.name {
             quote!(#name)

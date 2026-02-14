@@ -1,8 +1,5 @@
 mod fingerprint_debug;
 mod lookup;
-mod registry;
-
-pub use registry::IndexStoreRegistry;
 
 use crate::{
     db::index::{

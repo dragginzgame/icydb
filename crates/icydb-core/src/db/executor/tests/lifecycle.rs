@@ -26,8 +26,8 @@ fn executor_save_then_delete_round_trip() {
         "commit marker should be cleared after delete"
     );
 
-    DB.with_data(|reg| {
-        reg.with_store(TestDataStore::PATH, |store| {
+    DB.with_store_registry(|reg| {
+        reg.with_data_store(TestDataStore::PATH, |store| {
             assert!(store.is_empty(), "store should be empty after delete");
         })
         .expect("store access should succeed");

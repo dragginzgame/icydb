@@ -9,4 +9,4 @@ pub use entry::{
     MAX_INDEX_ENTRY_KEYS, RawIndexEntry,
 };
 pub use key::{IndexId, IndexIdError, IndexKey, RawIndexKey};
-pub use store::{IndexStore, IndexStoreRegistry};
+pub use store::IndexStore;

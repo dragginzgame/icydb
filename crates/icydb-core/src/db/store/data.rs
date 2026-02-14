@@ -1,4 +1,4 @@
-use crate::db::store::{DataKey, RawDataKey, RawRow, StoreRegistry};
+use crate::db::store::{DataKey, RawDataKey, RawRow};
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
 use derive_more::{Deref, DerefMut};
 
@@ -8,23 +8,6 @@ use derive_more::{Deref, DerefMut};
 
 pub type DataRow = (DataKey, RawRow);
 
-///
-/// DataStoreRegistry
-///
-
-#[derive(Deref, DerefMut)]
-pub struct DataStoreRegistry(StoreRegistry<DataStore>);
-
-impl DataStoreRegistry {
-    /// Create an empty data store registry.
-    #[must_use]
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
-        Self(StoreRegistry::new())
-    }
-}
-
-///
 /// DataStore
 ///
 

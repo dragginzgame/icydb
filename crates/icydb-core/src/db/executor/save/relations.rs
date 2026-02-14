@@ -146,7 +146,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         // Phase 2: resolve the target store and confirm existence.
         let store = self
             .db
-            .with_data(|reg| reg.try_get_store(relation.target_store_path))
+            .with_store_registry(|reg| reg.try_get_data_store(relation.target_store_path))
             .map_err(|err| {
                 InternalError::new(
                     ErrorClass::InvariantViolation,

@@ -117,7 +117,9 @@ where
         E::INDEXES
             .iter()
             .map(|index| {
-                let store = self.db.with_index(|reg| reg.try_get_store(index.store))?;
+                let store = self
+                    .db
+                    .with_store_registry(|reg| reg.try_get_index_store(index.store))?;
                 Ok(IndexPlan { index, store })
             })
             .collect()

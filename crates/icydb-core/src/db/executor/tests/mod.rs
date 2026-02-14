@@ -17,13 +17,13 @@ use crate::{
             DeleteExecutor, LoadExecutor, SaveExecutor,
             trace::{QueryTraceEvent, QueryTraceSink, TracePhase},
         },
-        index::IndexStoreRegistry,
+        index::IndexStore,
         query::{
             IntentError, Query, QueryError, ReadConsistency,
             plan::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
             predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         },
-        store::{DataStore, DataStoreRegistry, RawDataKey},
+        store::{DataStore, RawDataKey, StoreRegistry},
         validate_delete_strong_relations_for_source,
     },
     model::{
@@ -72,16 +72,15 @@ impl StoreKind for TestDataStore {
 
 thread_local! {
     static DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(0)));
-    static DATA_REGISTRY: DataStoreRegistry = {
-        let mut reg = DataStoreRegistry::new();
-        reg.register(TestDataStore::PATH, &DATA_STORE);
+    static INDEX_STORE: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(1)));
+    static STORE_REGISTRY: StoreRegistry = {
+        let mut reg = StoreRegistry::new();
+        reg.register_store(TestDataStore::PATH, &DATA_STORE, &INDEX_STORE);
         reg
     };
-    static INDEX_REGISTRY: crate::db::index::IndexStoreRegistry =
-        crate::db::index::IndexStoreRegistry::new();
 }
 
-static DB: Db<TestCanister> = Db::new(&DATA_REGISTRY, &INDEX_REGISTRY);
+static DB: Db<TestCanister> = Db::new(&STORE_REGISTRY);
 
 static TRACE_EVENTS: Mutex<Vec<QueryTraceEvent>> = Mutex::new(Vec::new());
 static TEST_TRACE_SINK: TestTraceSink = TestTraceSink;
@@ -413,13 +412,24 @@ impl StoreKind for RelationTargetStore {
 thread_local! {
     static REL_SOURCE_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(40)));
     static REL_TARGET_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(41)));
-    static REL_DATA_REGISTRY: DataStoreRegistry = {
-        let mut reg = DataStoreRegistry::new();
-        reg.register(RelationSourceStore::PATH, &REL_SOURCE_STORE);
-        reg.register(RelationTargetStore::PATH, &REL_TARGET_STORE);
+    static REL_SOURCE_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init(test_memory(42)));
+    static REL_TARGET_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init(test_memory(43)));
+    static REL_STORE_REGISTRY: StoreRegistry = {
+        let mut reg = StoreRegistry::new();
+        reg.register_store(
+            RelationSourceStore::PATH,
+            &REL_SOURCE_STORE,
+            &REL_SOURCE_INDEX_STORE,
+        );
+        reg.register_store(
+            RelationTargetStore::PATH,
+            &REL_TARGET_STORE,
+            &REL_TARGET_INDEX_STORE,
+        );
         reg
     };
-    static REL_INDEX_REGISTRY: IndexStoreRegistry = IndexStoreRegistry::new();
 }
 
 // Route source-entity relation scanning through the generic delete-side RI helper.
@@ -440,11 +450,8 @@ static REL_DELETE_RELATION_VALIDATORS: &[StrongRelationDeleteValidator<RelationT
         validate_relation_source_delete_refs,
     )];
 
-static REL_DB: Db<RelationTestCanister> = Db::new_with_relations(
-    &REL_DATA_REGISTRY,
-    &REL_INDEX_REGISTRY,
-    REL_DELETE_RELATION_VALIDATORS,
-);
+static REL_DB: Db<RelationTestCanister> =
+    Db::new_with_relations(&REL_STORE_REGISTRY, REL_DELETE_RELATION_VALIDATORS);
 
 ///
 /// RelationTargetEntity
@@ -608,10 +615,10 @@ impl EntityValue for RelationSourceEntity {
 // Clear relation test stores and any pending commit marker between runs.
 fn reset_relation_stores() {
     ensure_recovered_for_write(&REL_DB).expect("relation write-side recovery should succeed");
-    REL_DB.with_data(|reg| {
-        reg.with_store_mut(RelationSourceStore::PATH, DataStore::clear)
+    REL_DB.with_store_registry(|reg| {
+        reg.with_data_store_mut(RelationSourceStore::PATH, DataStore::clear)
             .expect("relation source store access should succeed");
-        reg.with_store_mut(RelationTargetStore::PATH, DataStore::clear)
+        reg.with_data_store_mut(RelationTargetStore::PATH, DataStore::clear)
             .expect("relation target store access should succeed");
     });
 }

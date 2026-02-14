@@ -2,8 +2,8 @@ use super::*;
 use crate::{
     db::{
         commit::{ensure_recovered_for_write, init_commit_store_for_tests},
-        index::{IndexStore, IndexStoreRegistry},
-        store::{DataStore, DataStoreRegistry},
+        index::IndexStore,
+        store::{DataStore, StoreRegistry},
     },
     error::{ErrorClass, ErrorOrigin},
     model::{
@@ -64,6 +64,8 @@ impl StoreKind for TargetStore {
     type Canister = TestCanister;
 }
 
+const UNIQUE_INDEX_STORE_PATH: &str = SourceStore::PATH;
+
 thread_local! {
     static SOURCE_DATA_STORE: RefCell<DataStore> =
         RefCell::new(DataStore::init(test_memory(0)));
@@ -71,37 +73,34 @@ thread_local! {
         RefCell::new(DataStore::init(test_memory(1)));
     static UNIQUE_INDEX_STORE: RefCell<IndexStore> =
         RefCell::new(IndexStore::init(test_memory(2)));
-    static DATA_REGISTRY: DataStoreRegistry = {
-        let mut reg = DataStoreRegistry::new();
-        reg.register(SourceStore::PATH, &SOURCE_DATA_STORE);
-        reg.register(TargetStore::PATH, &TARGET_DATA_STORE);
-        reg
-    };
-    static INDEX_REGISTRY: IndexStoreRegistry = {
-        let mut reg = IndexStoreRegistry::new();
-        reg.register(UNIQUE_INDEX_STORE_PATH, &UNIQUE_INDEX_STORE);
+    static TARGET_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init(test_memory(3)));
+    static STORE_REGISTRY: StoreRegistry = {
+        let mut reg = StoreRegistry::new();
+        reg.register_store(SourceStore::PATH, &SOURCE_DATA_STORE, &UNIQUE_INDEX_STORE);
+        reg.register_store(TargetStore::PATH, &TARGET_DATA_STORE, &TARGET_INDEX_STORE);
         reg
     };
 }
 
-static DB: Db<TestCanister> = Db::new(&DATA_REGISTRY, &INDEX_REGISTRY);
+static DB: Db<TestCanister> = Db::new(&STORE_REGISTRY);
 
 // Clear test stores and ensure recovery has completed before each test mutation.
 fn reset_store() {
     ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
-    DB.with_data(|reg| {
-        reg.with_store_mut(SourceStore::PATH, DataStore::clear)
+    DB.with_store_registry(|reg| {
+        reg.with_data_store_mut(SourceStore::PATH, DataStore::clear)
             .expect("source store access should succeed");
-        reg.with_store_mut(TargetStore::PATH, DataStore::clear)
+        reg.with_data_store_mut(TargetStore::PATH, DataStore::clear)
             .expect("target store access should succeed");
     });
-    DB.with_index(|reg| {
-        reg.with_store_mut(UNIQUE_INDEX_STORE_PATH, IndexStore::clear)
+    DB.with_store_registry(|reg| {
+        reg.with_index_store_mut(UNIQUE_INDEX_STORE_PATH, IndexStore::clear)
             .expect("unique index store access should succeed");
+        reg.with_index_store_mut(TargetStore::PATH, IndexStore::clear)
+            .expect("target index store access should succeed");
     });
 }
-
-const UNIQUE_INDEX_STORE_PATH: &str = "save_tests::UniqueIndexStore";
 
 ///
 /// TargetEntity
@@ -557,7 +556,9 @@ fn strong_set_relation_missing_key_fails_save() {
     );
 
     let source_empty = DB
-        .with_data(|reg| reg.with_store(SourceStore::PATH, |store| store.iter().next().is_none()))
+        .with_store_registry(|reg| {
+            reg.with_data_store(SourceStore::PATH, |store| store.iter().next().is_none())
+        })
         .expect("source store access should succeed");
     assert!(
         source_empty,
@@ -617,7 +618,9 @@ fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
     );
 
     let source_empty = DB
-        .with_data(|reg| reg.with_store(SourceStore::PATH, |store| store.iter().next().is_none()))
+        .with_store_registry(|reg| {
+            reg.with_data_store(SourceStore::PATH, |store| store.iter().next().is_none())
+        })
         .expect("source store access should succeed");
     assert!(
         source_empty,
@@ -699,7 +702,9 @@ fn save_rejects_primary_key_field_and_identity_mismatch() {
     );
 
     let source_empty = DB
-        .with_data(|reg| reg.with_store(SourceStore::PATH, |store| store.iter().next().is_none()))
+        .with_store_registry(|reg| {
+            reg.with_data_store(SourceStore::PATH, |store| store.iter().next().is_none())
+        })
         .expect("source store access should succeed");
     assert!(
         source_empty,
@@ -741,7 +746,9 @@ fn unique_index_violation_rejected_on_insert() {
     );
 
     let rows = DB
-        .with_data(|reg| reg.with_store(SourceStore::PATH, |store| store.iter().count()))
+        .with_store_registry(|reg| {
+            reg.with_data_store(SourceStore::PATH, |store| store.iter().count())
+        })
         .expect("source store access should succeed");
     assert_eq!(rows, 1, "conflicting insert must not persist");
 }
@@ -785,7 +792,9 @@ fn unique_index_violation_rejected_on_update() {
     );
 
     let rows = DB
-        .with_data(|reg| reg.with_store(SourceStore::PATH, |store| store.iter().count()))
+        .with_store_registry(|reg| {
+            reg.with_data_store(SourceStore::PATH, |store| store.iter().count())
+        })
         .expect("source store access should succeed");
     assert_eq!(rows, 2, "failed update must not remove persisted rows");
 }

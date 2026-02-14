@@ -140,7 +140,7 @@ fn prevalidate_recovery(
 
     for op in &marker.index_ops {
         let store = db
-            .with_index(|reg| reg.try_get_store(&op.store))
+            .with_store_registry(|reg| reg.try_get_index_store(&op.store))
             .map_err(|err| {
                 InternalError::new(
                     ErrorClass::Corruption,
@@ -158,7 +158,7 @@ fn prevalidate_recovery(
 
     for op in &marker.data_ops {
         let store = db
-            .with_data(|reg| reg.try_get_store(&op.store))
+            .with_store_registry(|reg| reg.try_get_data_store(&op.store))
             .map_err(|err| {
                 InternalError::new(
                     ErrorClass::Corruption,

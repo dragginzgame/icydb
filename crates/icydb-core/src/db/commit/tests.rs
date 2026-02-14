@@ -5,8 +5,8 @@ use crate::{
             CommitDataOp, CommitKind, CommitMarker, begin_commit, commit_marker_present,
             ensure_recovered_for_write, finish_commit, init_commit_store_for_tests, store,
         },
-        index::IndexStoreRegistry,
-        store::{DataKey, DataStore, DataStoreRegistry, RawDataKey},
+        index::IndexStore,
+        store::{DataKey, DataStore, RawDataKey, StoreRegistry},
     },
     error::{ErrorClass, ErrorOrigin},
     test_support::test_memory,
@@ -42,15 +42,15 @@ impl StoreKind for RecoveryTestDataStore {
 
 thread_local! {
     static DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(19)));
-    static DATA_REGISTRY: DataStoreRegistry = {
-        let mut reg = DataStoreRegistry::new();
-        reg.register(RecoveryTestDataStore::PATH, &DATA_STORE);
+    static INDEX_STORE: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(20)));
+    static STORE_REGISTRY: StoreRegistry = {
+        let mut reg = StoreRegistry::new();
+        reg.register_store(RecoveryTestDataStore::PATH, &DATA_STORE, &INDEX_STORE);
         reg
     };
-    static INDEX_REGISTRY: IndexStoreRegistry = IndexStoreRegistry::new();
 }
 
-static DB: Db<RecoveryTestCanister> = Db::new(&DATA_REGISTRY, &INDEX_REGISTRY);
+static DB: Db<RecoveryTestCanister> = Db::new(&STORE_REGISTRY);
 
 // Reset marker + data store to isolate recovery tests.
 fn reset_recovery_state() {
@@ -61,13 +61,15 @@ fn reset_recovery_state() {
     })
     .expect("commit marker reset should succeed");
 
-    DB.with_data(|reg| reg.with_store_mut(RecoveryTestDataStore::PATH, DataStore::clear))
-        .expect("data store reset should succeed");
+    DB.with_store_registry(|reg| {
+        reg.with_data_store_mut(RecoveryTestDataStore::PATH, DataStore::clear)
+    })
+    .expect("data store reset should succeed");
 }
 
 fn row_bytes_for(key: &RawDataKey) -> Option<Vec<u8>> {
-    DB.with_data(|reg| {
-        reg.with_store(RecoveryTestDataStore::PATH, |store| {
+    DB.with_store_registry(|reg| {
+        reg.with_data_store(RecoveryTestDataStore::PATH, |store| {
             store.get(key).map(|row| row.as_bytes().to_vec())
         })
     })
