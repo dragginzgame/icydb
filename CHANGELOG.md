@@ -15,11 +15,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🍉 Fixed
 
-* Canister schema validation now enforces one memory-ID collision domain across `DataStore.memory_id`, `IndexStore.entry_memory_id`, and `IndexStore.fingerprint_memory_id`, and fails fast on overlaps before codegen/deployment.
+* Canister schema validation now enforces one memory-ID collision domain across `DataStore.memory_id` and `IndexStore.entry_memory_id`, and fails fast on overlaps before codegen/deployment.
 
 ### 🛹 Cleanup
 
 * Refactored `db::index` into focused submodules (`key/{id,build,codec}`, `plan/{load,unique,commit_ops}`, `store/{registry,lookup,fingerprint_debug}`), co-located index tests with their modules, and removed `index::plan` coupling to `executor::ExecutorError`.
+* Refactored runtime `IndexStore` fingerprint storage to inline `RawIndexFingerprint` beside each `RawIndexEntry`, removing the separate fingerprint BTree/memory while preserving debug-only mismatch verification and existing index semantics.
+* Removed `fingerprint_memory_id` from schema and derive `index_store` topology metadata so macro configuration and schema validation match the single-memory runtime `IndexStore`.
 
 ---
 
@@ -745,7 +747,7 @@ The focus is **correctness, determinism, and architectural hardening**, not new 
 * Improved index store error typing and auditing by preserving error class/origin for index resolution failures.
 * Documented unique index NULL/Unsupported semantics: non-indexable values skip indexing and do not participate in uniqueness.
 * Removed legacy integration docs and consolidated guidance into README and contract-level documents.
-* Updated minimum supported Rust version to **1.93.0** (edition 2024).
+* Updated minimum supported Rust version to **1.93.1** (edition 2024).
 
 ---
 

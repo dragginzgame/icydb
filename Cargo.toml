@@ -13,7 +13,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.93.0"
+rust-version = "1.93.1"
 edition = "2024"
 version = "0.8.0"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]

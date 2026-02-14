@@ -53,19 +53,9 @@ impl ValidateNode for Entity {
         let schema = schema_read();
 
         // store
-        match schema.cast_node::<DataStore>(self.store) {
+        match schema.cast_node::<Store>(self.store) {
             Ok(_) => {}
             Err(e) => errs.add(e),
-        }
-
-        // Validate index store references.
-        for index in self.indexes {
-            // Indexing is hash-based over Value equality for all variants; collisions surface as corruption.
-            // index store
-            match schema.cast_node::<IndexStore>(index.store) {
-                Ok(_) => {}
-                Err(e) => errs.add(e),
-            }
         }
 
         errs.result()

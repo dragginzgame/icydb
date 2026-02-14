@@ -294,16 +294,15 @@ pub trait HasSchema: HasSchemaPart + HasDef {
 #[remain::sorted]
 pub enum SchemaNodeKind {
     Canister,
-    DataStore,
     Entity,
     Enum,
-    IndexStore,
     List,
     Map,
     Newtype,
     Record,
     Sanitizer,
     Set,
+    Store,
     Tuple,
     Validator,
 }

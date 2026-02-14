@@ -1,5 +1,5 @@
 use crate::{
-    node::{DataStore, Entity, Schema},
+    node::{Entity, Schema, Store},
     prelude::*,
 };
 use std::collections::BTreeMap;
@@ -8,7 +8,7 @@ pub fn validate_entity_naming(schema: &Schema, errs: &mut ErrorTree) {
     let mut by_canister: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
 
     for (entity_path, entity) in schema.get_nodes::<Entity>() {
-        let store = match schema.cast_node::<DataStore>(entity.store) {
+        let store = match schema.cast_node::<Store>(entity.store) {
             Ok(store) => store,
             Err(e) => {
                 errs.add(e);

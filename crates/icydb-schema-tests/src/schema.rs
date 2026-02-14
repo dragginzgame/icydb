@@ -17,8 +17,7 @@ pub mod test {
     #[index_store(
         ident = "TEST_INDEX_STORE",
         canister = "TestCanister",
-        entry_memory_id = 51,
-        fingerprint_memory_id = 52
+        entry_memory_id = 51
     )]
     pub struct TestIndexStore {}
 

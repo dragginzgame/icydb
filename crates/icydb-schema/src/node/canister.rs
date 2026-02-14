@@ -23,38 +23,22 @@ impl ValidateNode for Canister {
         let mut errs = ErrorTree::new();
         let schema = schema_read();
 
-        // Check for duplicate memory IDs across all stores for this canister.
-        // The collision domain includes:
-        // - DataStore.memory_id
-        // - IndexStore.entry_memory_id
-        // - IndexStore.fingerprint_memory_id
         let canister_path = self.def.path();
         let mut seen_ids = BTreeMap::<u8, String>::new();
 
-        for (path, store) in schema.filter_nodes::<DataStore>(|node| node.canister == canister_path)
-        {
+        // Check all Store nodes for this canister
+        for (path, store) in schema.filter_nodes::<Store>(|node| node.canister == canister_path) {
             assert_unique_memory_id(
-                store.memory_id,
-                format!("DataStore `{path}`.memory_id"),
+                store.data_memory_id,
+                format!("Store `{path}`.data_memory_id"),
                 &canister_path,
                 &mut seen_ids,
                 &mut errs,
             );
-        }
 
-        for (path, store) in
-            schema.filter_nodes::<IndexStore>(|node| node.canister == canister_path)
-        {
             assert_unique_memory_id(
-                store.entry_memory_id,
-                format!("IndexStore `{path}`.entry_memory_id"),
-                &canister_path,
-                &mut seen_ids,
-                &mut errs,
-            );
-            assert_unique_memory_id(
-                store.fingerprint_memory_id,
-                format!("IndexStore `{path}`.fingerprint_memory_id"),
+                store.index_memory_id,
+                format!("Store `{path}`.index_memory_id"),
                 &canister_path,
                 &mut seen_ids,
                 &mut errs,
@@ -92,6 +76,10 @@ impl VisitableNode for Canister {
     }
 }
 
+///
+/// TESTS
+///
+
 #[cfg(test)]
 mod tests {
     use crate::build::schema_write;
@@ -113,13 +101,14 @@ mod tests {
         canister
     }
 
-    fn insert_data_store(
+    fn insert_store(
         path_module: &'static str,
         ident: &'static str,
         canister_path: &'static str,
-        memory_id: u8,
+        data_memory_id: u8,
+        index_memory_id: u8,
     ) {
-        schema_write().insert_node(SchemaNode::DataStore(DataStore {
+        schema_write().insert_node(SchemaNode::Store(Store {
             def: Def {
                 module_path: path_module,
                 ident,
@@ -127,121 +116,38 @@ mod tests {
             },
             ident,
             canister: canister_path,
-            memory_id,
-        }));
-    }
-
-    fn insert_index_store(
-        path_module: &'static str,
-        ident: &'static str,
-        canister_path: &'static str,
-        entry_memory_id: u8,
-        fingerprint_memory_id: u8,
-    ) {
-        schema_write().insert_node(SchemaNode::IndexStore(IndexStore {
-            def: Def {
-                module_path: path_module,
-                ident,
-                comments: None,
-            },
-            ident,
-            canister: canister_path,
-            entry_memory_id,
-            fingerprint_memory_id,
+            data_memory_id,
+            index_memory_id,
         }));
     }
 
     #[test]
-    fn validate_rejects_data_store_and_index_store_memory_id_collision() {
-        let canister = insert_canister("schema_canister_tests_data_vs_index", "Canister");
-        let canister_path = "schema_canister_tests_data_vs_index::Canister";
-        insert_data_store(
-            "schema_canister_tests_data_vs_index",
-            "DataA",
-            canister_path,
-            10,
-        );
-        insert_index_store(
-            "schema_canister_tests_data_vs_index",
-            "IndexA",
-            canister_path,
-            10,
-            11,
-        );
+    fn validate_rejects_memory_id_collision_between_stores() {
+        let canister = insert_canister("schema_store_collision", "Canister");
+        let canister_path = "schema_store_collision::Canister";
+
+        insert_store("schema_store_collision", "StoreA", canister_path, 10, 11);
+        insert_store("schema_store_collision", "StoreB", canister_path, 12, 10); // collision
 
         let err = canister
             .validate()
-            .expect_err("data/index memory-id collision must fail");
+            .expect_err("memory-id collision must fail");
+
         let rendered = err.to_string();
         assert!(
             rendered.contains("duplicate memory_id `10`"),
             "expected duplicate memory-id error, got: {rendered}"
         );
-        assert!(
-            rendered.contains("DataStore") && rendered.contains("IndexStore"),
-            "error should identify conflicting slots, got: {rendered}"
-        );
     }
 
     #[test]
-    fn validate_rejects_entry_and_fingerprint_collision() {
-        let canister = insert_canister("schema_canister_tests_index_self_collision", "Canister");
-        let canister_path = "schema_canister_tests_index_self_collision::Canister";
-        insert_index_store(
-            "schema_canister_tests_index_self_collision",
-            "IndexA",
-            canister_path,
-            22,
-            22,
-        );
+    fn validate_accepts_unique_memory_ids() {
+        let canister = insert_canister("schema_store_unique", "Canister");
+        let canister_path = "schema_store_unique::Canister";
 
-        let err = canister
-            .validate()
-            .expect_err("index entry/fingerprint memory-id collision must fail");
-        let rendered = err.to_string();
-        assert!(
-            rendered.contains("duplicate memory_id `22`"),
-            "expected duplicate memory-id error, got: {rendered}"
-        );
-        assert!(
-            rendered.contains("entry_memory_id") && rendered.contains("fingerprint_memory_id"),
-            "error should identify conflicting index slots, got: {rendered}"
-        );
-    }
+        insert_store("schema_store_unique", "StoreA", canister_path, 30, 31);
+        insert_store("schema_store_unique", "StoreB", canister_path, 32, 33);
 
-    #[test]
-    fn validate_accepts_unique_memory_ids_across_data_and_index_stores() {
-        let canister = insert_canister("schema_canister_tests_unique_ids", "Canister");
-        let canister_path = "schema_canister_tests_unique_ids::Canister";
-        insert_data_store(
-            "schema_canister_tests_unique_ids",
-            "DataA",
-            canister_path,
-            30,
-        );
-        insert_data_store(
-            "schema_canister_tests_unique_ids",
-            "DataB",
-            canister_path,
-            31,
-        );
-        insert_index_store(
-            "schema_canister_tests_unique_ids",
-            "IndexA",
-            canister_path,
-            32,
-            33,
-        );
-        insert_index_store(
-            "schema_canister_tests_unique_ids",
-            "IndexB",
-            canister_path,
-            34,
-            35,
-        );
-
-        canister
-            .validate()
-            .expect("unique memory IDs across data/index stores should pass");
+        canister.validate().expect("unique memory IDs should pass");
     }
 }

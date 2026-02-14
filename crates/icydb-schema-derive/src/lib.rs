@@ -112,16 +112,15 @@ macro_rules! macro_node {
 }
 
 macro_node!(canister, node::Canister, r#gen::CanisterGen);
-macro_node!(data_store, node::DataStore, r#gen::DataStoreGen);
 macro_node!(entity, node::Entity, r#gen::EntityGen);
 macro_node!(enum_, node::Enum, r#gen::EnumGen);
-macro_node!(index_store, node::IndexStore, r#gen::IndexStoreGen);
 macro_node!(list, node::List, r#gen::ListGen);
 macro_node!(map, node::Map, r#gen::MapGen);
 macro_node!(newtype, node::Newtype, r#gen::NewtypeGen);
 macro_node!(record, node::Record, r#gen::RecordGen);
 macro_node!(sanitizer, node::Sanitizer, r#gen::SanitizerGen);
 macro_node!(set, node::Set, r#gen::SetGen);
+macro_node!(store, node::Store, r#gen::StoreGen);
 macro_node!(tuple, node::Tuple, r#gen::TupleGen);
 macro_node!(validator, node::Validator, r#gen::ValidatorGen);
 

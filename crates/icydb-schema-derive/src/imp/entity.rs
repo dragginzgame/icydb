@@ -19,6 +19,12 @@ impl Imp<Entity> for EntityKindTrait {
         // PK key shape must always follow the declared field type.
         let pk_key_type = pk_entry.value.item.type_expr();
 
+        let resolved_entity_name = node
+            .name
+            .as_ref()
+            .map(LitStr::value)
+            .unwrap_or_else(|| node.def.ident().to_string());
+
         let entity_name = if let Some(name) = &node.name {
             quote!(#name)
         } else {
@@ -31,7 +37,7 @@ impl Imp<Entity> for EntityKindTrait {
         let indexes = node
             .indexes
             .iter()
-            .map(Index::runtime_part)
+            .map(|index| index.runtime_part(&resolved_entity_name, store))
             .collect::<Vec<_>>();
 
         let ident = node.def.ident();

@@ -2,30 +2,27 @@ use crate::{imp::*, prelude::*};
 use canic_utils::case::{Case, Casing};
 
 ///
-/// IndexStore
+/// Store
 ///
 
 #[derive(Debug, FromMeta)]
-pub struct IndexStore {
+pub struct Store {
     #[darling(default, skip)]
     pub def: Def,
+
     pub ident: Ident,
     pub canister: Path,
-
-    /// Stable memory backing index entries
-    pub entry_memory_id: u8,
-
-    /// Stable memory backing fingerprints
-    pub fingerprint_memory_id: u8,
+    pub data_memory_id: u8,
+    pub index_memory_id: u8,
 }
 
-impl HasDef for IndexStore {
+impl HasDef for Store {
     fn def(&self) -> &Def {
         &self.def
     }
 }
 
-impl ValidateNode for IndexStore {
+impl ValidateNode for Store {
     fn validate(&self) -> Result<(), DarlingError> {
         let ident_str = self.ident.to_string();
         if !ident_str.is_case(Case::UpperSnake) {
@@ -35,62 +32,54 @@ impl ValidateNode for IndexStore {
             .with_span(&self.ident));
         }
 
-        if self.entry_memory_id == self.fingerprint_memory_id {
-            return Err(DarlingError::custom(format!(
-                "entry_memory_id and fingerprint_memory_id must be distinct (both = {})",
-                self.entry_memory_id
-            ))
-            .with_span(&self.def.ident()));
-        }
-
         Ok(())
     }
 }
 
-impl HasSchema for IndexStore {
+impl HasSchema for Store {
     fn schema_node_kind() -> SchemaNodeKind {
-        SchemaNodeKind::IndexStore
+        SchemaNodeKind::Store
     }
 }
 
-impl HasSchemaPart for IndexStore {
+impl HasSchemaPart for Store {
     fn schema_part(&self) -> TokenStream {
         let def = &self.def.schema_part();
         let ident = quote_one(&self.ident, to_str_lit);
         let canister = quote_one(&self.canister, to_path);
-        let entry_memory_id = &self.entry_memory_id;
-        let fingerprint_memory_id = &self.fingerprint_memory_id;
+        let data_memory_id = &self.data_memory_id;
+        let index_memory_id = &self.index_memory_id;
 
         // quote
         quote! {
-            ::icydb::schema::node::IndexStore{
+            ::icydb::schema::node::Store{
                 def: #def,
                 ident: #ident,
                 canister: #canister,
-                entry_memory_id: #entry_memory_id,
-                fingerprint_memory_id: #fingerprint_memory_id,
+                data_memory_id: #data_memory_id,
+                index_memory_id: #index_memory_id,
             }
         }
     }
 }
 
-impl HasTraits for IndexStore {
+impl HasTraits for Store {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = TraitBuilder::default().build();
-        traits.add(TraitKind::IndexStoreKind);
+        traits.add(TraitKind::DataStoreKind);
 
         traits.into_vec()
     }
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::IndexStoreKind => IndexStoreKindTrait::strategy(self),
+            TraitKind::DataStoreKind => DataStoreKindTrait::strategy(self),
             _ => None,
         }
     }
 }
 
-impl HasType for IndexStore {
+impl HasType for Store {
     fn type_part(&self) -> TokenStream {
         let ident = self.def.ident();
 
@@ -100,7 +89,7 @@ impl HasType for IndexStore {
     }
 }
 
-impl ToTokens for IndexStore {
+impl ToTokens for Store {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.extend(self.all_tokens());
     }

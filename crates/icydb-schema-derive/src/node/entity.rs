@@ -1,4 +1,5 @@
-use crate::{imp::*, prelude::*, validate::entity as entity_validate};
+use crate::{imp::*, prelude::*};
+use std::collections::HashSet;
 
 ///
 /// Entity
@@ -44,6 +45,175 @@ impl Entity {
 
         fields
     }
+
+    /// Validate and resolve the effective entity name used in index naming.
+    fn validate_entity_name(&self, def_ident: &Ident) -> Result<String, DarlingError> {
+        // Prefer explicit user-provided names.
+        if let Some(name) = self.name.as_ref() {
+            let value = name.value();
+            if value.len() > MAX_ENTITY_NAME_LEN {
+                return Err(DarlingError::custom(format!(
+                    "entity name '{value}' exceeds max length {MAX_ENTITY_NAME_LEN}"
+                ))
+                .with_span(name));
+            }
+            if !value.is_ascii() {
+                return Err(
+                    DarlingError::custom(format!("entity name '{value}' must be ASCII"))
+                        .with_span(name),
+                );
+            }
+
+            return Ok(value);
+        }
+
+        // Fall back to the Rust struct identifier.
+        let value = def_ident.to_string();
+        if value.len() > MAX_ENTITY_NAME_LEN {
+            return Err(DarlingError::custom(format!(
+                "entity name '{value}' exceeds max length {MAX_ENTITY_NAME_LEN}"
+            ))
+            .with_span(def_ident));
+        }
+        if !value.is_ascii() {
+            return Err(
+                DarlingError::custom(format!("entity name '{value}' must be ASCII"))
+                    .with_span(def_ident),
+            );
+        }
+
+        Ok(value)
+    }
+
+    /// Validate index declarations against entity fields and naming constraints.
+    fn validate_indexes(&self, entity_name: &str, def_ident: &Ident) -> Result<(), DarlingError> {
+        // Per-index local validation.
+        for index in &self.indexes {
+            if index.fields.is_empty() {
+                return Err(with_index_span(
+                    DarlingError::custom("index must reference at least one field"),
+                    index,
+                    def_ident,
+                ));
+            }
+            if index.fields.len() > MAX_INDEX_FIELDS {
+                return Err(with_index_span(
+                    DarlingError::custom(format!(
+                        "index has {} fields; maximum is {}",
+                        index.fields.len(),
+                        MAX_INDEX_FIELDS
+                    )),
+                    index,
+                    def_ident,
+                ));
+            }
+
+            // Field references must be unique, present, and indexable.
+            let mut seen = HashSet::new();
+            for field in &index.fields {
+                let field_name = field.to_string();
+                if !seen.insert(field_name.clone()) {
+                    return Err(DarlingError::custom(format!(
+                        "index contains duplicate field '{field_name}'"
+                    ))
+                    .with_span(field));
+                }
+
+                let Some(entity_field) = self.fields.get(field) else {
+                    return Err(DarlingError::custom(format!(
+                        "index field '{field_name}' not found"
+                    ))
+                    .with_span(field));
+                };
+                if entity_field.value.cardinality() == Cardinality::Many {
+                    return Err(DarlingError::custom(
+                        "cannot add an index field with many cardinality",
+                    )
+                    .with_span(field));
+                }
+            }
+
+            // Use the same naming path as runtime index model generation.
+            let index_name = index.generated_name(entity_name);
+            if index_name.len() > MAX_INDEX_NAME_LEN {
+                return Err(with_index_span(
+                    DarlingError::custom(format!(
+                        "index name '{index_name}' exceeds max length {MAX_INDEX_NAME_LEN}"
+                    )),
+                    index,
+                    def_ident,
+                ));
+            }
+        }
+
+        // Cross-index validation: reject redundant same-kind prefix indexes.
+        for (index_idx, left_index) in self.indexes.iter().enumerate() {
+            for right_index in self.indexes.iter().skip(index_idx + 1) {
+                if left_index.unique != right_index.unique {
+                    continue;
+                }
+
+                if is_prefix_of(&left_index.fields, &right_index.fields) {
+                    let left_fields = left_index
+                        .fields
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>();
+                    let right_fields = right_index
+                        .fields
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>();
+                    return Err(with_index_span(
+                        DarlingError::custom(format!(
+                            "index {left_fields:?} is redundant (prefix of {right_fields:?})"
+                        )),
+                        left_index,
+                        def_ident,
+                    ));
+                }
+
+                if is_prefix_of(&right_index.fields, &left_index.fields) {
+                    let left_fields = left_index
+                        .fields
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>();
+                    let right_fields = right_index
+                        .fields
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>();
+                    return Err(with_index_span(
+                        DarlingError::custom(format!(
+                            "index {right_fields:?} is redundant (prefix of {left_fields:?})"
+                        )),
+                        right_index,
+                        def_ident,
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn with_index_span(error: DarlingError, index: &Index, def_ident: &Ident) -> DarlingError {
+    if let Some(first_field) = index.fields.first() {
+        error.with_span(first_field)
+    } else {
+        error.with_span(def_ident)
+    }
+}
+
+fn is_prefix_of(left: &[Ident], right: &[Ident]) -> bool {
+    left.len() < right.len()
+        && right
+            .iter()
+            .take(left.len())
+            .zip(left.iter())
+            .all(|(right_field, left_field)| right_field == left_field)
 }
 
 //
@@ -66,8 +236,8 @@ impl ValidateNode for Entity {
 
         // Phase 2: validate entity name and index definitions.
         let def_ident = self.def.ident();
-        let entity_name = entity_validate::validate_entity_name(self.name.as_ref(), &def_ident)?;
-        entity_validate::validate_entity_indexes(&entity_name, &self.fields, &self.indexes)?;
+        let entity_name = self.validate_entity_name(&def_ident)?;
+        self.validate_indexes(&entity_name, &def_ident)?;
 
         Ok(())
     }
