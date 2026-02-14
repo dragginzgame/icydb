@@ -50,6 +50,7 @@ This direction governs all future feature work.
 ## Planned for 0.9.x
 
 - **Delete-side referential integrity enforcement for strong relations** is targeted for an early `0.9.x` release.
+- **Reverse indexes for strong relations** are included in the 0.9 delete-side RI scope to avoid scan-based delete validation.
 - Scope remains validation-only (no implicit cascades), unless a later spec says otherwise.
 
 ---

@@ -7,6 +7,19 @@ No implicit transactional behavior is introduced.
 
 ---
 
+## Progress Snapshot (as of 2026-02-14)
+
+Estimated completion toward the `0.9.x` goals in this plan:
+
+* Strong Referential Integrity - Delete-Time Validation: **~70%**
+* Explicit Transaction Semantics (Opt-In Surface): **~15%**
+* Pagination Efficiency Without Semantic Drift: **~35%**
+* Contract Hardening and Diagnostics: **~75%**
+
+Overall estimated progress: **~50%**
+
+---
+
 ### 1. Strong Referential Integrity - Delete-Time Validation
 
 IcyDB 0.9 will enforce delete-time referential integrity for schema-declared
@@ -16,6 +29,7 @@ strong relations.
 
 * Reject deletes that would leave dangling strong references
 * Perform validation deterministically before commit
+* Introduce reverse indexes for strong-relation delete validation to avoid full source-store scans
 * Preserve explicit weak-relation behavior (no existence validation)
 * Keep semantics validation-only (no implicit cascades)
 
@@ -23,6 +37,7 @@ strong relations.
 
 * Strong relation correctness holds for both save and delete paths
 * Dangling-reference creation is blocked by executor validation
+* Delete-time validation uses reverse-index lookups for predictable scale
 * RI behavior remains explicit and schema-driven
 
 **Non-Goals**

@@ -257,7 +257,7 @@ fn reset_recovery_state() {
     with_recovery_store(|store| {
         store.with_data_mut(DataStore::clear);
         store.with_index_mut(IndexStore::clear);
-    })
+    });
 }
 
 fn row_bytes_for(key: &RawDataKey) -> Option<Vec<u8>> {

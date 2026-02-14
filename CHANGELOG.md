@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🧯 Breaking
 
 * `StoreRegistry::register_store` now rejects duplicate path registration with an invariant-violation error instead of silently replacing the existing store handle.
+* Schema-level `DataStore`/`IndexStore` node split and runtime `DataStoreRegistry`/`IndexStoreRegistry` split were removed; callers must use a single `Store` descriptor and `StoreRegistry` handle that owns both `DataStore` and `IndexStore`.
 * Persisted `CommitMarker` payloads no longer store `kind`; mutation shape now derives exclusively from each `CommitRowOp { before, after }` payload pair.
 
 ---

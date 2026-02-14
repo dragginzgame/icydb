@@ -249,7 +249,7 @@ mod tests {
         with_snapshot_store(|store| {
             store.with_data_mut(DataStore::clear);
             store.with_index_mut(IndexStore::clear);
-        })
+        });
     }
 
     #[test]
@@ -287,7 +287,7 @@ mod tests {
         with_snapshot_store(|store| {
             store.with_index_mut(|index_store| {
                 index_store.insert(index_key, malformed_index_entry);
-            })
+            });
         });
 
         let report = storage_report(&DB, &[]).expect("storage report should succeed");
