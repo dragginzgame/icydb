@@ -173,20 +173,69 @@ impl StoreRegistry {
     ) -> Result<R, InternalError> {
         Ok(self.try_get_store(path)?.with_index_mut(f))
     }
+}
 
-    /// Look up a row-store accessor by path.
-    pub fn try_get_data_store(
-        &self,
-        path: &str,
-    ) -> Result<&'static LocalKey<RefCell<DataStore>>, InternalError> {
-        Ok(self.try_get_store(path)?.data_store())
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{
+            index::IndexStore,
+            store::{DataStore, StoreRegistry},
+        },
+        error::{ErrorClass, ErrorOrigin},
+        test_support::test_memory,
+    };
+    use std::{cell::RefCell, ptr};
+
+    const STORE_PATH: &str = "store_registry_tests::Store";
+
+    thread_local! {
+        static TEST_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(151)));
+        static TEST_INDEX_STORE: RefCell<IndexStore> =
+            RefCell::new(IndexStore::init(test_memory(152)));
     }
 
-    /// Look up an index-store accessor by path.
-    pub fn try_get_index_store(
-        &self,
-        path: &str,
-    ) -> Result<&'static LocalKey<RefCell<IndexStore>>, InternalError> {
-        Ok(self.try_get_store(path)?.index_store())
+    fn test_registry() -> StoreRegistry {
+        let mut registry = StoreRegistry::new();
+        registry.register_store(STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE);
+        registry
+    }
+
+    #[test]
+    fn register_store_binds_data_and_index_handles() {
+        let registry = test_registry();
+        let handle = registry
+            .try_get_store(STORE_PATH)
+            .expect("registered store path should resolve");
+
+        assert!(
+            ptr::eq(handle.data_store(), &TEST_DATA_STORE),
+            "store handle should expose the registered data store accessor"
+        );
+        assert!(
+            ptr::eq(handle.index_store(), &TEST_INDEX_STORE),
+            "store handle should expose the registered index store accessor"
+        );
+
+        let data_rows = handle.with_data(|store| store.len());
+        let index_rows = handle.with_index(IndexStore::len);
+        assert_eq!(data_rows, 0, "fresh test data store should be empty");
+        assert_eq!(index_rows, 0, "fresh test index store should be empty");
+    }
+
+    #[test]
+    fn missing_store_path_rejected_before_access() {
+        let registry = StoreRegistry::new();
+        let err = registry
+            .try_get_store("store_registry_tests::Missing")
+            .expect_err("missing path should fail lookup");
+
+        assert_eq!(err.class, ErrorClass::Internal);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message
+                .contains("store 'store_registry_tests::Missing' not found"),
+            "missing store lookup should include the missing path"
+        );
     }
 }

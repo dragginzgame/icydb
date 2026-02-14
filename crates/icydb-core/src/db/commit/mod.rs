@@ -281,8 +281,8 @@ pub struct PreparedRowCommitOp {
     pub data_store: &'static LocalKey<RefCell<DataStore>>,
     pub data_key: RawDataKey,
     pub data_value: Option<RawRow>,
-    pub index_removes: Vec<RawIndexKey>,
-    pub index_inserts: Vec<RawIndexKey>,
+    pub index_remove_count: usize,
+    pub index_insert_count: usize,
 }
 
 impl PreparedRowCommitOp {
@@ -330,8 +330,8 @@ pub fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
         data_store: op.data_store,
         data_key: op.data_key,
         data_value,
-        index_removes: Vec::new(),
-        index_inserts: Vec::new(),
+        index_remove_count: 0,
+        index_insert_count: 0,
     }
 }
 
@@ -412,8 +412,8 @@ pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
         old_pair.as_ref().map(|(_, entity)| entity),
         new_pair.as_ref().map(|(_, entity)| entity),
     )?;
-    let mut index_removes = Vec::with_capacity(E::INDEXES.len());
-    let mut index_inserts = Vec::with_capacity(E::INDEXES.len());
+    let mut index_remove_count = 0usize;
+    let mut index_insert_count = 0usize;
     for index in E::INDEXES {
         let old_key = old_pair
             .as_ref()
@@ -429,11 +429,11 @@ pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
             .map(|key| key.to_raw());
 
         if old_key != new_key {
-            if let Some(key) = old_key {
-                index_removes.push(key);
+            if old_key.is_some() {
+                index_remove_count = index_remove_count.saturating_add(1);
             }
-            if let Some(key) = new_key {
-                index_inserts.push(key);
+            if new_key.is_some() {
+                index_insert_count = index_insert_count.saturating_add(1);
             }
         }
     }
@@ -467,16 +467,16 @@ pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
         index_ops.push(PreparedIndexMutation { store, key, value });
     }
 
-    let data_store = db.with_store_registry(|reg| reg.try_get_data_store(E::Store::PATH))?;
+    let data_store = db.with_store_registry(|reg| reg.try_get_store(E::Store::PATH))?;
     let data_value = new_pair.map(|(row, _)| row);
 
     Ok(PreparedRowCommitOp {
         index_ops,
-        data_store,
+        data_store: data_store.data_store(),
         data_key: raw_key,
         data_value,
-        index_removes,
-        index_inserts,
+        index_remove_count,
+        index_insert_count,
     })
 }
 

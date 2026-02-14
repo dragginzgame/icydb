@@ -71,7 +71,9 @@ pub fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
     let mut commit_ops = Vec::new();
 
     for index in E::INDEXES {
-        let store = db.with_store_registry(|registry| registry.try_get_index_store(index.store))?;
+        let store = db
+            .with_store_registry(|registry| registry.try_get_store(index.store))?
+            .index_store();
 
         let old_key = match old {
             Some(entity) => crate::db::index::IndexKey::new(entity, index)?,

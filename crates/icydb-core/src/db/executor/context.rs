@@ -110,10 +110,10 @@ where
             })??,
 
             AccessPath::IndexPrefix { index, values } => {
-                let index_store = self
+                let store = self
                     .db
-                    .with_store_registry(|reg| reg.try_get_index_store(index.store))?;
-                index_store.with_borrow(|s| s.resolve_data_values::<E>(index, values))?
+                    .with_store_registry(|reg| reg.try_get_store(index.store))?;
+                store.with_index(|s| s.resolve_data_values::<E>(index, values))?
             }
         };
 

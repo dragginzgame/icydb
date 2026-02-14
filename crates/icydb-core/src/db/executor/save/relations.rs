@@ -146,7 +146,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         // Phase 2: resolve the target store and confirm existence.
         let store = self
             .db
-            .with_store_registry(|reg| reg.try_get_data_store(relation.target_store_path))
+            .with_store_registry(|reg| reg.try_get_store(relation.target_store_path))
             .map_err(|err| {
                 InternalError::new(
                     ErrorClass::InvariantViolation,
@@ -160,7 +160,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                     ),
                 )
             })?;
-        let exists = store.with_borrow(|s| s.contains_key(&raw_key));
+        let exists = store.with_data(|s| s.contains_key(&raw_key));
         if !exists {
             return Err(InternalError::new(
                 ErrorClass::InvariantViolation,

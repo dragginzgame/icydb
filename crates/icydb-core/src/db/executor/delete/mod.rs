@@ -177,7 +177,7 @@ where
             let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &row_ops)?;
             let index_remove_count = prepared_row_ops
                 .iter()
-                .fold(0usize, |acc, op| acc.saturating_add(op.index_removes.len()));
+                .fold(0usize, |acc, op| acc.saturating_add(op.index_remove_count));
             let marker = CommitMarker::new(CommitKind::Delete, row_ops)?;
             let commit = begin_commit(marker)?;
             commit_started = true;

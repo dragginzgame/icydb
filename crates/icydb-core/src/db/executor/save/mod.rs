@@ -305,10 +305,10 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             let marker = CommitMarker::new(CommitKind::Save, marker_row_ops)?;
             let index_removes = prepared_row_ops
                 .iter()
-                .fold(0usize, |acc, op| acc.saturating_add(op.index_removes.len()));
+                .fold(0usize, |acc, op| acc.saturating_add(op.index_remove_count));
             let index_inserts = prepared_row_ops
                 .iter()
-                .fold(0usize, |acc, op| acc.saturating_add(op.index_inserts.len()));
+                .fold(0usize, |acc, op| acc.saturating_add(op.index_insert_count));
             let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Save commit window opened");

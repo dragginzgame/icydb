@@ -110,10 +110,9 @@ where
         return Ok(());
     }
 
-    let source_store = db.with_store_registry(|reg| reg.try_get_data_store(S::Store::PATH))?;
-    source_store.with_borrow(|store| {
-        validate_source_store_rows::<S>(store, target_path, deleted_target_keys)
-    })
+    let source_store = db.with_store_registry(|reg| reg.try_get_store(S::Store::PATH))?;
+    source_store
+        .with_data(|store| validate_source_store_rows::<S>(store, target_path, deleted_target_keys))
 }
 
 // Scan source rows and reject deletes that would orphan a strong relation reference.
