@@ -77,8 +77,10 @@ thread_local! {
         RefCell::new(IndexStore::init(test_memory(3)));
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(SourceStore::PATH, &SOURCE_DATA_STORE, &UNIQUE_INDEX_STORE);
-        reg.register_store(TargetStore::PATH, &TARGET_DATA_STORE, &TARGET_INDEX_STORE);
+        reg.register_store(SourceStore::PATH, &SOURCE_DATA_STORE, &UNIQUE_INDEX_STORE)
+            .expect("source store registration should succeed");
+        reg.register_store(TargetStore::PATH, &TARGET_DATA_STORE, &TARGET_INDEX_STORE)
+            .expect("target store registration should succeed");
         reg
     };
 }

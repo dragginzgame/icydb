@@ -152,16 +152,6 @@ const COMMIT_ID_BYTES: usize = 16;
 pub const MAX_COMMIT_BYTES: u32 = 16 * 1024 * 1024;
 
 ///
-/// CommitKind
-///
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub enum CommitKind {
-    Save,
-    Delete,
-}
-
-///
 /// CommitRowOp
 ///
 /// Row-level mutation recorded in a commit marker.
@@ -235,13 +225,12 @@ pub struct CommitDataOp {
 #[serde(deny_unknown_fields)]
 pub struct CommitMarker {
     pub id: [u8; COMMIT_ID_BYTES],
-    pub kind: CommitKind,
     pub row_ops: Vec<CommitRowOp>,
 }
 
 impl CommitMarker {
     /// Construct a new commit marker with a fresh commit id.
-    pub fn new(kind: CommitKind, row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
+    pub fn new(row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
         let id = Ulid::try_generate()
             .map_err(|err| {
                 InternalError::new(
@@ -252,7 +241,7 @@ impl CommitMarker {
             })?
             .to_bytes();
 
-        Ok(Self { id, kind, row_ops })
+        Ok(Self { id, row_ops })
     }
 }
 

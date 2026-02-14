@@ -11,8 +11,8 @@ use crate::{
     db::{
         Context, Db, DbSession, StrongRelationDeleteValidator,
         commit::{
-            CommitKind, CommitMarker, begin_commit, commit_marker_present,
-            ensure_recovered_for_write, init_commit_store_for_tests,
+            CommitMarker, begin_commit, commit_marker_present, ensure_recovered_for_write,
+            init_commit_store_for_tests,
         },
         executor::{
             DeleteExecutor, LoadExecutor, SaveExecutor,
@@ -77,7 +77,8 @@ thread_local! {
     static INDEX_STORE: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(1)));
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(TestDataStore::PATH, &DATA_STORE, &INDEX_STORE);
+        reg.register_store(TestDataStore::PATH, &DATA_STORE, &INDEX_STORE)
+            .expect("test store registration should succeed");
         reg
     };
 }
@@ -517,12 +518,14 @@ thread_local! {
             RelationSourceStore::PATH,
             &REL_SOURCE_STORE,
             &REL_SOURCE_INDEX_STORE,
-        );
+        )
+        .expect("relation source store registration should succeed");
         reg.register_store(
             RelationTargetStore::PATH,
             &REL_TARGET_STORE,
             &REL_TARGET_INDEX_STORE,
-        );
+        )
+        .expect("relation target store registration should succeed");
         reg
     };
 }

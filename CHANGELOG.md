@@ -23,6 +23,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Refactored runtime `IndexStore` fingerprint storage to inline `RawIndexFingerprint` beside each `RawIndexEntry`, removing the separate fingerprint BTree/memory while preserving debug-only mismatch verification and existing index semantics.
 * Removed `fingerprint_memory_id` from schema and derive `index_store` topology metadata so macro configuration and schema validation match the single-memory runtime `IndexStore`.
 
+### 🪿 Changed
+
+* Core store access now routes through `StoreRegistry::try_get_store` and `StoreHandle`, removing split data/index helper accessors and tightening the single-store runtime model.
+* Index maintenance metrics now emit a single `MetricsEvent::IndexDelta { inserts, removes }` event per commit apply instead of per-row insert/remove events.
+* Added recovery regression coverage for mixed `Save -> Save -> Delete` replay on shared index keys to lock ordering and final index membership behavior.
+
+### 🧯 Breaking
+
+* `StoreRegistry::register_store` now rejects duplicate path registration with an invariant-violation error instead of silently replacing the existing store handle.
+* Persisted `CommitMarker` payloads no longer store `kind`; mutation shape now derives exclusively from each `CommitRowOp { before, after }` payload pair.
+
 ---
 
 ## [0.8.0] – 2026-02-13 - Structural Correctness Baseline

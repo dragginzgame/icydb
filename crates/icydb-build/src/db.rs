@@ -57,7 +57,8 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         });
 
         store_inits.extend(quote! {
-            reg.register_store(#store_path_lit, &#data_cell_ident, &#index_cell_ident);
+            reg.register_store(#store_path_lit, &#data_cell_ident, &#index_cell_ident)
+                .expect("store registration should succeed");
         });
     }
 

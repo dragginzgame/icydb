@@ -7,7 +7,7 @@ mod tests;
 use crate::value::Value;
 use crate::{
     db::{
-        CommitKind, CommitMarker, CommitRowOp, Db, begin_commit, ensure_recovered_for_write,
+        CommitMarker, CommitRowOp, Db, begin_commit, ensure_recovered_for_write,
         executor::{
             ExecutorError,
             mutation::{apply_prepared_row_ops, preflight_prepare_row_ops},
@@ -302,7 +302,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 Some(after_bytes),
             )];
             let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &marker_row_ops)?;
-            let marker = CommitMarker::new(CommitKind::Save, marker_row_ops)?;
+            let marker = CommitMarker::new(marker_row_ops)?;
             let index_removes = prepared_row_ops
                 .iter()
                 .fold(0usize, |acc, op| acc.saturating_add(op.index_remove_count));

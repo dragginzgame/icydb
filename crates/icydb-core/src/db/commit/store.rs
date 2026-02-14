@@ -177,7 +177,7 @@ mod tests {
     use super::RawCommitMarker;
     use crate::{
         db::{
-            commit::{CommitKind, CommitMarker, CommitRowOp, MAX_COMMIT_BYTES},
+            commit::{CommitMarker, CommitRowOp, MAX_COMMIT_BYTES},
             store::MAX_ROW_BYTES,
         },
         error::{ErrorClass, ErrorOrigin},
@@ -189,7 +189,6 @@ mod tests {
     #[derive(Serialize)]
     struct CommitMarkerWithExtra {
         id: [u8; 16],
-        kind: CommitKind,
         row_ops: Vec<CommitRowOp>,
         extra: u8,
     }
@@ -198,7 +197,6 @@ mod tests {
     fn commit_marker_rejects_unknown_fields() {
         let marker = CommitMarkerWithExtra {
             id: [0u8; 16],
-            kind: CommitKind::Save,
             row_ops: Vec::new(),
             extra: 1,
         };

@@ -50,8 +50,7 @@ fn delete_replays_incomplete_commit_marker() {
     };
     let saved = save.insert(entity).expect("save should succeed");
 
-    let marker =
-        CommitMarker::new(CommitKind::Save, Vec::new()).expect("marker creation should succeed");
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
     let _guard = begin_commit(marker).expect("begin_commit should persist marker");
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),
@@ -77,8 +76,7 @@ fn load_replays_incomplete_commit_marker_after_startup_recovery() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
-    let marker =
-        CommitMarker::new(CommitKind::Save, Vec::new()).expect("marker creation should succeed");
+    let marker = CommitMarker::new(Vec::new()).expect("marker creation should succeed");
     let _guard = begin_commit(marker).expect("begin_commit should persist marker");
     assert!(
         commit_marker_present().expect("commit marker check should succeed"),

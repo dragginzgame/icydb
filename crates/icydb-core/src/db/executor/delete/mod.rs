@@ -2,7 +2,7 @@ mod helpers;
 
 use crate::{
     db::{
-        CommitKind, CommitMarker, CommitRowOp, Db, begin_commit, ensure_recovered_for_write,
+        CommitMarker, CommitRowOp, Db, begin_commit, ensure_recovered_for_write,
         executor::{
             debug::{access_summary, yes_no},
             mutation::{apply_prepared_row_ops, preflight_prepare_row_ops},
@@ -178,7 +178,7 @@ where
             let index_remove_count = prepared_row_ops
                 .iter()
                 .fold(0usize, |acc, op| acc.saturating_add(op.index_remove_count));
-            let marker = CommitMarker::new(CommitKind::Delete, row_ops)?;
+            let marker = CommitMarker::new(row_ops)?;
             let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Delete commit window opened");

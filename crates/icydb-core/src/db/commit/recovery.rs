@@ -17,7 +17,7 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitKind, CommitMarker, CommitRowOp, PreparedRowCommitOp, snapshot_row_rollback,
+            CommitMarker, CommitRowOp, PreparedRowCommitOp, snapshot_row_rollback,
             store::{commit_marker_present_fast, with_commit_store},
         },
     },
@@ -87,24 +87,13 @@ fn perform_recovery(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), Int
 ///
 /// Recovery replays row ops sequentially so later ops see earlier writes.
 fn validate_recovery_marker(marker: &CommitMarker) -> Result<(), InternalError> {
-    match marker.kind {
-        CommitKind::Save => {
-            if marker.row_ops.iter().any(|op| op.after.is_none()) {
-                return Err(InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    "commit marker corrupted: save op missing data payload",
-                ));
-            }
-        }
-        CommitKind::Delete => {
-            if marker.row_ops.iter().any(|op| op.after.is_some()) {
-                return Err(InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    "commit marker corrupted: delete op includes data payload",
-                ));
-            }
+    for row_op in &marker.row_ops {
+        if row_op.before.is_none() && row_op.after.is_none() {
+            return Err(InternalError::new(
+                ErrorClass::Corruption,
+                ErrorOrigin::Store,
+                "commit marker corrupted: row op has neither before nor after payload",
+            ));
         }
     }
 

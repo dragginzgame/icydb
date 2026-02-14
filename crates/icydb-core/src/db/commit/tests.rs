@@ -2,7 +2,7 @@ use crate::{
     db::{
         Db, PreparedRowCommitOp, RowCommitHandler,
         commit::{
-            CommitKind, CommitMarker, CommitRowOp, begin_commit, commit_marker_present,
+            CommitMarker, CommitRowOp, begin_commit, commit_marker_present,
             ensure_recovered_for_write, finish_commit, init_commit_store_for_tests,
             prepare_row_commit_for_entity, store,
         },
@@ -231,7 +231,8 @@ thread_local! {
     static INDEX_STORE: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(20)));
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
-        reg.register_store(RecoveryTestDataStore::PATH, &DATA_STORE, &INDEX_STORE);
+        reg.register_store(RecoveryTestDataStore::PATH, &DATA_STORE, &INDEX_STORE)
+            .expect("test store registration should succeed");
         reg
     };
 }
@@ -292,8 +293,7 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
 #[test]
 fn commit_marker_round_trip_clears_after_finish() {
     init_commit_store_for_tests().expect("commit store init should succeed");
-    let marker = CommitMarker::new(CommitKind::Save, Vec::new())
-        .expect("commit marker creation should succeed");
+    let marker = CommitMarker::new(Vec::new()).expect("commit marker creation should succeed");
 
     let guard = begin_commit(marker).expect("begin_commit should persist marker");
     assert!(
@@ -321,15 +321,12 @@ fn recovery_replay_is_idempotent() {
         .to_raw()
         .expect("data key should encode");
     let row_bytes = serialize(&entity).expect("entity serialization should succeed");
-    let marker = CommitMarker::new(
-        CommitKind::Save,
-        vec![CommitRowOp::new(
-            RecoveryTestEntity::PATH,
-            raw_key.as_bytes().to_vec(),
-            None,
-            Some(row_bytes.clone()),
-        )],
-    )
+    let marker = CommitMarker::new(vec![CommitRowOp::new(
+        RecoveryTestEntity::PATH,
+        raw_key.as_bytes().to_vec(),
+        None,
+        Some(row_bytes.clone()),
+    )])
     .expect("commit marker creation should succeed");
 
     begin_commit(marker).expect("begin_commit should persist marker");
@@ -361,15 +358,12 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
         id: Ulid::from_u128(902),
     })
     .expect("entity serialization should succeed");
-    let marker = CommitMarker::new(
-        CommitKind::Save,
-        vec![CommitRowOp::new(
-            RecoveryTestEntity::PATH,
-            vec![0u8; DataKey::STORED_SIZE_USIZE.saturating_sub(1)],
-            None,
-            Some(row_bytes),
-        )],
-    )
+    let marker = CommitMarker::new(vec![CommitRowOp::new(
+        RecoveryTestEntity::PATH,
+        vec![0u8; DataKey::STORED_SIZE_USIZE.saturating_sub(1)],
+        None,
+        Some(row_bytes),
+    )])
     .expect("commit marker creation should succeed");
 
     begin_commit(marker).expect("begin_commit should persist marker");
@@ -415,23 +409,20 @@ fn recovery_replay_merges_multi_row_shared_index_key() {
     let first_row = serialize(&first).expect("first entity serialization should succeed");
     let second_row = serialize(&second).expect("second entity serialization should succeed");
 
-    let marker = CommitMarker::new(
-        CommitKind::Save,
-        vec![
-            CommitRowOp::new(
-                RecoveryIndexedEntity::PATH,
-                first_key.as_bytes().to_vec(),
-                None,
-                Some(first_row.clone()),
-            ),
-            CommitRowOp::new(
-                RecoveryIndexedEntity::PATH,
-                second_key.as_bytes().to_vec(),
-                None,
-                Some(second_row.clone()),
-            ),
-        ],
-    )
+    let marker = CommitMarker::new(vec![
+        CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            first_key.as_bytes().to_vec(),
+            None,
+            Some(first_row.clone()),
+        ),
+        CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            second_key.as_bytes().to_vec(),
+            None,
+            Some(second_row.clone()),
+        ),
+    ])
     .expect("commit marker creation should succeed");
     begin_commit(marker).expect("begin_commit should persist marker");
 
@@ -474,23 +465,20 @@ fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state()
     let second_row = serialize(&second).expect("second entity serialization should succeed");
 
     // Phase 1: replay two inserts sharing the same index key.
-    let save_marker = CommitMarker::new(
-        CommitKind::Save,
-        vec![
-            CommitRowOp::new(
-                RecoveryIndexedEntity::PATH,
-                first_key.as_bytes().to_vec(),
-                None,
-                Some(first_row.clone()),
-            ),
-            CommitRowOp::new(
-                RecoveryIndexedEntity::PATH,
-                second_key.as_bytes().to_vec(),
-                None,
-                Some(second_row.clone()),
-            ),
-        ],
-    )
+    let save_marker = CommitMarker::new(vec![
+        CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            first_key.as_bytes().to_vec(),
+            None,
+            Some(first_row.clone()),
+        ),
+        CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            second_key.as_bytes().to_vec(),
+            None,
+            Some(second_row.clone()),
+        ),
+    ])
     .expect("commit marker creation should succeed");
     begin_commit(save_marker).expect("begin_commit should persist marker");
 
@@ -504,15 +492,12 @@ fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state()
     assert_eq!(inserted_indexed_ids, inserted_expected_ids);
 
     // Phase 2: replay a delete that removes one of the inserted rows.
-    let delete_marker = CommitMarker::new(
-        CommitKind::Delete,
-        vec![CommitRowOp::new(
-            RecoveryIndexedEntity::PATH,
-            second_key.as_bytes().to_vec(),
-            Some(second_row),
-            None,
-        )],
-    )
+    let delete_marker = CommitMarker::new(vec![CommitRowOp::new(
+        RecoveryIndexedEntity::PATH,
+        second_key.as_bytes().to_vec(),
+        Some(second_row),
+        None,
+    )])
     .expect("delete marker creation should succeed");
     begin_commit(delete_marker).expect("delete begin_commit should persist marker");
 

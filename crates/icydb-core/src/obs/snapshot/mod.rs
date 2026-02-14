@@ -230,7 +230,8 @@ mod tests {
             RefCell::new(IndexStore::init(test_memory(102)));
         static SNAPSHOT_STORE_REGISTRY: StoreRegistry = {
             let mut reg = StoreRegistry::new();
-            reg.register_store(STORE_PATH, &SNAPSHOT_DATA_STORE, &SNAPSHOT_INDEX_STORE);
+            reg.register_store(STORE_PATH, &SNAPSHOT_DATA_STORE, &SNAPSHOT_INDEX_STORE)
+                .expect("snapshot store registration should succeed");
             reg
         };
     }

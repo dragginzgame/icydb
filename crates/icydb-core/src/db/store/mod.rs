@@ -23,21 +23,22 @@ use thiserror::Error as ThisError;
 pub enum StoreRegistryError {
     #[error("store '{0}' not found")]
     StoreNotFound(String),
+    #[error("store '{0}' already registered")]
+    StoreAlreadyRegistered(String),
 }
 
 impl StoreRegistryError {
-    pub(crate) const fn class() -> ErrorClass {
-        ErrorClass::Internal
+    pub(crate) const fn class(&self) -> ErrorClass {
+        match self {
+            Self::StoreNotFound(_) => ErrorClass::Internal,
+            Self::StoreAlreadyRegistered(_) => ErrorClass::InvariantViolation,
+        }
     }
 }
 
 impl From<StoreRegistryError> for InternalError {
     fn from(err: StoreRegistryError) -> Self {
-        Self::new(
-            StoreRegistryError::class(),
-            ErrorOrigin::Store,
-            err.to_string(),
-        )
+        Self::new(err.class(), ErrorOrigin::Store, err.to_string())
     }
 }
 
@@ -126,8 +127,13 @@ impl StoreRegistry {
         name: &'static str,
         data: &'static LocalKey<RefCell<DataStore>>,
         index: &'static LocalKey<RefCell<IndexStore>>,
-    ) {
+    ) -> Result<(), InternalError> {
+        if self.stores.contains_key(name) {
+            return Err(StoreRegistryError::StoreAlreadyRegistered(name.to_string()).into());
+        }
+
         self.stores.insert(name, StoreHandle::new(data, index));
+        Ok(())
     }
 
     /// Look up a store handle by path.
@@ -161,7 +167,9 @@ mod tests {
 
     fn test_registry() -> StoreRegistry {
         let mut registry = StoreRegistry::new();
-        registry.register_store(STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE);
+        registry
+            .register_store(STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE)
+            .expect("test store registration should succeed");
         registry
     }
 
@@ -200,6 +208,25 @@ mod tests {
             err.message
                 .contains("store 'store_registry_tests::Missing' not found"),
             "missing store lookup should include the missing path"
+        );
+    }
+
+    #[test]
+    fn duplicate_store_registration_is_rejected() {
+        let mut registry = StoreRegistry::new();
+        registry
+            .register_store(STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE)
+            .expect("initial store registration should succeed");
+
+        let err = registry
+            .register_store(STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE)
+            .expect_err("duplicate registration should fail");
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message
+                .contains("store 'store_registry_tests::Store' already registered"),
+            "duplicate registration should include the conflicting path"
         );
     }
 }
