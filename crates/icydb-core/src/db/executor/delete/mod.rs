@@ -2,29 +2,23 @@ mod helpers;
 
 use crate::{
     db::{
-        CommitDataOp, CommitKind, CommitMarker, CommitRowOp, Db, begin_commit,
-        ensure_recovered_for_write,
+        CommitKind, CommitMarker, CommitRowOp, Db, begin_commit, ensure_recovered_for_write,
         executor::{
             debug::{access_summary, yes_no},
-            mutation::{
-                MarkerDataOpMode, PreparedMarkerApply, apply_prepared_marker_ops,
-                validate_index_apply_stores_len,
-            },
+            mutation::{apply_prepared_row_ops, preflight_prepare_row_ops},
             plan::{record_plan_metrics, set_rows_from_len},
             trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
         },
+        index::IndexKey,
         query::plan::{ExecutablePlan, validate::validate_executor_plan},
         response::Response,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
-    traits::{EntityKind, EntityValue, Path},
+    traits::{EntityKind, EntityValue},
     types::Id,
 };
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    marker::PhantomData,
-};
+use std::{collections::BTreeSet, marker::PhantomData};
 
 ///
 /// DeleteExecutor
@@ -160,21 +154,12 @@ where
             self.db
                 .validate_delete_strong_relations(E::PATH, &deleted_target_keys)?;
 
-            let index_plans = self.build_index_plans()?;
-            let (index_ops, index_remove_count) = {
-                let entities: Vec<&E> = rows.iter().map(|row| &row.entity).collect();
-                Self::build_index_removal_ops(&index_plans, &entities)?
-            };
+            let index_remove_count =
+                Self::count_index_removals(rows.iter().map(|row| &row.entity))?;
 
             // Preflight store access to ensure no fallible work remains post-commit.
             ctx.with_store(|_| ())?;
-            let data_store = self
-                .db
-                .with_store_registry(|reg| reg.try_get_data_store(E::Store::PATH))?;
-
-            let mut rollback_rows = BTreeMap::new();
-            let mut row_ops = Vec::with_capacity(rows.len());
-            let data_ops = rows
+            let row_ops = rows
                 .iter_mut()
                 .map(|row| {
                     let raw_key = row.key.to_raw()?;
@@ -185,46 +170,24 @@ where
                             "missing raw row for delete rollback".to_string(),
                         )
                     })?;
-                    rollback_rows.insert(raw_key, raw_row);
-                    row_ops.push(CommitRowOp::new(
+                    Ok(CommitRowOp::new(
                         E::PATH,
                         raw_key.as_bytes().to_vec(),
-                        rollback_rows
-                            .get(&raw_key)
-                            .map(|row| row.as_bytes().to_vec()),
+                        Some(raw_row.as_bytes().to_vec()),
                         None,
-                    ));
-                    Ok(CommitDataOp {
-                        store: E::Store::PATH.to_string(),
-                        key: raw_key.as_bytes().to_vec(),
-                        value: None,
-                    })
+                    ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
-
+            let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &row_ops)?;
             let marker = CommitMarker::new(CommitKind::Delete, row_ops)?;
-            let (index_apply_stores, index_rollback_ops) =
-                Self::prepare_index_delete_ops(&index_plans, &index_ops)?;
-            let data_rollback_ops = Self::prepare_data_delete_ops(&data_ops, &rollback_rows)?;
-            validate_index_apply_stores_len(index_ops.len(), index_apply_stores.len(), E::PATH)?;
-            let prepared_apply = PreparedMarkerApply {
-                index_apply_stores,
-                index_rollback_ops,
-                data_store,
-                data_rollback_ops,
-                data_mode: MarkerDataOpMode::DeleteRemove,
-                entity_path: E::PATH,
-            };
             let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Delete commit window opened");
 
-            apply_prepared_marker_ops(
+            apply_prepared_row_ops(
                 commit,
-                "delete_marker_apply",
-                &index_ops,
-                &data_ops,
-                prepared_apply,
+                "delete_row_apply",
+                prepared_row_ops,
                 || {
                     for _ in 0..index_remove_count {
                         sink::record(MetricsEvent::IndexRemove {
@@ -266,5 +229,24 @@ where
         }
 
         result
+    }
+
+    /// Count index entries that will be removed for diagnostics/metrics.
+    fn count_index_removals<'a>(
+        entities: impl IntoIterator<Item = &'a E>,
+    ) -> Result<usize, InternalError>
+    where
+        E: 'a,
+    {
+        let mut removes = 0usize;
+        for entity in entities {
+            for index in E::INDEXES {
+                if IndexKey::new(entity, index)?.is_some() {
+                    removes = removes.saturating_add(1);
+                }
+            }
+        }
+
+        Ok(removes)
     }
 }

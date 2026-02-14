@@ -1,4 +1,3 @@
-mod commit_ops;
 mod context;
 mod debug;
 mod delete;

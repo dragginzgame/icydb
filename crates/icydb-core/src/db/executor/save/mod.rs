@@ -1,5 +1,4 @@
 mod invariants;
-mod marker_apply;
 mod relations;
 #[cfg(test)]
 mod tests;
@@ -8,17 +7,13 @@ mod tests;
 use crate::value::Value;
 use crate::{
     db::{
-        CommitDataOp, CommitKind, CommitMarker, CommitRowOp, Db, begin_commit,
-        ensure_recovered_for_write,
+        CommitKind, CommitMarker, CommitRowOp, Db, begin_commit, ensure_recovered_for_write,
         executor::{
             ExecutorError,
-            mutation::{
-                MarkerDataOpMode, PreparedMarkerApply, apply_prepared_marker_ops,
-                validate_index_apply_stores_len,
-            },
+            mutation::{apply_prepared_row_ops, preflight_prepare_row_ops},
             trace::{QueryTraceSink, TraceExecutorKind, start_exec_trace},
         },
-        index::plan::plan_index_mutation_for_entity,
+        index::IndexKey,
         query::SaveMode,
         store::{DataKey, RawRow},
     },
@@ -26,7 +21,7 @@ use crate::{
     obs::sink::{self, ExecKind, MetricsEvent, Span},
     sanitize::sanitize,
     serialize::serialize,
-    traits::{EntityKind, EntityValue, Path},
+    traits::{EntityKind, EntityValue},
     validate::validate,
 };
 use std::marker::PhantomData;
@@ -296,58 +291,29 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             ctx.with_store(|_| ())?;
 
             // Stage-2 commit protocol:
-            // - prevalidate index/data mutations before persisting the marker
-            // - then apply marker ops mechanically.
+            // - preflight row-op preparation before persisting the marker
+            // - then apply prepared row ops mechanically.
             // Durable correctness is marker + recovery owned. Apply guard rollback
             // here is best-effort, in-process cleanup only.
-            let index_plan =
-                plan_index_mutation_for_entity::<E>(&self.db, old.as_ref(), Some(&entity))?;
             let after_bytes = row.as_bytes().to_vec();
-            let data_op = CommitDataOp {
-                store: E::Store::PATH.to_string(),
-                key: raw_key.as_bytes().to_vec(),
-                value: Some(after_bytes.clone()),
-            };
-            let marker_index_ops = index_plan.commit_ops;
-            let marker_data_ops = vec![data_op];
             let marker_row_ops = vec![CommitRowOp::new(
                 E::PATH,
                 raw_key.as_bytes().to_vec(),
                 old_raw.as_ref().map(|row| row.as_bytes().to_vec()),
                 Some(after_bytes),
             )];
+            let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &marker_row_ops)?;
             let marker = CommitMarker::new(CommitKind::Save, marker_row_ops)?;
-            let (index_apply_stores, index_rollback_ops) =
-                Self::prepare_index_save_ops(&index_plan.apply, &marker_index_ops)?;
             let (index_removes, index_inserts) = Self::plan_index_metrics(old.as_ref(), &entity)?;
-            let data_rollback_ops = Self::prepare_data_save_ops(&marker_data_ops, old_raw)?;
-            validate_index_apply_stores_len(
-                marker_index_ops.len(),
-                index_apply_stores.len(),
-                E::PATH,
-            )?;
-            let data_store = self
-                .db
-                .with_store_registry(|reg| reg.try_get_data_store(E::Store::PATH))?;
-            let prepared_apply = PreparedMarkerApply {
-                index_apply_stores,
-                index_rollback_ops,
-                data_store,
-                data_rollback_ops,
-                data_mode: MarkerDataOpMode::SaveUpsert,
-                entity_path: E::PATH,
-            };
             let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Save commit window opened");
 
             // FIRST STABLE WRITE: commit marker is persisted before any mutations.
-            apply_prepared_marker_ops(
+            apply_prepared_row_ops(
                 commit,
-                "save_marker_apply",
-                &marker_index_ops,
-                &marker_data_ops,
-                prepared_apply,
+                "save_row_apply",
+                prepared_row_ops,
                 || {
                     for _ in 0..index_removes {
                         sink::record(MetricsEvent::IndexRemove {
@@ -382,6 +348,25 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         }
 
         result
+    }
+
+    /// Precompute index mutation metrics before commit marker persistence.
+    fn plan_index_metrics(old: Option<&E>, new: &E) -> Result<(usize, usize), InternalError> {
+        let mut removes = 0usize;
+        let mut inserts = 0usize;
+
+        for index in E::INDEXES {
+            if let Some(old) = old
+                && IndexKey::new(old, index)?.is_some()
+            {
+                removes = removes.saturating_add(1);
+            }
+            if IndexKey::new(new, index)?.is_some() {
+                inserts = inserts.saturating_add(1);
+            }
+        }
+
+        Ok((removes, inserts))
     }
 }
 
