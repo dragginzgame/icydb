@@ -240,6 +240,11 @@ thread_local! {
 static DB: Db<RecoveryTestCanister> =
     Db::new_with_relations(&STORE_REGISTRY, &[], ROW_COMMIT_HANDLERS);
 
+fn with_recovery_store<R>(f: impl FnOnce(crate::db::store::StoreHandle) -> R) -> R {
+    DB.with_store_registry(|reg| reg.try_get_store(RecoveryTestDataStore::PATH).map(f))
+        .expect("recovery test store access should succeed")
+}
+
 // Reset marker + data store to isolate recovery tests.
 fn reset_recovery_state() {
     init_commit_store_for_tests().expect("commit store init should succeed");
@@ -249,22 +254,16 @@ fn reset_recovery_state() {
     })
     .expect("commit marker reset should succeed");
 
-    DB.with_store_registry(|reg| {
-        reg.try_get_store(RecoveryTestDataStore::PATH).map(|store| {
-            store.with_data_mut(DataStore::clear);
-            store.with_index_mut(IndexStore::clear);
-        })
+    with_recovery_store(|store| {
+        store.with_data_mut(DataStore::clear);
+        store.with_index_mut(IndexStore::clear);
     })
-    .expect("index store reset should succeed");
 }
 
 fn row_bytes_for(key: &RawDataKey) -> Option<Vec<u8>> {
-    DB.with_store_registry(|reg| {
-        reg.try_get_store(RecoveryTestDataStore::PATH).map(|store| {
-            store.with_data(|data_store| data_store.get(key).map(|row| row.as_bytes().to_vec()))
-        })
+    with_recovery_store(|store| {
+        store.with_data(|data_store| data_store.get(key).map(|row| row.as_bytes().to_vec()))
     })
-    .expect("data store read should succeed")
 }
 
 fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
@@ -274,20 +273,17 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
         .expect("index key should exist")
         .to_raw();
 
-    DB.with_store_registry(|reg| {
-        reg.try_get_store(RecoveryTestDataStore::PATH).map(|store| {
-            store.with_index(|index_store| {
-                index_store.get(&index_key).map(|entry| {
-                    entry
-                        .try_decode::<RecoveryIndexedEntity>()
-                        .expect("index entry decode should succeed")
-                        .iter_ids()
-                        .collect::<BTreeSet<_>>()
-                })
+    with_recovery_store(|store| {
+        store.with_index(|index_store| {
+            index_store.get(&index_key).map(|entry| {
+                entry
+                    .try_decode::<RecoveryIndexedEntity>()
+                    .expect("index entry decode should succeed")
+                    .iter_ids()
+                    .collect::<BTreeSet<_>>()
             })
         })
     })
-    .expect("index store read should succeed")
 }
 
 #[test]

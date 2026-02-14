@@ -1,7 +1,9 @@
 //! Commit marker storage and access.
 
 use crate::{
-    db::commit::{CommitMarker, MAX_COMMIT_BYTES, memory::commit_memory_id},
+    db::commit::{
+        CommitMarker, MAX_COMMIT_BYTES, memory::commit_memory_id, validate_commit_marker_shape,
+    },
     error::{ErrorClass, ErrorOrigin, InternalError},
     serialize::{deserialize_bounded, serialize},
 };
@@ -62,15 +64,17 @@ impl RawCommitMarker {
             ));
         }
 
-        deserialize_bounded::<CommitMarker>(&self.0, MAX_COMMIT_BYTES as usize)
-            .map(Some)
+        let marker = deserialize_bounded::<CommitMarker>(&self.0, MAX_COMMIT_BYTES as usize)
             .map_err(|err| {
                 InternalError::new(
                     ErrorClass::Corruption,
                     ErrorOrigin::Store,
                     format!("commit marker corrupted: {err}"),
                 )
-            })
+            })?;
+        validate_commit_marker_shape(&marker)?;
+
+        Ok(Some(marker))
     }
 }
 
@@ -224,5 +228,26 @@ mod tests {
             ),
             SerializeError::Serialize(_) => panic!("unexpected serialize error"),
         }
+    }
+
+    #[test]
+    fn commit_marker_rejects_row_op_without_before_or_after() {
+        let marker = CommitMarker {
+            id: [1u8; 16],
+            row_ops: vec![CommitRowOp::new("test::Entity", vec![9u8], None, None)],
+        };
+
+        let bytes = serialize(&marker).expect("serialize malformed marker");
+        let err = RawCommitMarker(bytes)
+            .try_decode()
+            .expect_err("row op without before/after should be rejected");
+
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message
+                .contains("row op has neither before nor after payload"),
+            "unexpected error: {err:?}"
+        );
     }
 }

@@ -87,25 +87,28 @@ thread_local! {
 
 static DB: Db<TestCanister> = Db::new(&STORE_REGISTRY);
 
+fn with_data_store<R>(path: &'static str, f: impl FnOnce(&DataStore) -> R) -> R {
+    DB.with_store_registry(|reg| reg.try_get_store(path).map(|store| store.with_data(f)))
+        .expect("data store access should succeed")
+}
+
+fn with_data_store_mut<R>(path: &'static str, f: impl FnOnce(&mut DataStore) -> R) -> R {
+    DB.with_store_registry(|reg| reg.try_get_store(path).map(|store| store.with_data_mut(f)))
+        .expect("data store access should succeed")
+}
+
+fn with_index_store_mut<R>(path: &'static str, f: impl FnOnce(&mut IndexStore) -> R) -> R {
+    DB.with_store_registry(|reg| reg.try_get_store(path).map(|store| store.with_index_mut(f)))
+        .expect("index store access should succeed")
+}
+
 // Clear test stores and ensure recovery has completed before each test mutation.
 fn reset_store() {
     ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
-    DB.with_store_registry(|reg| {
-        reg.try_get_store(SourceStore::PATH)
-            .map(|store| store.with_data_mut(DataStore::clear))
-            .expect("source store access should succeed");
-        reg.try_get_store(TargetStore::PATH)
-            .map(|store| store.with_data_mut(DataStore::clear))
-            .expect("target store access should succeed");
-    });
-    DB.with_store_registry(|reg| {
-        reg.try_get_store(UNIQUE_INDEX_STORE_PATH)
-            .map(|store| store.with_index_mut(IndexStore::clear))
-            .expect("unique index store access should succeed");
-        reg.try_get_store(TargetStore::PATH)
-            .map(|store| store.with_index_mut(IndexStore::clear))
-            .expect("target index store access should succeed");
-    });
+    with_data_store_mut(SourceStore::PATH, DataStore::clear);
+    with_data_store_mut(TargetStore::PATH, DataStore::clear);
+    with_index_store_mut(UNIQUE_INDEX_STORE_PATH, IndexStore::clear);
+    with_index_store_mut(TargetStore::PATH, IndexStore::clear);
 }
 
 ///
@@ -561,12 +564,9 @@ fn strong_set_relation_missing_key_fails_save() {
         "unexpected error: {err:?}"
     );
 
-    let source_empty = DB
-        .with_store_registry(|reg| {
-            reg.try_get_store(SourceStore::PATH)
-                .map(|store| store.with_data(|data_store| data_store.iter().next().is_none()))
-        })
-        .expect("source store access should succeed");
+    let source_empty = with_data_store(SourceStore::PATH, |data_store| {
+        data_store.iter().next().is_none()
+    });
     assert!(
         source_empty,
         "source store must remain empty after failed save"
@@ -624,12 +624,9 @@ fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
         "unexpected error: {err:?}"
     );
 
-    let source_empty = DB
-        .with_store_registry(|reg| {
-            reg.try_get_store(SourceStore::PATH)
-                .map(|store| store.with_data(|data_store| data_store.iter().next().is_none()))
-        })
-        .expect("source store access should succeed");
+    let source_empty = with_data_store(SourceStore::PATH, |data_store| {
+        data_store.iter().next().is_none()
+    });
     assert!(
         source_empty,
         "source save must be atomic: failed save must not persist partial rows"
@@ -709,12 +706,9 @@ fn save_rejects_primary_key_field_and_identity_mismatch() {
         "unexpected error: {err:?}"
     );
 
-    let source_empty = DB
-        .with_store_registry(|reg| {
-            reg.try_get_store(SourceStore::PATH)
-                .map(|store| store.with_data(|data_store| data_store.iter().next().is_none()))
-        })
-        .expect("source store access should succeed");
+    let source_empty = with_data_store(SourceStore::PATH, |data_store| {
+        data_store.iter().next().is_none()
+    });
     assert!(
         source_empty,
         "failed invariant checks must not persist rows"
@@ -754,12 +748,7 @@ fn unique_index_violation_rejected_on_insert() {
         "unexpected error: {err:?}"
     );
 
-    let rows = DB
-        .with_store_registry(|reg| {
-            reg.try_get_store(SourceStore::PATH)
-                .map(|store| store.with_data(|data_store| data_store.iter().count()))
-        })
-        .expect("source store access should succeed");
+    let rows = with_data_store(SourceStore::PATH, |data_store| data_store.iter().count());
     assert_eq!(rows, 1, "conflicting insert must not persist");
 }
 
@@ -801,11 +790,6 @@ fn unique_index_violation_rejected_on_update() {
         "unexpected error: {err:?}"
     );
 
-    let rows = DB
-        .with_store_registry(|reg| {
-            reg.try_get_store(SourceStore::PATH)
-                .map(|store| store.with_data(|data_store| data_store.iter().count()))
-        })
-        .expect("source store access should succeed");
+    let rows = with_data_store(SourceStore::PATH, |data_store| data_store.iter().count());
     assert_eq!(rows, 2, "failed update must not remove persisted rows");
 }

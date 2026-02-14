@@ -17,11 +17,11 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitMarker, CommitRowOp, PreparedRowCommitOp, snapshot_row_rollback,
+            CommitRowOp, PreparedRowCommitOp, snapshot_row_rollback,
             store::{commit_marker_present_fast, with_commit_store},
         },
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
 };
 use std::sync::OnceLock;
 
@@ -70,7 +70,6 @@ pub fn ensure_recovered_for_write(
 fn perform_recovery(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {
     let marker = with_commit_store(|store| store.load())?;
     if let Some(marker) = marker {
-        validate_recovery_marker(&marker)?;
         replay_recovery_row_ops(db, &marker.row_ops)?;
         with_commit_store(|store| {
             store.clear_infallible();
@@ -79,23 +78,6 @@ fn perform_recovery(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), Int
     }
 
     let _ = RECOVERED.set(());
-
-    Ok(())
-}
-
-/// Validate commit marker payload shape before recovery replay.
-///
-/// Recovery replays row ops sequentially so later ops see earlier writes.
-fn validate_recovery_marker(marker: &CommitMarker) -> Result<(), InternalError> {
-    for row_op in &marker.row_ops {
-        if row_op.before.is_none() && row_op.after.is_none() {
-            return Err(InternalError::new(
-                ErrorClass::Corruption,
-                ErrorOrigin::Store,
-                "commit marker corrupted: row op has neither before nor after payload",
-            ));
-        }
-    }
 
     Ok(())
 }

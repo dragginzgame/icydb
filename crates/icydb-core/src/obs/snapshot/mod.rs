@@ -238,19 +238,18 @@ mod tests {
 
     static DB: Db<SnapshotTestCanister> = Db::new(&SNAPSHOT_STORE_REGISTRY);
 
+    fn with_snapshot_store<R>(f: impl FnOnce(crate::db::store::StoreHandle) -> R) -> R {
+        DB.with_store_registry(|reg| reg.try_get_store(STORE_PATH).map(f))
+            .expect("snapshot store access should succeed")
+    }
+
     fn reset_snapshot_state() {
         init_commit_store_for_tests().expect("commit store init should succeed");
 
-        DB.with_store_registry(|reg| {
-            reg.try_get_store(STORE_PATH)
-                .map(|store| store.with_data_mut(DataStore::clear))
+        with_snapshot_store(|store| {
+            store.with_data_mut(DataStore::clear);
+            store.with_index_mut(IndexStore::clear);
         })
-        .expect("data store reset should succeed");
-        DB.with_store_registry(|reg| {
-            reg.try_get_store(STORE_PATH)
-                .map(|store| store.with_index_mut(IndexStore::clear))
-        })
-        .expect("index store reset should succeed");
     }
 
     #[test]
@@ -277,25 +276,19 @@ mod tests {
             .to_raw()
             .expect("max storable data key should encode");
         let row = RawRow::try_new(vec![1, 2, 3]).expect("row bytes should be valid");
-        DB.with_store_registry(|reg| {
-            reg.try_get_store(STORE_PATH).map(|store| {
-                store.with_data_mut(|data_store| {
-                    data_store.insert(data_key, row);
-                });
-            })
-        })
-        .expect("data insert should succeed");
+        with_snapshot_store(|store| {
+            store.with_data_mut(|data_store| {
+                data_store.insert(data_key, row);
+            });
+        });
 
         let index_key = IndexKey::empty(IndexId::max_storable()).to_raw();
         let malformed_index_entry = RawIndexEntry::from_bytes(Cow::Owned(vec![0, 0, 0, 0]));
-        DB.with_store_registry(|reg| {
-            reg.try_get_store(STORE_PATH).map(|store| {
-                store.with_index_mut(|index_store| {
-                    index_store.insert(index_key, malformed_index_entry);
-                });
+        with_snapshot_store(|store| {
+            store.with_index_mut(|index_store| {
+                index_store.insert(index_key, malformed_index_entry);
             })
-        })
-        .expect("index insert should succeed");
+        });
 
         let report = storage_report(&DB, &[]).expect("storage report should succeed");
         assert_eq!(report.storage_data[0].entries, 1);
