@@ -10,23 +10,15 @@ pub mod test {
     #[canister(memory_min = 50, memory_max = 100)]
     pub struct TestCanister {}
 
+    /// TestStore
     ///
-    /// TestIndexStore
-    ///
-
-    #[index_store(
-        ident = "TEST_INDEX_STORE",
+    #[store(
+        ident = "TEST_STORE",
         canister = "TestCanister",
-        entry_memory_id = 51
+        data_memory_id = 50,
+        index_memory_id = 51
     )]
-    pub struct TestIndexStore {}
-
-    ///
-    /// TestDataStore
-    ///
-
-    #[data_store(ident = "TEST_DATA_STORE", canister = "TestCanister", memory_id = 50)]
-    pub struct TestDataStore {}
+    pub struct TestStore {}
 }
 
 pub mod relation {
@@ -39,14 +31,13 @@ pub mod relation {
     #[canister(memory_min = 10, memory_max = 20)]
     pub struct RelationCanister {}
 
+    /// RelationStore
     ///
-    /// RelationDataStore
-    ///
-
-    #[data_store(
+    #[store(
         ident = "RELATION_DATA_STORE",
         canister = "RelationCanister",
-        memory_id = 10
+        data_memory_id = 10,
+        index_memory_id = 11
     )]
     pub struct RelationDataStore {}
 }

@@ -8,7 +8,10 @@ pub use data_key::*;
 pub use row::*;
 pub use storage_key::*;
 
-use crate::error::{ErrorClass, ErrorOrigin, InternalError};
+use crate::{
+    db::index::IndexStore,
+    error::{ErrorClass, ErrorOrigin, InternalError},
+};
 use std::{cell::RefCell, collections::HashMap, thread::LocalKey};
 use thiserror::Error as ThisError;
 
@@ -43,9 +46,9 @@ impl From<StoreRegistryError> for InternalError {
 ///
 
 #[derive(Default)]
-pub struct StoreRegistry<T: 'static>(HashMap<&'static str, &'static LocalKey<RefCell<T>>>);
+struct StoreMap<T: 'static>(HashMap<&'static str, &'static LocalKey<RefCell<T>>>);
 
-impl<T: 'static> StoreRegistry<T> {
+impl<T: 'static> StoreMap<T> {
     /// Create an empty store registry.
     #[must_use]
     pub fn new() -> Self {
@@ -99,5 +102,110 @@ impl<T: 'static> StoreRegistry<T> {
         let store = self.try_get_store(path)?;
 
         Ok(store.with_borrow_mut(|s| f(s)))
+    }
+}
+
+///
+/// StoreRegistry
+///
+/// Thread-local registry for both row and index stores.
+///
+
+#[derive(Default)]
+pub struct StoreRegistry {
+    data: StoreMap<DataStore>,
+    index: StoreMap<IndexStore>,
+}
+
+impl StoreRegistry {
+    /// Create an empty store registry.
+    #[must_use]
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Iterate registered row-store names and thread-local keys.
+    pub fn iter_data(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, &'static LocalKey<RefCell<DataStore>>)> {
+        self.data.iter()
+    }
+
+    /// Iterate registered index-store names and thread-local keys.
+    pub fn iter_index(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, &'static LocalKey<RefCell<IndexStore>>)> {
+        self.index.iter()
+    }
+
+    /// Register a row-store accessor under a path.
+    pub fn register_data_store(
+        &mut self,
+        name: &'static str,
+        accessor: &'static LocalKey<RefCell<DataStore>>,
+    ) {
+        self.data.register(name, accessor);
+    }
+
+    /// Register an index-store accessor under a path.
+    pub fn register_index_store(
+        &mut self,
+        name: &'static str,
+        accessor: &'static LocalKey<RefCell<IndexStore>>,
+    ) {
+        self.index.register(name, accessor);
+    }
+
+    /// Look up a row-store accessor by path.
+    pub fn try_get_data_store(
+        &self,
+        path: &str,
+    ) -> Result<&'static LocalKey<RefCell<DataStore>>, InternalError> {
+        self.data.try_get_store(path)
+    }
+
+    /// Look up an index-store accessor by path.
+    pub fn try_get_index_store(
+        &self,
+        path: &str,
+    ) -> Result<&'static LocalKey<RefCell<IndexStore>>, InternalError> {
+        self.index.try_get_store(path)
+    }
+
+    /// Borrow a row store immutably by path.
+    pub fn with_data_store<R>(
+        &self,
+        path: &str,
+        f: impl FnOnce(&DataStore) -> R,
+    ) -> Result<R, InternalError> {
+        self.data.with_store(path, f)
+    }
+
+    /// Borrow a row store mutably by path.
+    pub fn with_data_store_mut<R>(
+        &self,
+        path: &str,
+        f: impl FnOnce(&mut DataStore) -> R,
+    ) -> Result<R, InternalError> {
+        self.data.with_store_mut(path, f)
+    }
+
+    /// Borrow an index store immutably by path.
+    pub fn with_index_store<R>(
+        &self,
+        path: &str,
+        f: impl FnOnce(&IndexStore) -> R,
+    ) -> Result<R, InternalError> {
+        self.index.with_store(path, f)
+    }
+
+    /// Borrow an index store mutably by path.
+    pub fn with_index_store_mut<R>(
+        &self,
+        path: &str,
+        f: impl FnOnce(&mut IndexStore) -> R,
+    ) -> Result<R, InternalError> {
+        self.index.with_store_mut(path, f)
     }
 }

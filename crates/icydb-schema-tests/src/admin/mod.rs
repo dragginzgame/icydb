@@ -10,7 +10,7 @@ use crate::prelude::*;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -57,7 +57,7 @@ pub struct ComplexEntity {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -84,7 +84,7 @@ pub struct AdminEntity {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -107,7 +107,7 @@ pub struct RelatedEntity {}
 
 #[entity(
     name = "AdminSimpleEntity",
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),

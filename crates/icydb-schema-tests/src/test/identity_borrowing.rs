@@ -5,7 +5,7 @@ use crate::prelude::*;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
 )]
@@ -16,7 +16,7 @@ pub struct User;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "user"),
     fields(field(ident = "user", value(item(rel = "User", prim = "Ulid"))))
 )]

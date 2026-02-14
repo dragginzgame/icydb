@@ -5,7 +5,7 @@ use crate::prelude::*;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -19,7 +19,7 @@ pub struct Entity {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Unit"))),
@@ -34,7 +34,7 @@ pub struct UnitKey {}
 
 #[entity(
     name = "Potato",
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
 )]
@@ -45,7 +45,7 @@ pub struct RenamedEntity {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "pid", source = "external"),
     fields(
         field(

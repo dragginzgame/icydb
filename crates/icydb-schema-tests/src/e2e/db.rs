@@ -5,7 +5,7 @@ use crate::prelude::*;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
 )]
@@ -16,7 +16,7 @@ pub struct SimpleEntity {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -30,7 +30,7 @@ pub struct BlobEntity {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -45,7 +45,7 @@ pub struct Searchable {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "value"),
     fields(field(ident = "value", value(item(prim = "Nat32"))))
 )]
@@ -56,7 +56,7 @@ pub struct Limit {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
 )]
@@ -88,7 +88,7 @@ pub struct MissingFieldLarge {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -102,7 +102,7 @@ pub struct ContainsBlob {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -127,7 +127,7 @@ pub struct ContainsOpts {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -150,10 +150,10 @@ pub struct ContainsManyRelations {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
-    index(store = "TestIndexStore", fields = "x"),
-    index(store = "TestIndexStore", fields = "y", unique),
+    index(fields = "x"),
+    index(fields = "y", unique),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "x", value(item(prim = "Int32"))),
@@ -189,9 +189,9 @@ pub struct LowerIndexText {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
-    index(store = "TestIndexStore", fields = "username", unique),
+    index(fields = "username", unique),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "username", value(item(is = "LowerIndexText"))),
@@ -205,9 +205,9 @@ pub struct IndexSanitized {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
-    index(store = "TestIndexStore", fields = "create_blob"),
+    index(fields = "create_blob"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "create_blob", value(item(rel = "BlobEntity", prim = "Ulid")))
@@ -220,9 +220,9 @@ pub struct IndexRelation {}
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
-    index(store = "TestIndexStore", fields = "value", unique),
+    index(fields = "value", unique),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "value", value(opt, item(prim = "Nat8")))

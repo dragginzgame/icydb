@@ -5,7 +5,7 @@ use crate::prelude::*;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -21,7 +21,7 @@ pub struct HasRelation;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -35,7 +35,7 @@ pub struct HasManyRelation;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
@@ -49,7 +49,7 @@ pub struct HasPluralRelation;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
 )]
@@ -60,7 +60,7 @@ pub struct EntityA;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Nat16"))))
 )]
@@ -71,7 +71,7 @@ pub struct EntityB;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Principal"))))
 )]
@@ -82,7 +82,7 @@ pub struct EntityC;
 ///
 
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"))
 )]
@@ -136,7 +136,7 @@ pub struct RelationRecord;
 
 #[cfg(test)]
 #[entity(
-    store = "TestDataStore",
+    store = "TestStore",
     pk(field = "id"),
     fields(
         field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
