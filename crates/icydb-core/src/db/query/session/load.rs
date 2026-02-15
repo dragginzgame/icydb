@@ -71,6 +71,21 @@ where
         &self.query
     }
 
+    fn map_query_with_refresh(mut self, map: impl FnOnce(Query<E>) -> Query<E>) -> Self {
+        self.query = map(self.query);
+        self.refresh_cursor_intent_error();
+        self
+    }
+
+    fn try_map_query_with_refresh(
+        mut self,
+        map: impl FnOnce(Query<E>) -> Result<Query<E>, QueryError>,
+    ) -> Result<Self, QueryError> {
+        self.query = map(self.query)?;
+        self.refresh_cursor_intent_error();
+        Ok(self)
+    }
+
     // ------------------------------------------------------------------
     // Intent builders (pure)
     // ------------------------------------------------------------------
@@ -101,36 +116,26 @@ where
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub fn filter(mut self, predicate: Predicate) -> Self {
-        self.query = self.query.filter(predicate);
-        self.refresh_cursor_intent_error();
-        self
+    pub fn filter(self, predicate: Predicate) -> Self {
+        self.map_query_with_refresh(|query| query.filter(predicate))
     }
 
-    pub fn filter_expr(mut self, expr: FilterExpr) -> Result<Self, QueryError> {
-        self.query = self.query.filter_expr(expr)?;
-        self.refresh_cursor_intent_error();
-        Ok(self)
+    pub fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
+        self.try_map_query_with_refresh(|query| query.filter_expr(expr))
     }
 
-    pub fn sort_expr(mut self, expr: SortExpr) -> Result<Self, QueryError> {
-        self.query = self.query.sort_expr(expr)?;
-        self.refresh_cursor_intent_error();
-        Ok(self)
+    pub fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
+        self.try_map_query_with_refresh(|query| query.sort_expr(expr))
     }
 
     #[must_use]
-    pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
-        self.query = self.query.order_by(field);
-        self.refresh_cursor_intent_error();
-        self
+    pub fn order_by(self, field: impl AsRef<str>) -> Self {
+        self.map_query_with_refresh(|query| query.order_by(field))
     }
 
     #[must_use]
-    pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
-        self.query = self.query.order_by_desc(field);
-        self.refresh_cursor_intent_error();
-        self
+    pub fn order_by_desc(self, field: impl AsRef<str>) -> Self {
+        self.map_query_with_refresh(|query| query.order_by_desc(field))
     }
 
     /// Bound the number of returned rows.
@@ -138,10 +143,8 @@ where
     /// Pagination is only valid with explicit ordering; combine `limit` and/or
     /// `offset` with `order_by(...)` or planning fails.
     #[must_use]
-    pub fn limit(mut self, limit: u32) -> Self {
-        self.query = self.query.limit(limit);
-        self.refresh_cursor_intent_error();
-        self
+    pub fn limit(self, limit: u32) -> Self {
+        self.map_query_with_refresh(|query| query.limit(limit))
     }
 
     /// Skip a number of rows in the ordered result stream.
@@ -149,10 +152,8 @@ where
     /// Pagination is only valid with explicit ordering; combine `offset` and/or
     /// `limit` with `order_by(...)` or planning fails.
     #[must_use]
-    pub fn offset(mut self, offset: u32) -> Self {
-        self.query = self.query.offset(offset);
-        self.refresh_cursor_intent_error();
-        self
+    pub fn offset(self, offset: u32) -> Self {
+        self.map_query_with_refresh(|query| query.offset(offset))
     }
 
     /// Attach an opaque cursor token for continuation pagination.
@@ -248,7 +249,8 @@ where
     where
         E: EntityValue,
     {
-        self.execute()?.require_one().map_err(QueryError::Response)
+        self.execute()?.require_one()?;
+        Ok(())
     }
 
     /// Execute and require at least one matching row.
@@ -256,7 +258,8 @@ where
     where
         E: EntityValue,
     {
-        self.execute()?.require_some().map_err(QueryError::Response)
+        self.execute()?.require_some()?;
+        Ok(())
     }
 }
 
@@ -300,10 +303,8 @@ where
     E::Key: Default,
 {
     #[must_use]
-    pub fn only(mut self) -> Self {
-        self.query = self.query.only();
-        self.refresh_cursor_intent_error();
-        self
+    pub fn only(self) -> Self {
+        self.map_query_with_refresh(Query::only)
     }
 }
 

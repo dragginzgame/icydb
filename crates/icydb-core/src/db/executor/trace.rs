@@ -170,6 +170,42 @@ pub fn start_exec_trace(
     Some(TraceScope::new(sink, fingerprint, executor, access))
 }
 
+/// Convert a `usize` count to `u64` with saturation.
+#[must_use]
+pub fn saturating_rows(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
+
+/// Emit canonical access/post-access trace phases with saturated row counts.
+pub fn emit_access_post_access_phases(
+    trace: Option<&TraceScope>,
+    access_rows: usize,
+    post_access_rows: usize,
+) {
+    let Some(trace) = trace else {
+        return;
+    };
+
+    trace.phase(TracePhase::Access, saturating_rows(access_rows));
+    trace.phase(TracePhase::PostAccess, saturating_rows(post_access_rows));
+}
+
+/// Finish or error a trace scope from an executor result.
+pub fn finish_trace_from_result<T>(
+    trace: Option<TraceScope>,
+    result: &Result<T, InternalError>,
+    ok_rows: impl Fn(&T) -> usize,
+) {
+    let Some(trace) = trace else {
+        return;
+    };
+
+    match result {
+        Ok(ok) => trace.finish(saturating_rows(ok_rows(ok))),
+        Err(err) => trace.error(err),
+    }
+}
+
 fn trace_access_from_plan<K>(plan: &AccessPlan<K>) -> TraceAccess {
     match plan {
         AccessPlan::Path(path) => trace_access_from_path(path),

@@ -138,6 +138,142 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
     );
 }
 
+#[expect(clippy::too_many_lines)]
+#[test]
+fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    let keys = [5_u128, 1_u128, 4_u128, 2_u128, 3_u128];
+    for id in keys {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    // Path A: full scan + PK ASC is fast-path eligible.
+    let fast_page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("fast page1 plan should build");
+    let fast_page1_boundary = fast_page1_plan
+        .plan_cursor_boundary(None)
+        .expect("fast page1 boundary should plan");
+    let fast_page1 = load
+        .execute_paged(fast_page1_plan, fast_page1_boundary)
+        .expect("fast page1 should execute");
+
+    // Path B: key-batch access forces non-fast path, but post-access semantics are identical.
+    let non_fast_page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .by_ids(keys.into_iter().map(Ulid::from_u128))
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("non-fast page1 plan should build");
+    let non_fast_page1_boundary = non_fast_page1_plan
+        .plan_cursor_boundary(None)
+        .expect("non-fast page1 boundary should plan");
+    let non_fast_page1 = load
+        .execute_paged(non_fast_page1_plan, non_fast_page1_boundary)
+        .expect("non-fast page1 should execute");
+
+    let fast_page1_ids: Vec<Ulid> = fast_page1
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    let non_fast_page1_ids: Vec<Ulid> = non_fast_page1
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    assert_eq!(
+        fast_page1_ids, non_fast_page1_ids,
+        "page1 rows should match between fast and non-fast access paths"
+    );
+    assert_eq!(
+        fast_page1.next_cursor.is_some(),
+        non_fast_page1.next_cursor.is_some(),
+        "page1 cursor presence should match between paths"
+    );
+
+    let fast_cursor_page1 = fast_page1
+        .next_cursor
+        .as_ref()
+        .expect("fast page1 should emit continuation cursor");
+    let non_fast_cursor_page1 = non_fast_page1
+        .next_cursor
+        .as_ref()
+        .expect("non-fast page1 should emit continuation cursor");
+    let fast_cursor_page1_token =
+        ContinuationToken::decode(fast_cursor_page1.as_slice()).expect("fast cursor should decode");
+    let non_fast_cursor_page1_token = ContinuationToken::decode(non_fast_cursor_page1.as_slice())
+        .expect("non-fast cursor should decode");
+    assert_eq!(
+        fast_cursor_page1_token.boundary(),
+        non_fast_cursor_page1_token.boundary(),
+        "cursor boundaries should match even when signatures differ by access path"
+    );
+
+    let fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("fast page2 plan should build");
+    let fast_page2_boundary = fast_page2_plan
+        .plan_cursor_boundary(Some(fast_cursor_page1.as_slice()))
+        .expect("fast page2 boundary should plan");
+    let fast_page2 = load
+        .execute_paged(fast_page2_plan, fast_page2_boundary)
+        .expect("fast page2 should execute");
+
+    let non_fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .by_ids(keys.into_iter().map(Ulid::from_u128))
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("non-fast page2 plan should build");
+    let non_fast_page2_boundary = non_fast_page2_plan
+        .plan_cursor_boundary(Some(non_fast_cursor_page1.as_slice()))
+        .expect("non-fast page2 boundary should plan");
+    let non_fast_page2 = load
+        .execute_paged(non_fast_page2_plan, non_fast_page2_boundary)
+        .expect("non-fast page2 should execute");
+
+    let fast_page2_ids: Vec<Ulid> = fast_page2
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    let non_fast_page2_ids: Vec<Ulid> = non_fast_page2
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    assert_eq!(
+        fast_page2_ids, non_fast_page2_ids,
+        "page2 rows should match between fast and non-fast access paths"
+    );
+    assert_eq!(
+        fast_page2.next_cursor.is_some(),
+        non_fast_page2.next_cursor.is_some(),
+        "page2 cursor presence should match between paths"
+    );
+}
+
 #[test]
 fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
     init_commit_store_for_tests().expect("commit store init should succeed");

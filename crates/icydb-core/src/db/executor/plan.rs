@@ -24,3 +24,11 @@ pub fn record_plan_metrics<K>(access: &AccessPlan<K>) {
 pub const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: usize) {
     span.set_rows(len as u64);
 }
+
+/// Record per-request rows scanned metrics with saturated diagnostics counts.
+pub fn record_rows_scanned<E: EntityKind>(rows_scanned: usize) {
+    sink::record(MetricsEvent::RowsScanned {
+        entity_path: E::PATH,
+        rows_scanned: u64::try_from(rows_scanned).unwrap_or(u64::MAX),
+    });
+}

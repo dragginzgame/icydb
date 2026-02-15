@@ -193,6 +193,39 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    // Shared save-facade wrappers keep metrics wiring and response shaping uniform.
+    fn execute_save_entity<E>(
+        &self,
+        op: impl FnOnce(SaveExecutor<E>) -> Result<E, InternalError>,
+    ) -> Result<WriteResponse<E>, InternalError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let entity = self.with_metrics(|| op(self.save_executor::<E>()))?;
+        Ok(WriteResponse::new(entity))
+    }
+
+    fn execute_save_batch<E>(
+        &self,
+        op: impl FnOnce(SaveExecutor<E>) -> Result<Vec<E>, InternalError>,
+    ) -> Result<WriteBatchResponse<E>, InternalError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let entities = self.with_metrics(|| op(self.save_executor::<E>()))?;
+        Ok(WriteBatchResponse::new(entities))
+    }
+
+    fn execute_save_view<E>(
+        &self,
+        op: impl FnOnce(SaveExecutor<E>) -> Result<E::ViewType, InternalError>,
+    ) -> Result<E::ViewType, InternalError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        self.with_metrics(|| op(self.save_executor::<E>()))
+    }
+
     // ---------------------------------------------------------------------
     // Query entry points (public, fluent)
     // ---------------------------------------------------------------------
@@ -313,8 +346,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        self.with_metrics(|| self.save_executor::<E>().insert(entity))
-            .map(WriteResponse::new)
+        self.execute_save_entity(|save| save.insert(entity))
     }
 
     /// Insert a single-entity-type batch atomically in one commit window.
@@ -329,10 +361,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let entities =
-            self.with_metrics(|| self.save_executor::<E>().insert_many_atomic(entities))?;
-
-        Ok(WriteBatchResponse::new(entities))
+        self.execute_save_batch(|save| save.insert_many_atomic(entities))
     }
 
     /// Insert a batch with explicitly non-atomic semantics.
@@ -345,18 +374,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let entities =
-            self.with_metrics(|| self.save_executor::<E>().insert_many_non_atomic(entities))?;
-
-        Ok(WriteBatchResponse::new(entities))
+        self.execute_save_batch(|save| save.insert_many_non_atomic(entities))
     }
 
     pub fn replace<E>(&self, entity: E) -> Result<WriteResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        self.with_metrics(|| self.save_executor::<E>().replace(entity))
-            .map(WriteResponse::new)
+        self.execute_save_entity(|save| save.replace(entity))
     }
 
     /// Replace a single-entity-type batch atomically in one commit window.
@@ -371,10 +396,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let entities =
-            self.with_metrics(|| self.save_executor::<E>().replace_many_atomic(entities))?;
-
-        Ok(WriteBatchResponse::new(entities))
+        self.execute_save_batch(|save| save.replace_many_atomic(entities))
     }
 
     /// Replace a batch with explicitly non-atomic semantics.
@@ -387,18 +409,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let entities =
-            self.with_metrics(|| self.save_executor::<E>().replace_many_non_atomic(entities))?;
-
-        Ok(WriteBatchResponse::new(entities))
+        self.execute_save_batch(|save| save.replace_many_non_atomic(entities))
     }
 
     pub fn update<E>(&self, entity: E) -> Result<WriteResponse<E>, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        self.with_metrics(|| self.save_executor::<E>().update(entity))
-            .map(WriteResponse::new)
+        self.execute_save_entity(|save| save.update(entity))
     }
 
     /// Update a single-entity-type batch atomically in one commit window.
@@ -413,10 +431,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let entities =
-            self.with_metrics(|| self.save_executor::<E>().update_many_atomic(entities))?;
-
-        Ok(WriteBatchResponse::new(entities))
+        self.execute_save_batch(|save| save.update_many_atomic(entities))
     }
 
     /// Update a batch with explicitly non-atomic semantics.
@@ -429,31 +444,28 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let entities =
-            self.with_metrics(|| self.save_executor::<E>().update_many_non_atomic(entities))?;
-
-        Ok(WriteBatchResponse::new(entities))
+        self.execute_save_batch(|save| save.update_many_non_atomic(entities))
     }
 
     pub fn insert_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        self.with_metrics(|| self.save_executor::<E>().insert_view(view))
+        self.execute_save_view::<E>(|save| save.insert_view(view))
     }
 
     pub fn replace_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        self.with_metrics(|| self.save_executor::<E>().replace_view(view))
+        self.execute_save_view::<E>(|save| save.replace_view(view))
     }
 
     pub fn update_view<E>(&self, view: E::ViewType) -> Result<E::ViewType, InternalError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        self.with_metrics(|| self.save_executor::<E>().update_view(view))
+        self.execute_save_view::<E>(|save| save.update_view(view))
     }
 
     /// TEST ONLY: clear all registered data and index stores for this database.

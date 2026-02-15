@@ -4,6 +4,7 @@ use crate::{
         prepare_row_commit_for_entity, snapshot_row_rollback,
     },
     error::InternalError,
+    obs::sink::{self, MetricsEvent},
     traits::{EntityKind, EntityValue},
 };
 
@@ -51,6 +52,36 @@ pub(super) fn summarize_prepared_row_ops(
     }
 
     summary
+}
+
+/// Emit index and reverse-index metrics from one prepared-row delta aggregate.
+pub(super) fn emit_prepared_row_op_delta_metrics<E: EntityKind>(delta: &PreparedRowOpDelta) {
+    emit_index_delta_metrics::<E>(
+        delta.index_inserts,
+        delta.index_removes,
+        delta.reverse_index_inserts,
+        delta.reverse_index_removes,
+    );
+}
+
+/// Emit index and reverse-index delta metrics with saturated diagnostics counts.
+pub(super) fn emit_index_delta_metrics<E: EntityKind>(
+    index_inserts: usize,
+    index_removes: usize,
+    reverse_index_inserts: usize,
+    reverse_index_removes: usize,
+) {
+    sink::record(MetricsEvent::IndexDelta {
+        entity_path: E::PATH,
+        inserts: u64::try_from(index_inserts).unwrap_or(u64::MAX),
+        removes: u64::try_from(index_removes).unwrap_or(u64::MAX),
+    });
+
+    sink::record(MetricsEvent::ReverseIndexDelta {
+        entity_path: E::PATH,
+        inserts: u64::try_from(reverse_index_inserts).unwrap_or(u64::MAX),
+        removes: u64::try_from(reverse_index_removes).unwrap_or(u64::MAX),
+    });
 }
 
 /// Prepare row ops for commit-time apply by simulating sequential execution.

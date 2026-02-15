@@ -4,19 +4,22 @@ use crate::{
         decode::decode_entity_with_expected_key,
         executor::{
             debug::{access_summary, yes_no},
-            plan::{record_plan_metrics, set_rows_from_len},
-            trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
+            plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
+            trace::{
+                QueryTraceSink, TraceExecutorKind, emit_access_post_access_phases,
+                finish_trace_from_result, start_plan_trace,
+            },
         },
         query::plan::{
             AccessPath, AccessPlan, ContinuationSignature, ContinuationToken, CursorBoundary,
-            ExecutablePlan, LogicalPlan, OrderDirection, PrimaryKeyCursorSlotDecodeError,
-            decode_primary_key_cursor_slot, validate::validate_executor_plan,
+            ExecutablePlan, LogicalPlan, OrderDirection, decode_pk_cursor_boundary,
+            validate::validate_executor_plan,
         },
         response::Response,
         store::DataKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    obs::sink::{self, ExecKind, MetricsEvent, Span},
+    obs::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
     types::Id,
 };
@@ -42,26 +45,16 @@ struct FastLoadResult<E: EntityKind> {
     post_access_rows: usize,
 }
 
-enum PkScanLowerBound<K> {
-    Min,
-    Included(K),
-    Excluded(K),
-}
-
-// Fast-path scan configuration derived from the logical plan + cursor boundary.
+// Fast-path scan configuration derived from access-path bounds.
 struct PkStreamScanConfig<K> {
-    scan_lower: PkScanLowerBound<K>,
+    range_start_key: Option<K>,
     range_end_key: Option<K>,
-    limit: Option<usize>,
-    collect_cap: Option<usize>,
-    offset: usize,
 }
 
-// Fast-path scan output before page/cursor finalization.
+// Fast-path access scan output before canonical post-access semantics.
 struct PkStreamScanResult<E: EntityKind> {
     rows: Vec<(Id<E>, E)>,
     rows_scanned: usize,
-    has_more: bool,
 }
 
 ///
@@ -167,27 +160,19 @@ where
                 cursor_boundary.as_ref(),
                 continuation_signature,
             )? {
-                sink::record(MetricsEvent::RowsScanned {
-                    entity_path: E::PATH,
-                    rows_scanned: u64::try_from(fast.rows_scanned).unwrap_or(u64::MAX),
-                });
-
-                if let Some(trace) = trace.as_ref() {
-                    // NOTE: Trace metrics saturate on overflow; diagnostics only.
-                    let to_u64 = |n| u64::try_from(n).unwrap_or(u64::MAX);
-                    trace.phase(TracePhase::Access, to_u64(fast.rows_scanned));
-                    trace.phase(TracePhase::PostAccess, to_u64(fast.post_access_rows));
-                }
+                record_rows_scanned::<E>(fast.rows_scanned);
+                emit_access_post_access_phases(
+                    trace.as_ref(),
+                    fast.rows_scanned,
+                    fast.post_access_rows,
+                );
 
                 set_rows_from_len(&mut span, fast.page.items.0.len());
                 return Ok(fast.page);
             }
 
             let data_rows = ctx.rows_from_access_plan(&plan.access, plan.consistency)?;
-            sink::record(MetricsEvent::RowsScanned {
-                entity_path: E::PATH,
-                rows_scanned: data_rows.len() as u64,
-            });
+            record_rows_scanned::<E>(data_rows.len());
 
             let mut rows = Context::deserialize_rows(data_rows)?;
             let access_rows = rows.len();
@@ -198,12 +183,7 @@ where
             let next_cursor =
                 Self::build_next_cursor(&plan, &rows, &stats, continuation_signature)?;
 
-            if let Some(trace) = trace.as_ref() {
-                // NOTE: Trace metrics saturate on overflow; diagnostics only.
-                let to_u64 = |n| u64::try_from(n).unwrap_or(u64::MAX);
-                trace.phase(TracePhase::Access, to_u64(access_rows));
-                trace.phase(TracePhase::PostAccess, to_u64(post_access_rows));
-            }
+            emit_access_post_access_phases(trace.as_ref(), access_rows, post_access_rows);
 
             set_rows_from_len(&mut span, rows.len());
             Ok(CursorPage {
@@ -212,12 +192,7 @@ where
             })
         })();
 
-        if let Some(trace) = trace {
-            match &result {
-                Ok(page) => trace.finish(page.items.0.len() as u64),
-                Err(err) => trace.error(err),
-            }
-        }
+        finish_trace_from_result(trace, &result, |page| page.items.0.len());
 
         result
     }
@@ -235,7 +210,7 @@ where
         let Some(config) = Self::build_pk_stream_scan_config(plan, cursor_boundary)? else {
             return Ok(None);
         };
-        if Self::pk_scan_range_is_empty(&config.scan_lower, config.range_end_key) {
+        if Self::pk_scan_range_is_empty(config.range_start_key, config.range_end_key) {
             return Ok(Some(FastLoadResult {
                 page: CursorPage {
                     items: Response(Vec::new()),
@@ -247,18 +222,15 @@ where
         }
 
         // Phase 2: stream rows directly from the store in primary-key order.
-        let mut scan = Self::scan_pk_stream_rows(ctx, plan, &config)?;
+        let mut scan = Self::scan_pk_stream_rows(ctx, &config)?;
 
-        // Phase 3: finalize page rows and continuation token.
-        let Some(page) = Self::finalize_pk_stream_page(
-            plan,
-            &mut scan.rows,
-            scan.has_more,
-            config.limit,
-            continuation_signature,
-        )?
-        else {
-            return Ok(None);
+        // Phase 3: apply canonical post-access semantics and derive continuation.
+        let stats = plan.apply_post_access_with_cursor::<E, _>(&mut scan.rows, cursor_boundary)?;
+        let next_cursor =
+            Self::build_next_cursor(plan, &scan.rows, &stats, continuation_signature)?;
+        let page = CursorPage {
+            items: Response(scan.rows),
+            next_cursor,
         };
         Ok(Some(FastLoadResult {
             post_access_rows: page.items.0.len(),
@@ -276,48 +248,31 @@ where
             return Ok(None);
         }
 
-        let cursor_key = Self::decode_pk_cursor_key(cursor_boundary)?;
+        // Keep malformed boundary classification stable on PK fast-path execution.
+        let _cursor_key = decode_pk_cursor_boundary::<E>(cursor_boundary)?;
         let (range_start_key, range_end_key) = match &plan.access {
             AccessPlan::Path(AccessPath::FullScan) => (None, None),
             AccessPlan::Path(AccessPath::KeyRange { start, end }) => (Some(*start), Some(*end)),
             _ => return Ok(None),
         };
-        let limit = plan
-            .page
-            .as_ref()
-            .and_then(|page| page.limit)
-            .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
-        let collect_cap = limit.map(|limit| limit.saturating_add(1));
-        let offset = plan.page.as_ref().map_or(0usize, |page| {
-            usize::try_from(page.offset).unwrap_or(usize::MAX)
-        });
 
         Ok(Some(PkStreamScanConfig {
-            scan_lower: Self::select_pk_scan_lower_bound(range_start_key, cursor_key),
+            range_start_key,
             range_end_key,
-            limit,
-            collect_cap,
-            offset,
         }))
     }
 
     // Execute the store-range streaming phase for the PK fast path.
     fn scan_pk_stream_rows(
         ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
         config: &PkStreamScanConfig<E::Key>,
     ) -> Result<PkStreamScanResult<E>, InternalError> {
         ctx.with_store(|store| {
-            let lower_raw = match config.scan_lower {
-                PkScanLowerBound::Min => DataKey::lower_bound::<E>().to_raw()?,
-                PkScanLowerBound::Included(key) | PkScanLowerBound::Excluded(key) => {
-                    DataKey::try_new::<E>(key)?.to_raw()?
-                }
+            let lower_raw = match config.range_start_key {
+                Some(start) => DataKey::try_new::<E>(start)?.to_raw()?,
+                None => DataKey::lower_bound::<E>().to_raw()?,
             };
-            let lower_bound = match config.scan_lower {
-                PkScanLowerBound::Min | PkScanLowerBound::Included(_) => Bound::Included(lower_raw),
-                PkScanLowerBound::Excluded(_) => Bound::Excluded(lower_raw),
-            };
+            let lower_bound = Bound::Included(lower_raw);
             let upper_raw = match config.range_end_key {
                 Some(end) => DataKey::try_new::<E>(end)?.to_raw()?,
                 None => DataKey::upper_bound::<E>().to_raw()?,
@@ -325,8 +280,6 @@ where
 
             let mut rows_scanned = 0usize;
             let mut rows = Vec::new();
-            let mut has_more = false;
-            let mut offset_remaining = config.offset;
 
             for entry in store.range((lower_bound, Bound::Included(upper_raw))) {
                 rows_scanned = rows_scanned.saturating_add(1);
@@ -360,70 +313,11 @@ where
                     },
                 )?;
 
-                if let Some(predicate) = plan.predicate.as_ref()
-                    && !crate::db::query::predicate::eval(&entity, predicate)
-                {
-                    continue;
-                }
-
-                if offset_remaining > 0 {
-                    offset_remaining = offset_remaining.saturating_sub(1);
-                    continue;
-                }
-
                 rows.push((Id::from_key(expected_key), entity));
-
-                if let Some(cap) = config.collect_cap
-                    && rows.len() >= cap
-                {
-                    has_more = true;
-                    break;
-                }
             }
 
-            Ok(PkStreamScanResult {
-                rows,
-                rows_scanned,
-                has_more,
-            })
+            Ok(PkStreamScanResult { rows, rows_scanned })
         })?
-    }
-
-    // Finalize fast-path rows into a page result and optional continuation token.
-    fn finalize_pk_stream_page(
-        plan: &LogicalPlan<E::Key>,
-        rows: &mut Vec<(Id<E>, E)>,
-        has_more: bool,
-        limit: Option<usize>,
-        continuation_signature: ContinuationSignature,
-    ) -> Result<Option<CursorPage<E>>, InternalError> {
-        if let Some(limit_rows) = limit
-            && rows.len() > limit_rows
-        {
-            rows.truncate(limit_rows);
-        }
-
-        let next_cursor = if has_more {
-            debug_assert!(
-                !rows.is_empty(),
-                "pk stream invariant violated: has_more requires at least one row",
-            );
-            let Some((_, last_entity)) = rows.last() else {
-                return Ok(None);
-            };
-            Some(Self::encode_next_cursor_for_last_entity(
-                plan,
-                last_entity,
-                continuation_signature,
-            )?)
-        } else {
-            None
-        };
-
-        Ok(Some(CursorPage {
-            items: Response(std::mem::take(rows)),
-            next_cursor,
-        }))
     }
 
     fn is_pk_order_stream_eligible(plan: &LogicalPlan<E::Key>) -> bool {
@@ -448,71 +342,18 @@ where
             && matches!(order.fields[0].1, OrderDirection::Asc)
     }
 
-    fn decode_pk_cursor_key(
-        cursor_boundary: Option<&CursorBoundary>,
-    ) -> Result<Option<E::Key>, InternalError> {
-        let Some(boundary) = cursor_boundary else {
-            return Ok(None);
-        };
-
-        if boundary.slots.len() != 1 {
-            return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
-                format!(
-                    "executor invariant violated: pk-ordered continuation boundary must contain exactly 1 slot, found {}",
-                    boundary.slots.len()
-                ),
-            ));
-        }
-
-        decode_primary_key_cursor_slot::<E::Key>(&boundary.slots[0])
-            .map(Some)
-            .map_err(|err| match err {
-                PrimaryKeyCursorSlotDecodeError::Missing => InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Query,
-                    "executor invariant violated: pk cursor slot must be present",
-                ),
-                PrimaryKeyCursorSlotDecodeError::TypeMismatch { .. } => InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Query,
-                    "executor invariant violated: pk cursor slot type mismatch",
-                ),
-            })
-    }
-
-    fn select_pk_scan_lower_bound(
-        range_start_key: Option<E::Key>,
-        cursor_key: Option<E::Key>,
-    ) -> PkScanLowerBound<E::Key> {
-        match (range_start_key, cursor_key) {
-            (None, None) => PkScanLowerBound::Min,
-            (Some(start), None) => PkScanLowerBound::Included(start),
-            (None, Some(cursor)) => PkScanLowerBound::Excluded(cursor),
-            (Some(start), Some(cursor)) => {
-                if cursor < start {
-                    PkScanLowerBound::Included(start)
-                } else {
-                    PkScanLowerBound::Excluded(cursor)
-                }
-            }
-        }
-    }
-
     fn pk_scan_range_is_empty(
-        lower_bound: &PkScanLowerBound<E::Key>,
+        range_start_key: Option<E::Key>,
         range_end_key: Option<E::Key>,
     ) -> bool {
+        let Some(start) = range_start_key else {
+            return false;
+        };
         let Some(end) = range_end_key else {
             return false;
         };
 
-        match lower_bound {
-            PkScanLowerBound::Min => false,
-            PkScanLowerBound::Included(start) => *start > end,
-            PkScanLowerBound::Excluded(start) => *start >= end,
-        }
+        start > end
     }
 
     fn build_next_cursor(

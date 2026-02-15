@@ -13,15 +13,18 @@ use crate::{
         executor::{
             Context, ExecutorError,
             mutation::{
-                apply_prepared_row_ops, preflight_prepare_row_ops, summarize_prepared_row_ops,
+                apply_prepared_row_ops, emit_prepared_row_op_delta_metrics,
+                preflight_prepare_row_ops, summarize_prepared_row_ops,
             },
-            trace::{QueryTraceSink, TraceExecutorKind, start_exec_trace},
+            trace::{
+                QueryTraceSink, TraceExecutorKind, finish_trace_from_result, start_exec_trace,
+            },
         },
         query::SaveMode,
         store::{DataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    obs::sink::{self, ExecKind, MetricsEvent, Span},
+    obs::sink::{ExecKind, Span},
     sanitize::sanitize,
     serialize::serialize,
     traits::{EntityKind, EntityValue},
@@ -222,24 +225,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 "save_batch_atomic_row_apply",
                 prepared_row_ops,
                 || {
-                    // NOTE: Trace metrics saturate on overflow; diagnostics only.
-                    let removes = u64::try_from(delta.index_removes).unwrap_or(u64::MAX);
-                    let inserts = u64::try_from(delta.index_inserts).unwrap_or(u64::MAX);
-                    sink::record(MetricsEvent::IndexDelta {
-                        entity_path: E::PATH,
-                        inserts,
-                        removes,
-                    });
-
-                    let reverse_removes =
-                        u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX);
-                    let reverse_inserts =
-                        u64::try_from(delta.reverse_index_inserts).unwrap_or(u64::MAX);
-                    sink::record(MetricsEvent::ReverseIndexDelta {
-                        entity_path: E::PATH,
-                        inserts: reverse_inserts,
-                        removes: reverse_removes,
-                    });
+                    emit_prepared_row_op_delta_metrics::<E>(&delta);
                 },
                 || {
                     span.set_rows(rows_touched);
@@ -254,15 +240,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             self.debug_log("Atomic save batch failed during marker apply; cleanup attempted");
         }
 
-        if let Some(trace) = trace {
-            match &result {
-                Ok(saved) => {
-                    let rows = u64::try_from(saved.len()).unwrap_or(u64::MAX);
-                    trace.finish(rows);
-                }
-                Err(err) => trace.error(err),
-            }
-        }
+        finish_trace_from_result(trace, &result, Vec::len);
 
         result
     }
@@ -456,24 +434,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 "save_row_apply",
                 prepared_row_ops,
                 || {
-                    // NOTE: Trace metrics saturate on overflow; diagnostics only.
-                    let removes = u64::try_from(delta.index_removes).unwrap_or(u64::MAX);
-                    let inserts = u64::try_from(delta.index_inserts).unwrap_or(u64::MAX);
-                    sink::record(MetricsEvent::IndexDelta {
-                        entity_path: E::PATH,
-                        inserts,
-                        removes,
-                    });
-
-                    let reverse_removes =
-                        u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX);
-                    let reverse_inserts =
-                        u64::try_from(delta.reverse_index_inserts).unwrap_or(u64::MAX);
-                    sink::record(MetricsEvent::ReverseIndexDelta {
-                        entity_path: E::PATH,
-                        inserts: reverse_inserts,
-                        removes: reverse_removes,
-                    });
+                    emit_prepared_row_op_delta_metrics::<E>(&delta);
                 },
                 || {
                     span.set_rows(1);
@@ -489,12 +450,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             self.debug_log("Save failed during marker apply; best-effort cleanup attempted");
         }
 
-        if let Some(trace) = trace {
-            match &result {
-                Ok(_) => trace.finish(1),
-                Err(err) => trace.error(err),
-            }
-        }
+        finish_trace_from_result(trace, &result, |_| 1);
 
         result
     }

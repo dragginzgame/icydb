@@ -7,9 +7,10 @@ use crate::{
         plan::hash_parts,
         predicate::{SchemaInfo, validate::literal_matches_type},
     },
+    error::{ErrorClass, ErrorOrigin, InternalError},
     model::entity::EntityModel,
     serialize::{deserialize_bounded, serialize},
-    traits::FieldValue,
+    traits::{EntityKind, FieldValue},
     value::Value,
 };
 use serde::{Deserialize, Serialize};
@@ -86,6 +87,44 @@ pub(crate) fn decode_primary_key_cursor_slot<K: FieldValue>(
             })
         }
     }
+}
+
+/// Decode a typed primary-key cursor boundary for PK-ordered executor paths.
+pub(crate) fn decode_pk_cursor_boundary<E>(
+    boundary: Option<&CursorBoundary>,
+) -> Result<Option<E::Key>, InternalError>
+where
+    E: EntityKind,
+{
+    let Some(boundary) = boundary else {
+        return Ok(None);
+    };
+
+    if boundary.slots.len() != 1 {
+        return Err(InternalError::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Query,
+            format!(
+                "executor invariant violated: pk-ordered continuation boundary must contain exactly 1 slot, found {}",
+                boundary.slots.len()
+            ),
+        ));
+    }
+
+    decode_primary_key_cursor_slot::<E::Key>(&boundary.slots[0])
+        .map(Some)
+        .map_err(|err| match err {
+            PrimaryKeyCursorSlotDecodeError::Missing => InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                "executor invariant violated: pk cursor slot must be present",
+            ),
+            PrimaryKeyCursorSlotDecodeError::TypeMismatch { .. } => InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                "executor invariant violated: pk cursor slot type mismatch",
+            ),
+        })
 }
 
 ///

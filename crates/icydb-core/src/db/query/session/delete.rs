@@ -158,7 +158,8 @@ where
     where
         E: EntityValue,
     {
-        self.execute()?.require_one().map_err(QueryError::Response)
+        self.execute()?.require_one()?;
+        Ok(())
     }
 
     /// Execute and require at least one affected row.
@@ -166,7 +167,8 @@ where
     where
         E: EntityValue,
     {
-        self.execute()?.require_some().map_err(QueryError::Response)
+        self.execute()?.require_some()?;
+        Ok(())
     }
 }
 

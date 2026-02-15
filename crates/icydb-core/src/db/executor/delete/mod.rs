@@ -6,16 +6,20 @@ use crate::{
         executor::{
             debug::{access_summary, yes_no},
             mutation::{
-                apply_prepared_row_ops, preflight_prepare_row_ops, summarize_prepared_row_ops,
+                apply_prepared_row_ops, emit_index_delta_metrics, preflight_prepare_row_ops,
+                summarize_prepared_row_ops,
             },
-            plan::{record_plan_metrics, set_rows_from_len},
-            trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
+            plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
+            trace::{
+                QueryTraceSink, TraceExecutorKind, emit_access_post_access_phases,
+                finish_trace_from_result, start_plan_trace,
+            },
         },
         query::plan::{ExecutablePlan, validate::validate_executor_plan},
         response::Response,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    obs::sink::{self, ExecKind, MetricsEvent, Span},
+    obs::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
     types::Id,
 };
@@ -116,10 +120,7 @@ where
 
             // Access phase: resolve candidate rows before delete filtering.
             let data_rows = ctx.rows_from_access_plan(&plan.access, plan.consistency)?;
-            sink::record(MetricsEvent::RowsScanned {
-                entity_path: E::PATH,
-                rows_scanned: data_rows.len() as u64,
-            });
+            record_rows_scanned::<E>(data_rows.len());
 
             // Decode rows into entities before post-access filtering.
             let mut rows = helpers::decode_rows::<E>(data_rows)?;
@@ -136,12 +137,7 @@ where
             }
 
             if rows.is_empty() {
-                if let Some(trace) = trace.as_ref() {
-                    // NOTE: Trace metrics saturate on overflow; diagnostics only.
-                    let to_u64 = |len| u64::try_from(len).unwrap_or(u64::MAX);
-                    trace.phase(TracePhase::Access, to_u64(access_rows));
-                    trace.phase(TracePhase::PostAccess, to_u64(post_access_rows));
-                }
+                emit_access_post_access_phases(trace.as_ref(), access_rows, post_access_rows);
                 set_rows_from_len(&mut span, 0);
                 self.debug_log("Delete complete -> 0 rows (nothing to commit)");
                 return Ok(Response(Vec::new()));
@@ -192,32 +188,18 @@ where
                 "delete_row_apply",
                 prepared_row_ops,
                 || {
-                    // NOTE: Trace metrics saturate on overflow; diagnostics only.
-                    let removes = u64::try_from(delta.index_removes).unwrap_or(u64::MAX);
-                    sink::record(MetricsEvent::IndexDelta {
-                        entity_path: E::PATH,
-                        inserts: 0,
-                        removes,
-                    });
-
-                    let reverse_removes =
-                        u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX);
-                    sink::record(MetricsEvent::ReverseIndexDelta {
-                        entity_path: E::PATH,
-                        inserts: 0,
-                        removes: reverse_removes,
-                    });
+                    emit_index_delta_metrics::<E>(
+                        0,
+                        delta.index_removes,
+                        0,
+                        delta.reverse_index_removes,
+                    );
                 },
                 || {},
             )?;
 
             // Emit per-phase counts after the delete succeeds.
-            if let Some(trace) = trace.as_ref() {
-                // NOTE: Trace metrics saturate on overflow; diagnostics only.
-                let to_u64 = |len| u64::try_from(len).unwrap_or(u64::MAX);
-                trace.phase(TracePhase::Access, to_u64(access_rows));
-                trace.phase(TracePhase::PostAccess, to_u64(post_access_rows));
-            }
+            emit_access_post_access_phases(trace.as_ref(), access_rows, post_access_rows);
 
             // Response identifiers are validated before begin_commit. The apply
             // phase remains mechanical after the commit boundary.
@@ -236,13 +218,7 @@ where
             self.debug_log("Delete failed during marker apply; best-effort cleanup attempted");
         }
 
-        if let Some(trace) = trace {
-            // NOTE: Trace metrics saturate on overflow; diagnostics only.
-            match &result {
-                Ok(resp) => trace.finish(u64::try_from(resp.0.len()).unwrap_or(u64::MAX)),
-                Err(err) => trace.error(err),
-            }
-        }
+        finish_trace_from_result(trace, &result, |resp| resp.0.len());
 
         result
     }
