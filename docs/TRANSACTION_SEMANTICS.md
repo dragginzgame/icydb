@@ -103,9 +103,12 @@ This follows the same commit/recovery model documented in `docs/ATOMICITY.md`.
 For one `*_many_atomic` call:
 
 * Row-ops are applied in request order within that atomic batch.
-* Rows staged during pre-commit are not visible as committed state to other
-  operations.
-* The batch becomes visible only after commit completion.
+* Rows staged during pre-commit are not visible as committed state through
+  guarded query/session entrypoints.
+* The batch becomes visible through guarded query/session entrypoints only after
+  commit completion.
+* Direct raw-store access that bypasses guarded entrypoints remains out of
+  contract (see `docs/ATOMICITY.md`).
 
 ---
 

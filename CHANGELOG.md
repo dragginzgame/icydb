@@ -5,6 +5,29 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.8.5] – 2026-02-15 - Transaction Semantics Hardening
+
+### 🪁 Summary
+
+* Hardened the `0.8.4` explicit transaction milestone with additional API-level regression coverage and clearer operator-facing wording around batch semantics.
+* Reconfirmed and documented that `_many_atomic` provides **single-entity-type** batch atomicity only, while `_many_non_atomic` preserves fail-fast partial-commit behavior.
+* Completed Step 2 hardening scope for the 0.9 explicit transaction milestone.
+
+### 🧯 Testing
+
+* Added conflict-path regressions for `update_many_atomic`, `replace_many_atomic`, `update_many_non_atomic`, and `replace_many_non_atomic` to lock all-or-nothing vs prefix-commit behavior.
+* Added atomic strong-relation batch regressions for `insert_many_atomic`, `update_many_atomic`, and `replace_many_atomic` so one invalid relation fails the full single-entity batch with no persisted partial rows.
+* Added empty-batch no-op regression coverage for atomic and non-atomic lanes.
+* Added observability assertions for batch lanes to distinguish atomic success, atomic pre-commit failure, and non-atomic partial-prefix failure metrics.
+* Added recovery dispatch regression coverage that rejects unknown marker entity paths with explicit `Unsupported` errors and no partial replay apply.
+* Expanded reserved-namespace compile-fail coverage to reject index names where a non-leading `|` segment enters the reserved `~` namespace.
+
+### 🧊 Changed
+
+* Added a beginner-friendly lane-selection snippet in `README.md` showing when to use `_many_atomic` vs `_many_non_atomic`.
+
+---
+
 ## [0.8.4] – 2026-02-15 - Explicit Transaction Semantics Milestone
 
 ### 🧁 Summary

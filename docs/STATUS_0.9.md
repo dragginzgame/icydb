@@ -19,10 +19,11 @@
 
 ### Target for 0.9.x (After 0.9.0 Cut if Needed)
 
-- [ ] Advance explicit transaction semantics surface (opt-in only; no behavior change for existing batch helpers).  
+- [x] Advance explicit transaction semantics surface (opt-in only; no behavior change for existing batch helpers).  
   Owner: `Codex`
   Progress (2026-02-15): shipped opt-in `*_many_atomic` APIs for single-entity-type batch saves, kept `*_many_non_atomic` semantics unchanged, and added explicit transaction semantics docs plus focused regressions.
   Progress (2026-02-15): added interrupted-marker replay coverage for atomic batch row-op markers and verified replay idempotency.
+  Progress (2026-02-15): added API-level hardening tests for atomic/non-atomic `insert_many`/`update_many`/`replace_many` conflict behavior and relation-validation failure paths, plus clearer user-facing lane docs.
 - [ ] Continue pagination performance work without changing cursor semantics, ordering guarantees, or continuation validation rules.  
   Owner: `Codex`
 
@@ -41,11 +42,11 @@
 * Preserve explicit weak-relation behavior (no existence validation): **100%**
 * Keep semantics validation-only (no implicit cascades): **100%**
 
-## 2. Explicit Transaction Semantics (Opt-In Surface) (~62%)
+## 2. Explicit Transaction Semantics (Opt-In Surface) (~100%)
 
-* Keep transactional behavior explicit and opt-in: **70%**
-* Preserve existing fail-fast, non-atomic batch helper semantics unless users adopt explicit transaction APIs: **65%**
-* Ship formal semantics, recovery behavior, and failure-mode tests alongside any transactional surface: **50%**
+* Keep transactional behavior explicit and opt-in: **100%**
+* Preserve existing fail-fast, non-atomic batch helper semantics unless users adopt explicit transaction APIs: **100%**
+* Ship formal semantics, recovery behavior, and failure-mode tests alongside any transactional surface: **100%**
 
 ## 3. Pagination Efficiency Without Semantic Drift (~35%)
 
@@ -53,10 +54,10 @@
 * Preserve canonical ordering and continuation-signature compatibility checks: **55%**
 * Keep forward-only, live-state continuation semantics unchanged: **35%**
 
-## 4. Contract Hardening and Diagnostics (~88%)
+## 4. Contract Hardening and Diagnostics (~91%)
 
-* Expand structural regression coverage around post-access execution phases: **88%**
+* Expand structural regression coverage around post-access execution phases: **89%**
 * Keep error classification explicit (`Unsupported`, `Corruption`, `Internal`) at execution boundaries: **100%**
-* Improve diagnostics where contract violations or corruption are detected: **90%**
+* Improve diagnostics where contract violations or corruption are detected: **93%**
 * Emit and aggregate reverse-index/relation-validation observability metrics with operation-level deltas: **100%**
-* Distinguish system vs user index entries in storage snapshots and enforce reserved `~` namespace constraints in schema validation: **95%**
+* Distinguish system vs user index entries in storage snapshots and enforce reserved `~` namespace constraints in schema validation: **98%**

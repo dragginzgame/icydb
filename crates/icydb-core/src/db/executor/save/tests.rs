@@ -3,7 +3,7 @@ use crate::{
     db::{
         commit::{ensure_recovered_for_write, init_commit_store_for_tests},
         index::IndexStore,
-        store::{DataStore, StoreRegistry},
+        store::{DataKey, DataStore, StoreRegistry},
     },
     error::{ErrorClass, ErrorOrigin},
     model::{
@@ -11,6 +11,7 @@ use crate::{
         field::{EntityFieldKind, EntityFieldModel, RelationStrength},
         index::IndexModel,
     },
+    obs::sink::{metrics_report, metrics_reset_all},
     test_fixtures::entity_model_from_static,
     test_support::test_memory,
     traits::{
@@ -532,6 +533,34 @@ impl EntityValue for UniqueEmailEntity {
     }
 }
 
+fn load_unique_email_entity(id: Ulid) -> Option<UniqueEmailEntity> {
+    let data_key = DataKey::try_new::<UniqueEmailEntity>(id)
+        .expect("unique email data key should build")
+        .to_raw()
+        .expect("unique email data key should encode");
+
+    with_data_store(SourceStore::PATH, |data_store| {
+        data_store.get(&data_key).map(|row| {
+            row.try_decode::<UniqueEmailEntity>()
+                .expect("unique email row decode should succeed")
+        })
+    })
+}
+
+fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
+    let data_key = DataKey::try_new::<SourceSetEntity>(id)
+        .expect("source-set data key should build")
+        .to_raw()
+        .expect("source-set data key should encode");
+
+    with_data_store(SourceStore::PATH, |data_store| {
+        data_store.get(&data_key).map(|row| {
+            row.try_decode::<SourceSetEntity>()
+                .expect("source-set row decode should succeed")
+        })
+    })
+}
+
 ///
 /// MismatchedPkEntity
 ///
@@ -871,6 +900,496 @@ fn insert_many_non_atomic_commits_prefix_before_late_failure() {
     assert_eq!(
         rows, 2,
         "non-atomic insert batch must preserve earlier committed rows before failure"
+    );
+}
+
+#[test]
+fn insert_many_empty_batch_is_noop_for_atomic_and_non_atomic_lanes() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<TargetEntity>::new(DB, false);
+    let atomic = save
+        .insert_many_atomic(Vec::<TargetEntity>::new())
+        .expect("atomic empty batch should succeed");
+    let non_atomic = save
+        .insert_many_non_atomic(Vec::<TargetEntity>::new())
+        .expect("non-atomic empty batch should succeed");
+
+    assert!(
+        atomic.is_empty(),
+        "atomic empty batch should return no rows"
+    );
+    assert!(
+        non_atomic.is_empty(),
+        "non-atomic empty batch should return no rows",
+    );
+
+    let rows = with_data_store(TargetStore::PATH, |data_store| data_store.iter().count());
+    assert_eq!(rows, 0, "empty batches must not persist rows");
+}
+
+#[test]
+fn update_many_atomic_rejects_partial_commit_on_late_conflict() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let first = Ulid::from_u128(60);
+    let second = Ulid::from_u128(61);
+    save.insert(UniqueEmailEntity {
+        id: first,
+        email: "a@example.com".to_string(),
+    })
+    .expect("first seed row should save");
+    save.insert(UniqueEmailEntity {
+        id: second,
+        email: "b@example.com".to_string(),
+    })
+    .expect("second seed row should save");
+
+    let err = save
+        .update_many_atomic(vec![
+            UniqueEmailEntity {
+                id: first,
+                email: "carol@example.com".to_string(),
+            },
+            UniqueEmailEntity {
+                id: second,
+                email: "carol@example.com".to_string(),
+            },
+        ])
+        .expect_err("atomic update batch should fail on unique index conflict");
+    assert_eq!(
+        err.class,
+        ErrorClass::Conflict,
+        "expected conflict error class",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Index,
+        "expected index error origin",
+    );
+
+    let first_row = load_unique_email_entity(first).expect("first row should remain");
+    let second_row = load_unique_email_entity(second).expect("second row should remain");
+    assert_eq!(
+        first_row.email, "a@example.com",
+        "atomic update batch failure must not persist earlier updates",
+    );
+    assert_eq!(
+        second_row.email, "b@example.com",
+        "atomic update batch failure must not persist later updates",
+    );
+}
+
+#[test]
+fn update_many_non_atomic_commits_prefix_before_late_conflict() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let first = Ulid::from_u128(62);
+    let second = Ulid::from_u128(63);
+    save.insert(UniqueEmailEntity {
+        id: first,
+        email: "a@example.com".to_string(),
+    })
+    .expect("first seed row should save");
+    save.insert(UniqueEmailEntity {
+        id: second,
+        email: "b@example.com".to_string(),
+    })
+    .expect("second seed row should save");
+
+    let err = save
+        .update_many_non_atomic(vec![
+            UniqueEmailEntity {
+                id: first,
+                email: "carol@example.com".to_string(),
+            },
+            UniqueEmailEntity {
+                id: second,
+                email: "carol@example.com".to_string(),
+            },
+        ])
+        .expect_err("non-atomic update batch should fail on unique index conflict");
+    assert_eq!(
+        err.class,
+        ErrorClass::Conflict,
+        "expected conflict error class",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Index,
+        "expected index error origin",
+    );
+
+    let first_row = load_unique_email_entity(first).expect("first row should remain");
+    let second_row = load_unique_email_entity(second).expect("second row should remain");
+    assert_eq!(
+        first_row.email, "carol@example.com",
+        "non-atomic update batch should keep earlier committed updates",
+    );
+    assert_eq!(
+        second_row.email, "b@example.com",
+        "non-atomic update batch should leave later row unchanged on failure",
+    );
+}
+
+#[test]
+fn replace_many_atomic_mixed_existing_missing_rejects_partial_commit_on_conflict() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let existing = Ulid::from_u128(70);
+    let missing = Ulid::from_u128(72);
+    save.insert(UniqueEmailEntity {
+        id: existing,
+        email: "a@example.com".to_string(),
+    })
+    .expect("existing seed row should save");
+
+    let err = save
+        .replace_many_atomic(vec![
+            UniqueEmailEntity {
+                id: existing,
+                email: "carol@example.com".to_string(),
+            },
+            UniqueEmailEntity {
+                id: missing,
+                email: "carol@example.com".to_string(),
+            },
+        ])
+        .expect_err("atomic replace batch should fail on unique index conflict");
+    assert_eq!(
+        err.class,
+        ErrorClass::Conflict,
+        "expected conflict error class",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Index,
+        "expected index error origin",
+    );
+
+    let existing_row = load_unique_email_entity(existing).expect("existing row should remain");
+    assert_eq!(
+        existing_row.email, "a@example.com",
+        "atomic replace failure must not persist earlier replacements",
+    );
+    let missing_row = load_unique_email_entity(missing);
+    assert!(
+        missing_row.is_none(),
+        "atomic replace failure must not insert missing-row replacement",
+    );
+}
+
+#[test]
+fn replace_many_non_atomic_mixed_existing_missing_commits_prefix_before_conflict() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let existing = Ulid::from_u128(73);
+    let missing = Ulid::from_u128(74);
+    save.insert(UniqueEmailEntity {
+        id: existing,
+        email: "a@example.com".to_string(),
+    })
+    .expect("existing seed row should save");
+
+    let err = save
+        .replace_many_non_atomic(vec![
+            UniqueEmailEntity {
+                id: existing,
+                email: "carol@example.com".to_string(),
+            },
+            UniqueEmailEntity {
+                id: missing,
+                email: "carol@example.com".to_string(),
+            },
+        ])
+        .expect_err("non-atomic replace batch should fail on unique index conflict");
+    assert_eq!(
+        err.class,
+        ErrorClass::Conflict,
+        "expected conflict error class",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Index,
+        "expected index error origin",
+    );
+
+    let existing_row = load_unique_email_entity(existing).expect("existing row should remain");
+    assert_eq!(
+        existing_row.email, "carol@example.com",
+        "non-atomic replace batch should keep earlier committed replacements",
+    );
+    let missing_row = load_unique_email_entity(missing);
+    assert!(
+        missing_row.is_none(),
+        "failed non-atomic replacement should not persist the failing item",
+    );
+}
+
+#[test]
+fn insert_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let target_save = SaveExecutor::<TargetEntity>::new(DB, false);
+    let valid_target = Ulid::from_u128(80);
+    target_save
+        .insert(TargetEntity { id: valid_target })
+        .expect("valid target should save");
+
+    let missing_target = Ulid::from_u128(81);
+    let source_save = SaveExecutor::<SourceSetEntity>::new(DB, false);
+    let err = source_save
+        .insert_many_atomic(vec![
+            SourceSetEntity {
+                id: Ulid::from_u128(82),
+                targets: vec![valid_target],
+            },
+            SourceSetEntity {
+                id: Ulid::from_u128(83),
+                targets: vec![valid_target, missing_target],
+            },
+        ])
+        .expect_err("atomic relation batch should fail when one item has missing strong relation");
+    assert_eq!(
+        err.class,
+        ErrorClass::Unsupported,
+        "missing strong relation should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "missing strong relation should originate from executor validation",
+    );
+    assert!(
+        err.message.contains("strong relation missing"),
+        "unexpected error: {err:?}",
+    );
+
+    let source_rows = with_data_store(SourceStore::PATH, |data_store| data_store.iter().count());
+    assert_eq!(
+        source_rows, 0,
+        "atomic relation batch failure must not persist any source row",
+    );
+}
+
+#[test]
+fn update_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let target_save = SaveExecutor::<TargetEntity>::new(DB, false);
+    let valid_a = Ulid::from_u128(84);
+    let valid_b = Ulid::from_u128(85);
+    target_save
+        .insert(TargetEntity { id: valid_a })
+        .expect("valid target A should save");
+    target_save
+        .insert(TargetEntity { id: valid_b })
+        .expect("valid target B should save");
+
+    let source_save = SaveExecutor::<SourceSetEntity>::new(DB, false);
+    let first_id = Ulid::from_u128(86);
+    let second_id = Ulid::from_u128(87);
+    source_save
+        .insert(SourceSetEntity {
+            id: first_id,
+            targets: vec![valid_a],
+        })
+        .expect("first source seed row should save");
+    source_save
+        .insert(SourceSetEntity {
+            id: second_id,
+            targets: vec![valid_a],
+        })
+        .expect("second source seed row should save");
+
+    let missing_target = Ulid::from_u128(88);
+    let err = source_save
+        .update_many_atomic(vec![
+            SourceSetEntity {
+                id: first_id,
+                targets: vec![valid_b],
+            },
+            SourceSetEntity {
+                id: second_id,
+                targets: vec![valid_b, missing_target],
+            },
+        ])
+        .expect_err("atomic relation update batch should fail when one item has missing relation");
+    assert_eq!(
+        err.class,
+        ErrorClass::Unsupported,
+        "missing strong relation should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "missing strong relation should originate from executor validation",
+    );
+
+    let first_row = load_source_set_entity(first_id).expect("first source row should remain");
+    let second_row = load_source_set_entity(second_id).expect("second source row should remain");
+    assert_eq!(
+        first_row.targets,
+        vec![valid_a],
+        "atomic relation update failure must not persist earlier updates",
+    );
+    assert_eq!(
+        second_row.targets,
+        vec![valid_a],
+        "atomic relation update failure must not persist later updates",
+    );
+}
+
+#[test]
+fn replace_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let target_save = SaveExecutor::<TargetEntity>::new(DB, false);
+    let valid_target = Ulid::from_u128(89);
+    target_save
+        .insert(TargetEntity { id: valid_target })
+        .expect("valid target should save");
+
+    let source_save = SaveExecutor::<SourceSetEntity>::new(DB, false);
+    let existing_id = Ulid::from_u128(90);
+    source_save
+        .insert(SourceSetEntity {
+            id: existing_id,
+            targets: vec![valid_target],
+        })
+        .expect("existing source row should save");
+
+    let missing_target = Ulid::from_u128(91);
+    let inserted_id = Ulid::from_u128(92);
+    let err = source_save
+        .replace_many_atomic(vec![
+            SourceSetEntity {
+                id: existing_id,
+                targets: vec![valid_target],
+            },
+            SourceSetEntity {
+                id: inserted_id,
+                targets: vec![valid_target, missing_target],
+            },
+        ])
+        .expect_err("atomic relation replace batch should fail when one item has missing relation");
+    assert_eq!(
+        err.class,
+        ErrorClass::Unsupported,
+        "missing strong relation should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "missing strong relation should originate from executor validation",
+    );
+
+    let existing_row =
+        load_source_set_entity(existing_id).expect("existing source row should remain");
+    assert_eq!(
+        existing_row.targets,
+        vec![valid_target],
+        "atomic relation replace failure must not persist earlier replacements",
+    );
+    let inserted_row = load_source_set_entity(inserted_id);
+    assert!(
+        inserted_row.is_none(),
+        "atomic relation replace failure must not insert later rows",
+    );
+}
+
+#[test]
+fn batch_lane_metrics_atomic_success_failure_and_non_atomic_partial_are_distinct() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    metrics_reset_all();
+
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+
+    // Atomic success: both rows commit, so both index inserts are counted.
+    save.insert_many_atomic(vec![
+        UniqueEmailEntity {
+            id: Ulid::from_u128(93),
+            email: "x@example.com".to_string(),
+        },
+        UniqueEmailEntity {
+            id: Ulid::from_u128(94),
+            email: "y@example.com".to_string(),
+        },
+    ])
+    .expect("atomic insert batch should succeed");
+    let after_atomic_success = metrics_report(None)
+        .counters
+        .expect("metrics counters should exist after atomic success");
+    assert_eq!(
+        after_atomic_success.ops.index_inserts, 2,
+        "atomic success should emit index inserts for all committed rows",
+    );
+
+    // Atomic pre-commit failure: no index delta should be emitted.
+    metrics_reset_all();
+    let err = save
+        .insert_many_atomic(vec![
+            UniqueEmailEntity {
+                id: Ulid::from_u128(95),
+                email: "z@example.com".to_string(),
+            },
+            UniqueEmailEntity {
+                id: Ulid::from_u128(95),
+                email: "z@example.com".to_string(),
+            },
+        ])
+        .expect_err("atomic duplicate-key batch should fail pre-commit");
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    let after_atomic_failure = metrics_report(None)
+        .counters
+        .expect("metrics counters should exist after atomic failure");
+    assert_eq!(
+        after_atomic_failure.ops.index_inserts, 0,
+        "atomic pre-commit failure must not emit index insert deltas",
+    );
+    assert_eq!(
+        after_atomic_failure.ops.index_removes, 0,
+        "atomic pre-commit failure must not emit index remove deltas",
+    );
+
+    // Non-atomic partial failure: successful prefix should emit index delta.
+    metrics_reset_all();
+    let existing = Ulid::from_u128(96);
+    save.insert(UniqueEmailEntity {
+        id: existing,
+        email: "base@example.com".to_string(),
+    })
+    .expect("seed row should save");
+    save.insert_many_non_atomic(vec![
+        UniqueEmailEntity {
+            id: Ulid::from_u128(97),
+            email: "partial@example.com".to_string(),
+        },
+        UniqueEmailEntity {
+            id: existing,
+            email: "base@example.com".to_string(),
+        },
+    ])
+    .expect_err("non-atomic batch should fail after prefix commit");
+    let after_non_atomic_partial = metrics_report(None)
+        .counters
+        .expect("metrics counters should exist after non-atomic partial failure");
+    assert_eq!(
+        after_non_atomic_partial.ops.index_inserts, 2,
+        "non-atomic path should count seed insert + committed prefix insert",
     );
 }
 

@@ -105,6 +105,30 @@ For deeper rules and behavior:
 - `docs/QUERY_CONTRACT.md`
 - `docs/QUERY_PRACTICE.md`
 - `docs/IDENTITY_CONTRACT.md`
+- `docs/TRANSACTION_SEMANTICS.md`
+
+### Batch Writes: Choose Your Lane
+
+IcyDB has two explicit batch-write behaviors:
+
+- `*_many_atomic`: all-or-nothing for a **single entity type per call**
+- `*_many_non_atomic`: fail-fast, earlier items may commit before a later error
+
+```rust
+use icydb::prelude::*;
+
+// Single-entity-type atomic batch:
+// either all User rows commit, or none do.
+let users = vec![user_a, user_b, user_c];
+let _saved = db!().insert_many_atomic::<User>(users)?;
+
+// Non-atomic batch:
+// earlier rows may already be committed if a later row fails.
+let _maybe_partial = db!().insert_many_non_atomic::<User>(more_users)?;
+```
+
+`*_many_atomic` is not a multi-entity transaction API. Coordinating `User` and `Order`
+in one atomic transaction is out of scope for the current surface.
 
 ---
 
@@ -125,7 +149,7 @@ For deeper rules and behavior:
 IcyDB generates these canister methods:
 
 - `icydb_snapshot()` -> current storage report
-- `icydb_metrics(since_ms: Option<u64>)` -> metrics since a timestamp
+- `icydb_metrics(window_start_ms: Option<u64>)` -> metrics window filter
 - `icydb_metrics_reset()` -> clears in-memory metrics
 
 Example:

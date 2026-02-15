@@ -376,6 +376,59 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
 }
 
 #[test]
+fn recovery_rejects_unsupported_entity_path_without_fallback() {
+    reset_recovery_state();
+
+    let raw_key = DataKey::try_new::<RecoveryTestEntity>(Ulid::from_u128(911))
+        .expect("data key should build")
+        .to_raw()
+        .expect("data key should encode");
+    let row_bytes = serialize(&RecoveryTestEntity {
+        id: Ulid::from_u128(911),
+    })
+    .expect("entity serialization should succeed");
+    let unsupported_path = "commit_tests::UnknownEntity";
+    let marker = CommitMarker::new(vec![CommitRowOp::new(
+        unsupported_path,
+        raw_key.as_bytes().to_vec(),
+        None,
+        Some(row_bytes),
+    )])
+    .expect("commit marker creation should succeed");
+
+    begin_commit(marker).expect("begin_commit should persist marker");
+
+    let err = ensure_recovered_for_write(&DB)
+        .expect_err("recovery should reject unsupported entity path markers");
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message.contains("unsupported entity path"),
+        "unsupported entity diagnostics should include dispatch context: {err:?}"
+    );
+    assert!(
+        err.message.contains(unsupported_path),
+        "unsupported entity diagnostics should include the unknown path: {err:?}"
+    );
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "marker should remain present when recovery dispatch fails"
+    );
+    assert_eq!(
+        row_bytes_for(&raw_key),
+        None,
+        "recovery must not partially apply rows when dispatch fails"
+    );
+
+    // Cleanup so unrelated tests do not observe this intentionally-unsupported marker.
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
+}
+
+#[test]
 fn recovery_replay_merges_multi_row_shared_index_key() {
     reset_recovery_state();
 

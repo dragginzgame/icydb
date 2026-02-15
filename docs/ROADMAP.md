@@ -20,10 +20,11 @@ As of the 0.8 series:
 
 - Single-entity save and delete operations are **atomic**
 - Save-time referential integrity is enforced **only for strong relations**
-- Batch write helpers are **fail-fast and non-atomic**
+- `*_many_non_atomic` batch helpers are fail-fast and non-atomic
+- `*_many_atomic` batch helpers are atomic for a **single entity type per call**
 - Atomicity and recovery guarantees are scoped to the current executor and commit model
 
-No transactional guarantees exist beyond what is explicitly documented in the 0.8 contract.
+No multi-entity transaction guarantees exist beyond what is explicitly documented.
 
 ---
 

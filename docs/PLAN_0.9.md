@@ -42,6 +42,8 @@ IcyDB 0.9 will define and ship explicit transaction-facing semantics without
 silently changing existing non-transaction APIs.
 
 Current semantics are specified in `docs/TRANSACTION_SEMANTICS.md`.
+As of `0.8.4`, the opt-in `*_many_atomic` APIs ship single-entity-type batch
+atomicity only; multi-entity transactions remain out of scope for 0.9.
 
 **Goals**
 
@@ -142,5 +144,5 @@ The following remain out of scope:
 0.9.x is a correctness-and-boundaries release.
 
 It prioritizes delete-time strong-relation validation, explicit transaction
-semantics (opt-in), and pagination performance improvements that preserve the
-0.8 query contract.
+semantics (opt-in, single-entity-type batch atomicity), and pagination
+performance improvements that preserve the 0.8 query contract.
