@@ -1,11 +1,10 @@
 //! Executor contract for a fully resolved logical plan; must not plan or validate.
-#[cfg_attr(not(test), expect(unused_imports))]
 use crate::{
     db::query::{
-        LoadSpec, QueryMode, ReadConsistency,
+        QueryMode, ReadConsistency,
         plan::{
-            AccessPath, AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec,
-            OrderDirection, OrderSpec, PageSpec,
+            AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec, OrderDirection,
+            OrderSpec, PageSpec,
         },
         policy,
         predicate::{Predicate, coercion::canonical_cmp, eval as eval_predicate},
@@ -15,6 +14,9 @@ use crate::{
     types::Id,
 };
 use std::cmp::Ordering;
+
+#[cfg(test)]
+use crate::db::query::{LoadSpec, plan::AccessPath};
 
 ///
 /// LogicalPlan

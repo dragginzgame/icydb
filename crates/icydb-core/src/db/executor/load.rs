@@ -34,7 +34,6 @@ use std::{marker::PhantomData, ops::Bound};
 pub struct CursorPage<E: EntityKind> {
     pub(crate) items: Response<E>,
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) next_cursor: Option<Vec<u8>>,
 }
 

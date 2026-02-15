@@ -183,33 +183,21 @@ fn validate_pk_key<K>(schema: &SchemaInfo, model: &EntityModel, key: &K) -> Resu
 where
     K: FieldValue,
 {
-    let field = model.primary_key.name;
-
-    let field_type = schema
-        .field(field)
-        .ok_or_else(|| PlanError::PrimaryKeyNotKeyable {
-            field: field.to_string(),
-        })?;
-
-    if !field_type.is_keyable() {
-        return Err(PlanError::PrimaryKeyNotKeyable {
-            field: field.to_string(),
-        });
-    }
-
     let value = key.to_value();
-    if !predicate::validate::literal_matches_type(&value, field_type) {
-        return Err(PlanError::PrimaryKeyMismatch {
-            field: field.to_string(),
-            key: value,
-        });
-    }
-
-    Ok(())
+    validate_pk_literal(schema, model, &value)
 }
 
 // Validate that a model-level key value matches the entity's primary key type.
 fn validate_pk_value(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    key: &Value,
+) -> Result<(), PlanError> {
+    validate_pk_literal(schema, model, key)
+}
+
+// Validate that a primary-key literal matches the entity primary-key schema.
+fn validate_pk_literal(
     schema: &SchemaInfo,
     model: &EntityModel,
     key: &Value,

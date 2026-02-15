@@ -339,6 +339,16 @@ pub fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
     }
 }
 
+/// Apply prepared-row rollback operations in reverse write order.
+///
+/// This is shared by preflight/recovery paths so rollback ordering remains
+/// mechanically consistent across commit-related execution phases.
+pub fn rollback_prepared_row_ops_reverse(ops: Vec<PreparedRowCommitOp>) {
+    for op in ops.into_iter().rev() {
+        op.apply();
+    }
+}
+
 /// Prepare a typed row-level commit op for one entity type.
 ///
 /// This resolves store handles and index/data mutations so commit/recovery

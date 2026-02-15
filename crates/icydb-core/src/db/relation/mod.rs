@@ -83,6 +83,29 @@ pub fn build_relation_target_raw_key(
         .map_err(RelationTargetRawKeyError::StorageKeyEncode)
 }
 
+// Visit concrete relation target values for one relation field payload.
+// Runtime relation List/Set shapes are represented as `Value::List`, and
+// optional relation slots may be explicit `Value::Null`.
+pub fn for_each_relation_target_value(
+    value: &Value,
+    mut visit: impl FnMut(&Value) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    match value {
+        Value::List(items) => {
+            for item in items {
+                if matches!(item, Value::Null) {
+                    continue;
+                }
+                visit(item)?;
+            }
+        }
+        Value::Null => {}
+        _ => visit(value)?,
+    }
+
+    Ok(())
+}
+
 // Convert a relation value to its target raw data key representation.
 fn raw_relation_target_key<S>(
     field_name: &str,
@@ -179,7 +202,7 @@ where
     Ok(Some(target_data_key))
 }
 
-fn relation_target_decode_message(context: RelationTargetDecodeContext) -> &'static str {
+const fn relation_target_decode_message(context: RelationTargetDecodeContext) -> &'static str {
     match context {
         RelationTargetDecodeContext::DeleteValidation => "delete relation target key decode failed",
         RelationTargetDecodeContext::ReverseIndexPrepare => {
@@ -188,7 +211,7 @@ fn relation_target_decode_message(context: RelationTargetDecodeContext) -> &'sta
     }
 }
 
-fn relation_target_entity_name_message(context: RelationTargetDecodeContext) -> &'static str {
+const fn relation_target_entity_name_message(context: RelationTargetDecodeContext) -> &'static str {
     match context {
         RelationTargetDecodeContext::DeleteValidation => {
             "strong relation target entity invalid during delete validation"
@@ -199,7 +222,9 @@ fn relation_target_entity_name_message(context: RelationTargetDecodeContext) -> 
     }
 }
 
-fn relation_target_entity_mismatch_message(context: RelationTargetDecodeContext) -> &'static str {
+const fn relation_target_entity_mismatch_message(
+    context: RelationTargetDecodeContext,
+) -> &'static str {
     match context {
         RelationTargetDecodeContext::DeleteValidation => {
             "relation target entity mismatch during delete validation"

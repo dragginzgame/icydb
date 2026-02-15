@@ -1,6 +1,6 @@
 use super::{
     RelationTargetDecodeContext, RelationTargetMismatchPolicy,
-    decode_relation_target_data_key_for_relation,
+    decode_relation_target_data_key_for_relation, for_each_relation_target_value,
     metadata::{StrongRelationInfo, strong_relations_for_source},
     raw_relation_target_key,
 };
@@ -101,21 +101,10 @@ where
 {
     let mut keys = BTreeSet::new();
 
-    match value {
-        Value::List(items) => {
-            for item in items {
-                // Optional relation list entries may be explicit null values.
-                if matches!(item, Value::Null) {
-                    continue;
-                }
-                keys.insert(raw_relation_target_key::<S>(field_name, relation, item)?);
-            }
-        }
-        Value::Null => {}
-        _ => {
-            keys.insert(raw_relation_target_key::<S>(field_name, relation, value)?);
-        }
-    }
+    for_each_relation_target_value(value, |item| {
+        keys.insert(raw_relation_target_key::<S>(field_name, relation, item)?);
+        Ok(())
+    })?;
 
     Ok(keys)
 }

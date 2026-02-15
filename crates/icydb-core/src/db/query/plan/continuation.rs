@@ -38,12 +38,7 @@ impl ContinuationSignature {
 
     #[must_use]
     pub fn as_hex(&self) -> String {
-        let mut out = String::with_capacity(64);
-        for byte in self.0 {
-            use std::fmt::Write as _;
-            let _ = write!(out, "{byte:02x}");
-        }
-        out
+        crate::db::cursor::encode_cursor(&self.0)
     }
 }
 
@@ -54,7 +49,6 @@ impl std::fmt::Display for ContinuationSignature {
 }
 
 const CONTINUATION_TOKEN_VERSION_V1: u8 = 1;
-#[cfg_attr(not(test), allow(dead_code))]
 const MAX_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
 
 /// Decode errors for typed primary-key cursor slot extraction.
@@ -146,12 +140,10 @@ impl ContinuationToken {
         }
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const fn signature(&self) -> ContinuationSignature {
         self.signature
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const fn boundary(&self) -> &CursorBoundary {
         &self.boundary
     }
@@ -166,7 +158,6 @@ impl ContinuationToken {
         serialize(&wire).map_err(|err| ContinuationTokenError::Encode(err.to_string()))
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn decode(bytes: &[u8]) -> Result<Self, ContinuationTokenError> {
         let wire: ContinuationTokenWire = deserialize_bounded(bytes, MAX_CONTINUATION_TOKEN_BYTES)
             .map_err(|err| ContinuationTokenError::Decode(err.to_string()))?;
@@ -227,7 +218,6 @@ struct ContinuationTokenWire {
 }
 
 // Decode and validate one continuation cursor against a canonical plan surface.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn decode_validated_cursor_boundary(
     cursor: &[u8],
     entity_path: &'static str,
@@ -265,7 +255,6 @@ pub(crate) fn decode_validated_cursor_boundary(
 }
 
 // Validate decoded cursor boundary slot types against canonical order fields.
-#[cfg_attr(not(test), allow(dead_code))]
 fn validate_cursor_boundary_types(
     model: &EntityModel,
     order: &OrderSpec,

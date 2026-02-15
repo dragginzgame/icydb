@@ -5,6 +5,30 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.9.0] – 2026-02-15 - Strengthening Release
+
+### 🧭 Summary
+
+* `0.9.0` ships the strengthening scope: delete-time strong relation protection, explicit opt-in batch transaction lanes, pagination efficiency upgrades, and execution-boundary hardening.
+* The `0.8.x` behavioral contract remains preserved: no cursor token format change, no implicit transaction upgrades, and no storage-format redesign.
+* Scope references: [0.9 plan](docs/PLAN_0.9.md), [0.9 status](docs/STATUS_0.9.md), [transaction semantics](docs/TRANSACTION_SEMANTICS.md), and [atomicity](docs/ATOMICITY.md).
+
+### 🪵 Changed
+
+* Delete-time strong relation validation now blocks target deletes that would leave dangling references, with reverse-index-backed lookup paths for predictable scaling.
+* Added explicit batch write lanes: `*_many_atomic` for single-entity-type all-or-nothing writes, and `*_many_non_atomic` for fail-fast prefix-commit behavior.
+* Ordered pagination execution now uses bounded work paths (including PK-ordered streaming and bounded ordered windows) while keeping continuation semantics unchanged.
+* Planner and executor boundaries now share stricter invariant guardrails, including explicit cursor-boundary validation and post-access phase ordering checks.
+
+### 🥝 Fixed
+
+* Hardened commit-marker replay and recovery behavior for interrupted atomic batch flows, including idempotent replays for mixed row/index mutation sequences.
+* Standardized RI boundary classification and diagnostics so unsupported user input, persisted corruption, and internal invariant failures stay explicitly separated.
+* Expanded trace and metrics coverage for access/post-access phases, reverse-index deltas, and relation-validation outcomes across success and failure paths.
+* Storage diagnostics now distinguish user/system index footprint and report malformed key/entry corruption counters without leaking invalid rows into rollups.
+
+---
+
 ## [0.8.5] – 2026-02-15 - Transaction Semantics Hardening
 
 ### 🪁 Summary

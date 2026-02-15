@@ -87,23 +87,11 @@ impl From<QueryError> for Error {
                 err.to_string(),
             ),
 
-            QueryError::Plan(err)
-                if matches!(
-                    *err,
-                    PlanError::InvalidContinuationCursor { .. }
-                        | PlanError::ContinuationCursorVersionMismatch { .. }
-                        | PlanError::ContinuationCursorSignatureMismatch { .. }
-                        | PlanError::ContinuationCursorBoundaryArityMismatch { .. }
-                        | PlanError::ContinuationCursorBoundaryTypeMismatch { .. }
-                        | PlanError::ContinuationCursorPrimaryKeyTypeMismatch { .. }
-                ) =>
-            {
-                Self::new(
-                    ErrorKind::Query(QueryErrorKind::InvalidContinuationCursor),
-                    ErrorOrigin::Query,
-                    err.to_string(),
-                )
-            }
+            QueryError::Plan(err) if is_invalid_continuation_cursor_plan_error(&err) => Self::new(
+                ErrorKind::Query(QueryErrorKind::InvalidContinuationCursor),
+                ErrorOrigin::Query,
+                err.to_string(),
+            ),
 
             QueryError::Plan(_) => Self::new(
                 ErrorKind::Query(QueryErrorKind::Plan),
@@ -116,6 +104,18 @@ impl From<QueryError> for Error {
             QueryError::Execute(err) => err.into(),
         }
     }
+}
+
+const fn is_invalid_continuation_cursor_plan_error(err: &PlanError) -> bool {
+    matches!(
+        err,
+        PlanError::InvalidContinuationCursor { .. }
+            | PlanError::ContinuationCursorVersionMismatch { .. }
+            | PlanError::ContinuationCursorSignatureMismatch { .. }
+            | PlanError::ContinuationCursorBoundaryArityMismatch { .. }
+            | PlanError::ContinuationCursorBoundaryTypeMismatch { .. }
+            | PlanError::ContinuationCursorPrimaryKeyTypeMismatch { .. }
+    )
 }
 
 impl From<ResponseError> for Error {

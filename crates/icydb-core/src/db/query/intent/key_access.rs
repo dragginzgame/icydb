@@ -38,8 +38,6 @@ pub struct KeyAccessState<K> {
     pub access: KeyAccess<K>,
 }
 
-// Build a key-only access plan without predicate-based planning.
-// Build a model-level access plan for key-only intents.
 // Build a model-level access plan for key-only intents.
 pub fn access_plan_from_keys_value<K>(access: &KeyAccess<K>) -> AccessPlan<Value>
 where

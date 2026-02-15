@@ -21,12 +21,7 @@ impl PlanFingerprint {
 
     #[must_use]
     pub fn as_hex(&self) -> String {
-        let mut out = String::with_capacity(64);
-        for byte in self.0 {
-            use std::fmt::Write as _;
-            let _ = write!(out, "{byte:02x}");
-        }
-        out
+        crate::db::cursor::encode_cursor(&self.0)
     }
 }
 

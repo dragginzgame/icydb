@@ -3,7 +3,7 @@ use crate::{
         executor::save::SaveExecutor,
         relation::{
             RelationTargetRawKeyError, StrongRelationTargetInfo, build_relation_target_raw_key,
-            strong_relation_target_from_kind,
+            for_each_relation_target_value, strong_relation_target_from_kind,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -29,25 +29,10 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             })?;
 
             // Phase 2: validate each referenced key.
-            match &value {
-                Value::List(items) => {
-                    // Collection enforcement is aggregate: every referenced key must exist.
-                    // NOTE: relation List/Set shapes are represented as Value::List at runtime.
-                    for item in items {
-                        // NOTE: Optional list entries are allowed; skip explicit None values.
-                        if matches!(item, Value::Null) {
-                            continue;
-                        }
-                        self.validate_strong_relation_value(field.name, relation, item)?;
-                    }
-                }
-                Value::Null => {
-                    // NOTE: Optional strong relations may be unset; None does not trigger RI.
-                }
-                _ => {
-                    self.validate_strong_relation_value(field.name, relation, &value)?;
-                }
-            }
+            for_each_relation_target_value(&value, |item| {
+                // Collection enforcement is aggregate: every referenced key must exist.
+                self.validate_strong_relation_value(field.name, relation, item)
+            })?;
         }
 
         Ok(())

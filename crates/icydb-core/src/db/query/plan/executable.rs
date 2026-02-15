@@ -57,7 +57,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
     ///
     /// This is a planning-boundary validation step. Executors receive only a
     /// typed boundary and must not parse or validate cursor bytes.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn plan_cursor_boundary(
         &self,
         cursor: Option<&[u8]>,

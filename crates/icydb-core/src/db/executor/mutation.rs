@@ -1,7 +1,7 @@
 use crate::{
     db::{
         CommitApplyGuard, CommitGuard, CommitRowOp, Db, PreparedRowCommitOp, finish_commit,
-        prepare_row_commit_for_entity, snapshot_row_rollback,
+        prepare_row_commit_for_entity, rollback_prepared_row_ops_reverse, snapshot_row_rollback,
     },
     error::InternalError,
     obs::sink::{self, MetricsEvent},
@@ -99,7 +99,7 @@ pub(super) fn preflight_prepare_row_ops<E: EntityKind + EntityValue>(
         let row = match prepare_row_commit_for_entity::<E>(db, row_op) {
             Ok(op) => op,
             Err(err) => {
-                rollback_prepared_row_ops(rollback);
+                rollback_prepared_row_ops_reverse(rollback);
                 return Err(err);
             }
         };
@@ -108,7 +108,7 @@ pub(super) fn preflight_prepare_row_ops<E: EntityKind + EntityValue>(
         prepared.push(row);
     }
 
-    rollback_prepared_row_ops(rollback);
+    rollback_prepared_row_ops_reverse(rollback);
     Ok(prepared)
 }
 
@@ -128,7 +128,7 @@ pub(super) fn apply_prepared_row_ops(
         for row_op in &prepared_row_ops {
             rollback.push(snapshot_row_rollback(row_op));
         }
-        apply_guard.record_rollback(move || rollback_prepared_row_ops(rollback));
+        apply_guard.record_rollback(move || rollback_prepared_row_ops_reverse(rollback));
 
         for row_op in prepared_row_ops {
             row_op.apply();
@@ -139,11 +139,4 @@ pub(super) fn apply_prepared_row_ops(
 
         Ok(())
     })
-}
-
-/// Apply row rollback operations in reverse write order.
-fn rollback_prepared_row_ops(ops: Vec<PreparedRowCommitOp>) {
-    for op in ops.into_iter().rev() {
-        op.apply();
-    }
 }

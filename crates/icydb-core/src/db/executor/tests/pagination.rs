@@ -275,6 +275,105 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
 }
 
 #[test]
+fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundary() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    // Phase 1: seed rows with non-sorted insertion order.
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    let keys = [7_u128, 1_u128, 6_u128, 2_u128, 5_u128, 3_u128, 4_u128];
+    for id in keys {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    // Phase 2: capture one canonical cursor boundary from an initial fast-path page.
+    let page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(3)
+        .plan()
+        .expect("cursor source plan should build");
+    let page1_boundary = page1_plan
+        .plan_cursor_boundary(None)
+        .expect("cursor source boundary should plan");
+    let page1 = load
+        .execute_paged(page1_plan, page1_boundary)
+        .expect("cursor source page should execute");
+    let cursor_bytes = page1
+        .next_cursor
+        .as_ref()
+        .expect("cursor source page should emit continuation cursor");
+    let cursor_token = ContinuationToken::decode(cursor_bytes.as_slice())
+        .expect("cursor source token should decode");
+    let shared_boundary = cursor_token.boundary().clone();
+
+    // Phase 3: execute page-2 parity checks with the same typed cursor boundary.
+    let fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(2)
+        .plan()
+        .expect("fast page2 plan should build");
+    let fast_page2 = load
+        .execute_paged(fast_page2_plan, Some(shared_boundary.clone()))
+        .expect("fast page2 should execute");
+
+    let non_fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .by_ids(keys.into_iter().map(Ulid::from_u128))
+        .order_by("id")
+        .limit(2)
+        .plan()
+        .expect("non-fast page2 plan should build");
+    let non_fast_page2 = load
+        .execute_paged(non_fast_page2_plan, Some(shared_boundary))
+        .expect("non-fast page2 should execute");
+
+    let fast_ids: Vec<Ulid> = fast_page2
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    let non_fast_ids: Vec<Ulid> = non_fast_page2
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    assert_eq!(
+        fast_ids, non_fast_ids,
+        "fast and non-fast paths must return identical rows for the same cursor boundary"
+    );
+
+    assert_eq!(
+        fast_page2.next_cursor.is_some(),
+        non_fast_page2.next_cursor.is_some(),
+        "cursor presence must match between fast and non-fast paths"
+    );
+
+    let fast_next = fast_page2
+        .next_cursor
+        .as_ref()
+        .expect("fast page2 should emit continuation cursor");
+    let non_fast_next = non_fast_page2
+        .next_cursor
+        .as_ref()
+        .expect("non-fast page2 should emit continuation cursor");
+    let fast_next_token =
+        ContinuationToken::decode(fast_next.as_slice()).expect("fast next cursor should decode");
+    let non_fast_next_token = ContinuationToken::decode(non_fast_next.as_slice())
+        .expect("non-fast next cursor should decode");
+    assert_eq!(
+        fast_next_token.boundary(),
+        non_fast_next_token.boundary(),
+        "fast and non-fast paths must emit the same continuation boundary"
+    );
+}
+
+#[test]
 fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();

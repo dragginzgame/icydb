@@ -30,7 +30,6 @@ where
     session: &'a DbSession<C>,
     query: Query<E>,
     cursor_token: Option<String>,
-    cursor_intent_error: Option<IntentError>,
 }
 
 ///
@@ -58,7 +57,6 @@ where
             session,
             query,
             cursor_token: None,
-            cursor_intent_error: None,
         }
     }
 
@@ -71,18 +69,16 @@ where
         &self.query
     }
 
-    fn map_query_with_refresh(mut self, map: impl FnOnce(Query<E>) -> Query<E>) -> Self {
+    fn map_query(mut self, map: impl FnOnce(Query<E>) -> Query<E>) -> Self {
         self.query = map(self.query);
-        self.refresh_cursor_intent_error();
         self
     }
 
-    fn try_map_query_with_refresh(
+    fn try_map_query(
         mut self,
         map: impl FnOnce(Query<E>) -> Result<Query<E>, QueryError>,
     ) -> Result<Self, QueryError> {
         self.query = map(self.query)?;
-        self.refresh_cursor_intent_error();
         Ok(self)
     }
 
@@ -117,25 +113,25 @@ where
 
     #[must_use]
     pub fn filter(self, predicate: Predicate) -> Self {
-        self.map_query_with_refresh(|query| query.filter(predicate))
+        self.map_query(|query| query.filter(predicate))
     }
 
     pub fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
-        self.try_map_query_with_refresh(|query| query.filter_expr(expr))
+        self.try_map_query(|query| query.filter_expr(expr))
     }
 
     pub fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
-        self.try_map_query_with_refresh(|query| query.sort_expr(expr))
+        self.try_map_query(|query| query.sort_expr(expr))
     }
 
     #[must_use]
     pub fn order_by(self, field: impl AsRef<str>) -> Self {
-        self.map_query_with_refresh(|query| query.order_by(field))
+        self.map_query(|query| query.order_by(field))
     }
 
     #[must_use]
     pub fn order_by_desc(self, field: impl AsRef<str>) -> Self {
-        self.map_query_with_refresh(|query| query.order_by_desc(field))
+        self.map_query(|query| query.order_by_desc(field))
     }
 
     /// Bound the number of returned rows.
@@ -144,7 +140,7 @@ where
     /// `offset` with `order_by(...)` or planning fails.
     #[must_use]
     pub fn limit(self, limit: u32) -> Self {
-        self.map_query_with_refresh(|query| query.limit(limit))
+        self.map_query(|query| query.limit(limit))
     }
 
     /// Skip a number of rows in the ordered result stream.
@@ -153,7 +149,7 @@ where
     /// `limit` with `order_by(...)` or planning fails.
     #[must_use]
     pub fn offset(self, offset: u32) -> Self {
-        self.map_query_with_refresh(|query| query.offset(offset))
+        self.map_query(|query| query.offset(offset))
     }
 
     /// Attach an opaque cursor token for continuation pagination.
@@ -165,7 +161,6 @@ where
     #[must_use]
     pub fn cursor(mut self, token: impl Into<String>) -> Self {
         self.cursor_token = Some(token.into());
-        self.refresh_cursor_intent_error();
         self
     }
 
@@ -178,7 +173,7 @@ where
     }
 
     pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
-        if let Some(err) = self.cursor_intent_error {
+        if let Some(err) = self.cursor_intent_error() {
             return Err(QueryError::Intent(err));
         }
 
@@ -268,6 +263,12 @@ where
     C: CanisterKind,
     E: EntityKind<Canister = C>,
 {
+    fn cursor_intent_error(&self) -> Option<IntentError> {
+        self.cursor_token
+            .as_ref()
+            .and_then(|_| self.paged_intent_error())
+    }
+
     fn paged_intent_error(&self) -> Option<IntentError> {
         let spec = self.query.load_spec()?;
 
@@ -276,19 +277,8 @@ where
             .map(IntentError::from)
     }
 
-    fn refresh_cursor_intent_error(&mut self) {
-        self.cursor_intent_error = self
-            .cursor_token
-            .as_ref()
-            .and_then(|_| self.paged_intent_error());
-    }
-
     fn ensure_paged_mode_ready(&self) -> Result<(), QueryError> {
         if let Some(err) = self.paged_intent_error() {
-            return Err(QueryError::Intent(err));
-        }
-
-        if let Some(err) = self.cursor_intent_error {
             return Err(QueryError::Intent(err));
         }
 
@@ -304,7 +294,7 @@ where
 {
     #[must_use]
     pub fn only(self) -> Self {
-        self.map_query_with_refresh(Query::only)
+        self.map_query(Query::only)
     }
 }
 

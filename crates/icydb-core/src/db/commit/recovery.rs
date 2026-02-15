@@ -17,7 +17,8 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitRowOp, PreparedRowCommitOp, snapshot_row_rollback,
+            CommitRowOp, PreparedRowCommitOp, rollback_prepared_row_ops_reverse,
+            snapshot_row_rollback,
             store::{commit_marker_present_fast, with_commit_store},
         },
     },
@@ -96,7 +97,7 @@ fn replay_recovery_row_ops(
         let prepared = match db.prepare_row_commit_op(row_op) {
             Ok(op) => op,
             Err(err) => {
-                rollback_recovery_ops(rollbacks);
+                rollback_prepared_row_ops_reverse(rollbacks);
                 return Err(err);
             }
         };
@@ -106,11 +107,4 @@ fn replay_recovery_row_ops(
     }
 
     Ok(())
-}
-
-/// Best-effort rollback for recovery replay errors.
-fn rollback_recovery_ops(ops: Vec<PreparedRowCommitOp>) {
-    for op in ops.into_iter().rev() {
-        op.apply();
-    }
 }
