@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        Db, PreparedRowCommitOp, RowCommitHandler,
+        Db, EntityRuntimeHooks,
         commit::{
             CommitMarker, CommitRowOp, begin_commit, commit_marker_present,
             ensure_recovered_for_write, finish_commit, init_commit_store_for_tests,
@@ -8,6 +8,7 @@ use crate::{
         },
         index::{IndexKey, IndexStore},
         store::{DataKey, DataStore, RawDataKey, StoreRegistry},
+        validate_delete_strong_relations_for_source,
     },
     error::{ErrorClass, ErrorOrigin},
     model::{
@@ -207,23 +208,17 @@ impl EntityValue for RecoveryIndexedEntity {
     }
 }
 
-fn prepare_recovery_test_row_op(
-    db: &Db<RecoveryTestCanister>,
-    op: &CommitRowOp,
-) -> Result<PreparedRowCommitOp, crate::error::InternalError> {
-    prepare_row_commit_for_entity::<RecoveryTestEntity>(db, op)
-}
-
-fn prepare_recovery_indexed_row_op(
-    db: &Db<RecoveryTestCanister>,
-    op: &CommitRowOp,
-) -> Result<PreparedRowCommitOp, crate::error::InternalError> {
-    prepare_row_commit_for_entity::<RecoveryIndexedEntity>(db, op)
-}
-
-static ROW_COMMIT_HANDLERS: &[RowCommitHandler<RecoveryTestCanister>] = &[
-    RowCommitHandler::new(RecoveryTestEntity::PATH, prepare_recovery_test_row_op),
-    RowCommitHandler::new(RecoveryIndexedEntity::PATH, prepare_recovery_indexed_row_op),
+static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
+    EntityRuntimeHooks::new(
+        RecoveryTestEntity::PATH,
+        prepare_row_commit_for_entity::<RecoveryTestEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        RecoveryIndexedEntity::PATH,
+        prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
+    ),
 ];
 
 thread_local! {
@@ -237,8 +232,7 @@ thread_local! {
     };
 }
 
-static DB: Db<RecoveryTestCanister> =
-    Db::new_with_relations(&STORE_REGISTRY, &[], ROW_COMMIT_HANDLERS);
+static DB: Db<RecoveryTestCanister> = Db::new_with_hooks(&STORE_REGISTRY, ENTITY_RUNTIME_HOOKS);
 
 fn with_recovery_store<R>(f: impl FnOnce(crate::db::store::StoreHandle) -> R) -> R {
     DB.with_store_registry(|reg| reg.try_get_store(RecoveryTestDataStore::PATH).map(f))

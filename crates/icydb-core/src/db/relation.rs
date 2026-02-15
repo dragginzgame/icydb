@@ -9,7 +9,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::field::{EntityFieldKind, RelationStrength},
     obs::sink::{self, MetricsEvent},
-    traits::{CanisterKind, EntityKind, EntityValue, Path, Storable},
+    traits::{EntityKind, EntityValue, Path, Storable},
     value::Value,
 };
 use canic_utils::hash::Xxh3;
@@ -23,34 +23,6 @@ use std::{cell::RefCell, collections::BTreeSet, thread::LocalKey};
 
 pub type StrongRelationDeleteValidateFn<C> =
     fn(&Db<C>, &str, &BTreeSet<RawDataKey>) -> Result<(), InternalError>;
-
-///
-/// StrongRelationDeleteValidator
-///
-/// Per-canister callback used by delete execution to enforce
-/// strong relation constraints before entering the commit window.
-///
-
-pub struct StrongRelationDeleteValidator<C: CanisterKind> {
-    validate: StrongRelationDeleteValidateFn<C>,
-}
-
-impl<C: CanisterKind> StrongRelationDeleteValidator<C> {
-    /// Construct a delete-side strong relation validator callback.
-    #[must_use]
-    pub const fn new(validate: StrongRelationDeleteValidateFn<C>) -> Self {
-        Self { validate }
-    }
-
-    pub(crate) fn validate(
-        &self,
-        db: &Db<C>,
-        target_path: &str,
-        deleted_target_keys: &BTreeSet<RawDataKey>,
-    ) -> Result<(), InternalError> {
-        (self.validate)(db, target_path, deleted_target_keys)
-    }
-}
 
 ///
 /// StrongRelationInfo

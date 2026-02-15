@@ -9,8 +9,7 @@ mod structural_trace;
 
 use crate::{
     db::{
-        Context, Db, DbSession, PreparedRowCommitOp, RowCommitHandler,
-        StrongRelationDeleteValidator,
+        Context, Db, DbSession, EntityRuntimeHooks,
         commit::{
             CommitMarker, begin_commit, commit_marker_present, ensure_recovered_for_write,
             init_commit_store_for_tests,
@@ -25,7 +24,7 @@ use crate::{
             plan::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
             predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         },
-        store::{DataStore, RawDataKey, StoreRegistry},
+        store::{DataStore, StoreRegistry},
         validate_delete_strong_relations_for_source,
     },
     model::{
@@ -45,7 +44,7 @@ use crate::{
 };
 use icydb_derive::FieldValues;
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, collections::BTreeSet, sync::Mutex};
+use std::{cell::RefCell, sync::Mutex};
 
 ///
 /// TestCanister
@@ -531,48 +530,21 @@ thread_local! {
     };
 }
 
-// Route source-entity relation scanning through the generic delete-side RI helper.
-fn validate_relation_source_delete_refs(
-    db: &Db<RelationTestCanister>,
-    target_path: &str,
-    deleted_target_keys: &BTreeSet<RawDataKey>,
-) -> Result<(), crate::error::InternalError> {
-    validate_delete_strong_relations_for_source::<RelationSourceEntity>(
-        db,
-        target_path,
-        deleted_target_keys,
-    )
-}
-
-static REL_DELETE_RELATION_VALIDATORS: &[StrongRelationDeleteValidator<RelationTestCanister>] =
-    &[StrongRelationDeleteValidator::new(
-        validate_relation_source_delete_refs,
-    )];
-
-fn prepare_relation_target_row_op(
-    db: &Db<RelationTestCanister>,
-    op: &crate::db::CommitRowOp,
-) -> Result<PreparedRowCommitOp, crate::error::InternalError> {
-    crate::db::prepare_row_commit_for_entity::<RelationTargetEntity>(db, op)
-}
-
-fn prepare_relation_source_row_op(
-    db: &Db<RelationTestCanister>,
-    op: &crate::db::CommitRowOp,
-) -> Result<PreparedRowCommitOp, crate::error::InternalError> {
-    crate::db::prepare_row_commit_for_entity::<RelationSourceEntity>(db, op)
-}
-
-static REL_ROW_COMMIT_HANDLERS: &[RowCommitHandler<RelationTestCanister>] = &[
-    RowCommitHandler::new(RelationTargetEntity::PATH, prepare_relation_target_row_op),
-    RowCommitHandler::new(RelationSourceEntity::PATH, prepare_relation_source_row_op),
+static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &[
+    EntityRuntimeHooks::new(
+        RelationTargetEntity::PATH,
+        crate::db::prepare_row_commit_for_entity::<RelationTargetEntity>,
+        validate_delete_strong_relations_for_source::<RelationTargetEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        RelationSourceEntity::PATH,
+        crate::db::prepare_row_commit_for_entity::<RelationSourceEntity>,
+        validate_delete_strong_relations_for_source::<RelationSourceEntity>,
+    ),
 ];
 
-static REL_DB: Db<RelationTestCanister> = Db::new_with_relations(
-    &REL_STORE_REGISTRY,
-    REL_DELETE_RELATION_VALIDATORS,
-    REL_ROW_COMMIT_HANDLERS,
-);
+static REL_DB: Db<RelationTestCanister> =
+    Db::new_with_hooks(&REL_STORE_REGISTRY, REL_ENTITY_RUNTIME_HOOKS);
 
 ///
 /// RelationTargetEntity

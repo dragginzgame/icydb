@@ -1,4 +1,6 @@
-## Near-Term Roadmap (0.9.x)
+# Referential Integrity Release Roadmap (0.9.x)
+
+`0.9.x` is the **Referential Integrity release**.
 
 The 0.9 series focuses on closing correctness gaps that remained after 0.8,
 while preserving the explicit 0.8.x contract.

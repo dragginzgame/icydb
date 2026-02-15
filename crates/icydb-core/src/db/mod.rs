@@ -9,7 +9,7 @@ pub mod response;
 pub mod store;
 
 pub use commit::*;
-pub use relation::{StrongRelationDeleteValidator, validate_delete_strong_relations_for_source};
+pub use relation::{StrongRelationDeleteValidateFn, validate_delete_strong_relations_for_source};
 
 use crate::{
     db::{
@@ -37,27 +37,24 @@ use crate::db::{index::IndexStore, store::DataStore};
 ///
 pub struct Db<C: CanisterKind> {
     store: &'static LocalKey<StoreRegistry>,
-    delete_relation_validators: &'static [StrongRelationDeleteValidator<C>],
-    row_commit_handlers: &'static [RowCommitHandler<C>],
+    entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
     _marker: PhantomData<C>,
 }
 
 impl<C: CanisterKind> Db<C> {
     #[must_use]
     pub const fn new(store: &'static LocalKey<StoreRegistry>) -> Self {
-        Self::new_with_relations(store, &[], &[])
+        Self::new_with_hooks(store, &[])
     }
 
     #[must_use]
-    pub const fn new_with_relations(
+    pub const fn new_with_hooks(
         store: &'static LocalKey<StoreRegistry>,
-        delete_relation_validators: &'static [StrongRelationDeleteValidator<C>],
-        row_commit_handlers: &'static [RowCommitHandler<C>],
+        entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
     ) -> Self {
         Self {
             store,
-            delete_relation_validators,
-            row_commit_handlers,
+            entity_runtime_hooks,
             _marker: PhantomData,
         }
     }
@@ -91,10 +88,10 @@ impl<C: CanisterKind> Db<C> {
         &self,
         op: &CommitRowOp,
     ) -> Result<PreparedRowCommitOp, InternalError> {
-        let handler = self
-            .row_commit_handlers
+        let hooks = self
+            .entity_runtime_hooks
             .iter()
-            .find(|handler| handler.entity_path == op.entity_path.as_str())
+            .find(|hooks| hooks.entity_path == op.entity_path.as_str())
             .ok_or_else(|| {
                 InternalError::new(
                     crate::error::ErrorClass::Corruption,
@@ -106,7 +103,7 @@ impl<C: CanisterKind> Db<C> {
                 )
             })?;
 
-        (handler.prepare)(self, op)
+        (hooks.prepare_row_commit)(self, op)
     }
 
     // Validate strong relation constraints for delete-selected target keys.
@@ -119,8 +116,8 @@ impl<C: CanisterKind> Db<C> {
             return Ok(());
         }
 
-        for validator in self.delete_relation_validators {
-            validator.validate(self, target_path, deleted_target_keys)?;
+        for hooks in self.entity_runtime_hooks {
+            (hooks.validate_delete_strong_relations)(self, target_path, deleted_target_keys)?;
         }
 
         Ok(())
@@ -128,25 +125,29 @@ impl<C: CanisterKind> Db<C> {
 }
 
 ///
-/// RowCommitHandler
+/// EntityRuntimeHooks
 ///
-/// Canister-local dispatcher from `entity_path` to typed row-op preparation.
+/// Per-entity runtime callbacks used for commit preparation and delete-side
+/// strong relation validation.
 ///
 
-pub struct RowCommitHandler<C: CanisterKind> {
+pub struct EntityRuntimeHooks<C: CanisterKind> {
     pub entity_path: &'static str,
-    pub prepare: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
+    pub prepare_row_commit: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
+    pub validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
 }
 
-impl<C: CanisterKind> RowCommitHandler<C> {
+impl<C: CanisterKind> EntityRuntimeHooks<C> {
     #[must_use]
     pub const fn new(
         entity_path: &'static str,
-        prepare: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
+        prepare_row_commit: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
+        validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
     ) -> Self {
         Self {
             entity_path,
-            prepare,
+            prepare_row_commit,
+            validate_delete_strong_relations,
         }
     }
 }

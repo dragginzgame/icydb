@@ -1,4 +1,6 @@
-# Data Stability & Migration Roadmap (0.10.x)
+# Data Integrity Release Roadmap (0.10.x)
+
+`0.10.x` is the **Data Integrity release**.
 
 The 0.10 series focuses on **physical durability, schema evolution safety, and explicit no-data-loss guarantees**.
 
@@ -200,7 +202,7 @@ The following remain out of scope:
 
 # Summary
 
-0.10.x is a **durability and survivability release**.
+0.10.x is the **Data Integrity release**.
 
 If 0.9 ensures the engine behaves correctly,
 0.10 ensures the engine survives change without losing data.
@@ -216,4 +218,3 @@ It formalizes:
 0.10.x is not about new features.
 
 It is about making IcyDB structurally resilient.
-

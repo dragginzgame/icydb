@@ -47,11 +47,27 @@ This direction governs all future feature work.
 
 ---
 
-## Planned for 0.9.x
+## Planned for 0.9.x - Referential Integrity Release
+
+`0.9.x` is the **Referential Integrity release**.
 
 - **Delete-side referential integrity enforcement for strong relations** is targeted for an early `0.9.x` release.
 - **Reverse indexes for strong relations** are included in the 0.9 delete-side RI scope to avoid scan-based delete validation.
 - Scope remains validation-only (no implicit cascades), unless a later spec says otherwise.
+
+See `docs/PLAN_0.9.md` for the detailed `0.9.x` plan.
+
+---
+
+## Planned for 0.10.x - Data Integrity Release
+
+`0.10.x` is the **Data Integrity release**.
+
+- **Row format versioning and backward-compatible decode rules** are planned to prevent upgrade-time data loss.
+- **Commit marker compatibility and replay guarantees** are planned to keep recovery stable across upgrades.
+- **Explicit migration execution and corruption-detection tooling** are planned to make structural issues observable and recoverable.
+
+See `docs/PLAN_0.10.md` for the detailed `0.10.x` plan.
 
 ---
 
