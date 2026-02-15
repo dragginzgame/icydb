@@ -125,6 +125,21 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(WriteResponse::from_core(self.inner.insert(entity)?))
     }
 
+    /// Insert a batch atomically in one commit window.
+    ///
+    /// If any item fails pre-commit validation, no row in the batch is persisted.
+    pub fn insert_many_atomic<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<WriteBatchResponse<E>, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        Ok(WriteBatchResponse::from_core(
+            self.inner.insert_many_atomic(entities)?,
+        ))
+    }
+
     /// Insert a batch with explicitly non-atomic semantics.
     ///
     /// WARNING: fail-fast and non-atomic. Earlier inserts may commit before an error.
@@ -145,6 +160,21 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityKind<Canister = C> + EntityValue,
     {
         Ok(WriteResponse::from_core(self.inner.replace(entity)?))
+    }
+
+    /// Replace a batch atomically in one commit window.
+    ///
+    /// If any item fails pre-commit validation, no row in the batch is persisted.
+    pub fn replace_many_atomic<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<WriteBatchResponse<E>, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        Ok(WriteBatchResponse::from_core(
+            self.inner.replace_many_atomic(entities)?,
+        ))
     }
 
     /// Replace a batch with explicitly non-atomic semantics.
@@ -182,6 +212,21 @@ impl<C: CanisterKind> DbSession<C> {
         UpdateView::merge(&mut entity, patch)?;
 
         self.update(entity)
+    }
+
+    /// Update a batch atomically in one commit window.
+    ///
+    /// If any item fails pre-commit validation, no row in the batch is persisted.
+    pub fn update_many_atomic<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<WriteBatchResponse<E>, Error>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        Ok(WriteBatchResponse::from_core(
+            self.inner.update_many_atomic(entities)?,
+        ))
     }
 
     /// Update a batch with explicitly non-atomic semantics.

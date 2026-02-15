@@ -778,6 +778,71 @@ fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
 }
 
 #[test]
+fn insert_many_atomic_rejects_partial_commit_on_late_failure() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<TargetEntity>::new(DB, false);
+    let existing = Ulid::from_u128(41);
+    save.insert(TargetEntity { id: existing })
+        .expect("seed row insert should succeed");
+
+    let new_id = Ulid::from_u128(42);
+    let err = save
+        .insert_many_atomic(vec![
+            TargetEntity { id: new_id },
+            TargetEntity { id: existing },
+        ])
+        .expect_err("atomic insert batch should fail on duplicate key");
+    assert_eq!(
+        err.class,
+        ErrorClass::Conflict,
+        "duplicate key should classify as conflict",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Store,
+        "duplicate key should originate from store checks",
+    );
+
+    let rows = with_data_store(TargetStore::PATH, |data_store| data_store.iter().count());
+    assert_eq!(
+        rows, 1,
+        "atomic insert batch must not persist earlier rows when a later row fails"
+    );
+}
+
+#[test]
+fn insert_many_non_atomic_commits_prefix_before_late_failure() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<TargetEntity>::new(DB, false);
+    let existing = Ulid::from_u128(51);
+    save.insert(TargetEntity { id: existing })
+        .expect("seed row insert should succeed");
+
+    let new_id = Ulid::from_u128(52);
+    let err = save
+        .insert_many_non_atomic(vec![
+            TargetEntity { id: new_id },
+            TargetEntity { id: existing },
+        ])
+        .expect_err("non-atomic insert batch should fail on duplicate key");
+    assert_eq!(
+        err.class,
+        ErrorClass::Conflict,
+        "duplicate key should classify as conflict",
+    );
+
+    let rows = with_data_store(TargetStore::PATH, |data_store| data_store.iter().count());
+    assert_eq!(
+        rows, 2,
+        "non-atomic insert batch must preserve earlier committed rows before failure"
+    );
+}
+
+#[test]
 fn set_field_encoding_requires_canonical_order_and_uniqueness() {
     let kind = EntityFieldKind::Set(&EntityFieldKind::Ulid);
     let lower = Value::Ulid(Ulid::from_u128(1));

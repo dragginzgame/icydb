@@ -137,7 +137,7 @@ debug boolean all the way through
 ### Changed
 - Value: unified collection/text helpers via small internal comparators (`contains_by`, `contains_any_by`, `contains_all_by`, `in_list_by`) and a `text_op` helper, reducing duplication while preserving behavior.
 - Value (CI text ops): centralized case-insensitive equality via `eq_ci`; clarified Unicode folding note (temporary `to_lowercase`, future NFKC+casefold).
-- Metrics docs: clarified `EventReport` comment to reflect event/counter focus; codegen `mimic_metrics` comment now references internal `since_ms` and reset.
+- Metrics docs: clarified `EventReport` comment to reflect event/counter focus; codegen `mimic_metrics` comment now references internal `window_start_ms` and reset.
 - Schema Store docs: clarified that the type describes a stable IC BTreeMap store (schema node), not a runtime store.
 - ULID docs: clarified why Serialize/Deserialize are implemented locally (crate features off by default to avoid `rand`).
 - CI: removed `cargo sort` checks (enforced via pre-commit); keep a single `cargo fmt --check`.

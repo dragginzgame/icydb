@@ -316,6 +316,22 @@ impl<C: CanisterKind> DbSession<C> {
             .map(WriteResponse::new)
     }
 
+    /// Insert a batch atomically in one commit window.
+    ///
+    /// If any item fails pre-commit validation, no row in the batch is persisted.
+    pub fn insert_many_atomic<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<WriteBatchResponse<E>, InternalError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let entities =
+            self.with_metrics(|| self.save_executor::<E>().insert_many_atomic(entities))?;
+
+        Ok(WriteBatchResponse::new(entities))
+    }
+
     /// Insert a batch with explicitly non-atomic semantics.
     ///
     /// WARNING: fail-fast and non-atomic. Earlier inserts may commit before an error.
@@ -340,6 +356,22 @@ impl<C: CanisterKind> DbSession<C> {
             .map(WriteResponse::new)
     }
 
+    /// Replace a batch atomically in one commit window.
+    ///
+    /// If any item fails pre-commit validation, no row in the batch is persisted.
+    pub fn replace_many_atomic<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<WriteBatchResponse<E>, InternalError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let entities =
+            self.with_metrics(|| self.save_executor::<E>().replace_many_atomic(entities))?;
+
+        Ok(WriteBatchResponse::new(entities))
+    }
+
     /// Replace a batch with explicitly non-atomic semantics.
     ///
     /// WARNING: fail-fast and non-atomic. Earlier replaces may commit before an error.
@@ -362,6 +394,22 @@ impl<C: CanisterKind> DbSession<C> {
     {
         self.with_metrics(|| self.save_executor::<E>().update(entity))
             .map(WriteResponse::new)
+    }
+
+    /// Update a batch atomically in one commit window.
+    ///
+    /// If any item fails pre-commit validation, no row in the batch is persisted.
+    pub fn update_many_atomic<E>(
+        &self,
+        entities: impl IntoIterator<Item = E>,
+    ) -> Result<WriteBatchResponse<E>, InternalError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let entities =
+            self.with_metrics(|| self.save_executor::<E>().update_many_atomic(entities))?;
+
+        Ok(WriteBatchResponse::new(entities))
     }
 
     /// Update a batch with explicitly non-atomic semantics.

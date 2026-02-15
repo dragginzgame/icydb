@@ -294,10 +294,11 @@ pub fn record(event: MetricsEvent) {
 
 /// Snapshot the current metrics state for endpoint/test plumbing.
 ///
-/// `since_ms` filters by window start (`EventState::since_ms`), not by per-event timestamps.
+/// `window_start_ms` filters by window start (`EventState::window_start_ms`),
+/// not by per-event timestamps.
 #[must_use]
-pub fn metrics_report(since_ms: Option<u64>) -> metrics::EventReport {
-    metrics::report_since(since_ms)
+pub fn metrics_report(window_start_ms: Option<u64>) -> metrics::EventReport {
+    metrics::report_window_start(window_start_ms)
 }
 
 /// Reset ephemeral metrics counters.
@@ -519,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn metrics_report_without_since_returns_counters() {
+    fn metrics_report_without_window_start_returns_counters() {
         metrics_reset_all();
         record(MetricsEvent::Plan {
             kind: PlanKind::Index,
@@ -533,9 +534,9 @@ mod tests {
     }
 
     #[test]
-    fn metrics_report_since_before_window_returns_counters() {
+    fn metrics_report_window_start_before_window_returns_counters() {
         metrics_reset_all();
-        let window_start = metrics::with_state(|m| m.since_ms);
+        let window_start = metrics::with_state(|m| m.window_start_ms);
         record(MetricsEvent::Plan {
             kind: PlanKind::Keys,
         });
@@ -543,14 +544,14 @@ mod tests {
         let report = metrics_report(Some(window_start.saturating_sub(1)));
         let counters = report
             .counters
-            .expect("metrics report should include counters when since_ms is before window");
+            .expect("metrics report should include counters when window_start_ms is before window");
         assert_eq!(counters.ops.plan_keys, 1);
     }
 
     #[test]
-    fn metrics_report_since_after_window_returns_empty() {
+    fn metrics_report_window_start_after_window_returns_empty() {
         metrics_reset_all();
-        let window_start = metrics::with_state(|m| m.since_ms);
+        let window_start = metrics::with_state(|m| m.window_start_ms);
         record(MetricsEvent::Plan {
             kind: PlanKind::FullScan,
         });

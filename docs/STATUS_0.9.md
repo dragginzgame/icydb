@@ -1,4 +1,4 @@
-# 0.9 Status (as of 2026-02-14)
+# 0.9 Status (as of 2026-02-15)
 
 ## 0.9 Ship Checklist (Referential Integrity Release)
 
@@ -39,11 +39,11 @@
 * Preserve explicit weak-relation behavior (no existence validation): **100%**
 * Keep semantics validation-only (no implicit cascades): **100%**
 
-## 2. Explicit Transaction Semantics (Opt-In Surface) (~15%)
+## 2. Explicit Transaction Semantics (Opt-In Surface) (~33%)
 
-* Keep transactional behavior explicit and opt-in: **25%**
-* Preserve existing fail-fast, non-atomic batch helper semantics unless users adopt explicit transaction APIs: **20%**
-* Ship formal semantics, recovery behavior, and failure-mode tests alongside any transactional surface: **0%**
+* Keep transactional behavior explicit and opt-in: **45%**
+* Preserve existing fail-fast, non-atomic batch helper semantics unless users adopt explicit transaction APIs: **40%**
+* Ship formal semantics, recovery behavior, and failure-mode tests alongside any transactional surface: **15%**
 
 ## 3. Pagination Efficiency Without Semantic Drift (~35%)
 

@@ -141,12 +141,16 @@ Commit markers are **authoritative**, not diagnostic.
 * All fallible work occurs pre-commit
 * Apply phase replays validated marker ops only
 
-### Batch writes (insert_many / update_many / replace_many)
+### Batch writes (single entity, explicit semantics)
 
-Batch write helpers are **fail-fast and non-atomic**. Partial successes may be
-committed before an error is returned, and there is no transactional rollback
-across the batch. These helpers exist for convenience, not for multi-entity
-atomicity.
+IcyDB now exposes two explicit batch lanes:
+
+* `insert_many_atomic` / `update_many_atomic` / `replace_many_atomic` are
+  atomic within a single entity type. If any item fails pre-commit
+  validation, the whole batch fails and no row from that batch is persisted.
+* `insert_many_non_atomic` / `update_many_non_atomic` /
+  `replace_many_non_atomic` are fail-fast and non-atomic. Partial successes
+  may commit before an error is returned.
 
 ### Delete (single entity or planner-based)
 

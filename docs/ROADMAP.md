@@ -84,9 +84,10 @@ This goal does **not** change the 0.8 contract.
 
 Specifically:
 
-- Current batch helpers remain non-atomic
+- Existing `*_many_non_atomic` helpers remain fail-fast and non-atomic
+- Any stronger batch semantics are opt-in (for example, `*_many_atomic`)
 - No implicit transactional behavior is introduced
-- No partial transaction guarantees exist today
+- No multi-entity transaction guarantees exist today
 
 Any transactional feature must ship with:
 

@@ -16,7 +16,7 @@ pub struct EventState {
     pub ops: EventOps,
     pub perf: EventPerf,
     pub entities: BTreeMap<String, EntityCounters>,
-    pub since_ms: u64,
+    pub window_start_ms: u64,
 }
 
 impl Default for EventState {
@@ -25,7 +25,7 @@ impl Default for EventState {
             ops: EventOps::default(),
             perf: EventPerf::default(),
             entities: BTreeMap::new(),
-            since_ms: now_millis(),
+            window_start_ms: now_millis(),
         }
     }
 }
@@ -144,7 +144,7 @@ pub fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64) {
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EventReport {
-    /// Ephemeral runtime counters since `since_ms`.
+    /// Ephemeral runtime counters since `window_start_ms`.
     pub counters: Option<EventState>,
     /// Per-entity ephemeral counters and averages.
     pub entity_counters: Vec<EntitySummary>,
@@ -178,24 +178,24 @@ pub struct EntitySummary {
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
 pub fn report() -> EventReport {
-    report_since(None)
+    report_window_start(None)
 }
 
-/// Build a metrics report gated by `since_ms`.
+/// Build a metrics report gated by `window_start_ms`.
 ///
 /// This is a window-start filter:
-/// - If `since_ms` is `None`, return the current window.
-/// - If `since_ms <= state.since_ms`, return the current window.
-/// - If `since_ms > state.since_ms`, return an empty report.
+/// - If `window_start_ms` is `None`, return the current window.
+/// - If `window_start_ms <= state.window_start_ms`, return the current window.
+/// - If `window_start_ms > state.window_start_ms`, return an empty report.
 ///
 /// IcyDB stores aggregate counters only, so it cannot produce a precise
-/// sub-window report after `state.since_ms`.
+/// sub-window report after `state.window_start_ms`.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
-pub fn report_since(since_ms: Option<u64>) -> EventReport {
+pub fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
     let snap = with_state(Clone::clone);
-    if let Some(requested_since_ms) = since_ms
-        && requested_since_ms > snap.since_ms
+    if let Some(requested_window_start_ms) = window_start_ms
+        && requested_window_start_ms > snap.window_start_ms
     {
         return EventReport::default();
     }
