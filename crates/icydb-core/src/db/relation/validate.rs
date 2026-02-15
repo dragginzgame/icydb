@@ -1,4 +1,6 @@
 use super::{
+    RelationTargetDecodeContext, RelationTargetMismatchPolicy,
+    decode_relation_target_data_key_for_relation,
     metadata::{StrongRelationInfo, strong_relations_for_source},
     reverse_index::{
         decode_reverse_entry, relation_target_keys_for_source, relation_target_store,
@@ -8,7 +10,6 @@ use super::{
 use crate::{
     db::{
         Db,
-        identity::EntityName,
         store::{DataKey, RawDataKey},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -43,36 +44,15 @@ where
         let target_index_store = relation_target_store::<S>(db, relation)?;
 
         for target_raw_key in deleted_target_keys {
-            let target_data_key = DataKey::try_from_raw(target_raw_key).map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    format!(
-                        "delete relation target key decode failed: source={} field={} target={} ({err})",
-                        S::PATH,
-                        relation.field_name,
-                        relation.target_path,
-                    ),
-                )
-            })?;
-
-            let target_entity = EntityName::try_from_str(relation.target_entity_name).map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Executor,
-                    format!(
-                        "strong relation target entity invalid during delete validation: source={} field={} target={} name={} ({err})",
-                        S::PATH,
-                        relation.field_name,
-                        relation.target_path,
-                        relation.target_entity_name,
-                    ),
-                )
-            })?;
-
-            if target_data_key.entity_name() != &target_entity {
+            let Some(target_data_key) = decode_relation_target_data_key_for_relation::<S>(
+                relation,
+                target_raw_key,
+                RelationTargetDecodeContext::DeleteValidation,
+                RelationTargetMismatchPolicy::Skip,
+            )?
+            else {
                 continue;
-            }
+            };
 
             let target_value = target_data_key.storage_key().as_value();
             let Some(reverse_key) =

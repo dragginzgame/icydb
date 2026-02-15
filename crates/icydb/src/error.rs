@@ -42,6 +42,22 @@ impl Error {
             message,
         )
     }
+
+    fn from_response_error(err: ResponseError) -> Self {
+        match err {
+            ResponseError::NotFound { .. } => Self::new(
+                ErrorKind::Query(QueryErrorKind::NotFound),
+                ErrorOrigin::Response,
+                err.to_string(),
+            ),
+
+            ResponseError::NotUnique { .. } => Self::new(
+                ErrorKind::Query(QueryErrorKind::NotUnique),
+                ErrorOrigin::Response,
+                err.to_string(),
+            ),
+        }
+    }
 }
 
 impl From<InternalError> for Error {
@@ -95,17 +111,7 @@ impl From<QueryError> for Error {
                 err.to_string(),
             ),
 
-            QueryError::Response(ResponseError::NotFound { .. }) => Self::new(
-                ErrorKind::Query(QueryErrorKind::NotFound),
-                ErrorOrigin::Response,
-                err.to_string(),
-            ),
-
-            QueryError::Response(ResponseError::NotUnique { .. }) => Self::new(
-                ErrorKind::Query(QueryErrorKind::NotUnique),
-                ErrorOrigin::Response,
-                err.to_string(),
-            ),
+            QueryError::Response(err) => Self::from_response_error(err),
 
             QueryError::Execute(err) => err.into(),
         }
@@ -114,19 +120,7 @@ impl From<QueryError> for Error {
 
 impl From<ResponseError> for Error {
     fn from(err: ResponseError) -> Self {
-        match err {
-            ResponseError::NotFound { .. } => Self::new(
-                ErrorKind::Query(QueryErrorKind::NotFound),
-                ErrorOrigin::Response,
-                err.to_string(),
-            ),
-
-            ResponseError::NotUnique { .. } => Self::new(
-                ErrorKind::Query(QueryErrorKind::NotUnique),
-                ErrorOrigin::Response,
-                err.to_string(),
-            ),
-        }
+        Self::from_response_error(err)
     }
 }
 

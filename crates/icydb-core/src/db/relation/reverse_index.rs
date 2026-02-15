@@ -1,4 +1,6 @@
 use super::{
+    RelationTargetDecodeContext, RelationTargetMismatchPolicy,
+    decode_relation_target_data_key_for_relation,
     metadata::{StrongRelationInfo, strong_relations_for_source},
     raw_relation_target_key,
 };
@@ -10,7 +12,7 @@ use crate::{
         index::{
             IndexEntry, IndexId, IndexKey, IndexStore, RawIndexEntry, RawIndexKey, fingerprint,
         },
-        store::{DataKey, RawDataKey},
+        store::RawDataKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue},
@@ -262,47 +264,24 @@ where
                 continue;
             }
 
-            let target_data_key = DataKey::try_from_raw(&target_raw_key).map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    format!(
-                        "relation target key decode failed while preparing reverse index: source={} field={} target={} ({err})",
-                        S::PATH,
-                        relation.field_name,
-                        relation.target_path,
-                    ),
-                )
-            })?;
-
-            let target_entity = EntityName::try_from_str(relation.target_entity_name).map_err(|err| {
-                InternalError::new(
+            let Some(target_data_key) = decode_relation_target_data_key_for_relation::<S>(
+                relation,
+                &target_raw_key,
+                RelationTargetDecodeContext::ReverseIndexPrepare,
+                RelationTargetMismatchPolicy::Reject,
+            )?
+            else {
+                return Err(InternalError::new(
                     ErrorClass::Internal,
                     ErrorOrigin::Executor,
                     format!(
-                        "relation target entity invalid while preparing reverse index: source={} field={} target={} name={} ({err})",
+                        "relation target decode invariant violated while preparing reverse index: source={} field={} target={}",
                         S::PATH,
                         relation.field_name,
                         relation.target_path,
-                        relation.target_entity_name,
-                    ),
-                )
-            })?;
-
-            if target_data_key.entity_name() != &target_entity {
-                return Err(InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    format!(
-                        "relation target entity mismatch while preparing reverse index: source={} field={} target={} expected={} actual={}",
-                        S::PATH,
-                        relation.field_name,
-                        relation.target_path,
-                        relation.target_entity_name,
-                        target_data_key.entity_name(),
                     ),
                 ));
-            }
+            };
 
             let target_value = target_data_key.storage_key().as_value();
             let Some(reverse_key) =

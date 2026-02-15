@@ -5,7 +5,7 @@ use crate::{
         store::{DataKey, RawDataKey, StorageKey, StorageKeyEncodeError},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    traits::{EntityKind, EntityValue, Storable},
+    traits::{EntityKind, EntityValue},
     value::Value,
 };
 use std::collections::BTreeSet;
@@ -29,6 +29,28 @@ pub type StrongRelationDeleteValidateFn<C> =
     fn(&Db<C>, &str, &BTreeSet<RawDataKey>) -> Result<(), InternalError>;
 
 ///
+/// RelationTargetDecodeContext
+/// Call-site context labels for relation target key decode diagnostics.
+///
+
+#[derive(Clone, Copy, Debug)]
+enum RelationTargetDecodeContext {
+    DeleteValidation,
+    ReverseIndexPrepare,
+}
+
+///
+/// RelationTargetMismatchPolicy
+/// Defines whether relation target entity mismatches are skipped or rejected.
+///
+
+#[derive(Clone, Copy, Debug)]
+enum RelationTargetMismatchPolicy {
+    Skip,
+    Reject,
+}
+
+///
 /// RelationTargetRawKeyError
 /// Error variants for building a relation target `RawDataKey` from user value.
 ///
@@ -44,15 +66,7 @@ fn raw_relation_target_key_from_parts(
     entity_name: EntityName,
     storage_key: StorageKey,
 ) -> Result<RawDataKey, StorageKeyEncodeError> {
-    let entity_bytes = entity_name.to_bytes();
-    let key_bytes = storage_key.to_bytes()?;
-    let mut raw_bytes = [0u8; DataKey::STORED_SIZE_USIZE];
-    raw_bytes[..EntityName::STORED_SIZE_USIZE].copy_from_slice(&entity_bytes);
-    raw_bytes[EntityName::STORED_SIZE_USIZE..].copy_from_slice(&key_bytes);
-
-    Ok(<RawDataKey as Storable>::from_bytes(
-        std::borrow::Cow::Borrowed(raw_bytes.as_slice()),
-    ))
+    DataKey::raw_from_parts(entity_name, storage_key)
 }
 
 /// Convert a relation target `Value` into its canonical `RawDataKey` representation.
@@ -101,4 +115,97 @@ where
             ),
         ),
     })
+}
+
+// Decode a relation target key and validate it against the relation target entity.
+fn decode_relation_target_data_key_for_relation<S>(
+    relation: StrongRelationInfo,
+    target_raw_key: &RawDataKey,
+    context: RelationTargetDecodeContext,
+    mismatch_policy: RelationTargetMismatchPolicy,
+) -> Result<Option<DataKey>, InternalError>
+where
+    S: EntityKind,
+{
+    let target_data_key = DataKey::try_from_raw(target_raw_key).map_err(|err| {
+        InternalError::new(
+            ErrorClass::Corruption,
+            ErrorOrigin::Store,
+            format!(
+                "{}: source={} field={} target={} ({err})",
+                relation_target_decode_message(context),
+                S::PATH,
+                relation.field_name,
+                relation.target_path,
+            ),
+        )
+    })?;
+
+    let target_entity = EntityName::try_from_str(relation.target_entity_name).map_err(|err| {
+        InternalError::new(
+            ErrorClass::Internal,
+            ErrorOrigin::Executor,
+            format!(
+                "{}: source={} field={} target={} name={} ({err})",
+                relation_target_entity_name_message(context),
+                S::PATH,
+                relation.field_name,
+                relation.target_path,
+                relation.target_entity_name,
+            ),
+        )
+    })?;
+
+    if target_data_key.entity_name() != &target_entity {
+        if matches!(mismatch_policy, RelationTargetMismatchPolicy::Skip) {
+            return Ok(None);
+        }
+
+        return Err(InternalError::new(
+            ErrorClass::Corruption,
+            ErrorOrigin::Store,
+            format!(
+                "{}: source={} field={} target={} expected={} actual={}",
+                relation_target_entity_mismatch_message(context),
+                S::PATH,
+                relation.field_name,
+                relation.target_path,
+                relation.target_entity_name,
+                target_data_key.entity_name(),
+            ),
+        ));
+    }
+
+    Ok(Some(target_data_key))
+}
+
+fn relation_target_decode_message(context: RelationTargetDecodeContext) -> &'static str {
+    match context {
+        RelationTargetDecodeContext::DeleteValidation => "delete relation target key decode failed",
+        RelationTargetDecodeContext::ReverseIndexPrepare => {
+            "relation target key decode failed while preparing reverse index"
+        }
+    }
+}
+
+fn relation_target_entity_name_message(context: RelationTargetDecodeContext) -> &'static str {
+    match context {
+        RelationTargetDecodeContext::DeleteValidation => {
+            "strong relation target entity invalid during delete validation"
+        }
+        RelationTargetDecodeContext::ReverseIndexPrepare => {
+            "relation target entity invalid while preparing reverse index"
+        }
+    }
+}
+
+fn relation_target_entity_mismatch_message(context: RelationTargetDecodeContext) -> &'static str {
+    match context {
+        RelationTargetDecodeContext::DeleteValidation => {
+            "relation target entity mismatch during delete validation"
+        }
+        RelationTargetDecodeContext::ReverseIndexPrepare => {
+            "relation target entity mismatch while preparing reverse index"
+        }
+    }
 }

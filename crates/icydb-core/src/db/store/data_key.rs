@@ -212,23 +212,36 @@ impl DataKey {
 
     /// Encode into fixed-size on-disk representation.
     pub fn to_raw(&self) -> Result<RawDataKey, InternalError> {
+        self.to_raw_storage_key_error().map_err(|err| {
+            DataKeyEncodeError::KeyEncoding {
+                key: self.clone(),
+                source: err,
+            }
+            .into()
+        })
+    }
+
+    /// Encode into fixed-size on-disk representation, returning storage-key encode errors directly.
+    pub(crate) fn to_raw_storage_key_error(&self) -> Result<RawDataKey, StorageKeyEncodeError> {
         let mut buf = [0u8; Self::STORED_SIZE_USIZE];
 
         let entity_bytes = self.entity.to_bytes();
         buf[..EntityName::STORED_SIZE_USIZE].copy_from_slice(&entity_bytes);
 
-        let key_bytes = self
-            .key
-            .to_bytes()
-            .map_err(|err| DataKeyEncodeError::KeyEncoding {
-                key: self.clone(),
-                source: err,
-            })?;
+        let key_bytes = self.key.to_bytes()?;
 
         let key_offset = EntityName::STORED_SIZE_USIZE;
         buf[key_offset..key_offset + StorageKey::STORED_SIZE_USIZE].copy_from_slice(&key_bytes);
 
         Ok(RawDataKey(buf))
+    }
+
+    /// Encode a raw data key from validated entity + storage-key parts.
+    pub(crate) fn raw_from_parts(
+        entity: EntityName,
+        key: StorageKey,
+    ) -> Result<RawDataKey, StorageKeyEncodeError> {
+        Self { entity, key }.to_raw_storage_key_error()
     }
 
     pub fn try_from_raw(raw: &RawDataKey) -> Result<Self, DataKeyDecodeError> {
