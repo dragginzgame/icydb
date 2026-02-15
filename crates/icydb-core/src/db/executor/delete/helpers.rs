@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        decode::decode_entity_with_expected_key,
         executor::ExecutorError,
         store::{DataKey, DataRow, RawRow},
     },
@@ -33,23 +34,25 @@ pub(super) fn decode_rows<E: EntityKind + EntityValue>(
 ) -> Result<Vec<DeleteRow<E>>, InternalError> {
     rows.into_iter()
         .map(|(dk, raw)| {
-            let dk_for_err = dk.clone();
-            let entity = raw.try_decode::<E>().map_err(|err| {
-                ExecutorError::corruption(
-                    ErrorOrigin::Serialize,
-                    format!("failed to deserialize row: {dk_for_err} ({err})"),
-                )
-            })?;
-
             let expected = dk.try_key::<E>()?;
-            let actual = entity.id().key();
-            if expected != actual {
-                return Err(ExecutorError::corruption(
-                    ErrorOrigin::Store,
-                    format!("row key mismatch: expected {expected:?}, found {actual:?}"),
-                )
-                .into());
-            }
+            let entity = decode_entity_with_expected_key::<E, _, _, _, _>(
+                expected,
+                || raw.try_decode::<E>(),
+                |err| {
+                    ExecutorError::corruption(
+                        ErrorOrigin::Serialize,
+                        format!("failed to deserialize row: {dk} ({err})"),
+                    )
+                    .into()
+                },
+                |expected, actual| {
+                    Ok(ExecutorError::corruption(
+                        ErrorOrigin::Store,
+                        format!("row key mismatch: expected {expected:?}, found {actual:?}"),
+                    )
+                    .into())
+                },
+            )?;
 
             Ok(DeleteRow {
                 key: dk,

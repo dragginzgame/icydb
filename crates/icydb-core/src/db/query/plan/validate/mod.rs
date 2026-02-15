@@ -18,6 +18,7 @@ mod tests;
 use crate::{
     db::query::{
         plan::LogicalPlan,
+        policy::{CursorOrderPolicyError, PlanPolicyError},
         predicate::{self, SchemaInfo},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -151,6 +152,26 @@ pub enum PlanError {
         expected: String,
         value: Option<Value>,
     },
+}
+
+impl From<PlanPolicyError> for PlanError {
+    fn from(err: PlanPolicyError) -> Self {
+        match err {
+            PlanPolicyError::EmptyOrderSpec => Self::EmptyOrderSpec,
+            PlanPolicyError::DeletePlanWithPagination => Self::DeletePlanWithPagination,
+            PlanPolicyError::LoadPlanWithDeleteLimit => Self::LoadPlanWithDeleteLimit,
+            PlanPolicyError::DeleteLimitRequiresOrder => Self::DeleteLimitRequiresOrder,
+            PlanPolicyError::UnorderedPagination => Self::UnorderedPagination,
+        }
+    }
+}
+
+impl From<CursorOrderPolicyError> for PlanError {
+    fn from(err: CursorOrderPolicyError) -> Self {
+        match err {
+            CursorOrderPolicyError::CursorRequiresOrder => Self::CursorRequiresOrder,
+        }
+    }
 }
 
 /// Validate a logical plan with model-level key values.

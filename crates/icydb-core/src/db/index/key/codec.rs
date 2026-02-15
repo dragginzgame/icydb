@@ -89,15 +89,15 @@ impl IndexKey {
         })
     }
 
-    // System index keys reserve a first index field that starts with `~`.
+    // System index keys reserve the `~` namespace in any non-entity segment.
     #[must_use]
     pub(crate) fn uses_system_namespace(&self) -> bool {
         self.index_id
             .0
             .as_str()
             .split('|')
-            .nth(1)
-            .is_some_and(|field| field.starts_with('~'))
+            .skip(1)
+            .any(|segment| segment.starts_with('~'))
     }
 }
 
@@ -290,5 +290,11 @@ mod tests {
         let system_id = IndexId(IndexName::try_from_parts(&entity, &["~ri"]).expect("index name"));
         let system_key = IndexKey::empty(system_id);
         assert!(system_key.uses_system_namespace());
+
+        let nested_system_id = IndexId(
+            IndexName::try_from_parts(&entity, &["email", "~ri_shadow"]).expect("index name"),
+        );
+        let nested_system_key = IndexKey::empty(nested_system_id);
+        assert!(nested_system_key.uses_system_namespace());
     }
 }

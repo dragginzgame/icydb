@@ -14,7 +14,9 @@ mod types;
 pub mod validate;
 
 pub use continuation::ContinuationSignature;
-pub(crate) use continuation::ContinuationToken;
+pub(crate) use continuation::{
+    ContinuationToken, PrimaryKeyCursorSlotDecodeError, decode_primary_key_cursor_slot,
+};
 ///
 /// Re-Exports
 ///

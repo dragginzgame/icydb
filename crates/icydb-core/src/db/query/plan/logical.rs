@@ -7,7 +7,7 @@ use crate::{
             AccessPath, AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec,
             OrderDirection, OrderSpec, PageSpec,
         },
-        policy::{self, PlanPolicyError},
+        policy,
         predicate::{Predicate, coercion::canonical_cmp, eval as eval_predicate},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -137,26 +137,11 @@ impl<K> LogicalPlan<K> {
         R: PlanRow<E>,
     {
         policy::validate_plan_shape(self).map_err(|err| {
-            let message = match err {
-                PlanPolicyError::EmptyOrderSpec => {
-                    "invalid logical plan: order specification must include at least one field"
-                        .to_string()
-                }
-                PlanPolicyError::DeletePlanWithPagination => {
-                    "invalid logical plan: delete plans must not carry pagination".to_string()
-                }
-                PlanPolicyError::LoadPlanWithDeleteLimit => {
-                    "invalid logical plan: load plans must not carry delete limits".to_string()
-                }
-                PlanPolicyError::DeleteLimitRequiresOrder => {
-                    "invalid logical plan: delete limit requires an explicit ordering".to_string()
-                }
-                PlanPolicyError::UnorderedPagination => {
-                    "invalid logical plan: unordered pagination is not allowed".to_string()
-                }
-            };
-
-            InternalError::new(ErrorClass::InvariantViolation, ErrorOrigin::Query, message)
+            InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                err.invariant_message(),
+            )
         })?;
 
         if cursor.is_some() && !self.mode.is_load() {

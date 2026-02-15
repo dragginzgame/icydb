@@ -1,5 +1,6 @@
 mod commit;
 pub mod cursor;
+pub(crate) mod decode;
 pub(crate) mod executor;
 pub mod identity;
 pub mod index;

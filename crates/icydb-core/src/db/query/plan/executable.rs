@@ -3,9 +3,10 @@ use crate::{
         QueryMode,
         plan::{
             ContinuationSignature, CursorBoundary, ExplainPlan, LogicalPlan, PlanError,
-            PlanFingerprint, continuation::decode_validated_cursor_boundary,
+            PlanFingerprint,
+            continuation::{decode_primary_key_cursor_slot, decode_validated_cursor_boundary},
         },
-        policy::{self, CursorOrderPolicyError},
+        policy,
         predicate::SchemaInfo,
     },
     traits::{EntityKind, FieldValue},
@@ -68,9 +69,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             return Ok(None);
         };
         let order =
-            policy::require_cursor_order(self.plan.order.as_ref()).map_err(|err| match err {
-                CursorOrderPolicyError::CursorRequiresOrder => PlanError::CursorRequiresOrder,
-            })?;
+            policy::require_cursor_order(self.plan.order.as_ref()).map_err(PlanError::from)?;
 
         let boundary = decode_validated_cursor_boundary(
             cursor,
@@ -95,23 +94,13 @@ impl<E: EntityKind> ExecutablePlan<E> {
             .expect("primary key exists by model contract")
             .to_string();
         let pk_slot = &boundary.slots[pk_index];
-        let invalid_pk = match pk_slot {
-            super::CursorBoundarySlot::Missing => Some(None),
-            super::CursorBoundarySlot::Present(value) => {
-                if E::Key::from_value(value).is_none() {
-                    Some(Some(value.clone()))
-                } else {
-                    None
-                }
-            }
-        };
-        if let Some(value) = invalid_pk {
-            return Err(PlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+        let _pk_key = decode_primary_key_cursor_slot::<E::Key>(pk_slot).map_err(|err| {
+            PlanError::ContinuationCursorPrimaryKeyTypeMismatch {
                 field: pk_field.to_string(),
                 expected,
-                value,
-            });
-        }
+                value: err.into_mismatch_value(),
+            }
+        })?;
 
         Ok(Some(boundary))
     }

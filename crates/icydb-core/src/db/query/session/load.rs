@@ -5,7 +5,7 @@ use crate::{
             IntentError, Query, QueryError,
             expr::{FilterExpr, SortExpr},
             plan::{ExecutablePlan, ExplainPlan},
-            policy::{self, CursorPagingPolicyError},
+            policy,
             predicate::Predicate,
         },
         response::Response,
@@ -270,13 +270,7 @@ where
 
         policy::validate_cursor_paging_requirements(self.query.has_explicit_order(), spec)
             .err()
-            .map(|err| match err {
-                CursorPagingPolicyError::CursorRequiresOrder => IntentError::CursorRequiresOrder,
-                CursorPagingPolicyError::CursorRequiresLimit => IntentError::CursorRequiresLimit,
-                CursorPagingPolicyError::CursorWithOffsetUnsupported => {
-                    IntentError::CursorWithOffsetUnsupported
-                }
-            })
+            .map(IntentError::from)
     }
 
     fn refresh_cursor_intent_error(&mut self) {

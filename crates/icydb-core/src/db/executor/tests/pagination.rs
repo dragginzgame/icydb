@@ -217,6 +217,196 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
 }
 
 #[test]
+fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1_u128, 2_u128, 3_u128] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let mut logical = crate::db::query::plan::LogicalPlan::<Ulid>::new(
+        crate::db::query::plan::AccessPath::KeyRange {
+            start: Ulid::from_u128(1),
+            end: Ulid::from_u128(2),
+        },
+        ReadConsistency::MissingOk,
+    );
+    logical.order = Some(crate::db::query::plan::OrderSpec {
+        fields: vec![(
+            "id".to_string(),
+            crate::db::query::plan::OrderDirection::Asc,
+        )],
+    });
+    logical.page = Some(crate::db::query::plan::PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let plan = crate::db::query::plan::ExecutablePlan::<SimpleEntity>::new(logical);
+    let boundary = Some(CursorBoundary {
+        slots: vec![CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(
+            99,
+        )))],
+    });
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let page = load
+        .execute_paged(plan, boundary)
+        .expect("pk-range cursor past end should execute");
+
+    assert!(
+        page.items.0.is_empty(),
+        "cursor beyond range end should produce an empty page"
+    );
+    assert!(
+        page.next_cursor.is_none(),
+        "empty page should not emit a continuation cursor"
+    );
+}
+
+#[test]
+fn load_cursor_pagination_pk_order_missing_slot_is_invariant_violation() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1_u128, 2_u128] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(1)
+        .plan()
+        .expect("pk-order plan should build");
+
+    let err = load
+        .execute_paged(
+            plan,
+            Some(CursorBoundary {
+                slots: vec![CursorBoundarySlot::Missing],
+            }),
+        )
+        .expect_err("missing pk slot should be rejected by executor invariants");
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::InvariantViolation,
+        "missing pk slot should classify as invariant violation"
+    );
+    assert_eq!(
+        err.origin,
+        crate::error::ErrorOrigin::Query,
+        "missing pk slot should originate from query invariant checks"
+    );
+    assert!(
+        err.message.contains("pk cursor slot must be present"),
+        "missing pk slot should return a clear invariant message: {err:?}"
+    );
+}
+
+#[test]
+fn load_cursor_pagination_pk_order_type_mismatch_is_invariant_violation() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1_u128, 2_u128] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(1)
+        .plan()
+        .expect("pk-order plan should build");
+
+    let err = load
+        .execute_paged(
+            plan,
+            Some(CursorBoundary {
+                slots: vec![CursorBoundarySlot::Present(Value::Text(
+                    "not-a-ulid".to_string(),
+                ))],
+            }),
+        )
+        .expect_err("pk slot type mismatch should be rejected by executor invariants");
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::InvariantViolation,
+        "pk slot mismatch should classify as invariant violation"
+    );
+    assert_eq!(
+        err.origin,
+        crate::error::ErrorOrigin::Query,
+        "pk slot mismatch should originate from query invariant checks"
+    );
+    assert!(
+        err.message.contains("pk cursor slot type mismatch"),
+        "pk slot mismatch should return a clear invariant message: {err:?}"
+    );
+}
+
+#[test]
+fn load_cursor_pagination_pk_order_arity_mismatch_is_invariant_violation() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1_u128, 2_u128] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(1)
+        .plan()
+        .expect("pk-order plan should build");
+
+    let err = load
+        .execute_paged(
+            plan,
+            Some(CursorBoundary {
+                slots: vec![
+                    CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(1))),
+                    CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(2))),
+                ],
+            }),
+        )
+        .expect_err("pk slot arity mismatch should be rejected by executor invariants");
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::InvariantViolation,
+        "pk slot arity mismatch should classify as invariant violation"
+    );
+    assert_eq!(
+        err.origin,
+        crate::error::ErrorOrigin::Query,
+        "pk slot arity mismatch should originate from query invariant checks"
+    );
+    assert!(
+        err.message
+            .contains("pk-ordered continuation boundary must contain exactly 1 slot"),
+        "pk slot arity mismatch should return a clear invariant message: {err:?}"
+    );
+}
+
+#[test]
 fn load_cursor_pagination_skips_strictly_before_limit() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();

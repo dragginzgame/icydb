@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context, Db,
+        decode::decode_entity_with_expected_key,
         executor::{
             debug::{access_summary, yes_no},
             plan::{record_plan_metrics, set_rows_from_len},
@@ -8,15 +9,15 @@ use crate::{
         },
         query::plan::{
             AccessPath, AccessPlan, ContinuationSignature, ContinuationToken, CursorBoundary,
-            CursorBoundarySlot, ExecutablePlan, LogicalPlan, OrderDirection,
-            validate::validate_executor_plan,
+            ExecutablePlan, LogicalPlan, OrderDirection, PrimaryKeyCursorSlotDecodeError,
+            decode_primary_key_cursor_slot, validate::validate_executor_plan,
         },
         response::Response,
         store::DataKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, ExecKind, MetricsEvent, Span},
-    traits::{EntityKind, EntityValue, FieldValue},
+    traits::{EntityKind, EntityValue},
     types::Id,
 };
 use std::{marker::PhantomData, ops::Bound};
@@ -45,6 +46,22 @@ enum PkScanLowerBound<K> {
     Min,
     Included(K),
     Excluded(K),
+}
+
+// Fast-path scan configuration derived from the logical plan + cursor boundary.
+struct PkStreamScanConfig<K> {
+    scan_lower: PkScanLowerBound<K>,
+    range_end_key: Option<K>,
+    limit: Option<usize>,
+    collect_cap: Option<usize>,
+    offset: usize,
+}
+
+// Fast-path scan output before page/cursor finalization.
+struct PkStreamScanResult<E: EntityKind> {
+    rows: Vec<(Id<E>, E)>,
+    rows_scanned: usize,
+    has_more: bool,
 }
 
 ///
@@ -208,25 +225,17 @@ where
     // Fast path for canonical primary-key ordering over full scans.
     // Secondary index traversal cannot satisfy ORDER BY semantics today because
     // index key ordering is fingerprint-based, not canonical value order.
-    #[expect(clippy::too_many_lines)]
     fn try_execute_pk_order_stream(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
         continuation_signature: ContinuationSignature,
     ) -> Result<Option<FastLoadResult<E>>, InternalError> {
-        if !Self::is_pk_order_stream_eligible(plan) {
+        // Phase 1: derive a fast-path scan config from the canonical plan + cursor.
+        let Some(config) = Self::build_pk_stream_scan_config(plan, cursor_boundary)? else {
             return Ok(None);
-        }
-
-        let cursor_key = Self::decode_pk_cursor_key(cursor_boundary)?;
-        let (range_start_key, range_end_key) = match &plan.access {
-            AccessPlan::Path(AccessPath::FullScan) => (None, None),
-            AccessPlan::Path(AccessPath::KeyRange { start, end }) => (Some(*start), Some(*end)),
-            _ => return Ok(None),
         };
-        let scan_lower = Self::select_pk_scan_lower_bound(range_start_key, cursor_key);
-        if Self::pk_scan_range_is_empty(&scan_lower, range_end_key) {
+        if Self::pk_scan_range_is_empty(&config.scan_lower, config.range_end_key) {
             return Ok(Some(FastLoadResult {
                 page: CursorPage {
                     items: Response(Vec::new()),
@@ -237,28 +246,79 @@ where
             }));
         }
 
-        let offset = plan.page.as_ref().map_or(0usize, |page| {
-            usize::try_from(page.offset).unwrap_or(usize::MAX)
-        });
+        // Phase 2: stream rows directly from the store in primary-key order.
+        let mut scan = Self::scan_pk_stream_rows(ctx, plan, &config)?;
+
+        // Phase 3: finalize page rows and continuation token.
+        let Some(page) = Self::finalize_pk_stream_page(
+            plan,
+            &mut scan.rows,
+            scan.has_more,
+            config.limit,
+            continuation_signature,
+        )?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(FastLoadResult {
+            post_access_rows: page.items.0.len(),
+            page,
+            rows_scanned: scan.rows_scanned,
+        }))
+    }
+
+    // Build the fast-path scan config for canonical PK-ordered streaming.
+    fn build_pk_stream_scan_config(
+        plan: &LogicalPlan<E::Key>,
+        cursor_boundary: Option<&CursorBoundary>,
+    ) -> Result<Option<PkStreamScanConfig<E::Key>>, InternalError> {
+        if !Self::is_pk_order_stream_eligible(plan) {
+            return Ok(None);
+        }
+
+        let cursor_key = Self::decode_pk_cursor_key(cursor_boundary)?;
+        let (range_start_key, range_end_key) = match &plan.access {
+            AccessPlan::Path(AccessPath::FullScan) => (None, None),
+            AccessPlan::Path(AccessPath::KeyRange { start, end }) => (Some(*start), Some(*end)),
+            _ => return Ok(None),
+        };
         let limit = plan
             .page
             .as_ref()
             .and_then(|page| page.limit)
             .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
         let collect_cap = limit.map(|limit| limit.saturating_add(1));
+        let offset = plan.page.as_ref().map_or(0usize, |page| {
+            usize::try_from(page.offset).unwrap_or(usize::MAX)
+        });
 
-        let (mut out_rows, rows_scanned, has_more) = ctx.with_store(|store| {
-            let lower_raw = match scan_lower {
+        Ok(Some(PkStreamScanConfig {
+            scan_lower: Self::select_pk_scan_lower_bound(range_start_key, cursor_key),
+            range_end_key,
+            limit,
+            collect_cap,
+            offset,
+        }))
+    }
+
+    // Execute the store-range streaming phase for the PK fast path.
+    fn scan_pk_stream_rows(
+        ctx: &Context<'_, E>,
+        plan: &LogicalPlan<E::Key>,
+        config: &PkStreamScanConfig<E::Key>,
+    ) -> Result<PkStreamScanResult<E>, InternalError> {
+        ctx.with_store(|store| {
+            let lower_raw = match config.scan_lower {
                 PkScanLowerBound::Min => DataKey::lower_bound::<E>().to_raw()?,
                 PkScanLowerBound::Included(key) | PkScanLowerBound::Excluded(key) => {
                     DataKey::try_new::<E>(key)?.to_raw()?
                 }
             };
-            let lower_bound = match scan_lower {
+            let lower_bound = match config.scan_lower {
                 PkScanLowerBound::Min | PkScanLowerBound::Included(_) => Bound::Included(lower_raw),
                 PkScanLowerBound::Excluded(_) => Bound::Excluded(lower_raw),
             };
-            let upper_raw = match range_end_key {
+            let upper_raw = match config.range_end_key {
                 Some(end) => DataKey::try_new::<E>(end)?.to_raw()?,
                 None => DataKey::upper_bound::<E>().to_raw()?,
             };
@@ -266,7 +326,7 @@ where
             let mut rows_scanned = 0usize;
             let mut rows = Vec::new();
             let mut has_more = false;
-            let mut offset_remaining = offset;
+            let mut offset_remaining = config.offset;
 
             for entry in store.range((lower_bound, Bound::Included(upper_raw))) {
                 rows_scanned = rows_scanned.saturating_add(1);
@@ -278,24 +338,27 @@ where
                         format!("ordered scan encountered corrupted data key: {err}"),
                     )
                 })?;
-                let entity = entry.value().try_decode::<E>().map_err(|err| {
-                    InternalError::new(
-                        ErrorClass::Corruption,
-                        ErrorOrigin::Serialize,
-                        format!("ordered scan failed to decode row for {data_key}: {err}"),
-                    )
-                })?;
                 let expected_key = data_key.try_key::<E>()?;
-                let actual_key = entity.id().key();
-                if expected_key != actual_key {
-                    let expected = DataKey::try_new::<E>(expected_key)?;
-                    let found = DataKey::try_new::<E>(actual_key)?;
-                    return Err(InternalError::new(
-                        ErrorClass::Corruption,
-                        ErrorOrigin::Store,
-                        format!("row key mismatch: expected {expected}, found {found}"),
-                    ));
-                }
+                let entity = decode_entity_with_expected_key::<E, _, _, _, _>(
+                    expected_key,
+                    || entry.value().try_decode::<E>(),
+                    |err| {
+                        InternalError::new(
+                            ErrorClass::Corruption,
+                            ErrorOrigin::Serialize,
+                            format!("ordered scan failed to decode row for {data_key}: {err}"),
+                        )
+                    },
+                    |expected_key, actual_key| {
+                        let expected = DataKey::try_new::<E>(expected_key)?;
+                        let found = DataKey::try_new::<E>(actual_key)?;
+                        Ok(InternalError::new(
+                            ErrorClass::Corruption,
+                            ErrorOrigin::Store,
+                            format!("row key mismatch: expected {expected}, found {found}"),
+                        ))
+                    },
+                )?;
 
                 if let Some(predicate) = plan.predicate.as_ref()
                     && !crate::db::query::predicate::eval(&entity, predicate)
@@ -310,7 +373,7 @@ where
 
                 rows.push((Id::from_key(expected_key), entity));
 
-                if let Some(cap) = collect_cap
+                if let Some(cap) = config.collect_cap
                     && rows.len() >= cap
                 {
                     has_more = true;
@@ -318,44 +381,48 @@ where
                 }
             }
 
-            Ok((rows, rows_scanned, has_more))
-        })??;
+            Ok(PkStreamScanResult {
+                rows,
+                rows_scanned,
+                has_more,
+            })
+        })?
+    }
 
+    // Finalize fast-path rows into a page result and optional continuation token.
+    fn finalize_pk_stream_page(
+        plan: &LogicalPlan<E::Key>,
+        rows: &mut Vec<(Id<E>, E)>,
+        has_more: bool,
+        limit: Option<usize>,
+        continuation_signature: ContinuationSignature,
+    ) -> Result<Option<CursorPage<E>>, InternalError> {
         if let Some(limit_rows) = limit
-            && out_rows.len() > limit_rows
+            && rows.len() > limit_rows
         {
-            out_rows.truncate(limit_rows);
+            rows.truncate(limit_rows);
         }
 
-        let next_cursor = if has_more && !out_rows.is_empty() {
-            let Some((_, last_entity)) = out_rows.last() else {
+        let next_cursor = if has_more {
+            debug_assert!(
+                !rows.is_empty(),
+                "pk stream invariant violated: has_more requires at least one row",
+            );
+            let Some((_, last_entity)) = rows.last() else {
                 return Ok(None);
             };
-
-            let boundary = plan.cursor_boundary_from_entity(last_entity)?;
-            ContinuationToken::new(continuation_signature, boundary)
-                .encode()
-                .map(Some)
-                .map_err(|err| {
-                    InternalError::new(
-                        ErrorClass::Internal,
-                        ErrorOrigin::Serialize,
-                        format!("failed to encode continuation cursor: {err}"),
-                    )
-                })?
+            Some(Self::encode_next_cursor_for_last_entity(
+                plan,
+                last_entity,
+                continuation_signature,
+            )?)
         } else {
             None
         };
 
-        let page = CursorPage {
-            items: Response(out_rows),
+        Ok(Some(CursorPage {
+            items: Response(std::mem::take(rows)),
             next_cursor,
-        };
-
-        Ok(Some(FastLoadResult {
-            post_access_rows: page.items.0.len(),
-            page,
-            rows_scanned,
         }))
     }
 
@@ -399,22 +466,20 @@ where
             ));
         }
 
-        match &boundary.slots[0] {
-            CursorBoundarySlot::Present(value) => {
-                E::Key::from_value(value).map(Some).ok_or_else(|| {
-                    InternalError::new(
-                        ErrorClass::InvariantViolation,
-                        ErrorOrigin::Query,
-                        "executor invariant violated: pk cursor slot type mismatch",
-                    )
-                })
-            }
-            CursorBoundarySlot::Missing => Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
-                "executor invariant violated: pk cursor slot must be present",
-            )),
-        }
+        decode_primary_key_cursor_slot::<E::Key>(&boundary.slots[0])
+            .map(Some)
+            .map_err(|err| match err {
+                PrimaryKeyCursorSlotDecodeError::Missing => InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Query,
+                    "executor invariant violated: pk cursor slot must be present",
+                ),
+                PrimaryKeyCursorSlotDecodeError::TypeMismatch { .. } => InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Query,
+                    "executor invariant violated: pk cursor slot type mismatch",
+                ),
+            })
     }
 
     fn select_pk_scan_lower_bound(
@@ -475,11 +540,18 @@ where
         let Some((_, last_entity)) = rows.last() else {
             return Ok(None);
         };
-        let boundary = plan.cursor_boundary_from_entity(last_entity)?;
+        Self::encode_next_cursor_for_last_entity(plan, last_entity, signature).map(Some)
+    }
 
+    // Encode the continuation token from the last returned entity.
+    fn encode_next_cursor_for_last_entity(
+        plan: &LogicalPlan<E::Key>,
+        last_entity: &E,
+        signature: ContinuationSignature,
+    ) -> Result<Vec<u8>, InternalError> {
+        let boundary = plan.cursor_boundary_from_entity(last_entity)?;
         ContinuationToken::new(signature, boundary)
             .encode()
-            .map(Some)
             .map_err(|err| {
                 InternalError::new(
                     ErrorClass::Internal,

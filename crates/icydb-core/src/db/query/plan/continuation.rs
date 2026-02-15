@@ -56,6 +56,38 @@ const CONTINUATION_TOKEN_VERSION_V1: u8 = 1;
 #[cfg_attr(not(test), allow(dead_code))]
 const MAX_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
 
+/// Decode errors for typed primary-key cursor slot extraction.
+#[derive(Clone, Debug)]
+pub(crate) enum PrimaryKeyCursorSlotDecodeError {
+    Missing,
+    TypeMismatch { value: Value },
+}
+
+impl PrimaryKeyCursorSlotDecodeError {
+    /// Convert this decode failure into the optional offending value shape.
+    #[must_use]
+    pub(crate) fn into_mismatch_value(self) -> Option<Value> {
+        match self {
+            Self::Missing => None,
+            Self::TypeMismatch { value } => Some(value),
+        }
+    }
+}
+
+// Decode one primary-key cursor slot into a typed key value.
+pub(crate) fn decode_primary_key_cursor_slot<K: FieldValue>(
+    slot: &CursorBoundarySlot,
+) -> Result<K, PrimaryKeyCursorSlotDecodeError> {
+    match slot {
+        CursorBoundarySlot::Missing => Err(PrimaryKeyCursorSlotDecodeError::Missing),
+        CursorBoundarySlot::Present(value) => {
+            K::from_value(value).ok_or_else(|| PrimaryKeyCursorSlotDecodeError::TypeMismatch {
+                value: value.clone(),
+            })
+        }
+    }
+}
+
 ///
 /// ContinuationToken
 /// Opaque cursor payload bound to a continuation signature.

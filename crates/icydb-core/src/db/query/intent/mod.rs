@@ -630,6 +630,18 @@ pub enum IntentError {
     CursorWithOffsetUnsupported,
 }
 
+impl From<policy::CursorPagingPolicyError> for IntentError {
+    fn from(err: policy::CursorPagingPolicyError) -> Self {
+        match err {
+            policy::CursorPagingPolicyError::CursorRequiresOrder => Self::CursorRequiresOrder,
+            policy::CursorPagingPolicyError::CursorRequiresLimit => Self::CursorRequiresLimit,
+            policy::CursorPagingPolicyError::CursorWithOffsetUnsupported => {
+                Self::CursorWithOffsetUnsupported
+            }
+        }
+    }
+}
+
 /// Helper to append an ordering field while preserving existing order spec.
 fn push_order(order: Option<OrderSpec>, field: &str, direction: OrderDirection) -> OrderSpec {
     match order {

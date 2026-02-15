@@ -7,6 +7,52 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
+///
+/// PreparedRowOpDelta
+///
+/// Aggregated mutation deltas from preflight-prepared row operations.
+/// Used by save/delete executors to emit consistent metrics without duplicating
+/// per-field folding logic.
+///
+pub(super) struct PreparedRowOpDelta {
+    pub(super) rows_touched: usize,
+    pub(super) index_inserts: usize,
+    pub(super) index_removes: usize,
+    pub(super) reverse_index_inserts: usize,
+    pub(super) reverse_index_removes: usize,
+}
+
+/// Aggregate index and reverse-index deltas across prepared row operations.
+#[must_use]
+pub(super) fn summarize_prepared_row_ops(
+    prepared_row_ops: &[PreparedRowCommitOp],
+) -> PreparedRowOpDelta {
+    let mut summary = PreparedRowOpDelta {
+        rows_touched: prepared_row_ops.len(),
+        index_inserts: 0,
+        index_removes: 0,
+        reverse_index_inserts: 0,
+        reverse_index_removes: 0,
+    };
+
+    for row_op in prepared_row_ops {
+        summary.index_inserts = summary
+            .index_inserts
+            .saturating_add(row_op.index_insert_count);
+        summary.index_removes = summary
+            .index_removes
+            .saturating_add(row_op.index_remove_count);
+        summary.reverse_index_inserts = summary
+            .reverse_index_inserts
+            .saturating_add(row_op.reverse_index_insert_count);
+        summary.reverse_index_removes = summary
+            .reverse_index_removes
+            .saturating_add(row_op.reverse_index_remove_count);
+    }
+
+    summary
+}
+
 /// Prepare row ops for commit-time apply by simulating sequential execution.
 ///
 /// This preflight ensures later row ops are prepared against the state produced

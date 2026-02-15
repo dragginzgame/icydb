@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Db,
+        decode::decode_entity_with_expected_key,
         executor::ExecutorError,
         query::{
             ReadConsistency,
@@ -294,28 +295,30 @@ where
     {
         rows.into_iter()
             .map(|(key, row)| {
-                let entity = row.try_decode::<E>().map_err(|err| {
-                    ExecutorError::corruption(
-                        ErrorOrigin::Serialize,
-                        format!("failed to deserialize row: {key} ({err})"),
-                    )
-                })?;
+                let expected_key = key.try_key::<E>()?;
+                let entity = decode_entity_with_expected_key::<E, _, _, _, _>(
+                    expected_key,
+                    || row.try_decode::<E>(),
+                    |err| {
+                        ExecutorError::corruption(
+                            ErrorOrigin::Serialize,
+                            format!("failed to deserialize row: {key} ({err})"),
+                        )
+                        .into()
+                    },
+                    |expected_key, actual_key| {
+                        let expected = DataKey::try_new::<E>(expected_key)?;
+                        let found = DataKey::try_new::<E>(actual_key)?;
 
-                let key = key.try_key::<E>()?;
-                let identity = entity.id();
-                let identity_key = identity.key();
-                if key != identity_key {
-                    let expected = DataKey::try_new::<E>(key)?;
-                    let found = DataKey::try_new::<E>(identity_key)?;
+                        Ok(ExecutorError::corruption(
+                            ErrorOrigin::Store,
+                            format!("row key mismatch: expected {expected}, found {found}"),
+                        )
+                        .into())
+                    },
+                )?;
 
-                    return Err(ExecutorError::corruption(
-                        ErrorOrigin::Store,
-                        format!("row key mismatch: expected {expected}, found {found}"),
-                    )
-                    .into());
-                }
-
-                Ok((Id::from_key(key), entity))
+                Ok((Id::from_key(expected_key), entity))
             })
             .collect()
     }

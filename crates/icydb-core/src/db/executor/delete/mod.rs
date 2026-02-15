@@ -5,7 +5,9 @@ use crate::{
         CommitMarker, CommitRowOp, Db, begin_commit, ensure_recovered_for_write,
         executor::{
             debug::{access_summary, yes_no},
-            mutation::{apply_prepared_row_ops, preflight_prepare_row_ops},
+            mutation::{
+                apply_prepared_row_ops, preflight_prepare_row_ops, summarize_prepared_row_ops,
+            },
             plan::{record_plan_metrics, set_rows_from_len},
             trace::{QueryTraceSink, TraceExecutorKind, TracePhase, start_plan_trace},
         },
@@ -179,12 +181,7 @@ where
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
             let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &row_ops)?;
-            let index_remove_count = prepared_row_ops
-                .iter()
-                .fold(0usize, |acc, op| acc.saturating_add(op.index_remove_count));
-            let reverse_index_remove_count = prepared_row_ops.iter().fold(0usize, |acc, op| {
-                acc.saturating_add(op.reverse_index_remove_count)
-            });
+            let delta = summarize_prepared_row_ops(&prepared_row_ops);
             let marker = CommitMarker::new(row_ops)?;
             let commit = begin_commit(marker)?;
             commit_started = true;
@@ -196,7 +193,7 @@ where
                 prepared_row_ops,
                 || {
                     // NOTE: Trace metrics saturate on overflow; diagnostics only.
-                    let removes = u64::try_from(index_remove_count).unwrap_or(u64::MAX);
+                    let removes = u64::try_from(delta.index_removes).unwrap_or(u64::MAX);
                     sink::record(MetricsEvent::IndexDelta {
                         entity_path: E::PATH,
                         inserts: 0,
@@ -204,7 +201,7 @@ where
                     });
 
                     let reverse_removes =
-                        u64::try_from(reverse_index_remove_count).unwrap_or(u64::MAX);
+                        u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX);
                     sink::record(MetricsEvent::ReverseIndexDelta {
                         entity_path: E::PATH,
                         inserts: 0,

@@ -7,10 +7,14 @@ mod tests;
 use crate::value::Value;
 use crate::{
     db::{
-        CommitMarker, CommitRowOp, Db, begin_commit, ensure_recovered_for_write,
+        CommitMarker, CommitRowOp, Db, begin_commit,
+        decode::decode_entity_with_expected_key,
+        ensure_recovered_for_write,
         executor::{
             Context, ExecutorError,
-            mutation::{apply_prepared_row_ops, preflight_prepare_row_ops},
+            mutation::{
+                apply_prepared_row_ops, preflight_prepare_row_ops, summarize_prepared_row_ops,
+            },
             trace::{QueryTraceSink, TraceExecutorKind, start_exec_trace},
         },
         query::SaveMode,
@@ -205,19 +209,8 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             // - then apply prepared row ops mechanically.
             let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &marker_row_ops)?;
             let marker = CommitMarker::new(marker_row_ops)?;
-            let index_removes = prepared_row_ops
-                .iter()
-                .fold(0usize, |acc, op| acc.saturating_add(op.index_remove_count));
-            let index_inserts = prepared_row_ops
-                .iter()
-                .fold(0usize, |acc, op| acc.saturating_add(op.index_insert_count));
-            let reverse_index_removes = prepared_row_ops.iter().fold(0usize, |acc, op| {
-                acc.saturating_add(op.reverse_index_remove_count)
-            });
-            let reverse_index_inserts = prepared_row_ops.iter().fold(0usize, |acc, op| {
-                acc.saturating_add(op.reverse_index_insert_count)
-            });
-            let rows_touched = u64::try_from(prepared_row_ops.len()).unwrap_or(u64::MAX);
+            let delta = summarize_prepared_row_ops(&prepared_row_ops);
+            let rows_touched = u64::try_from(delta.rows_touched).unwrap_or(u64::MAX);
 
             let commit = begin_commit(marker)?;
             commit_started = true;
@@ -230,16 +223,18 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 prepared_row_ops,
                 || {
                     // NOTE: Trace metrics saturate on overflow; diagnostics only.
-                    let removes = u64::try_from(index_removes).unwrap_or(u64::MAX);
-                    let inserts = u64::try_from(index_inserts).unwrap_or(u64::MAX);
+                    let removes = u64::try_from(delta.index_removes).unwrap_or(u64::MAX);
+                    let inserts = u64::try_from(delta.index_inserts).unwrap_or(u64::MAX);
                     sink::record(MetricsEvent::IndexDelta {
                         entity_path: E::PATH,
                         inserts,
                         removes,
                     });
 
-                    let reverse_removes = u64::try_from(reverse_index_removes).unwrap_or(u64::MAX);
-                    let reverse_inserts = u64::try_from(reverse_index_inserts).unwrap_or(u64::MAX);
+                    let reverse_removes =
+                        u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX);
+                    let reverse_inserts =
+                        u64::try_from(delta.reverse_index_inserts).unwrap_or(u64::MAX);
                     sink::record(MetricsEvent::ReverseIndexDelta {
                         entity_path: E::PATH,
                         inserts: reverse_inserts,
@@ -389,21 +384,25 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         data_key: &DataKey,
         row: &RawRow,
     ) -> Result<(), InternalError> {
-        let decoded = row.try_decode::<E>().map_err(|err| {
-            ExecutorError::corruption(
-                ErrorOrigin::Serialize,
-                format!("failed to deserialize row: {data_key} ({err})"),
-            )
-        })?;
         let expected = data_key.try_key::<E>()?;
-        let actual = decoded.id().key();
-        if expected != actual {
-            return Err(ExecutorError::corruption(
-                ErrorOrigin::Store,
-                format!("row key mismatch: expected {expected:?}, found {actual:?}"),
-            )
-            .into());
-        }
+        let _decoded = decode_entity_with_expected_key::<E, _, _, _, _>(
+            expected,
+            || row.try_decode::<E>(),
+            |err| {
+                ExecutorError::corruption(
+                    ErrorOrigin::Serialize,
+                    format!("failed to deserialize row: {data_key} ({err})"),
+                )
+                .into()
+            },
+            |expected, actual| {
+                Ok(ExecutorError::corruption(
+                    ErrorOrigin::Store,
+                    format!("row key mismatch: expected {expected:?}, found {actual:?}"),
+                )
+                .into())
+            },
+        )?;
 
         Ok(())
     }
@@ -446,18 +445,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             let marker_row_ops = vec![marker_row_op];
             let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &marker_row_ops)?;
             let marker = CommitMarker::new(marker_row_ops)?;
-            let index_removes = prepared_row_ops
-                .iter()
-                .fold(0usize, |acc, op| acc.saturating_add(op.index_remove_count));
-            let index_inserts = prepared_row_ops
-                .iter()
-                .fold(0usize, |acc, op| acc.saturating_add(op.index_insert_count));
-            let reverse_index_removes = prepared_row_ops.iter().fold(0usize, |acc, op| {
-                acc.saturating_add(op.reverse_index_remove_count)
-            });
-            let reverse_index_inserts = prepared_row_ops.iter().fold(0usize, |acc, op| {
-                acc.saturating_add(op.reverse_index_insert_count)
-            });
+            let delta = summarize_prepared_row_ops(&prepared_row_ops);
             let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Save commit window opened");
@@ -469,16 +457,18 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 prepared_row_ops,
                 || {
                     // NOTE: Trace metrics saturate on overflow; diagnostics only.
-                    let removes = u64::try_from(index_removes).unwrap_or(u64::MAX);
-                    let inserts = u64::try_from(index_inserts).unwrap_or(u64::MAX);
+                    let removes = u64::try_from(delta.index_removes).unwrap_or(u64::MAX);
+                    let inserts = u64::try_from(delta.index_inserts).unwrap_or(u64::MAX);
                     sink::record(MetricsEvent::IndexDelta {
                         entity_path: E::PATH,
                         inserts,
                         removes,
                     });
 
-                    let reverse_removes = u64::try_from(reverse_index_removes).unwrap_or(u64::MAX);
-                    let reverse_inserts = u64::try_from(reverse_index_inserts).unwrap_or(u64::MAX);
+                    let reverse_removes =
+                        u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX);
+                    let reverse_inserts =
+                        u64::try_from(delta.reverse_index_inserts).unwrap_or(u64::MAX);
                     sink::record(MetricsEvent::ReverseIndexDelta {
                         entity_path: E::PATH,
                         inserts: reverse_inserts,

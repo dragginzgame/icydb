@@ -2,9 +2,9 @@ use crate::{
     db::{
         Db,
         commit::PreparedIndexMutation,
-        identity::{EntityName, IndexName},
+        identity::{EntityName, EntityNameError, IndexName},
         index::{IndexEntry, IndexId, IndexKey, RawIndexEntry, RawIndexKey, fingerprint},
-        store::{DataKey, RawDataKey, StorageKey},
+        store::{DataKey, RawDataKey, StorageKey, StorageKeyEncodeError},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::field::{EntityFieldKind, RelationStrength},
@@ -39,13 +39,37 @@ struct StrongRelationInfo {
     target_store_path: &'static str,
 }
 
+///
+/// StrongRelationTargetInfo
+///
+/// Shared target descriptor for strong relation fields.
+///
+
+#[allow(clippy::struct_field_names)]
+#[derive(Clone, Copy)]
+pub struct StrongRelationTargetInfo {
+    pub target_path: &'static str,
+    pub target_entity_name: &'static str,
+    pub target_store_path: &'static str,
+}
+
+///
+/// RelationTargetRawKeyError
+/// Error variants for building a relation target `RawDataKey` from user value.
+///
+
+#[derive(Debug)]
+pub enum RelationTargetRawKeyError {
+    StorageKeyEncode(StorageKeyEncodeError),
+    TargetEntityName(EntityNameError),
+}
+
 const REVERSE_INDEX_PREFIX: &str = "~ri";
 
-// Resolve a model field into strong relation metadata (if applicable).
-const fn strong_relation_from_field(
-    field_name: &'static str,
+// Resolve a model field-kind into strong relation target metadata (if applicable).
+pub const fn strong_relation_target_from_kind(
     kind: &EntityFieldKind,
-) -> Option<StrongRelationInfo> {
+) -> Option<StrongRelationTargetInfo> {
     match kind {
         EntityFieldKind::Relation {
             target_path,
@@ -67,14 +91,60 @@ const fn strong_relation_from_field(
             target_store_path,
             strength: RelationStrength::Strong,
             ..
-        }) => Some(StrongRelationInfo {
-            field_name,
+        }) => Some(StrongRelationTargetInfo {
             target_path,
             target_entity_name,
             target_store_path,
         }),
         _ => None,
     }
+}
+
+// Resolve a model field into strong relation metadata (if applicable).
+const fn strong_relation_from_field(
+    field_name: &'static str,
+    kind: &EntityFieldKind,
+) -> Option<StrongRelationInfo> {
+    let Some(target) = strong_relation_target_from_kind(kind) else {
+        return None;
+    };
+
+    Some(StrongRelationInfo {
+        field_name,
+        target_path: target.target_path,
+        target_entity_name: target.target_entity_name,
+        target_store_path: target.target_store_path,
+    })
+}
+
+// Build one relation target raw key from validated entity+storage key components.
+fn raw_relation_target_key_from_parts(
+    entity_name: EntityName,
+    storage_key: StorageKey,
+) -> Result<RawDataKey, StorageKeyEncodeError> {
+    let entity_bytes = entity_name.to_bytes();
+    let key_bytes = storage_key.to_bytes()?;
+    let mut raw_bytes = [0u8; DataKey::STORED_SIZE_USIZE];
+    raw_bytes[..EntityName::STORED_SIZE_USIZE].copy_from_slice(&entity_bytes);
+    raw_bytes[EntityName::STORED_SIZE_USIZE..].copy_from_slice(&key_bytes);
+
+    Ok(<RawDataKey as Storable>::from_bytes(
+        std::borrow::Cow::Borrowed(raw_bytes.as_slice()),
+    ))
+}
+
+/// Convert a relation target `Value` into its canonical `RawDataKey` representation.
+pub fn build_relation_target_raw_key(
+    target_entity_name: &str,
+    value: &Value,
+) -> Result<RawDataKey, RelationTargetRawKeyError> {
+    let storage_key =
+        StorageKey::try_from_value(value).map_err(RelationTargetRawKeyError::StorageKeyEncode)?;
+    let entity_name = EntityName::try_from_str(target_entity_name)
+        .map_err(RelationTargetRawKeyError::TargetEntityName)?;
+
+    raw_relation_target_key_from_parts(entity_name, storage_key)
+        .map_err(RelationTargetRawKeyError::StorageKeyEncode)
 }
 
 // Build the canonical reverse-index id for a `(source entity, relation field)` pair.
@@ -579,8 +649,8 @@ fn raw_relation_target_key<S>(
 where
     S: EntityKind + EntityValue,
 {
-    let storage_key = StorageKey::try_from_value(value).map_err(|err| {
-        InternalError::new(
+    build_relation_target_raw_key(relation.target_entity_name, value).map_err(|err| match err {
+        RelationTargetRawKeyError::StorageKeyEncode(err) => InternalError::new(
             ErrorClass::Unsupported,
             ErrorOrigin::Executor,
             format!(
@@ -589,11 +659,8 @@ where
                 field_name,
                 relation.target_path,
             ),
-        )
-    })?;
-
-    let entity_name = EntityName::try_from_str(relation.target_entity_name).map_err(|err| {
-        InternalError::new(
+        ),
+        RelationTargetRawKeyError::TargetEntityName(err) => InternalError::new(
             ErrorClass::Internal,
             ErrorOrigin::Executor,
             format!(
@@ -603,16 +670,6 @@ where
                 relation.target_path,
                 relation.target_entity_name,
             ),
-        )
-    })?;
-
-    let entity_bytes = entity_name.to_bytes();
-    let key_bytes = storage_key.to_bytes()?;
-    let mut raw_bytes = [0u8; DataKey::STORED_SIZE_USIZE];
-    raw_bytes[..EntityName::STORED_SIZE_USIZE].copy_from_slice(&entity_bytes);
-    raw_bytes[EntityName::STORED_SIZE_USIZE..].copy_from_slice(&key_bytes);
-
-    Ok(<RawDataKey as Storable>::from_bytes(
-        std::borrow::Cow::Borrowed(raw_bytes.as_slice()),
-    ))
+        ),
+    })
 }

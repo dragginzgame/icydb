@@ -22,6 +22,30 @@ pub enum PlanPolicyError {
     UnorderedPagination,
 }
 
+impl PlanPolicyError {
+    /// Canonical invariant message for executor-boundary plan-shape failures.
+    #[must_use]
+    pub const fn invariant_message(self) -> &'static str {
+        match self {
+            Self::EmptyOrderSpec => {
+                "invalid logical plan: order specification must include at least one field"
+            }
+            Self::DeletePlanWithPagination => {
+                "invalid logical plan: delete plans must not carry pagination"
+            }
+            Self::LoadPlanWithDeleteLimit => {
+                "invalid logical plan: load plans must not carry delete limits"
+            }
+            Self::DeleteLimitRequiresOrder => {
+                "invalid logical plan: delete limit requires an explicit ordering"
+            }
+            Self::UnorderedPagination => {
+                "invalid logical plan: unordered pagination is not allowed"
+            }
+        }
+    }
+}
+
 ///
 /// CursorPagingPolicyError
 /// Canonical policy failures for cursor-pagination readiness.
