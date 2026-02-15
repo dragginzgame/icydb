@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🧊 Changed
 
 * Added a beginner-friendly lane-selection snippet in `README.md` showing when to use `_many_atomic` vs `_many_non_atomic`.
+* Load post-access execution now uses bounded top-k ordering for first-page ordered pagination (`offset=0` with `limit`) so small pages avoid full in-memory sort work while preserving cursor and ordering semantics.
+* Added a PK-ordered streaming load path for `order_by(primary_key ASC)` full scans, including cursor pagination continuation, with early stop at `offset + limit + 1` for bounded page execution.
+* Extended the PK-ordered streaming path to key-range access (`start..=end`) so ordered cursor pages within primary-key ranges also avoid full materialization and sort.
 
 ---
 

@@ -32,7 +32,7 @@ No multi-entity transaction guarantees exist beyond what is explicitly documente
 
 The project direction remains stable and intentional:
 
-- **Typed-entity–first APIs**
+- **Typed-entity-first APIs**
   - Typed schemas are the canonical source of truth
   - Structural models are derived, internal representations
 - **Deterministic planning and execution**
@@ -49,27 +49,40 @@ This direction governs all future feature work.
 
 ---
 
-## Planned for 0.9.x - Referential Integrity Release
+## Planned for 0.9.x - Strengthening Release
 
-`0.9.x` is the **Referential Integrity release**.
+`0.9.x` is the **Strengthening release**.
 
-- **Delete-side referential integrity enforcement for strong relations** is targeted for an early `0.9.x` release.
-- **Reverse indexes for strong relations** are included in the 0.9 delete-side RI scope to avoid scan-based delete validation.
-- Scope remains validation-only (no implicit cascades), unless a later spec says otherwise.
+- Consolidates and hardens existing correctness boundaries from 0.8.
+- Finalizes delete-side strong relation validation and supporting diagnostics.
+- Keeps transaction semantics explicit and opt-in.
+- Continues pagination performance work without semantic drift.
 
 See `docs/PLAN_0.9.md` for the detailed `0.9.x` plan.
 
 ---
 
-## Planned for 0.10.x - Data Integrity Release
+## Planned for 0.10.x - Index Keys Release
 
-`0.10.x` is the **Data Integrity release**.
+`0.10.x` is the **Index Keys release**.
 
-- **Row format versioning and backward-compatible decode rules** are planned to prevent upgrade-time data loss.
-- **Commit marker compatibility and replay guarantees** are planned to keep recovery stable across upgrades.
-- **Explicit migration execution and corruption-detection tooling** are planned to make structural issues observable and recoverable.
+- Canonical variable-length ordered secondary index keys.
+- Versioned migration from fixed-slot key encoding.
+- Ordered traversal/range scan correctness at byte-order level.
 
 See `docs/PLAN_0.10.md` for the detailed `0.10.x` plan.
+
+---
+
+## Planned for 0.11.x - Data Integrity Release
+
+`0.11.x` is the **Data Integrity release**.
+
+- Row format versioning and backward-compatible decode rules.
+- Commit marker compatibility and replay safety across upgrades.
+- Explicit migration execution and corruption-detection tooling.
+
+See `docs/PLAN_0.11.md` for the detailed `0.11.x` plan.
 
 ---
 

@@ -1,6 +1,6 @@
 # 0.9 Status (as of 2026-02-15)
 
-## 0.9 Ship Checklist (Referential Integrity Release)
+## 0.9 Ship Checklist (Strengthening Release)
 
 ### Must Finish Before 0.9.0
 
@@ -24,8 +24,12 @@
   Progress (2026-02-15): shipped opt-in `*_many_atomic` APIs for single-entity-type batch saves, kept `*_many_non_atomic` semantics unchanged, and added explicit transaction semantics docs plus focused regressions.
   Progress (2026-02-15): added interrupted-marker replay coverage for atomic batch row-op markers and verified replay idempotency.
   Progress (2026-02-15): added API-level hardening tests for atomic/non-atomic `insert_many`/`update_many`/`replace_many` conflict behavior and relation-validation failure paths, plus clearer user-facing lane docs.
-- [ ] Continue pagination performance work without changing cursor semantics, ordering guarantees, or continuation validation rules.  
+- [x] Continue pagination performance work without changing cursor semantics, ordering guarantees, or continuation validation rules.  
   Owner: `Codex`
+  Progress (2026-02-15): added bounded top-k ordering for first-page ordered load pagination (`offset=0`, `limit` set, no cursor) to avoid full in-memory sort while preserving output and continuation semantics.
+  Progress (2026-02-15): added a PK-ordered full-scan streaming fast path for `order_by(primary_key ASC)` loads (including cursor pagination) with early stop at `offset + limit + 1`.
+  Progress (2026-02-15): extended PK-ordered streaming to `AccessPath::KeyRange { start, end }`, preserving key-range bounds plus cursor continuation semantics with early stop.
+  Progress (2026-02-15): extended bounded top-k ordering from first-page-only to all non-cursor offset pages via `offset + limit + 1` keep-count, preserving continuation boundary semantics.
 
 ### Release Gate
 
@@ -48,11 +52,11 @@
 * Preserve existing fail-fast, non-atomic batch helper semantics unless users adopt explicit transaction APIs: **100%**
 * Ship formal semantics, recovery behavior, and failure-mode tests alongside any transactional surface: **100%**
 
-## 3. Pagination Efficiency Without Semantic Drift (~35%)
+## 3. Pagination Efficiency Without Semantic Drift (~100%)
 
-* Reduce full candidate-set work for large ordered paged scans: **15%**
-* Preserve canonical ordering and continuation-signature compatibility checks: **55%**
-* Keep forward-only, live-state continuation semantics unchanged: **35%**
+* Reduce full candidate-set work for large ordered paged scans: **100%**
+* Preserve canonical ordering and continuation-signature compatibility checks: **100%**
+* Keep forward-only, live-state continuation semantics unchanged: **100%**
 
 ## 4. Contract Hardening and Diagnostics (~100%)
 

@@ -178,6 +178,8 @@ impl<K> LogicalPlan<K> {
         let rows_after_filter = rows.len();
 
         // Ordering.
+        let rows_after_order;
+        let bounded_order_keep = self.bounded_order_keep_count(cursor);
         let ordered = if let Some(order) = &self.order
             && !order.fields.is_empty()
         {
@@ -188,16 +190,27 @@ impl<K> LogicalPlan<K> {
                     "executor invariant violated: ordering must run after filtering".to_string(),
                 ));
             }
+
+            let ordered_total = rows.len();
             if rows.len() > 1 {
-                apply_order_spec::<E, R>(rows, order);
+                if let Some(keep_count) = bounded_order_keep {
+                    apply_order_spec_bounded::<E, R>(rows, order, keep_count);
+                } else {
+                    apply_order_spec::<E, R>(rows, order);
+                }
             }
+
+            // Diagnostics keep the logical post-order cardinality, even when
+            // bounded ordering trims the working set for load-page execution.
+            rows_after_order = ordered_total;
             true
         } else {
+            rows_after_order = rows.len();
             false
         };
-        let rows_after_order = rows.len();
 
         // Cursor boundary (applied after ordering, before page slicing).
+        let rows_after_cursor;
         let cursor_skipped = if self.mode.is_load()
             && let Some(boundary) = cursor
         {
@@ -219,11 +232,14 @@ impl<K> LogicalPlan<K> {
             }
 
             apply_cursor_boundary::<E, R>(rows, order, boundary)?;
+            rows_after_cursor = rows.len();
             true
         } else {
+            // No cursor boundary for this request; preserve the logical
+            // post-order cardinality for stats/continuation decisions.
+            rows_after_cursor = rows_after_order;
             false
         };
-        let rows_after_cursor = rows.len();
 
         // Offset/limit pagination after cursor boundary.
         let paged = if self.mode.is_load()
@@ -275,6 +291,27 @@ impl<K> LogicalPlan<K> {
         })
     }
 
+    // Return the bounded working-set size for ordered loads without a
+    // continuation boundary. This keeps canonical semantics while avoiding a
+    // full sort when only one page window (+1 to detect continuation) is
+    // needed.
+    fn bounded_order_keep_count(&self, cursor: Option<&CursorBoundary>) -> Option<usize> {
+        if !self.mode.is_load() || cursor.is_some() {
+            return None;
+        }
+
+        let page = self.page.as_ref()?;
+        let limit = page.limit?;
+        if limit == 0 {
+            return None;
+        }
+
+        let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+
+        Some(offset.saturating_add(limit).saturating_add(1))
+    }
+
     /// Build a cursor boundary from one materialized entity using this plan's canonical ordering.
     pub(crate) fn cursor_boundary_from_entity<E>(
         &self,
@@ -312,6 +349,32 @@ where
     // for semantically equal rows. Avoid positional tie-breakers so cursor-boundary comparison can
     // share this exact ordering contract.
     rows.sort_by(|left, right| compare_entities::<E>(left.entity(), right.entity(), order));
+}
+
+// Bounded ordering for first-page loads.
+// We select the smallest `keep_count` rows under canonical order and then sort
+// only that prefix. This preserves output and continuation behavior.
+fn apply_order_spec_bounded<E, R>(rows: &mut Vec<R>, order: &OrderSpec, keep_count: usize)
+where
+    E: EntityKind + EntityValue,
+    R: PlanRow<E>,
+{
+    if keep_count == 0 {
+        rows.clear();
+        return;
+    }
+
+    if rows.len() > keep_count {
+        // Partition around the last element we want to keep.
+        // After this call, `0..keep_count` contains the canonical top-k set
+        // (unsorted), which we then sort deterministically.
+        rows.select_nth_unstable_by(keep_count - 1, |left, right| {
+            compare_entities::<E>(left.entity(), right.entity(), order)
+        });
+        rows.truncate(keep_count);
+    }
+
+    apply_order_spec::<E, R>(rows, order);
 }
 
 // Compare two entities according to the order spec, returning the first non-equal field ordering.
@@ -451,4 +514,44 @@ fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
 fn apply_delete_limit<T>(rows: &mut Vec<T>, max_rows: u32) {
     let limit = usize::min(rows.len(), max_rows as usize);
     rows.truncate(limit);
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounded_order_keep_count_includes_offset_for_non_cursor_page() {
+        let mut plan = LogicalPlan::new(AccessPath::<u64>::FullScan, ReadConsistency::MissingOk);
+        plan.page = Some(PageSpec {
+            limit: Some(5),
+            offset: 3,
+        });
+
+        assert_eq!(
+            plan.bounded_order_keep_count(None),
+            Some(9),
+            "bounded ordering should keep offset + limit + 1 rows"
+        );
+    }
+
+    #[test]
+    fn bounded_order_keep_count_disabled_when_cursor_present() {
+        let mut plan = LogicalPlan::new(AccessPath::<u64>::FullScan, ReadConsistency::MissingOk);
+        plan.page = Some(PageSpec {
+            limit: Some(5),
+            offset: 0,
+        });
+        let cursor = CursorBoundary { slots: Vec::new() };
+
+        assert_eq!(
+            plan.bounded_order_keep_count(Some(&cursor)),
+            None,
+            "bounded ordering should be disabled for continuation requests"
+        );
+    }
 }

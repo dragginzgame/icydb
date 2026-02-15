@@ -67,10 +67,12 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
         }
         Value::Date(d) => feed_i32(h, d.get()),
         Value::Decimal(d) => {
+            let normalized = d.normalize();
+
             // encode (sign, scale, mantissa) deterministically:
-            feed_u8(h, u8::from(d.is_sign_negative()));
-            feed_u32(h, d.scale());
-            feed_bytes(h, &d.mantissa().to_be_bytes());
+            feed_u8(h, u8::from(normalized.is_sign_negative()));
+            feed_u32(h, normalized.scale());
+            feed_bytes(h, &normalized.mantissa().to_be_bytes());
         }
         Value::Duration(t) => {
             feed_u64(h, t.get());
@@ -226,7 +228,7 @@ pub fn to_index_fingerprint(value: &Value) -> Result<Option<[u8; 16]>, InternalE
 mod tests {
     use super::*;
     use crate::{
-        types::{Float32 as F32, Float64 as F64},
+        types::{Decimal, Float32 as F32, Float64 as F64},
         value::{Value, ValueEnum},
     };
 
@@ -292,6 +294,22 @@ mod tests {
         assert_ne!(
             a, b,
             "Float32 and Float64 must hash differently (different tag)"
+        );
+    }
+
+    #[test]
+    fn decimal_hash_normalizes_equivalent_values() {
+        let one = Value::Decimal(Decimal::new(1, 0));
+        let one_point_zero = Value::Decimal(Decimal::new(10, 1));
+
+        assert_eq!(
+            one, one_point_zero,
+            "decimal values should be semantically equal"
+        );
+        assert_eq!(
+            hash_value(&one).expect("hash value"),
+            hash_value(&one_point_zero).expect("hash value"),
+            "equivalent decimals must hash to the same fingerprint"
         );
     }
 

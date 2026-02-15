@@ -34,8 +34,6 @@ type SubaccountBytes = [u8; 32];
 pub struct Subaccount(SubaccountBytes);
 
 impl Subaccount {
-    pub const STORED_SIZE: u32 = 72;
-
     pub const MIN: Self = Self::from_array([0x00; 32]);
     pub const MAX: Self = Self::from_array([0xFF; 32]);
 
@@ -221,10 +219,11 @@ mod tests {
         let subaccount = Subaccount::max_storable();
         let size = subaccount.to_bytes().len();
 
-        assert!(
-            size <= Subaccount::STORED_SIZE as usize,
-            "serialized Subaccount too large: got {size} bytes (limit {})",
-            Subaccount::STORED_SIZE
+        assert_eq!(
+            size,
+            <Subaccount as EntityKeyBytes>::BYTE_LEN,
+            "serialized Subaccount must be exactly {} bytes; got {size}",
+            <Subaccount as EntityKeyBytes>::BYTE_LEN
         );
     }
 

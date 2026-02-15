@@ -1,19 +1,23 @@
-# Data Integrity Release Roadmap (0.10.x)
+# Index Key Encoding Release Roadmap (0.10.x)
 
-`0.10.x` is the **Data Integrity release**.
+`0.10.x` is the **Index Keys release**.
 
-The 0.10 series focuses on **physical durability, schema evolution safety, and explicit no-data-loss guarantees**.
+The 0.10 series focuses on replacing fixed-slot secondary index key encoding
+with canonical variable-length ordered keys.
 
-If 0.9 strengthens logical correctness,
-0.10 strengthens **format stability and upgrade survivability**.
+This release exists to make ordered secondary traversal, range scans, and
+ordering semantics mechanically correct at the storage-key layer.
 
-This release series ensures that:
+---
 
-> No upgrade, migration, or format evolution can silently corrupt or orphan persisted data.
+## 0.10 Coherent Arc
 
-No implicit data rewrites are introduced.
+`0.10.x` follows one coherent execution arc:
 
-All structural changes must be explicit, recoverable, and observable.
+* Canonical ordered secondary indexes
+* ORDER BY pushdown
+* Range scan correctness
+* Index traversal semantics
 
 ---
 
@@ -21,200 +25,208 @@ All structural changes must be explicit, recoverable, and observable.
 
 Estimated completion toward the `0.10.x` goals in this plan:
 
-* Stable Row Format & Versioning: **0%**
-* Commit Marker Versioning & Replay Compatibility: **0%**
-* Explicit Migration Engine (Row-Op Based): **0%**
-* Corruption Detection & Integrity Tooling: **0%**
+* RawIndexKey Variable-Length Redesign: **0%**
+* Canonical Primitive Encoding: **0%**
+* Schema Constraints and Field Limit Discipline: **100%** (carried forward)
+* Index-Only Upgrade Transition: **0%**
+* Ordered Traversal and Pagination Parity: **0%**
+* Verification and Property Coverage: **0%**
 
-Overall estimated progress: **0%**
+Overall estimated progress: **~17%**
 
 ---
 
-# 1. Stable Row Format & Schema Evolution
+# 1. RawIndexKey Variable-Length Redesign
 
-IcyDB 0.10 will introduce explicit row-format versioning and backward-compatible decode rules.
+IcyDB 0.10 will replace fixed-slot index keys with variable-length canonical
+keys.
 
 ## Goals
 
-* Add explicit version tagging to persisted row format
-* Guarantee backward-compatible decoding across upgrades
-* Prevent decode panics from rendering data unreachable
-* Formalize allowed schema evolution rules
-* Ensure index derivation changes do not orphan data
+* Replace fixed-slot `RawIndexKey` layout with variable-length storage
+* Remove layout dependency on `MAX_INDEX_FIELDS`
+* Keep keys bounded with explicit maximum size computation
+* Keep primary key as final key component in composite index keys
 
 ## Outcomes
 
-* Persisted rows include explicit format version
-* Decode paths handle at least N-1 version safely
-* Structural corruption is detected, not silently ignored
-* Schema evolution rules are documented and enforced
-* Format-breaking changes require explicit migration plan
+* Index keys are no longer constrained by fixed 16-byte field slots
+* Storage layout no longer includes slot padding
+* Composite key boundaries are unambiguous and deterministic
 
 ## Non-Goals
 
-* Automatic field-level migrations
-* Implicit schema rewrite on upgrade
-* Transparent structural coercion without version awareness
+* Compression-focused key packing
+* Relaxing bounded-size requirements
 
 ---
 
-# 2. Commit Marker Stability & Replay Guarantees
+# 2. Canonical Primitive Encoding for Ordered Keys
 
-IcyDB 0.10 will formalize the commit protocol wire format and recovery guarantees across upgrades.
+IcyDB 0.10 will define and enforce canonical encoding for all indexable
+primitive types.
 
 ## Goals
 
-* Version the `CommitMarker` format explicitly
-* Guarantee replay compatibility across minor upgrades
-* Prevent marker decode failure from bricking recovery
-* Freeze core commit semantics
+* Guarantee `a < b` iff `encode(a) < encode(b)` (lexicographic bytes)
+* Guarantee equal values always encode identically
+* Enforce per-type canonicalization (for example, normalized decimal encoding)
+* Disallow unsupported/non-orderable edge payloads where required
 
 ## Outcomes
 
-* Commit markers include explicit protocol version
-* Recovery path supports version-aware decoding
-* Commit replay semantics are formally documented
-* Marker format changes require compatibility strategy
+* Ordered scans over encoded keys reflect logical ordering
+* Equality consistency holds between semantic and byte-level comparisons
+* Canonical encoding is testable and deterministic across upgrades
 
 ## Non-Goals
 
-* Changing commit atomicity semantics
-* Rewriting recovery model
-* Introducing distributed transaction semantics
+* Cost-based query optimization
+* Cross-type coercion in index key encoding
 
 ---
 
-# 3. Explicit Migration Engine (No Data Loss)
+# 3. Schema Constraints and Field Limit Discipline
 
-IcyDB 0.10 introduces an explicit migration execution model built on the existing row-op commit protocol.
-
-Migrations must be:
-
-* Deterministic
-* Recoverable
-* Replayable
-* Non-lossy
+IcyDB 0.10 keeps schema limits explicit and separate from storage layout.
 
 ## Goals
 
-* Define a `MigrationPlan` abstraction
-* Execute migrations as row-op streams
-* Use existing commit marker + recovery path
-* Prevent partial migration states
-* Ensure migration rollback safety
+* Keep `MAX_INDEX_FIELDS = 8` enforced at schema-definition time
+* Ensure field-count limits are not encoded as storage slot assumptions
+* Provide clear schema errors for index definitions exceeding limits
 
 ## Outcomes
 
-* Migrations are structurally equivalent to normal row mutations
-* Migration execution is crash-safe
-* Data transformation is explicit and reviewable
-* Upgrade failures cannot silently destroy data
+* Predictable planner and storage bounds
+* Clean separation between schema constraints and key byte layout
 
 ## Non-Goals
 
-* Automatic destructive migrations
-* In-place schema rewrite without rollback path
-* Best-effort migration without recovery guarantees
+* Increasing composite-index arity beyond current schema limits
 
 ---
 
-# 4. Corruption Detection & Integrity Tooling
+# 4. Index-Only Upgrade Transition (No General Data Migration)
 
-IcyDB 0.10 strengthens detection and observability of structural corruption.
+IcyDB 0.10 will introduce an index-key encoding transition only.
 
-Silent corruption is unacceptable.
+This scope is limited to secondary-index key representation and rebuild
+behavior. It does not include row/commit format versioning or a generic
+migration engine.
 
 ## Goals
 
-* Detect invalid row format during decode
-* Detect index/data divergence
-* Detect reverse-index inconsistencies
-* Provide integrity scan utilities
-* Expand error taxonomy for corruption classes
+* Add explicit index encoding versioning (`V1`, `V2`)
+* Define when transition runs (upgrade/startup gate) and when it is skipped
+* Detect legacy index key encoding deterministically
+* Rebuild secondary indexes deterministically into canonical variable format
+* Define failure behavior explicitly (fail closed with classified errors; no silent partial transition)
+* Avoid mixed-key modes during steady-state execution
 
 ## Outcomes
 
-* Corruption results in explicit `Corruption` errors
-* Integrity scans can validate:
-
-  * Data ↔ Index consistency
-  * Forward ↔ Reverse relation consistency
-* Snapshot tools expose structural counts
-* Operators can distinguish corruption vs misuse
+* Upgrade path is explicit and auditable
+* Legacy fixed-slot keys are retired safely
+* Post-upgrade index behavior is deterministic
 
 ## Non-Goals
 
-* Silent repair without operator visibility
-* Automatic best-guess repair of corrupted data
-* Masking corruption as user error
+* Row format versioning
+* Commit marker wire-format versioning
+* Generic row-op migration engine
+* Dual-write transitional index modes in normal operation
+* Best-effort partial conversion with mixed encoding semantics
 
 ---
 
-# 5. Upgrade & Recovery Hardening
+# 5. Ordered Traversal, Range Scans, and Pagination Parity
 
-IcyDB 0.10 formalizes the no-data-loss invariant across canister upgrades.
+IcyDB 0.10 will wire canonical index keys into ordered execution paths without
+semantic drift.
 
 ## Goals
 
-* Guarantee upgrade does not invalidate existing rows
-* Guarantee recovery replay is version-stable
-* Ensure recovery never discards valid persisted rows
-* Add stress tests for crash-mid-migration scenarios
+* Enable ordered secondary traversal based on canonical key bytes
+* Enable deterministic range scans over ordered secondary indexes
+* Gate ORDER BY pushdown on strict compatibility checks:
+  field sequence, direction, canonical missing/null ordering, and primary-key tie-break requirements
+* Fallback to existing non-pushdown execution when compatibility checks fail
+* Preserve continuation signature and cursor semantics
+* Keep pagination behavior equivalent to existing contract
 
 ## Outcomes
 
-* Upgrade safety becomes a tested invariant
-* Crash during migration is recoverable
-* Replay semantics remain deterministic
-* Marker + row version compatibility is validated
+* ORDER BY pushdown paths can rely on byte-order correctness
+* Pagination outputs remain contract-compatible while execution cost improves
 
 ## Non-Goals
 
-* Snapshot isolation across upgrades
-* Cross-canister migration coordination
-* Rolling format upgrades without compatibility window
+* Bidirectional cursor contracts
+* Snapshot-consistent pagination across requests
 
 ---
 
-# Invariants Introduced in 0.10
+# 6. Verification and Safety Gates
+
+IcyDB 0.10 requires heavy property and boundary testing for canonical index
+encoding.
+
+## Goals
+
+* Property tests for per-primitive logical order vs byte order equivalence
+* Composite tuple ordering parity tests
+* Golden-vector encode tests per primitive to detect byte-format drift
+* Decimal normalization and float edge-case tests
+* Index-only transition/rebuild correctness tests for legacy key data
+* Regression tests proving no continuation/pagination semantic drift
+
+## Outcomes
+
+* Canonical encoding behavior is proven, not assumed
+* Upgrade and replay safety are validated in tests
+
+## Non-Goals
+
+* Replacing runtime invariants with test-only guarantees
+
+---
+
+## Invariants Introduced in 0.10
 
 The following become explicit structural guarantees:
 
-* Persisted rows are versioned
-* Commit markers are versioned
-* Decode failure is explicit and classified
-* Migrations are commit-protocol-driven
-* No upgrade may silently orphan persisted data
-* No recovery path may discard valid rows without classification
+* Secondary index keys are canonical and variable-length
+* Lexicographic key order matches logical order for supported primitives
+* Legacy key encoding transitions through explicit versioned migration
+* Pagination/continuation semantics are preserved through the encoding shift
 
 ---
 
-# Explicit Non-Goals (0.10.x)
+## Explicit Non-Goals (0.10.x)
 
 The following remain out of scope:
 
-* Cross-canister transactional upgrades
-* Distributed schema coordination
-* Automatic cascade repair of corrupted relations
-* Automatic index rebuild on structural drift (manual tooling only)
+* Row format versioning and backward-compatible row decode rules (0.11)
+* Commit marker format versioning and replay-compatibility work (0.11)
+* Generic migration engine for persisted row transformations (0.11)
+* Cost-based planning
+* Multi-index merge/intersection planning
+* Index compression pipelines
+* Distributed/cross-canister transaction semantics
 
 ---
 
-# Summary
+## Summary
 
-0.10.x is the **Data Integrity release**.
+0.10.x is the **Index Keys release**.
 
-If 0.9 ensures the engine behaves correctly,
-0.10 ensures the engine survives change without losing data.
+If 0.9 strengthens correctness boundaries,
+0.10 makes ordered secondary indexing canonical, explicit, and migration-safe.
 
-It formalizes:
+The release arc is explicit:
 
-* Row format stability
-* Commit replay compatibility
-* Explicit migration semantics
-* Corruption detection boundaries
-* Upgrade safety guarantees
-
-0.10.x is not about new features.
-
-It is about making IcyDB structurally resilient.
+* Canonical ordered secondary indexes
+* ORDER BY pushdown
+* Range scan correctness
+* Index traversal semantics

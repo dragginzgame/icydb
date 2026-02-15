@@ -9,6 +9,7 @@ use candid::CandidType;
 use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign, Sum};
 use rust_decimal::{Decimal as WrappedDecimal, MathematicalOps};
 use serde::{Deserialize, Serialize};
+use serde_bytes::{ByteBuf, Bytes};
 use std::{
     cmp::Ordering,
     ops::{Div, DivAssign, Mul, MulAssign, Rem},
@@ -207,15 +208,20 @@ impl CandidType for Decimal {
     }
 }
 
-// Serde: always serialize as a string, and deserialize from a string.
-// This ensures a stable textual representation across formats and avoids
-// lossy float conversions.
+// Serde:
+// - Human-readable formats (e.g. JSON) use a decimal string for API ergonomics.
+// - Non-human-readable formats (e.g. CBOR persistence) use compact binary parts.
 impl Serialize for Decimal {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.0.to_string())
+        if serializer.is_human_readable() {
+            return serializer.serialize_str(&self.0.to_string());
+        }
+
+        let mantissa_bytes = self.mantissa().to_be_bytes();
+        (Bytes::new(&mantissa_bytes), self.scale()).serialize(serializer)
     }
 }
 
@@ -224,10 +230,51 @@ impl<'de> Deserialize<'de> for Decimal {
     where
         D: serde::Deserializer<'de>,
     {
-        let s = String::deserialize(deserializer)?;
-        s.parse::<WrappedDecimal>()
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum DecimalPayload {
+            Binary((ByteBuf, u32)),
+            Text(String),
+        }
+
+        if deserializer.is_human_readable() {
+            let s = String::deserialize(deserializer)?;
+            return s
+                .parse::<WrappedDecimal>()
+                .map(Decimal)
+                .map_err(serde::de::Error::custom);
+        }
+
+        // Candid currently reports non-human-readable, but Decimal's Candid wire type is `text`.
+        // Accept both payloads here so Candid decode remains correct while binary formats
+        // continue to use the canonical `(mantissa_bytes, scale)` shape.
+        let payload: DecimalPayload = Deserialize::deserialize(deserializer)?;
+        let (mantissa_bytes, scale) = match payload {
+            DecimalPayload::Binary(parts) => parts,
+            DecimalPayload::Text(s) => {
+                return s
+                    .parse::<WrappedDecimal>()
+                    .map(Decimal)
+                    .map_err(serde::de::Error::custom);
+            }
+        };
+
+        if mantissa_bytes.len() != 16 {
+            return Err(serde::de::Error::custom(format!(
+                "invalid decimal mantissa length: {} bytes (expected 16)",
+                mantissa_bytes.len()
+            )));
+        }
+
+        let mut mantissa_buf = [0u8; 16];
+        mantissa_buf.copy_from_slice(mantissa_bytes.as_ref());
+        let mantissa = i128::from_be_bytes(mantissa_buf);
+
+        WrappedDecimal::try_from_i128_with_scale(mantissa, scale)
             .map(Decimal)
-            .map_err(serde::de::Error::custom)
+            .map_err(|err| {
+                serde::de::Error::custom(format!("invalid decimal binary payload: {err}"))
+            })
     }
 }
 
@@ -479,5 +526,50 @@ mod tests {
             let back: Decimal = serde_json::from_str(&json).expect("serde_json deserialize");
             assert_eq!(back, d, "serde_json roundtrip mismatch for {s}");
         }
+    }
+
+    #[test]
+    fn decimal_serde_cbor_binary_roundtrip() {
+        let cases = [
+            "0",
+            "1",
+            "-1",
+            "42.5",
+            "1234567890.123456789",
+            "0.00000001",
+            "1000000000000000000000000.000000000000000000000001",
+        ];
+
+        for s in cases {
+            let d1 = Decimal::from_str(s).expect("parse decimal");
+
+            let bytes = serde_cbor::to_vec(&d1).expect("cbor serialize");
+            let d2: Decimal = serde_cbor::from_slice(&bytes).expect("cbor deserialize");
+            assert_eq!(d2, d1, "cbor roundtrip mismatch for {s}");
+
+            let wire: serde_cbor::Value =
+                serde_cbor::from_slice(&bytes).expect("decode cbor value");
+            match wire {
+                serde_cbor::Value::Array(values) => {
+                    assert_eq!(values.len(), 2, "expected [mantissa_bytes, scale] for {s}");
+                    assert!(
+                        matches!(values.first(), Some(serde_cbor::Value::Bytes(_))),
+                        "expected mantissa bytes in first position for {s}"
+                    );
+                }
+                other => panic!("expected binary decimal array payload for {s}; got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn decimal_serde_cbor_rejects_invalid_binary_mantissa_length() {
+        let invalid = serde_cbor::to_vec(&(vec![1u8, 2, 3], 2u32))
+            .expect("serialize invalid binary mantissa payload");
+        let parsed: Result<Decimal, _> = serde_cbor::from_slice(&invalid);
+        assert!(
+            parsed.is_err(),
+            "invalid binary mantissa length must be rejected"
+        );
     }
 }
