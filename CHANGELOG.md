@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Storage snapshots now split index usage into `IndexStoreSnapshot.user_entries` and `IndexStoreSnapshot.system_entries`, making system index footprint visible in diagnostics.
 * Added compile-fail coverage for reserved index namespace enforcement so invalid schema changes fail during derive-time checks.
 
+### 🥨 Cleanup
+
+* Unified per-entity runtime dispatch into `EntityRuntimeHooks`, removed generated `prepare_row_commit`/delete-validator wrapper functions, and replaced parallel hook tables with one generated registry built in a single entity pass.
+
 ### 🍇 Breaking
 
 * User-defined index names in the reserved `~` namespace are now rejected during schema derive validation.

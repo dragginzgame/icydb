@@ -61,6 +61,17 @@ impl InternalError {
         }
     }
 
+    /// Construct a standardized unsupported-entity-path error.
+    pub fn unsupported_entity_path(path: impl Into<String>) -> Self {
+        let path = path.into();
+
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Store,
+            format!("unsupported entity path: '{path}'"),
+        )
+    }
+
     #[must_use]
     pub const fn is_not_found(&self) -> bool {
         matches!(

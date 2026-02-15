@@ -92,16 +92,7 @@ impl<C: CanisterKind> Db<C> {
             .entity_runtime_hooks
             .iter()
             .find(|hooks| hooks.entity_path == op.entity_path.as_str())
-            .ok_or_else(|| {
-                InternalError::new(
-                    crate::error::ErrorClass::Corruption,
-                    crate::error::ErrorOrigin::Store,
-                    format!(
-                        "no row-commit handler registered for entity '{}'",
-                        op.entity_path
-                    ),
-                )
-            })?;
+            .ok_or_else(|| InternalError::unsupported_entity_path(op.entity_path.as_str()))?;
 
         (hooks.prepare_row_commit)(self, op)
     }
