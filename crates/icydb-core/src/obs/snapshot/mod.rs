@@ -219,9 +219,9 @@ mod tests {
         db::{
             Db,
             identity::{EntityName, IndexName},
-            index::{IndexId, IndexKey, IndexStore, RawIndexEntry},
+            index::{IndexId, IndexKey, IndexStore, RawIndexEntry, RawIndexKey},
             init_commit_store_for_tests,
-            store::{DataKey, DataStore, RawRow, StorageKey, StoreRegistry},
+            store::{DataKey, DataStore, RawDataKey, RawRow, StorageKey, StoreRegistry},
         },
         obs::snapshot::storage_report,
         test_support::test_memory,
@@ -319,6 +319,49 @@ mod tests {
         assert!(report.entity_storage[0].max_key.is_some());
         assert_eq!(report.corrupted_entries, 1);
         assert_eq!(report.corrupted_keys, 0);
+    }
+
+    #[test]
+    fn storage_report_counts_corrupted_data_keys_without_entity_rollup() {
+        reset_snapshot_state();
+
+        let malformed_raw_key =
+            RawDataKey::from_bytes(Cow::Owned(vec![0u8; DataKey::STORED_SIZE_USIZE]));
+        let row = RawRow::try_new(vec![9, 9, 9]).expect("row bytes should be valid");
+        with_snapshot_store(|store| {
+            store.with_data_mut(|data_store| {
+                data_store.insert(malformed_raw_key, row);
+            });
+        });
+
+        let report = storage_report(&DB, &[]).expect("storage report should succeed");
+        assert_eq!(report.storage_data[0].entries, 1);
+        assert_eq!(report.corrupted_keys, 1);
+        assert!(
+            report.entity_storage.is_empty(),
+            "rows with corrupt data keys must not contribute to per-entity stats"
+        );
+    }
+
+    #[test]
+    fn storage_report_counts_corrupted_index_keys_without_user_or_system_split() {
+        reset_snapshot_state();
+
+        let malformed_raw_key =
+            RawIndexKey::from_bytes(Cow::Owned(vec![0u8; IndexKey::STORED_SIZE_USIZE]));
+        let entry = RawIndexEntry::try_from_keys([StorageKey::max_storable()])
+            .expect("entry should encode");
+        with_snapshot_store(|store| {
+            store.with_index_mut(|index_store| {
+                index_store.insert(malformed_raw_key, entry);
+            });
+        });
+
+        let report = storage_report(&DB, &[]).expect("storage report should succeed");
+        assert_eq!(report.storage_index[0].entries, 1);
+        assert_eq!(report.storage_index[0].user_entries, 0);
+        assert_eq!(report.storage_index[0].system_entries, 0);
+        assert_eq!(report.corrupted_entries, 1);
     }
 
     #[test]

@@ -126,3 +126,107 @@ fn load_structural_guard_emits_post_access_phase_and_stats() {
         "trace must include post-access phase with final row count"
     );
 }
+
+#[test]
+fn delete_structural_guard_applies_delete_limit_in_post_access_phase() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for row in [
+        PhaseEntity {
+            id: Ulid::from_u128(911),
+            opt_rank: Some(30),
+            rank: 30,
+            tags: vec![1, 3],
+            label: "needle alpha".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(912),
+            opt_rank: Some(10),
+            rank: 10,
+            tags: vec![2],
+            label: "other".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(913),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![9],
+            label: "NEEDLE beta".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(914),
+            opt_rank: Some(40),
+            rank: 40,
+            tags: vec![4],
+            label: "needle gamma".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::TextContainsCi {
+        field: "label".to_string(),
+        value: Value::Text("needle".to_string()),
+    };
+
+    let plan_for_stats = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("delete structural stats plan should build");
+    let plan_for_execute = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .filter(predicate)
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("delete structural execute plan should build");
+
+    // Structural assertion: delete plans should apply limit during post-access, not paging.
+    let logical = plan_for_stats.into_inner();
+    let ctx = DB
+        .recovered_context::<PhaseEntity>()
+        .expect("recovered context should succeed");
+    let data_rows = ctx
+        .rows_from_access_plan(&logical.access, logical.consistency)
+        .expect("access rows should load");
+    let mut rows = Context::deserialize_rows(data_rows).expect("rows should deserialize");
+    let stats = logical
+        .apply_post_access::<PhaseEntity, _>(&mut rows)
+        .expect("post-access should apply");
+    assert!(stats.filtered, "filter phase should be applied");
+    assert!(stats.ordered, "order phase should be applied");
+    assert!(
+        !stats.paged,
+        "delete plans must not report load-style pagination"
+    );
+    assert!(stats.delete_was_limited, "delete limit should be applied");
+    assert_eq!(stats.rows_after_filter, 3, "filter should keep three rows");
+    assert_eq!(
+        stats.rows_after_order, 3,
+        "ordering should preserve row count before delete limit"
+    );
+    assert_eq!(
+        stats.rows_after_page, 3,
+        "delete plans should not trim via pagination phase"
+    );
+    assert_eq!(
+        stats.rows_after_delete_limit, 2,
+        "delete limit should trim selected rows"
+    );
+
+    // Runtime assertion: delete execution should reflect post-access limited selection.
+    let delete = DeleteExecutor::<PhaseEntity>::new(DB, false);
+    let response = delete
+        .execute(plan_for_execute)
+        .expect("structural delete should execute");
+    assert_eq!(
+        response.0.len(),
+        2,
+        "delete should affect only limited rows"
+    );
+}

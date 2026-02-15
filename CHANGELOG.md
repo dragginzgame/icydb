@@ -20,7 +20,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Added empty-batch no-op regression coverage for atomic and non-atomic lanes.
 * Added observability assertions for batch lanes to distinguish atomic success, atomic pre-commit failure, and non-atomic partial-prefix failure metrics.
 * Added recovery dispatch regression coverage that rejects unknown marker entity paths with explicit `Unsupported` errors and no partial replay apply.
+* Added hook-integrity recovery regression coverage proving miswired entity dispatch fails as explicit `Corruption` and does not partially apply marker rows.
 * Expanded reserved-namespace compile-fail coverage to reject index names where a non-leading `|` segment enters the reserved `~` namespace.
+* Added storage-snapshot corruption regressions to ensure malformed data/index keys increment corruption counters and never leak into entity/user/system rollups.
+* Added delete post-access structural regression coverage to lock that delete `limit` applies through delete-limit semantics (not load-style paging) after ordering/filtering.
 
 ### 🧊 Changed
 

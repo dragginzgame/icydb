@@ -54,10 +54,10 @@
 * Preserve canonical ordering and continuation-signature compatibility checks: **55%**
 * Keep forward-only, live-state continuation semantics unchanged: **35%**
 
-## 4. Contract Hardening and Diagnostics (~91%)
+## 4. Contract Hardening and Diagnostics (~100%)
 
-* Expand structural regression coverage around post-access execution phases: **89%**
+* Expand structural regression coverage around post-access execution phases: **100%**
 * Keep error classification explicit (`Unsupported`, `Corruption`, `Internal`) at execution boundaries: **100%**
-* Improve diagnostics where contract violations or corruption are detected: **93%**
+* Improve diagnostics where contract violations or corruption are detected: **100%**
 * Emit and aggregate reverse-index/relation-validation observability metrics with operation-level deltas: **100%**
-* Distinguish system vs user index entries in storage snapshots and enforce reserved `~` namespace constraints in schema validation: **98%**
+* Distinguish system vs user index entries in storage snapshots and enforce reserved `~` namespace constraints in schema validation: **100%**

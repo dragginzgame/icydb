@@ -234,6 +234,17 @@ thread_local! {
 
 static DB: Db<RecoveryTestCanister> = Db::new_with_hooks(&STORE_REGISTRY, ENTITY_RUNTIME_HOOKS);
 
+// Intentionally miswired runtime hooks used only to verify dispatch invariants.
+static MISWIRED_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] =
+    &[EntityRuntimeHooks::new(
+        RecoveryTestEntity::PATH,
+        prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
+    )];
+
+static MISWIRED_DB: Db<RecoveryTestCanister> =
+    Db::new_with_hooks(&STORE_REGISTRY, MISWIRED_ENTITY_RUNTIME_HOOKS);
+
 fn with_recovery_store<R>(f: impl FnOnce(crate::db::store::StoreHandle) -> R) -> R {
     DB.with_store_registry(|reg| reg.try_get_store(RecoveryTestDataStore::PATH).map(f))
         .expect("recovery test store access should succeed")
@@ -421,6 +432,62 @@ fn recovery_rejects_unsupported_entity_path_without_fallback() {
     );
 
     // Cleanup so unrelated tests do not observe this intentionally-unsupported marker.
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
+}
+
+#[test]
+fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
+    reset_recovery_state();
+
+    let entity = RecoveryTestEntity {
+        id: Ulid::from_u128(912),
+    };
+    let raw_key = DataKey::try_new::<RecoveryTestEntity>(entity.id)
+        .expect("data key should build")
+        .to_raw()
+        .expect("data key should encode");
+    let row_bytes = serialize(&entity).expect("entity serialization should succeed");
+    let marker = CommitMarker::new(vec![CommitRowOp::new(
+        RecoveryTestEntity::PATH,
+        raw_key.as_bytes().to_vec(),
+        None,
+        Some(row_bytes),
+    )])
+    .expect("commit marker creation should succeed");
+
+    begin_commit(marker).expect("begin_commit should persist marker");
+
+    let err = ensure_recovered_for_write(&MISWIRED_DB)
+        .expect_err("miswired hook dispatch should fail with path mismatch corruption");
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message.contains("commit marker entity path mismatch"),
+        "dispatch corruption should include mismatch context: {err:?}"
+    );
+    assert!(
+        err.message.contains(RecoveryIndexedEntity::PATH),
+        "dispatch corruption should include the hook-expected entity path: {err:?}"
+    );
+    assert!(
+        err.message.contains(RecoveryTestEntity::PATH),
+        "dispatch corruption should include the marker entity path: {err:?}"
+    );
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "marker should remain present when recovery dispatch detects hook mismatch"
+    );
+    assert_eq!(
+        row_bytes_for(&raw_key),
+        None,
+        "recovery must not partially apply rows when hook/entity dispatch mismatches"
+    );
+
+    // Cleanup so unrelated tests do not observe this intentionally-corrupt marker.
     store::with_commit_store(|store| {
         store.clear_infallible();
         Ok(())
