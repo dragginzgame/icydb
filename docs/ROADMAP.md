@@ -7,6 +7,7 @@ All guarantees, invariants, and limits for released versions are defined in:
 
 - `docs/ATOMICITY.md`
 - `docs/REF_INTEGRITY.md`
+- `docs/TRANSACTION_SEMANTICS.md`
 
 This roadmap describes **where the system is going**, not what is currently guaranteed.
 Implementation cleanup tasks supporting this direction are tracked separately.
@@ -85,7 +86,7 @@ This goal does **not** change the 0.8 contract.
 Specifically:
 
 - Existing `*_many_non_atomic` helpers remain fail-fast and non-atomic
-- Any stronger batch semantics are opt-in (for example, `*_many_atomic`)
+- Any stronger batch semantics are opt-in (for example, `*_many_atomic`) and currently single-entity-type only
 - No implicit transactional behavior is introduced
 - No multi-entity transaction guarantees exist today
 

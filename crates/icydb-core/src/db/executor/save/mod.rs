@@ -144,11 +144,12 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         Ok(out)
     }
 
-    /// Save a batch atomically in a single commit window.
+    /// Save a single-entity-type batch atomically in a single commit window.
     ///
-    /// All entities are prevalidated first; if any entity fails pre-commit
-    /// validation, no row in this batch is persisted.
-    #[expect(clippy::too_many_lines)]
+    /// All entities are prevalidated first; if any entity fails pre-commit validation,
+    /// no row in this batch is persisted.
+    ///
+    /// This is not a multi-entity transaction surface.
     pub fn save_batch_atomic(
         &self,
         mode: SaveMode,
@@ -180,7 +181,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 Self::ensure_entity_invariants(&entity)?;
                 self.validate_strong_relations(&entity)?;
 
-                let (marker_row_op, data_key) = self.prepare_marker_row_op(&ctx, mode, &entity)?;
+                let (marker_row_op, data_key) = Self::prepare_marker_row_op(&ctx, mode, &entity)?;
                 if !seen_row_keys.insert(marker_row_op.key.clone()) {
                     return Err(InternalError::new(
                         ErrorClass::Unsupported,
@@ -271,7 +272,9 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         result
     }
 
-    /// Insert a batch atomically in one commit window.
+    /// Insert a single-entity-type batch atomically in one commit window.
+    ///
+    /// This API is not a multi-entity transaction surface.
     pub fn insert_many_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
@@ -279,7 +282,9 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         self.save_batch_atomic(SaveMode::Insert, entities)
     }
 
-    /// Update a batch atomically in one commit window.
+    /// Update a single-entity-type batch atomically in one commit window.
+    ///
+    /// This API is not a multi-entity transaction surface.
     pub fn update_many_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
@@ -287,7 +292,9 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         self.save_batch_atomic(SaveMode::Update, entities)
     }
 
-    /// Replace a batch atomically in one commit window.
+    /// Replace a single-entity-type batch atomically in one commit window.
+    ///
+    /// This API is not a multi-entity transaction surface.
     pub fn replace_many_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
@@ -327,7 +334,6 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
     // Prepare one row operation for marker-based apply without mutating stores.
     fn prepare_marker_row_op(
-        &self,
         ctx: &Context<'_, E>,
         mode: SaveMode,
         entity: &E,
@@ -402,7 +408,6 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         Ok(())
     }
 
-    #[expect(clippy::too_many_lines)]
     fn save_entity(&self, mode: SaveMode, mut entity: E) -> Result<E, InternalError> {
         let mut commit_started = false;
         let trace = start_exec_trace(
@@ -427,7 +432,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             // Enforce explicit strong relations before commit planning.
             self.validate_strong_relations(&entity)?;
 
-            let (marker_row_op, data_key) = self.prepare_marker_row_op(&ctx, mode, &entity)?;
+            let (marker_row_op, data_key) = Self::prepare_marker_row_op(&ctx, mode, &entity)?;
             self.debug_log(format!("save {:?} on {} (key={})", mode, E::PATH, data_key));
 
             // Preflight data store availability before index mutations.

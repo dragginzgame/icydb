@@ -431,6 +431,226 @@ fn recovery_replay_merges_multi_row_shared_index_key() {
 }
 
 #[test]
+fn recovery_replays_interrupted_atomic_batch_marker_and_is_idempotent() {
+    reset_recovery_state();
+
+    let first = RecoveryIndexedEntity {
+        id: Ulid::from_u128(907),
+        group: 9,
+    };
+    let second = RecoveryIndexedEntity {
+        id: Ulid::from_u128(908),
+        group: 9,
+    };
+
+    let first_key = DataKey::try_new::<RecoveryIndexedEntity>(first.id)
+        .expect("first data key should build")
+        .to_raw()
+        .expect("first data key should encode");
+    let second_key = DataKey::try_new::<RecoveryIndexedEntity>(second.id)
+        .expect("second data key should build")
+        .to_raw()
+        .expect("second data key should encode");
+    let first_row = serialize(&first).expect("first entity serialization should succeed");
+    let second_row = serialize(&second).expect("second entity serialization should succeed");
+
+    // Simulate an interrupted atomic batch by persisting the marker without apply.
+    let marker = CommitMarker::new(vec![
+        CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            first_key.as_bytes().to_vec(),
+            None,
+            Some(first_row.clone()),
+        ),
+        CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            second_key.as_bytes().to_vec(),
+            None,
+            Some(second_row.clone()),
+        ),
+    ])
+    .expect("commit marker creation should succeed");
+    begin_commit(marker).expect("begin_commit should persist marker");
+
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be present before recovery replay"
+    );
+    assert_eq!(
+        row_bytes_for(&first_key),
+        None,
+        "interrupted batch rows must not be visible before recovery replay"
+    );
+    assert_eq!(
+        row_bytes_for(&second_key),
+        None,
+        "interrupted batch rows must not be visible before recovery replay"
+    );
+    assert!(
+        indexed_ids_for(&first).is_none(),
+        "interrupted batch index state must not be visible before recovery replay"
+    );
+
+    // First replay applies marker row ops and clears the marker.
+    ensure_recovered_for_write(&DB).expect("first recovery replay should succeed");
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "commit marker should be cleared after first replay"
+    );
+    let first_after = row_bytes_for(&first_key);
+    let second_after = row_bytes_for(&second_key);
+    assert_eq!(first_after, Some(first_row));
+    assert_eq!(second_after, Some(second_row));
+
+    let expected_ids = [first.id, second.id].into_iter().collect::<BTreeSet<_>>();
+    let indexed_after = indexed_ids_for(&first).expect("index entry should exist after replay");
+    assert_eq!(indexed_after, expected_ids);
+
+    // Second replay is a no-op on already recovered state.
+    ensure_recovered_for_write(&DB).expect("second recovery replay should be a no-op");
+    assert_eq!(row_bytes_for(&first_key), first_after);
+    assert_eq!(row_bytes_for(&second_key), second_after);
+    let indexed_second =
+        indexed_ids_for(&first).expect("index entry should remain after idempotent replay");
+    assert_eq!(indexed_second, expected_ids);
+}
+
+#[expect(clippy::too_many_lines)]
+#[test]
+fn recovery_replays_interrupted_atomic_update_batch_marker_and_is_idempotent() {
+    reset_recovery_state();
+
+    let old_first = RecoveryIndexedEntity {
+        id: Ulid::from_u128(909),
+        group: 10,
+    };
+    let old_second = RecoveryIndexedEntity {
+        id: Ulid::from_u128(910),
+        group: 10,
+    };
+    let new_first = RecoveryIndexedEntity {
+        id: old_first.id,
+        group: 11,
+    };
+    let new_second = RecoveryIndexedEntity {
+        id: old_second.id,
+        group: 11,
+    };
+
+    let first_key = DataKey::try_new::<RecoveryIndexedEntity>(old_first.id)
+        .expect("first data key should build")
+        .to_raw()
+        .expect("first data key should encode");
+    let second_key = DataKey::try_new::<RecoveryIndexedEntity>(old_second.id)
+        .expect("second data key should build")
+        .to_raw()
+        .expect("second data key should encode");
+
+    let old_first_row = serialize(&old_first).expect("old first serialization should succeed");
+    let old_second_row = serialize(&old_second).expect("old second serialization should succeed");
+    let new_first_row = serialize(&new_first).expect("new first serialization should succeed");
+    let new_second_row = serialize(&new_second).expect("new second serialization should succeed");
+
+    // Phase 1: establish the pre-update durable state (group=10).
+    let seed_marker = CommitMarker::new(vec![
+        CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            first_key.as_bytes().to_vec(),
+            None,
+            Some(old_first_row.clone()),
+        ),
+        CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            second_key.as_bytes().to_vec(),
+            None,
+            Some(old_second_row.clone()),
+        ),
+    ])
+    .expect("seed marker creation should succeed");
+    begin_commit(seed_marker).expect("seed begin_commit should persist marker");
+    ensure_recovered_for_write(&DB).expect("seed replay should succeed");
+
+    let expected_ids = [old_first.id, old_second.id]
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let old_indexed_ids =
+        indexed_ids_for(&old_first).expect("old index entry should exist after seed replay");
+    assert_eq!(old_indexed_ids, expected_ids);
+    assert_eq!(row_bytes_for(&first_key), Some(old_first_row.clone()));
+    assert_eq!(row_bytes_for(&second_key), Some(old_second_row.clone()));
+
+    // Phase 2: simulate an interrupted atomic update marker (group=10 -> group=11).
+    let update_marker = CommitMarker::new(vec![
+        CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            first_key.as_bytes().to_vec(),
+            Some(old_first_row),
+            Some(new_first_row.clone()),
+        ),
+        CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            second_key.as_bytes().to_vec(),
+            Some(old_second_row),
+            Some(new_second_row.clone()),
+        ),
+    ])
+    .expect("update marker creation should succeed");
+    begin_commit(update_marker).expect("update begin_commit should persist marker");
+
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "update marker should be present before recovery replay"
+    );
+    assert_eq!(
+        row_bytes_for(&first_key),
+        Some(serialize(&old_first).expect("old first serialization should succeed")),
+        "pre-recovery row bytes should still reflect old update state"
+    );
+    assert_eq!(
+        row_bytes_for(&second_key),
+        Some(serialize(&old_second).expect("old second serialization should succeed")),
+        "pre-recovery row bytes should still reflect old update state"
+    );
+    let pre_update_old_indexed =
+        indexed_ids_for(&old_first).expect("old index entry should still exist pre-recovery");
+    assert_eq!(pre_update_old_indexed, expected_ids);
+    assert!(
+        indexed_ids_for(&new_first).is_none(),
+        "new index entry must not be visible before update replay"
+    );
+
+    // First replay applies update row ops and clears the marker.
+    ensure_recovered_for_write(&DB).expect("update replay should succeed");
+    assert!(
+        !commit_marker_present().expect("commit marker check should succeed"),
+        "update marker should be cleared after replay"
+    );
+    let first_after = row_bytes_for(&first_key);
+    let second_after = row_bytes_for(&second_key);
+    assert_eq!(first_after, Some(new_first_row));
+    assert_eq!(second_after, Some(new_second_row));
+    assert!(
+        indexed_ids_for(&old_first).is_none(),
+        "old index key should be removed after update replay"
+    );
+    let new_indexed_ids =
+        indexed_ids_for(&new_first).expect("new index entry should exist after update replay");
+    assert_eq!(new_indexed_ids, expected_ids);
+
+    // Second replay is a no-op on already recovered state.
+    ensure_recovered_for_write(&DB).expect("second update replay should be a no-op");
+    assert_eq!(row_bytes_for(&first_key), first_after);
+    assert_eq!(row_bytes_for(&second_key), second_after);
+    assert!(
+        indexed_ids_for(&old_first).is_none(),
+        "old index key should remain absent after idempotent replay"
+    );
+    let new_indexed_second =
+        indexed_ids_for(&new_first).expect("new index entry should remain after idempotent replay");
+    assert_eq!(new_indexed_second, expected_ids);
+}
+
+#[test]
 fn recovery_replay_mixed_save_save_delete_sequence_preserves_final_index_state() {
     reset_recovery_state();
 

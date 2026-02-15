@@ -813,6 +813,38 @@ fn insert_many_atomic_rejects_partial_commit_on_late_failure() {
 }
 
 #[test]
+fn insert_many_atomic_rejects_duplicate_keys_in_request() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<TargetEntity>::new(DB, false);
+    let dup = Ulid::from_u128(47);
+    let err = save
+        .insert_many_atomic(vec![TargetEntity { id: dup }, TargetEntity { id: dup }])
+        .expect_err("atomic insert batch should reject duplicate keys in one request");
+    assert_eq!(
+        err.class,
+        ErrorClass::Unsupported,
+        "duplicate key request should fail deterministic pre-commit validation",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "duplicate key request should fail at executor boundary",
+    );
+    assert!(
+        err.message.contains("duplicate key"),
+        "unexpected error: {err:?}",
+    );
+
+    let rows = with_data_store(TargetStore::PATH, |data_store| data_store.iter().count());
+    assert_eq!(
+        rows, 0,
+        "duplicate-key atomic batch must not persist any row"
+    );
+}
+
+#[test]
 fn insert_many_non_atomic_commits_prefix_before_late_failure() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();

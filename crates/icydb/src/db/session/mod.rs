@@ -125,9 +125,11 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(WriteResponse::from_core(self.inner.insert(entity)?))
     }
 
-    /// Insert a batch atomically in one commit window.
+    /// Insert a single-entity-type batch atomically in one commit window.
     ///
     /// If any item fails pre-commit validation, no row in the batch is persisted.
+    ///
+    /// This API is not a multi-entity transaction surface.
     pub fn insert_many_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
@@ -162,9 +164,11 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(WriteResponse::from_core(self.inner.replace(entity)?))
     }
 
-    /// Replace a batch atomically in one commit window.
+    /// Replace a single-entity-type batch atomically in one commit window.
     ///
     /// If any item fails pre-commit validation, no row in the batch is persisted.
+    ///
+    /// This API is not a multi-entity transaction surface.
     pub fn replace_many_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,
@@ -214,9 +218,11 @@ impl<C: CanisterKind> DbSession<C> {
         self.update(entity)
     }
 
-    /// Update a batch atomically in one commit window.
+    /// Update a single-entity-type batch atomically in one commit window.
     ///
     /// If any item fails pre-commit validation, no row in the batch is persisted.
+    ///
+    /// This API is not a multi-entity transaction surface.
     pub fn update_many_atomic<E>(
         &self,
         entities: impl IntoIterator<Item = E>,

@@ -41,6 +41,8 @@ strong relations.
 IcyDB 0.9 will define and ship explicit transaction-facing semantics without
 silently changing existing non-transaction APIs.
 
+Current semantics are specified in `docs/TRANSACTION_SEMANTICS.md`.
+
 **Goals**
 
 * Keep transactional behavior explicit and opt-in
@@ -50,6 +52,7 @@ silently changing existing non-transaction APIs.
 **Outcomes**
 
 * A clear boundary between existing non-atomic helpers and explicit transactional behavior
+* Atomic batch semantics are explicit via `*_many_atomic` APIs (single entity type per call)
 * Predictable migration path for users who need stronger multi-mutation guarantees
 
 **Non-Goals**

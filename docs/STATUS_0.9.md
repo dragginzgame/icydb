@@ -21,6 +21,8 @@
 
 - [ ] Advance explicit transaction semantics surface (opt-in only; no behavior change for existing batch helpers).  
   Owner: `Codex`
+  Progress (2026-02-15): shipped opt-in `*_many_atomic` APIs for single-entity-type batch saves, kept `*_many_non_atomic` semantics unchanged, and added explicit transaction semantics docs plus focused regressions.
+  Progress (2026-02-15): added interrupted-marker replay coverage for atomic batch row-op markers and verified replay idempotency.
 - [ ] Continue pagination performance work without changing cursor semantics, ordering guarantees, or continuation validation rules.  
   Owner: `Codex`
 
@@ -39,11 +41,11 @@
 * Preserve explicit weak-relation behavior (no existence validation): **100%**
 * Keep semantics validation-only (no implicit cascades): **100%**
 
-## 2. Explicit Transaction Semantics (Opt-In Surface) (~33%)
+## 2. Explicit Transaction Semantics (Opt-In Surface) (~62%)
 
-* Keep transactional behavior explicit and opt-in: **45%**
-* Preserve existing fail-fast, non-atomic batch helper semantics unless users adopt explicit transaction APIs: **40%**
-* Ship formal semantics, recovery behavior, and failure-mode tests alongside any transactional surface: **15%**
+* Keep transactional behavior explicit and opt-in: **70%**
+* Preserve existing fail-fast, non-atomic batch helper semantics unless users adopt explicit transaction APIs: **65%**
+* Ship formal semantics, recovery behavior, and failure-mode tests alongside any transactional surface: **50%**
 
 ## 3. Pagination Efficiency Without Semantic Drift (~35%)
 

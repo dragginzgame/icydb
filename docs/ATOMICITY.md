@@ -148,9 +148,13 @@ IcyDB now exposes two explicit batch lanes:
 * `insert_many_atomic` / `update_many_atomic` / `replace_many_atomic` are
   atomic within a single entity type. If any item fails pre-commit
   validation, the whole batch fails and no row from that batch is persisted.
+  This is not multi-entity transaction support.
 * `insert_many_non_atomic` / `update_many_non_atomic` /
   `replace_many_non_atomic` are fail-fast and non-atomic. Partial successes
   may commit before an error is returned.
+
+Detailed batch-lane behavior and edge cases are defined in
+`docs/TRANSACTION_SEMANTICS.md`.
 
 ### Delete (single entity or planner-based)
 

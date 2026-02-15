@@ -5,6 +5,43 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.8.4] – 2026-02-15 - Explicit Transaction Semantics Milestone
+
+### 🧁 Summary
+
+* Completed the Step 2 milestone for explicit transaction semantics in the 0.9 track by shipping opt-in atomic batch APIs: `insert_many_atomic`, `update_many_atomic`, and `replace_many_atomic`.
+* These APIs are **single-entity-type batch atomicity only**. They are **not** multi-entity transactions.
+* Existing `*_many_non_atomic` helpers remain fail-fast and non-atomic; no implicit behavior change was introduced.
+* Added explicit semantics and recovery wording in docs, plus replay/idempotency coverage for interrupted atomic batch markers.
+* Progress and scope references: [transaction semantics](docs/TRANSACTION_SEMANTICS.md), [atomicity](docs/ATOMICITY.md), [0.9 status](docs/STATUS_0.9.md), [0.9 plan](docs/PLAN_0.9.md), and [roadmap](docs/ROADMAP.md).
+
+### 🛼 Changed
+
+* Added opt-in `_many_atomic` batch APIs for single-entity-type writes, with all-or-nothing behavior per batch.
+* Added explicit API/docs language that this surface does not provide multi-entity transaction coordination.
+
+`_many_atomic` usage example (single entity type only):
+
+```rust
+// Single-entity-type atomic batch:
+// all User rows commit, or none do.
+let users = vec![
+    User { id: user_a, email: "a@example.com".into() },
+    User { id: user_b, email: "b@example.com".into() },
+];
+
+let saved = db
+    .session()
+    .insert_many_atomic(users)?;
+
+assert_eq!(saved.len(), 2);
+
+// Not allowed as one atomic batch:
+// mixing User + Order would require a separate multi-entity transaction model.
+```
+
+---
+
 ## [0.8.3] – 2026-02-15 - Strong RI Milestone
 
 ### 🥥 Summary
