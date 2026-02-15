@@ -2,57 +2,51 @@
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
 
-# IcyDB — Data Model Framework for the Internet Computer
+# IcyDB — Data Models for Internet Computer Canisters
 
 <img src="assets/icydblogo.svg" alt="IcyDB logo" width="220"/> <img src="assets/swampfree.png" alt="100% Certified Swamp-Free" width="120"/>
 
-> Battle-tested, schema-first data models for Internet Computer canisters.
+> Schema-first data models for Internet Computer canisters.
 > Built for [Dragginz](https://dragginz.io/), now open to everyone.
 
 ---
 
-## 👋 Overview
+## What Is IcyDB?
 
-**IcyDB** is a Rust framework for building **strongly-typed, queryable data models**
-inside Internet Computer canisters.
+**IcyDB** is a Rust framework that helps you:
 
-It provides:
-- declarative entity definitions,
-- typed query intent with explicit semantics,
-- deterministic planning and execution,
-- and stable-memory–backed storage with predictable behavior.
+- define your canister data as typed Rust entities,
+- query that data with a fluent API,
+- store data in stable memory,
+- and recover safely if a write is interrupted.
 
-IcyDB is designed for **single-message atomicity**, explicit correctness guarantees,
-and mechanical enforcement of architectural boundaries.
+If you are new to this space: think of IcyDB as a way to get "database-like" structure and safety while still writing normal Rust code.
 
 ---
 
-## ✨ Highlights
+## Why Use It?
 
-- **Entity macros** — define schema-first entities declaratively.
-- **Typed query intent** — build queries as `Query<E>` with explicit semantics.
-- **Deterministic planning** — validated, executor-safe plans only.
-- **Stable storage** — data is persisted in stable memory (not heap), with deterministic commit and recovery, backed by CanIC B-trees.
-- **Path dispatch** — `icydb_build` generates internal routing helpers.
-- **Observability endpoints** — `icydb_snapshot`, `icydb_metrics`, `icydb_metrics_reset`.
-- **IC integration** — ergonomic `icydb::build!` and `icydb::start!` macros.
-- **Testability** — fixtures, predicate validation, index testing utilities.
+- **Less boilerplate**: generate common data model code with macros.
+- **Typed queries**: work with `User`, `Order`, etc. directly instead of loose maps.
+- **Stable-memory persistence**: data survives upgrades.
+- **Predictable behavior**: query and write paths are validated and tested.
+- **Built-in diagnostics**: metrics and storage snapshot endpoints are generated for you.
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
-### Toolchain
+### 1. Toolchain
 
-- **Rust 1.93.1** (edition 2024)
-- Install with:
-  ```bash
-  rustup toolchain install 1.93.1
-  ```
+- Rust `1.93.1` (edition 2024)
 
-### Add IcyDB
+```bash
+rustup toolchain install 1.93.1
+```
 
-Use a pinned git tag for reproducible builds:
+### 2. Add IcyDB
+
+Use a pinned git tag so builds are repeatable:
 
 ```toml
 [dependencies]
@@ -61,7 +55,7 @@ icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
 
 ---
 
-## 🚀 Example
+## Example
 
 ### Define an entity
 
@@ -69,7 +63,7 @@ icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
 use icydb::prelude::*;
 
 #[entity(
-    pk(field = "id", source = "internal"), // use "external" when IDs are supplied externally
+    pk(field = "id", source = "internal"), // use "external" if IDs come from callers
     fields(
         field(ident = "id", value(item(prim = "Ulid"))),
         field(ident = "name", value(item(prim = "Text"))),
@@ -79,15 +73,7 @@ use icydb::prelude::*;
 pub struct User;
 ```
 
-Primary keys use `pk(field = "id", source = "internal" | "external")`.
-
----
-
-### Build and execute a query
-
-Queries are built as **typed intent** and executed through the public session facade.
-For session-bound fluent queries, use `db!().load::<User>()` (returns `SessionLoadQuery`)
-or `db!().delete::<User>()` (returns `SessionDeleteQuery`).
+### Query data
 
 ```rust
 use icydb::prelude::*;
@@ -105,39 +91,44 @@ pub fn users_named_ann() -> Result<Vec<View<User>>, icydb::Error> {
 }
 ```
 
-Key properties:
+---
 
-* Entity type is fixed at construction (`Query<User>`).
-* Missing-row behavior is explicit (`ReadConsistency`).
-* Session execution uses validated plans internally; planner/executor internals are not part of the facade contract.
-* Primary-key predicates use the normal predicate surface; the planner may optimize them into key/index access paths.
-* `by_id`/`by_ids` are ergonomic helpers over typed primary-key values (`Id<E>`) for entity-kind correctness; IDs are public lookup inputs, not authorization tokens.
-* Ordering coercion defaults are unified across `FieldRef` and `FilterExpr` (`NumericWiden` for `Lt`/`Lte`/`Gt`/`Gte`). See `docs/QUERY_CONTRACT.md` and `docs/QUERY_PRACTICE.md` for full predicate semantics.
-* Identity and primary-key invariants are defined in `docs/IDENTITY_CONTRACT.md`.
+## Helpful Notes
+
+- `db!().load::<User>()` gives you a typed load query.
+- `db!().delete::<User>()` gives you a typed delete query.
+- IDs are typed as `Id<E>` for better safety.
+- Planning/execution internals stay inside the framework; the public API stays focused and ergonomic.
+
+For deeper rules and behavior:
+
+- `docs/QUERY_CONTRACT.md`
+- `docs/QUERY_PRACTICE.md`
+- `docs/IDENTITY_CONTRACT.md`
 
 ---
 
-## 🏗️ Project Layout
+## Project Layout
 
-* `icydb/` — meta crate re-exporting the public API.
-* `crates/icydb-core` — runtime (entities, traits, query engine, stores).
-* `crates/icydb-schema-derive` — proc-macros for schema, traits, and views.
-* `crates/icydb-schema` — schema AST, builder, and validation.
-* `crates/icydb-build` — build-time codegen for actors, queries, metrics.
-* `crates/icydb-schema-tests` — integration and design tests.
-* `assets/`, `scripts/`, `Makefile` — docs, helpers, workspace tasks.
+- `crates/icydb` — public API crate.
+- `crates/icydb-core` — runtime, query engine, stores.
+- `crates/icydb-schema-derive` — procedural macros for schema/types.
+- `crates/icydb-schema` — schema AST and validation.
+- `crates/icydb-build` — build-time codegen for canister wiring.
+- `crates/icydb-schema-tests` — integration/design tests.
+- `assets`, `scripts`, `Makefile` — docs, helpers, workspace commands.
 
 ---
 
-## 📟 Observability & Tooling
+## Observability Endpoints
 
-The following endpoints are generated automatically:
+IcyDB generates these canister methods:
 
-* `icydb_snapshot()` → live `StorageReport`
-* `icydb_metrics(since_ms: Option<u64>)` → metrics window report, filtered by window start timestamp
-* `icydb_metrics_reset()` → clears metrics state
+- `icydb_snapshot()` -> current storage report
+- `icydb_metrics(since_ms: Option<u64>)` -> metrics since a timestamp
+- `icydb_metrics_reset()` -> clears in-memory metrics
 
-Example usage:
+Example:
 
 ```bash
 dfx canister call <canister> icydb_snapshot
@@ -148,9 +139,7 @@ dfx canister call <canister> icydb_metrics_reset
 
 ---
 
-## 🧑‍💻 Local Development
-
-Workspace commands (see `Makefile`):
+## Local Development
 
 ```bash
 make check      # type-check workspace
@@ -162,29 +151,19 @@ make build      # release build
 
 Pre-commit hooks run:
 
-* `cargo fmt -- --check`
-* `cargo sort --check`
-* `cargo sort-derives --check`
+- `cargo fmt -- --check`
+- `cargo sort --check`
+- `cargo sort-derives --check`
 
 ---
 
-### Style & Conventions
+## Versioning and Security
 
-* Prefer typed errors (`thiserror`) over panics in library code.
-* Keep functions small and single-purpose.
-* Use explicit semantics over implicit defaults.
-* Co-locate unit tests; integration tests live under `crates/icydb-schema-tests`.
-* No backward-compatibility guarantee yet — breaking changes are documented.
+- Tags are treated as immutable.
+- Pin to a specific tag in production.
+- Avoid floating branches for production deployments.
 
----
-
-## 🔒 Versioning & Security
-
-* Git tags are treated as **immutable by project policy**.
-* Production users should always pin to a specific tag.
-* Floating branches are not recommended for production.
-
-Verify available tags:
+Check tags:
 
 ```bash
 git ls-remote --tags https://github.com/dragginzgame/icydb.git
@@ -192,21 +171,21 @@ git ls-remote --tags https://github.com/dragginzgame/icydb.git
 
 ---
 
-## 📊 Current Focus
+## Current Focus
 
-* Expanding documentation and runnable examples.
-* Increasing test coverage across query and index paths.
-* Tracking memory usage and store statistics in production.
-* Reducing WASM size produced by `icydb_build`.
-* Defining and delivering future transactional semantics (see `docs/ROADMAP.md`).
+- Better docs and runnable examples.
+- More test coverage across query/index behavior.
+- Better production metrics and storage visibility.
+- Smaller generated Wasm output from `icydb_build`.
+- Future transaction work (see `docs/ROADMAP.md`).
 
 ---
 
-## 📄 License
+## License
 
-Licensed under either of:
+Licensed under either:
 
-* Apache License, Version 2.0 (`LICENSE-APACHE`)
-* MIT License (`LICENSE-MIT`)
+- Apache License, Version 2.0 (`LICENSE-APACHE`)
+- MIT License (`LICENSE-MIT`)
 
 at your option.
