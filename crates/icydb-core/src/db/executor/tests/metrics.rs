@@ -306,4 +306,121 @@ fn blocked_target_delete_emits_relation_validation_metrics() {
         "relation validation should perform reverse lookups"
     );
     assert_eq!(blocks, 1, "blocked delete should be counted once");
+    assert_eq!(
+        count_reverse_index_inserts(&events, RelationTargetEntity::PATH),
+        0,
+        "blocked target delete must not emit reverse-index insert deltas",
+    );
+    assert_eq!(
+        count_reverse_index_removes(&events, RelationTargetEntity::PATH),
+        0,
+        "blocked target delete must not emit reverse-index remove deltas",
+    );
+}
+
+#[test]
+fn allowed_target_delete_emits_relation_lookup_without_block() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_id = Ulid::generate();
+    SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .insert(RelationTargetEntity { id: target_id })
+        .expect("target insert should succeed");
+
+    let sink = CaptureSink::default();
+    with_metrics_sink(&sink, || {
+        let plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+            .delete()
+            .by_id(target_id)
+            .plan()
+            .expect("target delete plan should build");
+        DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+            .execute(plan)
+            .expect("target delete should succeed");
+    });
+    let events = sink.into_events();
+
+    let (lookups, blocks) = relation_validation_totals(&events, RelationSourceEntity::PATH);
+    assert!(
+        lookups >= 1,
+        "allowed target delete should still emit reverse-lookup validation metrics",
+    );
+    assert_eq!(
+        blocks, 0,
+        "allowed target delete should not emit block counts"
+    );
+}
+
+#[test]
+fn save_missing_strong_relation_emits_no_reverse_index_delta() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let sink = CaptureSink::default();
+    with_metrics_sink(&sink, || {
+        SaveExecutor::<RelationSourceEntity>::new(REL_DB, false)
+            .insert(RelationSourceEntity {
+                id: Ulid::generate(),
+                target: Ulid::generate(),
+            })
+            .expect_err("source save should fail when strong target is missing");
+    });
+    let events = sink.into_events();
+
+    assert_eq!(
+        count_reverse_index_inserts(&events, RelationSourceEntity::PATH),
+        0,
+        "failed strong-relation save must not emit reverse-index insert deltas",
+    );
+    assert_eq!(
+        count_reverse_index_removes(&events, RelationSourceEntity::PATH),
+        0,
+        "failed strong-relation save must not emit reverse-index remove deltas",
+    );
+}
+
+#[test]
+fn save_relation_retarget_update_emits_reverse_index_remove_and_insert() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_a = Ulid::generate();
+    let target_b = Ulid::generate();
+    let source_id = Ulid::generate();
+
+    SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .insert(RelationTargetEntity { id: target_a })
+        .expect("target A insert should succeed");
+    SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .insert(RelationTargetEntity { id: target_b })
+        .expect("target B insert should succeed");
+    SaveExecutor::<RelationSourceEntity>::new(REL_DB, false)
+        .insert(RelationSourceEntity {
+            id: source_id,
+            target: target_a,
+        })
+        .expect("source insert should succeed");
+
+    let sink = CaptureSink::default();
+    with_metrics_sink(&sink, || {
+        SaveExecutor::<RelationSourceEntity>::new(REL_DB, false)
+            .replace(RelationSourceEntity {
+                id: source_id,
+                target: target_b,
+            })
+            .expect("source retarget update should succeed");
+    });
+    let events = sink.into_events();
+
+    assert_eq!(
+        count_reverse_index_removes(&events, RelationSourceEntity::PATH),
+        1,
+        "retarget update should emit one reverse-index remove delta",
+    );
+    assert_eq!(
+        count_reverse_index_inserts(&events, RelationSourceEntity::PATH),
+        1,
+        "retarget update should emit one reverse-index insert delta",
+    );
 }

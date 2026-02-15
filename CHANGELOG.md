@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.8.3] – 2026-02-15 - Strong RI Milestone
+
+### 🥥 Summary
+
+* Completed the 0.9 Strong Referential Integrity milestone (delete-time strong relation protection, reverse-index replay coverage, deterministic pre-commit validation, RI error-class standardization, operator diagnostics, and metrics delta validation).
+* Progress and scope references: [0.9 status](docs/STATUS_0.9.md), [0.9 plan](docs/PLAN_0.9.md), and [roadmap](docs/ROADMAP.md).
+
+---
+
 ## [0.8.2] – 2026-02-15 - Reverse Index Integrity
 
 ### 🧲 Changed

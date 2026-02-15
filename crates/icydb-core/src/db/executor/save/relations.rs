@@ -71,7 +71,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
             let value = entity.get_value(field.name).ok_or_else(|| {
                 InternalError::new(
-                    ErrorClass::InvariantViolation,
+                    ErrorClass::Internal,
                     ErrorOrigin::Executor,
                     format!("entity field missing: {} field={}", E::PATH, field.name),
                 )
@@ -112,7 +112,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         // Phase 1: normalize the key into a storage-compatible form.
         let storage_key = StorageKey::try_from_value(value).map_err(|err| {
             InternalError::new(
-                ErrorClass::InvariantViolation,
+                ErrorClass::Unsupported,
                 ErrorOrigin::Executor,
                 format!(
                     "strong relation key not storage-compatible: source={} field={} target={} value={value:?} ({err})",
@@ -124,7 +124,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         })?;
         let entity_name = EntityName::try_from_str(relation.target_entity_name).map_err(|err| {
             InternalError::new(
-                ErrorClass::InvariantViolation,
+                ErrorClass::Internal,
                 ErrorOrigin::Executor,
                 format!(
                     "strong relation target name invalid: source={} field={} target={} name={} ({err})",
@@ -149,7 +149,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             .with_store_registry(|reg| reg.try_get_store(relation.target_store_path))
             .map_err(|err| {
                 InternalError::new(
-                    ErrorClass::InvariantViolation,
+                    ErrorClass::Internal,
                     ErrorOrigin::Executor,
                     format!(
                         "strong relation target store missing: source={} field={} target={} store={} key={value:?} ({err})",
@@ -163,7 +163,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         let exists = store.with_data(|s| s.contains_key(&raw_key));
         if !exists {
             return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
+                ErrorClass::Unsupported,
                 ErrorOrigin::Executor,
                 format!(
                     "strong relation missing: source={} field={} target={} key={value:?}",

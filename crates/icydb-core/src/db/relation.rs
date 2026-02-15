@@ -84,7 +84,7 @@ where
 {
     let source_entity_name = EntityName::try_from_str(S::ENTITY_NAME).map_err(|err| {
         InternalError::new(
-            ErrorClass::InvariantViolation,
+            ErrorClass::Internal,
             ErrorOrigin::Index,
             format!(
                 "invalid source entity name while building reverse index id: source={} field={} ({err})",
@@ -111,7 +111,7 @@ where
     ];
     let name = IndexName::try_from_parts(&source_entity_name, &fields).map_err(|err| {
         InternalError::new(
-            ErrorClass::InvariantViolation,
+            ErrorClass::Internal,
             ErrorOrigin::Index,
             format!(
                 "reverse index id construction failed: source={} field={} target={} ({err})",
@@ -199,7 +199,7 @@ where
 {
     let value = source.get_value(relation.field_name).ok_or_else(|| {
         InternalError::new(
-            ErrorClass::InvariantViolation,
+            ErrorClass::Internal,
             ErrorOrigin::Executor,
             format!(
                 "entity field missing during strong relation processing: source={} field={}",
@@ -268,6 +268,19 @@ where
 {
     db.with_store_registry(|reg| reg.try_get_store(relation.target_store_path))
         .map(|store| store.index_store())
+        .map_err(|err| {
+            InternalError::new(
+                ErrorClass::Internal,
+                ErrorOrigin::Executor,
+                format!(
+                    "relation target store missing: source={} field={} target={} store={} ({err})",
+                    S::PATH,
+                    relation.field_name,
+                    relation.target_path,
+                    relation.target_store_path,
+                ),
+            )
+        })
 }
 
 /// Prepare reverse-index mutations for one source entity transition.
@@ -335,7 +348,7 @@ where
 
             let target_entity = EntityName::try_from_str(relation.target_entity_name).map_err(|err| {
                 InternalError::new(
-                    ErrorClass::InvariantViolation,
+                    ErrorClass::Internal,
                     ErrorOrigin::Executor,
                     format!(
                         "relation target entity invalid while preparing reverse index: source={} field={} target={} name={} ({err})",
@@ -452,7 +465,7 @@ where
 
             let target_entity = EntityName::try_from_str(relation.target_entity_name).map_err(|err| {
                 InternalError::new(
-                    ErrorClass::InvariantViolation,
+                    ErrorClass::Internal,
                     ErrorOrigin::Executor,
                     format!(
                         "strong relation target entity invalid during delete validation: source={} field={} target={} name={} ({err})",
@@ -528,14 +541,9 @@ where
                         blocked_deletes: 1,
                     });
                     return Err(InternalError::new(
-                        ErrorClass::Conflict,
+                        ErrorClass::Unsupported,
                         ErrorOrigin::Executor,
-                        format!(
-                            "delete blocked by strong relation: source={} field={} source_id={source_key:?} target={} key={target_value:?}",
-                            S::PATH,
-                            relation.field_name,
-                            relation.target_path,
-                        ),
+                        blocked_delete_diagnostic::<S>(relation, source_key, &target_value),
                     ));
                 }
             }
@@ -543,6 +551,23 @@ where
     }
 
     Ok(())
+}
+
+// Format operator-facing blocked-delete diagnostics with actionable context.
+fn blocked_delete_diagnostic<S>(
+    relation: StrongRelationInfo,
+    source_key: S::Key,
+    target_value: &Value,
+) -> String
+where
+    S: EntityKind + EntityValue,
+{
+    format!(
+        "delete blocked by strong relation: source_entity={} source_field={} source_id={source_key:?} target_entity={} target_key={target_value:?}; action=delete source rows or retarget relation before deleting target",
+        S::PATH,
+        relation.field_name,
+        relation.target_path,
+    )
 }
 
 // Convert a relation value to its target raw data key representation.
@@ -556,7 +581,7 @@ where
 {
     let storage_key = StorageKey::try_from_value(value).map_err(|err| {
         InternalError::new(
-            ErrorClass::InvariantViolation,
+            ErrorClass::Unsupported,
             ErrorOrigin::Executor,
             format!(
                 "strong relation key not storage-compatible during relation processing: source={} field={} target={} value={value:?} ({err})",
@@ -569,7 +594,7 @@ where
 
     let entity_name = EntityName::try_from_str(relation.target_entity_name).map_err(|err| {
         InternalError::new(
-            ErrorClass::InvariantViolation,
+            ErrorClass::Internal,
             ErrorOrigin::Executor,
             format!(
                 "strong relation target entity invalid during relation processing: source={} field={} target={} name={} ({err})",

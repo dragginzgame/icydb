@@ -272,6 +272,93 @@ impl EntityValue for SourceEntity {
 }
 
 ///
+/// InvalidRelationMetadataEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct InvalidRelationMetadataEntity {
+    id: Ulid,
+    target: Ulid,
+}
+
+impl AsView for InvalidRelationMetadataEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for InvalidRelationMetadataEntity {}
+impl SanitizeCustom for InvalidRelationMetadataEntity {}
+impl ValidateAuto for InvalidRelationMetadataEntity {}
+impl ValidateCustom for InvalidRelationMetadataEntity {}
+impl Visitable for InvalidRelationMetadataEntity {}
+
+impl Path for InvalidRelationMetadataEntity {
+    const PATH: &'static str = "save_tests::InvalidRelationMetadataEntity";
+}
+
+impl EntityKey for InvalidRelationMetadataEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for InvalidRelationMetadataEntity {
+    const ENTITY_NAME: &'static str = "InvalidRelationMetadataEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static INVALID_RELATION_METADATA_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "target",
+        kind: EntityFieldKind::Relation {
+            target_path: TargetEntity::PATH,
+            target_entity_name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            target_store_path: TargetStore::PATH,
+            key_kind: &EntityFieldKind::Ulid,
+            strength: RelationStrength::Strong,
+        },
+    },
+];
+static INVALID_RELATION_METADATA_FIELD_NAMES: [&str; 2] = ["id", "target"];
+static INVALID_RELATION_METADATA_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static INVALID_RELATION_METADATA_MODEL: EntityModel = entity_model_from_static(
+    "save_tests::InvalidRelationMetadataEntity",
+    "InvalidRelationMetadataEntity",
+    &INVALID_RELATION_METADATA_FIELDS[0],
+    &INVALID_RELATION_METADATA_FIELDS,
+    &INVALID_RELATION_METADATA_INDEXES,
+);
+
+impl EntitySchema for InvalidRelationMetadataEntity {
+    const MODEL: &'static EntityModel = &INVALID_RELATION_METADATA_MODEL;
+    const FIELDS: &'static [&'static str] = &INVALID_RELATION_METADATA_FIELD_NAMES;
+    const INDEXES: &'static [&'static crate::model::index::IndexModel] =
+        &INVALID_RELATION_METADATA_INDEXES;
+}
+
+impl EntityPlacement for InvalidRelationMetadataEntity {
+    type Store = SourceStore;
+    type Canister = TestCanister;
+}
+
+impl EntityKind for InvalidRelationMetadataEntity {}
+
+impl EntityValue for InvalidRelationMetadataEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+///
 /// SourceSetEntity
 ///
 
@@ -538,9 +625,46 @@ fn strong_relation_missing_fails_preflight() {
         .validate_strong_relations(&entity)
         .expect_err("expected missing strong relation to fail");
 
+    assert_eq!(
+        err.class,
+        ErrorClass::Unsupported,
+        "missing strong relation should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "missing strong relation should originate from executor validation",
+    );
     assert!(
         err.message.contains("strong relation missing"),
         "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn strong_relation_invalid_metadata_fails_internal() {
+    let executor = SaveExecutor::<InvalidRelationMetadataEntity>::new(DB, false);
+    let entity = InvalidRelationMetadataEntity {
+        id: Ulid::generate(),
+        target: Ulid::generate(),
+    };
+
+    let err = executor
+        .validate_strong_relations(&entity)
+        .expect_err("invalid relation metadata should fail deterministic preflight");
+    assert_eq!(
+        err.class,
+        ErrorClass::Internal,
+        "invalid relation metadata should classify as internal",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "invalid relation metadata should originate from executor boundary",
+    );
+    assert!(
+        err.message.contains("strong relation target name invalid"),
+        "unexpected error: {err:?}",
     );
 }
 
@@ -559,6 +683,16 @@ fn strong_set_relation_missing_key_fails_save() {
     let err = executor
         .insert(entity)
         .expect_err("missing set relation should fail");
+    assert_eq!(
+        err.class,
+        ErrorClass::Unsupported,
+        "missing set relation should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "missing set relation should originate from executor validation",
+    );
     assert!(
         err.message.contains("strong relation missing"),
         "unexpected error: {err:?}"
@@ -619,6 +753,16 @@ fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
             targets: vec![valid, invalid],
         })
         .expect_err("mixed valid/invalid set relation should fail");
+    assert_eq!(
+        err.class,
+        ErrorClass::Unsupported,
+        "missing strong relation in set should classify as unsupported",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "missing strong relation in set should originate from executor validation",
+    );
     assert!(
         err.message.contains("strong relation missing"),
         "unexpected error: {err:?}"
