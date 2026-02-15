@@ -152,6 +152,10 @@ where
                 .collect::<Result<BTreeSet<_>, InternalError>>()?;
             self.db
                 .validate_delete_strong_relations(E::PATH, &deleted_target_keys)?;
+            let response_ids = rows
+                .iter()
+                .map(|row| Ok(Id::from_key(row.key.try_key::<E>()?)))
+                .collect::<Result<Vec<_>, InternalError>>()?;
 
             // Preflight store access to ensure no fallible work remains post-commit.
             ctx.with_store(|_| ())?;
@@ -218,10 +222,13 @@ where
                 trace.phase(TracePhase::PostAccess, to_u64(post_access_rows));
             }
 
-            let res = rows
+            // Response identifiers are validated before begin_commit. The apply
+            // phase remains mechanical after the commit boundary.
+            let res = response_ids
                 .into_iter()
-                .map(|row| Ok((Id::from_key(row.key.try_key::<E>()?), row.entity)))
-                .collect::<Result<Vec<_>, InternalError>>()?;
+                .zip(rows)
+                .map(|(id, row)| (id, row.entity))
+                .collect::<Vec<_>>();
             set_rows_from_len(&mut span, res.len());
             self.debug_log(format!("Delete committed -> {} rows", res.len()));
 

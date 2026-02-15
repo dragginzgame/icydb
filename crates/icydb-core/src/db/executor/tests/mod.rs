@@ -541,6 +541,21 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
         crate::db::prepare_row_commit_for_entity::<RelationSourceEntity>,
         validate_delete_strong_relations_for_source::<RelationSourceEntity>,
     ),
+    EntityRuntimeHooks::new(
+        WeakSingleRelationSourceEntity::PATH,
+        crate::db::prepare_row_commit_for_entity::<WeakSingleRelationSourceEntity>,
+        validate_delete_strong_relations_for_source::<WeakSingleRelationSourceEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        WeakOptionalRelationSourceEntity::PATH,
+        crate::db::prepare_row_commit_for_entity::<WeakOptionalRelationSourceEntity>,
+        validate_delete_strong_relations_for_source::<WeakOptionalRelationSourceEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        WeakListRelationSourceEntity::PATH,
+        crate::db::prepare_row_commit_for_entity::<WeakListRelationSourceEntity>,
+        validate_delete_strong_relations_for_source::<WeakListRelationSourceEntity>,
+    ),
 ];
 
 static REL_DB: Db<RelationTestCanister> =
@@ -700,6 +715,268 @@ impl EntityPlacement for RelationSourceEntity {
 impl EntityKind for RelationSourceEntity {}
 
 impl EntityValue for RelationSourceEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+///
+/// WeakSingleRelationSourceEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct WeakSingleRelationSourceEntity {
+    id: Ulid,
+    target: Ulid,
+}
+
+impl AsView for WeakSingleRelationSourceEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for WeakSingleRelationSourceEntity {}
+impl SanitizeCustom for WeakSingleRelationSourceEntity {}
+impl ValidateAuto for WeakSingleRelationSourceEntity {}
+impl ValidateCustom for WeakSingleRelationSourceEntity {}
+impl Visitable for WeakSingleRelationSourceEntity {}
+
+impl Path for WeakSingleRelationSourceEntity {
+    const PATH: &'static str = "executor_tests::WeakSingleRelationSourceEntity";
+}
+
+impl EntityKey for WeakSingleRelationSourceEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for WeakSingleRelationSourceEntity {
+    const ENTITY_NAME: &'static str = "WeakSingleRelationSourceEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static REL_WEAK_SINGLE_SOURCE_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "target",
+        kind: EntityFieldKind::Relation {
+            target_path: RelationTargetEntity::PATH,
+            target_entity_name: RelationTargetEntity::ENTITY_NAME,
+            target_store_path: RelationTargetStore::PATH,
+            key_kind: &EntityFieldKind::Ulid,
+            strength: RelationStrength::Weak,
+        },
+    },
+];
+static REL_WEAK_SINGLE_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "target"];
+static REL_WEAK_SINGLE_SOURCE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static REL_WEAK_SINGLE_SOURCE_MODEL: EntityModel = entity_model_from_static(
+    "executor_tests::WeakSingleRelationSourceEntity",
+    "WeakSingleRelationSourceEntity",
+    &REL_WEAK_SINGLE_SOURCE_FIELDS[0],
+    &REL_WEAK_SINGLE_SOURCE_FIELDS,
+    &REL_WEAK_SINGLE_SOURCE_INDEXES,
+);
+
+impl EntitySchema for WeakSingleRelationSourceEntity {
+    const MODEL: &'static EntityModel = &REL_WEAK_SINGLE_SOURCE_MODEL;
+    const FIELDS: &'static [&'static str] = &REL_WEAK_SINGLE_SOURCE_FIELD_NAMES;
+    const INDEXES: &'static [&'static crate::model::index::IndexModel] =
+        &REL_WEAK_SINGLE_SOURCE_INDEXES;
+}
+
+impl EntityPlacement for WeakSingleRelationSourceEntity {
+    type Store = RelationSourceStore;
+    type Canister = RelationTestCanister;
+}
+
+impl EntityKind for WeakSingleRelationSourceEntity {}
+
+impl EntityValue for WeakSingleRelationSourceEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+///
+/// WeakOptionalRelationSourceEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct WeakOptionalRelationSourceEntity {
+    id: Ulid,
+    target: Option<Ulid>,
+}
+
+impl AsView for WeakOptionalRelationSourceEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for WeakOptionalRelationSourceEntity {}
+impl SanitizeCustom for WeakOptionalRelationSourceEntity {}
+impl ValidateAuto for WeakOptionalRelationSourceEntity {}
+impl ValidateCustom for WeakOptionalRelationSourceEntity {}
+impl Visitable for WeakOptionalRelationSourceEntity {}
+
+impl Path for WeakOptionalRelationSourceEntity {
+    const PATH: &'static str = "executor_tests::WeakOptionalRelationSourceEntity";
+}
+
+impl EntityKey for WeakOptionalRelationSourceEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for WeakOptionalRelationSourceEntity {
+    const ENTITY_NAME: &'static str = "WeakOptionalRelationSourceEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static REL_WEAK_OPTIONAL_SOURCE_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "target",
+        kind: EntityFieldKind::Relation {
+            target_path: RelationTargetEntity::PATH,
+            target_entity_name: RelationTargetEntity::ENTITY_NAME,
+            target_store_path: RelationTargetStore::PATH,
+            key_kind: &EntityFieldKind::Ulid,
+            strength: RelationStrength::Weak,
+        },
+    },
+];
+static REL_WEAK_OPTIONAL_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "target"];
+static REL_WEAK_OPTIONAL_SOURCE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static REL_WEAK_OPTIONAL_SOURCE_MODEL: EntityModel = entity_model_from_static(
+    "executor_tests::WeakOptionalRelationSourceEntity",
+    "WeakOptionalRelationSourceEntity",
+    &REL_WEAK_OPTIONAL_SOURCE_FIELDS[0],
+    &REL_WEAK_OPTIONAL_SOURCE_FIELDS,
+    &REL_WEAK_OPTIONAL_SOURCE_INDEXES,
+);
+
+impl EntitySchema for WeakOptionalRelationSourceEntity {
+    const MODEL: &'static EntityModel = &REL_WEAK_OPTIONAL_SOURCE_MODEL;
+    const FIELDS: &'static [&'static str] = &REL_WEAK_OPTIONAL_SOURCE_FIELD_NAMES;
+    const INDEXES: &'static [&'static crate::model::index::IndexModel] =
+        &REL_WEAK_OPTIONAL_SOURCE_INDEXES;
+}
+
+impl EntityPlacement for WeakOptionalRelationSourceEntity {
+    type Store = RelationSourceStore;
+    type Canister = RelationTestCanister;
+}
+
+impl EntityKind for WeakOptionalRelationSourceEntity {}
+
+impl EntityValue for WeakOptionalRelationSourceEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+///
+/// WeakListRelationSourceEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct WeakListRelationSourceEntity {
+    id: Ulid,
+    targets: Vec<Ulid>,
+}
+
+impl AsView for WeakListRelationSourceEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for WeakListRelationSourceEntity {}
+impl SanitizeCustom for WeakListRelationSourceEntity {}
+impl ValidateAuto for WeakListRelationSourceEntity {}
+impl ValidateCustom for WeakListRelationSourceEntity {}
+impl Visitable for WeakListRelationSourceEntity {}
+
+impl Path for WeakListRelationSourceEntity {
+    const PATH: &'static str = "executor_tests::WeakListRelationSourceEntity";
+}
+
+impl EntityKey for WeakListRelationSourceEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for WeakListRelationSourceEntity {
+    const ENTITY_NAME: &'static str = "WeakListRelationSourceEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static REL_WEAK_LIST_TARGET_KIND: EntityFieldKind = EntityFieldKind::Relation {
+    target_path: RelationTargetEntity::PATH,
+    target_entity_name: RelationTargetEntity::ENTITY_NAME,
+    target_store_path: RelationTargetStore::PATH,
+    key_kind: &EntityFieldKind::Ulid,
+    strength: RelationStrength::Weak,
+};
+static REL_WEAK_LIST_SOURCE_FIELDS: [EntityFieldModel; 2] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "targets",
+        kind: EntityFieldKind::List(&REL_WEAK_LIST_TARGET_KIND),
+    },
+];
+static REL_WEAK_LIST_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "targets"];
+static REL_WEAK_LIST_SOURCE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static REL_WEAK_LIST_SOURCE_MODEL: EntityModel = entity_model_from_static(
+    "executor_tests::WeakListRelationSourceEntity",
+    "WeakListRelationSourceEntity",
+    &REL_WEAK_LIST_SOURCE_FIELDS[0],
+    &REL_WEAK_LIST_SOURCE_FIELDS,
+    &REL_WEAK_LIST_SOURCE_INDEXES,
+);
+
+impl EntitySchema for WeakListRelationSourceEntity {
+    const MODEL: &'static EntityModel = &REL_WEAK_LIST_SOURCE_MODEL;
+    const FIELDS: &'static [&'static str] = &REL_WEAK_LIST_SOURCE_FIELD_NAMES;
+    const INDEXES: &'static [&'static crate::model::index::IndexModel] =
+        &REL_WEAK_LIST_SOURCE_INDEXES;
+}
+
+impl EntityPlacement for WeakListRelationSourceEntity {
+    type Store = RelationSourceStore;
+    type Canister = RelationTestCanister;
+}
+
+impl EntityKind for WeakListRelationSourceEntity {}
+
+impl EntityValue for WeakListRelationSourceEntity {
     fn id(&self) -> Id<Self> {
         Id::from_key(self.id)
     }

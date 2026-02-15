@@ -533,6 +533,175 @@ fn delete_target_succeeds_after_strong_referrer_is_removed() {
 }
 
 #[test]
+fn delete_allows_target_with_weak_single_referrer() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_id = Ulid::from_u128(9_111);
+    let source_id = Ulid::from_u128(9_112);
+
+    SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .insert(RelationTargetEntity { id: target_id })
+        .expect("target save should succeed");
+    SaveExecutor::<WeakSingleRelationSourceEntity>::new(REL_DB, false)
+        .insert(WeakSingleRelationSourceEntity {
+            id: source_id,
+            target: target_id,
+        })
+        .expect("weak source save should succeed");
+
+    let reverse_rows_before_delete = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_before_delete, 0,
+        "weak relation should not create reverse strong-relation index entries",
+    );
+
+    let target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(target_id)
+        .plan()
+        .expect("target delete plan should build");
+    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(target_delete_plan)
+        .expect("target delete should succeed for weak referrer");
+    assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
+
+    let source_plan = Query::<WeakSingleRelationSourceEntity>::new(ReadConsistency::MissingOk)
+        .by_id(source_id)
+        .plan()
+        .expect("source load plan should build");
+    let remaining_source = LoadExecutor::<WeakSingleRelationSourceEntity>::new(REL_DB, false)
+        .execute(source_plan)
+        .expect("source load should succeed");
+    assert_eq!(remaining_source.0.len(), 1, "weak source row should remain");
+    assert_eq!(
+        remaining_source.0[0].1.target, target_id,
+        "weak source relation value should be preserved",
+    );
+}
+
+#[test]
+fn delete_allows_target_with_weak_optional_referrer() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_id = Ulid::from_u128(9_121);
+    let source_id = Ulid::from_u128(9_122);
+
+    SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .insert(RelationTargetEntity { id: target_id })
+        .expect("target save should succeed");
+    SaveExecutor::<WeakOptionalRelationSourceEntity>::new(REL_DB, false)
+        .insert(WeakOptionalRelationSourceEntity {
+            id: source_id,
+            target: Some(target_id),
+        })
+        .expect("weak optional source save should succeed");
+
+    let reverse_rows_before_delete = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_before_delete, 0,
+        "weak optional relation should not create reverse strong-relation index entries",
+    );
+
+    let target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(target_id)
+        .plan()
+        .expect("target delete plan should build");
+    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(target_delete_plan)
+        .expect("target delete should succeed for weak optional referrer");
+    assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
+
+    let source_plan = Query::<WeakOptionalRelationSourceEntity>::new(ReadConsistency::MissingOk)
+        .by_id(source_id)
+        .plan()
+        .expect("source load plan should build");
+    let remaining_source = LoadExecutor::<WeakOptionalRelationSourceEntity>::new(REL_DB, false)
+        .execute(source_plan)
+        .expect("source load should succeed");
+    assert_eq!(
+        remaining_source.0.len(),
+        1,
+        "weak optional source row should remain"
+    );
+    assert_eq!(
+        remaining_source.0[0].1.target,
+        Some(target_id),
+        "weak optional source relation value should be preserved",
+    );
+}
+
+#[test]
+fn delete_allows_target_with_weak_list_referrer() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_relation_stores();
+
+    let target_id = Ulid::from_u128(9_131);
+    let source_id = Ulid::from_u128(9_132);
+
+    SaveExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .insert(RelationTargetEntity { id: target_id })
+        .expect("target save should succeed");
+    SaveExecutor::<WeakListRelationSourceEntity>::new(REL_DB, false)
+        .insert(WeakListRelationSourceEntity {
+            id: source_id,
+            targets: vec![target_id],
+        })
+        .expect("weak list source save should succeed");
+
+    let reverse_rows_before_delete = REL_DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(RelationTargetStore::PATH)
+                .map(|store| store.with_index(crate::db::index::IndexStore::len))
+        })
+        .expect("target index store access should succeed");
+    assert_eq!(
+        reverse_rows_before_delete, 0,
+        "weak list relation should not create reverse strong-relation index entries",
+    );
+
+    let target_delete_plan = Query::<RelationTargetEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(target_id)
+        .plan()
+        .expect("target delete plan should build");
+    let deleted_targets = DeleteExecutor::<RelationTargetEntity>::new(REL_DB, false)
+        .execute(target_delete_plan)
+        .expect("target delete should succeed for weak list referrer");
+    assert_eq!(deleted_targets.0.len(), 1, "target row should be removed");
+
+    let source_plan = Query::<WeakListRelationSourceEntity>::new(ReadConsistency::MissingOk)
+        .by_id(source_id)
+        .plan()
+        .expect("source load plan should build");
+    let remaining_source = LoadExecutor::<WeakListRelationSourceEntity>::new(REL_DB, false)
+        .execute(source_plan)
+        .expect("source load should succeed");
+    assert_eq!(
+        remaining_source.0.len(),
+        1,
+        "weak list source row should remain"
+    );
+    assert_eq!(
+        remaining_source.0[0].1.targets,
+        vec![target_id],
+        "weak list source relation values should be preserved",
+    );
+}
+
+#[test]
 fn strong_relation_reverse_index_tracks_source_lifecycle() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();
