@@ -433,14 +433,7 @@ where
     }
 
     // Strict continuation: keep only rows greater than the boundary under canonical order.
-    let mut filtered = Vec::with_capacity(rows.len());
-    for row in rows.drain(..) {
-        let ordering = compare_entity_with_boundary::<E>(row.entity(), order, boundary);
-        if ordering == Ordering::Greater {
-            filtered.push(row);
-        }
-    }
-    *rows = filtered;
+    rows.retain(|row| compare_entity_with_boundary::<E>(row.entity(), order, boundary).is_gt());
 
     Ok(())
 }

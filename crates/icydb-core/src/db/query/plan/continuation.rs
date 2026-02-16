@@ -83,6 +83,37 @@ pub(crate) fn decode_primary_key_cursor_slot<K: FieldValue>(
     }
 }
 
+/// Decode the primary-key slot from a validated cursor boundary using typed key semantics.
+pub(crate) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
+    model: &EntityModel,
+    order: &OrderSpec,
+    boundary: &CursorBoundary,
+) -> Result<K, PlanError> {
+    let pk_field = model.primary_key.name;
+    let pk_index = order
+        .fields
+        .iter()
+        .position(|(field, _)| field == pk_field)
+        .ok_or_else(|| PlanError::MissingPrimaryKeyTieBreak {
+            field: pk_field.to_string(),
+        })?;
+
+    let schema = SchemaInfo::from_entity_model(model).map_err(PlanError::PredicateInvalid)?;
+    let expected = schema
+        .field(pk_field)
+        .expect("primary key exists by model contract")
+        .to_string();
+    let pk_slot = &boundary.slots[pk_index];
+
+    decode_primary_key_cursor_slot::<K>(pk_slot).map_err(|err| {
+        PlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+            field: pk_field.to_string(),
+            expected,
+            value: err.into_mismatch_value(),
+        }
+    })
+}
+
 /// Decode a typed primary-key cursor boundary for PK-ordered executor paths.
 pub(crate) fn decode_pk_cursor_boundary<E>(
     boundary: Option<&CursorBoundary>,

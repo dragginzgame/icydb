@@ -233,7 +233,21 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    // Shared save-facade wrappers keep metrics wiring and response shaping uniform.
+    // Shared save-facade wrapper keeps metrics wiring and response shaping uniform.
+    fn execute_save_with<E, T, R>(
+        &self,
+        op: impl FnOnce(SaveExecutor<E>) -> Result<T, InternalError>,
+        map: impl FnOnce(T) -> R,
+    ) -> Result<R, InternalError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let value = self.with_metrics(|| op(self.save_executor::<E>()))?;
+
+        Ok(map(value))
+    }
+
+    // Shared save-facade wrappers keep response shape explicit at call sites.
     fn execute_save_entity<E>(
         &self,
         op: impl FnOnce(SaveExecutor<E>) -> Result<E, InternalError>,
@@ -241,8 +255,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let entity = self.with_metrics(|| op(self.save_executor::<E>()))?;
-        Ok(WriteResponse::new(entity))
+        self.execute_save_with(op, WriteResponse::new)
     }
 
     fn execute_save_batch<E>(
@@ -252,8 +265,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        let entities = self.with_metrics(|| op(self.save_executor::<E>()))?;
-        Ok(WriteBatchResponse::new(entities))
+        self.execute_save_with(op, WriteBatchResponse::new)
     }
 
     fn execute_save_view<E>(
@@ -263,7 +275,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
-        self.with_metrics(|| op(self.save_executor::<E>()))
+        self.execute_save_with(op, std::convert::identity)
     }
 
     // ---------------------------------------------------------------------

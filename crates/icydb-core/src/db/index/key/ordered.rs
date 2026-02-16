@@ -82,7 +82,7 @@ fn encode_component_payload(
         }
         Value::Blob(_) | Value::List(_) | Value::Map(_) => {
             Err(OrderedValueEncodeError::UnsupportedValueKind {
-                kind: value_kind_label(value),
+                kind: value.canonical_tag().label(),
             })
         }
         Value::Bool(v) => {
@@ -393,37 +393,6 @@ const fn ordered_f64_bytes(value: f64) -> [u8; 8] {
     };
 
     ordered.to_be_bytes()
-}
-
-const fn value_kind_label(value: &Value) -> &'static str {
-    match value {
-        Value::Account(_) => "Account",
-        Value::Blob(_) => "Blob",
-        Value::Bool(_) => "Bool",
-        Value::Date(_) => "Date",
-        Value::Decimal(_) => "Decimal",
-        Value::Duration(_) => "Duration",
-        Value::Enum(_) => "Enum",
-        Value::E8s(_) => "E8s",
-        Value::E18s(_) => "E18s",
-        Value::Float32(_) => "Float32",
-        Value::Float64(_) => "Float64",
-        Value::Int(_) => "Int",
-        Value::Int128(_) => "Int128",
-        Value::IntBig(_) => "IntBig",
-        Value::List(_) => "List",
-        Value::Map(_) => "Map",
-        Value::Null => "Null",
-        Value::Principal(_) => "Principal",
-        Value::Subaccount(_) => "Subaccount",
-        Value::Text(_) => "Text",
-        Value::Timestamp(_) => "Timestamp",
-        Value::Uint(_) => "Uint",
-        Value::Uint128(_) => "Uint128",
-        Value::UintBig(_) => "UintBig",
-        Value::Ulid(_) => "Ulid",
-        Value::Unit => "Unit",
-    }
 }
 
 #[cfg(test)]

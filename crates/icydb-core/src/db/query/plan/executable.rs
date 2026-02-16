@@ -4,10 +4,11 @@ use crate::{
         plan::{
             ContinuationSignature, CursorBoundary, ExplainPlan, LogicalPlan, PlanError,
             PlanFingerprint,
-            continuation::{decode_primary_key_cursor_slot, decode_validated_cursor_boundary},
+            continuation::{
+                decode_typed_primary_key_cursor_slot, decode_validated_cursor_boundary,
+            },
         },
         policy,
-        predicate::SchemaInfo,
     },
     traits::{EntityKind, FieldValue},
 };
@@ -79,27 +80,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         )?;
 
         // Typed key decode is the final authority for PK cursor slots.
-        let pk_field = E::MODEL.primary_key.name;
-        let pk_index = order
-            .fields
-            .iter()
-            .position(|(field, _)| field == pk_field)
-            .ok_or_else(|| PlanError::MissingPrimaryKeyTieBreak {
-                field: pk_field.to_string(),
-            })?;
-        let expected = SchemaInfo::from_entity_model(E::MODEL)
-            .map_err(PlanError::PredicateInvalid)?
-            .field(pk_field)
-            .expect("primary key exists by model contract")
-            .to_string();
-        let pk_slot = &boundary.slots[pk_index];
-        let _pk_key = decode_primary_key_cursor_slot::<E::Key>(pk_slot).map_err(|err| {
-            PlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                field: pk_field.to_string(),
-                expected,
-                value: err.into_mismatch_value(),
-            }
-        })?;
+        let _pk_key = decode_typed_primary_key_cursor_slot::<E::Key>(E::MODEL, order, &boundary)?;
 
         Ok(Some(boundary))
     }

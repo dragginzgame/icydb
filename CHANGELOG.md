@@ -8,12 +8,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.10.2] – 2026-02-16
 
-### 🪲 Cleanup
+### 🧹 Cleanup
 
-* Centralized `AccessPlan` projection in one shared visitor used by explain, trace, plan metrics, and hash encoding. This reduces drift risk when access variants evolve.
-* Centralized plan-shape semantics in `query::policy`, so intent checks now wrap policy errors instead of re-encoding rules in multiple layers.
-* Centralized commit-window setup for save and delete executors in one shared helper, reducing drift risk across single, batch, and delete commit paths.
-* Centralized pushdown surface mapping through one shared eligibility projection used by explain and trace, so adding new matrix outcomes requires fewer synchronized edits.
+* `AccessPlan` projection now uses one shared path for explain, trace, metrics, and hashing. This reduces repeated edits when access types change.
+* Plan-shape rules now live in `query::policy`, and other layers wrap those errors instead of re-implementing them. This keeps behavior aligned.
+* Save and delete commit-window setup now uses one shared helper. This keeps single, batch, and delete flows consistent.
+* Explain and trace now share one pushdown mapping. New pushdown outcomes only need to be added in one place.
+* Value type tags now come from one canonical source across normalization, ordering, and fingerprinting. This removes duplicated tag tables.
+* Index-prefix compatibility checks and cursor primary-key decoding now use shared helpers. This lowers planner/executor drift risk.
+* Reduced temporary allocations in cursor filtering and predicate sort-key encoding for cleaner hot-path behavior.
 
 ## [0.10.1] – 2026-02-16
 
@@ -21,13 +24,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.10.0] – 2026-02-16 - Index Key Ordering
 
-### 🧃 Summary
+### 📝 Summary
 
 * `0.10.0` begins IndexKey v2.  It was hashed before, now it's a canonical byte slice that can be ordered.
 * Goal: keep index key bytes and key ordering stable across upgrades.
 * Coming Next: all the cool stuff orderable indexes bring.
 
-### 🪼 Changed
+### 🔧 Changed
 
 * Index keys now use a framed format with explicit lengths for each part.
 * Index component encoding is now fully canonical and deterministic.
@@ -43,7 +46,7 @@ Index key format (`v0.10`):
 [pk_len:u16be][pk_bytes]
 ```
 
-### 🧩 Testing
+### 🧪 Testing
 
 * Added golden-byte tests that fail if key encoding changes.
 * Added corruption tests for invalid lengths, truncation, and trailing bytes.
@@ -54,7 +57,7 @@ Index key format (`v0.10`):
 * Added startup-rebuild tests that prove stale index entries are replaced by canonical entries rebuilt from row data.
 * Added fail-closed rebuild tests that prove index state is rolled back if rebuild encounters corrupt rows.
 
-### 🥨 Cleanup
+### 🧹 Cleanup
 
 * Replaced many `#[allow(...)]` attributes with `#[expect(...)]` where valid, and removed unfulfilled expects.
 
@@ -69,19 +72,19 @@ assert_eq!(decoded.to_raw().as_bytes(), raw.as_bytes());
 
 ## [0.9.0] – 2026-02-15 - Strengthening Release
 
-### 🧭 Summary
+### 📝 Summary
 
 * `0.9.0` focuses on safer deletes, clearer batch-write behavior, and stronger query execution checks.
 * Existing `0.8.x` user-facing behavior stays the same in key areas (cursor format, storage format, and default write semantics).
 
-### 🪵 Changed
+### 🔧 Changed
 
 * Strong relation checks now block deletes that would leave broken references.
 * Batch writes now have clear lanes: atomic (`*_many_atomic`) and non-atomic (`*_many_non_atomic`).
 * Ordered pagination does less unnecessary work while keeping the same results.
 * Planner and executor checks were tightened to catch invalid states earlier.
 
-### 🥝 Fixed
+### 🩹 Fixed
 
 * Recovery replay for interrupted writes is now more reliable and repeat-safe.
 * Error categories are clearer (`Unsupported`, `Corruption`, `Internal`) across relation/index paths.
@@ -99,13 +102,13 @@ assert_eq!(saved.len(), users.len()); // all-or-nothing for this batch
 
 ## [0.8.5] – 2026-02-15 - Transaction Semantics Hardening
 
-### 🪁 Summary
+### 📝 Summary
 
 * This release tightens and clarifies the batch write behavior introduced in `0.8.4`.
 * `_many_atomic` is confirmed as all-or-nothing for one entity type.
 * `_many_non_atomic` remains fail-fast with partial commits allowed.
 
-### 🧯 Testing
+### 🧪 Testing
 
 * Added more conflict tests for atomic and non-atomic update/replace batch flows.
 * Added tests that confirm invalid strong relations fail atomic batches without partial writes.
@@ -114,7 +117,7 @@ assert_eq!(saved.len(), users.len()); // all-or-nothing for this batch
 * Added tests for reserved index namespaces and storage corruption counters.
 * Added tests to confirm delete `limit` is applied in the correct execution phase.
 
-### 🧊 Changed
+### 🔧 Changed
 
 * Updated docs with simpler guidance on choosing atomic vs non-atomic batch writes.
 * Improved ordered pagination performance for common first-page queries.
@@ -133,14 +136,14 @@ if result.is_err() {
 
 ## [0.8.4] – 2026-02-15 - Explicit Transaction Semantics Milestone
 
-### 🧁 Summary
+### 📝 Summary
 
 * Added opt-in atomic batch APIs: `insert_many_atomic`, `update_many_atomic`, and `replace_many_atomic`.
 * These are atomic only within one entity type.
 * They are not full multi-entity transactions.
 * Existing non-atomic batch APIs were kept as-is.
 
-### 🛼 Changed
+### 🔧 Changed
 
 * Added an explicit all-or-nothing batch lane for single-entity writes.
 * Updated docs to clearly explain atomic vs non-atomic behavior.
@@ -161,7 +164,7 @@ assert_eq!(saved.len(), 2);
 
 ## [0.8.3] – 2026-02-15 - Strong RI Milestone
 
-### 🥥 Summary
+### 📝 Summary
 
 * Completed the strong referential integrity milestone for the `0.9` plan.
 * Deletes now better protect against broken strong references, and related replay/diagnostic paths are better covered by tests.
@@ -182,18 +185,18 @@ assert!(err.to_string().contains("strong relation"));
 
 ## [0.8.2] – 2026-02-15 - Reverse Index Integrity
 
-### 🧲 Changed
+### 🔧 Changed
 
 * Strong-relation delete checks now use reverse indexes instead of full source scans.
 * Reverse-index updates now follow the same commit/recovery path as row updates.
 * Metrics now report reverse-index and relation-validation deltas more clearly.
 * Storage snapshots now separate user index entries from system index entries.
 
-### 🥨 Cleanup
+### 🧹 Cleanup
 
 * Simplified runtime dispatch by moving to one shared hook registry per entity.
 
-### 🍇 Breaking
+### ⚠️ Breaking
 
 * User index names in the reserved `~` namespace are now rejected at derive time.
 
@@ -208,29 +211,29 @@ Example (simplified):
 
 ## [0.8.1] – 2026-02-13 - Cursor Boundary Hardening
 
-### 🥔 Testing
+### 🧪 Testing
 
 * Added stronger tests for invalid cursor tokens (empty, bad hex, odd length).
 * Added live-state pagination tests for insert/delete changes between page requests.
 * Added more cursor codec roundtrip and edge-case tests.
 
-### 🍉 Fixed
+### 🩹 Fixed
 
 * Schema validation now catches data/index memory ID collisions earlier.
 
-### 🛹 Cleanup
+### 🧹 Cleanup
 
 * Broke index code into smaller modules and kept tests close to those modules.
 * Simplified index fingerprint storage to one inline value next to each index entry.
 * Removed no-longer-needed fingerprint memory config from schema metadata.
 
-### 🪿 Changed
+### 🔧 Changed
 
 * Store access now goes through one shared registry handle.
 * Index metrics now emit one delta event per commit apply.
 * Added replay tests for mixed save/save/delete flows on shared index keys.
 
-### 🧯 Breaking
+### ⚠️ Breaking
 
 * Duplicate store path registration is now rejected instead of silently replaced.
 * Store schema/runtime now uses a single combined store model instead of split data/index registries.
@@ -251,30 +254,30 @@ let err = Query::<User>::new(ReadConsistency::MissingOk)
 
 ## [0.8.0] – 2026-02-13 - Structural Correctness Baseline
 
-### 🥭 Summary
+### 📝 Summary
 
 * `0.8.0` focuses on making core query and pagination behavior predictable.
 * Goal: same input should reliably produce the same output.
 * Strong delete-side relation checks were planned for later `0.8.x` updates.
 
-### 🛷 Changed
+### 🔧 Changed
 
 * Pagination rules are now clearer and consistently enforced.
 * Collection behavior is now clearly documented for `List`, `Set`, and `Map`.
 * Added `icydb-primitives` to centralize scalar metadata.
 * Updated docs and roadmap language to reduce ambiguity.
 
-### 🦑 Breaking
+### ⚠️ Breaking
 
 * Generated view/create/update payload types now live in entity-local modules.
 * Call sites should use prelude aliases or explicit entity module paths.
 
-### 🧪 Fixed
+### 🩹 Fixed
 
 * Added wider regression coverage for cursor paging and uniqueness behavior.
 * Improved planner/query error and lint hygiene without changing user-facing query behavior.
 
-### 🧰 Cleanup
+### 🧹 Cleanup
 
 * Reduced duplicate internal logic in planning and mutation paths.
 * Centralized canonical value ordering/tagging behavior in shared modules.
@@ -291,21 +294,21 @@ let page2 = query.cursor(page1.next_cursor.unwrap()).execute()?;
 
 ## [0.7.21] – 2026-02-11 - Cursor Pagination, Part I
 
-### 🧰 Changed
+### 🔧 Changed
 
 * Cursor pagination now follows one clear execution order for filtering, ordering, cursor skip, and limits.
 * Cursor payloads are now encoded and validated earlier in planning.
 * Added typed pagination with `.page()`, which requires explicit order and limit.
 * Documented expected pagination consistency when data changes between requests.
 
-### 🧪 Fixed
+### 🩹 Fixed
 
 * Schema validation cache now stays isolated per entity type.
 * Singleton unit-key save/load behavior was tightened and covered with tests.
 * `next_cursor` is now based on the last row returned, reducing cursor drift.
 * Added stronger validation for malformed or mismatched cursor tokens.
 
-### 🦜 Cleanup
+### 🧹 Cleanup
 
 * Removed unused query error layers and unused error variants.
 * Removed dead missing-key patch error branches after no-op missing-key behavior.
@@ -323,7 +326,7 @@ let page = Query::<User>::new(ReadConsistency::MissingOk)
 
 ## [0.7.20] – 2026-02-11 - Calm After the Storm
 
-### 🧭 Changed
+### 🔧 Changed
 
 * Read paths now quickly check and replay pending commit markers before loading data.
 * Write recovery now uses the same recovery path as reads for consistency.
@@ -333,7 +336,7 @@ let page = Query::<User>::new(ReadConsistency::MissingOk)
 * Map patch behavior now matches list/set behavior: missing-key remove/replace is a no-op.
 * Removed disabled internal map-predicate branches.
 
-### 🥑 Fixed
+### 🩹 Fixed
 
 * Derive validation now rejects unsupported map value shapes earlier.
 * Map value conversion avoids panic on invalid entries and reports issues safely.
@@ -351,17 +354,17 @@ db.session().patch_by_id(user_id, update)?; // remove on missing key is a no-op
 
 ## [0.7.19] – 2026-02-10
 
-### 🥨 Changed
+### 🔧 Changed
 
 * `icydb-schema-derive` now treats field visibility as an entity/record responsibility: base `Field`/`FieldList` emission no longer hardcodes `pub(crate)`, entity fields are emitted as `pub(crate)`, and record fields are emitted as `pub`.
 
 ## [0.7.18] – 2026-02-10
 
-### 🥝 Added
+### ➕ Added
 
 * Icrc1::TokenAmount and Icrc1::Tokens provide a .units() -> u64 call
 
-### 🛶 Changed
+### 🔧 Changed
 
 * `Timestamp` now supports signed and unsigned scalar arithmetic (`u64`/`i64`) via `+`, `-`, `+=`, and `-=`, using saturating behavior for underflow/overflow and negative deltas.
 * `Duration` now supports the same signed and unsigned scalar arithmetic ergonomics (`u64`/`i64`) with saturating semantics.
@@ -371,16 +374,16 @@ db.session().patch_by_id(user_id, update)?; // remove on missing key is a no-op
 
 ## [0.7.15] – 2026-02-09
 
-### 🥝 Added
+### ➕ Added
 
 * Any Id<E> can now be turned into a ledger subaccount with `.subaccount()`
 * Added facade-level `UpdateView::merge` error promotion so patch failures are surfaced as `icydb::Error` with `ErrorKind::Update(UpdateErrorKind::Patch(...))`.
 
-### 🧪 Changed
+### 🔧 Changed
 
 * Generated relation `*_ids()` accessors for `many` cardinality now return `impl Iterator<Item = Id<Relation>> + '_` instead of allocating a `Vec<Id<Relation>>`, while preserving key-to-`Id` projection behavior.
 
-### 🧸 Breaking
+### ⚠️ Breaking
 
 * `icydb::patch` no longer exports `MergePatch` or `MergePatchError`; callers should use `UpdateView::merge` and handle facade `icydb::Error`.
 
@@ -388,12 +391,12 @@ db.session().patch_by_id(user_id, update)?; // remove on missing key is a no-op
 
 ## [0.7.12] – 2026-02-09
 
-### 🥝 Added
+### ➕ Added
 
 * Added `UpdateView` trait generation for schema-derived list/set/map/newtype/record/tuple/enum/entity types so patch payload typing is explicit at the view boundary.
 * Added `UpdateView` coverage for core container wrappers (`OrderedList`, `IdSet`) and structural containers (`Option`, `Vec`, `HashMap`, `HashSet`, `BTreeMap`, `BTreeSet`) using `ListPatch`/`SetPatch`/`MapPatch` payload shapes.
 
-### 🛰️ Changed
+### 🔧 Changed
 
 * Schema derives now route patch generation through `MergePatch` end-to-end (trait wiring, node dispatch, and emitted merge calls), while preserving existing `*Update` payload type names and patch shapes.
 * Merge payload typing now resolves through `<T as UpdateView>::UpdateViewType`; `MergePatch` implementations no longer define or consume a separate `Patch` associated type.
@@ -403,19 +406,19 @@ db.session().patch_by_id(user_id, update)?; // remove on missing key is a no-op
 
 ## [0.7.10] – 2026-02-09 - Facade Error Kinds
 
-### 🪑 Added
+### ➕ Added
 
 * Added structured facade error categories in `icydb::error` via `ErrorKind`, `QueryErrorKind`, `UpdateErrorKind`, `PatchError`, and `StoreErrorKind` so callers can branch on stable semantic error kinds instead of parsing messages.
 * Added explicit patch error lowering from `ViewPatchError` into facade `PatchError` variants, keeping patch failure handling user-facing and predictable.
 * Added `DbSession::patch_by_id` in the facade to execute load-merge-save in one boundary-owned operation, mapping merge failures into `ErrorKind::Update(UpdateErrorKind::Patch)` without exposing core patch errors to callers.
 * Added a dedicated `types::identity::GenerateKey` module trait so key generation capability is explicitly modeled at the identity layer.
 
-### 🧄 Changed
+### 🔧 Changed
 
 * Query error mapping in the facade now classifies validation/planning/intent failures as `Query(Invalid)`, unsupported features as `Query(Unsupported)`, and response cardinality failures as `Query(NotFound|NotUnique)`.
 * Internal execution failures continue to cross the facade as `ErrorKind::Internal` with preserved origin and message context.
 
-### 🦭 Breaking
+### ⚠️ Breaking
 
 * `icydb::Error` now exposes `kind` instead of the previous class-style taxonomy field, and the old facade `ErrorClass` surface is replaced by the new structured `ErrorKind` family.
 
@@ -423,17 +426,17 @@ db.session().patch_by_id(user_id, update)?; // remove on missing key is a no-op
 
 ## [0.7.9] – 2026-02-09 - Relation ID Accessors
 
-### 🛶 Added
+### ➕ Added
 
 * Added generated relation ID accessors on entity and record inherent impls for relation-backed fields, including `*_id()` for single/optional relations and `*_ids()` for many relations.
 * Accessors now return typed IDs (`Id<Relation>`) derived from stored primitive relation keys, so relation fields can remain `pub(crate)` without losing ergonomic read access.
 
-### 🧩 Changed
+### 🔧 Changed
 
 * Split inherent code generation into smaller focused modules (`entity`, `record`, `collection`, and relation accessor generation) to reduce coupling and make future schema macro changes easier to review.
 * Split view/mutation traits into dedicated modules so behavior contracts are clearer: `AsView` stays in `traits::view`, `CreateView` moved to `traits::create`, and `UpdateView` + `ViewPatchError` now live in `traits::update`.
 
-### 🦖 Breaking
+### ⚠️ Breaking
 
 * `UpdateView::merge` now returns `ViewPatchError` directly instead of `InternalError`, and patch classification (`NotFound`/`Unsupported`) is now applied at the error boundary via explicit conversion.
 * Removed `view` type aliases (`View<T>`, `Create<T>`, `Update<T>`); call sites now use associated types (`<T as AsView>::ViewType`, `<T as CreateView>::CreateViewType`, `<T as UpdateView>::UpdateViewType`).
@@ -442,7 +445,7 @@ db.session().patch_by_id(user_id, update)?; // remove on missing key is a no-op
 
 ## [0.7.7] – 2026-02-08 - Error Boundary and ID Naming
 
-### 🧲 Changed
+### 🔧 Changed
 
 * `UpdateView::merge` now returns `Error` instead of `ViewPatchError`, with patch failures bubbled through `InternalError` via `ErrorDetail::ViewPatch` while preserving contextual path/leaf diagnostics.
 * Standardized a broad set of accessor methods from `key()` to `id()` to align naming with typed identity usage across the public API.
@@ -451,13 +454,13 @@ db.session().patch_by_id(user_id, update)?; // remove on missing key is a no-op
 
 ## [0.7.4] – 2026-02-08
 
-### 🛼 Added
+### ➕ Added
 
 * Added contextual merge patch errors via `ViewPatchError::Context`, including `path()` and `leaf()` helpers, so callers can locate and classify update failures without depending on internal patch details.
 * Added explicit executor-level phase-order tests covering optional-field equality, `IN`/`CONTAINS`, and text predicates.
 * Added a structural post-access guard test plus `TracePhase::PostAccess` diagnostics so regressions in filter/order/pagination execution are detected at the executor boundary.
 
-### 🧂 Changed
+### 🔧 Changed
 
 * Restored post-access query execution in load/delete paths so predicate evaluation, ordering, pagination, and delete limits are applied deterministically from the logical plan.
 
@@ -470,23 +473,23 @@ db.session().patch_by_id(user_id, update)?; // remove on missing key is a no-op
 
 ## [0.7.2] – 2026-02-08 - Key Byte Contracts
 
-### 🧃 Summary
+### 📝 Summary
 
 0.7.1 standardizes primary-key byte encoding through `EntityKeyBytes` and simplifies external identity projection to hash canonical key bytes directly.
 This release also removes namespace-based projection metadata and makes key-byte encoding an explicit compile-time contract.
 
-### 🪴 Added
+### ➕ Added
 
 * Added `EntityKeyBytes` with explicit `BYTE_LEN` and `write_bytes` requirements for primary-key encoding.
 * Added `Id<E>::KEY_BYTES` and `Id<E>::into_key()` for explicit key-size introspection and key extraction.
 
-### 🪀 Changed
+### 🔧 Changed
 
 * `EntityKey::Key` now requires `EntityKeyBytes`, so key-encoding compatibility is checked at compile time.
 * `Id<E>::project()` is now a direct projection path over canonical key bytes using the projection domain tag.
 * Relaxed the docs so Codex stops faffing about the ID being a secret in a capability-first system
 
-### 🛟 Removed
+### 🗑️ Removed
 
 * Removed `Subaccount::from_ulid` in favor of explicit subaccount byte construction paths.
 
@@ -494,7 +497,7 @@ This release also removes namespace-based projection metadata and makes key-byte
 
 ## [0.7.0] – 2026-02-08 - Contract Freeze
 
-### 🧁 Summary
+### 📝 Summary
 
 0.7.0 freezes the core engine contracts for identity, query behavior, atomicity, and referential integrity.
 
@@ -502,7 +505,7 @@ Identity is now explicitly typed (`Id<E>`), query intent/planning boundaries are
 
 This release is the 0.7 baseline for deterministic behavior, compile-time schema rejection of illegal identity shapes, and bounded write-path enforcement without cascades.
 
-### 🥨 Added
+### ➕ Added
 
 * Added `strong`/`weak` relation flags in the schema DSL, with `weak` as the default.
 * Added a `Display` derive in `icydb-derive` for tuple newtypes.
@@ -517,7 +520,7 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 * Added `Id<E>` as a typed primary-key value that preserves entity-kind correctness.
 * Added parity coverage to keep keyability conversion paths aligned across `ScalarType::is_keyable`, `Value::as_storage_key`, and `StorageKey::try_from_value`.
 
-### 🪼 Changed
+### 🔧 Changed
 
 * Save operations now enforce referential integrity for `RelationStrength::Strong` fields and fail if targets are missing.
 * Write executors now perform a fast commit-marker check and replay recovery before mutations when needed; read recovery remains startup-only.
@@ -527,7 +530,7 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 * ORDER BY and model key-range validation now use a shared canonical value comparator instead of `Value::partial_cmp`, keeping query ordering behavior consistent for all orderable key types.
 * Documented that `Value::partial_cmp` is not the canonical database ordering path and should not be used for ORDER BY or key-range semantics.
 
-### 🧢 Breaking
+### ⚠️ Breaking
 
 * Entity and record fields with `many` cardinality now emit `OrderedList<T>` instead of `Vec<T>`.
 * Relation fields with `many` cardinality now emit `IdSet<T>` instead of list types like `Vec<Id<T>>`.
@@ -538,15 +541,15 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.6.20] – 2026-02-04
 
-### 🪿 Added
+### ➕ Added
 
 * Added `Blob::as_bytes()` and `Blob::as_mut_bytes()` for explicit byte access without deref.
 
-### 🧷 Changed
+### 🔧 Changed
 
 * Relation/external field suffix bans now apply only to relation and external fields (not arbitrary primitives like `my_api_id`).
 
-### 🪁 Fixed
+### 🩹 Fixed
 
 * Made `Id<T>` `Sync + Send` to fix the `*const` variant.
 
@@ -554,19 +557,19 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.6.17] – 2026-02-03 - Query Ergonomics
 
-### 🦩 Added
+### ➕ Added
 
 * Added `WriteResponse`/`WriteBatchResponse` helpers for write results, including key and view accessors.
 * Added `Nat::to_i64`/`to_u64` and `Int::to_i64`/`to_u64` for explicit integer conversion without deref.
 * Added `by_ref()` for query flow (later removed and replaced by `by_id()`/`by_ids()`).
 * Added `many_refs()` for query flow (later removed and replaced by `by_ids()`).
 
-### 🥪 Changed
+### 🔧 Changed
 
 * id_strict and key_strict to require_id and require_key to match other methods
 * Clarified schema error messaging for banned suffixes on field names
 
-### 🧯 Breaking
+### ⚠️ Breaking
 
 * Schema field names ending in `_id`, `_ids`, `_ref`, `_refs`, `_key`, or `_keys` now fail at compile time; relation fields were renamed to base nouns.
 * Singleton query `only()` no longer accepts an explicit ID and always uses the default singleton key.
@@ -575,19 +578,19 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.6.11] – 2026-02-03 - Decimals, Collections and Stuff
 
-### 🦩 Added
+### ➕ Added
 
 * Added a `get()` accessor to map collection inherent traits for explicit lookup without deref.
 * Added `Decimal::abs()` to expose absolute value math without deref.
 * Added `Blob::to_vec()` for explicit byte cloning without deref.
 
-### 🥪 Changed
+### 🔧 Changed
 
 * Planner access planning no longer re-validates predicates; validation is now owned by the intent/executor boundaries.
 * Consolidated primary-key compatibility checks to the shared `FieldType::is_keyable` rule to avoid drift across planner/validator layers.
 * Renamed primary_key() and similar methods in Response to key() for consistency
 
-### 🪁 Breaking
+### ⚠️ Breaking
 
 * `MapCollection::iter` now returns a GAT-backed iterator instead of a boxed trait object, so implementations and type annotations must update.
 * `Collection::iter` now returns a GAT-backed iterator instead of a boxed trait object, so implementations and type annotations must update.
@@ -597,11 +600,11 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.6.6] – 2026-02-03 - Diagnostic Test Reenablement
 
-### 🧁 Summary
+### 📝 Summary
 
 * Re-enabled query plan explain, fingerprint, and validation tests to guard planner determinism and invariants after the refactor.
 
-### 🛰️ Added
+### ➕ Added
 
 * Added `ByKeys` determinism checks for `ExplainPlan` and `PlanFingerprint` to lock in set semantics for key batches.
 * Added a typed-vs-model planning equivalence test to anchor `QueryModel`/`Query<E>` parity post-refactor.
@@ -610,13 +613,13 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.6.5] – 2026-02-03 - Derive Consolidation & Explicit Collections
 
-### 🧊 Summary
+### 📝 Summary
 
 * Introduced `QueryModel` to separate model-level intent, validation, and planning from typed `Query<E>` wrappers, reducing trait coupling in query logic.
 * Added the `icydb-derive` proc-macro crate for arithmetic and ordering derives on schema-generated types.
 * Relocated canister-centric tests to PocketIC-backed flows and removed canister builds from default `make test` runs.
 
-### 🍉 Added
+### ➕ Added
 
 * Added the `icydb-derive` proc-macro crate with `Add`, `AddAssign`, `Sub`, `SubAssign`, `Mul`, `MulAssign`, `Div`, `DivAssign`, and `Sum` derives for tuple newtypes.
 * Added a `Rem` derive for tuple newtypes and re-exported the `Rem` trait from `traits`.
@@ -632,7 +635,7 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 * Added explicit mutation APIs on list/set/map wrapper types (`push`, `insert`, `remove`, `clear`) without implicit container access.
 * Moved `PartialEq` derives to `icydb-derive` for schema-generated types.
 
-### 🧭 Changed
+### 🔧 Changed
 
 * Newtype arithmetic derives now route through `icydb-derive` (including `Div`/`DivAssign`) instead of `derive_more`.
 * `test_entity!` now requires an explicit `struct` block and derives `EntityKind::Id` from the primary key field’s Rust type, failing at compile time if the PK is missing from the struct or `fields {}`.
@@ -642,12 +645,12 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 * Updated `canic` to `0.9.17`.
 * `make test` no longer runs canister builds; `test-canisters` is now a no-op.
 
-### 🪂 Removed
+### 🗑️ Removed
 
 * Removed schema-derive `imp` implementations for `Add`/`AddAssign`/`Sub`/`SubAssign` in favor of derives.
 * Removed `Display` trait from schema-derive
 
-### 🧵 Fixed
+### 🩹 Fixed
 
 * Exported `Div`/`DivAssign` through `traits` so generated arithmetic derives resolve cleanly.
 * Session write APIs and query execution now require `EntityValue`, aligning runtime execution with value-level access.
@@ -657,7 +660,7 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.6.4] – 2026-02-01 - Explicit Key Boundaries
 
-### 🧱 Changed
+### 🔧 Changed
 
 * Removed `Into<...>` from `by_key` functions to keep primary key boundaries explicit (`by_key` was later replaced by `by_id`/`by_ids`).
 
@@ -665,14 +668,14 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.6.3] – 2026-02-01 - Primary Key Guardrails
 
-### 🪱 Fixed
+### 🩹 Fixed
 
 * Entity macros now reject relation fields as primary keys, preventing relation identities from being used as primary key types.
 * Primary key fields must have cardinality `One`; optional or many primary keys now fail at macro expansion time.
 * Local schema invariants now fail fast during macro expansion, including field identifier rules, enum variant ordering, and redundant index prefix checks.
 * Added compile-fail tests covering relation and non-One primary key shapes in the entity macro.
 
-### 🧪 Summary
+### 📝 Summary
 
 * Locked primary key invariants at macro expansion time to avoid downstream RI violations.
 
@@ -680,7 +683,7 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.6.1] – 2026-02-01 - Referential Integrity, Part II
 
-### 🧉 Added
+### ➕ Added
 
 * **Save-time referential integrity (RI v2)**: direct `Id<T>` and `Option<Id<T>>` relation fields are now validated pre-commit; saves fail if the referenced target row is missing.
 * Added `docs/REF_INTEGRITY_v2.md`, defining the v2 RI contract, including:
@@ -694,13 +697,13 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
   * allowance of weak reference shapes,
   * and non-enforcement of references during delete operations.
 
-### 🧷 Changed
+### 🔧 Changed
 
 * Nested and collection reference shapes (`Id<T>` inside records/enums, and `Vec`/`Set`/`Map<Id<T>>`) are now **explicitly treated as weak** at runtime and no longer trigger invariant violations during save.
 * Clarified that schema-level relation validation is **advisory only** and does not imply runtime RI enforcement.
 * Aligned runtime behavior, schema comments, and documentation with the RI v2 contract.
 
-### 🧻 Summary
+### 📝 Summary
 
 * Introduced **minimal, explicit save-time referential integrity** for direct references only, while formally defining and locking the weak-reference contract for all other shapes.
 
@@ -708,38 +711,38 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.6.0] – 2026-01-31 - Referential Integrity, Part I
 
-### 🪐 Breaking
+### ⚠️ Breaking
 * Index storage now splits data and index stores explicitly; index stores require separate entry and fingerprint memories.
 * `IndexStore::init` now requires both entry and fingerprint memories; constructing an index store without fingerprint memory is no longer possible.
 
-### 🥖 Added
+### ➕ Added
 * Added dedicated index fingerprint storage to keep verification data independent from index routing entries.
 * Added a cross-canister relation validation test with a dedicated relation canister to lock in the new schema invariant.
 
-### 🪿 Fixed
+### 🩹 Fixed
 * ORDER BY now preserves input order deterministically for incomparable values.
 * Commit marker apply now rejects malformed index ops or unexpected delete payloads in release builds.
 * Commit marker decoding now rejects unknown fields instead of silently ignoring them.
 * Commit marker decoding now honors the marker size limit instead of the default row size cap.
 * Oversized commit markers now surface invariant violations instead of corruption.
 
-### 🎿 Changed
+### 🔧 Changed
 * Documented that `FieldRef` and `FilterExpr` use different coercion defaults for ordering; see `docs/QUERY_BUILDER.md`.
 * Consolidated build-time schema validation behind `validate::validate_schema` so all passes run through a single entrypoint.
 
-### 🧯 Summary
+### 📝 Summary
 * Logged the 0.6 atomicity audit results, including the read-path recovery mismatch, for follow-up.
 
 ---
 
 ## [0.5.25] – 2026-01-30
 
-### 🧲 Breaking
+### ⚠️ Breaking
 * Case-insensitive coercions are now rejected for non-text fields, including identifiers and numeric types.
 * Text substring matching must use `TextContains`/`TextContainsCi`; `CompareOp::Contains` on text fields is invalid.
 * ORDER BY now rejects unsupported or non-orderable fields instead of silently preserving input order.
 
-### 🧻 Changed
+### 🔧 Changed
 * Executor ordering tests now sort only on orderable fields while preserving tie stability and secondary ordering guarantees.
 * Conducted a DRY / legacy sweep across query session, executor, and plan layers to remove duplicated or misleading APIs.
 
@@ -747,14 +750,14 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.5.24] – 2026-01-30
 
-### 🪤 Fixed
+### 🩹 Fixed
 - replaced FilterExpr helpers that were accidentally removed
 
 ---
 
 ## [0.5.23] – 2026-01-30
 
-### 🪤 Fixed
+### 🩹 Fixed
 
 * Insert now decodes existing rows and surfaces row-key mismatches as **corruption** instead of conflicts.
 * `SaveExecutor` update/replace detects row-key mismatches as corruption, preventing index updates from amplifying bad rows.
@@ -771,7 +774,7 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 * `NotIn` comparisons now return `false` for invalid inputs, matching the “unsupported comparisons are false” contract.
 * **ORDER BY now permits opaque primary-key fields; incomparable values sort stably and preserve input order.**
 
-### 🧵 Changed
+### 🔧 Changed
 
 * Recovery-guarded read access is now enforced via `Db::recovered_context`; raw store accessors are crate-private.
 * `storage_report` now enforces recovery before collecting snapshots.
@@ -779,11 +782,11 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 * Dynamic filters now expose case-insensitive comparisons and text operators without embedding coercion flags in values.
 * Map and membership predicates (`not_in`, map-contains variants) are now available via `FilterExpr`.
 
-### 🥌 Removed
+### 🗑️ Removed
 
 * Dropped the unused projection surface (`ProjectionSpec` and related plan/query fields) to avoid false affordances.
 
-### 🪙 Breaking
+### ⚠️ Breaking
 
 * `obs::snapshot::storage_report` now returns `Result<StorageReport, InternalError>` instead of `StorageReport`.
 
@@ -792,21 +795,21 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.5.22] - 2026-01-29
 
-### 🧭 Fixed
+### 🩹 Fixed
 * Unique index validation now treats index/data key mismatches as corruption, preventing hash-collision or conflict misclassification.
 * Delete limits now treat empty sort expressions as missing ordering, avoiding nondeterministic delete ordering.
 
-### 🦉 Changed
+### 🔧 Changed
 * Empty `many([])` / `ByKeys([])` is now a defined no-op that returns an empty result set.
 
-### 🧵 Removed
+### 🗑️ Removed
 * Removed legacy index mutation helpers (`IndexStore::insert_index_entry`, `IndexStore::remove_index_entry`) and the unused `load_existing_index_entry` helper.
 
 ---
 
 ## [0.5.21] - 2026-01-29
 
-### 🪗 Added
+### ➕ Added
 * Added enum filter helpers (`EnumValue`, `Value::from_enum`, `Value::enum_strict`) and `FieldRef::eq_none` to make enum/null predicates ergonomic without changing planners or wire formats.
 * Added ergonomic helpers to FilterExpr, ie. `FilterExpr::eq()`
 
@@ -814,13 +817,13 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.5.15] - 2026-01-29
 
-### 🦑 Fixed
+### 🩹 Fixed
 * `only()` now works for singleton entities whose primary key is `()` or `types::Unit`, keeping unit keys explicit without leaking internal representations.
 
-### 🪑 Added
+### ➕ Added
 * Session load/delete queries now expose `Response` terminal helpers directly (for example `row`, `keys`, `primary_keys`, and `require_one`), so applications can avoid handling `Response` explicitly.
 
-### 🧻 Changed
+### 🔧 Changed
 * Load query offsets now use `u32` across intent, planning, and session APIs.
 * Also count is u32
 
@@ -828,7 +831,7 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.5.13] - 2026-01-29
 
-### 🧃 Added
+### ➕ Added
 * Added dynamic query expressions (`FilterExpr`, `SortExpr`) that lower into validated predicates and order specs at the intent boundary.
 * Session load/delete queries now expose `filter_expr` and `sort_expr` to attach dynamic filters and sorting safely.
 * Re-exported expression types in the public query module for API endpoints that accept user-supplied filters or ordering.
@@ -838,37 +841,37 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.5.11] - 2026-01-29
 
-### 🧁 Changed
+### 🔧 Changed
 * View-to-entity conversions are now infallible; view values are treated as canonical state.
 * Create/view-derived entity conversions now use `From` instead of `TryFrom`.
 * Float view inputs now normalize `NaN`, infinities, and `-0.0` to `0.0` during conversion.
 * Removed `ViewError` plumbing from view conversion and update merge paths.
 
-### 🪁 Breaking
+### ⚠️ Breaking
 * `View::from_view` and `UpdateView::merge` no longer return `Result`, and conversion errors are no longer surfaced at the view boundary.
 
 ---
 
 ## [0.5.10] - 2026-01-29
 
-### 🪐 Added
+### ➕ Added
 * Restored key-only query helpers: `only()` for singleton entities and `many()` for primary-key batch access.
 * Added `text_contains` and `text_contains_ci` predicates for explicit substring searches on text fields.
 * Session query execution now returns the facade `Response`, keeping core response types out of the public API.
 
-### 🧩 Fixed
+### 🩹 Fixed
 * Cardinality errors now surface as `NotFound`/`Conflict` instead of internal failures when interpreting query responses.
 
 ---
 
 ## [0.5.7] - 2026-01-28
 
-### 🪁 Added
+### ➕ Added
 * Generated entity field constants now use `FieldRef`, enabling predicate helpers like `Asset::ID.in_list(&ids)` without changing planner or executor behavior.
 * Load and delete queries now support `many` for primary-key batch lookups, using key-based access instead of predicate scans.
 * Singleton entities with unit primary keys can use `only()` on load/delete queries for key-only access.
 
-### 🥝 Fixed
+### 🩹 Fixed
 * The `icydb` load facade now exposes `count()` and `exists()` terminals.
 * Delete queries now treat zero affected rows as a valid, idempotent outcome in the session facade.
 
@@ -876,37 +879,37 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.5.6] - 2026-01-28
 
-### 🧲 Added
+### ➕ Added
 * Load queries now expose view terminals (`views`, `view`, `view_opt`) so callers can materialize read-only views directly.
 * `Response` now provides view helpers (`views`, `view`, `view_opt`) to keep view materialization explicit at the terminal.
 * Predicates now support `&` composition for building conjunctions inline.
 
-### 🐚 Changed
+### 🔧 Changed
 * `key()` on load and delete session queries now accepts any type convertible into `Key`.
 
 ---
 
 ## [0.5.4] - 2026-01-28
 
-### 🛴 Added
+### ➕ Added
 * `key()` is now available on both session query types for consistent access to key-based lookups.
 
 ---
 
 ## [0.5.2] - 2026-01-28 - Public Facade Boundary
 
-### 🍕 Fixed
+### 🩹 Fixed
 * Public query methods now return `icydb::Error`, so low-level internal errors no longer leak into app code.
 * You can no longer call executors or internal query execution paths from the public `icydb` API.
 * Removed `core_db()` and similar test-only backdoors that skipped the public API entirely.
 * Removed cross-canister query plumbing and erased-plan interfaces that exposed internal execution details.
 
-### 🦄 Changed
+### 🔧 Changed
 * `db!()` now always returns the public `icydb` session wrapper, not the internal core session.
 * Queries must be executed through the session’s load/delete helpers; executors are now core-only.
 * Low-level executor corruption tests were removed from the public test suite.
 
-### 🤡 Removed
+### 🗑️ Removed
 * Entity-based query dispatch (`EntityDispatch`, `dispatch_load/save/delete`) and canister-to-canister query handling.
 * “Save query” abstractions — writes are now only done via explicit insert/replace/update APIs.
 * Tests that depended on calling executors directly outside of `icydb-core`.
@@ -916,10 +919,10 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 ## [0.5.1] - 2026-01-28 - Redesigned Query Builder
 
-### 🦴 Fixed
+### 🩹 Fixed
 * Executors now reject mismatched plan modes (load vs delete) with a typed `Unsupported` error instead of trapping.
 
-### 🧃 Changed
+### 🔧 Changed
 * Query diagnostics now surface composite access shapes in trace access (union/intersection).
 * Executor trace events include per-phase row counts (access, filter, order, page/delete limit).
 * Fluent queries now start with explicit `DbSession::load`/`DbSession::delete` entry points (no implicit mode switching).
@@ -935,7 +938,7 @@ The focus is **correctness, determinism, and architectural hardening**, not new 
 
 ---
 
-### 🧯 Added
+### ➕ Added
 
 **Query Facade**
 * Typed query intent (`Query<E>`), making it impossible to plan or execute a query against the wrong entity.
@@ -954,7 +957,7 @@ The focus is **correctness, determinism, and architectural hardening**, not new 
 
 ---
 
-### 🦴 Fixed
+### 🩹 Fixed
 
 **Planner / Executor Correctness**
 * Missing-row behavior no longer varies based on index vs scan access paths.
@@ -975,7 +978,7 @@ The focus is **correctness, determinism, and architectural hardening**, not new 
 
 ---
 
-### 🧃 Changed
+### 🔧 Changed
 
 **API & Planning**
 * Query API redesign: replaced untyped `QuerySpec` / v1-style DSL with a typed, intent-only `Query<E>` → `ExecutablePlan<E>` flow.
@@ -993,7 +996,7 @@ The focus is **correctness, determinism, and architectural hardening**, not new 
 
 ---
 
-### 🧦 Removed
+### 🗑️ Removed
 
 * v1 query DSL and legacy builder APIs.
 * Public execution or construction of logical plans.
@@ -1006,7 +1009,7 @@ The focus is **correctness, determinism, and architectural hardening**, not new 
 
 ---
 
-### ⚠️ Migration Notes
+### 🧭 Migration Notes
 
 This release contains **intentional breaking changes**:
 
@@ -1019,7 +1022,7 @@ These changes are foundational. Future releases are expected to be **additive or
 
 ---
 
-### 📌 Summary
+### 📝 Summary
 
 0.5.0 marks the point where the query engine is considered *correct by construction*.
 Subsequent releases should not re-litigate query correctness, atomicity, or executor safety.
@@ -1082,7 +1085,7 @@ This release finalizes a major internal storage and planning refactor. It harden
 
 ---
 
-### 🚨 Breaking Changes
+### ⚠️ Breaking Changes
 
 * **Entity identity is now name-based**
   Storage and index keys now use the per-canister `ENTITY_NAME` directly.
@@ -1210,7 +1213,7 @@ Future versions will build on these invariants rather than revisiting them.
 - fixed stupid bug
 
 ## [0.3.0] – 2026-01-12 – Public Facade Rewrite
-### Changed
+### 🔧 Changed
 - 🧱 Major layering refactor: icydb is now a strict public facade over icydb-core, with internal subsystems depending directly on core rather than facade modules.
 - 🔌 Clear API boundaries: Engine internals (execution, queries, serialization, validation) are fully isolated in icydb-core; icydb exposes only intentional, stable entry points.
 - 📦 Public query surface: icydb::db::query is now a supported public API and re-exports core query types for direct use.
@@ -1288,11 +1291,11 @@ it's a dynamic trait.
 - added insert/create/replace_many to the SaveExecutor
 
 ## [0.1.15] - 2025-12-20
-### Added
+### ➕ Added
 - Added cardinality guards to `Response`: `require_some` and `require_len`, complementing existing `require_one`.
 - Added delete-side executor helpers `ensure_deleted_one` and `ensure_deleted_any` to express strict deletion invariants without leaking `Response` handling into call sites.
 
-### Changed
+### 🔧 Changed
 - Simplified delete call sites by replacing per-row delete loops and manual response checks with executor-level `ensure_deleted_*` helpers.
 
 ### Other

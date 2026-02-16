@@ -198,13 +198,7 @@ fn index_prefix_for_eq(
     field: &str,
     value: &Value,
 ) -> Option<Vec<AccessPlan<Value>>> {
-    let field_type = schema.field(field)?;
-
-    if !literal_matches_type(value, field_type) {
-        return None;
-    }
-
-    if encode_canonical_index_component(value).is_err() {
+    if !index_prefix_literal_is_compatible(schema, field, value) {
         return None;
     }
 
@@ -251,15 +245,7 @@ fn index_prefix_from_and(
             let Some((_, value)) = field_values.iter().find(|(name, _)| *name == *field) else {
                 break;
             };
-            let Some(field_type) = schema.field(field) else {
-                prefix.clear();
-                break;
-            };
-            if !literal_matches_type(value, field_type) {
-                prefix.clear();
-                break;
-            }
-            if encode_canonical_index_component(value).is_err() {
+            if !index_prefix_literal_is_compatible(schema, field, value) {
                 prefix.clear();
                 break;
             }
@@ -401,6 +387,16 @@ fn value_matches_pk_model(schema: &SchemaInfo, model: &EntityModel, value: &Valu
     };
 
     field_type.is_keyable() && literal_matches_type(value, field_type)
+}
+
+// Validate one equality literal for index-prefix planning. The value must match
+// the schema field type and be canonically index-encodable.
+fn index_prefix_literal_is_compatible(schema: &SchemaInfo, field: &str, value: &Value) -> bool {
+    let Some(field_type) = schema.field(field) else {
+        return false;
+    };
+
+    literal_matches_type(value, field_type) && encode_canonical_index_component(value).is_ok()
 }
 
 ///

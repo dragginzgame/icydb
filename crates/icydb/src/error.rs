@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn query_intent_maps_to_intent_kind() {
-        let err = QueryError::Intent(IntentError::DeleteLimitRequiresOrder);
+        let err = QueryError::Intent(IntentError::ByIdsWithPredicate);
         let facade = Error::from(err);
 
         assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::Intent));

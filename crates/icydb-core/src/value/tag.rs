@@ -45,6 +45,39 @@ impl ValueTag {
     pub const fn to_u8(self) -> u8 {
         self as u8
     }
+
+    /// Stable human-readable value kind label for diagnostics.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Account => "Account",
+            Self::Blob => "Blob",
+            Self::Bool => "Bool",
+            Self::Date => "Date",
+            Self::Decimal => "Decimal",
+            Self::Duration => "Duration",
+            Self::Enum => "Enum",
+            Self::E8s => "E8s",
+            Self::E18s => "E18s",
+            Self::Float32 => "Float32",
+            Self::Float64 => "Float64",
+            Self::Int => "Int",
+            Self::Int128 => "Int128",
+            Self::IntBig => "IntBig",
+            Self::List => "List",
+            Self::Map => "Map",
+            Self::Null => "Null",
+            Self::Principal => "Principal",
+            Self::Subaccount => "Subaccount",
+            Self::Text => "Text",
+            Self::Timestamp => "Timestamp",
+            Self::Uint => "Uint",
+            Self::Uint128 => "Uint128",
+            Self::UintBig => "UintBig",
+            Self::Ulid => "Ulid",
+            Self::Unit => "Unit",
+        }
+    }
 }
 
 /// Stable canonical variant tag used by hash/fingerprint encodings.

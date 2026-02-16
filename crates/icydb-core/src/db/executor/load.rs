@@ -123,36 +123,7 @@ where
 
             validate_executor_plan::<E>(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;
-
-            if self.debug {
-                self.debug_log(format!(
-                    "Executing load plan on {} (consistency={:?})",
-                    E::PATH,
-                    plan.consistency
-                ));
-                self.debug_log(format!("Access: {}", access_summary(&plan.access)));
-
-                let ordered = plan
-                    .order
-                    .as_ref()
-                    .is_some_and(|order| !order.fields.is_empty());
-
-                let page = match plan.page.as_ref() {
-                    Some(p) => format!("limit={:?}, offset={}", p.limit, p.offset),
-                    None => "none".to_string(),
-                };
-
-                self.debug_log(format!(
-                    "Post-access: filter={}, order={}, page={}",
-                    yes_no(plan.predicate.is_some()),
-                    yes_no(ordered),
-                    page
-                ));
-                self.debug_log(format!(
-                    "Cursor provided: {}",
-                    yes_no(cursor_boundary.is_some())
-                ));
-            }
+            self.debug_log_load_plan(&plan, cursor_boundary.as_ref());
 
             record_plan_metrics(&plan.access);
             // Compute secondary ORDER BY pushdown eligibility once, then share the
@@ -205,6 +176,43 @@ where
         finish_trace_from_result(trace, &result, |page| page.items.0.len());
 
         result
+    }
+
+    // Emit a compact debug summary for one load execution plan.
+    fn debug_log_load_plan(
+        &self,
+        plan: &LogicalPlan<E::Key>,
+        cursor_boundary: Option<&CursorBoundary>,
+    ) {
+        if !self.debug {
+            return;
+        }
+
+        self.debug_log(format!(
+            "Executing load plan on {} (consistency={:?})",
+            E::PATH,
+            plan.consistency
+        ));
+        self.debug_log(format!("Access: {}", access_summary(&plan.access)));
+
+        let ordered = plan
+            .order
+            .as_ref()
+            .is_some_and(|order| !order.fields.is_empty());
+        let page = match plan.page.as_ref() {
+            Some(p) => format!("limit={:?}, offset={}", p.limit, p.offset),
+            None => "none".to_string(),
+        };
+        self.debug_log(format!(
+            "Post-access: filter={}, order={}, page={}",
+            yes_no(plan.predicate.is_some()),
+            yes_no(ordered),
+            page
+        ));
+        self.debug_log(format!(
+            "Cursor provided: {}",
+            yes_no(cursor_boundary.is_some())
+        ));
     }
 
     // Emit a deterministic trace marker for secondary ORDER BY pushdown decisions.

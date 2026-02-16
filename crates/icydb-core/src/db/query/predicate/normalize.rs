@@ -243,38 +243,11 @@ fn encode_predicate_key(out: &mut Vec<u8>, predicate: &Predicate) {
     }
 }
 
-const VALUE_ACCOUNT: u8 = 1;
-const VALUE_BLOB: u8 = 2;
-const VALUE_BOOL: u8 = 3;
-const VALUE_DATE: u8 = 4;
-const VALUE_DECIMAL: u8 = 5;
-const VALUE_DURATION: u8 = 6;
-const VALUE_ENUM: u8 = 7;
-const VALUE_E8S: u8 = 8;
-const VALUE_E18S: u8 = 9;
-const VALUE_FLOAT32: u8 = 10;
-const VALUE_FLOAT64: u8 = 11;
-const VALUE_INT: u8 = 12;
-const VALUE_INT128: u8 = 13;
-const VALUE_INT_BIG: u8 = 14;
-const VALUE_LIST: u8 = 15;
-const VALUE_MAP: u8 = 16;
-const VALUE_NULL: u8 = 17;
-const VALUE_PRINCIPAL: u8 = 18;
-const VALUE_SUBACCOUNT: u8 = 19;
-const VALUE_TEXT: u8 = 20;
-const VALUE_TIMESTAMP: u8 = 21;
-const VALUE_UINT: u8 = 22;
-const VALUE_UINT128: u8 = 23;
-const VALUE_UINT_BIG: u8 = 24;
-const VALUE_ULID: u8 = 25;
-const VALUE_UNIT: u8 = 26;
-
-#[expect(clippy::too_many_lines)]
 fn encode_value_key(out: &mut Vec<u8>, value: &Value) {
+    out.push(value.canonical_tag().to_u8());
+
     match value {
         Value::Account(v) => {
-            out.push(VALUE_ACCOUNT);
             push_bytes(out, v.owner.as_slice());
             match v.subaccount {
                 Some(sub) => {
@@ -285,121 +258,93 @@ fn encode_value_key(out: &mut Vec<u8>, value: &Value) {
             }
         }
         Value::Blob(v) => {
-            out.push(VALUE_BLOB);
             push_bytes(out, v);
         }
         Value::Bool(v) => {
-            out.push(VALUE_BOOL);
             out.push(u8::from(*v));
         }
         Value::Date(v) => {
-            out.push(VALUE_DATE);
             out.extend_from_slice(&v.get().to_be_bytes());
         }
         Value::Decimal(v) => {
-            out.push(VALUE_DECIMAL);
             out.push(u8::from(v.is_sign_negative()));
             out.extend_from_slice(&v.scale().to_be_bytes());
             out.extend_from_slice(&v.mantissa().to_be_bytes());
         }
         Value::Duration(v) => {
-            out.push(VALUE_DURATION);
             out.extend_from_slice(&v.get().to_be_bytes());
         }
         Value::Enum(v) => {
-            out.push(VALUE_ENUM);
             push_enum(out, v);
         }
         Value::E8s(v) => {
-            out.push(VALUE_E8S);
             out.extend_from_slice(&v.get().to_be_bytes());
         }
         Value::E18s(v) => {
-            out.push(VALUE_E18S);
             out.extend_from_slice(&v.get().to_be_bytes());
         }
         Value::Float32(v) => {
-            out.push(VALUE_FLOAT32);
             out.extend_from_slice(&v.to_be_bytes());
         }
         Value::Float64(v) => {
-            out.push(VALUE_FLOAT64);
             out.extend_from_slice(&v.to_be_bytes());
         }
         Value::Int(v) => {
-            out.push(VALUE_INT);
             out.extend_from_slice(&v.to_be_bytes());
         }
         Value::Int128(v) => {
-            out.push(VALUE_INT128);
             out.extend_from_slice(&v.get().to_be_bytes());
         }
         Value::IntBig(v) => {
-            out.push(VALUE_INT_BIG);
             push_bytes(out, &v.to_leb128());
         }
         Value::List(items) => {
-            out.push(VALUE_LIST);
             push_len(out, items.len());
             for item in items {
                 push_value(out, item);
             }
         }
         Value::Map(entries) => {
-            out.push(VALUE_MAP);
             push_len(out, entries.len());
             for (key, value) in entries {
                 push_value(out, key);
                 push_value(out, value);
             }
         }
-        Value::Null => out.push(VALUE_NULL),
+        Value::Null | Value::Unit => {}
         Value::Principal(v) => {
-            out.push(VALUE_PRINCIPAL);
             push_bytes(out, v.as_slice());
         }
         Value::Subaccount(v) => {
-            out.push(VALUE_SUBACCOUNT);
             push_bytes(out, &v.to_bytes());
         }
         Value::Text(v) => {
-            out.push(VALUE_TEXT);
             push_str(out, v);
         }
         Value::Timestamp(v) => {
-            out.push(VALUE_TIMESTAMP);
             out.extend_from_slice(&v.get().to_be_bytes());
         }
         Value::Uint(v) => {
-            out.push(VALUE_UINT);
             out.extend_from_slice(&v.to_be_bytes());
         }
         Value::Uint128(v) => {
-            out.push(VALUE_UINT128);
             out.extend_from_slice(&v.get().to_be_bytes());
         }
         Value::UintBig(v) => {
-            out.push(VALUE_UINT_BIG);
             push_bytes(out, &v.to_leb128());
         }
         Value::Ulid(v) => {
-            out.push(VALUE_ULID);
             out.extend_from_slice(&v.to_bytes());
         }
-        Value::Unit => out.push(VALUE_UNIT),
     }
 }
 
 fn push_predicate(out: &mut Vec<u8>, predicate: &Predicate) {
-    let mut buf = Vec::new();
-    encode_predicate_key(&mut buf, predicate);
-    push_bytes(out, &buf);
+    push_framed(out, |buf| encode_predicate_key(buf, predicate));
 }
 
 fn push_value(out: &mut Vec<u8>, value: &Value) {
-    let mut buf = Vec::new();
-    encode_value_key(&mut buf, value);
-    push_bytes(out, &buf);
+    push_framed(out, |buf| encode_value_key(buf, value));
 }
 
 fn push_enum(out: &mut Vec<u8>, value: &ValueEnum) {
@@ -442,6 +387,20 @@ fn push_len(out: &mut Vec<u8>, len: usize) {
     // NOTE: Sort keys are diagnostics-only; overflow saturates for determinism.
     let len = u64::try_from(len).unwrap_or(u64::MAX);
     out.extend_from_slice(&len.to_be_bytes());
+}
+
+// Write one nested deterministic payload as [len:u64be][payload] without
+// allocating an intermediate buffer.
+fn push_framed(out: &mut Vec<u8>, encode: impl FnOnce(&mut Vec<u8>)) {
+    let len_pos = out.len();
+    out.extend_from_slice(&0u64.to_be_bytes());
+    let payload_start = out.len();
+
+    encode(out);
+
+    let payload_len = out.len().saturating_sub(payload_start);
+    let payload_len = u64::try_from(payload_len).unwrap_or(u64::MAX);
+    out[len_pos..len_pos + std::mem::size_of::<u64>()].copy_from_slice(&payload_len.to_be_bytes());
 }
 
 fn push_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
