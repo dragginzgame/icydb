@@ -145,7 +145,41 @@ impl<K> LogicalPlan<K> {
                 err.invariant_message(),
             )
         })?;
+        self.validate_cursor_mode(cursor)?;
 
+        // Phase 1: predicate filtering.
+        let (filtered, rows_after_filter) = self.apply_filter_phase::<E, R>(rows);
+
+        // Phase 2: ordering.
+        let (ordered, rows_after_order) = self.apply_order_phase::<E, R>(rows, cursor, filtered)?;
+
+        // Phase 3: continuation boundary.
+        let (cursor_skipped, rows_after_cursor) =
+            self.apply_cursor_phase::<E, R>(rows, cursor, ordered, rows_after_order)?;
+
+        // Phase 4: load pagination.
+        let (paged, rows_after_page) = self.apply_page_phase(rows, ordered)?;
+
+        // Phase 5: delete limiting.
+        let (delete_was_limited, rows_after_delete_limit) =
+            self.apply_delete_limit_phase(rows, ordered)?;
+
+        Ok(PostAccessStats {
+            filtered,
+            ordered,
+            cursor_skipped,
+            paged,
+            delete_was_limited,
+            rows_after_filter,
+            rows_after_order,
+            rows_after_cursor,
+            rows_after_page,
+            rows_after_delete_limit,
+        })
+    }
+
+    // Enforce load/delete cursor compatibility before execution phases.
+    fn validate_cursor_mode(&self, cursor: Option<&CursorBoundary>) -> Result<(), InternalError> {
         if cursor.is_some() && !self.mode.is_load() {
             return Err(InternalError::new(
                 ErrorClass::InvariantViolation,
@@ -154,20 +188,38 @@ impl<K> LogicalPlan<K> {
             ));
         }
 
-        // Predicate (already normalized during planning).
+        Ok(())
+    }
+
+    // Predicate phase (already normalized and validated during planning).
+    fn apply_filter_phase<E, R>(&self, rows: &mut Vec<R>) -> (bool, usize)
+    where
+        E: EntityKind + EntityValue,
+        R: PlanRow<E>,
+    {
         let filtered = if let Some(predicate) = self.predicate.as_ref() {
-            // CONTRACT: predicates are validated before reaching the executor.
             rows.retain(|row| eval_predicate(row.entity(), predicate));
             true
         } else {
             false
         };
-        let rows_after_filter = rows.len();
 
-        // Ordering.
-        let rows_after_order;
+        (filtered, rows.len())
+    }
+
+    // Ordering phase with bounded-load optimization for first-page load paths.
+    fn apply_order_phase<E, R>(
+        &self,
+        rows: &mut Vec<R>,
+        cursor: Option<&CursorBoundary>,
+        filtered: bool,
+    ) -> Result<(bool, usize), InternalError>
+    where
+        E: EntityKind + EntityValue,
+        R: PlanRow<E>,
+    {
         let bounded_order_keep = self.bounded_order_keep_count(cursor);
-        let ordered = if let Some(order) = &self.order
+        if let Some(order) = &self.order
             && !order.fields.is_empty()
         {
             if self.predicate.is_some() && !filtered {
@@ -187,18 +239,27 @@ impl<K> LogicalPlan<K> {
                 }
             }
 
-            // Diagnostics keep the logical post-order cardinality, even when
-            // bounded ordering trims the working set for load-page execution.
-            rows_after_order = ordered_total;
-            true
-        } else {
-            rows_after_order = rows.len();
-            false
-        };
+            // Keep logical post-order cardinality even when bounded ordering
+            // trims the working set for load-page execution.
+            return Ok((true, ordered_total));
+        }
 
-        // Cursor boundary (applied after ordering, before page slicing).
-        let rows_after_cursor;
-        let cursor_skipped = if self.mode.is_load()
+        Ok((false, rows.len()))
+    }
+
+    // Continuation phase (strictly after ordering, before pagination).
+    fn apply_cursor_phase<E, R>(
+        &self,
+        rows: &mut Vec<R>,
+        cursor: Option<&CursorBoundary>,
+        ordered: bool,
+        rows_after_order: usize,
+    ) -> Result<(bool, usize), InternalError>
+    where
+        E: EntityKind + EntityValue,
+        R: PlanRow<E>,
+    {
+        if self.mode.is_load()
             && let Some(boundary) = cursor
         {
             let Some(order) = self.order.as_ref() else {
@@ -219,16 +280,20 @@ impl<K> LogicalPlan<K> {
             }
 
             apply_cursor_boundary::<E, R>(rows, order, boundary)?;
-            rows_after_cursor = rows.len();
-            true
-        } else {
-            // No cursor boundary for this request; preserve the logical
-            // post-order cardinality for stats/continuation decisions.
-            rows_after_cursor = rows_after_order;
-            false
-        };
+            return Ok((true, rows.len()));
+        }
 
-        // Offset/limit pagination after cursor boundary.
+        // No cursor boundary; preserve post-order cardinality for continuation
+        // decisions and diagnostics.
+        Ok((false, rows_after_order))
+    }
+
+    // Load pagination phase (offset/limit).
+    fn apply_page_phase<R>(
+        &self,
+        rows: &mut Vec<R>,
+        ordered: bool,
+    ) -> Result<(bool, usize), InternalError> {
         let paged = if self.mode.is_load()
             && let Some(page) = &self.page
         {
@@ -244,9 +309,16 @@ impl<K> LogicalPlan<K> {
         } else {
             false
         };
-        let rows_after_page = rows.len();
 
-        // Delete limit (applied after ordering).
+        Ok((paged, rows.len()))
+    }
+
+    // Delete-limit phase (after ordering).
+    fn apply_delete_limit_phase<R>(
+        &self,
+        rows: &mut Vec<R>,
+        ordered: bool,
+    ) -> Result<(bool, usize), InternalError> {
         let delete_was_limited = if self.mode.is_delete()
             && let Some(limit) = &self.delete_limit
         {
@@ -262,20 +334,8 @@ impl<K> LogicalPlan<K> {
         } else {
             false
         };
-        let rows_after_delete_limit = rows.len();
 
-        Ok(PostAccessStats {
-            filtered,
-            ordered,
-            cursor_skipped,
-            paged,
-            delete_was_limited,
-            rows_after_filter,
-            rows_after_order,
-            rows_after_cursor,
-            rows_after_page,
-            rows_after_delete_limit,
-        })
+        Ok((delete_was_limited, rows.len()))
     }
 
     // Return the bounded working-set size for ordered loads without a

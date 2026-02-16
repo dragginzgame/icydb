@@ -75,6 +75,25 @@ fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> LogicalPlan
     }
 }
 
+fn order_spec(fields: &[(&str, OrderDirection)]) -> OrderSpec {
+    OrderSpec {
+        fields: fields
+            .iter()
+            .map(|(field, direction)| ((*field).to_string(), *direction))
+            .collect(),
+    }
+}
+
+fn load_index_prefix_plan(values: Vec<Value>, order: Option<OrderSpec>) -> LogicalPlan<Value> {
+    load_plan(
+        AccessPlan::Path(AccessPath::IndexPrefix {
+            index: INDEX_MODEL,
+            values,
+        }),
+        order,
+    )
+}
+
 #[test]
 fn model_rejects_missing_primary_key() {
     // Invalid test scaffolding: models are hand-built to exercise
@@ -404,111 +423,77 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
 }
 
 #[test]
-fn secondary_order_pushdown_accepts_index_prefix_with_pk_only_order() {
+fn secondary_order_pushdown_core_cases() {
+    struct Case {
+        name: &'static str,
+        plan: LogicalPlan<Value>,
+        expected: SecondaryOrderPushdownEligibility,
+    }
+
+    let cases = vec![
+        Case {
+            name: "eligible_pk_only_order",
+            plan: load_index_prefix_plan(
+                vec![Value::Text("a".to_string())],
+                Some(order_spec(&[("id", OrderDirection::Asc)])),
+            ),
+            expected: SecondaryOrderPushdownEligibility::Eligible {
+                index: INDEX_MODEL.name,
+                prefix_len: 1,
+            },
+        },
+        Case {
+            name: "reject_non_index_order_field",
+            plan: load_index_prefix_plan(
+                vec![Value::Text("a".to_string())],
+                Some(order_spec(&[
+                    ("rank", OrderDirection::Asc),
+                    ("id", OrderDirection::Asc),
+                ])),
+            ),
+            expected: SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+                    index: INDEX_MODEL.name,
+                    prefix_len: 1,
+                    expected_suffix: vec![],
+                    expected_full: vec!["tag".to_string()],
+                    actual: vec!["rank".to_string()],
+                },
+            ),
+        },
+        Case {
+            name: "reject_full_scan_access",
+            plan: load_plan(
+                AccessPlan::Path(AccessPath::FullScan),
+                Some(order_spec(&[("id", OrderDirection::Asc)])),
+            ),
+            expected: SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+            ),
+        },
+        Case {
+            name: "reject_descending_primary_key",
+            plan: load_index_prefix_plan(
+                vec![Value::Text("a".to_string())],
+                Some(order_spec(&[("id", OrderDirection::Desc)])),
+            ),
+            expected: SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
+                    field: "id".to_string(),
+                },
+            ),
+        },
+    ];
+
     let model = model_with_index();
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: AccessPlan::Path(AccessPath::IndexPrefix {
-            index: INDEX_MODEL,
-            values: vec![Value::Text("a".to_string())],
-        }),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        delete_limit: None,
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
-    };
-
-    assert_eq!(
-        assess_secondary_order_pushdown(model, &plan),
-        SecondaryOrderPushdownEligibility::Eligible {
-            index: INDEX_MODEL.name,
-            prefix_len: 1,
-        }
-    );
-}
-
-#[test]
-fn secondary_order_pushdown_rejects_non_index_order_field() {
-    let model = model_with_index();
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: AccessPlan::Path(AccessPath::IndexPrefix {
-            index: INDEX_MODEL,
-            values: vec![Value::Text("a".to_string())],
-        }),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![
-                ("rank".to_string(), OrderDirection::Asc),
-                ("id".to_string(), OrderDirection::Asc),
-            ],
-        }),
-        delete_limit: None,
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
-    };
-
-    let eligibility = assess_secondary_order_pushdown(model, &plan);
-    assert!(matches!(
-        eligibility,
-        SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex { .. }
-        )
-    ));
-}
-
-#[test]
-fn secondary_order_pushdown_rejects_full_scan_access_path() {
-    let model = model_with_index();
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: AccessPlan::Path(AccessPath::FullScan),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        delete_limit: None,
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
-    };
-
-    assert_eq!(
-        assess_secondary_order_pushdown(model, &plan),
-        SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix
-        )
-    );
-}
-
-#[test]
-fn secondary_order_pushdown_rejects_descending_primary_key() {
-    let model = model_with_index();
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: AccessPlan::Path(AccessPath::IndexPrefix {
-            index: INDEX_MODEL,
-            values: vec![Value::Text("a".to_string())],
-        }),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Desc)],
-        }),
-        delete_limit: None,
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
-    };
-
-    assert_eq!(
-        assess_secondary_order_pushdown(model, &plan),
-        SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
-                field: "id".to_string(),
-            }
-        )
-    );
+    for case in cases {
+        assert_eq!(
+            assess_secondary_order_pushdown(model, &case.plan),
+            case.expected,
+            "unexpected pushdown eligibility for case '{}'",
+            case.name
+        );
+    }
 }
 
 #[test]
@@ -654,54 +639,52 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
 }
 
 #[test]
-fn secondary_order_pushdown_if_applicable_filters_non_applicable_shapes() {
+fn secondary_order_pushdown_if_applicable_cases() {
+    struct Case {
+        name: &'static str,
+        plan: LogicalPlan<Value>,
+        expected: PushdownApplicability,
+    }
+
+    let cases = vec![
+        Case {
+            name: "not_applicable_no_order",
+            plan: load_index_prefix_plan(vec![Value::Text("a".to_string())], None),
+            expected: PushdownApplicability::NotApplicable,
+        },
+        Case {
+            name: "not_applicable_full_scan",
+            plan: load_plan(
+                AccessPlan::Path(AccessPath::FullScan),
+                Some(order_spec(&[("id", OrderDirection::Asc)])),
+            ),
+            expected: PushdownApplicability::NotApplicable,
+        },
+        Case {
+            name: "applicable_rejected_matrix_decision",
+            plan: load_index_prefix_plan(
+                vec![Value::Text("a".to_string())],
+                Some(order_spec(&[("id", OrderDirection::Desc)])),
+            ),
+            expected: PushdownApplicability::Applicable(
+                SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
+                        field: "id".to_string(),
+                    },
+                ),
+            ),
+        },
+    ];
+
     let model = model_with_index();
-
-    let no_order_plan = load_plan(
-        AccessPlan::Path(AccessPath::IndexPrefix {
-            index: INDEX_MODEL,
-            values: vec![Value::Text("a".to_string())],
-        }),
-        None,
-    );
-    assert_eq!(
-        assess_secondary_order_pushdown_if_applicable(model, &no_order_plan),
-        PushdownApplicability::NotApplicable
-    );
-
-    let full_scan_plan = load_plan(
-        AccessPlan::Path(AccessPath::FullScan),
-        Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-    );
-    assert_eq!(
-        assess_secondary_order_pushdown_if_applicable(model, &full_scan_plan),
-        PushdownApplicability::NotApplicable
-    );
-}
-
-#[test]
-fn secondary_order_pushdown_if_applicable_returns_matrix_decision() {
-    let model = model_with_index();
-    let descending_plan = load_plan(
-        AccessPlan::Path(AccessPath::IndexPrefix {
-            index: INDEX_MODEL,
-            values: vec![Value::Text("a".to_string())],
-        }),
-        Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Desc)],
-        }),
-    );
-
-    assert_eq!(
-        assess_secondary_order_pushdown_if_applicable(model, &descending_plan),
-        PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
-                field: "id".to_string(),
-            }
-        ))
-    );
+    for case in cases {
+        assert_eq!(
+            assess_secondary_order_pushdown_if_applicable(model, &case.plan),
+            case.expected,
+            "unexpected pushdown applicability for case '{}'",
+            case.name
+        );
+    }
 }
 
 #[test]
@@ -713,9 +696,7 @@ fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor()
             index: INDEX_MODEL,
             values: vec![Value::Text("a".to_string())],
         }),
-        Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Desc)],
-        }),
+        Some(order_spec(&[("id", OrderDirection::Desc)])),
     );
     assert_eq!(
         assess_secondary_order_pushdown_if_applicable_validated(model, &descending_plan),
@@ -724,9 +705,7 @@ fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor()
 
     let non_applicable_plan = load_plan(
         AccessPlan::Path(AccessPath::FullScan),
-        Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
+        Some(order_spec(&[("id", OrderDirection::Asc)])),
     );
     assert_eq!(
         assess_secondary_order_pushdown_if_applicable_validated(model, &non_applicable_plan),

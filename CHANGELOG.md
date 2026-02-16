@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Value type tags now come from one canonical source across normalization, ordering, and fingerprinting. This removes duplicated tag tables.
 * Index-prefix compatibility checks and cursor primary-key decoding now use shared helpers. This lowers planner/executor drift risk.
 * Reduced temporary allocations in cursor filtering and predicate sort-key encoding for cleaner hot-path behavior.
+* `apply_post_access_with_cursor` is now split into clear phase helpers for filter, order, cursor, pagination, and delete limits. This makes future changes safer and easier to review.
+* Pushdown validation tests now use table-driven cases for core and applicability scenarios. This removes repeated setup and keeps matrix coverage easier to extend.
+* Changelog section headers are now normalized to one fixed emoji mapping for standard section types. This keeps release notes consistent across versions.
 
 ## [0.10.1] – 2026-02-16
 
@@ -1085,7 +1088,7 @@ This release finalizes a major internal storage and planning refactor. It harden
 
 ---
 
-### ⚠️ Breaking Changes
+### ⚠️ Breaking
 
 * **Entity identity is now name-based**
   Storage and index keys now use the per-canister `ENTITY_NAME` directly.
@@ -1105,7 +1108,7 @@ This release finalizes a major internal storage and planning refactor. It harden
 
 ---
 
-### 🧱 Storage & Indexing
+### 🔧 Changed
 
 * **Index executors decoupled from error/metrics plumbing**
 
@@ -1129,7 +1132,7 @@ This release finalizes a major internal storage and planning refactor. It harden
 
 ---
 
-### 🧠 Planner & Execution Model
+### 🔧 Changed
 
 * **Planner is now side-effect free**
 
@@ -1139,7 +1142,7 @@ This release finalizes a major internal storage and planning refactor. It harden
 
 ---
 
-### 🧩 Identity & Naming
+### 🔧 Changed
 
 * **IndexName sizing is now derived and validated**
 
@@ -1155,7 +1158,7 @@ This release finalizes a major internal storage and planning refactor. It harden
 
 ---
 
-### 🛡️ Data Integrity & Corruption Detection
+### 🔧 Changed
 
 * **Fixed-size key enforcement**
 
@@ -1175,7 +1178,7 @@ This release finalizes a major internal storage and planning refactor. It harden
 
 ---
 
-### 🧪 Developer Impact
+### 🧭 Migration Notes
 
 * Existing stable data **must be migrated**
 * Custom storage code relying on:
@@ -1220,7 +1223,7 @@ Future versions will build on these invariants rather than revisiting them.
 - 🛠️ New facade utilities: Added top-level serialize, deserialize, sanitize, and validate helpers with normalized public errors.
 - 🔒 Hardened macros & executors: Generated code now targets canonical core paths, preventing accidental API leakage.
 
-### Impact
+### 📝 Summary
 - ⚠️ Downstream crates using icydb-core internals may need import updates.
 - 🚀 Future internal refactors should now cause far fewer breaking changes.
 
@@ -1298,7 +1301,7 @@ it's a dynamic trait.
 ### 🔧 Changed
 - Simplified delete call sites by replacing per-row delete loops and manual response checks with executor-level `ensure_deleted_*` helpers.
 
-### Other
+### 📝 Summary
 - Happy birthday me!
 
 ## [0.1.14] - 2025-12-19

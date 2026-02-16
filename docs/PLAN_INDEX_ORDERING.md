@@ -1,123 +1,341 @@
-# PLAN-INDEX-ORDERING.md
+# PLAN_INDEX_ORDERING.md
 
 ## Overview
 
-This document defines the *index ordering model* established as part of the 0.10 index protocol redesign.
+This document defines the canonical index key ordering model introduced in **0.10 (IndexKey v2)**.
 
-0.10 replaces the prior fixed-fingerprint key format with a **canonical, framed, variable-length, lexicographically ordered index key**, supporting true range queries, composite ordering, and stable prefix bounds.
+IndexKey v2 replaces the prior hash/fingerprint-based format with a **canonical, framed, variable-length, lexicographically ordered key encoding**.
 
-## Goals
+This redesign establishes:
 
-* Ensure *ordering semantics* align with semantic value ordering.
-* Enable *efficient range scans* via lexicographic B-tree mappings.
-* Guarantee *behavioral stability* for query planners and execution.
-* Eliminate hash/fingerprint ordering artifacts.
+* Deterministic semantic ordering.
+* Stable byte-level representation.
+* Range-scan capability.
+* Composite prefix semantics.
+* Canonical cursor continuation stability.
 
-## Definitions
+This document defines the **ordering protocol contract** and must remain stable across releases.
 
-### IndexKey Semantics
+---
 
-An index key in stable memory encodes:
+# 1. Goals
+
+1. Ensure **semantic ordering equivalence** between values and encoded key bytes.
+2. Enable efficient **range traversal** via lexicographic B-tree scans.
+3. Guarantee **planner determinism**.
+4. Guarantee **cursor stability across upgrades**.
+5. Eliminate hash/fingerprint ordering artifacts.
+6. Prevent future semantic drift in index key encoding.
+
+---
+
+# 2. Scope of Stability
+
+## Internal vs External Stability
+
+Index key byte encoding is:
+
+* Stable within canister/storage boundaries.
+* Stable across upgrades.
+* Canonical for cursor continuation tokens.
+
+If continuation tokens expose raw key bytes externally, the encoding becomes a **public protocol guarantee** and must never change without migration.
+
+This must be decided explicitly.
+
+---
+
+# 3. Canonical Encoding Law
+
+This is the foundational invariant:
+
+For all indexable values `A` and `B`:
 
 ```
-(kind, index_id, component_0, component_1, ..., component_n, primary_key)
+semantic_cmp(A, B) ==
+byte_lex_cmp(encode(A), encode(B))
 ```
 
-Each component is encoded canonically, with explicit segment lengths and value tags.
+This must hold for:
 
-Canonical comparison semantics:
+* All supported scalar types.
+* Composite tuples.
+* Prefix subsets.
+* PK tie-break ordering.
 
-* Scalar, numeric, text, enum, and other types are ordered according to their semantic value order.
-* Floats are normalized with *NaN rejection and +0.0/−0.0 canonical equivalence*.
-* Composite ordering respects left-to-right component precedence. ([System Overflow][1])
+If this law fails, the entire ordering model is invalid.
 
-## Ordering Invariants
+---
 
-1. **Lexicographic vs. Semantic Equivalence**
+# 4. IndexKey Structure
 
-Sorting by raw bytes is *semantically equivalent* to tuple-wise ordering:
+IndexKey encodes:
 
 ```
-IndexKey::Ord == raw_byte_lexicographic_order ==
-Value::canonical_cmp_key over components + PK tie-break
+(kind, index_id, component_0, ..., component_n, primary_key)
 ```
 
-This holds for all supported scalar and composite index shapes.
+### 4.1 Component Rules
 
-## Unblocked Capabilities
+* Each component is framed with length + tag.
+* Tags are fixed and version-stable.
+* Encoding must be total over all indexable types.
+* No runtime heuristics or dynamic interpretation allowed.
 
-### 1) Efficient Range Queries
+### 4.2 index_id Rules
 
-With lexicographic ordering, typical range predicates (e.g., `>=`, `<`, `BETWEEN`) can be implemented as bounded traversals over the keyspace without scanning entire tables.
+* index_id must be stable across upgrades.
+* index_id ordering must not affect cross-index isolation.
+* index_id must be fixed-width or length-framed consistently.
+* index_id ordering must be deterministic.
 
-This matches classical B-tree range index behavior. ([DEV Community][2])
+Changing index_id semantics requires migration.
 
-### 2) Composite Index Support
+---
 
-Index ordering on `component_0, component_1, ..., component_n` matches relational composite index semantics:
+# 5. Ordering Semantics
 
-* The leftmost component controls major sorting.
-* Subsequent components refine ordering under equal prefixes. ([System Overflow][1])
+## 5.1 Composite Ordering
 
-This enables queries filtering on prefixes of composite keys to be pushed down into range scans.
+Composite ordering respects left-to-right precedence:
 
-### 3) Stable Pagination / Cursor Semantics
+```
+(component_0, component_1, ..., component_n, pk)
+```
 
-Because the ordering is canonical and byte-stable, continuation tokens can be represented as raw key bytes.
+The primary key acts as the final tie-breaker.
 
-Clients and planners can resume scans deterministically at a given position in the index.
+This guarantees:
 
-### 4) Unique Constraint Enforcement via Prefix Scan
+* Strict total ordering.
+* No ambiguous equal-key cases.
+* Deterministic pagination.
 
-Uniqueness is enforced by scanning for existing keys that match the *non-PK components* as a prefix.
+---
 
-If a conflicting prefix exists with a different PK, the insert/update is rejected.
+## 5.2 Float Handling
 
-Compared to the prior fingerprint model, this eliminates hash collision as a correctness risk.
+Floats must obey:
 
-### 5) Index-Only Ordering Pushdown
+* NaN is rejected (or canonicalized deterministically).
+* +0.0 and -0.0 are encoded identically.
+* Ordering reflects numeric semantics.
 
-Operations like `ORDER BY indexed_field` can be satisfied directly by range scans without secondary sorting.
+Float normalization is protocol-level and frozen.
 
-Composite ordering enables satisfying `ORDER BY (field_1, field_2)` if the index matches the field sequence.
+---
 
-### 6) Planner Simplification
+## 5.3 Enum / Tagged Types
 
-Planner eligibility checks now rely strictly on canonical encodability and prefix membership, not fingerprint heuristics.
+Enum ordering must be defined as:
 
-Index ordering is fully determined by encoded component succession.
+* Stable discriminant order.
+* Followed by canonical payload ordering (if any).
 
-## Protocol Stability Guarantees
+Changing enum ordering breaks index stability.
 
-### Canonical Format Freeze
+---
 
-* Component framing (length + bytes) is protocol-level.
-* Value tag sets and ordering rules are stable across releases.
-* Float and decimal normalization rules are fixed.
-* No implicit or situational interpretation of index bytes is permitted.
+# 6. Prefix Semantics
 
-## Testable Properties
+## 6.1 Prefix Equivalence Law
 
-Canonical ordering correctness must be validated via tests asserting:
+Prefix scan correctness requires:
 
-* **Encoded bytes match semantically expected order**.
-* **Range scan bounds exclude keys outside prefix**.
-* **Primary key pivot ensures tie-break resolution**.
-* **Cross-namespace isolation (User vs System)**.
-* **Type normalization (float, decimal, enum) freeze behaviors**.
+```
+semantic_prefix_match(A, prefix) ==
+byte_prefix_match(encode(A), encode(prefix))
+```
 
-## Non-Goals / Out of Scope
+These must be equivalent.
 
-This design does *not* automatically provide:
+---
 
-* Cost-based optimizer selection based on index statistics.
-* Multi-index intersection strategies.
-* Bitmap or full-text index semantics.
-* Secondary index compression strategies.
+## 6.2 Unique Constraint Enforcement
 
-These may leverage the canonical ordering layer but require separate design work.
+Uniqueness is enforced via prefix scan over:
 
-## Reference Summary
+```
+(component_0, ..., component_n)
+```
 
-Database indexes used as sorted structures support efficient range traversal, equality, and composite prefix matching by leveraging lexicographic ordering of key bytes over sorted components. Composite index semantics align with value-level ordering of fields in sequence. Canonical encodings enforce stability and deterministic ordering with respect to application query semantics. ([System Overflow][1])
+If another row exists with identical non-PK prefix but different PK, uniqueness violation occurs.
 
+This eliminates hash collision risk from prior fingerprint model.
+
+---
+
+# 7. Cursor & Pagination Invariants
+
+## 7.1 Cursor Stability Law
+
+Continuation tokens derived from index keys must satisfy:
+
+* Byte-stable across upgrades.
+* Deterministic resume position.
+* Equivalent ordering comparison to canonical sort.
+
+Cursor comparison must use the same ordering law as index sorting.
+
+---
+
+## 7.2 Page Boundary Invariant
+
+Given pages P1 and P2:
+
+* No row appears twice.
+* No row is skipped.
+* Strict monotonic ordering across pages.
+
+---
+
+# 8. Range Query Semantics
+
+With canonical ordering:
+
+* `>=`, `>`, `<`, `<=`, `BETWEEN`
+  are implemented via bounded traversal.
+
+Lower and upper bounds must be constructed using canonical encoded components.
+
+---
+
+# 9. Planner Contract
+
+Planner eligibility checks for:
+
+* ORDER BY pushdown
+* Prefix filtering
+* Range compatibility
+
+must rely exclusively on canonical encodability and prefix membership.
+
+No fingerprint heuristics allowed.
+
+---
+
+# 10. Non-Goals
+
+This design does not include:
+
+* Cost-based optimization.
+* Multi-index intersection.
+* Bitmap indexes.
+* Compression strategies.
+* Statistics-based selection.
+
+---
+
+# 11. Mandatory Test Matrix
+
+Before implementation is considered stable:
+
+### 11.1 Canonical Ordering Tests
+
+* Numeric ascending/descending equivalence.
+* Negative values.
+* Mixed-length text ordering.
+* Enum discriminant ordering.
+* Composite ordering across types.
+* Boundary values (min/max).
+* Zero-length components.
+* Large payload components.
+
+### 11.2 Byte vs Semantic Equivalence Tests
+
+Assert:
+
+```
+encode(A) < encode(B)
+iff
+semantic_cmp(A, B) == Less
+```
+
+Across randomized samples.
+
+---
+
+### 11.3 Prefix Bound Tests
+
+* Lower-bound inclusive.
+* Lower-bound exclusive.
+* Upper-bound inclusive.
+* Upper-bound exclusive.
+* Composite prefix truncation.
+* PK tie-break behavior.
+
+---
+
+### 11.4 Cursor Continuation Tests
+
+* Resume after exact boundary.
+* Resume inside composite prefix.
+* Resume across page boundaries.
+* Upgrade-stability test (encode/decode roundtrip).
+
+---
+
+### 11.5 Cross-Index Isolation
+
+* Keys from different index_id must never collide.
+* Range scans must not bleed into adjacent index namespace.
+
+---
+
+# 12. Pre-Implementation Checklist
+
+Before writing encoder logic:
+
+1. Define canonical Value ordering exhaustively.
+2. Define tag space for all indexable types.
+3. Freeze float normalization rules.
+4. Decide NaN behavior explicitly.
+5. Decide index_id encoding width and framing.
+6. Confirm PK encoding canonicalization.
+7. Confirm whether raw key bytes are public API.
+8. Document migration strategy (if needed).
+
+---
+
+# 13. Migration Considerations
+
+IndexKey v2 is incompatible with v1 hash-based keys.
+
+Options:
+
+* Full re-index migration.
+* Dual-read compatibility layer.
+* Versioned key namespace separation.
+
+Migration must not silently alter ordering semantics.
+
+---
+
+# 14. Failure Modes to Guard Against
+
+* Drift between semantic_cmp and byte_cmp.
+* Prefix mismatch between semantic and byte interpretation.
+* Cursor instability after upgrade.
+* Index_id encoding change altering traversal ordering.
+* Accidental Value variant expansion without encoder update.
+
+---
+
+# 15. Architectural Freeze Clause
+
+IndexKey encoding, tag ordering, and canonical comparison rules are protocol-level and must not change without:
+
+* Explicit version increment.
+* Migration path.
+* Backward-compatibility plan.
+
+---
+
+# Final Assessment
+
+You are ready to begin implementation once:
+
+* Canonical Value ordering is fully defined.
+* All encoding invariants are explicitly written.
+* Migration strategy is decided.
+* Tests are scaffolded first.
