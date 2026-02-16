@@ -43,46 +43,12 @@ pub struct ExplainPlan {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainOrderPushdown {
+    MissingModelContext,
     EligibleSecondaryIndex {
         index: &'static str,
         prefix_len: usize,
     },
-    Rejected {
-        reason: ExplainOrderPushdownRejection,
-    },
-}
-
-///
-/// ExplainOrderPushdownRejection
-///
-/// Explicit reason why secondary-index ORDER BY pushdown is rejected.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExplainOrderPushdownRejection {
-    MissingModelContext,
-    NoOrderBy,
-    AccessPathNotSingleIndexPrefix,
-    InvalidIndexPrefixBounds {
-        prefix_len: usize,
-        index_field_len: usize,
-    },
-    MissingPrimaryKeyTieBreak {
-        field: String,
-    },
-    PrimaryKeyDirectionNotAscending {
-        field: String,
-    },
-    NonAscendingDirection {
-        field: String,
-    },
-    OrderFieldsDoNotMatchIndex {
-        index: &'static str,
-        prefix_len: usize,
-        expected_suffix: Vec<String>,
-        expected_full: Vec<String>,
-        actual: Vec<String>,
-    },
+    Matrix(SecondaryOrderPushdownRejection),
 }
 
 ///
@@ -238,58 +204,20 @@ fn explain_order_pushdown<K>(
     plan: &LogicalPlan<K>,
 ) -> ExplainOrderPushdown {
     let Some(model) = model else {
-        return ExplainOrderPushdown::Rejected {
-            reason: ExplainOrderPushdownRejection::MissingModelContext,
-        };
+        return ExplainOrderPushdown::MissingModelContext;
     };
 
-    match assess_secondary_order_pushdown(model, plan) {
-        SecondaryOrderPushdownEligibility::Eligible { index, prefix_len } => {
-            ExplainOrderPushdown::EligibleSecondaryIndex { index, prefix_len }
-        }
-        SecondaryOrderPushdownEligibility::Rejected(reason) => ExplainOrderPushdown::Rejected {
-            reason: map_pushdown_rejection(reason),
-        },
-    }
+    assess_secondary_order_pushdown(model, plan).into()
 }
 
-fn map_pushdown_rejection(
-    reason: SecondaryOrderPushdownRejection,
-) -> ExplainOrderPushdownRejection {
-    match reason {
-        SecondaryOrderPushdownRejection::NoOrderBy => ExplainOrderPushdownRejection::NoOrderBy,
-        SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix => {
-            ExplainOrderPushdownRejection::AccessPathNotSingleIndexPrefix
+impl From<SecondaryOrderPushdownEligibility> for ExplainOrderPushdown {
+    fn from(value: SecondaryOrderPushdownEligibility) -> Self {
+        match value {
+            SecondaryOrderPushdownEligibility::Eligible { index, prefix_len } => {
+                Self::EligibleSecondaryIndex { index, prefix_len }
+            }
+            SecondaryOrderPushdownEligibility::Rejected(reason) => Self::Matrix(reason),
         }
-        SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
-            prefix_len,
-            index_field_len,
-        } => ExplainOrderPushdownRejection::InvalidIndexPrefixBounds {
-            prefix_len,
-            index_field_len,
-        },
-        SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak { field } => {
-            ExplainOrderPushdownRejection::MissingPrimaryKeyTieBreak { field }
-        }
-        SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending { field } => {
-            ExplainOrderPushdownRejection::PrimaryKeyDirectionNotAscending { field }
-        }
-        SecondaryOrderPushdownRejection::NonAscendingDirection { field } => {
-            ExplainOrderPushdownRejection::NonAscendingDirection { field }
-        }
-        SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-            index,
-            prefix_len,
-            expected_suffix,
-            expected_full,
-            actual,
-        } => ExplainOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-            index,
-            prefix_len,
-            expected_suffix,
-            expected_full,
-            actual,
-        },
     }
 }
 
@@ -611,11 +539,11 @@ mod tests {
 
         assert_eq!(
             plan.explain_with_model(model).order_pushdown,
-            ExplainOrderPushdown::Rejected {
-                reason: ExplainOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
+            ExplainOrderPushdown::Matrix(
+                SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
                     field: "id".to_string(),
-                },
-            }
+                }
+            )
         );
     }
 
@@ -634,77 +562,111 @@ mod tests {
 
         assert_eq!(
             plan.explain().order_pushdown,
-            ExplainOrderPushdown::Rejected {
-                reason: ExplainOrderPushdownRejection::MissingModelContext,
-            }
+            ExplainOrderPushdown::MissingModelContext
         );
     }
 
     #[test]
-    fn explain_pushdown_rejection_mapping_covers_all_variants() {
+    fn explain_pushdown_conversion_covers_all_variants() {
         let cases = vec![
             (
-                SecondaryOrderPushdownRejection::NoOrderBy,
-                ExplainOrderPushdownRejection::NoOrderBy,
-            ),
-            (
-                SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
-                ExplainOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
-            ),
-            (
-                SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
-                    prefix_len: 3,
-                    index_field_len: 2,
-                },
-                ExplainOrderPushdownRejection::InvalidIndexPrefixBounds {
-                    prefix_len: 3,
-                    index_field_len: 2,
-                },
-            ),
-            (
-                SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
-                    field: "id".to_string(),
-                },
-                ExplainOrderPushdownRejection::MissingPrimaryKeyTieBreak {
-                    field: "id".to_string(),
-                },
-            ),
-            (
-                SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
-                    field: "id".to_string(),
-                },
-                ExplainOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
-                    field: "id".to_string(),
-                },
-            ),
-            (
-                SecondaryOrderPushdownRejection::NonAscendingDirection {
-                    field: "rank".to_string(),
-                },
-                ExplainOrderPushdownRejection::NonAscendingDirection {
-                    field: "rank".to_string(),
-                },
-            ),
-            (
-                SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+                SecondaryOrderPushdownEligibility::Eligible {
                     index: "explain::pushdown_tag",
                     prefix_len: 1,
-                    expected_suffix: vec!["rank".to_string()],
-                    expected_full: vec!["group".to_string(), "rank".to_string()],
-                    actual: vec!["other".to_string()],
                 },
-                ExplainOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+                ExplainOrderPushdown::EligibleSecondaryIndex {
                     index: "explain::pushdown_tag",
                     prefix_len: 1,
-                    expected_suffix: vec!["rank".to_string()],
-                    expected_full: vec!["group".to_string(), "rank".to_string()],
-                    actual: vec!["other".to_string()],
                 },
+            ),
+            (
+                SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::NoOrderBy,
+                ),
+                ExplainOrderPushdown::Matrix(SecondaryOrderPushdownRejection::NoOrderBy),
+            ),
+            (
+                SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+                ),
+                ExplainOrderPushdown::Matrix(
+                    SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+                ),
+            ),
+            (
+                SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+                        prefix_len: 3,
+                        index_field_len: 2,
+                    },
+                ),
+                ExplainOrderPushdown::Matrix(
+                    SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+                        prefix_len: 3,
+                        index_field_len: 2,
+                    },
+                ),
+            ),
+            (
+                SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
+                        field: "id".to_string(),
+                    },
+                ),
+                ExplainOrderPushdown::Matrix(
+                    SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
+                        field: "id".to_string(),
+                    },
+                ),
+            ),
+            (
+                SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
+                        field: "id".to_string(),
+                    },
+                ),
+                ExplainOrderPushdown::Matrix(
+                    SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
+                        field: "id".to_string(),
+                    },
+                ),
+            ),
+            (
+                SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::NonAscendingDirection {
+                        field: "rank".to_string(),
+                    },
+                ),
+                ExplainOrderPushdown::Matrix(
+                    SecondaryOrderPushdownRejection::NonAscendingDirection {
+                        field: "rank".to_string(),
+                    },
+                ),
+            ),
+            (
+                SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+                        index: "explain::pushdown_tag",
+                        prefix_len: 1,
+                        expected_suffix: vec!["rank".to_string()],
+                        expected_full: vec!["group".to_string(), "rank".to_string()],
+                        actual: vec!["other".to_string()],
+                    },
+                ),
+                ExplainOrderPushdown::Matrix(
+                    SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+                        index: "explain::pushdown_tag",
+                        prefix_len: 1,
+                        expected_suffix: vec!["rank".to_string()],
+                        expected_full: vec!["group".to_string(), "rank".to_string()],
+                        actual: vec!["other".to_string()],
+                    },
+                ),
             ),
         ];
 
         for (input, expected) in cases {
-            assert_eq!(map_pushdown_rejection(input), expected);
+            assert_eq!(ExplainOrderPushdown::from(input), expected);
         }
     }
 }

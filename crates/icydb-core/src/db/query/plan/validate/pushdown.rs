@@ -150,3 +150,22 @@ pub fn assess_secondary_order_pushdown<K>(
         },
     )
 }
+
+/// Evaluate pushdown eligibility only when secondary-index ORDER BY is applicable.
+///
+/// Returns `None` for non-applicable shapes:
+/// - no ORDER BY fields
+/// - access path is not a single index prefix
+pub fn assess_secondary_order_pushdown_if_applicable<K>(
+    model: &EntityModel,
+    plan: &LogicalPlan<K>,
+) -> Option<SecondaryOrderPushdownEligibility> {
+    let eligibility = assess_secondary_order_pushdown(model, plan);
+    match eligibility {
+        SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::NoOrderBy
+            | SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+        ) => None,
+        other => Some(other),
+    }
+}

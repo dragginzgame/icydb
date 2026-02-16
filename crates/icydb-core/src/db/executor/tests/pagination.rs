@@ -24,6 +24,75 @@ fn ordered_ids_from_group_rank_index(group: u32) -> Vec<Ulid> {
         .expect("resolved index keys should decode to entity ids")
 }
 
+type PushdownSeedRow = (u128, u32, u32, &'static str);
+
+fn pushdown_entity((id, group, rank, label): PushdownSeedRow) -> PushdownParityEntity {
+    PushdownParityEntity {
+        id: Ulid::from_u128(id),
+        group,
+        rank,
+        label: label.to_string(),
+    }
+}
+
+fn seed_pushdown_rows(rows: &[PushdownSeedRow]) {
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for row in rows {
+        save.insert(pushdown_entity(*row))
+            .expect("seed row save should succeed");
+    }
+}
+
+fn pushdown_group_predicate(group: u32) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(u64::from(group)),
+        CoercionId::Strict,
+    ))
+}
+
+fn pushdown_group_ids(rows: &[PushdownSeedRow], group: u32) -> Vec<Ulid> {
+    rows.iter()
+        .filter(|(_, row_group, _, _)| *row_group == group)
+        .map(|(id, _, _, _)| Ulid::from_u128(*id))
+        .collect()
+}
+
+fn pushdown_rows_with_group8(prefix: u128) -> [PushdownSeedRow; 5] {
+    [
+        (prefix + 3, 7, 30, "g7-r30"),
+        (prefix + 1, 7, 10, "g7-r10-a"),
+        (prefix + 2, 7, 10, "g7-r10-b"),
+        (prefix + 4, 8, 5, "g8-r5"),
+        (prefix + 5, 7, 20, "g7-r20"),
+    ]
+}
+
+fn pushdown_rows_with_group9(prefix: u128) -> [PushdownSeedRow; 6] {
+    [
+        (prefix + 3, 7, 30, "g7-r30"),
+        (prefix + 1, 7, 10, "g7-r10-a"),
+        (prefix + 2, 7, 10, "g7-r10-b"),
+        (prefix + 4, 7, 20, "g7-r20"),
+        (prefix + 5, 7, 40, "g7-r40"),
+        (prefix + 6, 9, 1, "g9-r1"),
+    ]
+}
+
+fn pushdown_rows_window(prefix: u128) -> [PushdownSeedRow; 4] {
+    [
+        (prefix + 1, 7, 10, "g7-r10"),
+        (prefix + 2, 7, 20, "g7-r20"),
+        (prefix + 3, 7, 30, "g7-r30"),
+        (prefix + 4, 9, 1, "g9-r1"),
+    ]
+}
+
+fn pushdown_rows_trace(prefix: u128) -> [PushdownSeedRow; 2] {
+    [(prefix + 1, 7, 10, "g7-r10"), (prefix + 2, 7, 20, "g7-r20")]
+}
+
 #[test]
 fn load_applies_order_and_pagination() {
     init_commit_store_for_tests().expect("commit store init should succeed");
@@ -1016,48 +1085,10 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
-    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
-    for row in [
-        PushdownParityEntity {
-            id: Ulid::from_u128(10_003),
-            group: 7,
-            rank: 30,
-            label: "g7-r30".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(10_001),
-            group: 7,
-            rank: 10,
-            label: "g7-r10-a".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(10_002),
-            group: 7,
-            rank: 10,
-            label: "g7-r10-b".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(10_004),
-            group: 8,
-            rank: 5,
-            label: "g8-r5".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(10_005),
-            group: 7,
-            rank: 20,
-            label: "g7-r20".to_string(),
-        },
-    ] {
-        save.insert(row).expect("seed row save should succeed");
-    }
+    let rows = pushdown_rows_with_group8(10_000);
+    seed_pushdown_rows(&rows);
 
-    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
-        "group",
-        CompareOp::Eq,
-        Value::Uint(7),
-        CoercionId::Strict,
-    ));
+    let predicate = pushdown_group_predicate(7);
     let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
         .filter(predicate.clone())
         .order_by("rank")
@@ -1095,54 +1126,10 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
-    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
-    for row in [
-        PushdownParityEntity {
-            id: Ulid::from_u128(11_003),
-            group: 7,
-            rank: 30,
-            label: "g7-r30".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(11_001),
-            group: 7,
-            rank: 10,
-            label: "g7-r10-a".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(11_002),
-            group: 7,
-            rank: 10,
-            label: "g7-r10-b".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(11_004),
-            group: 7,
-            rank: 20,
-            label: "g7-r20".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(11_005),
-            group: 7,
-            rank: 40,
-            label: "g7-r40".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(11_006),
-            group: 9,
-            rank: 1,
-            label: "g9-r1".to_string(),
-        },
-    ] {
-        save.insert(row).expect("seed row save should succeed");
-    }
+    let rows = pushdown_rows_with_group9(11_000);
+    seed_pushdown_rows(&rows);
 
-    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
-        "group",
-        CompareOp::Eq,
-        Value::Uint(7),
-        CoercionId::Strict,
-    ));
+    let predicate = pushdown_group_predicate(7);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
     let page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -1198,55 +1185,11 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
-    let group7_ids = [12_003_u128, 12_001, 12_002, 12_004, 12_005];
-    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
-    for row in [
-        PushdownParityEntity {
-            id: Ulid::from_u128(12_003),
-            group: 7,
-            rank: 30,
-            label: "g7-r30".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(12_001),
-            group: 7,
-            rank: 10,
-            label: "g7-r10-a".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(12_002),
-            group: 7,
-            rank: 10,
-            label: "g7-r10-b".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(12_004),
-            group: 7,
-            rank: 20,
-            label: "g7-r20".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(12_005),
-            group: 7,
-            rank: 40,
-            label: "g7-r40".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(12_006),
-            group: 9,
-            rank: 1,
-            label: "g9-r1".to_string(),
-        },
-    ] {
-        save.insert(row).expect("seed row save should succeed");
-    }
+    let rows = pushdown_rows_with_group9(12_000);
+    seed_pushdown_rows(&rows);
+    let group7_ids = pushdown_group_ids(&rows, 7);
 
-    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
-        "group",
-        CompareOp::Eq,
-        Value::Uint(7),
-        CoercionId::Strict,
-    ));
+    let predicate = pushdown_group_predicate(7);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
     let pushdown_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -1260,7 +1203,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .expect("pushdown page should execute");
 
     let fallback_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(group7_ids.into_iter().map(Ulid::from_u128))
+        .by_ids(group7_ids.iter().copied())
         .order_by("rank")
         .limit(2)
         .plan()
@@ -1311,55 +1254,11 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
-    let group7_ids = [13_003_u128, 13_001, 13_002, 13_004, 13_005];
-    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
-    for row in [
-        PushdownParityEntity {
-            id: Ulid::from_u128(13_003),
-            group: 7,
-            rank: 30,
-            label: "g7-r30".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(13_001),
-            group: 7,
-            rank: 10,
-            label: "g7-r10-a".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(13_002),
-            group: 7,
-            rank: 10,
-            label: "g7-r10-b".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(13_004),
-            group: 7,
-            rank: 20,
-            label: "g7-r20".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(13_005),
-            group: 7,
-            rank: 40,
-            label: "g7-r40".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(13_006),
-            group: 9,
-            rank: 1,
-            label: "g9-r1".to_string(),
-        },
-    ] {
-        save.insert(row).expect("seed row save should succeed");
-    }
+    let rows = pushdown_rows_with_group9(13_000);
+    seed_pushdown_rows(&rows);
+    let group7_ids = pushdown_group_ids(&rows, 7);
 
-    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
-        "group",
-        CompareOp::Eq,
-        Value::Uint(7),
-        CoercionId::Strict,
-    ));
+    let predicate = pushdown_group_predicate(7);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
     let seed_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -1391,7 +1290,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .expect("pushdown page2 should execute");
 
     let fallback_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(group7_ids.into_iter().map(Ulid::from_u128))
+        .by_ids(group7_ids.iter().copied())
         .order_by("rank")
         .limit(2)
         .plan()
@@ -1442,55 +1341,11 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
-    let group7_ids = [14_003_u128, 14_001, 14_002, 14_004, 14_005];
-    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
-    for row in [
-        PushdownParityEntity {
-            id: Ulid::from_u128(14_003),
-            group: 7,
-            rank: 30,
-            label: "g7-r30".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(14_001),
-            group: 7,
-            rank: 10,
-            label: "g7-r10-a".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(14_002),
-            group: 7,
-            rank: 10,
-            label: "g7-r10-b".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(14_004),
-            group: 7,
-            rank: 20,
-            label: "g7-r20".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(14_005),
-            group: 7,
-            rank: 40,
-            label: "g7-r40".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(14_006),
-            group: 9,
-            rank: 1,
-            label: "g9-r1".to_string(),
-        },
-    ] {
-        save.insert(row).expect("seed row save should succeed");
-    }
+    let rows = pushdown_rows_with_group9(14_000);
+    seed_pushdown_rows(&rows);
+    let group7_ids = pushdown_group_ids(&rows, 7);
 
-    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
-        "group",
-        CompareOp::Eq,
-        Value::Uint(7),
-        CoercionId::Strict,
-    ));
+    let predicate = pushdown_group_predicate(7);
     let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
         .filter(predicate.clone())
         .order_by_desc("rank")
@@ -1499,9 +1354,9 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
     assert!(
         matches!(
             explain.order_pushdown,
-            crate::db::query::plan::ExplainOrderPushdown::Rejected {
-                reason: crate::db::query::plan::ExplainOrderPushdownRejection::NonAscendingDirection { field }
-            } if field == "rank"
+            crate::db::query::plan::ExplainOrderPushdown::Matrix(
+                crate::db::query::plan::validate::SecondaryOrderPushdownRejection::NonAscendingDirection { field }
+            ) if field == "rank"
         ),
         "descending rank order should be ineligible and use fallback execution"
     );
@@ -1518,7 +1373,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .expect("index-path desc page1 should execute");
 
     let by_ids_page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(group7_ids.into_iter().map(Ulid::from_u128))
+        .by_ids(group7_ids.iter().copied())
         .order_by_desc("rank")
         .limit(2)
         .plan()
@@ -1565,7 +1420,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .expect("index-path desc page2 should execute");
 
     let by_ids_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(group7_ids.into_iter().map(Ulid::from_u128))
+        .by_ids(group7_ids.iter().copied())
         .order_by_desc("rank")
         .limit(2)
         .plan()
@@ -1597,42 +1452,10 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
-    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
-    for row in [
-        PushdownParityEntity {
-            id: Ulid::from_u128(15_001),
-            group: 7,
-            rank: 10,
-            label: "g7-r10".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(15_002),
-            group: 7,
-            rank: 20,
-            label: "g7-r20".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(15_003),
-            group: 7,
-            rank: 30,
-            label: "g7-r30".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(15_004),
-            group: 9,
-            rank: 1,
-            label: "g9-r1".to_string(),
-        },
-    ] {
-        save.insert(row).expect("seed row save should succeed");
-    }
+    let rows = pushdown_rows_window(15_000);
+    seed_pushdown_rows(&rows);
 
-    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
-        "group",
-        CompareOp::Eq,
-        Value::Uint(7),
-        CoercionId::Strict,
-    ));
+    let predicate = pushdown_group_predicate(7);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
     let page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -1678,12 +1501,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .cursor_boundary_from_entity(&page2.items.0[0].1)
         .expect("explicit boundary from terminal row should build");
     let past_end_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "group",
-            CompareOp::Eq,
-            Value::Uint(7),
-            CoercionId::Strict,
-        )))
+        .filter(pushdown_group_predicate(7))
         .order_by("rank")
         .limit(2)
         .plan()
@@ -1706,30 +1524,10 @@ fn load_trace_marks_secondary_order_pushdown_accepted() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
-    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
-    for row in [
-        PushdownParityEntity {
-            id: Ulid::from_u128(16_001),
-            group: 7,
-            rank: 10,
-            label: "g7-r10".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(16_002),
-            group: 7,
-            rank: 20,
-            label: "g7-r20".to_string(),
-        },
-    ] {
-        save.insert(row).expect("seed row save should succeed");
-    }
+    let rows = pushdown_rows_trace(16_000);
+    seed_pushdown_rows(&rows);
 
-    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
-        "group",
-        CompareOp::Eq,
-        Value::Uint(7),
-        CoercionId::Strict,
-    ));
+    let predicate = pushdown_group_predicate(7);
     let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
         .filter(predicate)
         .order_by("rank")
@@ -1760,30 +1558,10 @@ fn load_trace_marks_secondary_order_pushdown_rejected() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
-    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
-    for row in [
-        PushdownParityEntity {
-            id: Ulid::from_u128(17_001),
-            group: 7,
-            rank: 10,
-            label: "g7-r10".to_string(),
-        },
-        PushdownParityEntity {
-            id: Ulid::from_u128(17_002),
-            group: 7,
-            rank: 20,
-            label: "g7-r20".to_string(),
-        },
-    ] {
-        save.insert(row).expect("seed row save should succeed");
-    }
+    let rows = pushdown_rows_trace(17_000);
+    seed_pushdown_rows(&rows);
 
-    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
-        "group",
-        CompareOp::Eq,
-        Value::Uint(7),
-        CoercionId::Strict,
-    ));
+    let predicate = pushdown_group_predicate(7);
     let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
         .filter(predicate)
         .order_by_desc("rank")

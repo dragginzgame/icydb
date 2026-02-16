@@ -448,9 +448,7 @@ let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
 
 assert!(matches!(
     explain.order_pushdown,
-    ExplainOrderPushdown::Rejected {
-        reason: ExplainOrderPushdownRejection::NonAscendingDirection { .. }
-    }
+    ExplainOrderPushdown::Matrix(SecondaryOrderPushdownRejection::NonAscendingDirection { .. })
 ));
 ```
 

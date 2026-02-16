@@ -14,7 +14,7 @@ use crate::{
             AccessPath, AccessPlan, ContinuationSignature, ContinuationToken, CursorBoundary,
             ExecutablePlan, LogicalPlan, OrderDirection, decode_pk_cursor_boundary,
             validate::{
-                SecondaryOrderPushdownEligibility, assess_secondary_order_pushdown,
+                SecondaryOrderPushdownEligibility, assess_secondary_order_pushdown_if_applicable,
                 validate_executor_plan,
             },
         },
@@ -155,7 +155,8 @@ where
             }
 
             record_plan_metrics(&plan.access);
-            let secondary_pushdown_eligibility = Self::secondary_order_pushdown_eligibility(&plan);
+            let secondary_pushdown_eligibility =
+                assess_secondary_order_pushdown_if_applicable(E::MODEL, &plan);
             Self::emit_secondary_order_pushdown_trace(
                 trace.as_ref(),
                 secondary_pushdown_eligibility.as_ref(),
@@ -220,27 +221,6 @@ where
         finish_trace_from_result(trace, &result, |page| page.items.0.len());
 
         result
-    }
-
-    // Evaluate secondary-index ORDER BY pushdown once per plan execution.
-    fn secondary_order_pushdown_eligibility(
-        plan: &LogicalPlan<E::Key>,
-    ) -> Option<SecondaryOrderPushdownEligibility> {
-        if !matches!(
-            plan.access,
-            AccessPlan::Path(AccessPath::IndexPrefix { .. })
-        ) {
-            return None;
-        }
-        if plan
-            .order
-            .as_ref()
-            .is_none_or(|order| order.fields.is_empty())
-        {
-            return None;
-        }
-
-        Some(assess_secondary_order_pushdown(E::MODEL, plan))
     }
 
     // Emit a deterministic trace marker for secondary ORDER BY pushdown decisions.

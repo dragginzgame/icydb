@@ -1,7 +1,8 @@
 // NOTE: Invalid helpers remain only for intentionally invalid schemas.
 use super::{
     PlanError, SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
-    assess_secondary_order_pushdown, validate_logical_plan_model,
+    assess_secondary_order_pushdown, assess_secondary_order_pushdown_if_applicable,
+    validate_logical_plan_model,
 };
 use crate::{
     db::query::{
@@ -649,4 +650,55 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
             case.name
         );
     }
+}
+
+#[test]
+fn secondary_order_pushdown_if_applicable_filters_non_applicable_shapes() {
+    let model = model_with_index();
+
+    let no_order_plan = load_plan(
+        AccessPlan::Path(AccessPath::IndexPrefix {
+            index: INDEX_MODEL,
+            values: vec![Value::Text("a".to_string())],
+        }),
+        None,
+    );
+    assert_eq!(
+        assess_secondary_order_pushdown_if_applicable(model, &no_order_plan),
+        None
+    );
+
+    let full_scan_plan = load_plan(
+        AccessPlan::Path(AccessPath::FullScan),
+        Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        }),
+    );
+    assert_eq!(
+        assess_secondary_order_pushdown_if_applicable(model, &full_scan_plan),
+        None
+    );
+}
+
+#[test]
+fn secondary_order_pushdown_if_applicable_returns_matrix_decision() {
+    let model = model_with_index();
+    let descending_plan = load_plan(
+        AccessPlan::Path(AccessPath::IndexPrefix {
+            index: INDEX_MODEL,
+            values: vec![Value::Text("a".to_string())],
+        }),
+        Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        }),
+    );
+
+    assert_eq!(
+        assess_secondary_order_pushdown_if_applicable(model, &descending_plan),
+        Some(SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
+                field: "id".to_string(),
+            }
+        ))
+    );
 }
