@@ -1,5 +1,8 @@
 // NOTE: Invalid helpers remain only for intentionally invalid schemas.
-use super::{PlanError, validate_logical_plan_model};
+use super::{
+    PlanError, SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
+    assess_secondary_order_pushdown, validate_logical_plan_model,
+};
 use crate::{
     db::query::{
         plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec},
@@ -34,6 +37,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", EntityFieldKind::Ulid),
         ("tag", EntityFieldKind::Text),
+        ("rank", EntityFieldKind::Int),
     ],
     indexes = [&INDEX_MODEL],
 }
@@ -383,4 +387,112 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
 
     let err = validate_logical_plan_model(&schema, model, &plan).expect_err("missing PK tie-break");
     assert!(matches!(err, PlanError::MissingPrimaryKeyTieBreak { .. }));
+}
+
+#[test]
+fn secondary_order_pushdown_accepts_index_prefix_with_pk_only_order() {
+    let model = model_with_index();
+    let plan: LogicalPlan<Value> = LogicalPlan {
+        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        access: AccessPlan::Path(AccessPath::IndexPrefix {
+            index: INDEX_MODEL,
+            values: vec![Value::Text("a".to_string())],
+        }),
+        predicate: None,
+        order: Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        }),
+        delete_limit: None,
+        page: None,
+        consistency: crate::db::query::ReadConsistency::MissingOk,
+    };
+
+    assert_eq!(
+        assess_secondary_order_pushdown(model, &plan),
+        SecondaryOrderPushdownEligibility::Eligible {
+            index: INDEX_MODEL.name,
+            prefix_len: 1,
+        }
+    );
+}
+
+#[test]
+fn secondary_order_pushdown_rejects_non_index_order_field() {
+    let model = model_with_index();
+    let plan: LogicalPlan<Value> = LogicalPlan {
+        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        access: AccessPlan::Path(AccessPath::IndexPrefix {
+            index: INDEX_MODEL,
+            values: vec![Value::Text("a".to_string())],
+        }),
+        predicate: None,
+        order: Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        }),
+        delete_limit: None,
+        page: None,
+        consistency: crate::db::query::ReadConsistency::MissingOk,
+    };
+
+    let eligibility = assess_secondary_order_pushdown(model, &plan);
+    assert!(matches!(
+        eligibility,
+        SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex { .. }
+        )
+    ));
+}
+
+#[test]
+fn secondary_order_pushdown_rejects_full_scan_access_path() {
+    let model = model_with_index();
+    let plan: LogicalPlan<Value> = LogicalPlan {
+        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        access: AccessPlan::Path(AccessPath::FullScan),
+        predicate: None,
+        order: Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        }),
+        delete_limit: None,
+        page: None,
+        consistency: crate::db::query::ReadConsistency::MissingOk,
+    };
+
+    assert_eq!(
+        assess_secondary_order_pushdown(model, &plan),
+        SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix
+        )
+    );
+}
+
+#[test]
+fn secondary_order_pushdown_rejects_descending_primary_key() {
+    let model = model_with_index();
+    let plan: LogicalPlan<Value> = LogicalPlan {
+        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        access: AccessPlan::Path(AccessPath::IndexPrefix {
+            index: INDEX_MODEL,
+            values: vec![Value::Text("a".to_string())],
+        }),
+        predicate: None,
+        order: Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        }),
+        delete_limit: None,
+        page: None,
+        consistency: crate::db::query::ReadConsistency::MissingOk,
+    };
+
+    assert_eq!(
+        assess_secondary_order_pushdown(model, &plan),
+        SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
+                field: "id".to_string(),
+            }
+        )
+    );
 }

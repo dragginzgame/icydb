@@ -111,7 +111,6 @@ pub struct StoreRegistry {
 impl StoreRegistry {
     /// Create an empty store registry.
     #[must_use]
-    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self::default()
     }

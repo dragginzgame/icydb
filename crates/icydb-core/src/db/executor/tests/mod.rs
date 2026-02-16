@@ -16,7 +16,7 @@ use crate::{
         },
         executor::{
             DeleteExecutor, LoadExecutor, SaveExecutor,
-            trace::{QueryTraceEvent, QueryTraceSink, TracePhase},
+            trace::{QueryTraceEvent, QueryTraceSink, TracePhase, TracePushdownDecision},
         },
         index::IndexStore,
         query::{
@@ -280,6 +280,103 @@ impl EntityValue for IndexedMetricsEntity {
 }
 
 ///
+/// PushdownParityEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct PushdownParityEntity {
+    id: Ulid,
+    group: u32,
+    rank: u32,
+    label: String,
+}
+
+impl AsView for PushdownParityEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for PushdownParityEntity {}
+impl SanitizeCustom for PushdownParityEntity {}
+impl ValidateAuto for PushdownParityEntity {}
+impl ValidateCustom for PushdownParityEntity {}
+impl Visitable for PushdownParityEntity {}
+
+impl Path for PushdownParityEntity {
+    const PATH: &'static str = "executor_tests::PushdownParityEntity";
+}
+
+impl EntityKey for PushdownParityEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for PushdownParityEntity {
+    const ENTITY_NAME: &'static str = "PushdownParityEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static PUSHDOWN_PARITY_FIELDS: [EntityFieldModel; 4] = [
+    EntityFieldModel {
+        name: "id",
+        kind: EntityFieldKind::Ulid,
+    },
+    EntityFieldModel {
+        name: "group",
+        kind: EntityFieldKind::Uint,
+    },
+    EntityFieldModel {
+        name: "rank",
+        kind: EntityFieldKind::Uint,
+    },
+    EntityFieldModel {
+        name: "label",
+        kind: EntityFieldKind::Text,
+    },
+];
+static PUSHDOWN_PARITY_FIELD_NAMES: [&str; 4] = ["id", "group", "rank", "label"];
+static PUSHDOWN_PARITY_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
+static PUSHDOWN_PARITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "group_rank",
+    TestDataStore::PATH,
+    &PUSHDOWN_PARITY_INDEX_FIELDS,
+    false,
+)];
+static PUSHDOWN_PARITY_INDEXES: [&IndexModel; 1] = [&PUSHDOWN_PARITY_INDEX_MODELS[0]];
+static PUSHDOWN_PARITY_MODEL: EntityModel = entity_model_from_static(
+    "executor_tests::PushdownParityEntity",
+    "PushdownParityEntity",
+    &PUSHDOWN_PARITY_FIELDS[0],
+    &PUSHDOWN_PARITY_FIELDS,
+    &PUSHDOWN_PARITY_INDEXES,
+);
+
+impl EntitySchema for PushdownParityEntity {
+    const MODEL: &'static EntityModel = &PUSHDOWN_PARITY_MODEL;
+    const FIELDS: &'static [&'static str] = &PUSHDOWN_PARITY_FIELD_NAMES;
+    const INDEXES: &'static [&'static IndexModel] = &PUSHDOWN_PARITY_INDEXES;
+}
+
+impl EntityPlacement for PushdownParityEntity {
+    type Store = TestDataStore;
+    type Canister = TestCanister;
+}
+
+impl EntityKind for PushdownParityEntity {}
+
+impl EntityValue for PushdownParityEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+///
 /// SingletonUnitEntity
 ///
 
@@ -355,7 +452,7 @@ impl EntityKind for SingletonUnitEntity {}
 impl SingletonEntity for SingletonUnitEntity {}
 
 impl EntityValue for SingletonUnitEntity {
-    #[allow(clippy::unit_arg)]
+    #[expect(clippy::unit_arg)]
     fn id(&self) -> Id<Self> {
         Id::from_key(self.id)
     }
@@ -532,26 +629,31 @@ thread_local! {
 
 static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &[
     EntityRuntimeHooks::new(
+        RelationTargetEntity::ENTITY_NAME,
         RelationTargetEntity::PATH,
         crate::db::prepare_row_commit_for_entity::<RelationTargetEntity>,
         validate_delete_strong_relations_for_source::<RelationTargetEntity>,
     ),
     EntityRuntimeHooks::new(
+        RelationSourceEntity::ENTITY_NAME,
         RelationSourceEntity::PATH,
         crate::db::prepare_row_commit_for_entity::<RelationSourceEntity>,
         validate_delete_strong_relations_for_source::<RelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
+        WeakSingleRelationSourceEntity::ENTITY_NAME,
         WeakSingleRelationSourceEntity::PATH,
         crate::db::prepare_row_commit_for_entity::<WeakSingleRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakSingleRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
+        WeakOptionalRelationSourceEntity::ENTITY_NAME,
         WeakOptionalRelationSourceEntity::PATH,
         crate::db::prepare_row_commit_for_entity::<WeakOptionalRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakOptionalRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
+        WeakListRelationSourceEntity::ENTITY_NAME,
         WeakListRelationSourceEntity::PATH,
         crate::db::prepare_row_commit_for_entity::<WeakListRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakListRelationSourceEntity>,

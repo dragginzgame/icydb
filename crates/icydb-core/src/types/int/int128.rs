@@ -102,7 +102,7 @@ impl FieldValue for Int128 {
     }
 }
 
-#[allow(clippy::cast_lossless)]
+#[expect(clippy::cast_lossless)]
 impl From<i32> for Int128 {
     fn from(n: i32) -> Self {
         Self(n as i128)
@@ -135,7 +135,7 @@ impl NumCast for Int128 {
     }
 }
 
-#[allow(clippy::cast_lossless)]
+#[expect(clippy::cast_lossless)]
 impl NumFromPrimitive for Int128 {
     fn from_i64(n: i64) -> Option<Self> {
         Some(Self(n as i128))

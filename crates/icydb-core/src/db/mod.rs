@@ -22,7 +22,7 @@ use crate::{
         response::{Response, WriteBatchResponse, WriteResponse},
         store::{RawDataKey, StoreRegistry},
     },
-    error::InternalError,
+    error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{self, MetricsSink},
     traits::{CanisterKind, EntityKind, EntityValue},
 };
@@ -124,6 +124,7 @@ impl<C: CanisterKind> Db<C> {
 ///
 
 pub struct EntityRuntimeHooks<C: CanisterKind> {
+    pub entity_name: &'static str,
     pub entity_path: &'static str,
     pub prepare_row_commit: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
     pub validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
@@ -132,15 +133,54 @@ pub struct EntityRuntimeHooks<C: CanisterKind> {
 impl<C: CanisterKind> EntityRuntimeHooks<C> {
     #[must_use]
     pub const fn new(
+        entity_name: &'static str,
         entity_path: &'static str,
         prepare_row_commit: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
         validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
     ) -> Self {
         Self {
+            entity_name,
             entity_path,
             prepare_row_commit,
             validate_delete_strong_relations,
         }
+    }
+}
+
+impl<C: CanisterKind> Db<C> {
+    #[must_use]
+    pub(crate) const fn has_runtime_hooks(&self) -> bool {
+        !self.entity_runtime_hooks.is_empty()
+    }
+
+    pub(crate) fn runtime_hook_for_entity_name(
+        &self,
+        entity_name: &str,
+    ) -> Result<&EntityRuntimeHooks<C>, InternalError> {
+        let mut matched = None;
+        for hooks in self.entity_runtime_hooks {
+            if hooks.entity_name != entity_name {
+                continue;
+            }
+
+            if matched.is_some() {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Store,
+                    format!("duplicate runtime hooks for entity name '{entity_name}'"),
+                ));
+            }
+
+            matched = Some(hooks);
+        }
+
+        matched.ok_or_else(|| {
+            InternalError::new(
+                ErrorClass::Unsupported,
+                ErrorOrigin::Store,
+                format!("unsupported entity name in data store: '{entity_name}'"),
+            )
+        })
     }
 }
 

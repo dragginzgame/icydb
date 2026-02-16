@@ -319,7 +319,7 @@ impl FilterExpr {
     }
 
     #[must_use]
-    #[allow(clippy::should_implement_trait)]
+    #[expect(clippy::should_implement_trait)]
     pub fn not(expr: Self) -> Self {
         Self::Not(Box::new(expr))
     }

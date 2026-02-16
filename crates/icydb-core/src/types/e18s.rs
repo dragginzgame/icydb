@@ -94,7 +94,7 @@ impl E18s {
 
     /// ⚠️ Non-critical float conversions only. Prefer the Decimal-based API.
     #[must_use]
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
         clippy::cast_sign_loss
@@ -129,7 +129,7 @@ impl E18s {
     }
 
     #[must_use]
-    #[allow(clippy::cast_possible_wrap)]
+    #[expect(clippy::cast_possible_wrap)]
     /// Convert the fixed-point value into a normalized `Decimal`.
     /// Returns `None` if the value does not fit in `i128`.
     pub fn to_decimal(self) -> Option<Decimal> {
@@ -252,7 +252,7 @@ impl NumCast for E18s {
 }
 
 impl NumFromPrimitive for E18s {
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss)]
     fn from_i64(n: i64) -> Option<Self> {
         if n < 0 { None } else { Some(Self(n as u128)) }
     }

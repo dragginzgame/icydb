@@ -1311,7 +1311,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
 }
 
 #[test]
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_relation_stores();

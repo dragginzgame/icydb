@@ -337,7 +337,7 @@ impl NumCast for Duration {
 }
 
 impl NumFromPrimitive for Duration {
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss)]
     fn from_i64(n: i64) -> Option<Self> {
         if n < 0 { None } else { Some(Self(n as u64)) }
     }

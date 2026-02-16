@@ -10,6 +10,7 @@
 
 mod access;
 mod order;
+mod pushdown;
 mod semantics;
 
 #[cfg(test)]
@@ -30,6 +31,8 @@ use thiserror::Error as ThisError;
 
 pub(crate) use access::{validate_access_plan, validate_access_plan_model};
 pub(crate) use order::{validate_order, validate_primary_key_tie_break};
+pub(crate) use pushdown::assess_secondary_order_pushdown;
+pub(crate) use pushdown::{SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection};
 
 ///
 /// PlanError
@@ -195,6 +198,9 @@ pub(crate) fn validate_logical_plan_model(
         validate_order(schema, order)?;
         validate_primary_key_tie_break(model, order)?;
     }
+
+    // Keep pushdown eligibility diagnostics aligned with planning validation.
+    let _pushdown_eligibility = assess_secondary_order_pushdown(model, plan);
 
     validate_access_plan_model(schema, model, &plan.access)?;
     semantics::validate_plan_semantics(plan)?;

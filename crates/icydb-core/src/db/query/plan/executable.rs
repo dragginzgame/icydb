@@ -36,7 +36,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     /// Explain this plan without executing it.
     #[must_use]
     pub fn explain(&self) -> ExplainPlan {
-        self.plan.explain()
+        self.plan.explain_with_model(E::MODEL)
     }
 
     /// Compute a stable fingerprint for this plan.

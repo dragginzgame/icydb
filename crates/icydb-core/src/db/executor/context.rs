@@ -194,6 +194,15 @@ where
         }
     }
 
+    // Load rows for a pre-ordered key list while preserving input order.
+    pub(crate) fn rows_from_ordered_data_keys(
+        &self,
+        keys: &[DataKey],
+        consistency: ReadConsistency,
+    ) -> Result<Vec<DataRow>, InternalError> {
+        self.load_many_with_consistency(keys, consistency)
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------

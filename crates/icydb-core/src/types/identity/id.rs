@@ -178,7 +178,6 @@ where
 // Standard trait impls
 // ----------------------------------------------------------------------
 
-#[allow(clippy::expl_impl_clone_on_copy)]
 impl<E> Clone for Id<E>
 where
     E: EntityKey,

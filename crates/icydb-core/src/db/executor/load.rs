@@ -6,14 +6,17 @@ use crate::{
             debug::{access_summary, yes_no},
             plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
             trace::{
-                QueryTraceSink, TraceExecutorKind, emit_access_post_access_phases,
-                finish_trace_from_result, start_plan_trace,
+                QueryTraceSink, TraceExecutorKind, TracePushdownDecision, TraceScope,
+                emit_access_post_access_phases, finish_trace_from_result, start_plan_trace,
             },
         },
         query::plan::{
             AccessPath, AccessPlan, ContinuationSignature, ContinuationToken, CursorBoundary,
             ExecutablePlan, LogicalPlan, OrderDirection, decode_pk_cursor_boundary,
-            validate::validate_executor_plan,
+            validate::{
+                SecondaryOrderPushdownEligibility, assess_secondary_order_pushdown,
+                validate_executor_plan,
+            },
         },
         response::Response,
         store::DataKey,
@@ -152,8 +155,26 @@ where
             }
 
             record_plan_metrics(&plan.access);
+            Self::emit_secondary_order_pushdown_trace(trace.as_ref(), &plan);
 
             if let Some(fast) = Self::try_execute_pk_order_stream(
+                &ctx,
+                &plan,
+                cursor_boundary.as_ref(),
+                continuation_signature,
+            )? {
+                record_rows_scanned::<E>(fast.rows_scanned);
+                emit_access_post_access_phases(
+                    trace.as_ref(),
+                    fast.rows_scanned,
+                    fast.post_access_rows,
+                );
+
+                set_rows_from_len(&mut span, fast.page.items.0.len());
+                return Ok(fast.page);
+            }
+
+            if let Some(fast) = Self::try_execute_secondary_index_order_stream(
                 &ctx,
                 &plan,
                 cursor_boundary.as_ref(),
@@ -196,9 +217,38 @@ where
         result
     }
 
+    // Emit a deterministic trace marker for secondary ORDER BY pushdown decisions.
+    fn emit_secondary_order_pushdown_trace(trace: Option<&TraceScope>, plan: &LogicalPlan<E::Key>) {
+        let Some(trace) = trace else {
+            return;
+        };
+
+        if !matches!(
+            plan.access,
+            AccessPlan::Path(AccessPath::IndexPrefix { .. })
+        ) {
+            return;
+        }
+        if !plan
+            .order
+            .as_ref()
+            .is_some_and(|order| !order.fields.is_empty())
+        {
+            return;
+        }
+
+        let decision = match assess_secondary_order_pushdown(E::MODEL, plan) {
+            SecondaryOrderPushdownEligibility::Eligible { .. } => {
+                TracePushdownDecision::AcceptedSecondaryIndexOrder
+            }
+            SecondaryOrderPushdownEligibility::Rejected(_) => {
+                TracePushdownDecision::RejectedSecondaryIndexOrder
+            }
+        };
+        trace.pushdown(decision);
+    }
+
     // Fast path for canonical primary-key ordering over full scans.
-    // Secondary index traversal cannot satisfy ORDER BY semantics today because
-    // index key ordering is fingerprint-based, not canonical value order.
     fn try_execute_pk_order_stream(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
@@ -235,6 +285,53 @@ where
             post_access_rows: page.items.0.len(),
             page,
             rows_scanned: scan.rows_scanned,
+        }))
+    }
+
+    // Fast path for secondary-index traversal when planner pushdown eligibility
+    // proves canonical ORDER BY parity with raw index-key order.
+    fn try_execute_secondary_index_order_stream(
+        ctx: &Context<'_, E>,
+        plan: &LogicalPlan<E::Key>,
+        cursor_boundary: Option<&CursorBoundary>,
+        continuation_signature: ContinuationSignature,
+    ) -> Result<Option<FastLoadResult<E>>, InternalError> {
+        let SecondaryOrderPushdownEligibility::Eligible { .. } =
+            assess_secondary_order_pushdown(E::MODEL, plan)
+        else {
+            return Ok(None);
+        };
+
+        let AccessPlan::Path(AccessPath::IndexPrefix { index, values }) = &plan.access else {
+            return Ok(None);
+        };
+
+        // Phase 1: resolve candidate keys using canonical index traversal order.
+        let ordered_keys = ctx.db.with_store_registry(|reg| {
+            reg.try_get_store(index.store).and_then(|store| {
+                store.with_index(|index_store| {
+                    index_store.resolve_data_values::<E>(index, values.as_slice())
+                })
+            })
+        })?;
+        let rows_scanned = ordered_keys.len();
+
+        // Phase 2: load rows while preserving traversal order.
+        let data_rows = ctx.rows_from_ordered_data_keys(&ordered_keys, plan.consistency)?;
+        let mut rows = Context::deserialize_rows(data_rows)?;
+
+        // Phase 3: apply canonical post-access semantics (predicate/cursor/page) and continuation.
+        let stats = plan.apply_post_access_with_cursor::<E, _>(&mut rows, cursor_boundary)?;
+        let next_cursor = Self::build_next_cursor(plan, &rows, &stats, continuation_signature)?;
+        let page = CursorPage {
+            items: Response(rows),
+            next_cursor,
+        };
+
+        Ok(Some(FastLoadResult {
+            post_access_rows: page.items.0.len(),
+            page,
+            rows_scanned,
         }))
     }
 

@@ -235,7 +235,12 @@ Code is considered non-trivial if it:
 * Emoji must be **random and deliberately unrelated** to the section meaning; pick a different, inappropriate emoji for each section within a release.
 * When updating the changelog, use the version the user specifies or the existing latest entry; do not create a new version header if the newest entry already exists (e.g., if `0.6.5` is present while the current version is `0.6.4`, add to `0.6.5`).
 * Write in plain, industry-friendly language: lead with the outcome and user impact, use technical terms only when they improve clarity.
+* Keep changelog writing concise and junior-friendly: use simple wording, avoid jargon, and prefer readability over exhaustive detail.
 * Bullets should be short (1–2 sentences), avoid deep implementation details, and use inline code for API/type names.
+* Code examples are good when they help clarify behavior; include them only when relevant and keep them short.
+* Changelog bullets do not need to be single-line only; use extra sentence space when needed to preserve important context.
+* Prefer explaining **why** a change matters over listing only **what** changed.
+* For each minor release section, include at least one short, relevant code example.
 
 ---
 

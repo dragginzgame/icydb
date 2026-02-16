@@ -183,7 +183,7 @@ macro_rules! start {
 
 /// Access the current canister's database session; use `db!().debug()` for verbose tracing.
 #[macro_export]
-#[allow(clippy::crate_in_macro_def)]
+#[expect(clippy::crate_in_macro_def)]
 macro_rules! db {
     () => {
         crate::db()

@@ -103,7 +103,7 @@ impl Ulid {
     }
 
     /// from_str
-    #[allow(clippy::should_implement_trait)]
+    #[expect(clippy::should_implement_trait)]
     pub fn from_str(encoded: &str) -> Result<Self, UlidError> {
         let this = WrappedUlid::from_string(encoded).map_err(|_| UlidError::InvalidString)?;
 

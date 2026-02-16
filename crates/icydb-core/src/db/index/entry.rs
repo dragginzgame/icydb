@@ -17,7 +17,7 @@ use thiserror::Error as ThisError;
 const INDEX_ENTRY_LEN_BYTES: usize = 4;
 pub const MAX_INDEX_ENTRY_KEYS: usize = 65_535;
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 pub const MAX_INDEX_ENTRY_BYTES: u32 =
     (INDEX_ENTRY_LEN_BYTES + (MAX_INDEX_ENTRY_KEYS * StorageKey::STORED_SIZE_USIZE)) as u32;
 

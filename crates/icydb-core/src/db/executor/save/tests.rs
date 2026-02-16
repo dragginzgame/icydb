@@ -2,7 +2,9 @@ use super::*;
 use crate::{
     db::{
         commit::{ensure_recovered_for_write, init_commit_store_for_tests},
+        executor::DeleteExecutor,
         index::IndexStore,
+        query::{Query, ReadConsistency},
         store::{DataKey, DataStore, StoreRegistry},
     },
     error::{ErrorClass, ErrorOrigin},
@@ -1552,4 +1554,71 @@ fn unique_index_violation_rejected_on_update() {
 
     let rows = with_data_store(SourceStore::PATH, |data_store| data_store.iter().count());
     assert_eq!(rows, 2, "failed update must not remove persisted rows");
+}
+
+#[test]
+fn unique_index_update_same_pk_same_components_is_allowed() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let id = Ulid::from_u128(30);
+    save.insert(UniqueEmailEntity {
+        id,
+        email: "alice@example.com".to_string(),
+    })
+    .expect("seed unique row should save");
+
+    let updated = save
+        .update(UniqueEmailEntity {
+            id,
+            email: "alice@example.com".to_string(),
+        })
+        .expect("update with same pk and identical unique components should succeed");
+    assert_eq!(updated.id, id);
+    assert_eq!(updated.email, "alice@example.com");
+
+    let persisted = load_unique_email_entity(id).expect("row should remain after no-op update");
+    assert_eq!(persisted.email, "alice@example.com");
+}
+
+#[test]
+fn unique_index_delete_then_insert_same_value_succeeds() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let delete = DeleteExecutor::<UniqueEmailEntity>::new(DB, false);
+
+    let original = Ulid::from_u128(40);
+    save.insert(UniqueEmailEntity {
+        id: original,
+        email: "alice@example.com".to_string(),
+    })
+    .expect("seed unique row should save");
+
+    let delete_plan = Query::<UniqueEmailEntity>::new(ReadConsistency::MissingOk)
+        .delete()
+        .by_id(original)
+        .plan()
+        .expect("delete plan should build");
+    let deleted = delete
+        .execute(delete_plan)
+        .expect("delete should clear existing unique row");
+    assert_eq!(deleted.0.len(), 1);
+
+    let replacement = Ulid::from_u128(41);
+    save.insert(UniqueEmailEntity {
+        id: replacement,
+        email: "alice@example.com".to_string(),
+    })
+    .expect("reinsert after delete should succeed for same unique value");
+
+    let original_row = load_unique_email_entity(original);
+    let replacement_row = load_unique_email_entity(replacement);
+    assert!(original_row.is_none(), "deleted row should remain removed");
+    assert!(
+        replacement_row.is_some(),
+        "replacement row should persist with reclaimed unique value"
+    );
 }

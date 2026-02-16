@@ -58,7 +58,7 @@ pub fn strict_order_cmp(left: &Value, right: &Value) -> Option<Ordering> {
 }
 
 fn canonical_cmp_same_rank(left: &Value, right: &Value) -> Ordering {
-    #[allow(clippy::match_same_arms)]
+    #[expect(clippy::match_same_arms)]
     match (left, right) {
         (Value::Account(a), Value::Account(b)) => a.cmp(b),
         (Value::Blob(a), Value::Blob(b)) => a.cmp(b),

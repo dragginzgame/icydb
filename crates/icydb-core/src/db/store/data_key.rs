@@ -366,7 +366,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn data_key_fuzz_roundtrip_is_canonical() {
         let mut seed = 0xDEAD_BEEF_u64;
 

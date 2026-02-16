@@ -20,8 +20,8 @@ pub(crate) use continuation::{ContinuationToken, decode_pk_cursor_boundary};
 ///
 pub use executable::ExecutablePlan;
 pub use explain::{
-    ExplainAccessPath, ExplainDeleteLimit, ExplainOrder, ExplainOrderBy, ExplainPagination,
-    ExplainPlan, ExplainPredicate,
+    ExplainAccessPath, ExplainDeleteLimit, ExplainOrder, ExplainOrderBy, ExplainOrderPushdown,
+    ExplainOrderPushdownRejection, ExplainPagination, ExplainPlan, ExplainPredicate,
 };
 pub use fingerprint::PlanFingerprint;
 pub(crate) use logical::LogicalPlan;

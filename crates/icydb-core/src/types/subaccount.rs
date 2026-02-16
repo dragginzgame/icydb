@@ -148,7 +148,7 @@ impl FieldValue for Subaccount {
 
 /// code taken from
 /// <https://docs.rs/ic-ledger-types/latest/src/ic_ledger_types/lib.rs.html#140-148>
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 impl From<Principal> for Subaccount {
     fn from(principal: Principal) -> Self {
         let mut bytes = [0u8; 32];

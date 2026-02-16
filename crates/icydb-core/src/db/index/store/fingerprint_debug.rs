@@ -49,7 +49,7 @@ impl IndexStore {
 ///
 
 #[cfg(debug_assertions)]
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(Debug)]
 pub(super) enum FingerprintVerificationError {
     Mismatch {

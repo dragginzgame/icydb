@@ -5,27 +5,72 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.10.0] – 2026-02-16 - Index Key Ordering
+
+### 🧃 Summary
+
+* `0.10.0` begins the index key hardening work.
+* Goal: keep index key bytes and key ordering stable across upgrades.
+
+### 🪼 Changed
+
+* Index keys now use a framed format with explicit lengths for each part.
+* Index component encoding is now fully canonical and deterministic.
+* User and system index keys are clearly separated by key kind.
+* Startup recovery now rebuilds secondary indexes from saved rows, so stale index entries are corrected before normal reads and writes continue.
+* Rebuild is fail-closed: if rebuild hits bad row bytes or hook wiring issues, recovery restores the previous index snapshot and returns a classified error.
+
+### 🧩 Testing
+
+* Added golden-byte tests that fail if key encoding changes.
+* Added corruption tests for invalid lengths, truncation, and trailing bytes.
+* Added ordering tests to ensure value order and byte order stay aligned.
+* Added prefix-scan isolation tests for namespace and index boundaries.
+* Added unique-index behavior tests for insert, update, and delete/reinsert flows.
+* Added recovery tests to confirm index key bytes stay stable after replay.
+* Added startup-rebuild tests that prove stale index entries are replaced by canonical entries rebuilt from row data.
+* Added fail-closed rebuild tests that prove index state is rolled back if rebuild encounters corrupt rows.
+
+### 🥨 Cleanup
+
+* Replaced many `#[allow(...)]` attributes with `#[expect(...)]` where valid, and removed unfulfilled expects.
+
+Example (simplified):
+
+```rust
+let key = IndexKey::new(&entity, index)?.expect("indexable");
+let raw = key.to_raw();
+let decoded = IndexKey::try_from_raw(&raw)?;
+assert_eq!(decoded.to_raw().as_bytes(), raw.as_bytes());
+```
+
 ## [0.9.0] – 2026-02-15 - Strengthening Release
 
 ### 🧭 Summary
 
-* `0.9.0` ships the strengthening scope: delete-time strong relation protection, explicit opt-in batch transaction lanes, pagination efficiency upgrades, and execution-boundary hardening.
-* The `0.8.x` behavioral contract remains preserved: no cursor token format change, no implicit transaction upgrades, and no storage-format redesign.
-* Scope references: [0.9 plan](docs/old/PLAN_0.9.md), [0.9 status](docs/STATUS_0.9.md), [transaction semantics](docs/TRANSACTION_SEMANTICS.md), and [atomicity](docs/ATOMICITY.md).
+* `0.9.0` focuses on safer deletes, clearer batch-write behavior, and stronger query execution checks.
+* Existing `0.8.x` user-facing behavior stays the same in key areas (cursor format, storage format, and default write semantics).
 
 ### 🪵 Changed
 
-* Delete-time strong relation validation now blocks target deletes that would leave dangling references, with reverse-index-backed lookup paths for predictable scaling.
-* Added explicit batch write lanes: `*_many_atomic` for single-entity-type all-or-nothing writes, and `*_many_non_atomic` for fail-fast prefix-commit behavior.
-* Ordered pagination execution now uses bounded work paths (including PK-ordered streaming and bounded ordered windows) while keeping continuation semantics unchanged.
-* Planner and executor boundaries now share stricter invariant guardrails, including explicit cursor-boundary validation and post-access phase ordering checks.
+* Strong relation checks now block deletes that would leave broken references.
+* Batch writes now have clear lanes: atomic (`*_many_atomic`) and non-atomic (`*_many_non_atomic`).
+* Ordered pagination does less unnecessary work while keeping the same results.
+* Planner and executor checks were tightened to catch invalid states earlier.
 
 ### 🥝 Fixed
 
-* Hardened commit-marker replay and recovery behavior for interrupted atomic batch flows, including idempotent replays for mixed row/index mutation sequences.
-* Standardized RI boundary classification and diagnostics so unsupported user input, persisted corruption, and internal invariant failures stay explicitly separated.
-* Expanded trace and metrics coverage for access/post-access phases, reverse-index deltas, and relation-validation outcomes across success and failure paths.
-* Storage diagnostics now distinguish user/system index footprint and report malformed key/entry corruption counters without leaking invalid rows into rollups.
+* Recovery replay for interrupted writes is now more reliable and repeat-safe.
+* Error categories are clearer (`Unsupported`, `Corruption`, `Internal`) across relation/index paths.
+* Metrics and trace coverage improved for key read/write phases.
+* Storage diagnostics now clearly separate user index data from system index data.
+
+Example (simplified):
+
+```rust
+let saved = db.session().insert_many_atomic(users)?;
+assert_eq!(saved.len(), users.len()); // all-or-nothing for this batch
+```
 
 ---
 
@@ -33,28 +78,33 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🪁 Summary
 
-* Hardened the `0.8.4` explicit transaction milestone with additional API-level regression coverage and clearer operator-facing wording around batch semantics.
-* Reconfirmed and documented that `_many_atomic` provides **single-entity-type** batch atomicity only, while `_many_non_atomic` preserves fail-fast partial-commit behavior.
-* Completed Step 2 hardening scope for the 0.9 explicit transaction milestone.
+* This release tightens and clarifies the batch write behavior introduced in `0.8.4`.
+* `_many_atomic` is confirmed as all-or-nothing for one entity type.
+* `_many_non_atomic` remains fail-fast with partial commits allowed.
 
 ### 🧯 Testing
 
-* Added conflict-path regressions for `update_many_atomic`, `replace_many_atomic`, `update_many_non_atomic`, and `replace_many_non_atomic` to lock all-or-nothing vs prefix-commit behavior.
-* Added atomic strong-relation batch regressions for `insert_many_atomic`, `update_many_atomic`, and `replace_many_atomic` so one invalid relation fails the full single-entity batch with no persisted partial rows.
-* Added empty-batch no-op regression coverage for atomic and non-atomic lanes.
-* Added observability assertions for batch lanes to distinguish atomic success, atomic pre-commit failure, and non-atomic partial-prefix failure metrics.
-* Added recovery dispatch regression coverage that rejects unknown marker entity paths with explicit `Unsupported` errors and no partial replay apply.
-* Added hook-integrity recovery regression coverage proving miswired entity dispatch fails as explicit `Corruption` and does not partially apply marker rows.
-* Expanded reserved-namespace compile-fail coverage to reject index names where a non-leading `|` segment enters the reserved `~` namespace.
-* Added storage-snapshot corruption regressions to ensure malformed data/index keys increment corruption counters and never leak into entity/user/system rollups.
-* Added delete post-access structural regression coverage to lock that delete `limit` applies through delete-limit semantics (not load-style paging) after ordering/filtering.
+* Added more conflict tests for atomic and non-atomic update/replace batch flows.
+* Added tests that confirm invalid strong relations fail atomic batches without partial writes.
+* Added empty-batch tests for both lanes.
+* Added recovery tests for unknown entity paths and miswired hooks.
+* Added tests for reserved index namespaces and storage corruption counters.
+* Added tests to confirm delete `limit` is applied in the correct execution phase.
 
 ### 🧊 Changed
 
-* Added a beginner-friendly lane-selection snippet in `README.md` showing when to use `_many_atomic` vs `_many_non_atomic`.
-* Load post-access execution now uses bounded top-k ordering for first-page ordered pagination (`offset=0` with `limit`) so small pages avoid full in-memory sort work while preserving cursor and ordering semantics.
-* Added a PK-ordered streaming load path for `order_by(primary_key ASC)` full scans, including cursor pagination continuation, with early stop at `offset + limit + 1` for bounded page execution.
-* Extended the PK-ordered streaming path to key-range access (`start..=end`) so ordered cursor pages within primary-key ranges also avoid full materialization and sort.
+* Updated docs with simpler guidance on choosing atomic vs non-atomic batch writes.
+* Improved ordered pagination performance for common first-page queries.
+* Added a faster path for primary-key ordered scans, including key-range scans.
+
+Example (simplified):
+
+```rust
+let result = db.session().update_many_non_atomic(batch);
+if result.is_err() {
+    // By design, earlier rows in this batch may already be committed.
+}
+```
 
 ---
 
@@ -62,35 +112,26 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🧁 Summary
 
-* Completed the Step 2 milestone for explicit transaction semantics in the 0.9 track by shipping opt-in atomic batch APIs: `insert_many_atomic`, `update_many_atomic`, and `replace_many_atomic`.
-* These APIs are **single-entity-type batch atomicity only**. They are **not** multi-entity transactions.
-* Existing `*_many_non_atomic` helpers remain fail-fast and non-atomic; no implicit behavior change was introduced.
-* Added explicit semantics and recovery wording in docs, plus replay/idempotency coverage for interrupted atomic batch markers.
-* Progress and scope references: [transaction semantics](docs/TRANSACTION_SEMANTICS.md), [atomicity](docs/ATOMICITY.md), [0.9 status](docs/STATUS_0.9.md), [0.9 plan](docs/old/PLAN_0.9.md), and [roadmap](docs/ROADMAP.md).
+* Added opt-in atomic batch APIs: `insert_many_atomic`, `update_many_atomic`, and `replace_many_atomic`.
+* These are atomic only within one entity type.
+* They are not full multi-entity transactions.
+* Existing non-atomic batch APIs were kept as-is.
 
 ### 🛼 Changed
 
-* Added opt-in `_many_atomic` batch APIs for single-entity-type writes, with all-or-nothing behavior per batch.
-* Added explicit API/docs language that this surface does not provide multi-entity transaction coordination.
+* Added an explicit all-or-nothing batch lane for single-entity writes.
+* Updated docs to clearly explain atomic vs non-atomic behavior.
 
-`_many_atomic` usage example (single entity type only):
+Example (single entity type only):
 
 ```rust
-// Single-entity-type atomic batch:
-// all User rows commit, or none do.
 let users = vec![
     User { id: user_a, email: "a@example.com".into() },
     User { id: user_b, email: "b@example.com".into() },
 ];
 
-let saved = db
-    .session()
-    .insert_many_atomic(users)?;
-
+let saved = db.session().insert_many_atomic(users)?;
 assert_eq!(saved.len(), 2);
-
-// Not allowed as one atomic batch:
-// mixing User + Order would require a separate multi-entity transaction model.
 ```
 
 ---
@@ -99,8 +140,20 @@ assert_eq!(saved.len(), 2);
 
 ### 🥥 Summary
 
-* Completed the 0.9 Strong Referential Integrity milestone (delete-time strong relation protection, reverse-index replay coverage, deterministic pre-commit validation, RI error-class standardization, operator diagnostics, and metrics delta validation).
-* Progress and scope references: [0.9 status](docs/STATUS_0.9.md), [0.9 plan](docs/old/PLAN_0.9.md), and [roadmap](docs/ROADMAP.md).
+* Completed the strong referential integrity milestone for the `0.9` plan.
+* Deletes now better protect against broken strong references, and related replay/diagnostic paths are better covered by tests.
+
+Example (simplified):
+
+```rust
+let err = db
+    .session()
+    .delete::<TargetEntity>()
+    .by_id(target_id)
+    .execute()
+    .unwrap_err();
+assert!(err.to_string().contains("strong relation"));
+```
 
 ---
 
@@ -108,18 +161,25 @@ assert_eq!(saved.len(), 2);
 
 ### 🧲 Changed
 
-* Strong-relation delete validation now uses reverse index entries instead of scanning source rows, and reverse index mutations are applied through the same commit/recovery path as row writes.
-* Save/delete observability now emits `MetricsEvent::ReverseIndexDelta` and `MetricsEvent::RelationValidation` as operation-level deltas, so totals reflect exact applied lookup/insert/remove/block actions.
-* Storage snapshots now split index usage into `IndexStoreSnapshot.user_entries` and `IndexStoreSnapshot.system_entries`, making system index footprint visible in diagnostics.
-* Added compile-fail coverage for reserved index namespace enforcement so invalid schema changes fail during derive-time checks.
+* Strong-relation delete checks now use reverse indexes instead of full source scans.
+* Reverse-index updates now follow the same commit/recovery path as row updates.
+* Metrics now report reverse-index and relation-validation deltas more clearly.
+* Storage snapshots now separate user index entries from system index entries.
 
 ### 🥨 Cleanup
 
-* Unified per-entity runtime dispatch into `EntityRuntimeHooks`, removed generated `prepare_row_commit`/delete-validator wrapper functions, and replaced parallel hook tables with one generated registry built in a single entity pass.
+* Simplified runtime dispatch by moving to one shared hook registry per entity.
 
 ### 🍇 Breaking
 
-* User-defined index names in the reserved `~` namespace are now rejected during schema derive validation.
+* User index names in the reserved `~` namespace are now rejected at derive time.
+
+Example (simplified):
+
+```rust
+// This now fails during schema derive/validation:
+#[index(name = "~custom", fields = ["email"])]
+```
 
 ---
 
@@ -127,31 +187,42 @@ assert_eq!(saved.len(), 2);
 
 ### 🥔 Testing
 
-* Tightened cursor pagination boundary handling with explicit API-boundary rejection coverage for invalid public cursor tokens (empty, malformed hex, and odd-length payloads).
-* Added live-state pagination regressions for insert/delete mutations between page requests, documenting continuation drift behavior under concurrent changes.
-* Added focused cursor codec unit tests for decode edge cases and stable encode/decode round-tripping.
+* Added stronger tests for invalid cursor tokens (empty, bad hex, odd length).
+* Added live-state pagination tests for insert/delete changes between page requests.
+* Added more cursor codec roundtrip and edge-case tests.
 
 ### 🍉 Fixed
 
-* Canister schema validation now enforces one memory-ID collision domain across `DataStore.memory_id` and `IndexStore.entry_memory_id`, and fails fast on overlaps before codegen/deployment.
+* Schema validation now catches data/index memory ID collisions earlier.
 
 ### 🛹 Cleanup
 
-* Refactored `db::index` into focused submodules (`key/{id,build,codec}`, `plan/{load,unique,commit_ops}`, `store/{registry,lookup,fingerprint_debug}`), co-located index tests with their modules, and removed `index::plan` coupling to `executor::ExecutorError`.
-* Refactored runtime `IndexStore` fingerprint storage to inline `RawIndexFingerprint` beside each `RawIndexEntry`, removing the separate fingerprint BTree/memory while preserving debug-only mismatch verification and existing index semantics.
-* Removed `fingerprint_memory_id` from schema and derive `index_store` topology metadata so macro configuration and schema validation match the single-memory runtime `IndexStore`.
+* Broke index code into smaller modules and kept tests close to those modules.
+* Simplified index fingerprint storage to one inline value next to each index entry.
+* Removed no-longer-needed fingerprint memory config from schema metadata.
 
 ### 🪿 Changed
 
-* Core store access now routes through `StoreRegistry::try_get_store` and `StoreHandle`, removing split data/index helper accessors and tightening the single-store runtime model.
-* Index maintenance metrics now emit a single `MetricsEvent::IndexDelta { inserts, removes }` event per commit apply instead of per-row insert/remove events.
-* Added recovery regression coverage for mixed `Save -> Save -> Delete` replay on shared index keys to lock ordering and final index membership behavior.
+* Store access now goes through one shared registry handle.
+* Index metrics now emit one delta event per commit apply.
+* Added replay tests for mixed save/save/delete flows on shared index keys.
 
 ### 🧯 Breaking
 
-* `StoreRegistry::register_store` now rejects duplicate path registration with an invariant-violation error instead of silently replacing the existing store handle.
-* Schema-level `DataStore`/`IndexStore` node split and runtime `DataStoreRegistry`/`IndexStoreRegistry` split were removed; callers must use a single `Store` descriptor and `StoreRegistry` handle that owns both `DataStore` and `IndexStore`.
-* Persisted `CommitMarker` payloads no longer store `kind`; mutation shape now derives exclusively from each `CommitRowOp { before, after }` payload pair.
+* Duplicate store path registration is now rejected instead of silently replaced.
+* Store schema/runtime now uses a single combined store model instead of split data/index registries.
+* Commit markers no longer store `kind`; mutation shape is derived from `before` and `after`.
+
+Example (simplified):
+
+```rust
+let err = Query::<User>::new(ReadConsistency::MissingOk)
+    .page()
+    .cursor("not-hex")
+    .limit(20)
+    .plan()
+    .unwrap_err();
+```
 
 ---
 
@@ -159,34 +230,39 @@ assert_eq!(saved.len(), 2);
 
 ### 🥭 Summary
 
-0.8.0 is a correctness-focused release that locks down the core behavior of queries, pagination, and collection handling.
-
-The main goal is predictability: same inputs, same rules, and fewer hidden edge cases.
-
-Delete-side strong-reference checks are not included in `0.8.0`; they are planned for a later `0.8.x` release before `0.9`.
+* `0.8.0` focuses on making core query and pagination behavior predictable.
+* Goal: same input should reliably produce the same output.
+* Strong delete-side relation checks were planned for later `0.8.x` updates.
 
 ### 🛷 Changed
 
-* Pagination behavior is now clearly defined and enforced: ordered, forward-only, and deterministic for a fixed query shape.
-* Collection semantics are now explicitly scoped and documented as three types only: `List` (`Vec`), `Set` (`BTreeSet`), and `Map` (`BTreeMap`).
-* Added `icydb-primitives` as a shared crate for scalar capability metadata, removing schema’s direct coupling to core internals.
-* Roadmap/docs were aligned to remove contract ambiguity around delete-side referential integrity timing.
+* Pagination rules are now clearer and consistently enforced.
+* Collection behavior is now clearly documented for `List`, `Set`, and `Map`.
+* Added `icydb-primitives` to centralize scalar metadata.
+* Updated docs and roadmap language to reduce ambiguity.
 
 ### 🦑 Breaking
 
-* Schema-derived companion payload types now generate inside entity-local modules (for example `rarity_views::{View, Create, Update}`) instead of top-level suffixed names like `RarityView`/`RarityCreate`/`RarityUpdate`.
-* Call sites should use prelude aliases (`View<T>`, `Create<T>`, `Update<T>`) or explicit module paths (`<entity>_views::View`, `<entity>_views::Create`, `<entity>_views::Update`).
+* Generated view/create/update payload types now live in entity-local modules.
+* Call sites should use prelude aliases or explicit entity module paths.
 
 ### 🧪 Fixed
 
-* Added broad regression coverage for cursor paging and uniqueness checks to catch skips/duplicates/invalid-cursor cases early.
-* Improved error-size and lint hygiene in planning/query code paths without changing user-visible query semantics.
+* Added wider regression coverage for cursor paging and uniqueness behavior.
+* Improved planner/query error and lint hygiene without changing user-facing query behavior.
 
 ### 🧰 Cleanup
 
-* Consolidated duplicated internal pipelines (plan hashing, mutation orchestration, scalar metadata wiring) to reduce drift risk and make future correctness work safer.
-* Consolidated canonical value ordering/tagging into `value/tag.rs`, `value/rank.rs`, and `value/compare.rs`, then routed planner canonicalization, predicate ordering, map-key ordering, and fingerprint tagging through that single authority with stability tests to lock tag/rank behavior.
-* Split `Unit` coercion routing from `Bool` by introducing an explicit `Unit` coercion family in shared scalar metadata and core mapping, with regression tests locking `Value::Unit -> CoercionFamily::Unit`.
+* Reduced duplicate internal logic in planning and mutation paths.
+* Centralized canonical value ordering/tagging behavior in shared modules.
+* Split `Unit` coercion behavior from `Bool` to make type handling clearer.
+
+Example (simplified):
+
+```rust
+let page1 = query.order_by("created_at").limit(20).execute()?;
+let page2 = query.cursor(page1.next_cursor.unwrap()).execute()?;
+```
 
 ---
 
@@ -194,48 +270,61 @@ Delete-side strong-reference checks are not included in `0.8.0`; they are planne
 
 ### 🧰 Changed
 
-* Load execution now applies continuation boundaries in canonical order (`filter -> order -> cursor-skip -> limit/offset`), so cursor paging semantics match the same comparator contract used for sorting.
-* Added encoded continuation cursor payloads bound to `ContinuationSignature`, with cursor decoding/validation now performed at plan time before executor entry.
-* Added typed pagination mode via `.page()` / `PagedLoadQuery`, which preserves existing `.execute()` behavior while requiring explicit order+limit and rejecting offset before cursor execution.
-* Documented cursor paging consistency semantics explicitly: ordering is deterministic per request, but continuation requests are not snapshot-isolated across concurrent writes.
+* Cursor pagination now follows one clear execution order for filtering, ordering, cursor skip, and limits.
+* Cursor payloads are now encoded and validated earlier in planning.
+* Added typed pagination with `.page()`, which requires explicit order and limit.
+* Documented expected pagination consistency when data changes between requests.
 
 ### 🧪 Fixed
 
-* Save-time schema validation caching is now isolated per entity type, preventing cross-entity cache bleed that could surface false primary-key type mismatch errors.
-* Save invariant checks now allow unit primary keys for singleton entities while continuing to reject null primary-key values.
-* Added executor regression coverage for unit-key singleton insert + `only()` load round trips.
-* `next_cursor` is now derived from the last returned row of the current page (not the input boundary), preventing continuation drift on tied order fields.
-* Added executor regressions for strict cursor continuation, plan-signature mismatch rejection, and canonical boundary encoding from the last emitted row.
-* Cursor planning now explicitly rejects malformed continuation tokens across version mismatch, boundary type mismatch, primary-key slot type mismatch, and wrong-entity cursor usage.
+* Schema validation cache now stays isolated per entity type.
+* Singleton unit-key save/load behavior was tightened and covered with tests.
+* `next_cursor` is now based on the last row returned, reducing cursor drift.
+* Added stronger validation for malformed or mismatched cursor tokens.
 
 ### 🦜 Cleanup
 
-* Removed the dormant `QueryError::UnsupportedQueryFeature` layer.
-* Pruned un-emitted facade error variants (`ErrorKind::Store`, `StoreErrorKind`, and unused `UpdateErrorKind` cases) so public error taxonomy matches emitted runtime behavior.
-* Removed dead map-patch missing-key error branches (`MergePatchError::MissingKey` / `PatchError::MissingKey`) that were no longer reachable after no-op missing-key semantics.
-* Boxed `QueryError::Plan` to reduce large-`Err` footprint while preserving plan error diagnostics and public error mapping behavior.
+* Removed unused query error layers and unused error variants.
+* Removed dead missing-key patch error branches after no-op missing-key behavior.
+* Reduced `QueryError::Plan` size while preserving diagnostics.
+
+Example (simplified):
+
+```rust
+let page = Query::<User>::new(ReadConsistency::MissingOk)
+    .page()
+    .order_by("created_at")
+    .limit(20)
+    .execute()?;
+```
 
 ## [0.7.20] – 2026-02-11 - Calm After the Storm
 
 ### 🧭 Changed
 
-* Read recovery now performs a fast persisted-marker check after startup and replays pending commit markers before load execution.
-* `ensure_recovered_for_write` now routes through the same recovery path as reads, keeping recovery behavior consistent across operation entry points.
-* Save invariant checks now require the declared primary-key field value to exactly match `entity.id().key()`, so manual `EntityValue` implementations cannot persist identity-divergent rows.
-* Facade query error mapping now preserves `Validate`/`Intent`/`Plan` boundaries, with `UnorderedPagination` surfaced as a dedicated query error kind.
-* Facade query exports are now narrowed to boundary-safe types (`Query`, `ReadConsistency`, `FieldRef`, `Predicate`, and expr DTOs) instead of re-exporting full core query modules.
-* Map patch semantics are now consistent with list/set behavior: `Remove` and `Replace` operations on missing keys are treated as no-ops.
-* Removed internal map-predicate AST/explain/eval branches that were policy-disabled, reducing query-path semantic dead code.
+* Read paths now quickly check and replay pending commit markers before loading data.
+* Write recovery now uses the same recovery path as reads for consistency.
+* Saves now enforce that the declared primary key matches the entity identity.
+* Facade query errors are grouped more clearly, including a dedicated unordered pagination error.
+* Facade query exports were narrowed to safer boundary types.
+* Map patch behavior now matches list/set behavior: missing-key remove/replace is a no-op.
+* Removed disabled internal map-predicate branches.
 
 ### 🥑 Fixed
 
-* `#[map(...)]` derive validation now rejects map values configured as relations or indirect types, so unsupported map value shapes fail at compile time.
-* Generated map `FieldValue::to_value` no longer panics when map entry invariants are violated; it now uses non-panicking canonicalization with debug assertions for invariant visibility.
-* Fixed recursive map generation type inference for ICRC-3 style value trees (e.g. `map<Text, Value>`), preventing `E0282` at `#[map(...)]` expansion sites.
-* Row decode errors now preserve underlying deserialize diagnostics instead of collapsing failures into a generic message, improving corruption triage and execution-boundary reporting.
-* Direct `ResponseError` conversions in the facade now keep `ErrorOrigin::Response` for consistent error-origin attribution.
-* Added regression coverage for map value validation and read-side replay of incomplete commit markers.
-* Updated query and merge regression coverage for the new map-field rejection path and consistent map patch no-op behavior on missing keys.
+* Derive validation now rejects unsupported map value shapes earlier.
+* Map value conversion avoids panic on invalid entries and reports issues safely.
+* Fixed recursive map type inference issues in nested map-like value trees.
+* Row decode errors now keep underlying deserialize details for easier debugging.
+* Added more regression tests for map validation and incomplete marker replay.
+
+Example (simplified):
+
+```rust
+let update = UserUpdate::default()
+    .with_settings(MapPatch::remove("missing_key"));
+db.session().patch_by_id(user_id, update)?; // remove on missing key is a no-op
+```
 
 ## [0.7.19] – 2026-02-10
 

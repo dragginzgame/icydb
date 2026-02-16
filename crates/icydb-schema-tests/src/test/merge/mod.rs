@@ -1,4 +1,3 @@
-#![allow(clippy::default_trait_access)]
 use crate::prelude::*;
 
 ///
@@ -88,7 +87,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::field_reassign_with_default)]
+    #[expect(clippy::field_reassign_with_default)]
     fn entity_merge_updates_nested_structures() {
         let mut entity = MergeEntity {
             name: "original".into(),
@@ -167,7 +166,8 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::field_reassign_with_default)]
+    #[expect(clippy::default_trait_access)]
+    #[expect(clippy::field_reassign_with_default)]
     fn entity_merge_clears_optional_fields() {
         let mut entity = MergeEntity {
             name: "original".into(),
@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::field_reassign_with_default)]
+    #[expect(clippy::field_reassign_with_default)]
     fn record_merge_preserves_unset_fields() {
         let mut profile = profile("start", 1, &[1, 2, 3]);
         let mut update: Patch<MergeProfile> = Default::default();
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::field_reassign_with_default)]
+    #[expect(clippy::field_reassign_with_default)]
     fn entity_merge_overwrites_collections() {
         let mut entity = MergeEntity {
             name: "reset".into(),
@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::field_reassign_with_default)]
+    #[expect(clippy::field_reassign_with_default)]
     fn entity_merge_wraps_patch_errors_with_field_path() {
         let mut entity = MergeEntity {
             settings: MergeSettings::from(vec![("keep".to_string(), 1u32)]),

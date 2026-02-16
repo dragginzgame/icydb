@@ -8,7 +8,7 @@ use std::{
 /// HasLen
 ///
 
-#[allow(clippy::len_without_is_empty)]
+#[expect(clippy::len_without_is_empty)]
 pub trait HasLen {
     fn len(&self) -> usize;
 }

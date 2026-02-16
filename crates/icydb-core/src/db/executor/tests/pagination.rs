@@ -1,5 +1,29 @@
 use super::*;
 
+// Resolve ids directly from the `(group, rank)` index prefix in raw index-key order.
+fn ordered_ids_from_group_rank_index(group: u32) -> Vec<Ulid> {
+    // Phase 1: read candidate keys from canonical index traversal order.
+    let data_keys = DB
+        .with_store_registry(|reg| {
+            reg.try_get_store(TestDataStore::PATH).and_then(|store| {
+                store.with_index(|index_store| {
+                    index_store.resolve_data_values::<PushdownParityEntity>(
+                        &PUSHDOWN_PARITY_INDEX_MODELS[0],
+                        &[Value::Uint(u64::from(group))],
+                    )
+                })
+            })
+        })
+        .expect("index prefix resolution should succeed");
+
+    // Phase 2: decode typed ids while preserving traversal order.
+    data_keys
+        .into_iter()
+        .map(|data_key| data_key.try_key::<PushdownParityEntity>())
+        .collect::<Result<Vec<_>, _>>()
+        .expect("resolved index keys should decode to entity ids")
+}
+
 #[test]
 fn load_applies_order_and_pagination() {
     init_commit_store_for_tests().expect("commit store init should succeed");
@@ -984,5 +1008,800 @@ fn load_cursor_rejects_signature_mismatch() {
             crate::db::query::plan::PlanError::ContinuationCursorSignatureMismatch { .. }
         ),
         "planning should reject plan-signature mismatch"
+    );
+}
+
+#[test]
+fn load_index_pushdown_eligible_order_matches_index_scan_order() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for row in [
+        PushdownParityEntity {
+            id: Ulid::from_u128(10_003),
+            group: 7,
+            rank: 30,
+            label: "g7-r30".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(10_001),
+            group: 7,
+            rank: 10,
+            label: "g7-r10-a".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(10_002),
+            group: 7,
+            rank: 10,
+            label: "g7-r10-b".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(10_004),
+            group: 8,
+            rank: 5,
+            label: "g8-r5".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(10_005),
+            group: 7,
+            rank: 20,
+            label: "g7-r20".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::Strict,
+    ));
+    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .explain()
+        .expect("parity explain should build");
+    assert!(
+        matches!(
+            explain.order_pushdown,
+            crate::db::query::plan::ExplainOrderPushdown::EligibleSecondaryIndex {
+                index,
+                prefix_len
+            } if index == PUSHDOWN_PARITY_INDEX_MODELS[0].name && prefix_len == 1
+        ),
+        "query shape should be pushdown-eligible for group+rank index traversal"
+    );
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("rank")
+        .plan()
+        .expect("parity load plan should build");
+    let response = load.execute(plan).expect("parity load should execute");
+    let actual_ids: Vec<Ulid> = response.0.iter().map(|(_, entity)| entity.id).collect();
+
+    let expected_ids = ordered_ids_from_group_rank_index(7);
+    assert_eq!(
+        actual_ids, expected_ids,
+        "fallback post-access ordering must match canonical index traversal order for eligible plans"
+    );
+}
+
+#[test]
+fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for row in [
+        PushdownParityEntity {
+            id: Ulid::from_u128(11_003),
+            group: 7,
+            rank: 30,
+            label: "g7-r30".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(11_001),
+            group: 7,
+            rank: 10,
+            label: "g7-r10-a".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(11_002),
+            group: 7,
+            rank: 10,
+            label: "g7-r10-b".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(11_004),
+            group: 7,
+            rank: 20,
+            label: "g7-r20".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(11_005),
+            group: 7,
+            rank: 40,
+            label: "g7-r40".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(11_006),
+            group: 9,
+            rank: 1,
+            label: "g9-r1".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::Strict,
+    ));
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("page1 parity plan should build");
+    let page1_boundary = page1_plan
+        .plan_cursor_boundary(None)
+        .expect("page1 parity boundary should plan");
+    let page1 = load
+        .execute_paged(page1_plan, page1_boundary)
+        .expect("page1 parity should execute");
+    let page1_ids: Vec<Ulid> = page1.items.0.iter().map(|(_, entity)| entity.id).collect();
+
+    let expected_all = ordered_ids_from_group_rank_index(7);
+    let expected_page1: Vec<Ulid> = expected_all.iter().copied().take(2).collect();
+    assert_eq!(
+        page1_ids, expected_page1,
+        "page1 fallback output must match the canonical index-order window"
+    );
+
+    let page2_cursor = page1
+        .next_cursor
+        .as_ref()
+        .expect("page1 parity should emit continuation cursor")
+        .clone();
+    let page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("page2 parity plan should build");
+    let page2_boundary = page2_plan
+        .plan_cursor_boundary(Some(page2_cursor.as_slice()))
+        .expect("page2 parity boundary should plan");
+    let page2 = load
+        .execute_paged(page2_plan, page2_boundary)
+        .expect("page2 parity should execute");
+    let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
+
+    let expected_page2: Vec<Ulid> = expected_all.iter().copied().skip(2).take(2).collect();
+    assert_eq!(
+        page2_ids, expected_page2,
+        "page2 fallback continuation must match the canonical index-order window"
+    );
+}
+
+#[test]
+fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let group7_ids = [12_003_u128, 12_001, 12_002, 12_004, 12_005];
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for row in [
+        PushdownParityEntity {
+            id: Ulid::from_u128(12_003),
+            group: 7,
+            rank: 30,
+            label: "g7-r30".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(12_001),
+            group: 7,
+            rank: 10,
+            label: "g7-r10-a".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(12_002),
+            group: 7,
+            rank: 10,
+            label: "g7-r10-b".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(12_004),
+            group: 7,
+            rank: 20,
+            label: "g7-r20".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(12_005),
+            group: 7,
+            rank: 40,
+            label: "g7-r40".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(12_006),
+            group: 9,
+            rank: 1,
+            label: "g9-r1".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::Strict,
+    ));
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let pushdown_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("pushdown plan should build");
+    let pushdown_page = load
+        .execute_paged(pushdown_plan, None)
+        .expect("pushdown page should execute");
+
+    let fallback_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .by_ids(group7_ids.into_iter().map(Ulid::from_u128))
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("fallback plan should build");
+    let fallback_page = load
+        .execute_paged(fallback_plan, None)
+        .expect("fallback page should execute");
+
+    let pushdown_ids: Vec<Ulid> = pushdown_page
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    let fallback_ids: Vec<Ulid> = fallback_page
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    assert_eq!(
+        pushdown_ids, fallback_ids,
+        "pushdown and fallback page windows should match"
+    );
+
+    let pushdown_cursor = pushdown_page
+        .next_cursor
+        .as_ref()
+        .expect("pushdown page should emit continuation cursor");
+    let fallback_cursor = fallback_page
+        .next_cursor
+        .as_ref()
+        .expect("fallback page should emit continuation cursor");
+    let pushdown_token = ContinuationToken::decode(pushdown_cursor.as_slice())
+        .expect("pushdown cursor should decode");
+    let fallback_token = ContinuationToken::decode(fallback_cursor.as_slice())
+        .expect("fallback cursor should decode");
+    assert_eq!(
+        pushdown_token.boundary(),
+        fallback_token.boundary(),
+        "pushdown and fallback cursors should encode the same continuation boundary"
+    );
+}
+
+#[test]
+fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let group7_ids = [13_003_u128, 13_001, 13_002, 13_004, 13_005];
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for row in [
+        PushdownParityEntity {
+            id: Ulid::from_u128(13_003),
+            group: 7,
+            rank: 30,
+            label: "g7-r30".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(13_001),
+            group: 7,
+            rank: 10,
+            label: "g7-r10-a".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(13_002),
+            group: 7,
+            rank: 10,
+            label: "g7-r10-b".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(13_004),
+            group: 7,
+            rank: 20,
+            label: "g7-r20".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(13_005),
+            group: 7,
+            rank: 40,
+            label: "g7-r40".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(13_006),
+            group: 9,
+            rank: 1,
+            label: "g9-r1".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::Strict,
+    ));
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let seed_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("seed plan should build");
+    let seed_page = load
+        .execute_paged(seed_plan, None)
+        .expect("seed page should execute");
+    let seed_cursor = seed_page
+        .next_cursor
+        .as_ref()
+        .expect("seed page should emit continuation cursor");
+    let shared_boundary = ContinuationToken::decode(seed_cursor.as_slice())
+        .expect("seed cursor should decode")
+        .boundary()
+        .clone();
+
+    let pushdown_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("pushdown page2 plan should build");
+    let pushdown_page2 = load
+        .execute_paged(pushdown_page2_plan, Some(shared_boundary.clone()))
+        .expect("pushdown page2 should execute");
+
+    let fallback_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .by_ids(group7_ids.into_iter().map(Ulid::from_u128))
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("fallback page2 plan should build");
+    let fallback_page2 = load
+        .execute_paged(fallback_page2_plan, Some(shared_boundary))
+        .expect("fallback page2 should execute");
+
+    let pushdown_page2_ids: Vec<Ulid> = pushdown_page2
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    let fallback_page2_ids: Vec<Ulid> = fallback_page2
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    assert_eq!(
+        pushdown_page2_ids, fallback_page2_ids,
+        "pushdown and fallback should return the same rows for a shared continuation boundary"
+    );
+
+    let pushdown_next = pushdown_page2
+        .next_cursor
+        .as_ref()
+        .expect("pushdown page2 should emit continuation cursor");
+    let fallback_next = fallback_page2
+        .next_cursor
+        .as_ref()
+        .expect("fallback page2 should emit continuation cursor");
+    let pushdown_next_token =
+        ContinuationToken::decode(pushdown_next.as_slice()).expect("pushdown next should decode");
+    let fallback_next_token =
+        ContinuationToken::decode(fallback_next.as_slice()).expect("fallback next should decode");
+    assert_eq!(
+        pushdown_next_token.boundary(),
+        fallback_next_token.boundary(),
+        "pushdown and fallback page2 cursors should encode identical boundaries"
+    );
+}
+
+#[test]
+fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let group7_ids = [14_003_u128, 14_001, 14_002, 14_004, 14_005];
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for row in [
+        PushdownParityEntity {
+            id: Ulid::from_u128(14_003),
+            group: 7,
+            rank: 30,
+            label: "g7-r30".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(14_001),
+            group: 7,
+            rank: 10,
+            label: "g7-r10-a".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(14_002),
+            group: 7,
+            rank: 10,
+            label: "g7-r10-b".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(14_004),
+            group: 7,
+            rank: 20,
+            label: "g7-r20".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(14_005),
+            group: 7,
+            rank: 40,
+            label: "g7-r40".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(14_006),
+            group: 9,
+            rank: 1,
+            label: "g9-r1".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::Strict,
+    ));
+    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("rank")
+        .explain()
+        .expect("desc explain should build");
+    assert!(
+        matches!(
+            explain.order_pushdown,
+            crate::db::query::plan::ExplainOrderPushdown::Rejected {
+                reason: crate::db::query::plan::ExplainOrderPushdownRejection::NonAscendingDirection { field }
+            } if field == "rank"
+        ),
+        "descending rank order should be ineligible and use fallback execution"
+    );
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let index_path_page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("rank")
+        .limit(2)
+        .plan()
+        .expect("index-path desc page1 plan should build");
+    let index_path_page1 = load
+        .execute_paged(index_path_page1_plan, None)
+        .expect("index-path desc page1 should execute");
+
+    let by_ids_page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .by_ids(group7_ids.into_iter().map(Ulid::from_u128))
+        .order_by_desc("rank")
+        .limit(2)
+        .plan()
+        .expect("by-ids desc page1 plan should build");
+    let by_ids_page1 = load
+        .execute_paged(by_ids_page1_plan, None)
+        .expect("by-ids desc page1 should execute");
+
+    let index_path_page1_ids: Vec<Ulid> = index_path_page1
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    let by_ids_page1_ids: Vec<Ulid> = by_ids_page1
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    assert_eq!(
+        index_path_page1_ids, by_ids_page1_ids,
+        "descending page1 should match across index-prefix and by-ids paths"
+    );
+
+    let shared_boundary = ContinuationToken::decode(
+        index_path_page1
+            .next_cursor
+            .as_ref()
+            .expect("index-path desc page1 should emit cursor")
+            .as_slice(),
+    )
+    .expect("index-path desc cursor should decode")
+    .boundary()
+    .clone();
+    let index_path_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("rank")
+        .limit(2)
+        .plan()
+        .expect("index-path desc page2 plan should build");
+    let index_path_page2 = load
+        .execute_paged(index_path_page2_plan, Some(shared_boundary.clone()))
+        .expect("index-path desc page2 should execute");
+
+    let by_ids_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .by_ids(group7_ids.into_iter().map(Ulid::from_u128))
+        .order_by_desc("rank")
+        .limit(2)
+        .plan()
+        .expect("by-ids desc page2 plan should build");
+    let by_ids_page2 = load
+        .execute_paged(by_ids_page2_plan, Some(shared_boundary))
+        .expect("by-ids desc page2 should execute");
+
+    let index_path_page2_ids: Vec<Ulid> = index_path_page2
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    let by_ids_page2_ids: Vec<Ulid> = by_ids_page2
+        .items
+        .0
+        .iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    assert_eq!(
+        index_path_page2_ids, by_ids_page2_ids,
+        "descending page2 should match across index-prefix and by-ids paths"
+    );
+}
+
+#[test]
+fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for row in [
+        PushdownParityEntity {
+            id: Ulid::from_u128(15_001),
+            group: 7,
+            rank: 10,
+            label: "g7-r10".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(15_002),
+            group: 7,
+            rank: 20,
+            label: "g7-r20".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(15_003),
+            group: 7,
+            rank: 30,
+            label: "g7-r30".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(15_004),
+            group: 9,
+            rank: 1,
+            label: "g9-r1".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::Strict,
+    ));
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("prefix window page1 plan should build");
+    let page1 = load
+        .execute_paged(page1_plan, None)
+        .expect("prefix window page1 should execute");
+
+    let page1_cursor = page1
+        .next_cursor
+        .as_ref()
+        .expect("prefix window page1 should emit continuation cursor");
+    let page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("prefix window page2 plan should build");
+    let page2_boundary = page2_plan
+        .plan_cursor_boundary(Some(page1_cursor.as_slice()))
+        .expect("prefix window page2 boundary should plan");
+    let page2 = load
+        .execute_paged(page2_plan, page2_boundary)
+        .expect("prefix window page2 should execute");
+    assert_eq!(page2.items.0.len(), 1, "page2 should return final row only");
+    assert!(
+        page2.next_cursor.is_none(),
+        "final prefix window page should not emit continuation cursor"
+    );
+
+    let plan_for_boundary = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("prefix window boundary plan should build");
+    let explicit_boundary = plan_for_boundary
+        .into_inner()
+        .cursor_boundary_from_entity(&page2.items.0[0].1)
+        .expect("explicit boundary from terminal row should build");
+    let past_end_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::Strict,
+        )))
+        .order_by("rank")
+        .limit(2)
+        .plan()
+        .expect("past-end plan should build");
+    let past_end = load
+        .execute_paged(past_end_plan, Some(explicit_boundary))
+        .expect("past-end execution should succeed");
+    assert!(
+        past_end.items.0.is_empty(),
+        "cursor boundary at final prefix row should yield an empty continuation page"
+    );
+    assert!(
+        past_end.next_cursor.is_none(),
+        "empty continuation page should not emit a cursor"
+    );
+}
+
+#[test]
+fn load_trace_marks_secondary_order_pushdown_accepted() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for row in [
+        PushdownParityEntity {
+            id: Ulid::from_u128(16_001),
+            group: 7,
+            rank: 10,
+            label: "g7-r10".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(16_002),
+            group: 7,
+            rank: 20,
+            label: "g7-r20".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::Strict,
+    ));
+    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .expect("trace accepted plan should build");
+
+    let _ = take_trace_events();
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
+    let _page = load
+        .execute_paged(plan, None)
+        .expect("trace accepted execution should succeed");
+    let events = take_trace_events();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            QueryTraceEvent::Pushdown {
+                decision: TracePushdownDecision::AcceptedSecondaryIndexOrder,
+                ..
+            }
+        )),
+        "trace should mark accepted secondary-order pushdown eligibility"
+    );
+}
+
+#[test]
+fn load_trace_marks_secondary_order_pushdown_rejected() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PushdownParityEntity>::new(DB, false);
+    for row in [
+        PushdownParityEntity {
+            id: Ulid::from_u128(17_001),
+            group: 7,
+            rank: 10,
+            label: "g7-r10".to_string(),
+        },
+        PushdownParityEntity {
+            id: Ulid::from_u128(17_002),
+            group: 7,
+            rank: 20,
+            label: "g7-r20".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::Strict,
+    ));
+    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("rank")
+        .limit(1)
+        .plan()
+        .expect("trace rejected plan should build");
+
+    let _ = take_trace_events();
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
+    let _page = load
+        .execute_paged(plan, None)
+        .expect("trace rejected execution should succeed");
+    let events = take_trace_events();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            QueryTraceEvent::Pushdown {
+                decision: TracePushdownDecision::RejectedSecondaryIndexOrder,
+                ..
+            }
+        )),
+        "trace should mark rejected secondary-order pushdown eligibility"
     );
 }

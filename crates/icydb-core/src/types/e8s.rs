@@ -126,9 +126,9 @@ impl E8s {
     ///
 
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
-    #[allow(clippy::cast_precision_loss)]
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_precision_loss)]
+    #[expect(clippy::cast_sign_loss)]
     #[doc = "⚠️ Use only for non-critical float conversions. Prefer try_from_decimal."]
     pub fn from_f64(value: f64) -> Option<Self> {
         if value.is_nan() || value.is_infinite() || value < 0.0 {
@@ -226,7 +226,6 @@ impl FieldValue for E8s {
     }
 }
 
-#[allow(clippy::cast_possible_wrap)]
 impl From<E8s> for Decimal {
     fn from(v: E8s) -> Self {
         // Use i128 mantissa to avoid overflow for large u64 values
@@ -283,7 +282,7 @@ impl NumCast for E8s {
 }
 
 impl NumFromPrimitive for E8s {
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss)]
     fn from_i64(n: i64) -> Option<Self> {
         if n < 0 { None } else { Some(Self(n as u64)) }
     }

@@ -6,8 +6,13 @@ use super::{
 use crate::{
     db::query::{
         QueryMode, ReadConsistency,
+        plan::validate::{
+            SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
+            assess_secondary_order_pushdown,
+        },
         predicate::{CompareOp, ComparePredicate, Predicate, coercion::CoercionSpec, normalize},
     },
+    model::entity::EntityModel,
     traits::FieldValue,
     value::Value,
 };
@@ -24,9 +29,60 @@ pub struct ExplainPlan {
     pub access: ExplainAccessPath,
     pub predicate: ExplainPredicate,
     pub order_by: ExplainOrderBy,
+    pub order_pushdown: ExplainOrderPushdown,
     pub page: ExplainPagination,
     pub delete_limit: ExplainDeleteLimit,
     pub consistency: ReadConsistency,
+}
+
+///
+/// ExplainOrderPushdown
+///
+/// Deterministic ORDER BY pushdown eligibility reported by explain.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExplainOrderPushdown {
+    EligibleSecondaryIndex {
+        index: &'static str,
+        prefix_len: usize,
+    },
+    Rejected {
+        reason: ExplainOrderPushdownRejection,
+    },
+}
+
+///
+/// ExplainOrderPushdownRejection
+///
+/// Explicit reason why secondary-index ORDER BY pushdown is rejected.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ExplainOrderPushdownRejection {
+    MissingModelContext,
+    NoOrderBy,
+    AccessPathNotSingleIndexPrefix,
+    InvalidIndexPrefixBounds {
+        prefix_len: usize,
+        index_field_len: usize,
+    },
+    MissingPrimaryKeyTieBreak {
+        field: String,
+    },
+    PrimaryKeyDirectionNotAscending {
+        field: String,
+    },
+    NonAscendingDirection {
+        field: String,
+    },
+    OrderFieldsDoNotMatchIndex {
+        index: &'static str,
+        prefix_len: usize,
+        expected_suffix: Vec<String>,
+        expected_full: Vec<String>,
+        actual: Vec<String>,
+    },
 }
 
 ///
@@ -143,12 +199,24 @@ where
     /// Produce a stable, deterministic explanation of this logical plan.
     #[must_use]
     pub fn explain(&self) -> ExplainPlan {
+        self.explain_inner(None)
+    }
+
+    /// Produce a stable, deterministic explanation of this logical plan
+    /// with model-aware pushdown eligibility diagnostics.
+    #[must_use]
+    pub fn explain_with_model(&self, model: &EntityModel) -> ExplainPlan {
+        self.explain_inner(Some(model))
+    }
+
+    fn explain_inner(&self, model: Option<&EntityModel>) -> ExplainPlan {
         let predicate = match &self.predicate {
             Some(predicate) => ExplainPredicate::from_predicate(&normalize(predicate)),
             None => ExplainPredicate::None,
         };
 
         let order_by = explain_order(self.order.as_ref());
+        let order_pushdown = explain_order_pushdown(model, self);
         let page = explain_page(self.page.as_ref());
         let delete_limit = explain_delete_limit(self.delete_limit.as_ref());
 
@@ -157,10 +225,71 @@ where
             access: ExplainAccessPath::from_access_plan(&self.access),
             predicate,
             order_by,
+            order_pushdown,
             page,
             delete_limit,
             consistency: self.consistency,
         }
+    }
+}
+
+fn explain_order_pushdown<K>(
+    model: Option<&EntityModel>,
+    plan: &LogicalPlan<K>,
+) -> ExplainOrderPushdown {
+    let Some(model) = model else {
+        return ExplainOrderPushdown::Rejected {
+            reason: ExplainOrderPushdownRejection::MissingModelContext,
+        };
+    };
+
+    match assess_secondary_order_pushdown(model, plan) {
+        SecondaryOrderPushdownEligibility::Eligible { index, prefix_len } => {
+            ExplainOrderPushdown::EligibleSecondaryIndex { index, prefix_len }
+        }
+        SecondaryOrderPushdownEligibility::Rejected(reason) => ExplainOrderPushdown::Rejected {
+            reason: map_pushdown_rejection(reason),
+        },
+    }
+}
+
+fn map_pushdown_rejection(
+    reason: SecondaryOrderPushdownRejection,
+) -> ExplainOrderPushdownRejection {
+    match reason {
+        SecondaryOrderPushdownRejection::NoOrderBy => ExplainOrderPushdownRejection::NoOrderBy,
+        SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix => {
+            ExplainOrderPushdownRejection::AccessPathNotSingleIndexPrefix
+        }
+        SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+            prefix_len,
+            index_field_len,
+        } => ExplainOrderPushdownRejection::InvalidIndexPrefixBounds {
+            prefix_len,
+            index_field_len,
+        },
+        SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak { field } => {
+            ExplainOrderPushdownRejection::MissingPrimaryKeyTieBreak { field }
+        }
+        SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending { field } => {
+            ExplainOrderPushdownRejection::PrimaryKeyDirectionNotAscending { field }
+        }
+        SecondaryOrderPushdownRejection::NonAscendingDirection { field } => {
+            ExplainOrderPushdownRejection::NonAscendingDirection { field }
+        }
+        SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+            index,
+            prefix_len,
+            expected_suffix,
+            expected_full,
+            actual,
+        } => ExplainOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+            index,
+            prefix_len,
+            expected_suffix,
+            expected_full,
+            actual,
+        },
     }
 }
 
@@ -300,12 +429,36 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 mod tests {
     use super::*;
     use crate::db::query::intent::{KeyAccess, access_plan_from_keys_value};
-    use crate::db::query::plan::{AccessPath, LogicalPlan};
+    use crate::db::query::plan::{AccessPath, LogicalPlan, OrderDirection, OrderSpec};
     use crate::db::query::predicate::Predicate;
     use crate::db::query::{FieldRef, LoadSpec, QueryMode, ReadConsistency};
-    use crate::model::index::IndexModel;
+    use crate::model::{field::EntityFieldKind, index::IndexModel};
+    use crate::traits::EntitySchema;
     use crate::types::Ulid;
     use crate::value::Value;
+
+    const PUSHDOWN_INDEX_FIELDS: [&str; 1] = ["tag"];
+    const PUSHDOWN_INDEX: IndexModel = IndexModel::new(
+        "explain::pushdown_tag",
+        "explain::pushdown_store",
+        &PUSHDOWN_INDEX_FIELDS,
+        false,
+    );
+
+    crate::test_entity_schema! {
+        ExplainPushdownEntity,
+        id = Ulid,
+        path = "explain::PushdownEntity",
+        entity_name = "PushdownEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", EntityFieldKind::Ulid),
+            ("tag", EntityFieldKind::Text),
+            ("rank", EntityFieldKind::Int),
+        ],
+        indexes = [&PUSHDOWN_INDEX],
+    }
 
     #[test]
     fn explain_is_deterministic_for_same_query() {
@@ -417,5 +570,52 @@ mod tests {
             LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
 
         assert_ne!(plan_a.explain(), plan_b.explain());
+    }
+
+    #[test]
+    fn explain_with_model_reports_eligible_order_pushdown() {
+        let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
+        let mut plan: LogicalPlan<Value> = LogicalPlan::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_INDEX,
+                values: vec![Value::Text("alpha".to_string())],
+            },
+            ReadConsistency::MissingOk,
+        );
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+
+        assert_eq!(
+            plan.explain_with_model(model).order_pushdown,
+            ExplainOrderPushdown::EligibleSecondaryIndex {
+                index: PUSHDOWN_INDEX.name,
+                prefix_len: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn explain_with_model_reports_pushdown_rejection_reason() {
+        let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
+        let mut plan: LogicalPlan<Value> = LogicalPlan::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_INDEX,
+                values: vec![Value::Text("alpha".to_string())],
+            },
+            ReadConsistency::MissingOk,
+        );
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        });
+
+        assert_eq!(
+            plan.explain_with_model(model).order_pushdown,
+            ExplainOrderPushdown::Rejected {
+                reason: ExplainOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
+                    field: "id".to_string(),
+                },
+            }
+        );
     }
 }

@@ -29,18 +29,18 @@ contracts.
 
 ---
 
-## Progress Snapshot (as of TBD)
+## Progress Snapshot (as of 2026-02-16)
 
 Estimated completion toward the `0.10.x` goals in this plan:
 
-* RawIndexKey Variable-Length Redesign: **0%**
-* Canonical Primitive Encoding: **0%**
+* RawIndexKey Variable-Length Redesign: **85%**
+* Canonical Primitive Encoding: **75%**
 * Schema Constraints and Field Limit Discipline: **100%** (carried forward)
-* In-Place Index Key Replacement: **0%**
-* Ordered Traversal and Pagination Parity: **0%**
-* Verification and Property Coverage: **0%**
+* In-Place Index Key Replacement: **100%**
+* Ordered Traversal and Pagination Parity: **35%**
+* Verification and Property Coverage: **90%**
 
-Overall estimated progress: **~17%**
+Overall estimated progress: **~79%**
 
 ---
 
@@ -68,6 +68,191 @@ keys.
 
 * Compression-focused key packing
 * Relaxing bounded-size requirements
+
+## Normative Byte Layout - IndexKey v0.10
+
+### Overview
+
+An `IndexKey` is a lexicographically ordered, stable-memory key with the following properties:
+
+* Total ordering via byte-wise comparison
+* Namespace isolation via explicit `key_kind`
+* Component boundary safety via explicit length prefixes
+* Primary key as terminal tie-break component
+* Canonical ordered encoding for each value component
+* Fully bounded, no unframed concatenation
+
+Byte comparison of the full encoded key MUST produce the same ordering as tuple-wise semantic
+comparison of:
+
+`(key_kind, index_id, component_0, ..., component_n, primary_key)`
+
+### Encoded Form (v0.10)
+
+```text
+IndexKey :=
+    [ key_kind : u8 ]
+    [ index_id : fixed IndexName::STORED_SIZE bytes ]
+    [ component_count : u8 ]
+
+    For each index component i in 0..component_count:
+        [ component_len_i : u16 BE ]
+        [ component_bytes_i : component_len_i bytes ]
+
+    [ pk_len : u16 BE ]
+    [ pk_bytes : pk_len bytes ]
+```
+
+### Field Semantics
+
+`key_kind` (`u8`)
+
+* `0x00 = User`
+* `0x01 = System`
+* All other values are invalid and MUST be rejected
+* Participates in ordering as the first comparison field
+
+`index_id`
+
+* Fixed-width canonical encoding of `IndexName`
+* MUST be stable and versioned independently
+* Participates in ordering directly after `key_kind`
+
+`component_count` (`u8`)
+
+* Number of indexed value components
+* MUST equal schema-defined index arity
+* MUST be `<= MAX_INDEX_FIELDS`
+* Decode MUST reject mismatches
+* Participates in ordering before components
+
+`component_len_i` (`u16 BE`)
+
+* Big-endian length of component payload
+* MUST be `> 0`
+* MUST be `<= MAX_COMPONENT_SIZE` (explicit constant)
+* Decoder MUST reject overflow or truncated segments
+* Length participates lexicographically before component payload bytes
+
+`component_bytes_i`
+
+* Output of:
+
+  * `encode_canonical_index_component(value)`
+
+* Canonical component encoding MUST:
+
+  * Be deterministic
+  * Preserve total ordering via lexicographic byte comparison
+  * Include value tag + normalized payload
+  * Reject unsupported types
+
+* Canonicalization MUST freeze:
+
+  * Decimal normalization
+  * BigInt/BigUint sign and width normalization
+  * Float ordering policy (including NaN policy)
+  * `-0.0` handling
+
+`pk_len` / `pk_bytes` (Primary Key Terminal Component)
+
+* Primary key MUST be appended as the final component
+* Purpose:
+
+  * Ensure uniqueness without secondary lookup
+  * Provide stable tie-breaking for equal indexed values
+  * Preserve deterministic ordering for duplicates
+
+* PK encoding MUST:
+
+  * Be canonical and stable
+  * Use the same length-prefixed framing
+  * Be lexicographically ordered by identity semantics
+
+### Ordering Guarantee
+
+Byte-wise lexicographic comparison MUST equal semantic comparison of:
+
+```text
+(key_kind,
+ index_id,
+ component_0,
+ component_1,
+ ...
+ component_n,
+ primary_key)
+```
+
+No secondary comparison logic is permitted.
+
+### Rejection Rules (Mandatory)
+
+Decoder MUST reject:
+
+* Unknown `key_kind`
+* `component_count > MAX_INDEX_FIELDS`
+* `component_count` mismatch with actual segment count
+* Segment length overflow
+* Segment exceeding bounded max
+* Trailing bytes
+* Truncated segments
+* Unsupported canonical component types
+
+### Bounded Size
+
+Total key size MUST satisfy:
+
+`<= MAX_INDEX_KEY_BYTES`
+
+Where:
+
+```text
+MAX_INDEX_KEY_BYTES =
+1 + INDEX_ID_SIZE + 1 +
+(MAX_INDEX_FIELDS * (2 + MAX_COMPONENT_SIZE)) +
+(2 + MAX_PK_SIZE)
+```
+
+This MUST be enforced via `Storable::BOUND`.
+
+### Versioning
+
+This layout is `IndexKey` format version `0.10`.
+
+Future format changes MUST:
+
+* Introduce a new version discriminator
+* Not silently reinterpret existing keys
+* Not modify canonical encoding semantics in place
+
+### Critical Freezing Decisions
+
+The following decisions MUST be explicitly frozen and documented:
+
+* Float NaN policy (reject or canonicalize to a single encoding)
+* Decimal normalization strategy
+* Big integer normalization rules (no leading zeros)
+* Endianness (must remain big-endian for lexicographic stability)
+* Whether `component_len` participates lexicographically (it does)
+
+### Why This Layout Is Correct
+
+* Namespace separation via first byte
+* No ambiguous concatenation
+* No fixed-width assumptions
+* Fully bounded
+* Compatible with BTree lexicographic ordering
+* Stable against schema evolution (arity fixed per index)
+* Safe for range scans and prefix bounds
+
+### Recommendation Before Wiring
+
+Before replacing fingerprint slots:
+
+* Add golden test vectors (hard-coded byte outputs)
+* Add explicit float edge-case tests (`-0.0`, `+0.0`, `NaN`)
+* Add multi-field ordering tests with different segment lengths
+* Add prefix-bound scan tests
 
 ---
 
@@ -148,6 +333,46 @@ format versioning or a generic migration engine.
 * Dual-write or mixed-encoding index modes in normal operation
 * Best-effort partial conversion with mixed encoding semantics
 
+## Execution Checklist (Step 3)
+
+Current status: **Complete** (100%)
+
+* [x] Remove fixed-slot index-key assumptions from `IndexKey`/`RawIndexKey` encoding and decoding
+* [x] Keep one active key encoding path in runtime code (no `V1`/`V2` dual decode branches)
+* [x] Enforce fail-closed structural decode at trust boundaries (`IndexKey::try_from_raw`)
+* [x] Validate recovery replay determinism for index state through commit/replay tests
+* [x] Freeze replay byte-stability with raw key snapshot tests across repeated recovery
+* [x] Add explicit startup/upgrade full-rebuild gate for secondary indexes from authoritative row data
+* [x] Add fail-closed tests for rebuild-time corruption cases in the full-rebuild gate
+* [x] Add explicit operator-facing documentation for when and how full rebuild is triggered
+
+### Operator Notes: Startup Rebuild Gate
+
+When rebuild runs:
+
+* Rebuild is executed inside `ensure_recovered(...)` / `ensure_recovered_for_write(...)`.
+* It runs on first recovery pass (startup boundary) and on later passes when recovery is re-entered.
+* If no runtime entity hooks are registered, rebuild is skipped (test-only/minimal DB wiring case).
+
+What rebuild does:
+
+* Replays any persisted commit marker first (if present).
+* Takes a full snapshot of current index stores.
+* Clears index stores.
+* Rebuilds index entries from authoritative row data by reusing entity commit-planning hooks.
+* Recreates secondary and relation-driven reverse index entries through the same canonical planning path.
+
+Failure behavior (fail closed):
+
+* Any rebuild error aborts recovery and returns a classified error.
+* Pre-rebuild index snapshots are restored before returning, so partial rebuild writes are not left behind.
+* Reads/writes that require recovery continue to fail until the underlying corruption/configuration issue is fixed.
+
+Validation coverage:
+
+* `recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows`
+* `recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt_row`
+
 ---
 
 # 5. Ordered Traversal, Range Scans, and Pagination Parity
@@ -175,6 +400,70 @@ semantic drift.
 * Bidirectional cursor contracts
 * Snapshot-consistent pagination across requests
 
+## Execution Checklist (Step 1)
+
+Current status: **In progress** (estimated ~35%)
+
+* [x] Canonical index keys provide stable lexicographic ordering for prefix and range windows
+* [x] Prefix-bound builders are wired for user/system namespace isolation
+* [x] Define explicit ORDER BY pushdown eligibility matrix for secondary-index traversal:
+  index field sequence, direction, null/missing ordering, and PK tie-break rules
+* [x] Implement executor traversal path for eligible secondary-index ORDER BY plans
+* [x] Keep strict fallback to existing non-pushdown execution when eligibility fails
+* [x] Prove cursor continuation parity between pushdown and fallback paths
+* [x] Add deterministic parity tests for ASC/DESC and multi-field ties
+* [x] Add deterministic boundary tests for range scans and prefix windows
+* [x] Add diagnostics/trace markers showing when pushdown is accepted or rejected
+* [x] Add doc examples for expected plan behavior (pushdown hit vs fallback)
+
+### Plan Behavior Examples (Pushdown vs Fallback)
+
+Example A: pushdown hit (secondary index order is eligible)
+
+```rust
+let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    .filter(FieldRef::new("group").eq(7u32))
+    .order_by("rank")
+    .explain()?;
+
+assert!(matches!(
+    explain.order_pushdown,
+    ExplainOrderPushdown::EligibleSecondaryIndex { .. }
+));
+```
+
+Why this hits:
+
+* Access path is `IndexPrefix(group = 7)` over index `(group, rank)`
+* Remaining ORDER fields match the index suffix (`rank`)
+* PK tie-break is present and ascending
+
+Example B: fallback (descending order forces rejection)
+
+```rust
+let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    .filter(FieldRef::new("group").eq(7u32))
+    .order_by_desc("rank")
+    .explain()?;
+
+assert!(matches!(
+    explain.order_pushdown,
+    ExplainOrderPushdown::Rejected {
+        reason: ExplainOrderPushdownRejection::NonAscendingDirection { .. }
+    }
+));
+```
+
+Why this falls back:
+
+* Descending component order is currently not eligible for secondary index pushdown
+* Executor keeps canonical fallback semantics (post-access ordering + pagination)
+
+### Next Implementation Slice
+
+* [x] Add the ORDER BY pushdown eligibility matrix to planning validation and emit explicit rejection reasons
+* [x] Add parity tests that compare pushdown-eligible output against current fallback output for the same query shape
+
 ---
 
 # 6. Verification and Safety Gates
@@ -199,6 +488,15 @@ encoding.
 ## Non-Goals
 
 * Replacing runtime invariants with test-only guarantees
+
+## Execution Checklist (Step 2)
+
+* [x] Add deterministic primitive-family order parity tests for canonical component encoding
+* [x] Add composite tuple semantic-vs-byte ordering tests over fixed cartesian fixtures
+* [x] Freeze canonical component bytes with deterministic golden vectors
+* [x] Lock decimal normalization and float edge behavior (`NaN`, `-0.0`, `+0.0`)
+* [x] Verify recovery replay preserves canonical raw index key bytes across reloads
+* [x] Add continuation and pagination parity tests to prevent semantic drift
 
 ---
 

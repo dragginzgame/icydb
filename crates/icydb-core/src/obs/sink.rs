@@ -359,7 +359,7 @@ pub(crate) struct Span<E: EntityKind> {
     _marker: PhantomData<E>,
 }
 
-#[allow(clippy::missing_const_for_fn)]
+#[expect(clippy::missing_const_for_fn)]
 fn read_perf_counter() -> u64 {
     #[cfg(target_arch = "wasm32")]
     {

@@ -36,13 +36,13 @@ thread_local! {
 }
 
 #[cfg(test)]
-#[allow(clippy::redundant_closure_for_method_calls)]
+#[expect(clippy::redundant_closure_for_method_calls)]
 fn test_hash_override() -> Option<[u8; 16]> {
     TEST_HASH_OVERRIDE.with(|cell| cell.get())
 }
 
-#[allow(clippy::cast_possible_truncation)]
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::cast_possible_truncation)]
+#[expect(clippy::too_many_lines)]
 fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
     feed_u8(h, value.canonical_tag().to_u8());
 

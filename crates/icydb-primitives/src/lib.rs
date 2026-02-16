@@ -97,7 +97,7 @@ impl ScalarKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 pub struct ScalarMetadata {
     pub family: ScalarCoercionFamily,
     pub is_numeric_value: bool,

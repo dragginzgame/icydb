@@ -483,7 +483,7 @@ impl Value {
     }
 
     // it's lossless, trust me bro
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(clippy::cast_precision_loss)]
     fn to_f64_lossless(&self) -> Option<f64> {
         match self {
             Self::Duration(d) if d.get() <= F64_SAFE_U64 => Some(d.get() as f64),
@@ -588,7 +588,7 @@ impl Value {
             .map(|items| items.iter().any(|v| eq(v, needle)))
     }
 
-    #[allow(clippy::unnecessary_wraps)]
+    #[expect(clippy::unnecessary_wraps)]
     fn contains_any_by<F>(&self, needles: &Self, eq: F) -> Option<bool>
     where
         F: Fn(&Self, &Self) -> bool,
@@ -600,7 +600,7 @@ impl Value {
         }
     }
 
-    #[allow(clippy::unnecessary_wraps)]
+    #[expect(clippy::unnecessary_wraps)]
     fn contains_all_by<F>(&self, needles: &Self, eq: F) -> Option<bool>
     where
         F: Fn(&Self, &Self) -> bool,

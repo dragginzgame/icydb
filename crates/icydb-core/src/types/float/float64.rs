@@ -136,8 +136,7 @@ impl From<Float64> for f64 {
     }
 }
 
-#[allow(clippy::cast_precision_loss)]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_precision_loss)]
 impl NumFromPrimitive for Float64 {
     fn from_i64(n: i64) -> Option<Self> {
         Self::try_new(n as f64)
@@ -161,7 +160,7 @@ impl NumFromPrimitive for Float64 {
     }
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 impl NumToPrimitive for Float64 {
     fn to_i64(&self) -> Option<i64> {
         self.0.to_i64()
@@ -255,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::float_cmp)]
+    #[expect(clippy::float_cmp)]
     fn from_view_normalizes_non_finite() {
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let normalized = Float64::from_view(value);

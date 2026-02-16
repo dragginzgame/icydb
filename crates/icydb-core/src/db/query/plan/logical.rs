@@ -83,8 +83,8 @@ impl<E: EntityKind> PlanRow<E> for (Id<E>, E) {
 /// Fields are populated but not currently consumed.
 ///
 
-#[allow(dead_code)]
-#[allow(clippy::struct_excessive_bools)]
+#[expect(dead_code)]
+#[expect(clippy::struct_excessive_bools)]
 pub struct PostAccessStats {
     pub(crate) filtered: bool,
     pub(crate) ordered: bool,
@@ -471,7 +471,7 @@ fn compare_entity_with_boundary<E: EntityKind + EntityValue>(
 ///
 /// - `offset` and `limit` are logical (u32) pagination parameters
 /// - Conversion to `usize` happens only at the indexing boundary
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
     let total: u32 = rows.len() as u32;
 
@@ -497,7 +497,6 @@ fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
 }
 
 // Apply a delete limit to an in-memory vector, in-place.
-#[allow(clippy::cast_possible_truncation)]
 fn apply_delete_limit<T>(rows: &mut Vec<T>, max_rows: u32) {
     let limit = usize::min(rows.len(), max_rows as usize);
     rows.truncate(limit);

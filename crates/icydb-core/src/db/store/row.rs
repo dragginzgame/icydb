@@ -62,7 +62,7 @@ pub struct RawRow(Vec<u8>);
 
 impl RawRow {
     /// Construct a raw row from serialized bytes.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     pub fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
         let len = bytes.len() as u32;
         if len > MAX_ROW_BYTES {

@@ -1,8 +1,7 @@
 use crate::{
     db::{
         index::{
-            fingerprint,
-            key::{IndexId, IndexKey},
+            key::{IndexId, IndexKey, encode_canonical_index_component},
             store::IndexStore,
         },
         store::DataKey,
@@ -33,19 +32,19 @@ impl IndexStore {
 
         let index_id = IndexId::new::<E>(index);
 
-        let mut fingerprints = Vec::with_capacity(prefix.len());
+        let mut components = Vec::with_capacity(prefix.len());
         for value in prefix {
-            let Some(fingerprint) = fingerprint::to_index_fingerprint(value)? else {
-                return Err(InternalError::new(
+            let component = encode_canonical_index_component(value).map_err(|_| {
+                InternalError::new(
                     ErrorClass::Unsupported,
                     ErrorOrigin::Index,
                     "index prefix value is not indexable",
-                ));
-            };
-            fingerprints.push(fingerprint);
+                )
+            })?;
+            components.push(component);
         }
 
-        let (start, end) = IndexKey::bounds_for_prefix(index_id, index.fields.len(), &fingerprints);
+        let (start, end) = IndexKey::bounds_for_prefix(index_id, index.fields.len(), &components);
         let (start_raw, end_raw) = (start.to_raw(), end.to_raw());
 
         let mut out = Vec::new();

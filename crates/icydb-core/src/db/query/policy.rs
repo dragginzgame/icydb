@@ -51,7 +51,7 @@ impl PlanPolicyError {
 /// Canonical policy failures for cursor-pagination readiness.
 ///
 
-#[allow(clippy::enum_variant_names)]
+#[expect(clippy::enum_variant_names)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CursorPagingPolicyError {
     CursorRequiresOrder,

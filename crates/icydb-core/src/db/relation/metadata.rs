@@ -9,7 +9,6 @@ use crate::{
 /// Lightweight relation descriptor extracted from runtime field metadata.
 ///
 
-#[allow(clippy::struct_field_names)]
 #[derive(Clone, Copy)]
 pub(super) struct StrongRelationInfo {
     pub(super) field_name: &'static str,
@@ -24,7 +23,7 @@ pub(super) struct StrongRelationInfo {
 /// Shared target descriptor for strong relation fields.
 ///
 
-#[allow(clippy::struct_field_names)]
+#[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy)]
 pub struct StrongRelationTargetInfo {
     pub target_path: &'static str,

@@ -159,7 +159,7 @@ fn encode_component_payload(
 }
 
 // Account ordering uses the same tuple contract as `Account::cmp`.
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn push_account_payload(out: &mut Vec<u8>, account: &Account) {
     let owner = account.owner.as_slice();
     let owner_len = owner.len().min(u8::MAX as usize);
@@ -546,6 +546,86 @@ mod tests {
     }
 
     #[test]
+    fn canonical_encoder_golden_vectors_freeze_primitive_bytes() {
+        let cases: Vec<(&str, Value, Vec<u8>)> = vec![
+            ("Bool(false)", Value::Bool(false), vec![0x03, 0x00]),
+            ("Bool(true)", Value::Bool(true), vec![0x03, 0x01]),
+            (
+                "Int(-1)",
+                Value::Int(-1),
+                vec![0x0C, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            ),
+            (
+                "Uint(1)",
+                Value::Uint(1),
+                vec![0x16, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01],
+            ),
+            (
+                "Decimal(10,1)",
+                Value::Decimal(Decimal::new(10, 1)),
+                vec![0x05, 0x02, 0x80, 0x00, 0x00, 0x00, 0x00, 0x01, 0x31],
+            ),
+            (
+                "Float64(-1.0)",
+                Value::Float64(Float64::try_new(-1.0).expect("finite")),
+                vec![0x0B, 0x40, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            ),
+            (
+                "Float64(0.0)",
+                Value::Float64(Float64::try_new(0.0).expect("finite")),
+                vec![0x0B, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+            ),
+            (
+                "Text(\"a\")",
+                Value::Text("a".to_string()),
+                vec![0x14, b'a', 0x00, 0x00],
+            ),
+            (
+                "Principal([1,0,2])",
+                Value::Principal(Principal::from_slice(&[1u8, 0u8, 2u8])),
+                vec![0x12, 0x01, 0x00, 0xFF, 0x02, 0x00, 0x00],
+            ),
+            (
+                "IntBig(-7)",
+                Value::IntBig(Int::from(-7i32)),
+                vec![0x0E, 0x00, 0xFF, 0xFE, 0xC8],
+            ),
+            (
+                "UintBig(70)",
+                Value::UintBig(Nat::from(70u64)),
+                vec![0x18, 0x00, 0x02, 0x37, 0x30],
+            ),
+            (
+                "Enum(State::MyPath(7))",
+                Value::Enum(ValueEnum::new("State", Some("MyPath")).with_payload(Value::Int(7))),
+                vec![
+                    0x07, b'S', b't', b'a', b't', b'e', 0x00, 0x00, 0x01, b'M', b'y', b'P', b'a',
+                    b't', b'h', 0x00, 0x00, 0x01, 0x00, 0x09, 0x0C, 0x80, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x07,
+                ],
+            ),
+            (
+                "Ulid(1)",
+                Value::Ulid(Ulid::from_u128(1)),
+                vec![
+                    0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x01,
+                ],
+            ),
+            ("Unit", Value::Unit, vec![0x1A]),
+        ];
+
+        for (name, value, expected) in cases {
+            let actual = encode_canonical_index_component(&value)
+                .expect("golden-vector sample should encode");
+            assert_eq!(
+                actual, expected,
+                "golden vector drift for {name}: {value:?}"
+            );
+        }
+    }
+
+    #[test]
     fn canonical_encoder_total_order_matches_value_canonical_cmp_for_supported_samples() {
         let samples = vec![
             Value::Account(Account::dummy(1)),
@@ -599,5 +679,115 @@ mod tests {
         });
 
         assert_eq!(by_value, by_bytes);
+    }
+
+    // Deterministic property-style check: for each primitive family fixture,
+    // canonical value ordering must match canonical encoded-byte ordering.
+    #[test]
+    fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
+        let families: Vec<(&str, Vec<Value>)> = vec![
+            ("Bool", vec![Value::Bool(false), Value::Bool(true)]),
+            (
+                "Int",
+                vec![Value::Int(-2), Value::Int(-1), Value::Int(0), Value::Int(7)],
+            ),
+            ("Uint", vec![Value::Uint(0), Value::Uint(1), Value::Uint(7)]),
+            (
+                "Int128",
+                vec![
+                    Value::Int128(Int128::from(-2i128)),
+                    Value::Int128(Int128::from(0i128)),
+                    Value::Int128(Int128::from(7i128)),
+                ],
+            ),
+            (
+                "Uint128",
+                vec![
+                    Value::Uint128(Nat128::from(0u128)),
+                    Value::Uint128(Nat128::from(1u128)),
+                    Value::Uint128(Nat128::from(7u128)),
+                ],
+            ),
+            (
+                "IntBig",
+                vec![
+                    Value::IntBig(Int::from(-10i32)),
+                    Value::IntBig(Int::from(-1i32)),
+                    Value::IntBig(Int::from(0i32)),
+                    Value::IntBig(Int::from(7i32)),
+                ],
+            ),
+            (
+                "UintBig",
+                vec![
+                    Value::UintBig(Nat::from(0u64)),
+                    Value::UintBig(Nat::from(1u64)),
+                    Value::UintBig(Nat::from(70u64)),
+                ],
+            ),
+            (
+                "Decimal",
+                vec![
+                    Value::Decimal(Decimal::new(-11, 1)),
+                    Value::Decimal(Decimal::new(-10, 1)),
+                    Value::Decimal(Decimal::new(0, 0)),
+                    Value::Decimal(Decimal::new(10, 1)),
+                    Value::Decimal(Decimal::new(11, 1)),
+                ],
+            ),
+            (
+                "Float32",
+                vec![
+                    Value::Float32(Float32::try_new(-1.0).expect("finite")),
+                    Value::Float32(Float32::try_new(-0.0).expect("finite")),
+                    Value::Float32(Float32::try_new(0.0).expect("finite")),
+                    Value::Float32(Float32::try_new(1.0).expect("finite")),
+                ],
+            ),
+            (
+                "Float64",
+                vec![
+                    Value::Float64(Float64::try_new(-1.0).expect("finite")),
+                    Value::Float64(Float64::try_new(-0.0).expect("finite")),
+                    Value::Float64(Float64::try_new(0.0).expect("finite")),
+                    Value::Float64(Float64::try_new(1.0).expect("finite")),
+                ],
+            ),
+            (
+                "Text",
+                vec![
+                    Value::Text("a".to_string()),
+                    Value::Text("aa".to_string()),
+                    Value::Text("b".to_string()),
+                ],
+            ),
+            (
+                "Ulid",
+                vec![
+                    Value::Ulid(Ulid::from_u128(1)),
+                    Value::Ulid(Ulid::from_u128(2)),
+                    Value::Ulid(Ulid::from_u128(3)),
+                ],
+            ),
+            ("Unit", vec![Value::Unit, Value::Unit]),
+        ];
+
+        for (family_name, values) in families {
+            for left in &values {
+                for right in &values {
+                    let value_cmp = Value::canonical_cmp_key(left, right);
+                    let left_bytes =
+                        encode_canonical_index_component(left).expect("left should encode");
+                    let right_bytes =
+                        encode_canonical_index_component(right).expect("right should encode");
+                    let byte_cmp = left_bytes.cmp(&right_bytes);
+
+                    assert_eq!(
+                        value_cmp, byte_cmp,
+                        "encoded-byte ordering mismatch for family {family_name}: left={left:?} right={right:?}",
+                    );
+                }
+            }
+        }
     }
 }

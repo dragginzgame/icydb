@@ -87,7 +87,6 @@ impl Account {
         let mut out = vec![0u8; Self::STORED_SIZE as usize];
 
         // Encode principal length and subaccount presence in the tag byte.
-        #[allow(clippy::cast_possible_truncation)]
         let mut tag = u8::try_from(len).map_err(|_| AccountEncodeError::OwnerTooLarge {
             len,
             max: Self::PRINCIPAL_MAX_LEN,
@@ -117,7 +116,7 @@ impl Account {
     }
 
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn ordering_tag(&self) -> u8 {
         let len = self.owner.as_slice().len();
         let len = len.min(u8::MAX as usize);
@@ -508,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn from_bytes_rejects_invalid_principal_len() {
         let mut buf = vec![0u8; Account::STORED_SIZE as usize];
         buf[0] = (Principal::MAX_LENGTH_IN_BYTES as u8) + 1;

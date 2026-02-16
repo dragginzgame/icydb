@@ -40,7 +40,7 @@ impl Date {
     pub const MAX: Self = Self(i32::MAX);
 
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     /// Clamp and construct a date from year/month/day, defaulting to epoch on invalid input.
     pub fn new(y: i32, m: u32, d: u32) -> Self {
         // clamp month
@@ -100,7 +100,7 @@ impl Date {
     }
 
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn from_naive_date(date: NaiveDate) -> Self {
         Self((date - NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()).num_days() as i32)
     }
@@ -170,12 +170,12 @@ impl NumCast for Date {
 }
 
 impl NumFromPrimitive for Date {
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn from_i64(n: i64) -> Option<Self> {
         Some(Self(n as i32))
     }
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn from_u64(n: u64) -> Option<Self> {
         if i32::try_from(n).is_ok() {
             Some(Self(n as i32))

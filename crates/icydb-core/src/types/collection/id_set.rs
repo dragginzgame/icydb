@@ -114,7 +114,7 @@ where
     }
 
     #[cfg(debug_assertions)]
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     fn assert_sorted(&self) {
         debug_assert!(self.0.windows(2).all(|w| w[0].key() < w[1].key()));
     }

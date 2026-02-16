@@ -6,7 +6,7 @@
 use super::{AccessPath, AccessPlan, PlanError, canonical};
 use crate::{
     db::{
-        index::fingerprint,
+        index::key::encode_canonical_index_component,
         query::predicate::{
             CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, normalize,
             validate::literal_matches_type,
@@ -92,7 +92,7 @@ fn plan_predicate(
                 .map(|child| plan_predicate(model, schema, child))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            if let Some(prefix) = index_prefix_from_and(model, schema, children)? {
+            if let Some(prefix) = index_prefix_from_and(model, schema, children) {
                 plans.push(AccessPlan::Path(prefix));
             }
 
@@ -104,7 +104,7 @@ fn plan_predicate(
                 .map(|child| plan_predicate(model, schema, child))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
-        Predicate::Compare(cmp) => plan_compare(model, schema, cmp)?,
+        Predicate::Compare(cmp) => plan_compare(model, schema, cmp),
     };
 
     Ok(plan)
@@ -114,33 +114,33 @@ fn plan_compare(
     model: &EntityModel,
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
-) -> Result<AccessPlan<Value>, InternalError> {
+) -> AccessPlan<Value> {
     if cmp.coercion.id != CoercionId::Strict {
-        return Ok(AccessPlan::full_scan());
+        return AccessPlan::full_scan();
     }
 
     if is_primary_key_model(schema, model, &cmp.field)
         && let Some(path) = plan_pk_compare(schema, model, cmp)
     {
-        return Ok(AccessPlan::Path(path));
+        return AccessPlan::Path(path);
     }
 
     match cmp.op {
         CompareOp::Eq => {
-            if let Some(paths) = index_prefix_for_eq(model, schema, &cmp.field, &cmp.value)? {
-                return Ok(AccessPlan::Union(paths));
+            if let Some(paths) = index_prefix_for_eq(model, schema, &cmp.field, &cmp.value) {
+                return AccessPlan::Union(paths);
             }
         }
         CompareOp::In => {
             if let Value::List(items) = &cmp.value {
                 let mut plans = Vec::new();
                 for item in items {
-                    if let Some(paths) = index_prefix_for_eq(model, schema, &cmp.field, item)? {
+                    if let Some(paths) = index_prefix_for_eq(model, schema, &cmp.field, item) {
                         plans.extend(paths);
                     }
                 }
                 if !plans.is_empty() {
-                    return Ok(AccessPlan::Union(plans));
+                    return AccessPlan::Union(plans);
                 }
             }
         }
@@ -149,7 +149,7 @@ fn plan_compare(
         }
     }
 
-    Ok(AccessPlan::full_scan())
+    AccessPlan::full_scan()
 }
 
 fn plan_pk_compare(
@@ -197,17 +197,15 @@ fn index_prefix_for_eq(
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
-) -> Result<Option<Vec<AccessPlan<Value>>>, InternalError> {
-    let Some(field_type) = schema.field(field) else {
-        return Ok(None);
-    };
+) -> Option<Vec<AccessPlan<Value>>> {
+    let field_type = schema.field(field)?;
 
     if !literal_matches_type(value, field_type) {
-        return Ok(None);
+        return None;
     }
 
-    if fingerprint::to_index_fingerprint(value)?.is_none() {
-        return Ok(None);
+    if encode_canonical_index_component(value).is_err() {
+        return None;
     }
 
     let mut out = Vec::new();
@@ -221,18 +219,14 @@ fn index_prefix_for_eq(
         }));
     }
 
-    if out.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(out))
-    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 fn index_prefix_from_and(
     model: &EntityModel,
     schema: &SchemaInfo,
     children: &[Predicate],
-) -> Result<Option<AccessPath<Value>>, InternalError> {
+) -> Option<AccessPath<Value>> {
     let mut field_values = Vec::new();
 
     for child in children {
@@ -265,7 +259,7 @@ fn index_prefix_from_and(
                 prefix.clear();
                 break;
             }
-            if fingerprint::to_index_fingerprint(value)?.is_none() {
+            if encode_canonical_index_component(value).is_err() {
                 prefix.clear();
                 break;
             }
@@ -290,10 +284,10 @@ fn index_prefix_from_and(
         }
     }
 
-    Ok(best.map(|(_, _, index, values)| AccessPath::IndexPrefix {
+    best.map(|(_, _, index, values)| AccessPath::IndexPrefix {
         index: *index,
         values,
-    }))
+    })
 }
 
 fn better_index(

@@ -54,6 +54,16 @@ pub enum TracePhase {
 }
 
 ///
+/// TracePushdownDecision
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TracePushdownDecision {
+    AcceptedSecondaryIndexOrder,
+    RejectedSecondaryIndexOrder,
+}
+
+///
 /// QueryTraceEvent
 ///
 
@@ -70,6 +80,12 @@ pub enum QueryTraceEvent {
         access: Option<TraceAccess>,
         phase: TracePhase,
         rows: u64,
+    },
+    Pushdown {
+        fingerprint: PlanFingerprint,
+        executor: TraceExecutorKind,
+        access: Option<TraceAccess>,
+        decision: TracePushdownDecision,
     },
     Finish {
         fingerprint: PlanFingerprint,
@@ -133,6 +149,15 @@ impl TraceScope {
             access: self.access,
             phase,
             rows,
+        });
+    }
+
+    pub(crate) fn pushdown(&self, decision: TracePushdownDecision) {
+        self.sink.on_event(QueryTraceEvent::Pushdown {
+            fingerprint: self.fingerprint,
+            executor: self.executor,
+            access: self.access,
+            decision,
         });
     }
 

@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 ///
 /// Correctly handles old/new key overlap and guarantees that
 /// apply-time mutations cannot fail except by invariant violation.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub(super) fn build_commit_ops_for_index<E: EntityKind>(
     commit_ops: &mut Vec<CommitIndexOp>,
     index: &'static crate::model::index::IndexModel,

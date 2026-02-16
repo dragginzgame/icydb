@@ -72,7 +72,7 @@ where
     // Plan-based delete
     // ─────────────────────────────────────────────
 
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     pub fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
         if !plan.mode().is_delete() {
             return Err(InternalError::new(

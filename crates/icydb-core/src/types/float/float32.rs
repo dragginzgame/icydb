@@ -105,7 +105,7 @@ impl FieldValue for Float32 {
     }
 }
 
-#[allow(clippy::cast_precision_loss)]
+#[expect(clippy::cast_precision_loss)]
 impl From<i32> for Float32 {
     fn from(n: i32) -> Self {
         Self(n as f32)
@@ -125,8 +125,8 @@ impl From<Float32> for f32 {
     }
 }
 
-#[allow(clippy::cast_precision_loss)]
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_precision_loss)]
+#[expect(clippy::cast_possible_truncation)]
 impl NumFromPrimitive for Float32 {
     fn from_i64(n: i64) -> Option<Self> {
         // i64 always finite in f32 (though not exact)
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::float_cmp)]
+    #[expect(clippy::float_cmp)]
     fn from_view_normalizes_non_finite() {
         for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             let normalized = Float32::from_view(value);

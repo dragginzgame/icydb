@@ -11,7 +11,7 @@ use crate::{
         identity::{EntityName, IndexName},
         index::{
             IndexEntry, IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
-            fingerprint,
+            key::encode_canonical_index_component,
         },
         store::RawDataKey,
     },
@@ -80,12 +80,12 @@ pub(super) fn reverse_index_key_for_target_value<S>(
 where
     S: EntityKind,
 {
-    let Some(fingerprint) = fingerprint::to_index_fingerprint(target_key_value)? else {
+    let Ok(component) = encode_canonical_index_component(target_key_value) else {
         return Ok(None);
     };
 
     let index_id = reverse_index_id_for_relation::<S>(relation)?;
-    let prefix = [fingerprint];
+    let prefix = vec![component];
     let (key, _) =
         IndexKey::bounds_for_prefix_with_kind(index_id, IndexKeyKind::System, 1, &prefix);
 
@@ -209,7 +209,6 @@ where
 ///
 /// This derives mechanical index writes/deletes that keep delete-time strong
 /// relation validation O(referrers) instead of O(source rows).
-#[allow(clippy::too_many_lines)]
 pub fn prepare_reverse_relation_index_mutations_for_source<S>(
     db: &Db<S::Canister>,
     old: Option<&S>,

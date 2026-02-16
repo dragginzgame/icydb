@@ -69,7 +69,7 @@ impl Timestamp {
         Self(ns / 1_000_000_000)
     }
 
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss)]
     pub fn parse_rfc3339(s: &str) -> Result<Self, String> {
         let dt =
             DateTime::parse_from_rfc3339(s).map_err(|e| format!("timestamp parse error: {e}"))?;
@@ -340,7 +340,7 @@ impl NumCast for Timestamp {
 }
 
 impl NumFromPrimitive for Timestamp {
-    #[allow(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_sign_loss)]
     fn from_i64(n: i64) -> Option<Self> {
         if n < 0 { None } else { Some(Self(n as u64)) }
     }

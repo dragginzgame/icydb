@@ -1,5 +1,5 @@
 //! Shared deterministic hash encoding for plan fingerprinting and continuation signatures.
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_possible_truncation)]
 
 use crate::{
     db::{

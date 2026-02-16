@@ -2,14 +2,15 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         identity::{EntityName, IndexName},
-        index::{
-            fingerprint,
-            key::{IndexId, IndexKey, IndexKeyKind},
+        index::key::{
+            IndexId, IndexKey, IndexKeyKind,
+            ordered::{OrderedValueEncodeError, encode_canonical_index_component},
         },
+        store::StorageKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,
-    traits::{EntityKind, EntityValue},
+    traits::{EntityKind, EntityValue, FieldValue},
 };
 
 impl IndexId {
@@ -32,7 +33,7 @@ impl IndexId {
 
 impl IndexKey {
     /// Build an index key; returns `Ok(None)` if any indexed field is missing or non-indexable.
-    /// `Value::Null` is treated as non-indexable.
+    /// `Value::Null` and unsupported canonical kinds are treated as non-indexable.
     pub fn new<E: EntityKind + EntityValue>(
         entity: &E,
         index: &IndexModel,
@@ -50,94 +51,127 @@ impl IndexKey {
             ));
         }
 
-        let mut values = Vec::with_capacity(index.fields.len());
+        let mut components = Vec::with_capacity(index.fields.len());
 
         for field in index.fields {
             let Some(value) = entity.get_value(field) else {
                 return Ok(None);
             };
-            let Some(fingerprint) = fingerprint::to_index_fingerprint(&value)? else {
-                return Ok(None);
+
+            let component = match encode_canonical_index_component(&value) {
+                Ok(component) => component,
+                Err(
+                    OrderedValueEncodeError::NullNotIndexable
+                    | OrderedValueEncodeError::UnsupportedValueKind { .. },
+                ) => {
+                    return Ok(None);
+                }
+                Err(err) => return Err(err.into()),
             };
 
-            values.push(fingerprint);
+            if component.len() > Self::MAX_COMPONENT_SIZE {
+                return Err(InternalError::new(
+                    ErrorClass::Unsupported,
+                    ErrorOrigin::Index,
+                    format!(
+                        "index component exceeds max size: field '{}' -> {} bytes (limit {})",
+                        field,
+                        component.len(),
+                        Self::MAX_COMPONENT_SIZE
+                    ),
+                ));
+            }
+
+            components.push(component);
         }
 
-        #[allow(clippy::cast_possible_truncation)]
+        let entity_key_value = entity.id().key().to_value();
+        let storage_key = StorageKey::try_from_value(&entity_key_value)?;
+        let primary_key = storage_key.to_bytes()?.to_vec();
+
+        #[expect(clippy::cast_possible_truncation)]
         Ok(Some(Self {
             key_kind: IndexKeyKind::User,
             index_id: IndexId::new::<E>(index),
-            len: values.len() as u8,
-            values,
+            component_count: components.len() as u8,
+            components,
+            primary_key,
         }))
     }
 
     #[must_use]
-    pub const fn empty(index_id: IndexId) -> Self {
+    pub fn empty(index_id: IndexId) -> Self {
         Self::empty_with_kind(index_id, IndexKeyKind::User)
     }
 
     #[must_use]
-    pub const fn empty_with_kind(index_id: IndexId, key_kind: IndexKeyKind) -> Self {
+    pub fn empty_with_kind(index_id: IndexId, key_kind: IndexKeyKind) -> Self {
         Self {
             key_kind,
             index_id,
-            len: 0,
-            values: Vec::new(),
+            component_count: 0,
+            components: Vec::new(),
+            primary_key: Self::wildcard_low_pk(),
         }
     }
 
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
     pub fn bounds_for_prefix(
         index_id: IndexId,
         index_len: usize,
-        prefix: &[[u8; 16]],
+        prefix: &[Vec<u8>],
     ) -> (Self, Self) {
         Self::bounds_for_prefix_with_kind(index_id, IndexKeyKind::User, index_len, prefix)
     }
 
     #[must_use]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     pub fn bounds_for_prefix_with_kind(
         index_id: IndexId,
         key_kind: IndexKeyKind,
         index_len: usize,
-        prefix: &[[u8; 16]],
+        prefix: &[Vec<u8>],
     ) -> (Self, Self) {
         if index_len > MAX_INDEX_FIELDS || prefix.len() > index_len {
             let empty = Self::empty_with_kind(index_id, key_kind);
             return (empty.clone(), empty);
         }
 
-        let mut start_values = Vec::with_capacity(index_len);
-        let mut end_values = Vec::with_capacity(index_len);
+        let mut start_components = Vec::with_capacity(index_len);
+        let mut end_components = Vec::with_capacity(index_len);
 
         for i in 0..index_len {
-            if let Some(fingerprint) = prefix.get(i) {
-                start_values.push(*fingerprint);
-                end_values.push(*fingerprint);
+            if let Some(component) = prefix.get(i) {
+                if component.is_empty() || component.len() > Self::MAX_COMPONENT_SIZE {
+                    let empty = Self::empty_with_kind(index_id, key_kind);
+                    return (empty.clone(), empty);
+                }
+
+                start_components.push(component.clone());
+                end_components.push(component.clone());
                 continue;
             }
 
-            start_values.push([0; 16]);
-            end_values.push([0xFF; 16]);
+            start_components.push(Self::wildcard_low_component());
+            end_components.push(Self::wildcard_high_component());
         }
 
-        let len = index_len as u8;
+        let component_count = index_len as u8;
 
         (
             Self {
                 key_kind,
                 index_id,
-                len,
-                values: start_values,
+                component_count,
+                components: start_components,
+                primary_key: Self::wildcard_low_pk(),
             },
             Self {
                 key_kind,
                 index_id,
-                len,
-                values: end_values,
+                component_count,
+                components: end_components,
+                primary_key: Self::wildcard_high_pk(),
             },
         )
     }

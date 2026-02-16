@@ -1,4 +1,4 @@
-#![allow(clippy::used_underscore_binding)]
+#![expect(clippy::used_underscore_binding)]
 #[cfg(test)]
 mod tests;
 
@@ -387,7 +387,6 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 #[derive(Debug)]
 pub struct Query<E: EntityKind> {
     intent: QueryModel<'static, E::Key>,
-    #[allow(clippy::struct_field_names)]
     _marker: PhantomData<E>,
 }
 
@@ -508,7 +507,7 @@ impl<E: EntityKind> Query<E> {
     pub fn explain(&self) -> Result<ExplainPlan, QueryError> {
         let plan = self.build_plan()?;
 
-        Ok(plan.explain())
+        Ok(plan.explain_with_model(E::MODEL))
     }
 
     /// Plan this intent into an executor-ready plan.

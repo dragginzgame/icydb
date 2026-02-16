@@ -129,7 +129,6 @@ pub fn reset_all() {
 }
 
 /// Accumulate instruction counts and track a max.
-#[allow(clippy::missing_const_for_fn)]
 pub fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64) {
     *total = total.saturating_add(u128::from(delta_inst));
     if delta_inst > *max {
@@ -176,7 +175,6 @@ pub struct EntitySummary {
 
 /// Build a metrics report by inspecting in-memory counters only.
 #[must_use]
-#[allow(clippy::cast_precision_loss)]
 pub fn report() -> EventReport {
     report_window_start(None)
 }
@@ -191,7 +189,7 @@ pub fn report() -> EventReport {
 /// IcyDB stores aggregate counters only, so it cannot produce a precise
 /// sub-window report after `state.window_start_ms`.
 #[must_use]
-#[allow(clippy::cast_precision_loss)]
+#[expect(clippy::cast_precision_loss)]
 pub fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
     let snap = with_state(Clone::clone);
     if let Some(requested_window_start_ms) = window_start_ms
@@ -263,7 +261,7 @@ pub fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
 ///
 
 #[cfg(test)]
-#[allow(clippy::float_cmp)]
+#[expect(clippy::float_cmp)]
 mod tests {
     use crate::obs::metrics::{EntityCounters, report, reset_all, with_state, with_state_mut};
 
