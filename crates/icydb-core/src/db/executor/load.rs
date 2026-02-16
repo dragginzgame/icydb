@@ -386,7 +386,7 @@ where
     }
 
     // Fast-path eligibility gate derived from shared applicability enum.
-    fn secondary_order_pushdown_is_eligible(applicability: &PushdownApplicability) -> bool {
+    const fn secondary_order_pushdown_is_eligible(applicability: &PushdownApplicability) -> bool {
         matches!(
             applicability,
             PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible { .. })

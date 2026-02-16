@@ -1,5 +1,6 @@
 //! Plan module wiring; must not implement planning or validation logic.
 
+mod access_projection;
 pub mod canonical;
 pub mod continuation;
 pub(crate) mod executable;
@@ -13,6 +14,9 @@ mod tests;
 mod types;
 pub mod validate;
 
+pub(crate) use access_projection::{
+    AccessPlanProjection, project_access_plan, project_explain_access_path,
+};
 pub use continuation::ContinuationSignature;
 pub(crate) use continuation::{ContinuationToken, decode_pk_cursor_boundary};
 ///

@@ -4,11 +4,12 @@
 
 use crate::{
     db::query::plan::{
-        AccessPath, AccessPlan, ExecutablePlan, PlanFingerprint,
+        AccessPlan, AccessPlanProjection, ExecutablePlan, PlanFingerprint, project_access_plan,
         validate::SecondaryOrderPushdownRejection,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
+    value::Value,
 };
 use sha2::{Digest, Sha256};
 
@@ -278,41 +279,60 @@ pub fn finish_trace_from_result<T>(
 }
 
 fn trace_access_from_plan<K>(plan: &AccessPlan<K>) -> TraceAccess {
-    match plan {
-        AccessPlan::Path(path) => trace_access_from_path(path),
-        AccessPlan::Union(children) => {
-            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
-            TraceAccess::Union {
-                branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
-            }
-        }
-        AccessPlan::Intersection(children) => {
-            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
-            TraceAccess::Intersection {
-                branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
-            }
-        }
-    }
+    let mut projection = TraceAccessProjection;
+    project_access_plan(plan, &mut projection)
 }
 
-fn trace_access_from_path<K>(path: &AccessPath<K>) -> TraceAccess {
-    match path {
-        AccessPath::ByKey(_) => TraceAccess::ByKey,
-        AccessPath::ByKeys(keys) => {
-            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
-            TraceAccess::ByKeys {
-                count: u32::try_from(keys.len()).unwrap_or(u32::MAX),
-            }
+struct TraceAccessProjection;
+
+impl<K> AccessPlanProjection<K> for TraceAccessProjection {
+    type Output = TraceAccess;
+
+    fn by_key(&mut self, _key: &K) -> Self::Output {
+        TraceAccess::ByKey
+    }
+
+    fn by_keys(&mut self, keys: &[K]) -> Self::Output {
+        // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
+        TraceAccess::ByKeys {
+            count: u32::try_from(keys.len()).unwrap_or(u32::MAX),
         }
-        AccessPath::KeyRange { .. } => TraceAccess::KeyRange,
-        AccessPath::IndexPrefix { index, values } => {
-            // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
-            TraceAccess::IndexPrefix {
-                name: index.name,
-                prefix_len: u32::try_from(values.len()).unwrap_or(u32::MAX),
-            }
+    }
+
+    fn key_range(&mut self, _start: &K, _end: &K) -> Self::Output {
+        TraceAccess::KeyRange
+    }
+
+    fn index_prefix(
+        &mut self,
+        index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        values: &[Value],
+    ) -> Self::Output {
+        // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
+        TraceAccess::IndexPrefix {
+            name: index_name,
+            prefix_len: u32::try_from(values.len()).unwrap_or(u32::MAX),
         }
-        AccessPath::FullScan => TraceAccess::FullScan,
+    }
+
+    fn full_scan(&mut self) -> Self::Output {
+        TraceAccess::FullScan
+    }
+
+    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
+        TraceAccess::Union {
+            branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
+        }
+    }
+
+    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
+        TraceAccess::Intersection {
+            branches: u32::try_from(children.len()).unwrap_or(u32::MAX),
+        }
     }
 }
 

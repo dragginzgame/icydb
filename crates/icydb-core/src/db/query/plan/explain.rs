@@ -1,7 +1,8 @@
 //! Deterministic, read-only explanation of logical plans; must not execute or validate.
 
 use super::{
-    AccessPath, AccessPlan, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+    AccessPlan, AccessPlanProjection, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
+    PageSpec, project_access_plan,
 };
 use crate::{
     db::query::{
@@ -221,45 +222,68 @@ impl From<SecondaryOrderPushdownEligibility> for ExplainOrderPushdown {
     }
 }
 
+struct ExplainAccessProjection;
+
+impl<K> AccessPlanProjection<K> for ExplainAccessProjection
+where
+    K: FieldValue,
+{
+    type Output = ExplainAccessPath;
+
+    fn by_key(&mut self, key: &K) -> Self::Output {
+        ExplainAccessPath::ByKey {
+            key: key.to_value(),
+        }
+    }
+
+    fn by_keys(&mut self, keys: &[K]) -> Self::Output {
+        ExplainAccessPath::ByKeys {
+            keys: keys.iter().map(FieldValue::to_value).collect(),
+        }
+    }
+
+    fn key_range(&mut self, start: &K, end: &K) -> Self::Output {
+        ExplainAccessPath::KeyRange {
+            start: start.to_value(),
+            end: end.to_value(),
+        }
+    }
+
+    fn index_prefix(
+        &mut self,
+        index_name: &'static str,
+        index_fields: &[&'static str],
+        prefix_len: usize,
+        values: &[Value],
+    ) -> Self::Output {
+        ExplainAccessPath::IndexPrefix {
+            name: index_name,
+            fields: index_fields.to_vec(),
+            prefix_len,
+            values: values.to_vec(),
+        }
+    }
+
+    fn full_scan(&mut self) -> Self::Output {
+        ExplainAccessPath::FullScan
+    }
+
+    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        ExplainAccessPath::Union(children)
+    }
+
+    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        ExplainAccessPath::Intersection(children)
+    }
+}
+
 impl ExplainAccessPath {
     fn from_access_plan<K>(access: &AccessPlan<K>) -> Self
     where
         K: FieldValue,
     {
-        match access {
-            AccessPlan::Path(path) => Self::from_path(path),
-            AccessPlan::Union(children) => {
-                Self::Union(children.iter().map(Self::from_access_plan).collect())
-            }
-            AccessPlan::Intersection(children) => {
-                Self::Intersection(children.iter().map(Self::from_access_plan).collect())
-            }
-        }
-    }
-
-    fn from_path<K>(path: &AccessPath<K>) -> Self
-    where
-        K: FieldValue,
-    {
-        match path {
-            AccessPath::ByKey(key) => Self::ByKey {
-                key: key.to_value(),
-            },
-            AccessPath::ByKeys(keys) => Self::ByKeys {
-                keys: keys.iter().map(FieldValue::to_value).collect(),
-            },
-            AccessPath::KeyRange { start, end } => Self::KeyRange {
-                start: start.to_value(),
-                end: end.to_value(),
-            },
-            AccessPath::IndexPrefix { index, values } => Self::IndexPrefix {
-                name: index.name,
-                fields: index.fields.to_vec(),
-                prefix_len: values.len(),
-                values: values.clone(),
-            },
-            AccessPath::FullScan => Self::FullScan,
-        }
+        let mut projection = ExplainAccessProjection;
+        project_access_plan(access, &mut projection)
     }
 }
 

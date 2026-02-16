@@ -7,8 +7,9 @@ use crate::{
         query::{
             QueryMode, ReadConsistency,
             plan::{
-                ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination,
-                ExplainPlan, ExplainPredicate, OrderDirection,
+                AccessPlanProjection, ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy,
+                ExplainPagination, ExplainPlan, ExplainPredicate, OrderDirection,
+                project_explain_access_path,
             },
             predicate::coercion::CoercionId,
         },
@@ -22,58 +23,68 @@ use sha2::{Digest, Sha256};
 ///
 
 pub fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
-    match access {
-        ExplainAccessPath::ByKey { key } => {
-            write_tag(hasher, 0x10);
-            write_value(hasher, key);
+    let mut projection = HashAccessProjection { hasher };
+    project_explain_access_path(access, &mut projection);
+}
+
+struct HashAccessProjection<'a> {
+    hasher: &'a mut Sha256,
+}
+
+impl AccessPlanProjection<Value> for HashAccessProjection<'_> {
+    type Output = ();
+
+    fn by_key(&mut self, key: &Value) -> Self::Output {
+        write_tag(self.hasher, 0x10);
+        write_value(self.hasher, key);
+    }
+
+    fn by_keys(&mut self, keys: &[Value]) -> Self::Output {
+        write_tag(self.hasher, 0x11);
+        write_u32(self.hasher, keys.len() as u32);
+        for key in keys {
+            write_value(self.hasher, key);
         }
-        ExplainAccessPath::ByKeys { keys } => {
-            write_tag(hasher, 0x11);
-            write_u32(hasher, keys.len() as u32);
-            for key in keys {
-                write_value(hasher, key);
-            }
+    }
+
+    fn key_range(&mut self, start: &Value, end: &Value) -> Self::Output {
+        write_tag(self.hasher, 0x12);
+        write_value(self.hasher, start);
+        write_value(self.hasher, end);
+    }
+
+    fn index_prefix(
+        &mut self,
+        index_name: &'static str,
+        index_fields: &[&'static str],
+        prefix_len: usize,
+        values: &[Value],
+    ) -> Self::Output {
+        write_tag(self.hasher, 0x13);
+        write_str(self.hasher, index_name);
+        write_u32(self.hasher, index_fields.len() as u32);
+        for field in index_fields {
+            write_str(self.hasher, field);
         }
-        ExplainAccessPath::KeyRange { start, end } => {
-            write_tag(hasher, 0x12);
-            write_value(hasher, start);
-            write_value(hasher, end);
+        write_u32(self.hasher, prefix_len as u32);
+        write_u32(self.hasher, values.len() as u32);
+        for value in values {
+            write_value(self.hasher, value);
         }
-        ExplainAccessPath::IndexPrefix {
-            name,
-            fields,
-            prefix_len,
-            values,
-        } => {
-            write_tag(hasher, 0x13);
-            write_str(hasher, name);
-            write_u32(hasher, fields.len() as u32);
-            for field in fields {
-                write_str(hasher, field);
-            }
-            write_u32(hasher, *prefix_len as u32);
-            write_u32(hasher, values.len() as u32);
-            for value in values {
-                write_value(hasher, value);
-            }
-        }
-        ExplainAccessPath::FullScan => {
-            write_tag(hasher, 0x14);
-        }
-        ExplainAccessPath::Union(children) => {
-            write_tag(hasher, 0x15);
-            write_u32(hasher, children.len() as u32);
-            for child in children {
-                hash_access(hasher, child);
-            }
-        }
-        ExplainAccessPath::Intersection(children) => {
-            write_tag(hasher, 0x16);
-            write_u32(hasher, children.len() as u32);
-            for child in children {
-                hash_access(hasher, child);
-            }
-        }
+    }
+
+    fn full_scan(&mut self) -> Self::Output {
+        write_tag(self.hasher, 0x14);
+    }
+
+    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        write_tag(self.hasher, 0x15);
+        write_u32(self.hasher, children.len() as u32);
+    }
+
+    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        write_tag(self.hasher, 0x16);
+        write_u32(self.hasher, children.len() as u32);
     }
 }
 

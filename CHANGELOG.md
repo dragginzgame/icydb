@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🧃 Summary
 
-* `0.10.0` begins the index key hardening work.
+* `0.10.0` begins IndexKey v2.  It was hashed before, now it's a canonical byte slice that can be ordered.
 * Goal: keep index key bytes and key ordering stable across upgrades.
+* Coming Next: all the cool stuff orderable indexes bring.
 
 ### 🪼 Changed
 
@@ -42,6 +43,7 @@ Index key format (`v0.10`):
 ### 🥨 Cleanup
 
 * Replaced many `#[allow(...)]` attributes with `#[expect(...)]` where valid, and removed unfulfilled expects.
+* Centralized `AccessPlan` projection in one shared visitor used by explain, trace, plan metrics, and hash encoding. This reduces drift risk when access variants evolve.
 
 Example (simplified):
 
