@@ -7,6 +7,7 @@ use crate::{
     traits::FieldValue,
     value::Value,
 };
+use std::ops::Bound;
 
 use crate::db::query::plan::validate::PlanError;
 
@@ -151,6 +152,12 @@ fn validate_access_path_with<K>(
         AccessPath::IndexPrefix { index, values } => {
             validate_index_prefix(schema, model, index, values)
         }
+        AccessPath::IndexRange {
+            index,
+            prefix,
+            lower,
+            upper,
+        } => validate_index_range(schema, model, index, prefix, lower, upper),
         AccessPath::FullScan => Ok(()),
     }
 }
@@ -264,4 +271,83 @@ fn validate_index_prefix(
     }
 
     Ok(())
+}
+
+/// Validate that an index range path is valid for execution.
+fn validate_index_range(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    index: &IndexModel,
+    prefix: &[Value],
+    lower: &Bound<Value>,
+    upper: &Bound<Value>,
+) -> Result<(), PlanError> {
+    if !model.indexes.contains(&index) {
+        return Err(PlanError::IndexNotFound { index: *index });
+    }
+
+    if prefix.len() >= index.fields.len() {
+        return Err(PlanError::IndexPrefixTooLong {
+            prefix_len: prefix.len(),
+            field_len: index.fields.len().saturating_sub(1),
+        });
+    }
+
+    for (field, value) in index.fields.iter().zip(prefix.iter()) {
+        let field_type =
+            schema
+                .field(field)
+                .ok_or_else(|| PlanError::IndexPrefixValueMismatch {
+                    field: field.to_string(),
+                })?;
+
+        if !predicate::validate::literal_matches_type(value, field_type) {
+            return Err(PlanError::IndexPrefixValueMismatch {
+                field: field.to_string(),
+            });
+        }
+    }
+
+    let range_field = index.fields[prefix.len()];
+    validate_index_range_bound_value(schema, range_field, lower)?;
+    validate_index_range_bound_value(schema, range_field, upper)?;
+
+    let (
+        Bound::Included(lower_value) | Bound::Excluded(lower_value),
+        Bound::Included(upper_value) | Bound::Excluded(upper_value),
+    ) = (lower, upper)
+    else {
+        return Ok(());
+    };
+
+    if canonical_cmp(lower_value, upper_value) == std::cmp::Ordering::Greater {
+        return Err(PlanError::InvalidKeyRange);
+    }
+
+    Ok(())
+}
+
+fn validate_index_range_bound_value(
+    schema: &SchemaInfo,
+    field: &'static str,
+    bound: &Bound<Value>,
+) -> Result<(), PlanError> {
+    let value = match bound {
+        Bound::Included(value) | Bound::Excluded(value) => value,
+        Bound::Unbounded => return Ok(()),
+    };
+
+    let field_type = schema
+        .field(field)
+        .ok_or_else(|| PlanError::IndexPrefixValueMismatch {
+            field: field.to_string(),
+        })?;
+
+    if predicate::validate::literal_matches_type(value, field_type) {
+        return Ok(());
+    }
+
+    Err(PlanError::IndexPrefixValueMismatch {
+        field: field.to_string(),
+    })
 }

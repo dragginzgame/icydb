@@ -17,6 +17,7 @@ use crate::{
     traits::FieldValue,
     value::Value,
 };
+use std::ops::Bound;
 
 ///
 /// ExplainPlan
@@ -73,6 +74,14 @@ pub enum ExplainAccessPath {
         fields: Vec<&'static str>,
         prefix_len: usize,
         values: Vec<Value>,
+    },
+    IndexRange {
+        name: &'static str,
+        fields: Vec<&'static str>,
+        prefix_len: usize,
+        prefix: Vec<Value>,
+        lower: Bound<Value>,
+        upper: Bound<Value>,
     },
     FullScan,
     Union(Vec<Self>),
@@ -267,6 +276,25 @@ where
             fields: index_fields.to_vec(),
             prefix_len,
             values: values.to_vec(),
+        }
+    }
+
+    fn index_range(
+        &mut self,
+        index_name: &'static str,
+        index_fields: &[&'static str],
+        prefix_len: usize,
+        prefix: &[Value],
+        lower: &Bound<Value>,
+        upper: &Bound<Value>,
+    ) -> Self::Output {
+        ExplainAccessPath::IndexRange {
+            name: index_name,
+            fields: index_fields.to_vec(),
+            prefix_len,
+            prefix: prefix.to_vec(),
+            lower: lower.clone(),
+            upper: upper.clone(),
         }
     }
 

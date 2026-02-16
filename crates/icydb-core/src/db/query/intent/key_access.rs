@@ -104,6 +104,17 @@ pub fn access_path_to_entity_keys<E: EntityKind>(
             end: coerce_entity_key::<E>(model, &end)?,
         },
         AccessPath::IndexPrefix { index, values } => AccessPath::IndexPrefix { index, values },
+        AccessPath::IndexRange {
+            index,
+            prefix,
+            lower,
+            upper,
+        } => AccessPath::IndexRange {
+            index,
+            prefix,
+            lower,
+            upper,
+        },
         AccessPath::FullScan => AccessPath::FullScan,
     };
 

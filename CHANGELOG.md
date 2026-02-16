@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.11.0] – 2026-02-16
+
+### 🧹 Cleanup
+
+* Added explicit `AccessPath::IndexRange` guardrails for secondary-range planning prep, and wired explain/trace/hash/canonical/debug handling so new access variants cannot be silently skipped.
+
+Example (shape only):
+
+```rust
+AccessPath::IndexRange {
+    index,
+    prefix: vec![Value::Uint(7)],
+    lower: Bound::Included(Value::Uint(100)),
+    upper: Bound::Excluded(Value::Uint(200)),
+}
+```
+
 ## [0.10.2] – 2026-02-16
 
 ### 🧹 Cleanup

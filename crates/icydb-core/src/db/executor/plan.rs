@@ -4,6 +4,7 @@ use crate::{
     traits::EntityKind,
     value::Value,
 };
+use std::ops::Bound;
 
 /// Records metrics for the chosen execution plan.
 /// Must be called exactly once per execution.
@@ -37,6 +38,18 @@ impl<K> AccessPlanProjection<K> for PlanKindProjection {
         _index_fields: &[&'static str],
         _prefix_len: usize,
         _values: &[Value],
+    ) -> Self::Output {
+        PlanKind::Index
+    }
+
+    fn index_range(
+        &mut self,
+        _index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        _prefix: &[Value],
+        _lower: &Bound<Value>,
+        _upper: &Bound<Value>,
     ) -> Self::Output {
         PlanKind::Index
     }

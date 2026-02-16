@@ -9,7 +9,7 @@ use crate::{
         },
         store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
-    error::{ErrorOrigin, InternalError},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue, Path},
     types::Id,
 };
@@ -79,7 +79,10 @@ where
     where
         E: EntityKind,
     {
-        let is_index_path = matches!(access, AccessPath::IndexPrefix { .. });
+        let is_index_path = matches!(
+            access,
+            AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. }
+        );
 
         let mut candidates = match access {
             AccessPath::ByKey(key) => vec![Self::data_key_from_key(*key)?],
@@ -117,6 +120,16 @@ where
                     .db
                     .with_store_registry(|reg| reg.try_get_store(index.store))?;
                 store.with_index(|s| s.resolve_data_values::<E>(index, values))?
+            }
+            AccessPath::IndexRange { index, .. } => {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Query,
+                    format!(
+                        "secondary index range access path is not executable yet for index '{}'",
+                        index.name
+                    ),
+                ));
             }
         };
 
@@ -169,7 +182,7 @@ where
                     .collect::<Result<Vec<_>, InternalError>>()
             })?,
 
-            AccessPath::IndexPrefix { .. } => {
+            AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. } => {
                 let keys = self.candidates_from_access(access)?;
                 self.load_many_with_consistency(&keys, consistency)
             }

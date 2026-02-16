@@ -66,6 +66,8 @@ impl ExplainPlan {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Bound;
+
     use crate::db::query::intent::{KeyAccess, access_plan_from_keys_value};
     use crate::db::query::plan::{AccessPath, DeleteLimitSpec, LogicalPlan};
     use crate::db::query::predicate::Predicate;
@@ -201,5 +203,101 @@ mod tests {
         let fingerprint_a = plan.fingerprint();
         let fingerprint_b = plan.fingerprint();
         assert_eq!(fingerprint_a, fingerprint_b);
+    }
+
+    #[test]
+    fn fingerprint_is_stable_for_equivalent_index_range_bounds() {
+        const INDEX_FIELDS: [&str; 2] = ["group", "rank"];
+        const INDEX: IndexModel = IndexModel::new(
+            "fingerprint::group_rank",
+            "fingerprint::store",
+            &INDEX_FIELDS,
+            false,
+        );
+
+        let plan_a: LogicalPlan<Value> = LogicalPlan::new(
+            AccessPath::IndexRange {
+                index: INDEX,
+                prefix: vec![Value::Uint(7)],
+                lower: Bound::Included(Value::Uint(100)),
+                upper: Bound::Excluded(Value::Uint(200)),
+            },
+            ReadConsistency::MissingOk,
+        );
+        let plan_b: LogicalPlan<Value> = LogicalPlan::new(
+            AccessPath::IndexRange {
+                index: INDEX,
+                prefix: vec![Value::Uint(7)],
+                lower: Bound::Included(Value::Uint(100)),
+                upper: Bound::Excluded(Value::Uint(200)),
+            },
+            ReadConsistency::MissingOk,
+        );
+
+        assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
+    }
+
+    #[test]
+    fn fingerprint_changes_when_index_range_bound_discriminant_changes() {
+        const INDEX_FIELDS: [&str; 2] = ["group", "rank"];
+        const INDEX: IndexModel = IndexModel::new(
+            "fingerprint::group_rank",
+            "fingerprint::store",
+            &INDEX_FIELDS,
+            false,
+        );
+
+        let plan_included: LogicalPlan<Value> = LogicalPlan::new(
+            AccessPath::IndexRange {
+                index: INDEX,
+                prefix: vec![Value::Uint(7)],
+                lower: Bound::Included(Value::Uint(100)),
+                upper: Bound::Excluded(Value::Uint(200)),
+            },
+            ReadConsistency::MissingOk,
+        );
+        let plan_excluded: LogicalPlan<Value> = LogicalPlan::new(
+            AccessPath::IndexRange {
+                index: INDEX,
+                prefix: vec![Value::Uint(7)],
+                lower: Bound::Excluded(Value::Uint(100)),
+                upper: Bound::Excluded(Value::Uint(200)),
+            },
+            ReadConsistency::MissingOk,
+        );
+
+        assert_ne!(plan_included.fingerprint(), plan_excluded.fingerprint());
+    }
+
+    #[test]
+    fn fingerprint_changes_when_index_range_bound_value_changes() {
+        const INDEX_FIELDS: [&str; 2] = ["group", "rank"];
+        const INDEX: IndexModel = IndexModel::new(
+            "fingerprint::group_rank",
+            "fingerprint::store",
+            &INDEX_FIELDS,
+            false,
+        );
+
+        let plan_low_100: LogicalPlan<Value> = LogicalPlan::new(
+            AccessPath::IndexRange {
+                index: INDEX,
+                prefix: vec![Value::Uint(7)],
+                lower: Bound::Included(Value::Uint(100)),
+                upper: Bound::Excluded(Value::Uint(200)),
+            },
+            ReadConsistency::MissingOk,
+        );
+        let plan_low_101: LogicalPlan<Value> = LogicalPlan::new(
+            AccessPath::IndexRange {
+                index: INDEX,
+                prefix: vec![Value::Uint(7)],
+                lower: Bound::Included(Value::Uint(101)),
+                upper: Bound::Excluded(Value::Uint(200)),
+            },
+            ReadConsistency::MissingOk,
+        );
+
+        assert_ne!(plan_low_100.fingerprint(), plan_low_101.fingerprint());
     }
 }

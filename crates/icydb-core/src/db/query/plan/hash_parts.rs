@@ -17,6 +17,7 @@ use crate::{
     value::Value,
 };
 use sha2::{Digest, Sha256};
+use std::ops::Bound;
 
 ///
 /// Hash explain access paths into the plan hash stream.
@@ -71,6 +72,30 @@ impl AccessPlanProjection<Value> for HashAccessProjection<'_> {
         for value in values {
             write_value(self.hasher, value);
         }
+    }
+
+    fn index_range(
+        &mut self,
+        index_name: &'static str,
+        index_fields: &[&'static str],
+        prefix_len: usize,
+        prefix: &[Value],
+        lower: &Bound<Value>,
+        upper: &Bound<Value>,
+    ) -> Self::Output {
+        write_tag(self.hasher, 0x17);
+        write_str(self.hasher, index_name);
+        write_u32(self.hasher, index_fields.len() as u32);
+        for field in index_fields {
+            write_str(self.hasher, field);
+        }
+        write_u32(self.hasher, prefix_len as u32);
+        write_u32(self.hasher, prefix.len() as u32);
+        for value in prefix {
+            write_value(self.hasher, value);
+        }
+        write_value_bound(self.hasher, lower);
+        write_value_bound(self.hasher, upper);
     }
 
     fn full_scan(&mut self) -> Self::Output {
@@ -212,6 +237,23 @@ pub fn write_value(hasher: &mut Sha256, value: &Value) {
         Err(err) => {
             write_tag(hasher, 0xEE);
             write_str(hasher, &err.display_with_class());
+        }
+    }
+}
+
+///
+/// Encode one value bound into the plan hash stream.
+///
+pub fn write_value_bound(hasher: &mut Sha256, bound: &Bound<Value>) {
+    match bound {
+        Bound::Unbounded => write_tag(hasher, 0x00),
+        Bound::Included(value) => {
+            write_tag(hasher, 0x01);
+            write_value(hasher, value);
+        }
+        Bound::Excluded(value) => {
+            write_tag(hasher, 0x02);
+            write_value(hasher, value);
         }
     }
 }

@@ -2,6 +2,7 @@
 
 use crate::{model::index::IndexModel, value::Value};
 use serde::{Deserialize, Serialize};
+use std::ops::Bound;
 
 ///
 /// AccessPlan
@@ -50,6 +51,22 @@ pub enum AccessPath<K> {
     IndexPrefix {
         index: IndexModel,
         values: Vec<Value>,
+    },
+
+    /// Index scan using an equality prefix plus one bounded range component.
+    ///
+    /// This variant is dedicated to secondary range traversal and must not be
+    /// conflated with primary-key `KeyRange`.
+    ///
+    /// The planner guarantees:
+    /// - `prefix.len() < index.fields.len()`
+    /// - Prefix values correspond to the first `prefix.len()` index fields
+    /// - `lower` and `upper` bound the next index component
+    IndexRange {
+        index: IndexModel,
+        prefix: Vec<Value>,
+        lower: Bound<Value>,
+        upper: Bound<Value>,
     },
 
     /// Full entity scan with no index assistance.

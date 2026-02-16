@@ -105,6 +105,35 @@ See `docs/design/data-integrity-v1.md` for the detailed deferred plan.
 
 ---
 
+## Future Architectural Cleanup (Post-0.11)
+
+### Structural Identity Projection for Plan DRYness
+
+There is a known DRY risk in keeping canonical ordering and hash encoding as
+separate structural implementations for access-path identity.
+
+Target direction:
+
+- Introduce a single structural identity projection, for example:
+  `fn structural_identity(&self) -> IdentityParts`.
+- Define `IdentityParts` as deterministic and fully ordered.
+- Ensure `IdentityParts` includes index name, index fields, prefix values, and
+  range bounds (including bound discriminants).
+- Make canonical normalization compare `IdentityParts`.
+- Make plan hash/fingerprint encoding serialize `IdentityParts`.
+
+Why this matters:
+
+- Removes cross-module drift risk between normalization and hashing.
+- Prevents plan-cache instability from mismatched structural encodings.
+- Reduces repeated match logic when access-path shapes evolve.
+
+Scope note:
+
+- This is an architectural refactor, not a quick deduplication patch.
+
+---
+
 ## Explicit Goals
 
 ### Transactions

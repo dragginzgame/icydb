@@ -22,6 +22,11 @@ pub fn access_path_summary<K>(path: &AccessPath<K>) -> String {
             index.name,
             values.len()
         ),
+        AccessPath::IndexRange { index, prefix, .. } => format!(
+            "index range scan ({}, prefix_len={})",
+            index.name,
+            prefix.len()
+        ),
         AccessPath::FullScan => "full scan".to_string(),
     }
 }

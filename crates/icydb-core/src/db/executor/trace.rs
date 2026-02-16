@@ -12,6 +12,7 @@ use crate::{
     value::Value,
 };
 use sha2::{Digest, Sha256};
+use std::ops::Bound;
 
 ///
 /// QueryTraceSink
@@ -42,6 +43,7 @@ pub enum TraceAccess {
     ByKeys { count: u32 },
     KeyRange,
     IndexPrefix { name: &'static str, prefix_len: u32 },
+    IndexRange { name: &'static str, prefix_len: u32 },
     FullScan,
     Union { branches: u32 },
     Intersection { branches: u32 },
@@ -327,6 +329,22 @@ impl<K> AccessPlanProjection<K> for TraceAccessProjection {
         TraceAccess::IndexPrefix {
             name: index_name,
             prefix_len: u32::try_from(values.len()).unwrap_or(u32::MAX),
+        }
+    }
+
+    fn index_range(
+        &mut self,
+        index_name: &'static str,
+        _index_fields: &[&'static str],
+        prefix_len: usize,
+        _prefix: &[Value],
+        _lower: &Bound<Value>,
+        _upper: &Bound<Value>,
+    ) -> Self::Output {
+        // NOTE: Diagnostics are best-effort; overflow saturates to preserve determinism.
+        TraceAccess::IndexRange {
+            name: index_name,
+            prefix_len: u32::try_from(prefix_len).unwrap_or(u32::MAX),
         }
     }
 

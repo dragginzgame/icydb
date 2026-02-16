@@ -14,6 +14,7 @@
 use super::types::{AccessPath, AccessPlan};
 use crate::value::Value;
 use std::cmp::Ordering;
+use std::ops::Bound;
 
 /// Canonicalize access plans that use `Value` keys.
 pub(crate) fn canonicalize_access_plans_value(plans: &mut [AccessPlan<Value>]) {
@@ -76,41 +77,75 @@ fn canonical_cmp_access_path_value(
         return rank;
     }
 
-    match (left, right) {
-        (AccessPath::ByKey(left), AccessPath::ByKey(right)) => canonical_cmp_value(left, right),
-
-        (AccessPath::ByKeys(left), AccessPath::ByKeys(right)) => {
-            canonical_cmp_value_list(left, right)
+    match left {
+        AccessPath::ByKey(left_key) => {
+            let AccessPath::ByKey(right_key) = right else {
+                debug_assert_eq!(
+                    canonical_access_path_rank(left),
+                    canonical_access_path_rank(right),
+                    "canonical access path rank mismatch"
+                );
+                return Ordering::Equal;
+            };
+            canonical_cmp_value(left_key, right_key)
         }
-
-        (
-            AccessPath::KeyRange {
-                start: left_start,
-                end: left_end,
-            },
-            AccessPath::KeyRange {
+        AccessPath::ByKeys(left_keys) => {
+            let AccessPath::ByKeys(right_keys) = right else {
+                debug_assert_eq!(
+                    canonical_access_path_rank(left),
+                    canonical_access_path_rank(right),
+                    "canonical access path rank mismatch"
+                );
+                return Ordering::Equal;
+            };
+            canonical_cmp_value_list(left_keys, right_keys)
+        }
+        AccessPath::KeyRange {
+            start: left_start,
+            end: left_end,
+        } => {
+            let AccessPath::KeyRange {
                 start: right_start,
                 end: right_end,
-            },
-        ) => {
+            } = right
+            else {
+                debug_assert_eq!(
+                    canonical_access_path_rank(left),
+                    canonical_access_path_rank(right),
+                    "canonical access path rank mismatch"
+                );
+                return Ordering::Equal;
+            };
+
             let cmp = canonical_cmp_value(left_start, right_start);
             if cmp != Ordering::Equal {
                 return cmp;
             }
             canonical_cmp_value(left_end, right_end)
         }
-
-        (
-            AccessPath::IndexPrefix {
-                index: left_index,
-                values: left_values,
-            },
-            AccessPath::IndexPrefix {
+        AccessPath::IndexPrefix {
+            index: left_index,
+            values: left_values,
+        } => {
+            let AccessPath::IndexPrefix {
                 index: right_index,
                 values: right_values,
-            },
-        ) => {
+            } = right
+            else {
+                debug_assert_eq!(
+                    canonical_access_path_rank(left),
+                    canonical_access_path_rank(right),
+                    "canonical access path rank mismatch"
+                );
+                return Ordering::Equal;
+            };
+
             let cmp = left_index.name.cmp(right_index.name);
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+
+            let cmp = left_index.fields.cmp(right_index.fields);
             if cmp != Ordering::Equal {
                 return cmp;
             }
@@ -122,14 +157,63 @@ fn canonical_cmp_access_path_value(
 
             canonical_cmp_value_list(left_values, right_values)
         }
+        AccessPath::IndexRange {
+            index: left_index,
+            prefix: left_prefix,
+            lower: left_lower,
+            upper: left_upper,
+        } => {
+            let AccessPath::IndexRange {
+                index: right_index,
+                prefix: right_prefix,
+                lower: right_lower,
+                upper: right_upper,
+            } = right
+            else {
+                debug_assert_eq!(
+                    canonical_access_path_rank(left),
+                    canonical_access_path_rank(right),
+                    "canonical access path rank mismatch"
+                );
+                return Ordering::Equal;
+            };
 
-        _ => {
-            debug_assert_eq!(
-                canonical_access_path_rank(left),
-                canonical_access_path_rank(right),
-                "canonical access path rank mismatch"
-            );
-            // NOTE: Rank ties are treated as equal to preserve deterministic ordering.
+            let cmp = left_index.name.cmp(right_index.name);
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+
+            let cmp = left_index.fields.cmp(right_index.fields);
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+
+            let cmp = left_prefix.len().cmp(&right_prefix.len());
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+
+            let cmp = canonical_cmp_value_list(left_prefix, right_prefix);
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+
+            let cmp = canonical_cmp_value_bound(left_lower, right_lower);
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+
+            canonical_cmp_value_bound(left_upper, right_upper)
+        }
+        AccessPath::FullScan => {
+            let AccessPath::FullScan = right else {
+                debug_assert_eq!(
+                    canonical_access_path_rank(left),
+                    canonical_access_path_rank(right),
+                    "canonical access path rank mismatch"
+                );
+                return Ordering::Equal;
+            };
             Ordering::Equal
         }
     }
@@ -143,12 +227,13 @@ const fn canonical_access_path_rank<K>(path: &AccessPath<K>) -> AccessPathRank {
         AccessPath::ByKey(_) => AccessPathRank { tier: 0, detail: 0 },
         AccessPath::ByKeys(_) => AccessPathRank { tier: 0, detail: 1 },
         AccessPath::KeyRange { .. } => AccessPathRank { tier: 0, detail: 2 },
+        AccessPath::IndexRange { .. } => AccessPathRank { tier: 1, detail: 0 },
         AccessPath::IndexPrefix { index, values } => AccessPathRank {
             tier: 1,
             detail: if values.len() == index.fields.len() {
-                0
-            } else {
                 1
+            } else {
+                2
             },
         },
         AccessPath::FullScan => AccessPathRank { tier: 2, detail: 0 },
@@ -175,4 +260,161 @@ fn canonical_cmp_value_list(left: &[Value], right: &[Value]) -> Ordering {
 
 fn canonical_cmp_value(left: &Value, right: &Value) -> Ordering {
     Value::canonical_cmp(left, right)
+}
+
+fn canonical_cmp_value_bound(left: &Bound<Value>, right: &Bound<Value>) -> Ordering {
+    match (left, right) {
+        (Bound::Unbounded, Bound::Unbounded) => Ordering::Equal,
+        (Bound::Unbounded, _) => Ordering::Less,
+        (_, Bound::Unbounded) => Ordering::Greater,
+        (Bound::Included(left), Bound::Included(right))
+        | (Bound::Excluded(left), Bound::Excluded(right)) => canonical_cmp_value(left, right),
+        (Bound::Included(left), Bound::Excluded(right)) => {
+            let cmp = canonical_cmp_value(left, right);
+            if cmp == Ordering::Equal {
+                Ordering::Less
+            } else {
+                cmp
+            }
+        }
+        (Bound::Excluded(left), Bound::Included(right)) => {
+            let cmp = canonical_cmp_value(left, right);
+            if cmp == Ordering::Equal {
+                Ordering::Greater
+            } else {
+                cmp
+            }
+        }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        db::query::{ReadConsistency, plan::LogicalPlan},
+        model::index::IndexModel,
+    };
+
+    const TEST_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
+    const TEST_INDEX: IndexModel = IndexModel::new(
+        "canonical::group_rank",
+        "canonical::store",
+        &TEST_INDEX_FIELDS,
+        false,
+    );
+    const TEST_INDEX_FIELDS_ALT: [&str; 2] = ["group", "score"];
+    const TEST_INDEX_SAME_NAME_ALT_FIELDS: IndexModel = IndexModel::new(
+        "canonical::group_rank",
+        "canonical::store",
+        &TEST_INDEX_FIELDS_ALT,
+        false,
+    );
+
+    fn index_range_path(lower: Bound<Value>, upper: Bound<Value>) -> AccessPath<Value> {
+        AccessPath::IndexRange {
+            index: TEST_INDEX,
+            prefix: vec![Value::Uint(7)],
+            lower,
+            upper,
+        }
+    }
+
+    #[test]
+    fn canonical_bound_ordering_is_unbounded_then_included_then_excluded() {
+        let value = Value::Uint(100);
+
+        assert_eq!(
+            canonical_cmp_value_bound(&Bound::Unbounded, &Bound::Included(value.clone())),
+            Ordering::Less
+        );
+        assert_eq!(
+            canonical_cmp_value_bound(&Bound::Included(value.clone()), &Bound::Unbounded),
+            Ordering::Greater
+        );
+        assert_eq!(
+            canonical_cmp_value_bound(
+                &Bound::Included(value.clone()),
+                &Bound::Excluded(value.clone()),
+            ),
+            Ordering::Less
+        );
+        assert_eq!(
+            canonical_cmp_value_bound(&Bound::Excluded(value.clone()), &Bound::Included(value)),
+            Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn canonical_index_range_cmp_distinguishes_bound_discriminants() {
+        let included = index_range_path(
+            Bound::Included(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
+        );
+        let excluded = index_range_path(
+            Bound::Excluded(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
+        );
+
+        assert_eq!(
+            canonical_cmp_access_path_value(&included, &excluded),
+            Ordering::Less
+        );
+        assert_eq!(
+            canonical_cmp_access_path_value(&excluded, &included),
+            Ordering::Greater
+        );
+    }
+
+    #[test]
+    fn canonical_and_fingerprint_align_for_index_range_bound_discriminants() {
+        let included = index_range_path(
+            Bound::Included(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
+        );
+        let excluded = index_range_path(
+            Bound::Excluded(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
+        );
+
+        assert_ne!(
+            canonical_cmp_access_path_value(&included, &excluded),
+            Ordering::Equal
+        );
+
+        let included_plan: LogicalPlan<Value> =
+            LogicalPlan::new(included, ReadConsistency::MissingOk);
+        let excluded_plan: LogicalPlan<Value> =
+            LogicalPlan::new(excluded, ReadConsistency::MissingOk);
+        assert_ne!(included_plan.fingerprint(), excluded_plan.fingerprint());
+    }
+
+    #[test]
+    fn canonical_and_fingerprint_align_for_index_field_identity() {
+        let path_a = AccessPath::IndexRange {
+            index: TEST_INDEX,
+            prefix: vec![Value::Uint(7)],
+            lower: Bound::Included(Value::Uint(100)),
+            upper: Bound::Excluded(Value::Uint(200)),
+        };
+        let path_b = AccessPath::IndexRange {
+            index: TEST_INDEX_SAME_NAME_ALT_FIELDS,
+            prefix: vec![Value::Uint(7)],
+            lower: Bound::Included(Value::Uint(100)),
+            upper: Bound::Excluded(Value::Uint(200)),
+        };
+
+        assert_ne!(
+            canonical_cmp_access_path_value(&path_a, &path_b),
+            Ordering::Equal
+        );
+
+        let plan_a: LogicalPlan<Value> = LogicalPlan::new(path_a, ReadConsistency::MissingOk);
+        let plan_b: LogicalPlan<Value> = LogicalPlan::new(path_b, ReadConsistency::MissingOk);
+        assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
+    }
 }

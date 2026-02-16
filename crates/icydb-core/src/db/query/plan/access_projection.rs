@@ -2,6 +2,7 @@ use crate::{
     db::query::plan::{AccessPath, AccessPlan, ExplainAccessPath},
     value::Value,
 };
+use std::ops::Bound;
 
 ///
 /// AccessPlanProjection
@@ -21,6 +22,15 @@ pub trait AccessPlanProjection<K> {
         index_fields: &[&'static str],
         prefix_len: usize,
         values: &[Value],
+    ) -> Self::Output;
+    fn index_range(
+        &mut self,
+        index_name: &'static str,
+        index_fields: &[&'static str],
+        prefix_len: usize,
+        prefix: &[Value],
+        lower: &Bound<Value>,
+        upper: &Bound<Value>,
     ) -> Self::Output;
     fn full_scan(&mut self) -> Self::Output;
     fn union(&mut self, children: Vec<Self::Output>) -> Self::Output;
@@ -63,6 +73,12 @@ where
         AccessPath::IndexPrefix { index, values } => {
             projection.index_prefix(index.name, index.fields, values.len(), values)
         }
+        AccessPath::IndexRange {
+            index,
+            prefix,
+            lower,
+            upper,
+        } => projection.index_range(index.name, index.fields, prefix.len(), prefix, lower, upper),
         AccessPath::FullScan => projection.full_scan(),
     }
 }
@@ -82,6 +98,14 @@ where
             prefix_len,
             values,
         } => projection.index_prefix(name, fields, *prefix_len, values),
+        ExplainAccessPath::IndexRange {
+            name,
+            fields,
+            prefix_len,
+            prefix,
+            lower,
+            upper,
+        } => projection.index_range(name, fields, *prefix_len, prefix, lower, upper),
         ExplainAccessPath::FullScan => projection.full_scan(),
         ExplainAccessPath::Union(children) => {
             let children = children
@@ -153,6 +177,21 @@ mod tests {
             self.seen_index = Some((index_name, index_fields.len(), prefix_len, values.len()));
         }
 
+        fn index_range(
+            &mut self,
+            index_name: &'static str,
+            index_fields: &[&'static str],
+            prefix_len: usize,
+            prefix: &[Value],
+            lower: &Bound<Value>,
+            upper: &Bound<Value>,
+        ) -> Self::Output {
+            self.events.push("index_range");
+            self.seen_index = Some((index_name, index_fields.len(), prefix_len, prefix.len()));
+            assert_eq!(lower, &Bound::Included(Value::Uint(8)));
+            assert_eq!(upper, &Bound::Excluded(Value::Uint(12)));
+        }
+
         fn full_scan(&mut self) -> Self::Output {
             self.events.push("full_scan");
         }
@@ -178,6 +217,12 @@ mod tests {
                 index: TEST_INDEX,
                 values: vec![Value::Uint(7)],
             }),
+            AccessPlan::Path(AccessPath::IndexRange {
+                index: TEST_INDEX,
+                prefix: vec![Value::Uint(7)],
+                lower: Bound::Included(Value::Uint(8)),
+                upper: Bound::Excluded(Value::Uint(12)),
+            }),
             AccessPlan::Intersection(vec![
                 AccessPlan::Path(AccessPath::FullScan),
                 AccessPlan::Path(AccessPath::ByKey(11)),
@@ -187,7 +232,7 @@ mod tests {
         let mut projection = AccessPlanEventProjection::default();
         project_access_plan(&plan, &mut projection);
 
-        assert_eq!(projection.union_child_counts, vec![5]);
+        assert_eq!(projection.union_child_counts, vec![6]);
         assert_eq!(projection.intersection_child_counts, vec![2]);
         assert_eq!(projection.seen_index, Some((TEST_INDEX.name, 2, 1, 1)));
         assert!(
@@ -205,6 +250,10 @@ mod tests {
         assert!(
             projection.events.contains(&"index_prefix"),
             "projection must visit index-prefix variants"
+        );
+        assert!(
+            projection.events.contains(&"index_range"),
+            "projection must visit index-range variants"
         );
         assert!(
             projection.events.contains(&"full_scan"),
@@ -249,6 +298,21 @@ mod tests {
             self.seen_index = Some((index_name, index_fields.len(), prefix_len, values.len()));
         }
 
+        fn index_range(
+            &mut self,
+            index_name: &'static str,
+            index_fields: &[&'static str],
+            prefix_len: usize,
+            prefix: &[Value],
+            lower: &Bound<Value>,
+            upper: &Bound<Value>,
+        ) -> Self::Output {
+            self.events.push("index_range");
+            self.seen_index = Some((index_name, index_fields.len(), prefix_len, prefix.len()));
+            assert_eq!(lower, &Bound::Included(Value::Uint(8)));
+            assert_eq!(upper, &Bound::Excluded(Value::Uint(12)));
+        }
+
         fn full_scan(&mut self) -> Self::Output {
             self.events.push("full_scan");
         }
@@ -283,6 +347,14 @@ mod tests {
                 prefix_len: 1,
                 values: vec![Value::Uint(7)],
             },
+            ExplainAccessPath::IndexRange {
+                name: TEST_INDEX.name,
+                fields: vec!["group", "rank"],
+                prefix_len: 1,
+                prefix: vec![Value::Uint(7)],
+                lower: Bound::Included(Value::Uint(8)),
+                upper: Bound::Excluded(Value::Uint(12)),
+            },
             ExplainAccessPath::Intersection(vec![
                 ExplainAccessPath::FullScan,
                 ExplainAccessPath::ByKey {
@@ -294,7 +366,7 @@ mod tests {
         let mut projection = ExplainAccessEventProjection::default();
         project_explain_access_path(&access, &mut projection);
 
-        assert_eq!(projection.union_child_counts, vec![5]);
+        assert_eq!(projection.union_child_counts, vec![6]);
         assert_eq!(projection.intersection_child_counts, vec![2]);
         assert_eq!(projection.seen_index, Some((TEST_INDEX.name, 2, 1, 1)));
         assert!(
@@ -312,6 +384,10 @@ mod tests {
         assert!(
             projection.events.contains(&"index_prefix"),
             "projection must visit index-prefix variants"
+        );
+        assert!(
+            projection.events.contains(&"index_range"),
+            "projection must visit index-range variants"
         );
         assert!(
             projection.events.contains(&"full_scan"),
