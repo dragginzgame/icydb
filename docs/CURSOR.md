@@ -1,6 +1,11 @@
-# Cursor Pagination Checkpoint
+# Cursor Pagination Checkpoint (Historical Note)
 
 Date: 2026-02-12
+
+This file captures a point-in-time audit checkpoint.
+Normative cursor guarantees are defined in `docs/QUERY_CONTRACT.md`.
+Release tracking for cursor-related work lives in `docs/status/0.9-status.md`
+and `docs/status/0.10-status.md`.
 
 ## Done
 
@@ -19,7 +24,7 @@ Date: 2026-02-12
 - Cursor token is opaque by API contract, but not confidential:
   - Internal token is CBOR bytes containing continuation signature + boundary slots.
   - Public token is hex-encoded bytes.
-- Boundary slots follow canonical order (user order fields + PK tie-break), so non-PK ordered fields can be present in token payload.
+- Boundary slots reflect canonical index ordering (ordered components + PK tie-break), consistent with IndexKey v2 encoding.
 - Pagination continuity is deterministic per request, but not snapshot-isolated across requests.
 - Continuation is strict forward-only over the canonical boundary.
 - For a fixed query shape, rows are not duplicated across pages when ordered keys remain stable between requests.
@@ -30,7 +35,7 @@ Date: 2026-02-12
 - We are **not** implementing a cursor data-leakage fix in this pass.
 - No encryption/HMAC or server-side cursor-state tokenization is planned in this checkpoint.
 
-## Left To Do (Non-Leakage)
+## Follow-up Ideas At The Time (Non-Leakage)
 
 - Decide whether to optimize performance with cursor pushdown/range-seek semantics for large paged scans.
 - Add explicit tests for public hex cursor decode failures at API boundary.

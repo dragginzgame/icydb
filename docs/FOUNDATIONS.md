@@ -18,18 +18,6 @@ Normative specifications live in:
 - `docs/IDENTITY_CONTRACT.md`
 
 ---
-Short answer: **yes — but surgically, not philosophically.**
-
-Your Foundations document is strong. It is internally coherent and database-theory clean.
-What it does *not* yet make explicit is the **execution substrate constraint** that drives many of your design choices.
-
-Right now it reads like a principled embedded database.
-
-It does *not yet clearly read like an engine designed for a deterministic Wasm actor running on the Internet Computer.*
-
-That distinction matters long-term.
-
----
 
 ## 0. Execution Environment Assumptions
 

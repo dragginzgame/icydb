@@ -1,10 +1,12 @@
 # Referential Integrity (RI)
 
-## Status (IcyDB 0.8.x)
+## Status (IcyDB 0.10.x)
 
-IcyDB enforces **save-time referential integrity** for **explicitly declared strong relations only**.
+IcyDB enforces referential integrity for **explicitly declared strong
+relations only**.
 
-References are stored as **typed primary-key values**. Existence checks are performed **only** when the schema declares a relation as strong.
+References are stored as **typed primary-key values**. Strong relations trigger
+save-time target-existence checks and delete-time source-reference checks.
 
 This document is **normative**. It defines:
 
@@ -14,13 +16,14 @@ This document is **normative**. It defines:
 
 It is not a roadmap.
 
-This specification applies to **IcyDB 0.8**.
+This specification reflects the shipped 0.10 contract.
 
 ---
 
 ## 1. Scope and intent
 
-Referential integrity (RI) in IcyDB is a **bounded, save-time validation rule**.
+Referential integrity (RI) in IcyDB is a **bounded pre-commit validation
+rule**.
 
 It exists to ensure that certain schema-declared references point to existing entities **at the moment of mutation**, without introducing relational database semantics.
 
@@ -28,8 +31,7 @@ IcyDB is **not** a relational system. It does not support:
 
 * joins
 * cascades
-* reverse lookups
-* delete-side enforcement
+* public reverse traversal queries
 * query-time relation semantics
 
 RI is intentionally narrow, explicit, and opt-in.
@@ -98,7 +100,7 @@ Strength is **never inferred**.
 
 ### 4.1 Strong relations (validated)
 
-Strong relations are **validated at save time**.
+Strong relations are validated on both save and delete paths.
 
 Rules:
 
@@ -109,7 +111,7 @@ Rules:
 * No partial state is written
 * No cascading inserts or deletes occur
 
-Supported strong shapes in 0.8.x:
+Supported strong shapes in the current contract:
 
 * `Id<T>`
 * `Option<Id<T>>`
@@ -143,7 +145,7 @@ Weak relations provide **no correctness guarantees** beyond type safety.
 
 ---
 
-## 5. Save-time enforcement model
+## 5. Enforcement model
 
 ### 5.1 When enforcement runs
 
@@ -153,6 +155,7 @@ RI enforcement:
 * completes before the commit boundary
 * is synchronous and bounded
 * does not rely on traps or recovery
+* applies to both save-time target existence checks and delete-time source checks
 
 ### 5.2 What is enforced
 
@@ -174,9 +177,8 @@ There is no recursive discovery.
 
 IcyDB explicitly does **not** enforce:
 
-* delete-side referential integrity
 * cascading deletes or updates
-* reverse reference checks
+* query-time reverse traversal semantics
 * read-time validation
 * deferred or lazy validation
 * cross-mutation or cross-message constraints
@@ -209,13 +211,12 @@ They indicate invalid input, **not** corruption.
 
 ---
 
-## 8. Explicit non-goals (0.8.x)
+## 8. Explicit non-goals
 
-The following are **out of scope** for IcyDB 0.8.x:
+The following are out of scope for the current RI contract:
 
 * many-to-many relations
 * recursive existence validation
-* delete-side RI enforcement
 * cascading behavior
 * query-time relation semantics
 * joins or relational algebra
@@ -247,7 +248,7 @@ IcyDB’s referential integrity model is:
 
 * **explicit**
 * **schema-driven**
-* **save-time only**
+* **save-time and delete-time for strong relations**
 * **bounded**
 * **non-relational**
 

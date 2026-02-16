@@ -1,6 +1,8 @@
-# Identity and Primary Key Contract (0.8.x)
+# Identity and Primary Key Contract (Introduced in 0.8.x)
 
-This document freezes identity and primary-key semantics for IcyDB 0.8.x.
+This document freezes identity and primary-key semantics introduced in 0.8.x.
+These guarantees remain part of the current contract unless superseded by a
+newer versioned contract document.
 It is a source-of-truth boundary: anything not stated here is not guaranteed.
 
 ## 1. Threat Model Assumptions

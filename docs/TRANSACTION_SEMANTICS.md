@@ -1,10 +1,10 @@
-# IcyDB Transaction Semantics (0.9 Opt-In Surface)
+# IcyDB Transaction Semantics (Introduced in 0.9, Current in 0.10.x)
 
 This document defines the explicit write semantics for IcyDB batch helpers in
 the 0.9 series.
 
 It is intentionally narrow: it covers what the current APIs guarantee today.
-The 0.9 atomic batch surface is strictly single-entity-type; it is not
+The atomic batch surface introduced in 0.9 is strictly single-entity-type; it is not
 multi-entity transaction support.
 
 ---
@@ -139,7 +139,7 @@ targets during that validation pass.
 
 ---
 
-## Non-Goals (0.9)
+## Non-Goals
 
 This API surface does not provide:
 

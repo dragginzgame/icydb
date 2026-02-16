@@ -1,11 +1,14 @@
-# Data Integrity Release Roadmap (0.11.x)
+# Data Integrity Release Roadmap (Post-0.11 Milestone)
 
-`0.11.x` is the **Data Integrity release**.
+Status: **Deferred from 0.11 to a future milestone**.
 
-The 0.11 series focuses on **physical durability, schema evolution safety, and explicit no-data-loss guarantees**.
+This document remains the design plan for data-integrity hardening work.
 
-If 0.10 strengthens ordered index encoding,
-0.11 strengthens **format stability and upgrade survivability**.
+This milestone focuses on **physical durability, schema evolution safety, and
+explicit no-data-loss guarantees**.
+
+If 0.10 strengthens ordered index encoding, this milestone strengthens
+**format stability and upgrade survivability**.
 
 This release series ensures that:
 
@@ -19,7 +22,7 @@ All structural changes must be explicit, recoverable, and observable.
 
 ## Progress Snapshot (as of TBD)
 
-Estimated completion toward the `0.11.x` goals in this plan:
+Estimated completion toward the deferred data-integrity goals in this plan:
 
 * Stable Row Format & Versioning: **0%**
 * Commit Marker Versioning & Replay Compatibility: **0%**
@@ -32,7 +35,8 @@ Overall estimated progress: **0%**
 
 # 1. Stable Row Format & Schema Evolution
 
-IcyDB 0.11 introduces explicit row-format versioning and backward-compatible decode rules.
+This milestone introduces explicit row-format versioning and
+backward-compatible decode rules.
 
 ## Goals
 
@@ -60,7 +64,8 @@ IcyDB 0.11 introduces explicit row-format versioning and backward-compatible dec
 
 # 2. Commit Marker Stability & Replay Guarantees
 
-IcyDB 0.11 formalizes the commit protocol wire format and recovery guarantees across upgrades.
+This milestone formalizes the commit protocol wire format and recovery
+guarantees across upgrades.
 
 ## Goals
 
@@ -86,7 +91,8 @@ IcyDB 0.11 formalizes the commit protocol wire format and recovery guarantees ac
 
 # 3. Explicit Migration Engine (No Data Loss)
 
-IcyDB 0.11 introduces an explicit migration execution model built on the existing row-op commit protocol.
+This milestone introduces an explicit migration execution model built on the
+existing row-op commit protocol.
 
 Migrations must be:
 
@@ -120,7 +126,8 @@ Migrations must be:
 
 # 4. Corruption Detection & Integrity Tooling
 
-IcyDB 0.11 strengthens detection and observability of structural corruption.
+This milestone strengthens detection and observability of structural
+corruption.
 
 Silent corruption is unacceptable.
 
@@ -152,7 +159,7 @@ Silent corruption is unacceptable.
 
 # 5. Upgrade & Recovery Hardening
 
-IcyDB 0.11 formalizes the no-data-loss invariant across canister upgrades.
+This milestone formalizes the no-data-loss invariant across canister upgrades.
 
 ## Goals
 
@@ -176,7 +183,7 @@ IcyDB 0.11 formalizes the no-data-loss invariant across canister upgrades.
 
 ---
 
-# Invariants Introduced in 0.11
+# Invariants Introduced in This Milestone
 
 The following become explicit structural guarantees:
 
@@ -189,7 +196,7 @@ The following become explicit structural guarantees:
 
 ---
 
-# Explicit Non-Goals (0.11.x)
+# Explicit Non-Goals
 
 The following remain out of scope:
 
@@ -202,10 +209,10 @@ The following remain out of scope:
 
 # Summary
 
-0.11.x is the **Data Integrity release**.
+This post-0.11 milestone is the **Data Integrity release**.
 
-If 0.10 ensures index-ordering structure is canonical,
-0.11 ensures the engine survives change without losing data.
+If 0.10 ensures index-ordering structure is canonical, this milestone ensures
+the engine survives change without losing data.
 
 It formalizes:
 
@@ -215,6 +222,6 @@ It formalizes:
 * Corruption detection boundaries
 * Upgrade safety guarantees
 
-0.11.x is not about new features.
+This milestone is not about new features.
 
 It is about making IcyDB structurally resilient.

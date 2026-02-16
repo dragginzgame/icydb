@@ -128,7 +128,6 @@ impl<K> LogicalPlan<K> {
     }
 
     /// Apply predicate, ordering, cursor boundary, and pagination in plan order.
-    #[expect(clippy::too_many_lines)]
     pub(crate) fn apply_post_access_with_cursor<E, R>(
         &self,
         rows: &mut Vec<R>,

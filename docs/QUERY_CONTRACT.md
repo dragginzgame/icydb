@@ -215,7 +215,8 @@ IcyDB pagination guarantees:
 - Cursor validation against canonical query shape.
 - Live-state iteration semantics.
 
-These guarantees are stable for the 0.8 contract.
+These guarantees were introduced in 0.8 and remain part of the current
+contract unless superseded by a newer versioned query contract.
 
 ## Missing-Row Semantics (Explicit)
 

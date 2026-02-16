@@ -354,6 +354,46 @@ mod tests {
         vec![byte; IndexKey::MAX_PK_SIZE]
     }
 
+    fn next_random_u64(state: &mut u64) -> u64 {
+        let mut x = *state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        *state = x;
+        x
+    }
+
+    fn mixed_component_value(seed: u64, slot: u8) -> Value {
+        let selector = seed % 4;
+        match slot {
+            0 => match selector {
+                0 => Value::Int(-7),
+                1 => Value::Int(-2),
+                2 => Value::Int(0),
+                _ => Value::Int(7),
+            },
+            1 => match selector {
+                0 => Value::Text("aa".to_string()),
+                1 => Value::Text("ab".to_string()),
+                2 => Value::Text("mm".to_string()),
+                _ => Value::Text("zz".to_string()),
+            },
+            2 => match selector {
+                0 => Value::Int(-9),
+                1 => Value::Int(-1),
+                2 => Value::Int(1),
+                _ => Value::Int(9),
+            },
+            3 => match selector {
+                0 => Value::Text("ka".to_string()),
+                1 => Value::Text("kb".to_string()),
+                2 => Value::Text("mb".to_string()),
+                _ => Value::Text("zz".to_string()),
+            },
+            _ => unreachable!("randomized mixed-composite fixture uses exactly four slots"),
+        }
+    }
+
     fn len_offset() -> usize {
         KEY_KIND_TAG_SIZE + IndexName::STORED_SIZE_USIZE
     }
@@ -854,6 +894,74 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(ord_bytes, raw_bytes);
+        assert_eq!(semantic_bytes, raw_bytes);
+    }
+
+    #[test]
+    fn index_key_ordering_randomized_mixed_composite_semantic_vs_bytes() {
+        #[derive(Clone)]
+        struct Fixture {
+            key: IndexKey,
+            values: Vec<Value>,
+            pk: Vec<u8>,
+        }
+
+        const SAMPLE_COUNT: usize = 256;
+        const COMPONENT_COUNT: usize = 4;
+
+        let mut fixtures = Vec::with_capacity(SAMPLE_COUNT);
+        let mut state = 0xA11C_E5ED_0BAD_5EEDu64;
+
+        for ordinal in 0..SAMPLE_COUNT {
+            let values = (0..COMPONENT_COUNT)
+                .map(|slot| {
+                    mixed_component_value(
+                        next_random_u64(&mut state),
+                        u8::try_from(slot).expect("component slot should fit u8"),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let components = values.iter().map(encode_component).collect::<Vec<_>>();
+            let pk = u16::try_from(ordinal)
+                .expect("sample ordinal should fit u16")
+                .to_be_bytes()
+                .to_vec();
+
+            fixtures.push(Fixture {
+                key: key_with(IndexKeyKind::User, index_id(), components, pk.clone()),
+                values,
+                pk,
+            });
+        }
+
+        let mut semantic_sorted = fixtures.clone();
+        semantic_sorted.sort_by(|left, right| {
+            for (left_value, right_value) in left.values.iter().zip(&right.values) {
+                let cmp = Value::canonical_cmp_key(left_value, right_value);
+                if cmp != Ordering::Equal {
+                    return cmp;
+                }
+            }
+            left.pk.cmp(&right.pk)
+        });
+
+        let mut byte_sorted = fixtures;
+        byte_sorted.sort_by(|left, right| {
+            left.key
+                .to_raw()
+                .as_bytes()
+                .cmp(right.key.to_raw().as_bytes())
+        });
+
+        let semantic_bytes = semantic_sorted
+            .iter()
+            .map(|fixture| fixture.key.to_raw().as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        let raw_bytes = byte_sorted
+            .iter()
+            .map(|fixture| fixture.key.to_raw().as_bytes().to_vec())
+            .collect::<Vec<_>>();
+
         assert_eq!(semantic_bytes, raw_bytes);
     }
 

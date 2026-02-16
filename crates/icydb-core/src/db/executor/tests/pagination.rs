@@ -1517,71 +1517,87 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
 }
 
 #[test]
-fn load_trace_marks_secondary_order_pushdown_accepted() {
+fn load_trace_marks_secondary_order_pushdown_outcomes() {
+    #[derive(Clone, Copy)]
+    enum ExpectedDecision {
+        Accepted,
+        RejectedNonAscending,
+    }
+
+    #[derive(Clone, Copy)]
+    struct Case {
+        name: &'static str,
+        prefix: u128,
+        descending: bool,
+        expected: ExpectedDecision,
+    }
+
+    let cases = [
+        Case {
+            name: "accepted_ascending",
+            prefix: 16_000,
+            descending: false,
+            expected: ExpectedDecision::Accepted,
+        },
+        Case {
+            name: "rejected_descending",
+            prefix: 17_000,
+            descending: true,
+            expected: ExpectedDecision::RejectedNonAscending,
+        },
+    ];
+
     init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
 
-    let rows = pushdown_rows_trace(16_000);
-    seed_pushdown_rows(&rows);
+    for case in cases {
+        reset_store();
+        seed_pushdown_rows(&pushdown_rows_trace(case.prefix));
 
-    let predicate = pushdown_group_predicate(7);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by("rank")
-        .limit(1)
-        .plan()
-        .expect("trace accepted plan should build");
+        let predicate = pushdown_group_predicate(7);
+        let mut query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(predicate)
+            .limit(1);
+        query = if case.descending {
+            query.order_by_desc("rank")
+        } else {
+            query.order_by("rank")
+        };
 
-    let _ = take_trace_events();
-    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
-    let _page = load
-        .execute_paged(plan, None)
-        .expect("trace accepted execution should succeed");
-    let events = take_trace_events();
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            QueryTraceEvent::Pushdown {
-                decision: TracePushdownDecision::AcceptedSecondaryIndexOrder,
-                ..
-            }
-        )),
-        "trace should mark accepted secondary-order pushdown eligibility"
-    );
-}
+        let plan = query
+            .plan()
+            .expect("trace outcome test plan should build for case");
 
-#[test]
-fn load_trace_marks_secondary_order_pushdown_rejected() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+        let _ = take_trace_events();
+        let load =
+            LoadExecutor::<PushdownParityEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
+        let _page = load
+            .execute_paged(plan, None)
+            .expect("trace outcome execution should succeed for case");
+        let events = take_trace_events();
 
-    let rows = pushdown_rows_trace(17_000);
-    seed_pushdown_rows(&rows);
+        let matched = events.iter().any(|event| match case.expected {
+            ExpectedDecision::Accepted => matches!(
+                event,
+                QueryTraceEvent::Pushdown {
+                    decision: TracePushdownDecision::AcceptedSecondaryIndexOrder,
+                    ..
+                }
+            ),
+            ExpectedDecision::RejectedNonAscending => matches!(
+                event,
+                QueryTraceEvent::Pushdown {
+                    decision: TracePushdownDecision::RejectedSecondaryIndexOrder {
+                        reason: TracePushdownRejectionReason::NonAscendingDirection
+                    },
+                    ..
+                }
+            ),
+        });
 
-    let predicate = pushdown_group_predicate(7);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by_desc("rank")
-        .limit(1)
-        .plan()
-        .expect("trace rejected plan should build");
-
-    let _ = take_trace_events();
-    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
-    let _page = load
-        .execute_paged(plan, None)
-        .expect("trace rejected execution should succeed");
-    let events = take_trace_events();
-    assert!(
-        events.iter().any(|event| matches!(
-            event,
-            QueryTraceEvent::Pushdown {
-                decision: TracePushdownDecision::RejectedSecondaryIndexOrder {
-                    reason: TracePushdownRejectionReason::NonAscendingDirection
-                },
-                ..
-            }
-        )),
-        "trace should mark rejected secondary-order pushdown eligibility with reason"
-    );
+        assert!(
+            matched,
+            "trace should emit expected secondary-order pushdown marker for case '{}'",
+            case.name
+        );
+    }
 }

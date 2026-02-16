@@ -14,15 +14,18 @@ Implementation cleanup tasks supporting this direction are tracked separately.
 
 ---
 
-## Current State (0.8.x)
+## Current State (0.10.2)
 
-As of the 0.8 series:
+As of `0.10.2` (2026-02-16):
 
 - Single-entity save and delete operations are **atomic**
 - Save-time referential integrity is enforced **only for strong relations**
+- Delete-time referential integrity for strong relations is enforced
 - `*_many_non_atomic` batch helpers are fail-fast and non-atomic
 - `*_many_atomic` batch helpers are atomic for a **single entity type per call**
 - Atomicity and recovery guarantees are scoped to the current executor and commit model
+- `0.9.x` strengthening work is shipped (see `docs/status/0.9-status.md`)
+- `0.10.x` index-key ordering work is shipped (see `docs/status/0.10-status.md`)
 
 No multi-entity transaction guarantees exist beyond what is explicitly documented.
 
@@ -49,7 +52,7 @@ This direction governs all future feature work.
 
 ---
 
-## Planned for 0.9.x - Strengthening Release
+## Shipped in 0.9.x - Strengthening Release
 
 `0.9.x` is the **Strengthening release**.
 
@@ -58,11 +61,13 @@ This direction governs all future feature work.
 - Keeps transaction semantics explicit and opt-in.
 - Continues pagination performance work without semantic drift.
 
-See `docs/old/PLAN_0.9.md` for the detailed `0.9.x` plan.
+See `docs/design/0.9-referential-integrity-v1.md` for the detailed `0.9.x`
+plan.
+Current shipped status: `docs/status/0.9-status.md`.
 
 ---
 
-## Planned for 0.10.x - Index Keys Release
+## Shipped in 0.10.x - Index Keys Release
 
 `0.10.x` is the **Index Keys release**.
 
@@ -70,19 +75,33 @@ See `docs/old/PLAN_0.9.md` for the detailed `0.9.x` plan.
 - Versioned migration from fixed-slot key encoding.
 - Ordered traversal/range scan correctness at byte-order level.
 
-See `docs/PLAN_0.10.md` for the detailed `0.10.x` plan.
+See `docs/design/0.10-index-ordering.md` for the detailed `0.10.x` plan.
+Current shipped status: `docs/status/0.10-status.md`.
 
 ---
 
-## Planned for 0.11.x - Data Integrity Release
+## Planned for 0.11.x - Secondary Range Pushdown Release
 
-`0.11.x` is the **Data Integrity release**.
+`0.11.x` is the **Secondary Range Pushdown release**.
+
+- Secondary index range pushdown for `>`, `>=`, `<`, `<=`, and `BETWEEN`.
+- Composite prefix + range eligibility with deterministic bounds.
+- Pagination and fallback parity preservation under bounded range traversal.
+
+See `docs/design/0.11-range-pushdown.md` for the detailed `0.11.x` plan.
+Current tracking status: `docs/status/0.11-status.md`.
+
+---
+
+## Future Milestone (Post-0.11) - Data Integrity
+
+Data-integrity hardening has moved to a future milestone after 0.11.
 
 - Row format versioning and backward-compatible decode rules.
 - Commit marker compatibility and replay safety across upgrades.
 - Explicit migration execution and corruption-detection tooling.
 
-See `docs/PLAN_0.11.md` for the detailed `0.11.x` plan.
+See `docs/design/data-integrity-v1.md` for the detailed deferred plan.
 
 ---
 
@@ -95,7 +114,7 @@ See `docs/PLAN_0.11.md` for the detailed `0.11.x` plan.
 Future releases may introduce transactional semantics that span multiple entities
 and/or multiple mutations.
 
-This goal does **not** change the 0.8 contract.
+This goal does **not** change the current 0.10 contract.
 
 Specifically:
 
@@ -113,6 +132,35 @@ Any transactional feature must ship with:
 - tests covering failure, replay, and recovery scenarios
 
 Transactions will be introduced only when the above conditions are met.
+
+### Signed Binary Cursors
+
+Signed opaque binary cursors are a future hardening goal.
+
+Target direction:
+
+- Move continuation tokens to an opaque binary envelope instead of a structured
+  payload surface.
+- Require signature verification for every cursor (unsigned binary cursors are
+  not acceptable).
+- Bind signature input to both boundary bytes and canonical query-plan
+  signature to prevent tampering/rebinding.
+
+Conceptual format:
+
+- `cursor = base64(mac || key_bytes)` where `mac = HMAC(secret, key_bytes ||
+  plan_signature)`
+
+Why this is valuable:
+
+- Smaller payloads and less serialization overhead.
+- No field-name/type exposure in public cursor data.
+- Stronger resistance to client-crafted boundary jumps.
+
+Adoption trigger:
+
+- Prioritize this when continuation payload shape leaks internal planning
+  details (field names, composite component layout, or similar internals).
 
 ---
 
