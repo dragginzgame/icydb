@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::query::plan::ExplainAccessPath;
 
 // Resolve ids directly from the `(group, rank)` index prefix in raw index-key order.
 fn ordered_ids_from_group_rank_index(group: u32) -> Vec<Ulid> {
@@ -91,6 +92,107 @@ fn pushdown_rows_window(prefix: u128) -> [PushdownSeedRow; 4] {
 
 fn pushdown_rows_trace(prefix: u128) -> [PushdownSeedRow; 2] {
     [(prefix + 1, 7, 10, "g7-r10"), (prefix + 2, 7, 20, "g7-r20")]
+}
+
+type IndexedMetricsSeedRow = (u128, u32, &'static str);
+
+fn indexed_metrics_entity((id, tag, label): IndexedMetricsSeedRow) -> IndexedMetricsEntity {
+    IndexedMetricsEntity {
+        id: Ulid::from_u128(id),
+        tag,
+        label: label.to_string(),
+    }
+}
+
+fn seed_indexed_metrics_rows(rows: &[IndexedMetricsSeedRow]) {
+    let save = SaveExecutor::<IndexedMetricsEntity>::new(DB, false);
+    for row in rows {
+        save.insert(indexed_metrics_entity(*row))
+            .expect("indexed-metrics seed row save should succeed");
+    }
+}
+
+fn strict_compare_predicate(field: &str, op: CompareOp, value: Value) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        field,
+        op,
+        value,
+        CoercionId::Strict,
+    ))
+}
+
+fn tag_range_predicate(lower_inclusive: u32, upper_exclusive: u32) -> Predicate {
+    Predicate::And(vec![
+        strict_compare_predicate(
+            "tag",
+            CompareOp::Gte,
+            Value::Uint(u64::from(lower_inclusive)),
+        ),
+        strict_compare_predicate(
+            "tag",
+            CompareOp::Lt,
+            Value::Uint(u64::from(upper_exclusive)),
+        ),
+    ])
+}
+
+fn group_rank_range_predicate(group: u32, lower_inclusive: u32, upper_exclusive: u32) -> Predicate {
+    Predicate::And(vec![
+        strict_compare_predicate("group", CompareOp::Eq, Value::Uint(u64::from(group))),
+        strict_compare_predicate(
+            "rank",
+            CompareOp::Gte,
+            Value::Uint(u64::from(lower_inclusive)),
+        ),
+        strict_compare_predicate(
+            "rank",
+            CompareOp::Lt,
+            Value::Uint(u64::from(upper_exclusive)),
+        ),
+    ])
+}
+
+fn indexed_metrics_ids_in_tag_range(
+    rows: &[IndexedMetricsSeedRow],
+    lower_inclusive: u32,
+    upper_exclusive: u32,
+) -> Vec<Ulid> {
+    rows.iter()
+        .filter(|(_, tag, _)| *tag >= lower_inclusive && *tag < upper_exclusive)
+        .map(|(id, _, _)| Ulid::from_u128(*id))
+        .collect()
+}
+
+fn pushdown_ids_in_group_rank_range(
+    rows: &[PushdownSeedRow],
+    group: u32,
+    lower_inclusive: u32,
+    upper_exclusive: u32,
+) -> Vec<Ulid> {
+    rows.iter()
+        .filter(|(_, row_group, rank, _)| {
+            *row_group == group && *rank >= lower_inclusive && *rank < upper_exclusive
+        })
+        .map(|(id, _, _, _)| Ulid::from_u128(*id))
+        .collect()
+}
+
+fn explain_contains_index_range(
+    access: &ExplainAccessPath,
+    index_name: &'static str,
+    prefix_len: usize,
+) -> bool {
+    match access {
+        ExplainAccessPath::IndexRange {
+            name,
+            prefix_len: actual_prefix_len,
+            ..
+        } => *name == index_name && *actual_prefix_len == prefix_len,
+        ExplainAccessPath::Union(children) | ExplainAccessPath::Intersection(children) => children
+            .iter()
+            .any(|child| explain_contains_index_range(child, index_name, prefix_len)),
+        _ => false,
+    }
 }
 
 #[test]
@@ -1513,6 +1615,107 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
     assert!(
         past_end.next_cursor.is_none(),
         "empty continuation page should not emit a cursor"
+    );
+}
+
+#[test]
+fn load_single_field_range_pushdown_matches_by_ids_fallback() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = [
+        (18_001, 30, "t30"),
+        (18_002, 10, "t10-a"),
+        (18_003, 10, "t10-b"),
+        (18_004, 20, "t20"),
+        (18_005, 40, "t40"),
+        (18_006, 5, "t5"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_range_predicate(10, 30);
+    let explain = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("tag")
+        .explain()
+        .expect("single-field range explain should build");
+    assert!(
+        explain_contains_index_range(&explain.access, INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        "single-field range should plan an IndexRange access path"
+    );
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let pushdown_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("tag")
+        .plan()
+        .expect("single-field range plan should build");
+    let pushdown = load
+        .execute(pushdown_plan)
+        .expect("single-field range query should execute");
+
+    let fallback_ids = indexed_metrics_ids_in_tag_range(&rows, 10, 30);
+    let fallback_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .by_ids(fallback_ids.iter().copied())
+        .order_by("tag")
+        .plan()
+        .expect("single-field fallback plan should build");
+    let fallback = load
+        .execute(fallback_plan)
+        .expect("single-field fallback query should execute");
+
+    let pushdown_ids: Vec<Ulid> = pushdown.0.iter().map(|(_, entity)| entity.id).collect();
+    let fallback_ids: Vec<Ulid> = fallback.0.iter().map(|(_, entity)| entity.id).collect();
+    assert_eq!(
+        pushdown_ids, fallback_ids,
+        "single-field range pushdown rows should match by-ids fallback rows"
+    );
+}
+
+#[test]
+fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = pushdown_rows_with_group9(19_000);
+    seed_pushdown_rows(&rows);
+
+    let predicate = group_rank_range_predicate(7, 10, 30);
+    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .explain()
+        .expect("composite range explain should build");
+    assert!(
+        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        "composite prefix+range should plan an IndexRange access path"
+    );
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let pushdown_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("rank")
+        .plan()
+        .expect("composite range plan should build");
+    let pushdown = load
+        .execute(pushdown_plan)
+        .expect("composite range query should execute");
+
+    let fallback_ids = pushdown_ids_in_group_rank_range(&rows, 7, 10, 30);
+    let fallback_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .by_ids(fallback_ids.iter().copied())
+        .order_by("rank")
+        .plan()
+        .expect("composite fallback plan should build");
+    let fallback = load
+        .execute(fallback_plan)
+        .expect("composite fallback query should execute");
+
+    let pushdown_ids: Vec<Ulid> = pushdown.0.iter().map(|(_, entity)| entity.id).collect();
+    let fallback_ids: Vec<Ulid> = fallback.0.iter().map(|(_, entity)| entity.id).collect();
+    assert_eq!(
+        pushdown_ids, fallback_ids,
+        "composite prefix+range pushdown rows should match by-ids fallback rows"
     );
 }
 

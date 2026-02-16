@@ -86,7 +86,7 @@ fn order_spec(fields: &[(&str, OrderDirection)]) -> OrderSpec {
 
 fn load_index_prefix_plan(values: Vec<Value>, order: Option<OrderSpec>) -> LogicalPlan<Value> {
     load_plan(
-        AccessPlan::Path(AccessPath::IndexPrefix {
+        AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
             values,
         }),
@@ -284,7 +284,7 @@ fn plan_rejects_unorderable_field() {
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
         mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: AccessPlan::Path(AccessPath::FullScan),
+        access: AccessPlan::path(AccessPath::FullScan),
         predicate: None,
         order: Some(OrderSpec {
             fields: vec![("tags".to_string(), OrderDirection::Asc)],
@@ -304,7 +304,7 @@ fn plan_rejects_index_prefix_too_long() {
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
         mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: AccessPlan::Path(AccessPath::IndexPrefix {
+        access: AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
             values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
         }),
@@ -326,7 +326,7 @@ fn plan_rejects_empty_index_prefix() {
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
         mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: AccessPlan::Path(AccessPath::IndexPrefix {
+        access: AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
             values: vec![],
         }),
@@ -347,7 +347,7 @@ fn plan_accepts_model_based_validation() {
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
         mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: AccessPlan::Path(AccessPath::ByKey(Value::Ulid(Ulid::nil()))),
+        access: AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::nil()))),
         predicate: None,
         order: None,
         delete_limit: None,
@@ -364,7 +364,7 @@ fn plan_rejects_unordered_pagination() {
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
         mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: AccessPlan::Path(AccessPath::FullScan),
+        access: AccessPlan::path(AccessPath::FullScan),
         predicate: None,
         order: None,
         delete_limit: None,
@@ -386,7 +386,7 @@ fn plan_accepts_ordered_pagination() {
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
         mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: AccessPlan::Path(AccessPath::FullScan),
+        access: AccessPlan::path(AccessPath::FullScan),
         predicate: None,
         order: Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
@@ -408,7 +408,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
         mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: AccessPlan::Path(AccessPath::FullScan),
+        access: AccessPlan::path(AccessPath::FullScan),
         predicate: None,
         order: Some(OrderSpec {
             fields: vec![("tag".to_string(), OrderDirection::Asc)],
@@ -464,7 +464,7 @@ fn secondary_order_pushdown_core_cases() {
         Case {
             name: "reject_full_scan_access",
             plan: load_plan(
-                AccessPlan::Path(AccessPath::FullScan),
+                AccessPlan::path(AccessPath::FullScan),
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
             expected: SecondaryOrderPushdownEligibility::Rejected(
@@ -509,7 +509,7 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
         RejectionCase {
             name: "no_order_by_none",
             plan: load_plan(
-                AccessPlan::Path(AccessPath::IndexPrefix {
+                AccessPlan::path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
                     values: vec![Value::Text("a".to_string())],
                 }),
@@ -520,7 +520,7 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
         RejectionCase {
             name: "no_order_by_empty_fields",
             plan: load_plan(
-                AccessPlan::Path(AccessPath::IndexPrefix {
+                AccessPlan::path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
                     values: vec![Value::Text("a".to_string())],
                 }),
@@ -531,7 +531,7 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
         RejectionCase {
             name: "access_path_not_single_index_prefix",
             plan: load_plan(
-                AccessPlan::Path(AccessPath::FullScan),
+                AccessPlan::path(AccessPath::FullScan),
                 Some(OrderSpec {
                     fields: vec![("id".to_string(), OrderDirection::Asc)],
                 }),
@@ -541,7 +541,7 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
         RejectionCase {
             name: "invalid_index_prefix_bounds",
             plan: load_plan(
-                AccessPlan::Path(AccessPath::IndexPrefix {
+                AccessPlan::path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
                     values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
                 }),
@@ -557,7 +557,7 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
         RejectionCase {
             name: "missing_primary_key_tie_break",
             plan: load_plan(
-                AccessPlan::Path(AccessPath::IndexPrefix {
+                AccessPlan::path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
                     values: vec![Value::Text("a".to_string())],
                 }),
@@ -572,7 +572,7 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
         RejectionCase {
             name: "primary_key_direction_not_ascending",
             plan: load_plan(
-                AccessPlan::Path(AccessPath::IndexPrefix {
+                AccessPlan::path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
                     values: vec![Value::Text("a".to_string())],
                 }),
@@ -587,7 +587,7 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
         RejectionCase {
             name: "non_ascending_direction",
             plan: load_plan(
-                AccessPlan::Path(AccessPath::IndexPrefix {
+                AccessPlan::path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
                     values: vec![Value::Text("a".to_string())],
                 }),
@@ -605,7 +605,7 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
         RejectionCase {
             name: "order_fields_do_not_match_index",
             plan: load_plan(
-                AccessPlan::Path(AccessPath::IndexPrefix {
+                AccessPlan::path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
                     values: vec![Value::Text("a".to_string())],
                 }),
@@ -655,7 +655,7 @@ fn secondary_order_pushdown_if_applicable_cases() {
         Case {
             name: "not_applicable_full_scan",
             plan: load_plan(
-                AccessPlan::Path(AccessPath::FullScan),
+                AccessPlan::path(AccessPath::FullScan),
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
             expected: PushdownApplicability::NotApplicable,
@@ -692,7 +692,7 @@ fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor()
     let model = model_with_index();
 
     let descending_plan = load_plan(
-        AccessPlan::Path(AccessPath::IndexPrefix {
+        AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
             values: vec![Value::Text("a".to_string())],
         }),
@@ -704,7 +704,7 @@ fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor()
     );
 
     let non_applicable_plan = load_plan(
-        AccessPlan::Path(AccessPath::FullScan),
+        AccessPlan::path(AccessPath::FullScan),
         Some(order_spec(&[("id", OrderDirection::Asc)])),
     );
     assert_eq!(

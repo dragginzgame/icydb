@@ -294,7 +294,7 @@ mod tests {
         types::{Decimal, Float32, Float64, Int, Principal},
         value::{Value, ValueEnum},
     };
-    use std::{borrow::Cow, cmp::Ordering};
+    use std::{borrow::Cow, cmp::Ordering, ops::Bound as RangeBound};
 
     fn index_id() -> IndexId {
         let entity = EntityName::try_from_str("entity").expect("entity name should parse");
@@ -1072,6 +1072,160 @@ mod tests {
         hits.sort();
 
         assert_eq!(hits.len(), 2);
+    }
+
+    fn in_range(
+        raw: &RawIndexKey,
+        lower: &RangeBound<RawIndexKey>,
+        upper: &RangeBound<RawIndexKey>,
+    ) -> bool {
+        let lower_ok = match lower {
+            RangeBound::Unbounded => true,
+            RangeBound::Included(bound) => raw >= bound,
+            RangeBound::Excluded(bound) => raw > bound,
+        };
+        let upper_ok = match upper {
+            RangeBound::Unbounded => true,
+            RangeBound::Included(bound) => raw <= bound,
+            RangeBound::Excluded(bound) => raw < bound,
+        };
+        lower_ok && upper_ok
+    }
+
+    #[test]
+    fn index_key_component_range_excluded_upper_skips_entire_upper_value_group() {
+        let prefix_a = encode_component(&Value::Uint(7));
+        let b10 = encode_component(&Value::Uint(10));
+        let b11 = encode_component(&Value::Uint(11));
+        let b20 = encode_component(&Value::Uint(20));
+        let c1 = encode_component(&Value::Uint(1));
+        let c9 = encode_component(&Value::Uint(9));
+
+        let k_b10_lo = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_a.clone(), b10.clone(), c1.clone()],
+            vec![0x01],
+        );
+        let k_b10_hi = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_a.clone(), b10, c9.clone()],
+            vec![0xFF],
+        );
+        let k_b11 = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_a.clone(), b11, c1],
+            vec![0x44],
+        );
+        let k_b20 = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_a, b20, c9],
+            vec![0x99],
+        );
+
+        let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
+            index_id(),
+            3,
+            &[encode_component(&Value::Uint(7))],
+            RangeBound::Included(encode_component(&Value::Uint(10))),
+            RangeBound::Excluded(encode_component(&Value::Uint(20))),
+        );
+
+        let keys = [
+            k_b10_lo.to_raw(),
+            k_b10_hi.to_raw(),
+            k_b11.to_raw(),
+            k_b20.to_raw(),
+        ];
+        let hits = keys
+            .iter()
+            .filter(|raw| {
+                in_range(
+                    raw,
+                    &raw_index_key_bound(lower.clone()),
+                    &raw_index_key_bound(upper.clone()),
+                )
+            })
+            .count();
+
+        assert_eq!(
+            hits, 3,
+            "b=10 and b=11 should match; b=20 should be excluded"
+        );
+    }
+
+    #[test]
+    fn index_key_component_range_excluded_lower_skips_entire_lower_value_group() {
+        let b10 = encode_component(&Value::Uint(10));
+        let b11 = encode_component(&Value::Uint(11));
+        let b20 = encode_component(&Value::Uint(20));
+
+        let k_b10 = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![
+                encode_component(&Value::Uint(7)),
+                b10,
+                encode_component(&Value::Uint(1)),
+            ],
+            vec![0x01],
+        );
+        let k_b11 = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![
+                encode_component(&Value::Uint(7)),
+                b11,
+                encode_component(&Value::Uint(1)),
+            ],
+            vec![0x02],
+        );
+        let k_b20 = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![
+                encode_component(&Value::Uint(7)),
+                b20,
+                encode_component(&Value::Uint(1)),
+            ],
+            vec![0x03],
+        );
+
+        let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
+            index_id(),
+            3,
+            &[encode_component(&Value::Uint(7))],
+            RangeBound::Excluded(encode_component(&Value::Uint(10))),
+            RangeBound::Included(encode_component(&Value::Uint(20))),
+        );
+
+        let keys = [k_b10.to_raw(), k_b11.to_raw(), k_b20.to_raw()];
+        let hits = keys
+            .iter()
+            .filter(|raw| {
+                in_range(
+                    raw,
+                    &raw_index_key_bound(lower.clone()),
+                    &raw_index_key_bound(upper.clone()),
+                )
+            })
+            .count();
+
+        assert_eq!(
+            hits, 2,
+            "b=10 should be excluded; b=11 and b=20 should match"
+        );
+    }
+
+    fn raw_index_key_bound(bound: RangeBound<IndexKey>) -> RangeBound<RawIndexKey> {
+        match bound {
+            RangeBound::Unbounded => RangeBound::Unbounded,
+            RangeBound::Included(key) => RangeBound::Included(key.to_raw()),
+            RangeBound::Excluded(key) => RangeBound::Excluded(key.to_raw()),
+        }
     }
 
     #[test]

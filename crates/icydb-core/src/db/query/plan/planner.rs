@@ -8,15 +8,16 @@ use crate::{
     db::{
         index::key::encode_canonical_index_component,
         query::predicate::{
-            CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, normalize,
-            validate::literal_matches_type,
+            CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo,
+            coercion::canonical_cmp, normalize, validate::literal_matches_type,
         },
     },
     error::InternalError,
     model::entity::EntityModel,
     model::index::IndexModel,
-    value::Value,
+    value::{CoercionFamily, CoercionFamilyExt, Value},
 };
+use std::{mem::discriminant, ops::Bound};
 use thiserror::Error as ThisError;
 
 ///
@@ -92,8 +93,13 @@ fn plan_predicate(
                 .map(|child| plan_predicate(model, schema, child))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            if let Some(prefix) = index_prefix_from_and(model, schema, children) {
-                plans.push(AccessPlan::Path(prefix));
+            // Composite index planning phase:
+            // - Prefer one deterministic range candidate when valid.
+            // - Otherwise retain equality-prefix planning.
+            if let Some(range) = index_range_from_and(model, schema, children) {
+                plans.push(AccessPlan::path(range));
+            } else if let Some(prefix) = index_prefix_from_and(model, schema, children) {
+                plans.push(AccessPlan::path(prefix));
             }
 
             AccessPlan::Intersection(plans)
@@ -122,7 +128,7 @@ fn plan_compare(
     if is_primary_key_model(schema, model, &cmp.field)
         && let Some(path) = plan_pk_compare(schema, model, cmp)
     {
-        return AccessPlan::Path(path);
+        return AccessPlan::path(path);
     }
 
     match cmp.op {
@@ -207,7 +213,7 @@ fn index_prefix_for_eq(
         if index.fields.first() != Some(&field) {
             continue;
         }
-        out.push(AccessPlan::Path(AccessPath::IndexPrefix {
+        out.push(AccessPlan::path(AccessPath::IndexPrefix {
             index: *index,
             values: vec![value.clone()],
         }));
@@ -288,10 +294,295 @@ fn better_index(
         || (cand_len == best_len && cand_exact == best_exact && cand_index.name < best_index.name)
 }
 
+///
+/// RangeConstraint
+/// One-field bounded interval used for index-range candidate extraction.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RangeConstraint {
+    lower: Bound<Value>,
+    upper: Bound<Value>,
+}
+
+impl Default for RangeConstraint {
+    fn default() -> Self {
+        Self {
+            lower: Bound::Unbounded,
+            upper: Bound::Unbounded,
+        }
+    }
+}
+
+///
+/// IndexFieldConstraint
+/// Per-index-field constraint classification while extracting range candidates.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum IndexFieldConstraint {
+    None,
+    Eq(Value),
+    Range(RangeConstraint),
+}
+
+// Build one deterministic secondary-range candidate from a normalized AND-group.
+//
+// Extraction contract:
+// - Every child must be a Compare predicate.
+// - Supported operators are Eq/Gt/Gte/Lt/Lte only.
+// - For a chosen index: fields 0..k must be Eq, field k must be Range,
+//   fields after k must be unconstrained.
+fn index_range_from_and(
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    children: &[Predicate],
+) -> Option<AccessPath<Value>> {
+    let mut compares = Vec::with_capacity(children.len());
+    for child in children {
+        let Predicate::Compare(cmp) = child else {
+            return None;
+        };
+        if !matches!(
+            cmp.op,
+            CompareOp::Eq | CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
+        ) {
+            return None;
+        }
+        if !matches!(
+            cmp.coercion.id,
+            CoercionId::Strict | CoercionId::NumericWiden
+        ) {
+            return None;
+        }
+        compares.push(cmp);
+    }
+
+    let mut best: Option<(usize, &'static IndexModel, Vec<Value>, RangeConstraint)> = None;
+    for index in sorted_indexes(model) {
+        let Some((prefix, range)) = index_range_candidate_for_index(schema, index, &compares)
+        else {
+            continue;
+        };
+
+        let prefix_len = prefix.len();
+        match best {
+            None => best = Some((prefix_len, index, prefix, range)),
+            Some((best_len, best_index, _, _))
+                if prefix_len > best_len
+                    || (prefix_len == best_len && index.name < best_index.name) =>
+            {
+                best = Some((prefix_len, index, prefix, range));
+            }
+            _ => {}
+        }
+    }
+
+    best.map(|(_, index, prefix, range)| AccessPath::IndexRange {
+        index: *index,
+        prefix,
+        lower: range.lower,
+        upper: range.upper,
+    })
+}
+
+// Extract an index-range candidate for one concrete index.
+fn index_range_candidate_for_index(
+    schema: &SchemaInfo,
+    index: &'static IndexModel,
+    compares: &[&ComparePredicate],
+) -> Option<(Vec<Value>, RangeConstraint)> {
+    let mut constraints = vec![IndexFieldConstraint::None; index.fields.len()];
+
+    for cmp in compares {
+        let Some(position) = index
+            .fields
+            .iter()
+            .position(|field| *field == cmp.field.as_str())
+        else {
+            continue;
+        };
+        let field = index.fields[position];
+        if !index_range_literal_is_compatible(schema, field, &cmp.value) {
+            return None;
+        }
+
+        match cmp.op {
+            CompareOp::Eq => match &mut constraints[position] {
+                IndexFieldConstraint::None => {
+                    constraints[position] = IndexFieldConstraint::Eq(cmp.value.clone());
+                }
+                IndexFieldConstraint::Eq(existing) => {
+                    if existing != &cmp.value {
+                        return None;
+                    }
+                }
+                IndexFieldConstraint::Range(_) => return None,
+            },
+            CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+                let mut range = match &constraints[position] {
+                    IndexFieldConstraint::None => RangeConstraint::default(),
+                    IndexFieldConstraint::Eq(_) => return None,
+                    IndexFieldConstraint::Range(existing) => existing.clone(),
+                };
+                if !merge_range_constraint(&mut range, cmp.op, &cmp.value) {
+                    return None;
+                }
+                constraints[position] = IndexFieldConstraint::Range(range);
+            }
+            _ => return None,
+        }
+    }
+
+    let mut prefix = Vec::new();
+    let mut range: Option<RangeConstraint> = None;
+    let mut range_position = None;
+
+    for (position, constraint) in constraints.iter().enumerate() {
+        match constraint {
+            IndexFieldConstraint::Eq(value) if range.is_none() => {
+                prefix.push(value.clone());
+            }
+            IndexFieldConstraint::Range(candidate) if range.is_none() => {
+                range = Some(candidate.clone());
+                range_position = Some(position);
+            }
+            IndexFieldConstraint::None if range.is_none() => return None,
+            IndexFieldConstraint::None => {}
+            _ => return None,
+        }
+    }
+
+    let (Some(range_position), Some(range)) = (range_position, range) else {
+        return None;
+    };
+    if range_position >= index.fields.len() {
+        return None;
+    }
+    if prefix.len() >= index.fields.len() {
+        return None;
+    }
+
+    Some((prefix, range))
+}
+
+// Merge one comparison operator into a bounded range without widening semantics.
+fn merge_range_constraint(existing: &mut RangeConstraint, op: CompareOp, value: &Value) -> bool {
+    let merged = match op {
+        CompareOp::Gt => merge_lower_bound(&mut existing.lower, Bound::Excluded(value.clone())),
+        CompareOp::Gte => merge_lower_bound(&mut existing.lower, Bound::Included(value.clone())),
+        CompareOp::Lt => merge_upper_bound(&mut existing.upper, Bound::Excluded(value.clone())),
+        CompareOp::Lte => merge_upper_bound(&mut existing.upper, Bound::Included(value.clone())),
+        _ => false,
+    };
+    if !merged {
+        return false;
+    }
+
+    range_bounds_are_compatible(existing)
+}
+
+fn merge_lower_bound(existing: &mut Bound<Value>, candidate: Bound<Value>) -> bool {
+    if !bounds_numeric_variants_compatible(existing, &candidate) {
+        return false;
+    }
+
+    let replace = match (&candidate, &*existing) {
+        (Bound::Unbounded, _) => false,
+        (_, Bound::Unbounded) => true,
+        (
+            Bound::Included(left) | Bound::Excluded(left),
+            Bound::Included(right) | Bound::Excluded(right),
+        ) => match canonical_cmp(left, right) {
+            std::cmp::Ordering::Greater => true,
+            std::cmp::Ordering::Less => false,
+            std::cmp::Ordering::Equal => {
+                matches!(candidate, Bound::Excluded(_)) && matches!(existing, Bound::Included(_))
+            }
+        },
+    };
+
+    if replace {
+        *existing = candidate;
+    }
+
+    true
+}
+
+fn merge_upper_bound(existing: &mut Bound<Value>, candidate: Bound<Value>) -> bool {
+    if !bounds_numeric_variants_compatible(existing, &candidate) {
+        return false;
+    }
+
+    let replace = match (&candidate, &*existing) {
+        (Bound::Unbounded, _) => false,
+        (_, Bound::Unbounded) => true,
+        (
+            Bound::Included(left) | Bound::Excluded(left),
+            Bound::Included(right) | Bound::Excluded(right),
+        ) => match canonical_cmp(left, right) {
+            std::cmp::Ordering::Less => true,
+            std::cmp::Ordering::Greater => false,
+            std::cmp::Ordering::Equal => {
+                matches!(candidate, Bound::Excluded(_)) && matches!(existing, Bound::Included(_))
+            }
+        },
+    };
+
+    if replace {
+        *existing = candidate;
+    }
+
+    true
+}
+
+// Validate interval shape and reject empty/mixed-numeric intervals.
+fn range_bounds_are_compatible(range: &RangeConstraint) -> bool {
+    let (Some(lower), Some(upper)) = (bound_value(&range.lower), bound_value(&range.upper)) else {
+        return true;
+    };
+
+    if !numeric_variants_compatible(lower, upper) {
+        return false;
+    }
+
+    match canonical_cmp(lower, upper) {
+        std::cmp::Ordering::Less => true,
+        std::cmp::Ordering::Greater => false,
+        std::cmp::Ordering::Equal => {
+            matches!(range.lower, Bound::Included(_)) && matches!(range.upper, Bound::Included(_))
+        }
+    }
+}
+
+const fn bound_value(bound: &Bound<Value>) -> Option<&Value> {
+    match bound {
+        Bound::Included(value) | Bound::Excluded(value) => Some(value),
+        Bound::Unbounded => None,
+    }
+}
+
+fn bounds_numeric_variants_compatible(left: &Bound<Value>, right: &Bound<Value>) -> bool {
+    match (bound_value(left), bound_value(right)) {
+        (Some(left), Some(right)) => numeric_variants_compatible(left, right),
+        _ => true,
+    }
+}
+
+fn numeric_variants_compatible(left: &Value, right: &Value) -> bool {
+    if left.coercion_family() != CoercionFamily::Numeric
+        || right.coercion_family() != CoercionFamily::Numeric
+    {
+        return true;
+    }
+
+    discriminant(left) == discriminant(right)
+}
+
 // Normalize composite access plans into canonical, flattened forms.
 fn normalize_access_plan(plan: AccessPlan<Value>) -> AccessPlan<Value> {
     match plan {
-        AccessPlan::Path(path) => AccessPlan::Path(normalize_access_path(path)),
+        AccessPlan::Path(path) => AccessPlan::path(normalize_access_path(*path)),
         AccessPlan::Union(children) => normalize_union(children),
         AccessPlan::Intersection(children) => normalize_intersection(children),
     }
@@ -372,8 +663,8 @@ fn normalize_intersection(children: Vec<AccessPlan<Value>>) -> AccessPlan<Value>
     AccessPlan::Intersection(out)
 }
 
-const fn is_full_scan<K>(plan: &AccessPlan<K>) -> bool {
-    matches!(plan, AccessPlan::Path(AccessPath::FullScan))
+fn is_full_scan<K>(plan: &AccessPlan<K>) -> bool {
+    matches!(plan, AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::FullScan))
 }
 
 fn is_primary_key_model(schema: &SchemaInfo, model: &EntityModel, field: &str) -> bool {
@@ -399,6 +690,11 @@ fn index_prefix_literal_is_compatible(schema: &SchemaInfo, field: &str, value: &
     literal_matches_type(value, field_type) && encode_canonical_index_component(value).is_ok()
 }
 
+// Validate one range literal for index-range planning.
+fn index_range_literal_is_compatible(schema: &SchemaInfo, field: &str, value: &Value) -> bool {
+    index_prefix_literal_is_compatible(schema, field, value)
+}
+
 ///
 /// TESTS
 ///
@@ -412,15 +708,15 @@ mod tests {
     fn normalize_union_dedups_identical_paths() {
         let key = Value::Ulid(Ulid::from_u128(1));
         let plan = AccessPlan::Union(vec![
-            AccessPlan::Path(AccessPath::ByKey(key.clone())),
-            AccessPlan::Path(AccessPath::ByKey(key)),
+            AccessPlan::path(AccessPath::ByKey(key.clone())),
+            AccessPlan::path(AccessPath::ByKey(key)),
         ]);
 
         let normalized = normalize_access_plan(plan);
 
         assert_eq!(
             normalized,
-            AccessPlan::Path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1))))
+            AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1))))
         );
     }
 
@@ -429,8 +725,8 @@ mod tests {
         let a = Value::Ulid(Ulid::from_u128(1));
         let b = Value::Ulid(Ulid::from_u128(2));
         let plan = AccessPlan::Union(vec![
-            AccessPlan::Path(AccessPath::ByKey(b.clone())),
-            AccessPlan::Path(AccessPath::ByKey(a.clone())),
+            AccessPlan::path(AccessPath::ByKey(b.clone())),
+            AccessPlan::path(AccessPath::ByKey(a.clone())),
         ]);
 
         let normalized = normalize_access_plan(plan);
@@ -439,8 +735,8 @@ mod tests {
         };
 
         assert_eq!(children.len(), 2);
-        assert_eq!(children[0], AccessPlan::Path(AccessPath::ByKey(a)));
-        assert_eq!(children[1], AccessPlan::Path(AccessPath::ByKey(b)));
+        assert_eq!(children[0], AccessPlan::path(AccessPath::ByKey(a)));
+        assert_eq!(children[1], AccessPlan::path(AccessPath::ByKey(b)));
     }
 
     #[test]
@@ -448,14 +744,14 @@ mod tests {
         let key = Value::Ulid(Ulid::from_u128(7));
         let plan = AccessPlan::Intersection(vec![
             AccessPlan::full_scan(),
-            AccessPlan::Path(AccessPath::ByKey(key)),
+            AccessPlan::path(AccessPath::ByKey(key)),
         ]);
 
         let normalized = normalize_access_plan(plan);
 
         assert_eq!(
             normalized,
-            AccessPlan::Path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7))))
+            AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(7))))
         );
     }
 }

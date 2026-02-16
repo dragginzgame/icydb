@@ -407,7 +407,7 @@ fn singleton_only_uses_default_key() {
 
     assert!(matches!(
         plan.access,
-        AccessPlan::Path(AccessPath::ByKey(Unit))
+        AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::ByKey(Unit))
     ));
 }
 
@@ -419,7 +419,7 @@ fn build_plan_model_full_scan_without_predicate() {
 
     assert!(matches!(
         plan.access,
-        AccessPlan::Path(AccessPath::FullScan)
+        AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::FullScan)
     ));
 }
 

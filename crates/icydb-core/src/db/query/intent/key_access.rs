@@ -44,17 +44,17 @@ where
     K: FieldValue,
 {
     match access {
-        KeyAccess::Single(key) => AccessPlan::Path(AccessPath::ByKey(key.to_value())),
+        KeyAccess::Single(key) => AccessPlan::path(AccessPath::ByKey(key.to_value())),
         KeyAccess::Many(keys) => {
             let mut values: Vec<Value> = keys.iter().map(FieldValue::to_value).collect();
             canonical::canonicalize_key_values(&mut values);
             if let Some(first) = values.first()
                 && values.len() == 1
             {
-                return AccessPlan::Path(AccessPath::ByKey(first.clone()));
+                return AccessPlan::path(AccessPath::ByKey(first.clone()));
             }
 
-            AccessPlan::Path(AccessPath::ByKeys(values))
+            AccessPlan::path(AccessPath::ByKeys(values))
         }
     }
 }
@@ -65,7 +65,7 @@ pub fn access_plan_to_entity_keys<E: EntityKind>(
     access: AccessPlan<Value>,
 ) -> Result<AccessPlan<E::Key>, PlanError> {
     let plan = match access {
-        AccessPlan::Path(path) => AccessPlan::Path(access_path_to_entity_keys::<E>(model, path)?),
+        AccessPlan::Path(path) => AccessPlan::path(access_path_to_entity_keys::<E>(model, *path)?),
         AccessPlan::Union(children) => {
             let mut out = Vec::with_capacity(children.len());
             for child in children {

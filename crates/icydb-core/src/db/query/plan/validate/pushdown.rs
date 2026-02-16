@@ -1,5 +1,5 @@
 use crate::{
-    db::query::plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection},
+    db::query::plan::{AccessPath, LogicalPlan, OrderDirection},
     model::entity::EntityModel,
 };
 
@@ -140,7 +140,7 @@ pub fn assess_secondary_order_pushdown<K>(
         );
     }
 
-    let AccessPlan::Path(AccessPath::IndexPrefix { index, values }) = &plan.access else {
+    let Some(AccessPath::IndexPrefix { index, values }) = plan.access.as_path() else {
         return SecondaryOrderPushdownEligibility::Rejected(
             SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
         );
@@ -301,7 +301,7 @@ pub fn assess_secondary_order_pushdown_if_applicable_validated<K>(
         return PushdownApplicability::NotApplicable;
     }
 
-    let AccessPlan::Path(AccessPath::IndexPrefix { index, values }) = &plan.access else {
+    let Some(AccessPath::IndexPrefix { index, values }) = plan.access.as_path() else {
         return PushdownApplicability::NotApplicable;
     };
 

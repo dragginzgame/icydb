@@ -11,8 +11,8 @@ use crate::{
             },
         },
         query::plan::{
-            AccessPath, AccessPlan, ContinuationSignature, ContinuationToken, CursorBoundary,
-            ExecutablePlan, LogicalPlan, OrderDirection, decode_pk_cursor_boundary,
+            AccessPath, ContinuationSignature, ContinuationToken, CursorBoundary, ExecutablePlan,
+            LogicalPlan, OrderDirection, decode_pk_cursor_boundary,
             validate::{
                 PushdownApplicability, assess_secondary_order_pushdown_if_applicable_validated,
                 validate_executor_plan,
@@ -310,7 +310,7 @@ where
             return Ok(None);
         }
 
-        let AccessPlan::Path(AccessPath::IndexPrefix { index, values }) = &plan.access else {
+        let Some(AccessPath::IndexPrefix { index, values }) = plan.access.as_path() else {
             return Ok(None);
         };
 
@@ -354,9 +354,9 @@ where
 
         // Keep malformed boundary classification stable on PK fast-path execution.
         let _cursor_key = decode_pk_cursor_boundary::<E>(cursor_boundary)?;
-        let (range_start_key, range_end_key) = match &plan.access {
-            AccessPlan::Path(AccessPath::FullScan) => (None, None),
-            AccessPlan::Path(AccessPath::KeyRange { start, end }) => (Some(*start), Some(*end)),
+        let (range_start_key, range_end_key) = match plan.access.as_path() {
+            Some(AccessPath::FullScan) => (None, None),
+            Some(AccessPath::KeyRange { start, end }) => (Some(*start), Some(*end)),
             _ => return Ok(None),
         };
 
@@ -438,8 +438,8 @@ where
         }
 
         let supports_pk_stream_access = matches!(
-            &plan.access,
-            AccessPlan::Path(AccessPath::FullScan | AccessPath::KeyRange { .. })
+            plan.access.as_path(),
+            Some(AccessPath::FullScan | AccessPath::KeyRange { .. })
         );
         if !supports_pk_stream_access {
             return false;

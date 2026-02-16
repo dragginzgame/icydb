@@ -210,22 +210,22 @@ mod tests {
     #[test]
     fn project_access_plan_walks_canonical_access_variants() {
         let plan: AccessPlan<u64> = AccessPlan::Union(vec![
-            AccessPlan::Path(AccessPath::ByKey(1)),
-            AccessPlan::Path(AccessPath::ByKeys(vec![2, 3])),
-            AccessPlan::Path(AccessPath::KeyRange { start: 4, end: 9 }),
-            AccessPlan::Path(AccessPath::IndexPrefix {
+            AccessPlan::path(AccessPath::ByKey(1)),
+            AccessPlan::path(AccessPath::ByKeys(vec![2, 3])),
+            AccessPlan::path(AccessPath::KeyRange { start: 4, end: 9 }),
+            AccessPlan::path(AccessPath::IndexPrefix {
                 index: TEST_INDEX,
                 values: vec![Value::Uint(7)],
             }),
-            AccessPlan::Path(AccessPath::IndexRange {
+            AccessPlan::path(AccessPath::IndexRange {
                 index: TEST_INDEX,
                 prefix: vec![Value::Uint(7)],
                 lower: Bound::Included(Value::Uint(8)),
                 upper: Bound::Excluded(Value::Uint(12)),
             }),
             AccessPlan::Intersection(vec![
-                AccessPlan::Path(AccessPath::FullScan),
-                AccessPlan::Path(AccessPath::ByKey(11)),
+                AccessPlan::path(AccessPath::FullScan),
+                AccessPlan::path(AccessPath::ByKey(11)),
             ]),
         ]);
 

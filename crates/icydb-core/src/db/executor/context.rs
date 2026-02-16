@@ -9,7 +9,7 @@ use crate::{
         },
         store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::{ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue, Path},
     types::Id,
 };
@@ -121,15 +121,18 @@ where
                     .with_store_registry(|reg| reg.try_get_store(index.store))?;
                 store.with_index(|s| s.resolve_data_values::<E>(index, values))?
             }
-            AccessPath::IndexRange { index, .. } => {
-                return Err(InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Query,
-                    format!(
-                        "secondary index range access path is not executable yet for index '{}'",
-                        index.name
-                    ),
-                ));
+            AccessPath::IndexRange {
+                index,
+                prefix,
+                lower,
+                upper,
+            } => {
+                let store = self
+                    .db
+                    .with_store_registry(|reg| reg.try_get_store(index.store))?;
+                store.with_index(|s| {
+                    s.resolve_data_values_in_range::<E>(index, prefix, lower, upper)
+                })?
             }
         };
 

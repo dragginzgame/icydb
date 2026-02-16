@@ -11,16 +11,46 @@ use std::ops::Bound;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AccessPlan<K> {
-    Path(AccessPath<K>),
+    Path(Box<AccessPath<K>>),
     Union(Vec<Self>),
     Intersection(Vec<Self>),
 }
 
 impl<K> AccessPlan<K> {
+    /// Construct a plan from one concrete access path.
+    #[must_use]
+    pub fn path(path: AccessPath<K>) -> Self {
+        Self::Path(Box::new(path))
+    }
+
     /// Construct a plan that forces a full scan.
     #[must_use]
-    pub const fn full_scan() -> Self {
-        Self::Path(AccessPath::FullScan)
+    pub fn full_scan() -> Self {
+        Self::path(AccessPath::FullScan)
+    }
+
+    /// Borrow the concrete path when this plan is a single-path node.
+    #[must_use]
+    pub fn as_path(&self) -> Option<&AccessPath<K>> {
+        match self {
+            Self::Path(path) => Some(path.as_ref()),
+            Self::Union(_) | Self::Intersection(_) => None,
+        }
+    }
+
+    /// Consume this plan and return the concrete path when present.
+    #[must_use]
+    pub fn into_path(self) -> Option<AccessPath<K>> {
+        match self {
+            Self::Path(path) => Some(*path),
+            Self::Union(_) | Self::Intersection(_) => None,
+        }
+    }
+}
+
+impl<K> From<AccessPath<K>> for AccessPlan<K> {
+    fn from(value: AccessPath<K>) -> Self {
+        Self::path(value)
     }
 }
 

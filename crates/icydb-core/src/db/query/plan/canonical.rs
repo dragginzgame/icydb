@@ -68,6 +68,7 @@ fn canonical_cmp_plan_list_value(
     left.len().cmp(&right.len())
 }
 
+#[expect(clippy::too_many_lines)]
 fn canonical_cmp_access_path_value(
     left: &AccessPath<Value>,
     right: &AccessPath<Value>,

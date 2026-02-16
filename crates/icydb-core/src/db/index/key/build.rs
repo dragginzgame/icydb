@@ -12,6 +12,7 @@ use crate::{
     model::index::IndexModel,
     traits::{EntityKind, EntityValue, FieldValue},
 };
+use std::ops::Bound;
 
 impl IndexId {
     /// Build an index id from static entity metadata.
@@ -174,5 +175,141 @@ impl IndexKey {
                 primary_key: Self::wildcard_high_pk(),
             },
         )
+    }
+
+    /// Build lexicographic key-space bounds for one ranged index component after an equality prefix.
+    ///
+    /// Shape:
+    /// - `prefix` constrains components `0..prefix.len()`
+    /// - bounds constrain component `prefix.len()`
+    /// - remaining suffix components and PK are set to canonical min/max sentinels
+    #[must_use]
+    pub fn bounds_for_prefix_component_range(
+        index_id: IndexId,
+        index_len: usize,
+        prefix: &[Vec<u8>],
+        lower: Bound<Vec<u8>>,
+        upper: Bound<Vec<u8>>,
+    ) -> (Bound<Self>, Bound<Self>) {
+        Self::bounds_for_prefix_component_range_with_kind(
+            index_id,
+            IndexKeyKind::User,
+            index_len,
+            prefix,
+            lower,
+            upper,
+        )
+    }
+
+    /// Variant of `bounds_for_prefix_component_range` with explicit key kind.
+    #[must_use]
+    #[expect(clippy::cast_possible_truncation)]
+    pub fn bounds_for_prefix_component_range_with_kind(
+        index_id: IndexId,
+        key_kind: IndexKeyKind,
+        index_len: usize,
+        prefix: &[Vec<u8>],
+        lower: Bound<Vec<u8>>,
+        upper: Bound<Vec<u8>>,
+    ) -> (Bound<Self>, Bound<Self>) {
+        if index_len == 0 || index_len > MAX_INDEX_FIELDS || prefix.len() >= index_len {
+            let empty = Self::empty_with_kind(index_id, key_kind);
+            return (Bound::Included(empty.clone()), Bound::Included(empty));
+        }
+        if prefix
+            .iter()
+            .any(|component| component.is_empty() || component.len() > Self::MAX_COMPONENT_SIZE)
+        {
+            let empty = Self::empty_with_kind(index_id, key_kind);
+            return (Bound::Included(empty.clone()), Bound::Included(empty));
+        }
+
+        let Some(lower_component) = normalize_range_component_bound(&lower, false) else {
+            let empty = Self::empty_with_kind(index_id, key_kind);
+            return (Bound::Included(empty.clone()), Bound::Included(empty));
+        };
+        let Some(upper_component) = normalize_range_component_bound(&upper, true) else {
+            let empty = Self::empty_with_kind(index_id, key_kind);
+            return (Bound::Included(empty.clone()), Bound::Included(empty));
+        };
+
+        let mut start_components = Vec::with_capacity(index_len);
+        let mut end_components = Vec::with_capacity(index_len);
+        let lower_exclusive = matches!(lower, Bound::Excluded(_));
+        let upper_exclusive = matches!(upper, Bound::Excluded(_));
+
+        for i in 0..index_len {
+            if let Some(component) = prefix.get(i) {
+                start_components.push(component.clone());
+                end_components.push(component.clone());
+                continue;
+            }
+
+            if i == prefix.len() {
+                start_components.push(lower_component.clone());
+                end_components.push(upper_component.clone());
+                continue;
+            }
+
+            start_components.push(if lower_exclusive {
+                Self::wildcard_high_component()
+            } else {
+                Self::wildcard_low_component()
+            });
+            end_components.push(if upper_exclusive {
+                Self::wildcard_low_component()
+            } else {
+                Self::wildcard_high_component()
+            });
+        }
+
+        let component_count = index_len as u8;
+        let lower_key = Self {
+            key_kind,
+            index_id,
+            component_count,
+            components: start_components,
+            primary_key: match lower {
+                Bound::Excluded(_) => Self::wildcard_high_pk(),
+                Bound::Included(_) | Bound::Unbounded => Self::wildcard_low_pk(),
+            },
+        };
+        let upper_key = Self {
+            key_kind,
+            index_id,
+            component_count,
+            components: end_components,
+            primary_key: match upper {
+                Bound::Excluded(_) => Self::wildcard_low_pk(),
+                Bound::Included(_) | Bound::Unbounded => Self::wildcard_high_pk(),
+            },
+        };
+
+        let lower_bound = match lower {
+            Bound::Excluded(_) => Bound::Excluded(lower_key),
+            Bound::Included(_) | Bound::Unbounded => Bound::Included(lower_key),
+        };
+        let upper_bound = match upper {
+            Bound::Excluded(_) => Bound::Excluded(upper_key),
+            Bound::Included(_) | Bound::Unbounded => Bound::Included(upper_key),
+        };
+
+        (lower_bound, upper_bound)
+    }
+}
+
+fn normalize_range_component_bound(bound: &Bound<Vec<u8>>, high: bool) -> Option<Vec<u8>> {
+    match bound {
+        Bound::Unbounded => Some(if high {
+            IndexKey::wildcard_high_component()
+        } else {
+            IndexKey::wildcard_low_component()
+        }),
+        Bound::Included(component) | Bound::Excluded(component) => {
+            if component.is_empty() || component.len() > IndexKey::MAX_COMPONENT_SIZE {
+                return None;
+            }
+            Some(component.clone())
+        }
     }
 }
