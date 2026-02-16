@@ -828,7 +828,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.10.2"
+version = "0.11.0"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -849,7 +849,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.10.2"
+version = "0.11.0"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -859,7 +859,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.10.2"
+version = "0.11.0"
 dependencies = [
  "bencher",
  "candid",
@@ -885,7 +885,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.10.2"
+version = "0.11.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -894,11 +894,11 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.10.2"
+version = "0.11.0"
 
 [[package]]
 name = "icydb-schema"
-version = "0.10.2"
+version = "0.11.0"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -914,7 +914,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.10.2"
+version = "0.11.0"
 dependencies = [
  "candid",
  "canic-utils",
@@ -931,7 +931,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.10.2"
+version = "0.11.0"
 dependencies = [
  "candid",
  "icydb",
@@ -1631,9 +1631,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.0.1+spec-1.1.0"
+version = "1.0.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbe30f93627849fa362d4a602212d41bb237dc2bd0f8ba0b2ce785012e124220"
+checksum = "d1dfefef6a142e93f346b64c160934eb13b5594b84ab378133ac6815cb2bd57f"
 dependencies = [
  "indexmap",
  "serde_core",
@@ -1655,9 +1655,9 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.0.8+spec-1.1.0"
+version = "1.0.9+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0742ff5ff03ea7e67c8ae6c93cac239e0d9784833362da3f9a9c1da8dfefcbdc"
+checksum = "702d4415e08923e7e1ef96cd5727c0dfed80b4d2fa25db9647fe5eb6f7c5a4c4"
 dependencies = [
  "winnow",
 ]
