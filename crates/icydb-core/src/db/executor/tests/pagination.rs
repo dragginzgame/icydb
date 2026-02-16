@@ -1579,10 +1579,12 @@ fn load_trace_marks_secondary_order_pushdown_rejected() {
         events.iter().any(|event| matches!(
             event,
             QueryTraceEvent::Pushdown {
-                decision: TracePushdownDecision::RejectedSecondaryIndexOrder,
+                decision: TracePushdownDecision::RejectedSecondaryIndexOrder {
+                    reason: TracePushdownRejectionReason::NonAscendingDirection
+                },
                 ..
             }
         )),
-        "trace should mark rejected secondary-order pushdown eligibility"
+        "trace should mark rejected secondary-order pushdown eligibility with reason"
     );
 }

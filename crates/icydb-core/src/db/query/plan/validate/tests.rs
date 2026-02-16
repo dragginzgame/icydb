@@ -1,8 +1,9 @@
 // NOTE: Invalid helpers remain only for intentionally invalid schemas.
 use super::{
-    PlanError, SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
-    assess_secondary_order_pushdown, assess_secondary_order_pushdown_if_applicable,
-    validate_logical_plan_model,
+    PlanError, PushdownApplicability, SecondaryOrderPushdownEligibility,
+    SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
+    assess_secondary_order_pushdown_if_applicable,
+    assess_secondary_order_pushdown_if_applicable_validated, validate_logical_plan_model,
 };
 use crate::{
     db::query::{
@@ -665,7 +666,7 @@ fn secondary_order_pushdown_if_applicable_filters_non_applicable_shapes() {
     );
     assert_eq!(
         assess_secondary_order_pushdown_if_applicable(model, &no_order_plan),
-        None
+        PushdownApplicability::NotApplicable
     );
 
     let full_scan_plan = load_plan(
@@ -676,7 +677,7 @@ fn secondary_order_pushdown_if_applicable_filters_non_applicable_shapes() {
     );
     assert_eq!(
         assess_secondary_order_pushdown_if_applicable(model, &full_scan_plan),
-        None
+        PushdownApplicability::NotApplicable
     );
 }
 
@@ -695,10 +696,40 @@ fn secondary_order_pushdown_if_applicable_returns_matrix_decision() {
 
     assert_eq!(
         assess_secondary_order_pushdown_if_applicable(model, &descending_plan),
-        Some(SecondaryOrderPushdownEligibility::Rejected(
+        PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
             SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
                 field: "id".to_string(),
             }
         ))
+    );
+}
+
+#[test]
+fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor() {
+    let model = model_with_index();
+
+    let descending_plan = load_plan(
+        AccessPlan::Path(AccessPath::IndexPrefix {
+            index: INDEX_MODEL,
+            values: vec![Value::Text("a".to_string())],
+        }),
+        Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        }),
+    );
+    assert_eq!(
+        assess_secondary_order_pushdown_if_applicable_validated(model, &descending_plan),
+        assess_secondary_order_pushdown_if_applicable(model, &descending_plan),
+    );
+
+    let non_applicable_plan = load_plan(
+        AccessPlan::Path(AccessPath::FullScan),
+        Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        }),
+    );
+    assert_eq!(
+        assess_secondary_order_pushdown_if_applicable_validated(model, &non_applicable_plan),
+        assess_secondary_order_pushdown_if_applicable(model, &non_applicable_plan),
     );
 }

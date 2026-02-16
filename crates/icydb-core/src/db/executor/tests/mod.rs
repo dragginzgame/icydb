@@ -16,7 +16,10 @@ use crate::{
         },
         executor::{
             DeleteExecutor, LoadExecutor, SaveExecutor,
-            trace::{QueryTraceEvent, QueryTraceSink, TracePhase, TracePushdownDecision},
+            trace::{
+                QueryTraceEvent, QueryTraceSink, TracePhase, TracePushdownDecision,
+                TracePushdownRejectionReason,
+            },
         },
         index::IndexStore,
         query::{

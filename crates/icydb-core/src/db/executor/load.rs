@@ -6,16 +6,17 @@ use crate::{
             debug::{access_summary, yes_no},
             plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
             trace::{
-                QueryTraceSink, TraceExecutorKind, TracePushdownDecision, TraceScope,
-                emit_access_post_access_phases, finish_trace_from_result, start_plan_trace,
+                QueryTraceSink, TraceExecutorKind, TracePushdownDecision,
+                TracePushdownRejectionReason, TraceScope, emit_access_post_access_phases,
+                finish_trace_from_result, start_plan_trace,
             },
         },
         query::plan::{
             AccessPath, AccessPlan, ContinuationSignature, ContinuationToken, CursorBoundary,
             ExecutablePlan, LogicalPlan, OrderDirection, decode_pk_cursor_boundary,
             validate::{
-                SecondaryOrderPushdownEligibility, assess_secondary_order_pushdown_if_applicable,
-                validate_executor_plan,
+                PushdownApplicability, SecondaryOrderPushdownEligibility,
+                assess_secondary_order_pushdown_if_applicable_validated, validate_executor_plan,
             },
         },
         response::Response,
@@ -155,11 +156,13 @@ where
             }
 
             record_plan_metrics(&plan.access);
-            let secondary_pushdown_eligibility =
-                assess_secondary_order_pushdown_if_applicable(E::MODEL, &plan);
+            // Compute secondary ORDER BY pushdown eligibility once, then share the
+            // derived decision across trace and fast-path gating.
+            let secondary_pushdown_applicability =
+                Self::assess_secondary_order_pushdown_applicability(&plan);
             Self::emit_secondary_order_pushdown_trace(
                 trace.as_ref(),
-                secondary_pushdown_eligibility.as_ref(),
+                &secondary_pushdown_applicability,
             );
 
             if let Some(fast) = Self::try_execute_pk_order_stream(
@@ -168,33 +171,17 @@ where
                 cursor_boundary.as_ref(),
                 continuation_signature,
             )? {
-                record_rows_scanned::<E>(fast.rows_scanned);
-                emit_access_post_access_phases(
-                    trace.as_ref(),
-                    fast.rows_scanned,
-                    fast.post_access_rows,
-                );
-
-                set_rows_from_len(&mut span, fast.page.items.0.len());
-                return Ok(fast.page);
+                return Ok(Self::finish_fast_path(&mut span, trace.as_ref(), fast));
             }
 
             if let Some(fast) = Self::try_execute_secondary_index_order_stream(
                 &ctx,
                 &plan,
-                secondary_pushdown_eligibility.as_ref(),
+                &secondary_pushdown_applicability,
                 cursor_boundary.as_ref(),
                 continuation_signature,
             )? {
-                record_rows_scanned::<E>(fast.rows_scanned);
-                emit_access_post_access_phases(
-                    trace.as_ref(),
-                    fast.rows_scanned,
-                    fast.post_access_rows,
-                );
-
-                set_rows_from_len(&mut span, fast.page.items.0.len());
-                return Ok(fast.page);
+                return Ok(Self::finish_fast_path(&mut span, trace.as_ref(), fast));
             }
 
             let data_rows = ctx.rows_from_access_plan(&plan.access, plan.consistency)?;
@@ -202,20 +189,18 @@ where
 
             let mut rows = Context::deserialize_rows(data_rows)?;
             let access_rows = rows.len();
-
-            let stats =
-                plan.apply_post_access_with_cursor::<E, _>(&mut rows, cursor_boundary.as_ref())?;
-            let post_access_rows = rows.len();
-            let next_cursor =
-                Self::build_next_cursor(&plan, &rows, &stats, continuation_signature)?;
+            let page = Self::finalize_rows_into_page(
+                &plan,
+                &mut rows,
+                cursor_boundary.as_ref(),
+                continuation_signature,
+            )?;
+            let post_access_rows = page.items.0.len();
 
             emit_access_post_access_phases(trace.as_ref(), access_rows, post_access_rows);
 
-            set_rows_from_len(&mut span, rows.len());
-            Ok(CursorPage {
-                items: Response(rows),
-                next_cursor,
-            })
+            set_rows_from_len(&mut span, page.items.0.len());
+            Ok(page)
         })();
 
         finish_trace_from_result(trace, &result, |page| page.items.0.len());
@@ -226,24 +211,44 @@ where
     // Emit a deterministic trace marker for secondary ORDER BY pushdown decisions.
     fn emit_secondary_order_pushdown_trace(
         trace: Option<&TraceScope>,
-        eligibility: Option<&SecondaryOrderPushdownEligibility>,
+        applicability: &PushdownApplicability,
     ) {
         let Some(trace) = trace else {
             return;
         };
-        let Some(eligibility) = eligibility else {
+        let Some(trace_decision) = Self::trace_pushdown_decision_from_applicability(applicability)
+        else {
             return;
         };
 
-        let decision = match eligibility {
-            SecondaryOrderPushdownEligibility::Eligible { .. } => {
-                TracePushdownDecision::AcceptedSecondaryIndexOrder
-            }
-            SecondaryOrderPushdownEligibility::Rejected(_) => {
-                TracePushdownDecision::RejectedSecondaryIndexOrder
-            }
-        };
-        trace.pushdown(decision);
+        trace.pushdown(trace_decision);
+    }
+
+    // Apply shared metrics/trace/span completion for any fast-path branch.
+    fn finish_fast_path(
+        span: &mut Span<E>,
+        trace: Option<&TraceScope>,
+        fast: FastLoadResult<E>,
+    ) -> CursorPage<E> {
+        record_rows_scanned::<E>(fast.rows_scanned);
+        emit_access_post_access_phases(trace, fast.rows_scanned, fast.post_access_rows);
+        set_rows_from_len(span, fast.page.items.0.len());
+
+        fast.page
+    }
+
+    // Apply canonical post-access phases to scanned rows and assemble the cursor page.
+    fn finalize_rows_into_page(
+        plan: &LogicalPlan<E::Key>,
+        rows: &mut Vec<(Id<E>, E)>,
+        cursor_boundary: Option<&CursorBoundary>,
+        continuation_signature: ContinuationSignature,
+    ) -> Result<CursorPage<E>, InternalError> {
+        let stats = plan.apply_post_access_with_cursor::<E, _>(rows, cursor_boundary)?;
+        let next_cursor = Self::build_next_cursor(plan, rows, &stats, continuation_signature)?;
+        let items = Response(std::mem::take(rows));
+
+        Ok(CursorPage { items, next_cursor })
     }
 
     // Fast path for canonical primary-key ordering over full scans.
@@ -272,13 +277,12 @@ where
         let mut scan = Self::scan_pk_stream_rows(ctx, &config)?;
 
         // Phase 3: apply canonical post-access semantics and derive continuation.
-        let stats = plan.apply_post_access_with_cursor::<E, _>(&mut scan.rows, cursor_boundary)?;
-        let next_cursor =
-            Self::build_next_cursor(plan, &scan.rows, &stats, continuation_signature)?;
-        let page = CursorPage {
-            items: Response(scan.rows),
-            next_cursor,
-        };
+        let page = Self::finalize_rows_into_page(
+            plan,
+            &mut scan.rows,
+            cursor_boundary,
+            continuation_signature,
+        )?;
         Ok(Some(FastLoadResult {
             post_access_rows: page.items.0.len(),
             page,
@@ -291,15 +295,13 @@ where
     fn try_execute_secondary_index_order_stream(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
-        secondary_pushdown_eligibility: Option<&SecondaryOrderPushdownEligibility>,
+        secondary_pushdown_applicability: &PushdownApplicability,
         cursor_boundary: Option<&CursorBoundary>,
         continuation_signature: ContinuationSignature,
     ) -> Result<Option<FastLoadResult<E>>, InternalError> {
-        let Some(SecondaryOrderPushdownEligibility::Eligible { .. }) =
-            secondary_pushdown_eligibility
-        else {
+        if !Self::secondary_order_pushdown_is_eligible(secondary_pushdown_applicability) {
             return Ok(None);
-        };
+        }
 
         let AccessPlan::Path(AccessPath::IndexPrefix { index, values }) = &plan.access else {
             return Ok(None);
@@ -320,12 +322,12 @@ where
         let mut rows = Context::deserialize_rows(data_rows)?;
 
         // Phase 3: apply canonical post-access semantics (predicate/cursor/page) and continuation.
-        let stats = plan.apply_post_access_with_cursor::<E, _>(&mut rows, cursor_boundary)?;
-        let next_cursor = Self::build_next_cursor(plan, &rows, &stats, continuation_signature)?;
-        let page = CursorPage {
-            items: Response(rows),
-            next_cursor,
-        };
+        let page = Self::finalize_rows_into_page(
+            plan,
+            &mut rows,
+            cursor_boundary,
+            continuation_signature,
+        )?;
 
         Ok(Some(FastLoadResult {
             post_access_rows: page.items.0.len(),
@@ -355,6 +357,40 @@ where
             range_start_key,
             range_end_key,
         }))
+    }
+
+    // Assess secondary-index ORDER BY pushdown once for this execution and
+    // map matrix outcomes to executor decisions.
+    fn assess_secondary_order_pushdown_applicability(
+        plan: &LogicalPlan<E::Key>,
+    ) -> PushdownApplicability {
+        assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan)
+    }
+
+    // Derive trace-level accepted/rejected markers from shared applicability
+    // and eligibility enums.
+    fn trace_pushdown_decision_from_applicability(
+        applicability: &PushdownApplicability,
+    ) -> Option<TracePushdownDecision> {
+        match applicability {
+            PushdownApplicability::NotApplicable => None,
+            PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible {
+                ..
+            }) => Some(TracePushdownDecision::AcceptedSecondaryIndexOrder),
+            PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
+                reason,
+            )) => Some(TracePushdownDecision::RejectedSecondaryIndexOrder {
+                reason: TracePushdownRejectionReason::from(reason),
+            }),
+        }
+    }
+
+    // Fast-path eligibility gate derived from shared applicability enum.
+    fn secondary_order_pushdown_is_eligible(applicability: &PushdownApplicability) -> bool {
+        matches!(
+            applicability,
+            PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible { .. })
+        )
     }
 
     // Execute the store-range streaming phase for the PK fast path.

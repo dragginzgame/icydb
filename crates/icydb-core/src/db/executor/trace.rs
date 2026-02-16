@@ -3,7 +3,10 @@
 //! Tracing is optional, injected by the caller, and must not affect execution semantics.
 
 use crate::{
-    db::query::plan::{AccessPath, AccessPlan, ExecutablePlan, PlanFingerprint},
+    db::query::plan::{
+        AccessPath, AccessPlan, ExecutablePlan, PlanFingerprint,
+        validate::SecondaryOrderPushdownRejection,
+    },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
 };
@@ -54,13 +57,56 @@ pub enum TracePhase {
 }
 
 ///
+/// TracePushdownRejectionReason
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TracePushdownRejectionReason {
+    NoOrderBy,
+    AccessPathNotSingleIndexPrefix,
+    InvalidIndexPrefixBounds,
+    MissingPrimaryKeyTieBreak,
+    PrimaryKeyDirectionNotAscending,
+    NonAscendingDirection,
+    OrderFieldsDoNotMatchIndex,
+}
+
+impl From<&SecondaryOrderPushdownRejection> for TracePushdownRejectionReason {
+    fn from(value: &SecondaryOrderPushdownRejection) -> Self {
+        match value {
+            SecondaryOrderPushdownRejection::NoOrderBy => Self::NoOrderBy,
+            SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix => {
+                Self::AccessPathNotSingleIndexPrefix
+            }
+            SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds { .. } => {
+                Self::InvalidIndexPrefixBounds
+            }
+            SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak { .. } => {
+                Self::MissingPrimaryKeyTieBreak
+            }
+            SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending { .. } => {
+                Self::PrimaryKeyDirectionNotAscending
+            }
+            SecondaryOrderPushdownRejection::NonAscendingDirection { .. } => {
+                Self::NonAscendingDirection
+            }
+            SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex { .. } => {
+                Self::OrderFieldsDoNotMatchIndex
+            }
+        }
+    }
+}
+
+///
 /// TracePushdownDecision
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TracePushdownDecision {
     AcceptedSecondaryIndexOrder,
-    RejectedSecondaryIndexOrder,
+    RejectedSecondaryIndexOrder {
+        reason: TracePushdownRejectionReason,
+    },
 }
 
 ///

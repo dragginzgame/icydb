@@ -19,6 +19,20 @@ pub enum SecondaryOrderPushdownEligibility {
 }
 
 ///
+/// PushdownApplicability
+///
+/// Explicit applicability state for secondary-index ORDER BY pushdown.
+///
+/// This avoids overloading `Option<SecondaryOrderPushdownEligibility>` and
+/// keeps "not applicable" separate from "applicable but rejected".
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PushdownApplicability {
+    NotApplicable,
+    Applicable(SecondaryOrderPushdownEligibility),
+}
+
+///
 /// SecondaryOrderPushdownRejection
 ///
 /// Deterministic reason why secondary-index ORDER BY pushdown is not eligible.
@@ -82,8 +96,28 @@ pub fn assess_secondary_order_pushdown<K>(
         );
     }
 
+    assess_secondary_order_pushdown_for_applicable_shape(
+        model,
+        &order.fields,
+        index.name,
+        index.fields,
+        values.len(),
+    )
+}
+
+/// Evaluate pushdown eligibility for plans that are already known to be
+/// structurally applicable (ORDER BY + single index-prefix access path).
+///
+/// This helper is shared by both defensive and validated-plan assessors.
+fn assess_secondary_order_pushdown_for_applicable_shape(
+    model: &EntityModel,
+    order_fields: &[(String, OrderDirection)],
+    index_name: &'static str,
+    index_fields: &[&'static str],
+    prefix_len: usize,
+) -> SecondaryOrderPushdownEligibility {
     let pk_field = model.primary_key.name;
-    let Some((last_field, last_direction)) = order.fields.last() else {
+    let Some((last_field, last_direction)) = order_fields.last() else {
         return SecondaryOrderPushdownEligibility::Rejected(
             SecondaryOrderPushdownRejection::NoOrderBy,
         );
@@ -105,7 +139,7 @@ pub fn assess_secondary_order_pushdown<K>(
         );
     }
 
-    for (field, direction) in &order.fields {
+    for (field, direction) in order_fields {
         if *direction != OrderDirection::Asc {
             return SecondaryOrderPushdownEligibility::Rejected(
                 SecondaryOrderPushdownRejection::NonAscendingDirection {
@@ -115,35 +149,51 @@ pub fn assess_secondary_order_pushdown<K>(
         }
     }
 
-    let actual_non_pk: Vec<String> = order
-        .fields
-        .iter()
-        .take(order.fields.len().saturating_sub(1))
-        .map(|(field, _)| field.clone())
-        .collect();
-    let expected_full = index
-        .fields
-        .iter()
-        .map(|field| (*field).to_string())
-        .collect::<Vec<_>>();
-    let expected_suffix = index
-        .fields
-        .iter()
-        .skip(values.len())
-        .map(|field| (*field).to_string())
-        .collect::<Vec<_>>();
+    let actual_non_pk_len = order_fields.len().saturating_sub(1);
+    let actual_non_pk = || {
+        order_fields
+            .iter()
+            .take(actual_non_pk_len)
+            .map(|(field, _)| field.as_str())
+    };
 
-    if actual_non_pk == expected_suffix || actual_non_pk == expected_full {
+    let matches_expected_suffix = actual_non_pk_len
+        == index_fields.len().saturating_sub(prefix_len)
+        && actual_non_pk()
+            .zip(index_fields.iter().skip(prefix_len).copied())
+            .all(|(actual, expected)| actual == expected);
+
+    let matches_expected_full = actual_non_pk_len == index_fields.len()
+        && actual_non_pk()
+            .zip(index_fields.iter().copied())
+            .all(|(actual, expected)| actual == expected);
+
+    if matches_expected_suffix || matches_expected_full {
         return SecondaryOrderPushdownEligibility::Eligible {
-            index: index.name,
-            prefix_len: values.len(),
+            index: index_name,
+            prefix_len,
         };
     }
 
+    let actual_non_pk = order_fields
+        .iter()
+        .take(actual_non_pk_len)
+        .map(|(field, _)| field.clone())
+        .collect::<Vec<_>>();
+    let expected_full = index_fields
+        .iter()
+        .map(|field| (*field).to_string())
+        .collect::<Vec<_>>();
+    let expected_suffix = index_fields
+        .iter()
+        .skip(prefix_len)
+        .map(|field| (*field).to_string())
+        .collect::<Vec<_>>();
+
     SecondaryOrderPushdownEligibility::Rejected(
         SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-            index: index.name,
-            prefix_len: values.len(),
+            index: index_name,
+            prefix_len,
             expected_suffix,
             expected_full,
             actual: actual_non_pk,
@@ -151,21 +201,71 @@ pub fn assess_secondary_order_pushdown<K>(
     )
 }
 
+#[cfg(test)]
 /// Evaluate pushdown eligibility only when secondary-index ORDER BY is applicable.
 ///
-/// Returns `None` for non-applicable shapes:
+/// Returns `PushdownApplicability::NotApplicable` for non-applicable shapes:
 /// - no ORDER BY fields
 /// - access path is not a single index prefix
 pub fn assess_secondary_order_pushdown_if_applicable<K>(
     model: &EntityModel,
     plan: &LogicalPlan<K>,
-) -> Option<SecondaryOrderPushdownEligibility> {
+) -> PushdownApplicability {
     let eligibility = assess_secondary_order_pushdown(model, plan);
     match eligibility {
         SecondaryOrderPushdownEligibility::Rejected(
             SecondaryOrderPushdownRejection::NoOrderBy
             | SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
-        ) => None,
-        other => Some(other),
+        ) => PushdownApplicability::NotApplicable,
+        other => PushdownApplicability::Applicable(other),
     }
+}
+
+/// Evaluate pushdown applicability for plans that have already passed full
+/// logical/executor validation.
+///
+/// This variant keeps applicability explicit and assumes validated invariants
+/// with debug assertions, while preserving safe fallbacks in release builds.
+pub fn assess_secondary_order_pushdown_if_applicable_validated<K>(
+    model: &EntityModel,
+    plan: &LogicalPlan<K>,
+) -> PushdownApplicability {
+    let Some(order) = plan.order.as_ref() else {
+        return PushdownApplicability::NotApplicable;
+    };
+
+    if order.fields.is_empty() {
+        debug_assert!(
+            false,
+            "validated plan must not contain an empty ORDER BY specification"
+        );
+        return PushdownApplicability::NotApplicable;
+    }
+
+    let AccessPlan::Path(AccessPath::IndexPrefix { index, values }) = &plan.access else {
+        return PushdownApplicability::NotApplicable;
+    };
+
+    debug_assert!(
+        values.len() <= index.fields.len(),
+        "validated plan must keep index-prefix bounds within declared index fields"
+    );
+    let eligibility = if values.len() > index.fields.len() {
+        SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+                prefix_len: values.len(),
+                index_field_len: index.fields.len(),
+            },
+        )
+    } else {
+        assess_secondary_order_pushdown_for_applicable_shape(
+            model,
+            &order.fields,
+            index.name,
+            index.fields,
+            values.len(),
+        )
+    };
+
+    PushdownApplicability::Applicable(eligibility)
 }
