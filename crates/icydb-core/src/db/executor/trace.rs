@@ -5,7 +5,7 @@
 use crate::{
     db::query::plan::{
         AccessPlan, AccessPlanProjection, ExecutablePlan, PlanFingerprint, project_access_plan,
-        validate::SecondaryOrderPushdownRejection,
+        validate::{PushdownSurfaceEligibility, SecondaryOrderPushdownRejection},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::EntityKind,
@@ -108,6 +108,19 @@ pub enum TracePushdownDecision {
     RejectedSecondaryIndexOrder {
         reason: TracePushdownRejectionReason,
     },
+}
+
+impl From<PushdownSurfaceEligibility<'_>> for TracePushdownDecision {
+    fn from(value: PushdownSurfaceEligibility<'_>) -> Self {
+        match value {
+            PushdownSurfaceEligibility::EligibleSecondaryIndex { .. } => {
+                Self::AcceptedSecondaryIndexOrder
+            }
+            PushdownSurfaceEligibility::Rejected { reason } => Self::RejectedSecondaryIndexOrder {
+                reason: TracePushdownRejectionReason::from(reason),
+            },
+        }
+    }
 }
 
 ///

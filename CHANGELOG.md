@@ -5,6 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+
+## [0.10.2] – 2026-02-16
+
+### 🪲 Cleanup
+
+* Centralized `AccessPlan` projection in one shared visitor used by explain, trace, plan metrics, and hash encoding. This reduces drift risk when access variants evolve.
+* Centralized plan-shape semantics in `query::policy`, so intent checks now wrap policy errors instead of re-encoding rules in multiple layers.
+* Centralized commit-window setup for save and delete executors in one shared helper, reducing drift risk across single, batch, and delete commit paths.
+* Centralized pushdown surface mapping through one shared eligibility projection used by explain and trace, so adding new matrix outcomes requires fewer synchronized edits.
+
+## [0.10.1] – 2026-02-16
+
+* Macro codegen #[expect] changed to #[allow], oops.
+
 ## [0.10.0] – 2026-02-16 - Index Key Ordering
 
 ### 🧃 Summary
@@ -43,7 +57,6 @@ Index key format (`v0.10`):
 ### 🥨 Cleanup
 
 * Replaced many `#[allow(...)]` attributes with `#[expect(...)]` where valid, and removed unfulfilled expects.
-* Centralized `AccessPlan` projection in one shared visitor used by explain, trace, plan metrics, and hash encoding. This reduces drift risk when access variants evolve.
 
 Example (simplified):
 

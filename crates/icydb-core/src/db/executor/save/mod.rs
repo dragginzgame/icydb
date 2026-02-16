@@ -7,14 +7,14 @@ mod tests;
 use crate::value::Value;
 use crate::{
     db::{
-        CommitMarker, CommitRowOp, Db, begin_commit,
+        CommitRowOp, Db,
         decode::decode_entity_with_expected_key,
         ensure_recovered_for_write,
         executor::{
             Context, ExecutorError,
             mutation::{
-                apply_prepared_row_ops, emit_prepared_row_op_delta_metrics,
-                preflight_prepare_row_ops, summarize_prepared_row_ops,
+                OpenCommitWindow, apply_prepared_row_ops, emit_prepared_row_op_delta_metrics,
+                open_commit_window,
             },
             trace::{
                 QueryTraceSink, TraceExecutorKind, finish_trace_from_result, start_exec_trace,
@@ -210,12 +210,12 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             // Stage-2 commit protocol:
             // - preflight row-op preparation before persisting the marker
             // - then apply prepared row ops mechanically.
-            let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &marker_row_ops)?;
-            let marker = CommitMarker::new(marker_row_ops)?;
-            let delta = summarize_prepared_row_ops(&prepared_row_ops);
+            let OpenCommitWindow {
+                commit,
+                prepared_row_ops,
+                delta,
+            } = open_commit_window::<E>(&self.db, marker_row_ops)?;
             let rows_touched = u64::try_from(delta.rows_touched).unwrap_or(u64::MAX);
-
-            let commit = begin_commit(marker)?;
             commit_started = true;
             self.debug_log("Atomic save batch commit window opened");
 
@@ -421,10 +421,11 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             // Durable correctness is marker + recovery owned. Apply guard rollback
             // here is best-effort, in-process cleanup only.
             let marker_row_ops = vec![marker_row_op];
-            let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &marker_row_ops)?;
-            let marker = CommitMarker::new(marker_row_ops)?;
-            let delta = summarize_prepared_row_ops(&prepared_row_ops);
-            let commit = begin_commit(marker)?;
+            let OpenCommitWindow {
+                commit,
+                prepared_row_ops,
+                delta,
+            } = open_commit_window::<E>(&self.db, marker_row_ops)?;
             commit_started = true;
             self.debug_log("Save commit window opened");
 

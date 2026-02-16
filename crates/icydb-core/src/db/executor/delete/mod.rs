@@ -2,12 +2,12 @@ mod helpers;
 
 use crate::{
     db::{
-        CommitMarker, CommitRowOp, Db, begin_commit, ensure_recovered_for_write,
+        CommitRowOp, Db, ensure_recovered_for_write,
         executor::{
             debug::{access_summary, yes_no},
             mutation::{
-                apply_prepared_row_ops, emit_index_delta_metrics, preflight_prepare_row_ops,
-                summarize_prepared_row_ops,
+                OpenCommitWindow, apply_prepared_row_ops, emit_index_delta_metrics,
+                open_commit_window,
             },
             plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
             trace::{
@@ -176,10 +176,11 @@ where
                     ))
                 })
                 .collect::<Result<Vec<_>, InternalError>>()?;
-            let prepared_row_ops = preflight_prepare_row_ops::<E>(&self.db, &row_ops)?;
-            let delta = summarize_prepared_row_ops(&prepared_row_ops);
-            let marker = CommitMarker::new(row_ops)?;
-            let commit = begin_commit(marker)?;
+            let OpenCommitWindow {
+                commit,
+                prepared_row_ops,
+                delta,
+            } = open_commit_window::<E>(&self.db, row_ops)?;
             commit_started = true;
             self.debug_log("Delete commit window opened");
 

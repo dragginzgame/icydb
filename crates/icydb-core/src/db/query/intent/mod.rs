@@ -188,9 +188,9 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             Err(SortLowerError::Plan(err)) => return Err(QueryError::from(*err)),
         };
 
-        if order.fields.is_empty() {
-            return Err(QueryError::Intent(IntentError::EmptyOrderSpec));
-        }
+        policy::validate_order_shape(Some(&order))
+            .map_err(IntentError::from)
+            .map_err(QueryError::from)?;
 
         Ok(self.order_spec(order))
     }
@@ -336,15 +336,14 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         Ok(plan)
     }
 
-    // Validate delete-specific intent rules before planning.
+    // Validate pre-plan policy invariants and key-access rules before planning.
     fn validate_intent(&self) -> Result<(), IntentError> {
         if self.key_access_conflict {
             return Err(IntentError::KeyAccessConflict);
         }
 
-        if policy::has_empty_order(self.order.as_ref()) {
-            return Err(IntentError::EmptyOrderSpec);
-        }
+        policy::validate_intent_plan_shape(self.mode, self.order.as_ref())
+            .map_err(IntentError::from)?;
 
         if let Some(state) = &self.key_access {
             match state.kind {
@@ -356,15 +355,6 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
                 }
                 _ => {
                     // NOTE: Single/Many without predicates impose no additional constraints.
-                }
-            }
-        }
-
-        match self.mode {
-            QueryMode::Load(_) => {}
-            QueryMode::Delete(spec) => {
-                if spec.limit.is_some() && !policy::has_explicit_order(self.order.as_ref()) {
-                    return Err(IntentError::DeleteLimitRequiresOrder);
                 }
             }
         }
@@ -604,11 +594,8 @@ impl From<PlanError> for QueryError {
 
 #[derive(Clone, Copy, Debug, ThisError)]
 pub enum IntentError {
-    #[error("delete limit requires an explicit ordering")]
-    DeleteLimitRequiresOrder,
-
-    #[error("order specification must include at least one field")]
-    EmptyOrderSpec,
+    #[error("{0}")]
+    PlanShape(#[from] policy::PlanPolicyError),
 
     #[error("by_ids() cannot be combined with predicates")]
     ByIdsWithPredicate,

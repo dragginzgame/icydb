@@ -32,6 +32,7 @@ use thiserror::Error as ThisError;
 pub(crate) use access::{validate_access_plan, validate_access_plan_model};
 pub(crate) use order::{validate_order, validate_primary_key_tie_break};
 pub(crate) use pushdown::PushdownApplicability;
+pub(crate) use pushdown::PushdownSurfaceEligibility;
 pub(crate) use pushdown::SecondaryOrderPushdownEligibility;
 pub use pushdown::SecondaryOrderPushdownRejection;
 pub(crate) use pushdown::assess_secondary_order_pushdown;

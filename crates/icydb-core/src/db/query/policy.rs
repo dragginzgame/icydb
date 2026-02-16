@@ -7,18 +7,24 @@ use crate::db::query::{
     LoadSpec, QueryMode,
     plan::{LogicalPlan, OrderSpec},
 };
+use thiserror::Error as ThisError;
 
 ///
 /// PlanPolicyError
 /// Canonical policy failures for logical plan shape invariants.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
 pub enum PlanPolicyError {
+    #[error("order specification must include at least one field")]
     EmptyOrderSpec,
+    #[error("delete plans must not include pagination")]
     DeletePlanWithPagination,
+    #[error("load plans must not include delete limits")]
     LoadPlanWithDeleteLimit,
+    #[error("delete limit requires an explicit ordering")]
     DeleteLimitRequiresOrder,
+    #[error("unordered pagination is not allowed")]
     UnorderedPagination,
 }
 
@@ -109,21 +115,43 @@ pub const fn validate_cursor_paging_requirements(
     Ok(())
 }
 
+/// Validate order-shape rules shared across intent and logical plan boundaries.
+pub fn validate_order_shape(order: Option<&OrderSpec>) -> Result<(), PlanPolicyError> {
+    if has_empty_order(order) {
+        return Err(PlanPolicyError::EmptyOrderSpec);
+    }
+
+    Ok(())
+}
+
+/// Validate intent-level plan-shape rules derived from query mode + order.
+pub fn validate_intent_plan_shape(
+    mode: QueryMode,
+    order: Option<&OrderSpec>,
+) -> Result<(), PlanPolicyError> {
+    validate_order_shape(order)?;
+
+    let has_order = has_explicit_order(order);
+    if matches!(mode, QueryMode::Delete(spec) if spec.limit.is_some()) && !has_order {
+        return Err(PlanPolicyError::DeleteLimitRequiresOrder);
+    }
+
+    Ok(())
+}
+
 /// Validate mode/order/pagination invariants for a logical plan.
 pub fn validate_plan_shape<K>(plan: &LogicalPlan<K>) -> Result<(), PlanPolicyError> {
-    let has_order = has_explicit_order(plan.order.as_ref());
+    validate_order_shape(plan.order.as_ref())?;
 
-    if has_empty_order(plan.order.as_ref()) {
-        return Err(PlanPolicyError::EmptyOrderSpec);
+    let has_order = has_explicit_order(plan.order.as_ref());
+    if plan.delete_limit.is_some() && !has_order {
+        return Err(PlanPolicyError::DeleteLimitRequiresOrder);
     }
 
     match plan.mode {
         QueryMode::Delete(_) => {
             if plan.page.is_some() {
                 return Err(PlanPolicyError::DeletePlanWithPagination);
-            }
-            if plan.delete_limit.is_some() && !has_order {
-                return Err(PlanPolicyError::DeleteLimitRequiresOrder);
             }
         }
         QueryMode::Load(_) => {

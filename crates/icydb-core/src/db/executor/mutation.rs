@@ -1,7 +1,8 @@
 use crate::{
     db::{
-        CommitApplyGuard, CommitGuard, CommitRowOp, Db, PreparedRowCommitOp, finish_commit,
-        prepare_row_commit_for_entity, rollback_prepared_row_ops_reverse, snapshot_row_rollback,
+        CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, Db, PreparedRowCommitOp,
+        begin_commit, finish_commit, prepare_row_commit_for_entity,
+        rollback_prepared_row_ops_reverse, snapshot_row_rollback,
     },
     error::InternalError,
     obs::sink::{self, MetricsEvent},
@@ -21,6 +22,19 @@ pub(super) struct PreparedRowOpDelta {
     pub(super) index_removes: usize,
     pub(super) reverse_index_inserts: usize,
     pub(super) reverse_index_removes: usize,
+}
+
+///
+/// OpenCommitWindow
+///
+/// Commit-window staging bundle shared across save/delete executors.
+/// Contains the persisted commit guard, preflight-prepared row ops, and
+/// precomputed delta counters.
+///
+pub(super) struct OpenCommitWindow {
+    pub(super) commit: CommitGuard,
+    pub(super) prepared_row_ops: Vec<PreparedRowCommitOp>,
+    pub(super) delta: PreparedRowOpDelta,
 }
 
 /// Aggregate index and reverse-index deltas across prepared row operations.
@@ -110,6 +124,26 @@ pub(super) fn preflight_prepare_row_ops<E: EntityKind + EntityValue>(
 
     rollback_prepared_row_ops_reverse(rollback);
     Ok(prepared)
+}
+
+/// Preflight row ops, build marker, and persist the commit window.
+///
+/// This is the single orchestration entry point for executor commit-window
+/// setup so save/delete paths stay behaviorally aligned.
+pub(super) fn open_commit_window<E: EntityKind + EntityValue>(
+    db: &Db<E::Canister>,
+    row_ops: Vec<CommitRowOp>,
+) -> Result<OpenCommitWindow, InternalError> {
+    let prepared_row_ops = preflight_prepare_row_ops::<E>(db, &row_ops)?;
+    let delta = summarize_prepared_row_ops(&prepared_row_ops);
+    let marker = CommitMarker::new(row_ops)?;
+    let commit = begin_commit(marker)?;
+
+    Ok(OpenCommitWindow {
+        commit,
+        prepared_row_ops,
+        delta,
+    })
 }
 
 /// Apply prepared row ops under the shared commit-window guard.

@@ -6,17 +6,16 @@ use crate::{
             debug::{access_summary, yes_no},
             plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
             trace::{
-                QueryTraceSink, TraceExecutorKind, TracePushdownDecision,
-                TracePushdownRejectionReason, TraceScope, emit_access_post_access_phases,
-                finish_trace_from_result, start_plan_trace,
+                QueryTraceSink, TraceExecutorKind, TracePushdownDecision, TraceScope,
+                emit_access_post_access_phases, finish_trace_from_result, start_plan_trace,
             },
         },
         query::plan::{
             AccessPath, AccessPlan, ContinuationSignature, ContinuationToken, CursorBoundary,
             ExecutablePlan, LogicalPlan, OrderDirection, decode_pk_cursor_boundary,
             validate::{
-                PushdownApplicability, SecondaryOrderPushdownEligibility,
-                assess_secondary_order_pushdown_if_applicable_validated, validate_executor_plan,
+                PushdownApplicability, assess_secondary_order_pushdown_if_applicable_validated,
+                validate_executor_plan,
             },
         },
         response::Response,
@@ -216,10 +215,10 @@ where
         let Some(trace) = trace else {
             return;
         };
-        let Some(trace_decision) = Self::trace_pushdown_decision_from_applicability(applicability)
-        else {
+        let Some(surface) = applicability.surface_eligibility() else {
             return;
         };
+        let trace_decision = TracePushdownDecision::from(surface);
 
         trace.pushdown(trace_decision);
     }
@@ -299,7 +298,7 @@ where
         cursor_boundary: Option<&CursorBoundary>,
         continuation_signature: ContinuationSignature,
     ) -> Result<Option<FastLoadResult<E>>, InternalError> {
-        if !Self::secondary_order_pushdown_is_eligible(secondary_pushdown_applicability) {
+        if !secondary_pushdown_applicability.is_eligible() {
             return Ok(None);
         }
 
@@ -365,32 +364,6 @@ where
         plan: &LogicalPlan<E::Key>,
     ) -> PushdownApplicability {
         assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan)
-    }
-
-    // Derive trace-level accepted/rejected markers from shared applicability
-    // and eligibility enums.
-    fn trace_pushdown_decision_from_applicability(
-        applicability: &PushdownApplicability,
-    ) -> Option<TracePushdownDecision> {
-        match applicability {
-            PushdownApplicability::NotApplicable => None,
-            PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible {
-                ..
-            }) => Some(TracePushdownDecision::AcceptedSecondaryIndexOrder),
-            PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
-                reason,
-            )) => Some(TracePushdownDecision::RejectedSecondaryIndexOrder {
-                reason: TracePushdownRejectionReason::from(reason),
-            }),
-        }
-    }
-
-    // Fast-path eligibility gate derived from shared applicability enum.
-    const fn secondary_order_pushdown_is_eligible(applicability: &PushdownApplicability) -> bool {
-        matches!(
-            applicability,
-            PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible { .. })
-        )
     }
 
     // Execute the store-range streaming phase for the PK fast path.

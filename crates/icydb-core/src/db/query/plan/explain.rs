@@ -8,8 +8,8 @@ use crate::{
     db::query::{
         QueryMode, ReadConsistency,
         plan::validate::{
-            SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
-            assess_secondary_order_pushdown,
+            PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
+            SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
         },
         predicate::{CompareOp, ComparePredicate, Predicate, coercion::CoercionSpec, normalize},
     },
@@ -213,11 +213,17 @@ fn explain_order_pushdown<K>(
 
 impl From<SecondaryOrderPushdownEligibility> for ExplainOrderPushdown {
     fn from(value: SecondaryOrderPushdownEligibility) -> Self {
+        Self::from(PushdownSurfaceEligibility::from(&value))
+    }
+}
+
+impl From<PushdownSurfaceEligibility<'_>> for ExplainOrderPushdown {
+    fn from(value: PushdownSurfaceEligibility<'_>) -> Self {
         match value {
-            SecondaryOrderPushdownEligibility::Eligible { index, prefix_len } => {
+            PushdownSurfaceEligibility::EligibleSecondaryIndex { index, prefix_len } => {
                 Self::EligibleSecondaryIndex { index, prefix_len }
             }
-            SecondaryOrderPushdownEligibility::Rejected(reason) => Self::Matrix(reason),
+            PushdownSurfaceEligibility::Rejected { reason } => Self::Matrix(reason.clone()),
         }
     }
 }

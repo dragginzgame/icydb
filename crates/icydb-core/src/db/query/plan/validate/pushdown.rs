@@ -32,6 +32,65 @@ pub enum PushdownApplicability {
     Applicable(SecondaryOrderPushdownEligibility),
 }
 
+impl PushdownApplicability {
+    /// Return true when this applicability state is eligible for secondary-order pushdown.
+    #[must_use]
+    pub const fn is_eligible(&self) -> bool {
+        matches!(
+            self,
+            Self::Applicable(SecondaryOrderPushdownEligibility::Eligible { .. })
+        )
+    }
+
+    /// Return a shared surface projection when pushdown applicability is present.
+    #[must_use]
+    pub const fn surface_eligibility(&self) -> Option<PushdownSurfaceEligibility<'_>> {
+        match self {
+            Self::NotApplicable => None,
+            Self::Applicable(SecondaryOrderPushdownEligibility::Eligible { index, prefix_len }) => {
+                Some(PushdownSurfaceEligibility::EligibleSecondaryIndex {
+                    index,
+                    prefix_len: *prefix_len,
+                })
+            }
+            Self::Applicable(SecondaryOrderPushdownEligibility::Rejected(reason)) => {
+                Some(PushdownSurfaceEligibility::Rejected { reason })
+            }
+        }
+    }
+}
+
+///
+/// PushdownSurfaceEligibility
+///
+/// Shared conversion boundary from core eligibility into surface-facing
+/// projections used by explain and trace layers.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PushdownSurfaceEligibility<'a> {
+    EligibleSecondaryIndex {
+        index: &'static str,
+        prefix_len: usize,
+    },
+    Rejected {
+        reason: &'a SecondaryOrderPushdownRejection,
+    },
+}
+
+impl<'a> From<&'a SecondaryOrderPushdownEligibility> for PushdownSurfaceEligibility<'a> {
+    fn from(value: &'a SecondaryOrderPushdownEligibility) -> Self {
+        match value {
+            SecondaryOrderPushdownEligibility::Eligible { index, prefix_len } => {
+                Self::EligibleSecondaryIndex {
+                    index,
+                    prefix_len: *prefix_len,
+                }
+            }
+            SecondaryOrderPushdownEligibility::Rejected(reason) => Self::Rejected { reason },
+        }
+    }
+}
+
 ///
 /// SecondaryOrderPushdownRejection
 ///
