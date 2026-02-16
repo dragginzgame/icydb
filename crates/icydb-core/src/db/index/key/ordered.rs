@@ -684,6 +684,7 @@ mod tests {
     // Deterministic property-style check: for each primitive family fixture,
     // canonical value ordering must match canonical encoded-byte ordering.
     #[test]
+    #[expect(clippy::too_many_lines)]
     fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
         let families: Vec<(&str, Vec<Value>)> = vec![
             ("Bool", vec![Value::Bool(false), Value::Bool(true)]),

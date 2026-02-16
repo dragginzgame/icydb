@@ -618,4 +618,93 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn explain_without_model_reports_missing_model_context() {
+        let mut plan: LogicalPlan<Value> = LogicalPlan::new(
+            AccessPath::IndexPrefix {
+                index: PUSHDOWN_INDEX,
+                values: vec![Value::Text("alpha".to_string())],
+            },
+            ReadConsistency::MissingOk,
+        );
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+
+        assert_eq!(
+            plan.explain().order_pushdown,
+            ExplainOrderPushdown::Rejected {
+                reason: ExplainOrderPushdownRejection::MissingModelContext,
+            }
+        );
+    }
+
+    #[test]
+    fn explain_pushdown_rejection_mapping_covers_all_variants() {
+        let cases = vec![
+            (
+                SecondaryOrderPushdownRejection::NoOrderBy,
+                ExplainOrderPushdownRejection::NoOrderBy,
+            ),
+            (
+                SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+                ExplainOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+            ),
+            (
+                SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+                    prefix_len: 3,
+                    index_field_len: 2,
+                },
+                ExplainOrderPushdownRejection::InvalidIndexPrefixBounds {
+                    prefix_len: 3,
+                    index_field_len: 2,
+                },
+            ),
+            (
+                SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
+                    field: "id".to_string(),
+                },
+                ExplainOrderPushdownRejection::MissingPrimaryKeyTieBreak {
+                    field: "id".to_string(),
+                },
+            ),
+            (
+                SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
+                    field: "id".to_string(),
+                },
+                ExplainOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
+                    field: "id".to_string(),
+                },
+            ),
+            (
+                SecondaryOrderPushdownRejection::NonAscendingDirection {
+                    field: "rank".to_string(),
+                },
+                ExplainOrderPushdownRejection::NonAscendingDirection {
+                    field: "rank".to_string(),
+                },
+            ),
+            (
+                SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+                    index: "explain::pushdown_tag",
+                    prefix_len: 1,
+                    expected_suffix: vec!["rank".to_string()],
+                    expected_full: vec!["group".to_string(), "rank".to_string()],
+                    actual: vec!["other".to_string()],
+                },
+                ExplainOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+                    index: "explain::pushdown_tag",
+                    prefix_len: 1,
+                    expected_suffix: vec!["rank".to_string()],
+                    expected_full: vec!["group".to_string(), "rank".to_string()],
+                    actual: vec!["other".to_string()],
+                },
+            ),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(map_pushdown_rejection(input), expected);
+        }
+    }
 }

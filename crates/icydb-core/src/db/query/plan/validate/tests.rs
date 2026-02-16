@@ -61,6 +61,18 @@ fn model_with_index() -> &'static EntityModel {
     <PlanValidateIndexedEntity as EntitySchema>::MODEL
 }
 
+fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> LogicalPlan<Value> {
+    LogicalPlan {
+        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        access,
+        predicate: None,
+        order,
+        delete_limit: None,
+        page: None,
+        consistency: crate::db::query::ReadConsistency::MissingOk,
+    }
+}
+
 #[test]
 fn model_rejects_missing_primary_key() {
     // Invalid test scaffolding: models are hand-built to exercise
@@ -495,4 +507,146 @@ fn secondary_order_pushdown_rejects_descending_primary_key() {
             }
         )
     );
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
+    struct RejectionCase {
+        name: &'static str,
+        plan: LogicalPlan<Value>,
+        expected: SecondaryOrderPushdownRejection,
+    }
+
+    let cases = vec![
+        RejectionCase {
+            name: "no_order_by_none",
+            plan: load_plan(
+                AccessPlan::Path(AccessPath::IndexPrefix {
+                    index: INDEX_MODEL,
+                    values: vec![Value::Text("a".to_string())],
+                }),
+                None,
+            ),
+            expected: SecondaryOrderPushdownRejection::NoOrderBy,
+        },
+        RejectionCase {
+            name: "no_order_by_empty_fields",
+            plan: load_plan(
+                AccessPlan::Path(AccessPath::IndexPrefix {
+                    index: INDEX_MODEL,
+                    values: vec![Value::Text("a".to_string())],
+                }),
+                Some(OrderSpec { fields: vec![] }),
+            ),
+            expected: SecondaryOrderPushdownRejection::NoOrderBy,
+        },
+        RejectionCase {
+            name: "access_path_not_single_index_prefix",
+            plan: load_plan(
+                AccessPlan::Path(AccessPath::FullScan),
+                Some(OrderSpec {
+                    fields: vec![("id".to_string(), OrderDirection::Asc)],
+                }),
+            ),
+            expected: SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+        },
+        RejectionCase {
+            name: "invalid_index_prefix_bounds",
+            plan: load_plan(
+                AccessPlan::Path(AccessPath::IndexPrefix {
+                    index: INDEX_MODEL,
+                    values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
+                }),
+                Some(OrderSpec {
+                    fields: vec![("id".to_string(), OrderDirection::Asc)],
+                }),
+            ),
+            expected: SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+                prefix_len: 2,
+                index_field_len: 1,
+            },
+        },
+        RejectionCase {
+            name: "missing_primary_key_tie_break",
+            plan: load_plan(
+                AccessPlan::Path(AccessPath::IndexPrefix {
+                    index: INDEX_MODEL,
+                    values: vec![Value::Text("a".to_string())],
+                }),
+                Some(OrderSpec {
+                    fields: vec![("tag".to_string(), OrderDirection::Asc)],
+                }),
+            ),
+            expected: SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
+                field: "id".to_string(),
+            },
+        },
+        RejectionCase {
+            name: "primary_key_direction_not_ascending",
+            plan: load_plan(
+                AccessPlan::Path(AccessPath::IndexPrefix {
+                    index: INDEX_MODEL,
+                    values: vec![Value::Text("a".to_string())],
+                }),
+                Some(OrderSpec {
+                    fields: vec![("id".to_string(), OrderDirection::Desc)],
+                }),
+            ),
+            expected: SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
+                field: "id".to_string(),
+            },
+        },
+        RejectionCase {
+            name: "non_ascending_direction",
+            plan: load_plan(
+                AccessPlan::Path(AccessPath::IndexPrefix {
+                    index: INDEX_MODEL,
+                    values: vec![Value::Text("a".to_string())],
+                }),
+                Some(OrderSpec {
+                    fields: vec![
+                        ("tag".to_string(), OrderDirection::Desc),
+                        ("id".to_string(), OrderDirection::Asc),
+                    ],
+                }),
+            ),
+            expected: SecondaryOrderPushdownRejection::NonAscendingDirection {
+                field: "tag".to_string(),
+            },
+        },
+        RejectionCase {
+            name: "order_fields_do_not_match_index",
+            plan: load_plan(
+                AccessPlan::Path(AccessPath::IndexPrefix {
+                    index: INDEX_MODEL,
+                    values: vec![Value::Text("a".to_string())],
+                }),
+                Some(OrderSpec {
+                    fields: vec![
+                        ("rank".to_string(), OrderDirection::Asc),
+                        ("id".to_string(), OrderDirection::Asc),
+                    ],
+                }),
+            ),
+            expected: SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+                index: INDEX_MODEL.name,
+                prefix_len: 1,
+                expected_suffix: vec![],
+                expected_full: vec!["tag".to_string()],
+                actual: vec!["rank".to_string()],
+            },
+        },
+    ];
+
+    let model = model_with_index();
+    for case in cases {
+        let actual = assess_secondary_order_pushdown(model, &case.plan);
+        assert_eq!(
+            actual,
+            SecondaryOrderPushdownEligibility::Rejected(case.expected),
+            "unexpected rejection for case '{}'",
+            case.name
+        );
+    }
 }

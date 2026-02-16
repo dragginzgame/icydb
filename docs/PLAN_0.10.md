@@ -37,10 +37,10 @@ Estimated completion toward the `0.10.x` goals in this plan:
 * Canonical Primitive Encoding: **75%**
 * Schema Constraints and Field Limit Discipline: **100%** (carried forward)
 * In-Place Index Key Replacement: **100%**
-* Ordered Traversal and Pagination Parity: **35%**
+* Ordered Traversal and Pagination Parity: **100%**
 * Verification and Property Coverage: **90%**
 
-Overall estimated progress: **~79%**
+Overall estimated progress: **~92%**
 
 ---
 
@@ -402,7 +402,7 @@ semantic drift.
 
 ## Execution Checklist (Step 1)
 
-Current status: **In progress** (estimated ~35%)
+Current status: **Complete** (100%)
 
 * [x] Canonical index keys provide stable lexicographic ordering for prefix and range windows
 * [x] Prefix-bound builders are wired for user/system namespace isolation
@@ -461,8 +461,12 @@ Why this falls back:
 
 ### Next Implementation Slice
 
-* [x] Add the ORDER BY pushdown eligibility matrix to planning validation and emit explicit rejection reasons
+* [x] Add the ORDER BY pushdown eligibility matrix and explicit rejection reasons for explain + executor usage
+* [x] Keep planning validation semantic-only (no pushdown diagnostics side channel in `0.10`)
 * [x] Add parity tests that compare pushdown-eligible output against current fallback output for the same query shape
+
+> TODO (0.12+): consider a real planner diagnostics channel if pushdown
+> rejection reasons need to be emitted at validation time.
 
 ---
 

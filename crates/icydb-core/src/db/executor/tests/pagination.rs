@@ -1193,6 +1193,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
@@ -1249,7 +1250,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
 
     let pushdown_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
+        .filter(predicate)
         .order_by("rank")
         .limit(2)
         .plan()
@@ -1305,6 +1306,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
@@ -1379,7 +1381,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .clone();
 
     let pushdown_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
+        .filter(predicate)
         .order_by("rank")
         .limit(2)
         .plan()
@@ -1435,6 +1437,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();

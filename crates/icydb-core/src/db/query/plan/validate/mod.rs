@@ -199,8 +199,17 @@ pub(crate) fn validate_logical_plan_model(
         validate_primary_key_tie_break(model, order)?;
     }
 
-    // Keep pushdown eligibility diagnostics aligned with planning validation.
-    let _pushdown_eligibility = assess_secondary_order_pushdown(model, plan);
+    // -------------------------------------------------------------------------
+    // TODO(0.12+): Add a real planner diagnostics channel for pushdown reasons.
+    // -------------------------------------------------------------------------
+    // 0.10 deliberately keeps logical validation purely semantic.
+    // Secondary ORDER BY pushdown eligibility is currently computed only where
+    // it is consumed:
+    // - explain output (`explain_with_model`)
+    // - executor path gating/trace emission
+    //
+    // If/when we introduce planner diagnostics, wire pushdown rejection reasons
+    // through that channel rather than recomputing or dropping values here.
 
     validate_access_plan_model(schema, model, &plan.access)?;
     semantics::validate_plan_semantics(plan)?;

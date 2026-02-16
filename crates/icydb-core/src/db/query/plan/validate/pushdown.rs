@@ -10,7 +10,7 @@ use crate::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SecondaryOrderPushdownEligibility {
+pub enum SecondaryOrderPushdownEligibility {
     Eligible {
         index: &'static str,
         prefix_len: usize,
@@ -25,7 +25,7 @@ pub(crate) enum SecondaryOrderPushdownEligibility {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SecondaryOrderPushdownRejection {
+pub enum SecondaryOrderPushdownRejection {
     NoOrderBy,
     AccessPathNotSingleIndexPrefix,
     InvalidIndexPrefixBounds {
@@ -51,7 +51,7 @@ pub(crate) enum SecondaryOrderPushdownRejection {
 }
 
 /// Evaluate the secondary-index ORDER BY pushdown matrix for one plan.
-pub(crate) fn assess_secondary_order_pushdown<K>(
+pub fn assess_secondary_order_pushdown<K>(
     model: &EntityModel,
     plan: &LogicalPlan<K>,
 ) -> SecondaryOrderPushdownEligibility {

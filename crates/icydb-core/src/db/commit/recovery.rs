@@ -167,7 +167,7 @@ fn rebuild_secondary_indexes_in_place(
         let rows = handle.with_data(|data_store| {
             data_store
                 .iter()
-                .map(|entry| (*entry.key(), entry.value().clone()))
+                .map(|entry| (*entry.key(), entry.value()))
                 .collect::<Vec<(RawDataKey, RawRow)>>()
         });
 
@@ -177,8 +177,8 @@ fn rebuild_secondary_indexes_in_place(
                     ErrorClass::Corruption,
                     ErrorOrigin::Store,
                     format!(
-                        "startup index rebuild failed: invalid data key in store '{}' ({err})",
-                        store_path
+                        "startup index rebuild failed: invalid data key in store '{store_path}' ({err})"
+
                     ),
                 )
             })?;

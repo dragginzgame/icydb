@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Startup recovery now rebuilds secondary indexes from saved rows, so stale index entries are corrected before normal reads and writes continue.
 * Rebuild is fail-closed: if rebuild hits bad row bytes or hook wiring issues, recovery restores the previous index snapshot and returns a classified error.
 
+Index key format (`v0.10`):
+
+```text
+[key_kind:u8][index_id:fixed][component_count:u8]
+[component_len:u16be][component_bytes]...
+[pk_len:u16be][pk_bytes]
+```
+
 ### 🧩 Testing
 
 * Added golden-byte tests that fail if key encoding changes.

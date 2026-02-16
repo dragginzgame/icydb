@@ -155,7 +155,11 @@ where
             }
 
             record_plan_metrics(&plan.access);
-            Self::emit_secondary_order_pushdown_trace(trace.as_ref(), &plan);
+            let secondary_pushdown_eligibility = Self::secondary_order_pushdown_eligibility(&plan);
+            Self::emit_secondary_order_pushdown_trace(
+                trace.as_ref(),
+                secondary_pushdown_eligibility.as_ref(),
+            );
 
             if let Some(fast) = Self::try_execute_pk_order_stream(
                 &ctx,
@@ -177,6 +181,7 @@ where
             if let Some(fast) = Self::try_execute_secondary_index_order_stream(
                 &ctx,
                 &plan,
+                secondary_pushdown_eligibility.as_ref(),
                 cursor_boundary.as_ref(),
                 continuation_signature,
             )? {
@@ -217,27 +222,40 @@ where
         result
     }
 
-    // Emit a deterministic trace marker for secondary ORDER BY pushdown decisions.
-    fn emit_secondary_order_pushdown_trace(trace: Option<&TraceScope>, plan: &LogicalPlan<E::Key>) {
-        let Some(trace) = trace else {
-            return;
-        };
-
+    // Evaluate secondary-index ORDER BY pushdown once per plan execution.
+    fn secondary_order_pushdown_eligibility(
+        plan: &LogicalPlan<E::Key>,
+    ) -> Option<SecondaryOrderPushdownEligibility> {
         if !matches!(
             plan.access,
             AccessPlan::Path(AccessPath::IndexPrefix { .. })
         ) {
-            return;
+            return None;
         }
-        if !plan
+        if plan
             .order
             .as_ref()
-            .is_some_and(|order| !order.fields.is_empty())
+            .is_none_or(|order| order.fields.is_empty())
         {
-            return;
+            return None;
         }
 
-        let decision = match assess_secondary_order_pushdown(E::MODEL, plan) {
+        Some(assess_secondary_order_pushdown(E::MODEL, plan))
+    }
+
+    // Emit a deterministic trace marker for secondary ORDER BY pushdown decisions.
+    fn emit_secondary_order_pushdown_trace(
+        trace: Option<&TraceScope>,
+        eligibility: Option<&SecondaryOrderPushdownEligibility>,
+    ) {
+        let Some(trace) = trace else {
+            return;
+        };
+        let Some(eligibility) = eligibility else {
+            return;
+        };
+
+        let decision = match eligibility {
             SecondaryOrderPushdownEligibility::Eligible { .. } => {
                 TracePushdownDecision::AcceptedSecondaryIndexOrder
             }
@@ -293,11 +311,12 @@ where
     fn try_execute_secondary_index_order_stream(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
+        secondary_pushdown_eligibility: Option<&SecondaryOrderPushdownEligibility>,
         cursor_boundary: Option<&CursorBoundary>,
         continuation_signature: ContinuationSignature,
     ) -> Result<Option<FastLoadResult<E>>, InternalError> {
-        let SecondaryOrderPushdownEligibility::Eligible { .. } =
-            assess_secondary_order_pushdown(E::MODEL, plan)
+        let Some(SecondaryOrderPushdownEligibility::Eligible { .. }) =
+            secondary_pushdown_eligibility
         else {
             return Ok(None);
         };
