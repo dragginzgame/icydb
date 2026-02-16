@@ -8,6 +8,14 @@ with canonical variable-length ordered keys.
 This release exists to make ordered secondary traversal, range scans, and
 ordering semantics mechanically correct at the storage-key layer.
 
+0.10 performs this as an in-place replacement of the current index-key
+encoding. There is no `V1`/`V2` dual format, no compatibility mode, and no
+backward-compatibility requirement for old index-key bytes.
+
+0.10 is intentionally breaking: we replace `v1` behavior in situ, move fast,
+and do not preserve backward compatibility for prior index-key/storage
+contracts.
+
 ---
 
 ## 0.10 Coherent Arc
@@ -28,7 +36,7 @@ Estimated completion toward the `0.10.x` goals in this plan:
 * RawIndexKey Variable-Length Redesign: **0%**
 * Canonical Primitive Encoding: **0%**
 * Schema Constraints and Field Limit Discipline: **100%** (carried forward)
-* Index-Only Upgrade Transition: **0%**
+* In-Place Index Key Replacement: **0%**
 * Ordered Traversal and Pagination Parity: **0%**
 * Verification and Property Coverage: **0%**
 
@@ -44,6 +52,7 @@ keys.
 ## Goals
 
 * Replace fixed-slot `RawIndexKey` layout with variable-length storage
+* Bake an explicit key-kind discriminator into encoded keys (for example, user vs system/reverse)
 * Remove layout dependency on `MAX_INDEX_FIELDS`
 * Keep keys bounded with explicit maximum size computation
 * Keep primary key as final key component in composite index keys
@@ -51,6 +60,7 @@ keys.
 ## Outcomes
 
 * Index keys are no longer constrained by fixed 16-byte field slots
+* Key kind is encoded directly in key bytes rather than inferred from index-name namespace
 * Storage layout no longer includes slot padding
 * Composite key boundaries are unambiguous and deterministic
 
@@ -107,35 +117,35 @@ IcyDB 0.10 keeps schema limits explicit and separate from storage layout.
 
 ---
 
-# 4. Index-Only Upgrade Transition (No General Data Migration)
+# 4. In-Place Index Key Replacement (No Compatibility Layer)
 
-IcyDB 0.10 will introduce an index-key encoding transition only.
+IcyDB 0.10 replaces the current fixed-slot index-key encoding in situ.
 
-This scope is limited to secondary-index key representation and rebuild
-behavior. It does not include row/commit format versioning or a generic
-migration engine.
+This scope is limited to secondary-index key representation and deterministic
+rebuild behavior from authoritative row data. It does not include row/commit
+format versioning or a generic migration engine.
 
 ## Goals
 
-* Add explicit index encoding versioning (`V1`, `V2`)
-* Define when transition runs (upgrade/startup gate) and when it is skipped
-* Detect legacy index key encoding deterministically
-* Rebuild secondary indexes deterministically into canonical variable format
-* Define failure behavior explicitly (fail closed with classified errors; no silent partial transition)
-* Avoid mixed-key modes during steady-state execution
+* Replace the current fixed-slot index encoding directly with canonical variable-length keys
+* Keep a single active encoding format in 0.10 (no `V1`/`V2` schema)
+* Rebuild secondary indexes deterministically from row data during upgrade/startup gate
+* Define failure behavior explicitly (fail closed with classified errors; no silent partial rebuild)
+* Prohibit mixed-key modes and dual-write modes in steady-state execution
 
 ## Outcomes
 
-* Upgrade path is explicit and auditable
-* Legacy fixed-slot keys are retired safely
-* Post-upgrade index behavior is deterministic
+* Post-upgrade index behavior uses one canonical key format only
+* Fixed-slot keys are eliminated during rebuild
+* Runtime/index code paths do not carry compatibility branches
 
 ## Non-Goals
 
 * Row format versioning
 * Commit marker wire-format versioning
 * Generic row-op migration engine
-* Dual-write transitional index modes in normal operation
+* Backward-compatibility decode support for old fixed-slot index-key bytes
+* Dual-write or mixed-encoding index modes in normal operation
 * Best-effort partial conversion with mixed encoding semantics
 
 ---
@@ -149,9 +159,9 @@ semantic drift.
 
 * Enable ordered secondary traversal based on canonical key bytes
 * Enable deterministic range scans over ordered secondary indexes
-* Gate ORDER BY pushdown on strict compatibility checks:
+* Gate ORDER BY pushdown on strict correctness checks:
   field sequence, direction, canonical missing/null ordering, and primary-key tie-break requirements
-* Fallback to existing non-pushdown execution when compatibility checks fail
+* Fallback to existing non-pushdown execution when correctness checks fail
 * Preserve continuation signature and cursor semantics
 * Keep pagination behavior equivalent to existing contract
 
@@ -178,7 +188,7 @@ encoding.
 * Composite tuple ordering parity tests
 * Golden-vector encode tests per primitive to detect byte-format drift
 * Decimal normalization and float edge-case tests
-* Index-only transition/rebuild correctness tests for legacy key data
+* In-place rebuild correctness tests from fixed-slot input state to canonical keys
 * Regression tests proving no continuation/pagination semantic drift
 
 ## Outcomes
@@ -197,8 +207,9 @@ encoding.
 The following become explicit structural guarantees:
 
 * Secondary index keys are canonical and variable-length
+* Key-type discrimination is an explicit encoded key component, not a naming convention
 * Lexicographic key order matches logical order for supported primitives
-* Legacy key encoding transitions through explicit versioned migration
+* Secondary index key encoding is replaced in situ with no compatibility mode
 * Pagination/continuation semantics are preserved through the encoding shift
 
 ---
@@ -210,6 +221,7 @@ The following remain out of scope:
 * Row format versioning and backward-compatible row decode rules (0.11)
 * Commit marker format versioning and replay-compatibility work (0.11)
 * Generic migration engine for persisted row transformations (0.11)
+* Any `V1`/`V2` index-key version negotiation or backward-compatibility layer
 * Cost-based planning
 * Multi-index merge/intersection planning
 * Index compression pipelines
@@ -222,7 +234,8 @@ The following remain out of scope:
 0.10.x is the **Index Keys release**.
 
 If 0.9 strengthens correctness boundaries,
-0.10 makes ordered secondary indexing canonical, explicit, and migration-safe.
+0.10 makes ordered secondary indexing canonical and single-format by replacing
+the old encoding in place.
 
 The release arc is explicit:
 

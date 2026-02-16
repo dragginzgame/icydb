@@ -10,7 +10,8 @@ use crate::{
         commit::PreparedIndexMutation,
         identity::{EntityName, IndexName},
         index::{
-            IndexEntry, IndexId, IndexKey, IndexStore, RawIndexEntry, RawIndexKey, fingerprint,
+            IndexEntry, IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
+            fingerprint,
         },
         store::RawDataKey,
     },
@@ -85,7 +86,8 @@ where
 
     let index_id = reverse_index_id_for_relation::<S>(relation)?;
     let prefix = [fingerprint];
-    let (key, _) = IndexKey::bounds_for_prefix(index_id, 1, &prefix);
+    let (key, _) =
+        IndexKey::bounds_for_prefix_with_kind(index_id, IndexKeyKind::System, 1, &prefix);
 
     Ok(Some(key.to_raw()))
 }

@@ -4,7 +4,7 @@ mod lookup;
 use crate::{
     db::index::{
         entry::{MAX_INDEX_ENTRY_BYTES, RawIndexEntry},
-        key::{IndexKey, RawIndexKey},
+        key::RawIndexKey,
     },
     traits::Storable,
 };
@@ -141,7 +141,7 @@ impl IndexStore {
     pub fn entries(&self) -> Vec<(RawIndexKey, RawIndexEntry)> {
         self.entry_map()
             .iter()
-            .map(|entry| (*entry.key(), entry.value().entry))
+            .map(|entry| (entry.key().clone(), entry.value().entry))
             .collect()
     }
 
@@ -192,7 +192,7 @@ impl IndexStore {
             .iter()
             .map(|entry| {
                 let value: InlineIndexValue = entry.value();
-                IndexKey::STORED_SIZE_BYTES
+                entry.key().as_bytes().len() as u64
                     + value.entry.len() as u64
                     + u64::from(RawIndexFingerprint::STORED_SIZE)
             })

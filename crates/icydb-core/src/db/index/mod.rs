@@ -8,5 +8,5 @@ pub use entry::{
     IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES,
     MAX_INDEX_ENTRY_KEYS, RawIndexEntry,
 };
-pub use key::{IndexId, IndexIdError, IndexKey, RawIndexKey};
+pub use key::{IndexId, IndexIdError, IndexKey, IndexKeyKind, RawIndexKey};
 pub use store::IndexStore;

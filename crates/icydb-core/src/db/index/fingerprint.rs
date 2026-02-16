@@ -217,6 +217,13 @@ pub fn to_index_fingerprint(value: &Value) -> Result<Option<[u8; 16]>, InternalE
         return Ok(None);
     }
 
+    // Shadow canonical-order encoding while 0.10 still persists hash-based keys.
+    // This keeps the encoder exercised in production paths without changing
+    // current index-fingerprint behavior in this migration slice.
+    if cfg!(debug_assertions) {
+        let _ = crate::db::index::key::encode_canonical_index_component(value);
+    }
+
     Ok(Some(hash_value(value)?))
 }
 

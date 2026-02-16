@@ -320,7 +320,7 @@ pub fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
         let existing = index_op.store.with_borrow(|store| store.get(&index_op.key));
         index_ops.push(PreparedIndexMutation {
             store: index_op.store,
-            key: index_op.key,
+            key: index_op.key.clone(),
             value: existing,
         });
     }

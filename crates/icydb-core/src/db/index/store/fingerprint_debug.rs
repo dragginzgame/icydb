@@ -30,7 +30,7 @@ impl IndexStore {
         } else {
             Err(Box::new(FingerprintVerificationError::Mismatch {
                 label,
-                key: *key,
+                key: key.clone(),
                 expected,
                 actual,
             }))

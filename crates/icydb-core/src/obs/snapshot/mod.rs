@@ -219,7 +219,7 @@ mod tests {
         db::{
             Db,
             identity::{EntityName, IndexName},
-            index::{IndexId, IndexKey, IndexStore, RawIndexEntry, RawIndexKey},
+            index::{IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey},
             init_commit_store_for_tests,
             store::{DataKey, DataStore, RawDataKey, RawRow, StorageKey, StoreRegistry},
         },
@@ -372,7 +372,8 @@ mod tests {
         let user_index = IndexName::try_from_parts(&entity, &["email"]).expect("index name");
         let system_index = IndexName::try_from_parts(&entity, &["~ri"]).expect("index name");
         let user_key = IndexKey::empty(IndexId(user_index)).to_raw();
-        let system_key = IndexKey::empty(IndexId(system_index)).to_raw();
+        let system_key =
+            IndexKey::empty_with_kind(IndexId(system_index), IndexKeyKind::System).to_raw();
         let entry = RawIndexEntry::try_from_keys([StorageKey::max_storable()])
             .expect("entry should encode");
 

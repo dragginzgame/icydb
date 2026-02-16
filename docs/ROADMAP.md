@@ -58,7 +58,7 @@ This direction governs all future feature work.
 - Keeps transaction semantics explicit and opt-in.
 - Continues pagination performance work without semantic drift.
 
-See `docs/PLAN_0.9.md` for the detailed `0.9.x` plan.
+See `docs/old/PLAN_0.9.md` for the detailed `0.9.x` plan.
 
 ---
 

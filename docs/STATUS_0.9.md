@@ -35,7 +35,7 @@
 
 - [ ] `make fmt-check && make clippy && make check && make test` passes on release branch.  
   Owner: `Codex`
-- [ ] `docs/PLAN_0.9.md`, `docs/ROADMAP.md`, and `CHANGELOG.md` reflect final shipped 0.9 scope.  
+- [ ] `docs/old/PLAN_0.9.md`, `docs/ROADMAP.md`, and `CHANGELOG.md` reflect final shipped 0.9 scope.  
   Owner: `Codex`
 
 ## 1. Strong Referential Integrity - Delete-Time Validation (~100%)

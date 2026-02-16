@@ -12,7 +12,7 @@ use std::borrow::Cow;
 
 /// Decode a raw index key and validate its structural invariants.
 pub(super) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, InternalError> {
-    if bytes.len() != IndexKey::STORED_SIZE_USIZE {
+    if bytes.len() < IndexKey::MIN_STORED_SIZE_USIZE || bytes.len() > IndexKey::STORED_SIZE_USIZE {
         return Err(InternalError::new(
             ErrorClass::Corruption,
             ErrorOrigin::Index,

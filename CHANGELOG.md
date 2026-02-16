@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 * `0.9.0` ships the strengthening scope: delete-time strong relation protection, explicit opt-in batch transaction lanes, pagination efficiency upgrades, and execution-boundary hardening.
 * The `0.8.x` behavioral contract remains preserved: no cursor token format change, no implicit transaction upgrades, and no storage-format redesign.
-* Scope references: [0.9 plan](docs/PLAN_0.9.md), [0.9 status](docs/STATUS_0.9.md), [transaction semantics](docs/TRANSACTION_SEMANTICS.md), and [atomicity](docs/ATOMICITY.md).
+* Scope references: [0.9 plan](docs/old/PLAN_0.9.md), [0.9 status](docs/STATUS_0.9.md), [transaction semantics](docs/TRANSACTION_SEMANTICS.md), and [atomicity](docs/ATOMICITY.md).
 
 ### 🪵 Changed
 
@@ -66,7 +66,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * These APIs are **single-entity-type batch atomicity only**. They are **not** multi-entity transactions.
 * Existing `*_many_non_atomic` helpers remain fail-fast and non-atomic; no implicit behavior change was introduced.
 * Added explicit semantics and recovery wording in docs, plus replay/idempotency coverage for interrupted atomic batch markers.
-* Progress and scope references: [transaction semantics](docs/TRANSACTION_SEMANTICS.md), [atomicity](docs/ATOMICITY.md), [0.9 status](docs/STATUS_0.9.md), [0.9 plan](docs/PLAN_0.9.md), and [roadmap](docs/ROADMAP.md).
+* Progress and scope references: [transaction semantics](docs/TRANSACTION_SEMANTICS.md), [atomicity](docs/ATOMICITY.md), [0.9 status](docs/STATUS_0.9.md), [0.9 plan](docs/old/PLAN_0.9.md), and [roadmap](docs/ROADMAP.md).
 
 ### 🛼 Changed
 
@@ -100,7 +100,7 @@ assert_eq!(saved.len(), 2);
 ### 🥥 Summary
 
 * Completed the 0.9 Strong Referential Integrity milestone (delete-time strong relation protection, reverse-index replay coverage, deterministic pre-commit validation, RI error-class standardization, operator diagnostics, and metrics delta validation).
-* Progress and scope references: [0.9 status](docs/STATUS_0.9.md), [0.9 plan](docs/PLAN_0.9.md), and [roadmap](docs/ROADMAP.md).
+* Progress and scope references: [0.9 status](docs/STATUS_0.9.md), [0.9 plan](docs/old/PLAN_0.9.md), and [roadmap](docs/ROADMAP.md).
 
 ---
 

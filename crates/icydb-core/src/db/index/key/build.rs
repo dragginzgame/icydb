@@ -4,7 +4,7 @@ use crate::{
         identity::{EntityName, IndexName},
         index::{
             fingerprint,
-            key::{IndexId, IndexKey},
+            key::{IndexId, IndexKey, IndexKeyKind},
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -50,8 +50,7 @@ impl IndexKey {
             ));
         }
 
-        let mut values = [[0u8; 16]; MAX_INDEX_FIELDS];
-        let mut len = 0usize;
+        let mut values = Vec::with_capacity(index.fields.len());
 
         for field in index.fields {
             let Some(value) = entity.get_value(field) else {
@@ -61,24 +60,30 @@ impl IndexKey {
                 return Ok(None);
             };
 
-            values[len] = fingerprint;
-            len += 1;
+            values.push(fingerprint);
         }
 
         #[allow(clippy::cast_possible_truncation)]
         Ok(Some(Self {
+            key_kind: IndexKeyKind::User,
             index_id: IndexId::new::<E>(index),
-            len: len as u8,
+            len: values.len() as u8,
             values,
         }))
     }
 
     #[must_use]
     pub const fn empty(index_id: IndexId) -> Self {
+        Self::empty_with_kind(index_id, IndexKeyKind::User)
+    }
+
+    #[must_use]
+    pub const fn empty_with_kind(index_id: IndexId, key_kind: IndexKeyKind) -> Self {
         Self {
+            key_kind,
             index_id,
             len: 0,
-            values: [[0u8; 16]; MAX_INDEX_FIELDS],
+            values: Vec::new(),
         }
     }
 
@@ -89,21 +94,51 @@ impl IndexKey {
         index_len: usize,
         prefix: &[[u8; 16]],
     ) -> (Self, Self) {
-        let mut start = Self::empty(index_id);
-        let mut end = Self::empty(index_id);
+        Self::bounds_for_prefix_with_kind(index_id, IndexKeyKind::User, index_len, prefix)
+    }
 
-        for (i, fingerprint) in prefix.iter().enumerate() {
-            start.values[i] = *fingerprint;
-            end.values[i] = *fingerprint;
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn bounds_for_prefix_with_kind(
+        index_id: IndexId,
+        key_kind: IndexKeyKind,
+        index_len: usize,
+        prefix: &[[u8; 16]],
+    ) -> (Self, Self) {
+        if index_len > MAX_INDEX_FIELDS || prefix.len() > index_len {
+            let empty = Self::empty_with_kind(index_id, key_kind);
+            return (empty.clone(), empty);
         }
 
-        start.len = index_len as u8;
-        end.len = start.len;
+        let mut start_values = Vec::with_capacity(index_len);
+        let mut end_values = Vec::with_capacity(index_len);
 
-        for value in end.values.iter_mut().take(index_len).skip(prefix.len()) {
-            *value = [0xFF; 16];
+        for i in 0..index_len {
+            if let Some(fingerprint) = prefix.get(i) {
+                start_values.push(*fingerprint);
+                end_values.push(*fingerprint);
+                continue;
+            }
+
+            start_values.push([0; 16]);
+            end_values.push([0xFF; 16]);
         }
 
-        (start, end)
+        let len = index_len as u8;
+
+        (
+            Self {
+                key_kind,
+                index_id,
+                len,
+                values: start_values,
+            },
+            Self {
+                key_kind,
+                index_id,
+                len,
+                values: end_values,
+            },
+        )
     }
 }
