@@ -1,6 +1,5 @@
-use crate::db::identity::{EntityNameError, IndexName, IndexNameError};
+use crate::db::identity::IndexName;
 use derive_more::Display;
-use thiserror::Error as ThisError;
 
 ///
 /// IndexId
@@ -14,25 +13,10 @@ use thiserror::Error as ThisError;
 pub struct IndexId(pub IndexName);
 
 impl IndexId {
-    /// Maximum sentinel value for stable-memory bounds.
-    /// Used for upper-bound scans and fuzz validation.
+    /// Maximum sentinel value for test-only stable-memory bound checks.
+    #[cfg(test)]
     #[must_use]
     pub const fn max_storable() -> Self {
         Self(IndexName::max_storable())
     }
-}
-
-///
-/// IndexIdError
-/// Errors returned when constructing an [`IndexId`].
-/// This surfaces identity validation failures.
-///
-
-#[derive(Debug, ThisError)]
-pub enum IndexIdError {
-    #[error("entity name invalid: {0}")]
-    EntityName(#[from] EntityNameError),
-
-    #[error("index name invalid: {0}")]
-    IndexName(#[from] IndexNameError),
 }

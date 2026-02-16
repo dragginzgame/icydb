@@ -163,14 +163,14 @@ impl IndexStore {
             && let Err(err) = Self::verify_entry_fingerprint(None, key, inline)
         {
             panic!(
-                "invariant violation (debug-only): index fingerprint verification failed: {err:?}"
+                "invariant violation (debug-only): index fingerprint verification failed: {err}"
             );
         }
 
         value.map(|inline| inline.entry)
     }
 
-    pub fn insert(&mut self, key: RawIndexKey, value: RawIndexEntry) -> Option<RawIndexEntry> {
+    pub fn insert(&self, key: RawIndexKey, value: RawIndexEntry) -> Option<RawIndexEntry> {
         let fingerprint = Self::entry_fingerprint(&key, &value);
         let inline = InlineIndexValue {
             entry: value,
@@ -179,7 +179,7 @@ impl IndexStore {
         self.entry_map().insert(key, inline).map(|prev| prev.entry)
     }
 
-    pub fn remove(&mut self, key: &RawIndexKey) -> Option<RawIndexEntry> {
+    pub fn remove(&self, key: &RawIndexKey) -> Option<RawIndexEntry> {
         self.entry_map().remove(key).map(|prev| prev.entry)
     }
 

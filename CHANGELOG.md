@@ -6,11 +6,27 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
-## [0.11.0] – 2026-02-16
+## [0.11.0] – 2026-02-16 - Range Pushdown
+
+### 🔧 Changed
+
+* Secondary index scans can now push down bounded range predicates (`>`, `>=`, `<`, `<=`) into index traversal instead of relying on full-scan filtering.
+* Composite indexes now support prefix-equality plus one ranged component (for example `a = ?` with a range on `b`) with deterministic ordering through the primary-key tie-break.
+* Range-compatible predicate pairs (`>=` + `<=`) now plan as one bounded `IndexRange`, which keeps pagination behavior aligned with fallback execution.
+* Single-predicate one-sided ranges on single-field indexes (for example `tag > x` or `tag <= y`) now plan directly to `IndexRange` instead of falling back.
 
 ### 🧹 Cleanup
 
 * Added explicit `AccessPath::IndexRange` guardrails for secondary-range planning prep, and wired explain/trace/hash/canonical/debug handling so new access variants cannot be silently skipped.
+
+### 🧪 Testing
+
+* Added planner tests for valid and invalid range extraction shapes, stricter-bound merging, and empty-range rejection.
+* Added parity tests that compare range pushdown results against `by_ids` fallback for single-field and composite-prefix range queries.
+* Added pagination boundary tests for range windows to verify no-duplicate resume behavior at lower and upper edges.
+* Added edge-value tests around `0` and `u32::MAX` to verify inclusive and exclusive bound correctness.
+* Added table-driven parity matrices across `>`, `>=`, `<`, `<=`, and `BETWEEN`-equivalent forms, including descending and no-match/all-match cases.
+* Added composite duplicate-edge cursor boundary tests to verify strict resume behavior when lower/upper boundary groups contain multiple rows.
 
 Example (shape only):
 
@@ -22,6 +38,8 @@ AccessPath::IndexRange {
     upper: Bound::Excluded(Value::Uint(200)),
 }
 ```
+
+---
 
 ## [0.10.2] – 2026-02-16
 

@@ -5,6 +5,7 @@ use crate::{
     },
     model::index::IndexModel,
 };
+use std::fmt::{Display, Formatter, Result as FmtResult};
 
 impl IndexStore {
     #[cfg(debug_assertions)]
@@ -36,12 +37,6 @@ impl IndexStore {
             }))
         }
     }
-
-    #[cfg(test)]
-    #[expect(dead_code)]
-    pub(crate) fn debug_fingerprint_for(&self, key: &RawIndexKey) -> Option<[u8; 16]> {
-        self.entry_map().get(key).map(|value| value.fingerprint.0)
-    }
 }
 
 ///
@@ -49,7 +44,6 @@ impl IndexStore {
 ///
 
 #[cfg(debug_assertions)]
-#[expect(dead_code)]
 #[derive(Debug)]
 pub(super) enum FingerprintVerificationError {
     Mismatch {
@@ -58,4 +52,21 @@ pub(super) enum FingerprintVerificationError {
         expected: RawIndexFingerprint,
         actual: RawIndexFingerprint,
     },
+}
+
+#[cfg(debug_assertions)]
+impl Display for FingerprintVerificationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            Self::Mismatch {
+                label,
+                key,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "fingerprint mismatch ({label}): key={key:?} expected={expected:?} actual={actual:?}"
+            ),
+        }
+    }
 }

@@ -200,33 +200,6 @@ pub fn hash_value(value: &Value) -> Result<[u8; 16], InternalError> {
     Ok(h.digest128().to_be_bytes())
 }
 
-/// Index fingerprint semantics:
-///
-/// - Only indexable values produce fingerprints.
-/// - `Value::Null` does not produce fingerprints and
-///   therefore do not participate in indexing.
-/// - For unique indexes, uniqueness is enforced only over indexable values.
-///   Multiple rows with non-indexable values are permitted.
-///
-/// This behavior matches SQL-style UNIQUE constraints with NULL values.
-///
-/// Stable 128-bit hash used for index keys; returns `None` for non-indexable values.
-pub fn to_index_fingerprint(value: &Value) -> Result<Option<[u8; 16]>, InternalError> {
-    if matches!(value, Value::Null) {
-        // Intentionally skipped: non-indexable values do not participate in indexes.
-        return Ok(None);
-    }
-
-    // Shadow canonical-order encoding while 0.10 still persists hash-based keys.
-    // This keeps the encoder exercised in production paths without changing
-    // current index-fingerprint behavior in this migration slice.
-    if cfg!(debug_assertions) {
-        let _ = crate::db::index::key::encode_canonical_index_component(value);
-    }
-
-    Ok(Some(hash_value(value)?))
-}
-
 ///
 /// TESTS
 ///

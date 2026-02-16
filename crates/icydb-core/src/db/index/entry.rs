@@ -344,15 +344,8 @@ impl Storable for RawIndexEntry {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        db::{
-            index::{
-                IndexEntryCorruption, MAX_INDEX_ENTRY_BYTES, MAX_INDEX_ENTRY_KEYS, RawIndexEntry,
-            },
-            store::StorageKey,
-        },
-        traits::Storable,
-    };
+    use super::{IndexEntryCorruption, MAX_INDEX_ENTRY_BYTES, MAX_INDEX_ENTRY_KEYS, RawIndexEntry};
+    use crate::{db::store::StorageKey, traits::Storable};
     use std::borrow::Cow;
 
     #[test]

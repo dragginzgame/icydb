@@ -100,16 +100,17 @@ impl IndexKey {
         }))
     }
 
+    #[cfg(test)]
     #[must_use]
-    pub fn empty(index_id: IndexId) -> Self {
+    pub fn empty(index_id: &IndexId) -> Self {
         Self::empty_with_kind(index_id, IndexKeyKind::User)
     }
 
     #[must_use]
-    pub fn empty_with_kind(index_id: IndexId, key_kind: IndexKeyKind) -> Self {
+    pub fn empty_with_kind(index_id: &IndexId, key_kind: IndexKeyKind) -> Self {
         Self {
             key_kind,
-            index_id,
+            index_id: *index_id,
             component_count: 0,
             components: Vec::new(),
             primary_key: Self::wildcard_low_pk(),
@@ -118,7 +119,7 @@ impl IndexKey {
 
     #[must_use]
     pub fn bounds_for_prefix(
-        index_id: IndexId,
+        index_id: &IndexId,
         index_len: usize,
         prefix: &[Vec<u8>],
     ) -> (Self, Self) {
@@ -128,7 +129,7 @@ impl IndexKey {
     #[must_use]
     #[expect(clippy::cast_possible_truncation)]
     pub fn bounds_for_prefix_with_kind(
-        index_id: IndexId,
+        index_id: &IndexId,
         key_kind: IndexKeyKind,
         index_len: usize,
         prefix: &[Vec<u8>],
@@ -162,14 +163,14 @@ impl IndexKey {
         (
             Self {
                 key_kind,
-                index_id,
+                index_id: *index_id,
                 component_count,
                 components: start_components,
                 primary_key: Self::wildcard_low_pk(),
             },
             Self {
                 key_kind,
-                index_id,
+                index_id: *index_id,
                 component_count,
                 components: end_components,
                 primary_key: Self::wildcard_high_pk(),
@@ -185,7 +186,7 @@ impl IndexKey {
     /// - remaining suffix components and PK are set to canonical min/max sentinels
     #[must_use]
     pub fn bounds_for_prefix_component_range(
-        index_id: IndexId,
+        index_id: &IndexId,
         index_len: usize,
         prefix: &[Vec<u8>],
         lower: Bound<Vec<u8>>,
@@ -205,7 +206,7 @@ impl IndexKey {
     #[must_use]
     #[expect(clippy::cast_possible_truncation)]
     pub fn bounds_for_prefix_component_range_with_kind(
-        index_id: IndexId,
+        index_id: &IndexId,
         key_kind: IndexKeyKind,
         index_len: usize,
         prefix: &[Vec<u8>],
@@ -266,7 +267,7 @@ impl IndexKey {
         let component_count = index_len as u8;
         let lower_key = Self {
             key_kind,
-            index_id,
+            index_id: *index_id,
             component_count,
             components: start_components,
             primary_key: match lower {
@@ -276,7 +277,7 @@ impl IndexKey {
         };
         let upper_key = Self {
             key_kind,
-            index_id,
+            index_id: *index_id,
             component_count,
             components: end_components,
             primary_key: match upper {

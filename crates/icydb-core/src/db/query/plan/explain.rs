@@ -415,7 +415,7 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 mod tests {
     use super::*;
     use crate::db::query::intent::{KeyAccess, access_plan_from_keys_value};
-    use crate::db::query::plan::{AccessPath, LogicalPlan, OrderDirection, OrderSpec};
+    use crate::db::query::plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec};
     use crate::db::query::predicate::Predicate;
     use crate::db::query::{FieldRef, LoadSpec, QueryMode, ReadConsistency};
     use crate::model::{field::EntityFieldKind, index::IndexModel};
@@ -606,6 +606,40 @@ mod tests {
     }
 
     #[test]
+    fn explain_with_model_reports_composite_index_range_pushdown_rejection_reason() {
+        let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
+        let plan: LogicalPlan<Value> = LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::IndexRange {
+                    index: PUSHDOWN_INDEX,
+                    prefix: vec![],
+                    lower: Bound::Included(Value::Text("alpha".to_string())),
+                    upper: Bound::Excluded(Value::Text("omega".to_string())),
+                }),
+                AccessPlan::path(AccessPath::FullScan),
+            ]),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            delete_limit: None,
+            page: None,
+            consistency: ReadConsistency::MissingOk,
+        };
+
+        assert_eq!(
+            plan.explain_with_model(model).order_pushdown,
+            ExplainOrderPushdown::Matrix(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index: PUSHDOWN_INDEX.name,
+                    prefix_len: 0,
+                }
+            )
+        );
+    }
+
+    #[test]
     fn explain_without_model_reports_missing_model_context() {
         let mut plan: LogicalPlan<Value> = LogicalPlan::new(
             AccessPath::IndexPrefix {
@@ -625,6 +659,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::too_many_lines)]
     fn explain_pushdown_conversion_covers_all_variants() {
         let cases = vec![
             (
@@ -649,6 +684,20 @@ mod tests {
                 ),
                 ExplainOrderPushdown::Matrix(
                     SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+                ),
+            ),
+            (
+                SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                        index: "explain::pushdown_tag",
+                        prefix_len: 1,
+                    },
+                ),
+                ExplainOrderPushdown::Matrix(
+                    SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                        index: "explain::pushdown_tag",
+                        prefix_len: 1,
+                    },
                 ),
             ),
             (

@@ -299,7 +299,7 @@ mod tests {
             });
         });
 
-        let index_key = IndexKey::empty(IndexId::max_storable()).to_raw();
+        let index_key = IndexKey::empty(&IndexId::max_storable()).to_raw();
         let malformed_index_entry = RawIndexEntry::from_bytes(Cow::Owned(vec![0, 0, 0, 0]));
         with_snapshot_store(|store| {
             store.with_index_mut(|index_store| {
@@ -371,9 +371,9 @@ mod tests {
         let entity = EntityName::try_from_str("snapshot_entity").expect("entity name should parse");
         let user_index = IndexName::try_from_parts(&entity, &["email"]).expect("index name");
         let system_index = IndexName::try_from_parts(&entity, &["~ri"]).expect("index name");
-        let user_key = IndexKey::empty(IndexId(user_index)).to_raw();
+        let user_key = IndexKey::empty(&IndexId(user_index)).to_raw();
         let system_key =
-            IndexKey::empty_with_kind(IndexId(system_index), IndexKeyKind::System).to_raw();
+            IndexKey::empty_with_kind(&IndexId(system_index), IndexKeyKind::System).to_raw();
         let entry = RawIndexEntry::try_from_keys([StorageKey::max_storable()])
             .expect("entry should encode");
 

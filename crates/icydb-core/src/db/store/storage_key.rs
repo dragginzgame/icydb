@@ -208,7 +208,7 @@ impl StorageKey {
     }
 
     /// Encode this key into its fixed-size on-disk representation.
-    pub fn to_bytes(&self) -> Result<[u8; Self::STORED_SIZE_USIZE], StorageKeyEncodeError> {
+    pub fn to_bytes(self) -> Result<[u8; Self::STORED_SIZE_USIZE], StorageKeyEncodeError> {
         let mut buf = [0u8; Self::STORED_SIZE_USIZE];
         buf[Self::TAG_OFFSET] = self.tag();
         let payload = &mut buf[Self::PAYLOAD_OFFSET..=Self::PAYLOAD_SIZE];
@@ -225,7 +225,7 @@ impl StorageKey {
                 payload[..bytes.len()].copy_from_slice(&bytes);
             }
             Self::Int(v) => {
-                let biased = (*v).cast_unsigned() ^ (1u64 << 63);
+                let biased = v.cast_unsigned() ^ (1u64 << 63);
                 payload[..Self::INT_SIZE].copy_from_slice(&biased.to_be_bytes());
             }
             Self::Uint(v) => payload[..Self::UINT_SIZE].copy_from_slice(&v.to_be_bytes()),

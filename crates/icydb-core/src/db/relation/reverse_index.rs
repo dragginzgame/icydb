@@ -87,7 +87,7 @@ where
     let index_id = reverse_index_id_for_relation::<S>(relation)?;
     let prefix = vec![component];
     let (key, _) =
-        IndexKey::bounds_for_prefix_with_kind(index_id, IndexKeyKind::System, 1, &prefix);
+        IndexKey::bounds_for_prefix_with_kind(&index_id, IndexKeyKind::System, 1, &prefix);
 
     Ok(Some(key.to_raw()))
 }

@@ -1,4 +1,5 @@
 // NOTE: Invalid helpers remain only for intentionally invalid schemas.
+#![expect(clippy::too_many_lines)]
 use super::{
     PlanError, PushdownApplicability, SecondaryOrderPushdownEligibility,
     SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
@@ -20,6 +21,7 @@ use crate::{
     types::Ulid,
     value::Value,
 };
+use std::ops::Bound;
 
 fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
     EntityFieldModel { name, kind }
@@ -75,6 +77,20 @@ fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> LogicalPlan
     }
 }
 
+fn load_union_plan(
+    children: Vec<AccessPlan<Value>>,
+    order: Option<OrderSpec>,
+) -> LogicalPlan<Value> {
+    load_plan(AccessPlan::Union(children), order)
+}
+
+fn load_intersection_plan(
+    children: Vec<AccessPlan<Value>>,
+    order: Option<OrderSpec>,
+) -> LogicalPlan<Value> {
+    load_plan(AccessPlan::Intersection(children), order)
+}
+
 fn order_spec(fields: &[(&str, OrderDirection)]) -> OrderSpec {
     OrderSpec {
         fields: fields
@@ -89,6 +105,23 @@ fn load_index_prefix_plan(values: Vec<Value>, order: Option<OrderSpec>) -> Logic
         AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
             values,
+        }),
+        order,
+    )
+}
+
+fn load_index_range_plan(
+    prefix: Vec<Value>,
+    lower: Bound<Value>,
+    upper: Bound<Value>,
+    order: Option<OrderSpec>,
+) -> LogicalPlan<Value> {
+    load_plan(
+        AccessPlan::path(AccessPath::IndexRange {
+            index: INDEX_MODEL,
+            prefix,
+            lower,
+            upper,
         }),
         order,
     )
@@ -472,6 +505,42 @@ fn secondary_order_pushdown_core_cases() {
             ),
         },
         Case {
+            name: "reject_index_range_access_explicitly",
+            plan: load_index_range_plan(
+                vec![],
+                Bound::Included(Value::Text("a".to_string())),
+                Bound::Excluded(Value::Text("z".to_string())),
+                Some(order_spec(&[("id", OrderDirection::Asc)])),
+            ),
+            expected: SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index: INDEX_MODEL.name,
+                    prefix_len: 0,
+                },
+            ),
+        },
+        Case {
+            name: "reject_composite_access_when_child_is_index_range",
+            plan: load_union_plan(
+                vec![
+                    AccessPlan::path(AccessPath::IndexRange {
+                        index: INDEX_MODEL,
+                        prefix: vec![],
+                        lower: Bound::Included(Value::Text("a".to_string())),
+                        upper: Bound::Excluded(Value::Text("z".to_string())),
+                    }),
+                    AccessPlan::path(AccessPath::FullScan),
+                ],
+                Some(order_spec(&[("id", OrderDirection::Asc)])),
+            ),
+            expected: SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index: INDEX_MODEL.name,
+                    prefix_len: 0,
+                },
+            ),
+        },
+        Case {
             name: "reject_descending_primary_key",
             plan: load_index_prefix_plan(
                 vec![Value::Text("a".to_string())],
@@ -537,6 +606,42 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
                 }),
             ),
             expected: SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+        },
+        RejectionCase {
+            name: "access_path_index_range_unsupported",
+            plan: load_index_range_plan(
+                vec![],
+                Bound::Included(Value::Text("a".to_string())),
+                Bound::Excluded(Value::Text("z".to_string())),
+                Some(OrderSpec {
+                    fields: vec![("id".to_string(), OrderDirection::Asc)],
+                }),
+            ),
+            expected: SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                index: INDEX_MODEL.name,
+                prefix_len: 0,
+            },
+        },
+        RejectionCase {
+            name: "composite_access_path_contains_index_range_unsupported",
+            plan: load_intersection_plan(
+                vec![
+                    AccessPlan::path(AccessPath::ByKeys(vec![Value::Ulid(Ulid::from_u128(1))])),
+                    AccessPlan::path(AccessPath::IndexRange {
+                        index: INDEX_MODEL,
+                        prefix: vec![],
+                        lower: Bound::Included(Value::Text("a".to_string())),
+                        upper: Bound::Excluded(Value::Text("z".to_string())),
+                    }),
+                ],
+                Some(OrderSpec {
+                    fields: vec![("id".to_string(), OrderDirection::Asc)],
+                }),
+            ),
+            expected: SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                index: INDEX_MODEL.name,
+                prefix_len: 0,
+            },
         },
         RejectionCase {
             name: "invalid_index_prefix_bounds",
@@ -674,6 +779,46 @@ fn secondary_order_pushdown_if_applicable_cases() {
                 ),
             ),
         },
+        Case {
+            name: "applicable_index_range_explicit_rejection",
+            plan: load_index_range_plan(
+                vec![],
+                Bound::Included(Value::Text("a".to_string())),
+                Bound::Excluded(Value::Text("z".to_string())),
+                Some(order_spec(&[("id", OrderDirection::Asc)])),
+            ),
+            expected: PushdownApplicability::Applicable(
+                SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                        index: INDEX_MODEL.name,
+                        prefix_len: 0,
+                    },
+                ),
+            ),
+        },
+        Case {
+            name: "applicable_composite_with_index_range_child_explicit_rejection",
+            plan: load_union_plan(
+                vec![
+                    AccessPlan::path(AccessPath::ByKeys(vec![Value::Ulid(Ulid::from_u128(2))])),
+                    AccessPlan::path(AccessPath::IndexRange {
+                        index: INDEX_MODEL,
+                        prefix: vec![],
+                        lower: Bound::Included(Value::Text("a".to_string())),
+                        upper: Bound::Excluded(Value::Text("z".to_string())),
+                    }),
+                ],
+                Some(order_spec(&[("id", OrderDirection::Asc)])),
+            ),
+            expected: PushdownApplicability::Applicable(
+                SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                        index: INDEX_MODEL.name,
+                        prefix_len: 0,
+                    },
+                ),
+            ),
+        },
     ];
 
     let model = model_with_index();
@@ -710,5 +855,33 @@ fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor()
     assert_eq!(
         assess_secondary_order_pushdown_if_applicable_validated(model, &non_applicable_plan),
         assess_secondary_order_pushdown_if_applicable(model, &non_applicable_plan),
+    );
+
+    let index_range_plan = load_index_range_plan(
+        vec![],
+        Bound::Included(Value::Text("a".to_string())),
+        Bound::Excluded(Value::Text("z".to_string())),
+        Some(order_spec(&[("id", OrderDirection::Asc)])),
+    );
+    assert_eq!(
+        assess_secondary_order_pushdown_if_applicable_validated(model, &index_range_plan),
+        assess_secondary_order_pushdown_if_applicable(model, &index_range_plan),
+    );
+
+    let composite_index_range_plan = load_union_plan(
+        vec![
+            AccessPlan::path(AccessPath::ByKeys(vec![Value::Ulid(Ulid::from_u128(3))])),
+            AccessPlan::path(AccessPath::IndexRange {
+                index: INDEX_MODEL,
+                prefix: vec![],
+                lower: Bound::Included(Value::Text("a".to_string())),
+                upper: Bound::Excluded(Value::Text("z".to_string())),
+            }),
+        ],
+        Some(order_spec(&[("id", OrderDirection::Asc)])),
+    );
+    assert_eq!(
+        assess_secondary_order_pushdown_if_applicable_validated(model, &composite_index_range_plan),
+        assess_secondary_order_pushdown_if_applicable(model, &composite_index_range_plan),
     );
 }

@@ -45,7 +45,7 @@ impl IndexStore {
             components.push(component);
         }
 
-        let (start, end) = IndexKey::bounds_for_prefix(index_id, index.fields.len(), &components);
+        let (start, end) = IndexKey::bounds_for_prefix(&index_id, index.fields.len(), &components);
         let (start_raw, end_raw) = (start.to_raw(), end.to_raw());
 
         let mut out = Vec::new();
@@ -57,7 +57,7 @@ impl IndexStore {
             #[cfg(debug_assertions)]
             if let Err(err) = Self::verify_entry_fingerprint(Some(index), raw_key, &value) {
                 panic!(
-                    "invariant violation (debug-only): index fingerprint verification failed: {err:?}"
+                    "invariant violation (debug-only): index fingerprint verification failed: {err}"
                 );
             }
 
@@ -132,7 +132,7 @@ impl IndexStore {
         let lower_component = encode_index_component_bound(lower, "lower")?;
         let upper_component = encode_index_component_bound(upper, "upper")?;
         let (start, end) = IndexKey::bounds_for_prefix_component_range(
-            index_id,
+            &index_id,
             index.fields.len(),
             &prefix_components,
             lower_component,
@@ -153,7 +153,7 @@ impl IndexStore {
             #[cfg(debug_assertions)]
             if let Err(err) = Self::verify_entry_fingerprint(Some(index), raw_key, &value) {
                 panic!(
-                    "invariant violation (debug-only): index fingerprint verification failed: {err:?}"
+                    "invariant violation (debug-only): index fingerprint verification failed: {err}"
                 );
             }
 

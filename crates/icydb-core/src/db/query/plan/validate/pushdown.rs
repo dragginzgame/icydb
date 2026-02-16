@@ -1,5 +1,5 @@
 use crate::{
-    db::query::plan::{AccessPath, LogicalPlan, OrderDirection},
+    db::query::plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection},
     model::entity::EntityModel,
 };
 
@@ -101,6 +101,10 @@ impl<'a> From<&'a SecondaryOrderPushdownEligibility> for PushdownSurfaceEligibil
 pub enum SecondaryOrderPushdownRejection {
     NoOrderBy,
     AccessPathNotSingleIndexPrefix,
+    AccessPathIndexRangeUnsupported {
+        index: &'static str,
+        prefix_len: usize,
+    },
     InvalidIndexPrefixBounds {
         prefix_len: usize,
         index_field_len: usize,
@@ -140,28 +144,52 @@ pub fn assess_secondary_order_pushdown<K>(
         );
     }
 
-    let Some(AccessPath::IndexPrefix { index, values }) = plan.access.as_path() else {
+    let Some(access) = plan.access.as_path() else {
+        if let Some((index, prefix_len)) = first_index_range_details(&plan.access) {
+            return SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index,
+                    prefix_len,
+                },
+            );
+        }
+
         return SecondaryOrderPushdownEligibility::Rejected(
             SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
         );
     };
 
-    if values.len() > index.fields.len() {
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
-                prefix_len: values.len(),
-                index_field_len: index.fields.len(),
-            },
-        );
-    }
+    match access {
+        AccessPath::IndexPrefix { index, values } => {
+            if values.len() > index.fields.len() {
+                return SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+                        prefix_len: values.len(),
+                        index_field_len: index.fields.len(),
+                    },
+                );
+            }
 
-    assess_secondary_order_pushdown_for_applicable_shape(
-        model,
-        &order.fields,
-        index.name,
-        index.fields,
-        values.len(),
-    )
+            assess_secondary_order_pushdown_for_applicable_shape(
+                model,
+                &order.fields,
+                index.name,
+                index.fields,
+                values.len(),
+            )
+        }
+        AccessPath::IndexRange { index, prefix, .. } => {
+            SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index: index.name,
+                    prefix_len: prefix.len(),
+                },
+            )
+        }
+        _ => SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
+        ),
+    }
 }
 
 /// Evaluate pushdown eligibility for plans that are already known to be
@@ -260,17 +288,22 @@ fn assess_secondary_order_pushdown_for_applicable_shape(
     )
 }
 
-#[cfg(test)]
-/// Evaluate pushdown eligibility only when secondary-index ORDER BY is applicable.
-///
-/// Returns `PushdownApplicability::NotApplicable` for non-applicable shapes:
-/// - no ORDER BY fields
-/// - access path is not a single index prefix
-pub fn assess_secondary_order_pushdown_if_applicable<K>(
-    model: &EntityModel,
-    plan: &LogicalPlan<K>,
+// Walk an access-plan tree and return the first index-range child, if any.
+fn first_index_range_details<K>(access: &AccessPlan<K>) -> Option<(&'static str, usize)> {
+    match access {
+        AccessPlan::Path(path) => match path.as_ref() {
+            AccessPath::IndexRange { index, prefix, .. } => Some((index.name, prefix.len())),
+            _ => None,
+        },
+        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
+            children.iter().find_map(first_index_range_details)
+        }
+    }
+}
+
+fn applicability_from_eligibility(
+    eligibility: SecondaryOrderPushdownEligibility,
 ) -> PushdownApplicability {
-    let eligibility = assess_secondary_order_pushdown(model, plan);
     match eligibility {
         SecondaryOrderPushdownEligibility::Rejected(
             SecondaryOrderPushdownRejection::NoOrderBy
@@ -278,6 +311,19 @@ pub fn assess_secondary_order_pushdown_if_applicable<K>(
         ) => PushdownApplicability::NotApplicable,
         other => PushdownApplicability::Applicable(other),
     }
+}
+
+#[cfg(test)]
+/// Evaluate pushdown eligibility only when secondary-index ORDER BY is applicable.
+///
+/// Returns `PushdownApplicability::NotApplicable` for non-applicable shapes:
+/// - no ORDER BY fields
+/// - access path is not a secondary index path
+pub fn assess_secondary_order_pushdown_if_applicable<K>(
+    model: &EntityModel,
+    plan: &LogicalPlan<K>,
+) -> PushdownApplicability {
+    applicability_from_eligibility(assess_secondary_order_pushdown(model, plan))
 }
 
 /// Evaluate pushdown applicability for plans that have already passed full
@@ -289,42 +335,30 @@ pub fn assess_secondary_order_pushdown_if_applicable_validated<K>(
     model: &EntityModel,
     plan: &LogicalPlan<K>,
 ) -> PushdownApplicability {
-    let Some(order) = plan.order.as_ref() else {
-        return PushdownApplicability::NotApplicable;
-    };
-
-    if order.fields.is_empty() {
+    if let Some(order) = plan.order.as_ref() {
         debug_assert!(
-            false,
+            !order.fields.is_empty(),
             "validated plan must not contain an empty ORDER BY specification"
         );
-        return PushdownApplicability::NotApplicable;
     }
 
-    let Some(AccessPath::IndexPrefix { index, values }) = plan.access.as_path() else {
-        return PushdownApplicability::NotApplicable;
-    };
+    if let Some(access) = plan.access.as_path() {
+        match access {
+            AccessPath::IndexPrefix { index, values } => {
+                debug_assert!(
+                    values.len() <= index.fields.len(),
+                    "validated plan must keep index-prefix bounds within declared index fields"
+                );
+            }
+            AccessPath::IndexRange { index, prefix, .. } => {
+                debug_assert!(
+                    prefix.len() < index.fields.len(),
+                    "validated plan must keep index-range prefix within declared index fields"
+                );
+            }
+            _ => {}
+        }
+    }
 
-    debug_assert!(
-        values.len() <= index.fields.len(),
-        "validated plan must keep index-prefix bounds within declared index fields"
-    );
-    let eligibility = if values.len() > index.fields.len() {
-        SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
-                prefix_len: values.len(),
-                index_field_len: index.fields.len(),
-            },
-        )
-    } else {
-        assess_secondary_order_pushdown_for_applicable_shape(
-            model,
-            &order.fields,
-            index.name,
-            index.fields,
-            values.len(),
-        )
-    };
-
-    PushdownApplicability::Applicable(eligibility)
+    applicability_from_eligibility(assess_secondary_order_pushdown(model, plan))
 }

@@ -5,8 +5,7 @@ pub mod plan;
 pub mod store;
 
 pub use entry::{
-    IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES,
-    MAX_INDEX_ENTRY_KEYS, RawIndexEntry,
+    IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,
 };
-pub use key::{IndexId, IndexIdError, IndexKey, IndexKeyKind, RawIndexKey};
+pub use key::{IndexId, IndexKey, IndexKeyKind, RawIndexKey};
 pub use store::IndexStore;

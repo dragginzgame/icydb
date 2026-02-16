@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn index_key_rejects_unknown_kind_tag() {
-        let key = IndexKey::empty(index_id());
+        let key = IndexKey::empty(&index_id());
         let mut bytes = key.to_raw().as_bytes().to_vec();
         bytes[0] = 0xFF;
 
@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn index_key_rejects_invalid_index_name() {
-        let key = IndexKey::empty(IndexId::max_storable());
+        let key = IndexKey::empty(&IndexId::max_storable());
         let mut bytes = key.to_raw().as_bytes().to_vec();
         bytes[KEY_KIND_TAG_SIZE] = 0;
         bytes[KEY_KIND_TAG_SIZE + 1] = 0;
@@ -523,9 +523,9 @@ mod tests {
         let prefix = vec![vec![0x33u8, 0x44, 0x55]];
 
         let (user_start, user_end) =
-            IndexKey::bounds_for_prefix_with_kind(index_id(), IndexKeyKind::User, 2, &prefix);
+            IndexKey::bounds_for_prefix_with_kind(&index_id(), IndexKeyKind::User, 2, &prefix);
         let (system_start, system_end) =
-            IndexKey::bounds_for_prefix_with_kind(index_id(), IndexKeyKind::System, 2, &prefix);
+            IndexKey::bounds_for_prefix_with_kind(&index_id(), IndexKeyKind::System, 2, &prefix);
 
         let user_start_raw = user_start.to_raw();
         let user_end_raw = user_end.to_raw();
@@ -542,9 +542,9 @@ mod tests {
         let first = vec![7u8, 7u8, 7u8];
 
         let (len_one_key, _) =
-            IndexKey::bounds_for_prefix(index_id(), 1, std::slice::from_ref(&first));
+            IndexKey::bounds_for_prefix(&index_id(), 1, std::slice::from_ref(&first));
         let (len_two_key, _) =
-            IndexKey::bounds_for_prefix(index_id(), 2, &[first, vec![0u8, 0u8, 0u8]]);
+            IndexKey::bounds_for_prefix(&index_id(), 2, &[first, vec![0u8, 0u8, 0u8]]);
 
         assert!(len_one_key < len_two_key);
         assert!(len_one_key.to_raw() < len_two_key.to_raw());
@@ -559,7 +559,7 @@ mod tests {
             prefix.push(vec![byte, byte.wrapping_add(1), byte.wrapping_add(2)]);
         }
 
-        let (key, _) = IndexKey::bounds_for_prefix(index_id(), MAX_INDEX_FIELDS, &prefix);
+        let (key, _) = IndexKey::bounds_for_prefix(&index_id(), MAX_INDEX_FIELDS, &prefix);
         let raw = key.to_raw();
         let decoded = IndexKey::try_from_raw(&raw).expect("max-cardinality key should decode");
 
@@ -653,12 +653,12 @@ mod tests {
         let entity = EntityName::try_from_str("entity").expect("entity name should parse");
 
         let user_id = IndexId(IndexName::try_from_parts(&entity, &["email"]).expect("index name"));
-        let user_key = IndexKey::empty_with_kind(user_id, IndexKeyKind::User);
+        let user_key = IndexKey::empty_with_kind(&user_id, IndexKeyKind::User);
         assert_eq!(user_key.to_raw().as_bytes()[0], IndexKeyKind::User as u8);
         assert!(!user_key.uses_system_namespace());
 
         let system_id = IndexId(IndexName::try_from_parts(&entity, &["~ri"]).expect("index name"));
-        let system_key = IndexKey::empty_with_kind(system_id, IndexKeyKind::System);
+        let system_key = IndexKey::empty_with_kind(&system_id, IndexKeyKind::System);
         assert_eq!(
             system_key.to_raw().as_bytes()[0],
             IndexKeyKind::System as u8
@@ -667,7 +667,7 @@ mod tests {
 
         let namespace_only_id =
             IndexId(IndexName::try_from_parts(&entity, &["~ri_shadow"]).expect("index name"));
-        let namespace_only_key = IndexKey::empty_with_kind(namespace_only_id, IndexKeyKind::User);
+        let namespace_only_key = IndexKey::empty_with_kind(&namespace_only_id, IndexKeyKind::User);
         assert_eq!(
             namespace_only_key.to_raw().as_bytes()[0],
             IndexKeyKind::User as u8
@@ -1019,7 +1019,7 @@ mod tests {
         ];
         let all_raw = all_keys.iter().map(IndexKey::to_raw).collect::<Vec<_>>();
 
-        let (start, end) = IndexKey::bounds_for_prefix(index_id(), 2, &[first_component]);
+        let (start, end) = IndexKey::bounds_for_prefix(&index_id(), 2, &[first_component]);
         let (start_raw, end_raw) = (start.to_raw(), end.to_raw());
         let mut matched = all_raw
             .iter()
@@ -1060,7 +1060,7 @@ mod tests {
             encode_component(&Value::Text("dup".to_string())),
             encode_component(&Value::Int(9)),
         ];
-        let (start, end) = IndexKey::bounds_for_prefix(index_id(), 2, &prefix);
+        let (start, end) = IndexKey::bounds_for_prefix(&index_id(), 2, &prefix);
         let start_raw = start.to_raw();
         let end_raw = end.to_raw();
 
@@ -1127,7 +1127,7 @@ mod tests {
         );
 
         let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
-            index_id(),
+            &index_id(),
             3,
             &[encode_component(&Value::Uint(7))],
             RangeBound::Included(encode_component(&Value::Uint(10))),
@@ -1195,7 +1195,7 @@ mod tests {
         );
 
         let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
-            index_id(),
+            &index_id(),
             3,
             &[encode_component(&Value::Uint(7))],
             RangeBound::Excluded(encode_component(&Value::Uint(10))),
@@ -1217,6 +1217,141 @@ mod tests {
         assert_eq!(
             hits, 2,
             "b=10 should be excluded; b=11 and b=20 should match"
+        );
+    }
+
+    #[test]
+    fn index_key_component_range_inclusive_extremes_cover_min_and_max_groups() {
+        let prefix_7 = encode_component(&Value::Uint(7));
+        let b0 = encode_component(&Value::Uint(0));
+        let b1 = encode_component(&Value::Uint(1));
+        let b_max = encode_component(&Value::Uint(u64::from(u32::MAX)));
+
+        let k_b0 = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_7.clone(), b0, encode_component(&Value::Uint(1))],
+            vec![0x11],
+        );
+        let k_b1 = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_7.clone(), b1, encode_component(&Value::Uint(1))],
+            vec![0x12],
+        );
+        let k_b_max = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_7.clone(), b_max, encode_component(&Value::Uint(1))],
+            vec![0x13],
+        );
+        let k_other_prefix = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![
+                encode_component(&Value::Uint(8)),
+                encode_component(&Value::Uint(0)),
+                encode_component(&Value::Uint(1)),
+            ],
+            vec![0x14],
+        );
+
+        let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
+            &index_id(),
+            3,
+            &[prefix_7],
+            RangeBound::Included(encode_component(&Value::Uint(0))),
+            RangeBound::Included(encode_component(&Value::Uint(u64::from(u32::MAX)))),
+        );
+
+        let keys = [
+            k_b0.to_raw(),
+            k_b1.to_raw(),
+            k_b_max.to_raw(),
+            k_other_prefix.to_raw(),
+        ];
+        let hits = keys
+            .iter()
+            .filter(|raw| {
+                in_range(
+                    raw,
+                    &raw_index_key_bound(lower.clone()),
+                    &raw_index_key_bound(upper.clone()),
+                )
+            })
+            .count();
+
+        assert_eq!(
+            hits, 3,
+            "inclusive [0, u32::MAX] range should include min/max groups for the selected prefix"
+        );
+    }
+
+    #[test]
+    fn index_key_component_range_exclusive_extremes_skip_min_and_max_groups() {
+        let prefix_7 = encode_component(&Value::Uint(7));
+        let b0 = encode_component(&Value::Uint(0));
+        let b1 = encode_component(&Value::Uint(1));
+        let b_max_minus_1 = encode_component(&Value::Uint(u64::from(u32::MAX) - 1));
+        let b_max = encode_component(&Value::Uint(u64::from(u32::MAX)));
+
+        let k_b0 = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_7.clone(), b0, encode_component(&Value::Uint(1))],
+            vec![0x21],
+        );
+        let k_b1 = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_7.clone(), b1, encode_component(&Value::Uint(1))],
+            vec![0x22],
+        );
+        let k_b_max_minus_1 = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![
+                prefix_7.clone(),
+                b_max_minus_1,
+                encode_component(&Value::Uint(1)),
+            ],
+            vec![0x23],
+        );
+        let k_b_max = key_with(
+            IndexKeyKind::User,
+            index_id(),
+            vec![prefix_7, b_max, encode_component(&Value::Uint(1))],
+            vec![0x24],
+        );
+
+        let (lower, upper) = IndexKey::bounds_for_prefix_component_range(
+            &index_id(),
+            3,
+            &[encode_component(&Value::Uint(7))],
+            RangeBound::Excluded(encode_component(&Value::Uint(0))),
+            RangeBound::Excluded(encode_component(&Value::Uint(u64::from(u32::MAX)))),
+        );
+
+        let keys = [
+            k_b0.to_raw(),
+            k_b1.to_raw(),
+            k_b_max_minus_1.to_raw(),
+            k_b_max.to_raw(),
+        ];
+        let hits = keys
+            .iter()
+            .filter(|raw| {
+                in_range(
+                    raw,
+                    &raw_index_key_bound(lower.clone()),
+                    &raw_index_key_bound(upper.clone()),
+                )
+            })
+            .count();
+
+        assert_eq!(
+            hits, 2,
+            "exclusive (0, u32::MAX) range should skip both edge groups"
         );
     }
 
@@ -1313,7 +1448,7 @@ mod tests {
         }
 
         let (start, end) = IndexKey::bounds_for_prefix(
-            idx_a,
+            &idx_a,
             1,
             &[encode_component(&Value::Text("same".to_string()))],
         );

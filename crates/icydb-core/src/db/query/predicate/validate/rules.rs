@@ -1,9 +1,10 @@
+#[cfg(test)]
+use crate::model::entity::EntityModel;
 use crate::{
     db::query::predicate::{
         CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature,
         coercion::{CoercionId, CoercionSpec, supports_coercion},
     },
-    model::entity::EntityModel,
     value::{CoercionFamilyExt, Value},
 };
 use std::fmt;
@@ -82,6 +83,7 @@ pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), Valida
 }
 
 /// Builds schema information from a model and validates a predicate against it.
+#[cfg(test)]
 pub fn validate_model(model: &EntityModel, predicate: &Predicate) -> Result<(), ValidateError> {
     let schema = SchemaInfo::from_entity_model(model)?;
     validate(&schema, predicate)

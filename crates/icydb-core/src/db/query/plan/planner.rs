@@ -88,17 +88,19 @@ fn plan_predicate(
         | Predicate::TextContains { .. }
         | Predicate::TextContainsCi { .. } => AccessPlan::full_scan(),
         Predicate::And(children) => {
+            if let Some(range) = index_range_from_and(model, schema, children) {
+                return Ok(AccessPlan::path(range));
+            }
+
             let mut plans = children
                 .iter()
                 .map(|child| plan_predicate(model, schema, child))
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Composite index planning phase:
-            // - Prefer one deterministic range candidate when valid.
-            // - Otherwise retain equality-prefix planning.
-            if let Some(range) = index_range_from_and(model, schema, children) {
-                plans.push(AccessPlan::path(range));
-            } else if let Some(prefix) = index_prefix_from_and(model, schema, children) {
+            // - Range candidate extraction is resolved before child recursion.
+            // - If no range candidate exists, retain equality-prefix planning.
+            if let Some(prefix) = index_prefix_from_and(model, schema, children) {
                 plans.push(AccessPlan::path(prefix));
             }
 
@@ -150,8 +152,32 @@ fn plan_compare(
                 }
             }
         }
+        CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+            // Single compare predicates only map directly to one-field indexes.
+            // Composite prefix+range extraction remains AND-group driven.
+            if index_range_literal_is_compatible(schema, &cmp.field, &cmp.value) {
+                let (lower, upper) = match cmp.op {
+                    CompareOp::Gt => (Bound::Excluded(cmp.value.clone()), Bound::Unbounded),
+                    CompareOp::Gte => (Bound::Included(cmp.value.clone()), Bound::Unbounded),
+                    CompareOp::Lt => (Bound::Unbounded, Bound::Excluded(cmp.value.clone())),
+                    CompareOp::Lte => (Bound::Unbounded, Bound::Included(cmp.value.clone())),
+                    _ => unreachable!("range arm must be one of Gt/Gte/Lt/Lte"),
+                };
+
+                for index in sorted_indexes(model) {
+                    if index.fields.len() == 1 && index.fields[0] == cmp.field.as_str() {
+                        return AccessPlan::path(AccessPath::IndexRange {
+                            index: *index,
+                            prefix: Vec::new(),
+                            lower,
+                            upper,
+                        });
+                    }
+                }
+            }
+        }
         _ => {
-            // NOTE: Non-equality comparisons never yield index-prefixed plans.
+            // NOTE: Other non-equality comparisons do not currently map to key access paths.
         }
     }
 

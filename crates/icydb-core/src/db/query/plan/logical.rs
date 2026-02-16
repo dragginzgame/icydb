@@ -79,22 +79,32 @@ impl<E: EntityKind> PlanRow<E> for (Id<E>, E) {
 ///
 /// PostAccessStats
 ///
-/// Diagnostic-only execution statistics.
-/// Fields are populated but not currently consumed.
+/// Post-access execution statistics.
+///
+/// Runtime currently consumes only:
+/// - `rows_after_cursor` for continuation decisions
+/// - `delete_was_limited` for delete diagnostics
+///
+/// Additional phase-level fields are compiled in tests for structural assertions.
 ///
 
-#[expect(dead_code)]
-#[expect(clippy::struct_excessive_bools)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct PostAccessStats {
-    pub(crate) filtered: bool,
-    pub(crate) ordered: bool,
-    pub(crate) cursor_skipped: bool,
-    pub(crate) paged: bool,
     pub(crate) delete_was_limited: bool,
-    pub(crate) rows_after_filter: usize,
-    pub(crate) rows_after_order: usize,
     pub(crate) rows_after_cursor: usize,
+    #[cfg(test)]
+    pub(crate) filtered: bool,
+    #[cfg(test)]
+    pub(crate) ordered: bool,
+    #[cfg(test)]
+    pub(crate) paged: bool,
+    #[cfg(test)]
+    pub(crate) rows_after_filter: usize,
+    #[cfg(test)]
+    pub(crate) rows_after_order: usize,
+    #[cfg(test)]
     pub(crate) rows_after_page: usize,
+    #[cfg(test)]
     pub(crate) rows_after_delete_limit: usize,
 }
 
@@ -153,7 +163,7 @@ impl<K> LogicalPlan<K> {
         let (ordered, rows_after_order) = self.apply_order_phase::<E, R>(rows, cursor, filtered)?;
 
         // Phase 3: continuation boundary.
-        let (cursor_skipped, rows_after_cursor) =
+        let (_cursor_skipped, rows_after_cursor) =
             self.apply_cursor_phase::<E, R>(rows, cursor, ordered, rows_after_order)?;
 
         // Phase 4: load pagination.
@@ -163,16 +173,31 @@ impl<K> LogicalPlan<K> {
         let (delete_was_limited, rows_after_delete_limit) =
             self.apply_delete_limit_phase(rows, ordered)?;
 
+        #[cfg(not(test))]
+        let _ = rows_after_filter;
+        #[cfg(not(test))]
+        let _ = paged;
+        #[cfg(not(test))]
+        let _ = rows_after_page;
+        #[cfg(not(test))]
+        let _ = rows_after_delete_limit;
+
         Ok(PostAccessStats {
-            filtered,
-            ordered,
-            cursor_skipped,
-            paged,
             delete_was_limited,
-            rows_after_filter,
-            rows_after_order,
             rows_after_cursor,
+            #[cfg(test)]
+            filtered,
+            #[cfg(test)]
+            ordered,
+            #[cfg(test)]
+            paged,
+            #[cfg(test)]
+            rows_after_filter,
+            #[cfg(test)]
+            rows_after_order,
+            #[cfg(test)]
             rows_after_page,
+            #[cfg(test)]
             rows_after_delete_limit,
         })
     }

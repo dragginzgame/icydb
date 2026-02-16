@@ -153,8 +153,6 @@ fn family_matches(rule: CoercionRuleFamily, value: CoercionFamily) -> bool {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextOp {
-    Eq,
-    Contains,
     StartsWith,
     EndsWith,
 }
@@ -246,8 +244,6 @@ pub fn compare_text(
     };
 
     match op {
-        TextOp::Eq => left.text_eq(right, mode),
-        TextOp::Contains => left.text_contains(right, mode),
         TextOp::StartsWith => left.text_starts_with(right, mode),
         TextOp::EndsWith => left.text_ends_with(right, mode),
     }

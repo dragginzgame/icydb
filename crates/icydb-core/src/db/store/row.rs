@@ -20,19 +20,19 @@ pub enum RawRowError {
 
 impl RawRowError {
     #[must_use]
-    pub const fn class(&self) -> ErrorClass {
+    pub const fn class() -> ErrorClass {
         ErrorClass::Unsupported
     }
 
     #[must_use]
-    pub const fn origin(&self) -> ErrorOrigin {
+    pub const fn origin() -> ErrorOrigin {
         ErrorOrigin::Store
     }
 }
 
 impl From<RawRowError> for InternalError {
     fn from(err: RawRowError) -> Self {
-        Self::new(err.class(), err.origin(), err.to_string())
+        Self::new(RawRowError::class(), RawRowError::origin(), err.to_string())
     }
 }
 

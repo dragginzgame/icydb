@@ -67,6 +67,7 @@ pub enum TracePhase {
 pub enum TracePushdownRejectionReason {
     NoOrderBy,
     AccessPathNotSingleIndexPrefix,
+    AccessPathIndexRangeUnsupported,
     InvalidIndexPrefixBounds,
     MissingPrimaryKeyTieBreak,
     PrimaryKeyDirectionNotAscending,
@@ -80,6 +81,9 @@ impl From<&SecondaryOrderPushdownRejection> for TracePushdownRejectionReason {
             SecondaryOrderPushdownRejection::NoOrderBy => Self::NoOrderBy,
             SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix => {
                 Self::AccessPathNotSingleIndexPrefix
+            }
+            SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported { .. } => {
+                Self::AccessPathIndexRangeUnsupported
             }
             SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds { .. } => {
                 Self::InvalidIndexPrefixBounds

@@ -107,6 +107,17 @@ fn find_index_range(plan: &'_ AccessPlan<Value>) -> Option<IndexRangeView<'_>> {
     }
 }
 
+fn visit_access_paths<'a>(plan: &'a AccessPlan<Value>, f: &mut impl FnMut(&'a AccessPath<Value>)) {
+    match plan {
+        AccessPlan::Path(path) => f(path.as_ref()),
+        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
+            for child in children {
+                visit_access_paths(child, f);
+            }
+        }
+    }
+}
+
 #[test]
 fn plan_access_full_scan_without_predicate() {
     let model = model_with_index();
@@ -156,6 +167,44 @@ fn plan_access_uses_index_prefix_for_exact_match() {
 }
 
 #[test]
+fn plan_access_emits_index_range_for_single_field_gt() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_strict("tag", CompareOp::Gt, Value::Text("alpha".to_string()));
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("plan should include index range");
+
+    assert_eq!(index.name, INDEX_MODEL.name);
+    assert!(
+        prefix.is_empty(),
+        "single-field ranges should use empty prefixes"
+    );
+    assert_eq!(lower, &Bound::Excluded(Value::Text("alpha".to_string())));
+    assert_eq!(upper, &Bound::Unbounded);
+}
+
+#[test]
+fn plan_access_emits_index_range_for_single_field_lte() {
+    let model = model_with_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = compare_strict("tag", CompareOp::Lte, Value::Text("omega".to_string()));
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("plan should include index range");
+
+    assert_eq!(index.name, INDEX_MODEL.name);
+    assert!(
+        prefix.is_empty(),
+        "single-field ranges should use empty prefixes"
+    );
+    assert_eq!(lower, &Bound::Unbounded);
+    assert_eq!(upper, &Bound::Included(Value::Text("omega".to_string())));
+}
+
+#[test]
 fn plan_access_ignores_non_strict_predicates() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
@@ -189,6 +238,124 @@ fn plan_access_emits_index_range_for_prefix_plus_range() {
     assert_eq!(prefix, [Value::Uint(7)].as_slice());
     assert_eq!(lower, &Bound::Included(Value::Uint(100)));
     assert_eq!(upper, &Bound::Excluded(Value::Uint(200)));
+}
+
+#[test]
+fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
+    let model = model_with_range_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::And(vec![
+        compare_strict("a", CompareOp::Eq, Value::Uint(1)),
+        compare_strict("b", CompareOp::Gt, Value::Uint(5)),
+    ]);
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let AccessPlan::Path(path) = &plan else {
+        panic!("composite eq+range predicate should emit a single access path");
+    };
+    let AccessPath::IndexRange {
+        index,
+        prefix,
+        lower,
+        upper,
+    } = path.as_ref()
+    else {
+        panic!("composite eq+range predicate should emit IndexRange");
+    };
+
+    assert_eq!(index.name, RANGE_INDEX_MODEL.name);
+    assert_eq!(prefix, [Value::Uint(1)].as_slice());
+    assert_eq!(lower, &Bound::Excluded(Value::Uint(5)));
+    assert_eq!(upper, &Bound::Unbounded);
+
+    let mut index_range_count = 0usize;
+    let mut index_prefix_count = 0usize;
+    let mut single_field_index_range_count = 0usize;
+    visit_access_paths(&plan, &mut |access| match access {
+        AccessPath::IndexRange { prefix, .. } => {
+            index_range_count = index_range_count.saturating_add(1);
+            if prefix.is_empty() {
+                single_field_index_range_count = single_field_index_range_count.saturating_add(1);
+            }
+        }
+        AccessPath::IndexPrefix { .. } => {
+            index_prefix_count = index_prefix_count.saturating_add(1);
+        }
+        _ => {}
+    });
+
+    assert_eq!(
+        index_range_count, 1,
+        "exactly one IndexRange should be emitted"
+    );
+    assert_eq!(
+        index_prefix_count, 0,
+        "composite IndexRange should not carry IndexPrefix siblings"
+    );
+    assert_eq!(
+        single_field_index_range_count, 0,
+        "composite IndexRange should not carry single-field IndexRange siblings"
+    );
+}
+
+#[test]
+fn plan_access_emits_index_range_for_between_equivalent_bounds() {
+    let model = model_with_range_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::And(vec![
+        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+        compare_strict("b", CompareOp::Gte, Value::Uint(100)),
+        compare_strict("b", CompareOp::Lte, Value::Uint(200)),
+    ]);
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("plan should include index range");
+
+    assert_eq!(index.name, RANGE_INDEX_MODEL.name);
+    assert_eq!(prefix, [Value::Uint(7)].as_slice());
+    assert_eq!(lower, &Bound::Included(Value::Uint(100)));
+    assert_eq!(upper, &Bound::Included(Value::Uint(200)));
+}
+
+#[test]
+fn plan_access_emits_index_range_for_prefix_plus_range_edge_bounds() {
+    let model = model_with_range_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::And(vec![
+        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+        compare_strict("b", CompareOp::Gte, Value::Uint(0)),
+        compare_strict("b", CompareOp::Lt, Value::Uint(u64::from(u32::MAX))),
+    ]);
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("plan should include index range");
+
+    assert_eq!(index.name, RANGE_INDEX_MODEL.name);
+    assert_eq!(prefix, [Value::Uint(7)].as_slice());
+    assert_eq!(lower, &Bound::Included(Value::Uint(0)));
+    assert_eq!(upper, &Bound::Excluded(Value::Uint(u64::from(u32::MAX))));
+}
+
+#[test]
+fn plan_access_emits_index_range_for_between_equivalent_edge_bounds() {
+    let model = model_with_range_index();
+    let schema = SchemaInfo::from_entity_model(model).expect("schema should validate");
+    let predicate = Predicate::And(vec![
+        compare_strict("a", CompareOp::Eq, Value::Uint(7)),
+        compare_strict("b", CompareOp::Gte, Value::Uint(0)),
+        compare_strict("b", CompareOp::Lte, Value::Uint(u64::from(u32::MAX))),
+    ]);
+
+    let plan = plan_access(model, &schema, Some(&predicate)).expect("plan should build");
+    let (index, prefix, lower, upper) =
+        find_index_range(&plan).expect("plan should include index range");
+
+    assert_eq!(index.name, RANGE_INDEX_MODEL.name);
+    assert_eq!(prefix, [Value::Uint(7)].as_slice());
+    assert_eq!(lower, &Bound::Included(Value::Uint(0)));
+    assert_eq!(upper, &Bound::Included(Value::Uint(u64::from(u32::MAX))));
 }
 
 #[test]
