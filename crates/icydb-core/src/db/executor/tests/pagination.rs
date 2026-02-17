@@ -367,42 +367,6 @@ fn explain_contains_index_range(
     }
 }
 
-fn collect_paged_ids<E, F>(
-    load: &LoadExecutor<E>,
-    mut build_plan: F,
-    max_pages: usize,
-    termination_message: &'static str,
-) -> Vec<Ulid>
-where
-    E: EntityKind<Key = Ulid> + EntityValue,
-    F: FnMut() -> ExecutablePlan<E>,
-{
-    let mut cursor: Option<Vec<u8>> = None;
-    let mut ids = Vec::new();
-    let mut pages = 0usize;
-
-    loop {
-        pages = pages.saturating_add(1);
-        assert!(pages <= max_pages, "{termination_message}");
-
-        let page_plan = build_plan();
-        let planned_cursor = page_plan
-            .plan_cursor(cursor.as_deref())
-            .expect("paged cursor should plan");
-        let page = load
-            .execute_paged_with_cursor(page_plan, planned_cursor)
-            .expect("paged execution should succeed");
-        ids.extend(page.items.0.iter().map(|(id, _)| id.key()));
-
-        let Some(next_cursor) = page.next_cursor else {
-            break;
-        };
-        cursor = Some(next_cursor);
-    }
-
-    ids
-}
-
 fn extract_access_rows(events: &[QueryTraceEvent]) -> Option<u64> {
     events.iter().find_map(|event| match event {
         QueryTraceEvent::Phase {
@@ -432,6 +396,143 @@ fn assert_anchor_monotonic(
         assert!(previous_anchor < &anchor, "{monotonic_message}");
     }
     anchors.push(anchor);
+}
+
+fn assert_pushdown_parity<E, I, O>(
+    build_pushdown_query: impl Fn() -> Query<E>,
+    fallback_ids: I,
+    apply_order: O,
+) where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+    I: IntoIterator<Item = Ulid>,
+    O: Fn(Query<E>) -> Query<E>,
+{
+    let load = LoadExecutor::<E>::new(DB, false);
+
+    let pushdown = load
+        .execute(
+            build_pushdown_query()
+                .plan()
+                .expect("pushdown plan should build"),
+        )
+        .expect("pushdown execution should succeed");
+
+    let fallback = load
+        .execute(
+            apply_order(Query::<E>::new(ReadConsistency::MissingOk).by_ids(fallback_ids))
+                .plan()
+                .expect("fallback plan should build"),
+        )
+        .expect("fallback execution should succeed");
+
+    let push_ids: Vec<Ulid> = pushdown.0.iter().map(|(id, _)| id.key()).collect();
+
+    let fallback_ids: Vec<Ulid> = fallback.0.iter().map(|(id, _)| id.key()).collect();
+
+    assert_eq!(push_ids, fallback_ids);
+}
+
+fn collect_all_pages<E>(
+    load: &LoadExecutor<E>,
+    build_query: impl Fn() -> Query<E>,
+    max_pages: usize,
+) -> (Vec<Ulid>, Vec<Vec<u8>>)
+where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+{
+    let mut cursor: Option<Vec<u8>> = None;
+    let mut ids = Vec::new();
+    let mut row_bytes = Vec::new();
+    let mut pages = 0usize;
+
+    loop {
+        pages += 1;
+        assert!(pages <= max_pages, "pagination must terminate");
+
+        let plan = build_query().plan().expect("page plan should build");
+
+        let planned_cursor = plan
+            .plan_cursor(cursor.as_deref())
+            .expect("page cursor should plan");
+
+        let page = load
+            .execute_paged_with_cursor(plan, planned_cursor)
+            .expect("paged execution should succeed");
+
+        ids.extend(page.items.0.iter().map(|(id, _)| id.key()));
+        row_bytes.extend(
+            page.items
+                .0
+                .iter()
+                .map(|(_, e)| serialize(e).expect("entity serialization should succeed")),
+        );
+
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+
+    (ids, row_bytes)
+}
+
+fn assert_limit_matrix<E>(build_base_query: impl Fn() -> Query<E>, limits: &[u32], max_pages: usize)
+where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+{
+    let load = LoadExecutor::<E>::new(DB, false);
+
+    let unbounded = load
+        .execute(
+            build_base_query()
+                .plan()
+                .expect("unbounded plan should build"),
+        )
+        .expect("unbounded execution should succeed");
+
+    let unbounded_ids: Vec<Ulid> = unbounded.0.iter().map(|(id, _)| id.key()).collect();
+
+    for &limit in limits {
+        let (ids, _) = collect_all_pages(&load, || build_base_query().limit(limit), max_pages);
+
+        if limit == 0 {
+            assert!(ids.is_empty());
+            continue;
+        }
+
+        assert_eq!(ids, unbounded_ids);
+
+        let unique: BTreeSet<Ulid> = ids.iter().copied().collect();
+        assert_eq!(unique.len(), ids.len());
+    }
+}
+
+fn assert_resume_after_entity<E>(
+    build_query: impl Fn() -> Query<E>,
+    entity: &E,
+    expected_ids: Vec<Ulid>,
+) where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+{
+    let load = LoadExecutor::<E>::new(DB, false);
+
+    let boundary = build_query()
+        .plan()
+        .expect("boundary plan should build")
+        .into_inner()
+        .cursor_boundary_from_entity(entity)
+        .expect("boundary should build");
+
+    let page = load
+        .execute_paged_with_cursor(
+            build_query().plan().expect("resume plan should build"),
+            Some(boundary),
+        )
+        .expect("resume execution should succeed");
+
+    let ids: Vec<Ulid> = page.items.0.iter().map(|(id, _)| id.key()).collect();
+
+    assert_eq!(ids, expected_ids);
 }
 
 #[test]
@@ -1870,31 +1971,15 @@ fn load_single_field_range_pushdown_matches_by_ids_fallback() {
         "single-field range should plan an IndexRange access path"
     );
 
-    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
-    let pushdown_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by("tag")
-        .plan()
-        .expect("single-field range plan should build");
-    let pushdown = load
-        .execute(pushdown_plan)
-        .expect("single-field range query should execute");
-
     let fallback_ids = indexed_metrics_ids_in_tag_range(&rows, 10, 30);
-    let fallback_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(fallback_ids.iter().copied())
-        .order_by("tag")
-        .plan()
-        .expect("single-field fallback plan should build");
-    let fallback = load
-        .execute(fallback_plan)
-        .expect("single-field fallback query should execute");
-
-    let pushdown_ids: Vec<Ulid> = pushdown.0.iter().map(|(_, entity)| entity.id).collect();
-    let fallback_ids: Vec<Ulid> = fallback.0.iter().map(|(_, entity)| entity.id).collect();
-    assert_eq!(
-        pushdown_ids, fallback_ids,
-        "single-field range pushdown rows should match by-ids fallback rows"
+    assert_pushdown_parity(
+        || {
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("tag")
+        },
+        fallback_ids,
+        |query| query.order_by("tag"),
     );
 }
 
@@ -1917,31 +2002,15 @@ fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
         "composite prefix+range should plan an IndexRange access path"
     );
 
-    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let pushdown_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by("rank")
-        .plan()
-        .expect("composite range plan should build");
-    let pushdown = load
-        .execute(pushdown_plan)
-        .expect("composite range query should execute");
-
     let fallback_ids = pushdown_ids_in_group_rank_range(&rows, 7, 10, 30);
-    let fallback_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(fallback_ids.iter().copied())
-        .order_by("rank")
-        .plan()
-        .expect("composite fallback plan should build");
-    let fallback = load
-        .execute(fallback_plan)
-        .expect("composite fallback query should execute");
-
-    let pushdown_ids: Vec<Ulid> = pushdown.0.iter().map(|(_, entity)| entity.id).collect();
-    let fallback_ids: Vec<Ulid> = fallback.0.iter().map(|(_, entity)| entity.id).collect();
-    assert_eq!(
-        pushdown_ids, fallback_ids,
-        "composite prefix+range pushdown rows should match by-ids fallback rows"
+    assert_pushdown_parity(
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("rank")
+        },
+        fallback_ids,
+        |query| query.order_by("rank"),
     );
 }
 
@@ -1973,52 +2042,15 @@ fn load_single_field_range_limit_matrix_matches_unbounded() {
         "single-field limit matrix should plan an IndexRange access path"
     );
 
-    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
-    let unbounded_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
-        .order_by("tag")
-        .plan()
-        .expect("single-field unbounded plan should build");
-    let unbounded = load
-        .execute(unbounded_plan)
-        .expect("single-field unbounded execution should succeed");
-    let unbounded_ids: Vec<Ulid> = unbounded.0.iter().map(|(_, entity)| entity.id).collect();
-
-    let limit_cases = [0_u32, 1_u32, 2_u32, 4_u32, 16_u32];
-    for limit in limit_cases {
-        let ids = collect_paged_ids(
-            &load,
-            || {
-                Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-                    .filter(predicate.clone())
-                    .order_by("tag")
-                    .limit(limit)
-                    .plan()
-                    .expect("single-field page plan should build")
-            },
-            16,
-            "single-field limit matrix must terminate",
-        );
-
-        if limit == 0 {
-            assert!(
-                ids.is_empty(),
-                "limit=0 should produce an empty result window"
-            );
-            continue;
-        }
-
-        assert_eq!(
-            ids, unbounded_ids,
-            "single-field limit case {limit} should match unbounded result order"
-        );
-        let unique_ids: BTreeSet<Ulid> = ids.iter().copied().collect();
-        assert_eq!(
-            unique_ids.len(),
-            ids.len(),
-            "single-field limit case {limit} must not duplicate rows across pages"
-        );
-    }
+    assert_limit_matrix(
+        || {
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("tag")
+        },
+        &[0_u32, 1_u32, 2_u32, 4_u32, 16_u32],
+        16,
+    );
 }
 
 #[test]
@@ -2050,52 +2082,15 @@ fn load_composite_range_limit_matrix_matches_unbounded() {
         "composite limit matrix should plan an IndexRange access path"
     );
 
-    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let unbounded_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
-        .order_by("rank")
-        .plan()
-        .expect("composite unbounded plan should build");
-    let unbounded = load
-        .execute(unbounded_plan)
-        .expect("composite unbounded execution should succeed");
-    let unbounded_ids: Vec<Ulid> = unbounded.0.iter().map(|(_, entity)| entity.id).collect();
-
-    let limit_cases = [0_u32, 1_u32, 2_u32, 3_u32, 16_u32];
-    for limit in limit_cases {
-        let ids = collect_paged_ids(
-            &load,
-            || {
-                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-                    .filter(predicate.clone())
-                    .order_by("rank")
-                    .limit(limit)
-                    .plan()
-                    .expect("composite page plan should build")
-            },
-            20,
-            "composite limit matrix must terminate",
-        );
-
-        if limit == 0 {
-            assert!(
-                ids.is_empty(),
-                "limit=0 should produce an empty result window"
-            );
-            continue;
-        }
-
-        assert_eq!(
-            ids, unbounded_ids,
-            "composite limit case {limit} should match unbounded result order"
-        );
-        let unique_ids: BTreeSet<Ulid> = ids.iter().copied().collect();
-        assert_eq!(
-            unique_ids.len(),
-            ids.len(),
-            "composite limit case {limit} must not duplicate rows across pages"
-        );
-    }
+    assert_limit_matrix(
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("rank")
+        },
+        &[0_u32, 1_u32, 2_u32, 3_u32, 16_u32],
+        20,
+    );
 }
 
 #[test]
@@ -2387,31 +2382,15 @@ fn load_single_field_between_equivalent_pushdown_matches_by_ids_fallback() {
         "single-field between-equivalent predicate should plan an IndexRange access path"
     );
 
-    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
-    let pushdown_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by("tag")
-        .plan()
-        .expect("single-field between-equivalent plan should build");
-    let pushdown = load
-        .execute(pushdown_plan)
-        .expect("single-field between-equivalent query should execute");
-
     let fallback_ids = indexed_metrics_ids_in_between_equivalent_range(&rows, 10, 30);
-    let fallback_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(fallback_ids.iter().copied())
-        .order_by("tag")
-        .plan()
-        .expect("single-field between-equivalent fallback plan should build");
-    let fallback = load
-        .execute(fallback_plan)
-        .expect("single-field between-equivalent fallback query should execute");
-
-    let pushdown_ids: Vec<Ulid> = pushdown.0.iter().map(|(_, entity)| entity.id).collect();
-    let fallback_ids: Vec<Ulid> = fallback.0.iter().map(|(_, entity)| entity.id).collect();
-    assert_eq!(
-        pushdown_ids, fallback_ids,
-        "single-field between-equivalent pushdown rows should match by-ids fallback rows"
+    assert_pushdown_parity(
+        || {
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("tag")
+        },
+        fallback_ids,
+        |query| query.order_by("tag"),
     );
 }
 
@@ -2434,31 +2413,15 @@ fn load_composite_between_equivalent_pushdown_matches_by_ids_fallback() {
         "composite between-equivalent predicate should plan an IndexRange access path"
     );
 
-    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let pushdown_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by("rank")
-        .plan()
-        .expect("composite between-equivalent plan should build");
-    let pushdown = load
-        .execute(pushdown_plan)
-        .expect("composite between-equivalent query should execute");
-
     let fallback_ids = pushdown_ids_in_group_rank_between_equivalent_range(&rows, 7, 10, 30);
-    let fallback_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(fallback_ids.iter().copied())
-        .order_by("rank")
-        .plan()
-        .expect("composite between-equivalent fallback plan should build");
-    let fallback = load
-        .execute(fallback_plan)
-        .expect("composite between-equivalent fallback query should execute");
-
-    let pushdown_ids: Vec<Ulid> = pushdown.0.iter().map(|(_, entity)| entity.id).collect();
-    let fallback_ids: Vec<Ulid> = fallback.0.iter().map(|(_, entity)| entity.id).collect();
-    assert_eq!(
-        pushdown_ids, fallback_ids,
-        "composite between-equivalent pushdown rows should match by-ids fallback rows"
+    assert_pushdown_parity(
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("rank")
+        },
+        fallback_ids,
+        |query| query.order_by("rank"),
     );
 }
 
@@ -2492,77 +2455,44 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
         "single-field extreme-edge range should plan an IndexRange access path"
     );
 
-    let pushdown_exclusive_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(exclusive_predicate)
-        .order_by("tag")
-        .plan()
-        .expect("single-field extreme-edge exclusive plan should build");
-    let pushdown_exclusive = load
-        .execute(pushdown_exclusive_plan)
-        .expect("single-field extreme-edge exclusive pushdown should execute");
-
     let fallback_exclusive_ids = indexed_metrics_ids_in_tag_range(&rows, 0, MAX_TAG);
-    let fallback_exclusive_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(fallback_exclusive_ids.iter().copied())
-        .order_by("tag")
-        .plan()
-        .expect("single-field extreme-edge exclusive fallback plan should build");
-    let fallback_exclusive = load
-        .execute(fallback_exclusive_plan)
-        .expect("single-field extreme-edge exclusive fallback should execute");
-
-    let pushdown_exclusive_ids: Vec<Ulid> = pushdown_exclusive
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    let fallback_exclusive_ids: Vec<Ulid> = fallback_exclusive
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    assert_eq!(
-        pushdown_exclusive_ids, fallback_exclusive_ids,
-        "exclusive [0, u32::MAX) pushdown rows should match by-ids fallback rows"
+    assert_pushdown_parity(
+        || {
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(exclusive_predicate.clone())
+                .order_by("tag")
+        },
+        fallback_exclusive_ids,
+        |query| query.order_by("tag"),
     );
 
     // Phase 2: inclusive upper bound should include the max-value group.
     let inclusive_predicate = tag_between_equivalent_predicate(0, MAX_TAG);
-    let pushdown_inclusive_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(inclusive_predicate)
-        .order_by("tag")
-        .plan()
-        .expect("single-field extreme-edge inclusive plan should build");
-    let pushdown_inclusive = load
-        .execute(pushdown_inclusive_plan)
-        .expect("single-field extreme-edge inclusive pushdown should execute");
-
     let fallback_inclusive_ids = indexed_metrics_ids_in_between_equivalent_range(&rows, 0, MAX_TAG);
-    let fallback_inclusive_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(fallback_inclusive_ids.iter().copied())
-        .order_by("tag")
-        .plan()
-        .expect("single-field extreme-edge inclusive fallback plan should build");
-    let fallback_inclusive = load
-        .execute(fallback_inclusive_plan)
-        .expect("single-field extreme-edge inclusive fallback should execute");
-
-    let pushdown_inclusive_ids: Vec<Ulid> = pushdown_inclusive
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    let fallback_inclusive_ids: Vec<Ulid> = fallback_inclusive
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    assert_eq!(
-        pushdown_inclusive_ids, fallback_inclusive_ids,
-        "inclusive [0, u32::MAX] pushdown rows should match by-ids fallback rows"
+    assert_pushdown_parity(
+        || {
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(inclusive_predicate.clone())
+                .order_by("tag")
+        },
+        fallback_inclusive_ids.iter().copied(),
+        |query| query.order_by("tag"),
     );
+
+    let pushdown_inclusive_has_max = load
+        .execute(
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(inclusive_predicate)
+                .order_by("tag")
+                .plan()
+                .expect("single-field extreme-edge inclusive plan should build"),
+        )
+        .expect("single-field extreme-edge inclusive pushdown should execute")
+        .0
+        .iter()
+        .any(|(_, entity)| entity.id == Ulid::from_u128(19_305));
     assert!(
-        pushdown_inclusive_ids.contains(&Ulid::from_u128(19_305)),
+        pushdown_inclusive_has_max,
         "inclusive upper-bound range must include rows at the max field value"
     );
 }
@@ -2598,78 +2528,45 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
         "composite extreme-edge range should plan an IndexRange access path"
     );
 
-    let pushdown_exclusive_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(exclusive_predicate)
-        .order_by("rank")
-        .plan()
-        .expect("composite extreme-edge exclusive plan should build");
-    let pushdown_exclusive = load
-        .execute(pushdown_exclusive_plan)
-        .expect("composite extreme-edge exclusive pushdown should execute");
-
     let fallback_exclusive_ids = pushdown_ids_in_group_rank_range(&rows, 7, 0, MAX_RANK);
-    let fallback_exclusive_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(fallback_exclusive_ids.iter().copied())
-        .order_by("rank")
-        .plan()
-        .expect("composite extreme-edge exclusive fallback plan should build");
-    let fallback_exclusive = load
-        .execute(fallback_exclusive_plan)
-        .expect("composite extreme-edge exclusive fallback should execute");
-
-    let pushdown_exclusive_ids: Vec<Ulid> = pushdown_exclusive
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    let fallback_exclusive_ids: Vec<Ulid> = fallback_exclusive
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    assert_eq!(
-        pushdown_exclusive_ids, fallback_exclusive_ids,
-        "composite exclusive [0, u32::MAX) pushdown rows should match by-ids fallback rows"
+    assert_pushdown_parity(
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(exclusive_predicate.clone())
+                .order_by("rank")
+        },
+        fallback_exclusive_ids,
+        |query| query.order_by("rank"),
     );
 
     // Phase 2: inclusive upper bound should include the max-value rank group.
     let inclusive_predicate = group_rank_between_equivalent_predicate(7, 0, MAX_RANK);
-    let pushdown_inclusive_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(inclusive_predicate)
-        .order_by("rank")
-        .plan()
-        .expect("composite extreme-edge inclusive plan should build");
-    let pushdown_inclusive = load
-        .execute(pushdown_inclusive_plan)
-        .expect("composite extreme-edge inclusive pushdown should execute");
-
     let fallback_inclusive_ids =
         pushdown_ids_in_group_rank_between_equivalent_range(&rows, 7, 0, MAX_RANK);
-    let fallback_inclusive_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .by_ids(fallback_inclusive_ids.iter().copied())
-        .order_by("rank")
-        .plan()
-        .expect("composite extreme-edge inclusive fallback plan should build");
-    let fallback_inclusive = load
-        .execute(fallback_inclusive_plan)
-        .expect("composite extreme-edge inclusive fallback should execute");
-
-    let pushdown_inclusive_ids: Vec<Ulid> = pushdown_inclusive
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    let fallback_inclusive_ids: Vec<Ulid> = fallback_inclusive
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    assert_eq!(
-        pushdown_inclusive_ids, fallback_inclusive_ids,
-        "composite inclusive [0, u32::MAX] pushdown rows should match by-ids fallback rows"
+    assert_pushdown_parity(
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(inclusive_predicate.clone())
+                .order_by("rank")
+        },
+        fallback_inclusive_ids.iter().copied(),
+        |query| query.order_by("rank"),
     );
+
+    let pushdown_inclusive_has_max = load
+        .execute(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(inclusive_predicate)
+                .order_by("rank")
+                .plan()
+                .expect("composite extreme-edge inclusive plan should build"),
+        )
+        .expect("composite extreme-edge inclusive pushdown should execute")
+        .0
+        .iter()
+        .any(|(_, entity)| entity.id == Ulid::from_u128(19_405));
     assert!(
-        pushdown_inclusive_ids.contains(&Ulid::from_u128(19_405)),
+        pushdown_inclusive_has_max,
         "inclusive upper-bound range must include rows at the max field value"
     );
 }
@@ -2704,66 +2601,28 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
     );
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let mut pushdown_cursor: Option<Vec<u8>> = None;
-    let mut pushdown_ids = Vec::new();
-    let mut pushdown_pages = 0usize;
-    loop {
-        pushdown_pages = pushdown_pages.saturating_add(1);
-        assert!(
-            pushdown_pages <= 8,
-            "pushdown cursor pagination should terminate in bounded pages"
-        );
-
-        let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-            .filter(predicate.clone())
-            .order_by("rank")
-            .limit(2)
-            .plan()
-            .expect("pushdown pagination plan should build");
-        let boundary = plan
-            .plan_cursor(pushdown_cursor.as_deref())
-            .expect("pushdown pagination boundary should plan");
-        let page = load
-            .execute_paged_with_cursor(plan, boundary)
-            .expect("pushdown pagination page should execute");
-
-        pushdown_ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
-        let Some(next_cursor) = page.next_cursor else {
-            break;
-        };
-        pushdown_cursor = Some(next_cursor);
-    }
+    let (pushdown_ids, _) = collect_all_pages(
+        &load,
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("rank")
+                .limit(2)
+        },
+        8,
+    );
 
     let fallback_seed_ids = pushdown_ids_in_group_rank_range(&rows, 7, 10, 40);
-    let mut fallback_cursor: Option<Vec<u8>> = None;
-    let mut fallback_ids = Vec::new();
-    let mut fallback_pages = 0usize;
-    loop {
-        fallback_pages = fallback_pages.saturating_add(1);
-        assert!(
-            fallback_pages <= 8,
-            "fallback cursor pagination should terminate in bounded pages"
-        );
-
-        let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-            .by_ids(fallback_seed_ids.iter().copied())
-            .order_by("rank")
-            .limit(2)
-            .plan()
-            .expect("fallback pagination plan should build");
-        let boundary = plan
-            .plan_cursor(fallback_cursor.as_deref())
-            .expect("fallback pagination boundary should plan");
-        let page = load
-            .execute_paged_with_cursor(plan, boundary)
-            .expect("fallback pagination page should execute");
-
-        fallback_ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
-        let Some(next_cursor) = page.next_cursor else {
-            break;
-        };
-        fallback_cursor = Some(next_cursor);
-    }
+    let (fallback_ids, _) = collect_all_pages(
+        &load,
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .by_ids(fallback_seed_ids.iter().copied())
+                .order_by("rank")
+                .limit(2)
+        },
+        8,
+    );
 
     assert_eq!(
         pushdown_ids, fallback_ids,
@@ -2824,10 +2683,19 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
         .map(|(_, entity)| serialize(entity).expect("entity serialization should succeed"))
         .collect();
 
-    // Paginated: iterate with continuation cursors and accumulate results.
+    let (paged_ids, paged_row_bytes) = collect_all_pages(
+        &load,
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("rank")
+                .limit(3)
+        },
+        8,
+    );
+
+    // Anchor monotonicity: preserve explicit cursor-shape validation across pages.
     let mut cursor: Option<Vec<u8>> = None;
-    let mut paged_ids = Vec::new();
-    let mut paged_row_bytes = Vec::new();
     let mut page_anchors = Vec::new();
     let mut pages = 0usize;
 
@@ -2850,14 +2718,6 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
         let page = load
             .execute_paged_with_cursor(page_plan, planned_cursor)
             .expect("paged execution should succeed");
-
-        paged_ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
-        paged_row_bytes.extend(
-            page.items
-                .0
-                .iter()
-                .map(|(_, entity)| serialize(entity).expect("entity serialization should succeed")),
-        );
 
         let Some(next_cursor) = page.next_cursor else {
             break;
@@ -2931,9 +2791,18 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
         .map(|(_, entity)| serialize(entity).expect("entity serialization should succeed"))
         .collect();
 
+    let (paged_ids, paged_row_bytes) = collect_all_pages(
+        &load,
+        || {
+            Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("code")
+                .limit(2)
+        },
+        8,
+    );
+
     let mut cursor: Option<Vec<u8>> = None;
-    let mut paged_ids = Vec::new();
-    let mut paged_row_bytes = Vec::new();
     let mut anchors = Vec::new();
     let mut pages = 0usize;
 
@@ -2953,14 +2822,6 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
         let page = load
             .execute_paged_with_cursor(page_plan, planned_cursor)
             .expect("unique paged execution should succeed");
-
-        paged_ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
-        paged_row_bytes.extend(
-            page.items
-                .0
-                .iter()
-                .map(|(_, entity)| serialize(entity).expect("entity serialization should succeed")),
-        );
 
         let Some(next_cursor) = page.next_cursor else {
             break;
@@ -3041,35 +2902,15 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
     );
 
     let first_entity = &base_page.items.0[0].1;
-    let lower_boundary_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
-        .order_by("tag")
-        .limit(10)
-        .plan()
-        .expect("single-field lower-boundary plan should build");
-    let lower_boundary = lower_boundary_plan
-        .into_inner()
-        .cursor_boundary_from_entity(first_entity)
-        .expect("single-field lower boundary should build");
-    let after_lower_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
-        .order_by("tag")
-        .limit(10)
-        .plan()
-        .expect("single-field after-lower plan should build");
-    let after_lower = load
-        .execute_paged_with_cursor(after_lower_plan, Some(lower_boundary))
-        .expect("single-field after-lower page should execute");
-    let after_lower_ids: Vec<Ulid> = after_lower
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    assert_eq!(
-        after_lower_ids,
+    assert_resume_after_entity(
+        || {
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("tag")
+                .limit(10)
+        },
+        first_entity,
         all_ids[1..].to_vec(),
-        "cursor boundary at the lower edge row should resume strictly after that row"
     );
 
     let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
@@ -3178,7 +3019,6 @@ fn load_single_field_range_pushdown_parity_matrix_is_table_driven() {
         (23_005, 30, "t30"),
         (23_006, 40, "t40"),
     ];
-    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
 
     for case in cases {
         // Phase 1: seed deterministic rows and verify range planning shape.
@@ -3203,41 +3043,25 @@ fn load_single_field_range_pushdown_parity_matrix_is_table_driven() {
         );
 
         // Phase 2: execute pushdown and fallback plans under identical ordering.
-        let mut pushdown_query =
-            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk).filter(predicate);
-        pushdown_query = if case.descending {
-            pushdown_query.order_by_desc("tag")
-        } else {
-            pushdown_query.order_by("tag")
-        };
-        let pushdown_plan = pushdown_query
-            .plan()
-            .expect("single-field matrix pushdown plan should build");
-        let pushdown = load
-            .execute(pushdown_plan)
-            .expect("single-field matrix pushdown query should execute");
-
         let fallback_seed_ids = indexed_metrics_ids_for_bounds(&rows, case.bounds);
-        let mut fallback_query = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-            .by_ids(fallback_seed_ids.iter().copied());
-        fallback_query = if case.descending {
-            fallback_query.order_by_desc("tag")
-        } else {
-            fallback_query.order_by("tag")
-        };
-        let fallback_plan = fallback_query
-            .plan()
-            .expect("single-field matrix fallback plan should build");
-        let fallback = load
-            .execute(fallback_plan)
-            .expect("single-field matrix fallback query should execute");
-
-        let pushdown_ids: Vec<Ulid> = pushdown.0.iter().map(|(_, entity)| entity.id).collect();
-        let fallback_ids: Vec<Ulid> = fallback.0.iter().map(|(_, entity)| entity.id).collect();
-        assert_eq!(
-            pushdown_ids, fallback_ids,
-            "single-field range pushdown parity mismatch for case '{}'",
-            case.name
+        assert_pushdown_parity(
+            || {
+                let query = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                    .filter(predicate.clone());
+                if case.descending {
+                    query.order_by_desc("tag")
+                } else {
+                    query.order_by("tag")
+                }
+            },
+            fallback_seed_ids,
+            |query| {
+                if case.descending {
+                    query.order_by_desc("tag")
+                } else {
+                    query.order_by("tag")
+                }
+            },
         );
     }
 }
@@ -3320,8 +3144,6 @@ fn load_composite_range_pushdown_parity_matrix_is_table_driven() {
         (24_007, 8, 15, "g8-r15"),
         (24_008, 7, 50, "g7-r50"),
     ];
-    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-
     for case in cases {
         // Phase 1: seed deterministic rows and verify prefix+range planning shape.
         reset_store();
@@ -3359,41 +3181,25 @@ fn load_composite_range_pushdown_parity_matrix_is_table_driven() {
         );
 
         // Phase 2: execute pushdown and fallback plans under identical ordering.
-        let mut pushdown_query =
-            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk).filter(predicate);
-        pushdown_query = if case.descending {
-            pushdown_query.order_by_desc("rank")
-        } else {
-            pushdown_query.order_by("rank")
-        };
-        let pushdown_plan = pushdown_query
-            .plan()
-            .expect("composite matrix pushdown plan should build");
-        let pushdown = load
-            .execute(pushdown_plan)
-            .expect("composite matrix pushdown query should execute");
-
         let fallback_seed_ids = pushdown_ids_for_group_rank_bounds(&rows, 7, case.bounds);
-        let mut fallback_query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-            .by_ids(fallback_seed_ids.iter().copied());
-        fallback_query = if case.descending {
-            fallback_query.order_by_desc("rank")
-        } else {
-            fallback_query.order_by("rank")
-        };
-        let fallback_plan = fallback_query
-            .plan()
-            .expect("composite matrix fallback plan should build");
-        let fallback = load
-            .execute(fallback_plan)
-            .expect("composite matrix fallback query should execute");
-
-        let pushdown_ids: Vec<Ulid> = pushdown.0.iter().map(|(_, entity)| entity.id).collect();
-        let fallback_ids: Vec<Ulid> = fallback.0.iter().map(|(_, entity)| entity.id).collect();
-        assert_eq!(
-            pushdown_ids, fallback_ids,
-            "composite range pushdown parity mismatch for case '{}'",
-            case.name
+        assert_pushdown_parity(
+            || {
+                let query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(predicate.clone());
+                if case.descending {
+                    query.order_by_desc("rank")
+                } else {
+                    query.order_by("rank")
+                }
+            },
+            fallback_seed_ids,
+            |query| {
+                if case.descending {
+                    query.order_by_desc("rank")
+                } else {
+                    query.order_by("rank")
+                }
+            },
         );
     }
 }
@@ -3452,68 +3258,28 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
 
     // Phase 2: boundary at the first lower-edge row should skip only that row.
     let lower_entity = &base_page.items.0[0].1;
-    let lower_boundary_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
-        .order_by("rank")
-        .limit(10)
-        .plan()
-        .expect("composite duplicate-edge lower-boundary plan should build");
-    let lower_boundary = lower_boundary_plan
-        .into_inner()
-        .cursor_boundary_from_entity(lower_entity)
-        .expect("composite duplicate-edge lower boundary should build");
-    let after_lower_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
-        .order_by("rank")
-        .limit(10)
-        .plan()
-        .expect("composite duplicate-edge after-lower plan should build");
-    let after_lower = load
-        .execute_paged_with_cursor(after_lower_plan, Some(lower_boundary))
-        .expect("composite duplicate-edge after-lower page should execute");
-    let after_lower_ids: Vec<Ulid> = after_lower
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    assert_eq!(
-        after_lower_ids,
+    assert_resume_after_entity(
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("rank")
+                .limit(10)
+        },
+        lower_entity,
         all_ids[1..].to_vec(),
-        "boundary at lower edge should resume strictly after the selected lower-edge row"
     );
 
     // Phase 3: mid-window boundary should resume at the next strict row.
     let mid_entity = &base_page.items.0[2].1;
-    let mid_boundary_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
-        .order_by("rank")
-        .limit(10)
-        .plan()
-        .expect("composite duplicate-edge mid-boundary plan should build");
-    let mid_boundary = mid_boundary_plan
-        .into_inner()
-        .cursor_boundary_from_entity(mid_entity)
-        .expect("composite duplicate-edge mid boundary should build");
-    let after_mid_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
-        .order_by("rank")
-        .limit(10)
-        .plan()
-        .expect("composite duplicate-edge after-mid plan should build");
-    let after_mid = load
-        .execute_paged_with_cursor(after_mid_plan, Some(mid_boundary))
-        .expect("composite duplicate-edge after-mid page should execute");
-    let after_mid_ids: Vec<Ulid> = after_mid
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    assert_eq!(
-        after_mid_ids,
+    assert_resume_after_entity(
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("rank")
+                .limit(10)
+        },
+        mid_entity,
         all_ids[3..].to_vec(),
-        "mid-window boundary should resume strictly after the selected mid-range row"
     );
 
     // Phase 4: boundary at the terminal upper-edge row should produce an empty continuation page.
