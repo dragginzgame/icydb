@@ -1,8 +1,9 @@
 use candid::CandidType;
 use derive_more::Display;
 use icydb_core::{
-    ErrorOrigin as CoreErrorOrigin, InternalError, MergePatchError as CoreMergePatchError,
     db::{PlanError, QueryError, ResponseError},
+    error::{ErrorOrigin as CoreErrorOrigin, InternalError},
+    patch::MergePatchError as CoreMergePatchError,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
@@ -221,6 +222,10 @@ impl From<CoreErrorOrigin> for ErrorOrigin {
         }
     }
 }
+
+///
+/// TESTS
+///
 
 #[cfg(test)]
 mod tests {

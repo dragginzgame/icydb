@@ -11,17 +11,16 @@ pub(crate) mod store;
 
 use crate::{
     db::{
-        commit::{CommitRowOp, PreparedRowCommitOp, ensure_recovered},
+        commit::ensure_recovered,
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor},
         query::{
             ReadConsistency,
-            intent::{Query, QueryError, QueryMode},
-            plan::PlanError,
+            intent::{Query, QueryMode},
             session::{delete::SessionDeleteQuery, load::SessionLoadQuery},
         },
         relation::StrongRelationDeleteValidateFn,
         response::{Response, WriteBatchResponse, WriteResponse},
-        store::{RawDataKey, StoreRegistry},
+        store::RawDataKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{MetricsSink, with_metrics_sink},
@@ -30,7 +29,16 @@ use crate::{
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
 /// re-exports
+pub use commit::{CommitRowOp, PreparedRowCommitOp, prepare_row_commit_for_entity};
 pub use identity::{EntityName, IndexName};
+pub use index::IndexStore;
+pub use query::{
+    intent::{IntentError, QueryError},
+    plan::PlanError,
+};
+pub use relation::validate_delete_strong_relations_for_source;
+pub use response::{ResponseError, Row};
+pub use store::{DataStore, StoreRegistry};
 
 ///
 /// Db
@@ -134,9 +142,8 @@ pub struct EntityRuntimeHooks<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> EntityRuntimeHooks<C> {
-    #[cfg(test)]
     #[must_use]
-    pub(crate) const fn new(
+    pub const fn new(
         entity_name: &'static str,
         entity_path: &'static str,
         prepare_row_commit: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,

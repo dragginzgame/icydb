@@ -164,7 +164,7 @@ pub(crate) const MAX_COMMIT_BYTES: u32 = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct CommitRowOp {
+pub struct CommitRowOp {
     pub(crate) entity_path: String,
     pub(crate) key: Vec<u8>,
     pub(crate) before: Option<Vec<u8>>,
@@ -278,7 +278,7 @@ pub(crate) struct PreparedIndexMutation {
 ///
 
 #[derive(Clone)]
-pub(crate) struct PreparedRowCommitOp {
+pub struct PreparedRowCommitOp {
     pub(crate) index_ops: Vec<PreparedIndexMutation>,
     pub(crate) data_store: &'static LocalKey<RefCell<DataStore>>,
     pub(crate) data_key: RawDataKey,
@@ -356,7 +356,7 @@ pub(crate) fn rollback_prepared_row_ops_reverse(ops: Vec<PreparedRowCommitOp>) {
 /// This resolves store handles and index/data mutations so commit/recovery
 /// apply can remain mechanical.
 #[expect(clippy::too_many_lines)]
-pub(crate) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
+pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     op: &CommitRowOp,
 ) -> Result<PreparedRowCommitOp, InternalError> {

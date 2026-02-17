@@ -84,8 +84,12 @@ pub mod obs {
     };
 }
 
+pub mod patch {
+    pub use icydb_core::patch::{ListPatch, MapPatch, SetPatch};
+}
+
 pub mod visitor {
-    pub use icydb_core::{
+    pub use icydb_core::visitor::{
         Issue, PathSegment, ScopedContext, VisitorContext, VisitorCore, VisitorError,
         VisitorIssues, VisitorMutCore, perform_visit, perform_visit_mut,
     };
@@ -95,7 +99,6 @@ pub mod visitor {
 pub mod base;
 pub mod db;
 pub mod error;
-pub mod patch;
 pub mod traits;
 pub use error::Error;
 
@@ -187,7 +190,7 @@ pub mod design {
 ///
 /// -------------------------- CODE -----------------------------------
 ///
-use icydb_core::{InternalError, traits::Visitable};
+use icydb_core::{error::InternalError, traits::Visitable};
 use serde::{Serialize, de::DeserializeOwned};
 
 ///
@@ -225,14 +228,14 @@ macro_rules! db {
 
 /// Run sanitization over a mutable visitable tree.
 pub fn sanitize(node: &mut dyn Visitable) -> Result<(), Error> {
-    icydb_core::sanitize(node)
+    icydb_core::sanitize::sanitize(node)
         .map_err(InternalError::from)
         .map_err(Error::from)
 }
 
 /// Validate a visitable tree, collecting issues by path.
 pub fn validate(node: &dyn Visitable) -> Result<(), Error> {
-    icydb_core::validate(node)
+    icydb_core::validate::validate(node)
         .map_err(InternalError::from)
         .map_err(Error::from)
 }
@@ -245,7 +248,7 @@ pub fn serialize<T>(ty: &T) -> Result<Vec<u8>, Error>
 where
     T: Serialize,
 {
-    icydb_core::serialize(ty)
+    icydb_core::serialize::serialize(ty)
         .map_err(InternalError::from)
         .map_err(Error::from)
 }
@@ -258,7 +261,7 @@ pub fn deserialize<T>(bytes: &[u8]) -> Result<T, Error>
 where
     T: DeserializeOwned,
 {
-    icydb_core::deserialize(bytes)
+    icydb_core::serialize::deserialize(bytes)
         .map_err(InternalError::from)
         .map_err(Error::from)
 }
