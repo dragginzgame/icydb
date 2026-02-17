@@ -15,6 +15,7 @@ use serde::de::DeserializeOwned;
 /// - error classification/origin for persisted payload failures
 ///
 /// Format logic lives in `crate::serialize`.
+///
 
 /// Deserialize one persisted row payload using the DB row-size policy.
 pub(in crate::db) fn deserialize_row<T>(bytes: &[u8]) -> Result<T, InternalError>

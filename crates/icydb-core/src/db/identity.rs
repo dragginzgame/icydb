@@ -30,10 +30,13 @@ pub(super) const MAX_INDEX_NAME_LEN: usize =
 pub enum IdentityDecodeError {
     #[error("invalid size")]
     InvalidSize,
+
     #[error("invalid length")]
     InvalidLength,
+
     #[error("non-ascii encoding")]
     NonAscii,
+
     #[error("non-zero padding")]
     NonZeroPadding,
 }
@@ -133,20 +136,9 @@ impl EntityName {
 
     #[must_use]
     pub fn as_str(&self) -> &str {
-        // SAFETY:
-        // Preconditions:
-        // - Constructors (`try_from_str`) and decoders (`from_bytes`) reject
-        //   non-ASCII inputs.
-        // - Stored slices returned by `as_bytes` are within initialized bounds.
-        //
-        // Aliasing:
-        // - This creates an immutable `&str` view over immutable bytes already
-        //   owned by `self`; no mutable aliasing is introduced.
-        //
-        // What would break this:
-        // - Any future constructor/decoder path that permits non-ASCII bytes.
-        // - Any mutation of `bytes[..len]` bypassing validation guarantees.
-        unsafe { std::str::from_utf8_unchecked(self.as_bytes()) }
+        // Invariant: construction and decoding enforce ASCII-only storage,
+        // so UTF-8 decoding cannot fail.
+        std::str::from_utf8(self.as_bytes()).expect("EntityName invariant: ASCII-only storage")
     }
 
     #[must_use]
@@ -193,7 +185,7 @@ impl EntityName {
 
 impl Ord for EntityName {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.to_bytes().cmp(&other.to_bytes())
+        self.len.cmp(&other.len).then(self.bytes.cmp(&other.bytes))
     }
 }
 

@@ -2,7 +2,7 @@ use crate::{
     db::{
         Context,
         data::DataKey,
-        decode::decode_entity_with_expected_key,
+        entity_decode::decode_and_validate_entity_key,
         executor::load::{CursorPage, FastLoadResult, LoadExecutor},
         query::plan::{
             AccessPath, ContinuationSignature, CursorBoundary, LogicalPlan, OrderDirection,
@@ -136,7 +136,7 @@ where
                     )
                 })?;
                 let expected_key = data_key.try_key::<E>()?;
-                let entity = decode_entity_with_expected_key::<E, _, _, _, _>(
+                let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
                     expected_key,
                     || entry.value().try_decode::<E>(),
                     |err| {
@@ -147,13 +147,15 @@ where
                         )
                     },
                     |expected_key, actual_key| {
-                        let expected = DataKey::try_new::<E>(expected_key)?;
-                        let found = DataKey::try_new::<E>(actual_key)?;
-                        Ok(InternalError::new(
+                        let expected = DataKey::try_new::<E>(expected_key)
+                            .map_or_else(|_| format!("{expected_key:?}"), |key| key.to_string());
+                        let found = DataKey::try_new::<E>(actual_key)
+                            .map_or_else(|_| format!("{actual_key:?}"), |key| key.to_string());
+                        InternalError::new(
                             ErrorClass::Corruption,
                             ErrorOrigin::Store,
                             format!("row key mismatch: expected {expected}, found {found}"),
-                        ))
+                        )
                     },
                 )?;
 

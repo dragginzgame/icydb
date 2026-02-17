@@ -7,7 +7,7 @@ use crate::{
 ///
 /// Callers provide decode and error-formatting closures so boundary-specific
 /// diagnostics and error classes remain unchanged.
-pub(super) fn decode_entity_with_expected_key<
+pub(in crate::db) fn decode_and_validate_entity_key<
     E,
     DecodeFn,
     DecodeErr,
@@ -23,26 +23,26 @@ where
     E: EntityKind + EntityValue,
     DecodeFn: FnOnce() -> Result<E, DecodeErr>,
     DecodeErrMap: FnOnce(DecodeErr) -> InternalError,
-    MismatchErrMap: FnOnce(E::Key, E::Key) -> Result<InternalError, InternalError>,
+    MismatchErrMap: FnOnce(E::Key, E::Key) -> InternalError,
 {
     let entity = decode_entity().map_err(map_decode_error)?;
-    validate_entity_key_match::<E, _>(expected_key, entity.id().key(), map_key_mismatch)?;
+    ensure_entity_key_match::<E, _>(expected_key, entity.id().key(), map_key_mismatch)?;
 
     Ok(entity)
 }
 
 // Enforce expected-vs-actual entity key equality and delegate mismatch mapping.
-fn validate_entity_key_match<E, MismatchErrMap>(
+fn ensure_entity_key_match<E, MismatchErrMap>(
     expected_key: E::Key,
     actual_key: E::Key,
     map_key_mismatch: MismatchErrMap,
 ) -> Result<(), InternalError>
 where
     E: EntityKind,
-    MismatchErrMap: FnOnce(E::Key, E::Key) -> Result<InternalError, InternalError>,
+    MismatchErrMap: FnOnce(E::Key, E::Key) -> InternalError,
 {
     if expected_key != actual_key {
-        return Err(map_key_mismatch(expected_key, actual_key)?);
+        return Err(map_key_mismatch(expected_key, actual_key));
     }
 
     Ok(())

@@ -10,7 +10,7 @@ use crate::{
         Db,
         commit::{CommitRowOp, ensure_recovered_for_write},
         data::{DataKey, RawRow},
-        decode::decode_entity_with_expected_key,
+        entity_decode::decode_and_validate_entity_key,
         executor::{
             Context, ExecutorError,
             mutation::{
@@ -363,7 +363,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         row: &RawRow,
     ) -> Result<(), InternalError> {
         let expected = data_key.try_key::<E>()?;
-        let _decoded = decode_entity_with_expected_key::<E, _, _, _, _>(
+        let _decoded = decode_and_validate_entity_key::<E, _, _, _, _>(
             expected,
             || row.try_decode::<E>(),
             |err| {
@@ -374,11 +374,11 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 .into()
             },
             |expected, actual| {
-                Ok(ExecutorError::corruption(
+                ExecutorError::corruption(
                     ErrorOrigin::Store,
                     format!("row key mismatch: expected {expected:?}, found {actual:?}"),
                 )
-                .into())
+                .into()
             },
         )?;
 

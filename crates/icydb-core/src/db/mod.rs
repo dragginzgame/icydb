@@ -1,6 +1,5 @@
 // 1️⃣ Module declarations
 pub(crate) mod cursor;
-pub(crate) mod decode;
 pub(crate) mod diagnostics;
 pub(crate) mod identity;
 pub(crate) mod query;
@@ -10,6 +9,7 @@ pub(crate) mod response;
 pub(in crate::db) mod codec;
 pub(in crate::db) mod commit;
 pub(in crate::db) mod data;
+pub(in crate::db) mod entity_decode;
 pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
 pub(in crate::db) mod relation;

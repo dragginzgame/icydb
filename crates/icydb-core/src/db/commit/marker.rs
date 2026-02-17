@@ -56,6 +56,7 @@ impl CommitRowOp {
 ///
 /// Internal index mutation used during row-op preparation/apply.
 /// Not persisted in commit markers.
+///
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -72,6 +73,7 @@ pub(crate) struct CommitIndexOp {
 /// Recovery replays the marker exactly as stored.
 /// Unknown fields are rejected as corruption; commit markers are not forward-compatible.
 /// This is internal commit-protocol metadata, not a user-schema type.
+///
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

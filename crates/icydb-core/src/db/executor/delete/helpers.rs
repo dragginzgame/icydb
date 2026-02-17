@@ -1,7 +1,7 @@
 use crate::{
     db::{
         data::{DataKey, DataRow, RawRow},
-        decode::decode_entity_with_expected_key,
+        entity_decode::decode_and_validate_entity_key,
         executor::ExecutorError,
     },
     error::{ErrorOrigin, InternalError},
@@ -35,7 +35,7 @@ pub(super) fn decode_rows<E: EntityKind + EntityValue>(
     rows.into_iter()
         .map(|(dk, raw)| {
             let expected = dk.try_key::<E>()?;
-            let entity = decode_entity_with_expected_key::<E, _, _, _, _>(
+            let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
                 expected,
                 || raw.try_decode::<E>(),
                 |err| {
@@ -46,11 +46,11 @@ pub(super) fn decode_rows<E: EntityKind + EntityValue>(
                     .into()
                 },
                 |expected, actual| {
-                    Ok(ExecutorError::corruption(
+                    ExecutorError::corruption(
                         ErrorOrigin::Store,
                         format!("row key mismatch: expected {expected:?}, found {actual:?}"),
                     )
-                    .into())
+                    .into()
                 },
             )?;
 

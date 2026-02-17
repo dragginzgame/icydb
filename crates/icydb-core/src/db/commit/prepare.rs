@@ -6,7 +6,7 @@ use crate::{
             decode::{decode_data_key, decode_index_entry, decode_index_key},
         },
         data::{DataKey, RawRow},
-        decode::decode_entity_with_expected_key,
+        entity_decode::decode_and_validate_entity_key,
         index::{IndexKey, plan_index_mutation_for_entity},
         relation::prepare_reverse_relation_index_mutations_for_source,
     },
@@ -48,7 +48,7 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
 
     let decode_entity = |bytes: &[u8], label: &str| -> Result<(RawRow, E), InternalError> {
         let row = RawRow::try_new(bytes.to_vec())?;
-        let entity = decode_entity_with_expected_key::<E, _, _, _, _>(
+        let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
             expected_key,
             || row.try_decode::<E>(),
             |err| {
@@ -59,13 +59,13 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
                 )
             },
             |expected, actual| {
-                Ok(InternalError::new(
+                InternalError::new(
                     ErrorClass::Corruption,
                     ErrorOrigin::Store,
                     format!(
                         "commit marker row key mismatch: expected {expected:?}, found {actual:?}"
                     ),
-                ))
+                )
             },
         )?;
 

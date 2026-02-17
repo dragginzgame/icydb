@@ -2,7 +2,7 @@ use crate::{
     db::{
         Db,
         data::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
-        decode::decode_entity_with_expected_key,
+        entity_decode::decode_and_validate_entity_key,
         executor::ExecutorError,
         index::RawIndexKey,
         query::{
@@ -405,7 +405,7 @@ where
         rows.into_iter()
             .map(|(key, row)| {
                 let expected_key = key.try_key::<E>()?;
-                let entity = decode_entity_with_expected_key::<E, _, _, _, _>(
+                let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
                     expected_key,
                     || row.try_decode::<E>(),
                     |err| {
@@ -416,14 +416,16 @@ where
                         .into()
                     },
                     |expected_key, actual_key| {
-                        let expected = DataKey::try_new::<E>(expected_key)?;
-                        let found = DataKey::try_new::<E>(actual_key)?;
+                        let expected = DataKey::try_new::<E>(expected_key)
+                            .map_or_else(|_| format!("{expected_key:?}"), |key| key.to_string());
+                        let found = DataKey::try_new::<E>(actual_key)
+                            .map_or_else(|_| format!("{actual_key:?}"), |key| key.to_string());
 
-                        Ok(ExecutorError::corruption(
+                        ExecutorError::corruption(
                             ErrorOrigin::Store,
                             format!("row key mismatch: expected {expected}, found {found}"),
                         )
-                        .into())
+                        .into()
                     },
                 )?;
 

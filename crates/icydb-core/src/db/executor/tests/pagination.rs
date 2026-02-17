@@ -14,6 +14,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin},
     serialize::serialize,
+    types::Id,
 };
 use std::{collections::BTreeSet, ops::Bound};
 
@@ -50,6 +51,11 @@ fn pushdown_entity((id, group, rank, label): PushdownSeedRow) -> PushdownParityE
         rank,
         label: label.to_string(),
     }
+}
+
+fn setup_pagination_test() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
 }
 
 fn seed_pushdown_rows(rows: &[PushdownSeedRow]) {
@@ -398,6 +404,20 @@ fn assert_anchor_monotonic(
     anchors.push(anchor);
 }
 
+fn ids_from_items<E>(items: &[(Id<E>, E)]) -> Vec<Ulid>
+where
+    E: EntityKind<Key = Ulid>,
+{
+    items.iter().map(|(id, _)| id.key()).collect()
+}
+
+fn decode_boundary(cursor: &[u8], decode_message: &'static str) -> CursorBoundary {
+    ContinuationToken::decode(cursor)
+        .expect(decode_message)
+        .boundary()
+        .clone()
+}
+
 fn assert_pushdown_parity<E, I, O>(
     build_pushdown_query: impl Fn() -> Query<E>,
     fallback_ids: I,
@@ -425,9 +445,8 @@ fn assert_pushdown_parity<E, I, O>(
         )
         .expect("fallback execution should succeed");
 
-    let push_ids: Vec<Ulid> = pushdown.0.iter().map(|(id, _)| id.key()).collect();
-
-    let fallback_ids: Vec<Ulid> = fallback.0.iter().map(|(id, _)| id.key()).collect();
+    let push_ids: Vec<Ulid> = ids_from_items(&pushdown.0);
+    let fallback_ids: Vec<Ulid> = ids_from_items(&fallback.0);
 
     assert_eq!(push_ids, fallback_ids);
 }
@@ -459,7 +478,7 @@ where
             .execute_paged_with_cursor(plan, planned_cursor)
             .expect("paged execution should succeed");
 
-        ids.extend(page.items.0.iter().map(|(id, _)| id.key()));
+        ids.extend(ids_from_items(&page.items.0));
         row_bytes.extend(
             page.items
                 .0
@@ -490,7 +509,7 @@ where
         )
         .expect("unbounded execution should succeed");
 
-    let unbounded_ids: Vec<Ulid> = unbounded.0.iter().map(|(id, _)| id.key()).collect();
+    let unbounded_ids: Vec<Ulid> = ids_from_items(&unbounded.0);
 
     for &limit in limits {
         let (ids, _) = collect_all_pages(&load, || build_base_query().limit(limit), max_pages);
@@ -530,15 +549,14 @@ fn assert_resume_after_entity<E>(
         )
         .expect("resume execution should succeed");
 
-    let ids: Vec<Ulid> = page.items.0.iter().map(|(id, _)| id.key()).collect();
+    let ids: Vec<Ulid> = ids_from_items(&page.items.0);
 
     assert_eq!(ids, expected_ids);
 }
 
 #[test]
 fn load_applies_order_and_pagination() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
     for id in [3_u128, 1_u128, 2_u128] {
@@ -567,8 +585,7 @@ fn load_applies_order_and_pagination() {
 
 #[test]
 fn load_offset_pagination_preserves_next_cursor_boundary() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
     for id in [5_u128, 1_u128, 4_u128, 2_u128, 3_u128] {
@@ -592,7 +609,7 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
         .execute_paged_with_cursor(page_plan, page_boundary)
         .expect("offset page should execute");
 
-    let page_ids: Vec<Ulid> = page.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let page_ids: Vec<Ulid> = ids_from_items(&page.items.0);
     assert_eq!(
         page_ids,
         vec![Ulid::from_u128(2), Ulid::from_u128(3)],
@@ -624,8 +641,7 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
 
 #[test]
 fn load_cursor_pagination_pk_order_round_trips_across_pages() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
     for id in [4_u128, 1_u128, 3_u128, 2_u128] {
@@ -647,7 +663,7 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("pk-order page1 should execute");
-    let page1_ids: Vec<Ulid> = page1.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items.0);
     assert_eq!(page1_ids, vec![Ulid::from_u128(1), Ulid::from_u128(2)]);
 
     let cursor = page1
@@ -665,7 +681,7 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("pk-order page2 should execute");
-    let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items.0);
     assert_eq!(page2_ids, vec![Ulid::from_u128(3), Ulid::from_u128(4)]);
     assert!(
         page2.next_cursor.is_none(),
@@ -675,8 +691,7 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
 
 #[test]
 fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
     let keys = [5_u128, 1_u128, 4_u128, 2_u128, 3_u128];
@@ -718,18 +733,8 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .execute_paged_with_cursor(non_fast_page1_plan, non_fast_page1_boundary)
         .expect("non-fast page1 should execute");
 
-    let fast_page1_ids: Vec<Ulid> = fast_page1
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    let non_fast_page1_ids: Vec<Ulid> = non_fast_page1
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
+    let fast_page1_ids: Vec<Ulid> = ids_from_items(&fast_page1.items.0);
+    let non_fast_page1_ids: Vec<Ulid> = ids_from_items(&non_fast_page1.items.0);
     assert_eq!(
         fast_page1_ids, non_fast_page1_ids,
         "page1 rows should match between fast and non-fast access paths"
@@ -785,18 +790,8 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .execute_paged_with_cursor(non_fast_page2_plan, non_fast_page2_boundary)
         .expect("non-fast page2 should execute");
 
-    let fast_page2_ids: Vec<Ulid> = fast_page2
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    let non_fast_page2_ids: Vec<Ulid> = non_fast_page2
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
+    let fast_page2_ids: Vec<Ulid> = ids_from_items(&fast_page2.items.0);
+    let non_fast_page2_ids: Vec<Ulid> = ids_from_items(&non_fast_page2.items.0);
     assert_eq!(
         fast_page2_ids, non_fast_page2_ids,
         "page2 rows should match between fast and non-fast access paths"
@@ -810,8 +805,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
 
 #[test]
 fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundary() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     // Phase 1: seed rows with non-sorted insertion order.
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
@@ -841,9 +835,8 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .next_cursor
         .as_ref()
         .expect("cursor source page should emit continuation cursor");
-    let cursor_token = ContinuationToken::decode(cursor_bytes.as_slice())
-        .expect("cursor source token should decode");
-    let shared_boundary = cursor_token.boundary().clone();
+    let shared_boundary =
+        decode_boundary(cursor_bytes.as_slice(), "cursor source token should decode");
 
     // Phase 3: execute page-2 parity checks with the same typed cursor boundary.
     let fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
@@ -865,18 +858,8 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .execute_paged_with_cursor(non_fast_page2_plan, Some(shared_boundary))
         .expect("non-fast page2 should execute");
 
-    let fast_ids: Vec<Ulid> = fast_page2
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    let non_fast_ids: Vec<Ulid> = non_fast_page2
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
+    let fast_ids: Vec<Ulid> = ids_from_items(&fast_page2.items.0);
+    let non_fast_ids: Vec<Ulid> = ids_from_items(&non_fast_page2.items.0);
     assert_eq!(
         fast_ids, non_fast_ids,
         "fast and non-fast paths must return identical rows for the same cursor boundary"
@@ -909,8 +892,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
 
 #[test]
 fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
     for id in [1_u128, 2_u128, 3_u128, 4_u128, 5_u128] {
@@ -943,7 +925,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("pk-range page1 should execute");
-    let page1_ids: Vec<Ulid> = page1.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items.0);
     assert_eq!(page1_ids, vec![Ulid::from_u128(2), Ulid::from_u128(3)]);
 
     let cursor = page1
@@ -971,7 +953,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("pk-range page2 should execute");
-    let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items.0);
     assert_eq!(page2_ids, vec![Ulid::from_u128(4)]);
     assert!(
         page2.next_cursor.is_none(),
@@ -981,8 +963,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
 
 #[test]
 fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
     for id in [1_u128, 2_u128, 3_u128] {
@@ -1030,8 +1011,7 @@ fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page(
 
 #[test]
 fn load_cursor_pagination_pk_order_missing_slot_is_invariant_violation() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
     for id in [1_u128, 2_u128] {
@@ -1074,8 +1054,7 @@ fn load_cursor_pagination_pk_order_missing_slot_is_invariant_violation() {
 
 #[test]
 fn load_cursor_pagination_pk_order_type_mismatch_is_invariant_violation() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
     for id in [1_u128, 2_u128] {
@@ -1120,8 +1099,7 @@ fn load_cursor_pagination_pk_order_type_mismatch_is_invariant_violation() {
 
 #[test]
 fn load_cursor_pagination_pk_order_arity_mismatch_is_invariant_violation() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<SimpleEntity>::new(DB, false);
     for id in [1_u128, 2_u128] {
@@ -1168,8 +1146,7 @@ fn load_cursor_pagination_pk_order_arity_mismatch_is_invariant_violation() {
 
 #[test]
 fn load_cursor_pagination_skips_strictly_before_limit() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<PhaseEntity>::new(DB, false);
     for row in [
@@ -1268,8 +1245,7 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
 
 #[test]
 fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<PhaseEntity>::new(DB, false);
     for row in [
@@ -1357,7 +1333,7 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("cursor page2 should execute");
-    let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items.0);
     assert_eq!(
         page2_ids,
         vec![Ulid::from_u128(1202), Ulid::from_u128(1203)],
@@ -1371,8 +1347,7 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
 
 #[test]
 fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<PhaseEntity>::new(DB, false);
     for row in [
@@ -1420,7 +1395,7 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("descending page1 should execute");
-    let page1_ids: Vec<Ulid> = page1.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items.0);
     assert_eq!(
         page1_ids,
         vec![Ulid::from_u128(1403), Ulid::from_u128(1401)],
@@ -1442,7 +1417,7 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("descending page2 should execute");
-    let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items.0);
     assert_eq!(
         page2_ids,
         vec![Ulid::from_u128(1402), Ulid::from_u128(1400)],
@@ -1456,8 +1431,7 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
 
 #[test]
 fn load_cursor_rejects_signature_mismatch() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let save = SaveExecutor::<PhaseEntity>::new(DB, false);
     for row in [
@@ -1511,8 +1485,7 @@ fn load_cursor_rejects_signature_mismatch() {
 
 #[test]
 fn load_index_pushdown_eligible_order_matches_index_scan_order() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = pushdown_rows_with_group8(10_000);
     seed_pushdown_rows(&rows);
@@ -1541,7 +1514,7 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
         .plan()
         .expect("parity load plan should build");
     let response = load.execute(plan).expect("parity load should execute");
-    let actual_ids: Vec<Ulid> = response.0.iter().map(|(_, entity)| entity.id).collect();
+    let actual_ids: Vec<Ulid> = ids_from_items(&response.0);
 
     let expected_ids = ordered_ids_from_group_rank_index(7);
     assert_eq!(
@@ -1552,8 +1525,7 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
 
 #[test]
 fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = pushdown_rows_with_group9(11_000);
     seed_pushdown_rows(&rows);
@@ -1573,7 +1545,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
     let page1 = load
         .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("page1 parity should execute");
-    let page1_ids: Vec<Ulid> = page1.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let page1_ids: Vec<Ulid> = ids_from_items(&page1.items.0);
 
     let expected_all = ordered_ids_from_group_rank_index(7);
     let expected_page1: Vec<Ulid> = expected_all.iter().copied().take(2).collect();
@@ -1599,7 +1571,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("page2 parity should execute");
-    let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let page2_ids: Vec<Ulid> = ids_from_items(&page2.items.0);
 
     let expected_page2: Vec<Ulid> = expected_all.iter().copied().skip(2).take(2).collect();
     assert_eq!(
@@ -1610,8 +1582,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
 
 #[test]
 fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = pushdown_rows_with_group9(12_000);
     seed_pushdown_rows(&rows);
@@ -1640,18 +1611,8 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .execute_paged_with_cursor(fallback_plan, None)
         .expect("fallback page should execute");
 
-    let pushdown_ids: Vec<Ulid> = pushdown_page
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    let fallback_ids: Vec<Ulid> = fallback_page
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
+    let pushdown_ids: Vec<Ulid> = ids_from_items(&pushdown_page.items.0);
+    let fallback_ids: Vec<Ulid> = ids_from_items(&fallback_page.items.0);
     assert_eq!(
         pushdown_ids, fallback_ids,
         "pushdown and fallback page windows should match"
@@ -1678,8 +1639,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
 
 #[test]
 fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = pushdown_rows_with_group9(13_000);
     seed_pushdown_rows(&rows);
@@ -1701,10 +1661,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .next_cursor
         .as_ref()
         .expect("seed page should emit continuation cursor");
-    let shared_boundary = ContinuationToken::decode(seed_cursor.as_slice())
-        .expect("seed cursor should decode")
-        .boundary()
-        .clone();
+    let shared_boundary = decode_boundary(seed_cursor.as_slice(), "seed cursor should decode");
 
     let pushdown_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
         .filter(predicate)
@@ -1726,18 +1683,8 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .execute_paged_with_cursor(fallback_page2_plan, Some(shared_boundary))
         .expect("fallback page2 should execute");
 
-    let pushdown_page2_ids: Vec<Ulid> = pushdown_page2
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    let fallback_page2_ids: Vec<Ulid> = fallback_page2
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
+    let pushdown_page2_ids: Vec<Ulid> = ids_from_items(&pushdown_page2.items.0);
+    let fallback_page2_ids: Vec<Ulid> = ids_from_items(&fallback_page2.items.0);
     assert_eq!(
         pushdown_page2_ids, fallback_page2_ids,
         "pushdown and fallback should return the same rows for a shared continuation boundary"
@@ -1764,8 +1711,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
 
 #[test]
 fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = pushdown_rows_with_group9(14_000);
     seed_pushdown_rows(&rows);
@@ -1808,33 +1754,21 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .execute_paged_with_cursor(by_ids_page1_plan, None)
         .expect("by-ids desc page1 should execute");
 
-    let index_path_page1_ids: Vec<Ulid> = index_path_page1
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    let by_ids_page1_ids: Vec<Ulid> = by_ids_page1
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
+    let index_path_page1_ids: Vec<Ulid> = ids_from_items(&index_path_page1.items.0);
+    let by_ids_page1_ids: Vec<Ulid> = ids_from_items(&by_ids_page1.items.0);
     assert_eq!(
         index_path_page1_ids, by_ids_page1_ids,
         "descending page1 should match across index-prefix and by-ids paths"
     );
 
-    let shared_boundary = ContinuationToken::decode(
+    let shared_boundary = decode_boundary(
         index_path_page1
             .next_cursor
             .as_ref()
             .expect("index-path desc page1 should emit cursor")
             .as_slice(),
-    )
-    .expect("index-path desc cursor should decode")
-    .boundary()
-    .clone();
+        "index-path desc cursor should decode",
+    );
     let index_path_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
         .filter(predicate)
         .order_by_desc("rank")
@@ -1855,18 +1789,8 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .execute_paged_with_cursor(by_ids_page2_plan, Some(shared_boundary))
         .expect("by-ids desc page2 should execute");
 
-    let index_path_page2_ids: Vec<Ulid> = index_path_page2
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
-    let by_ids_page2_ids: Vec<Ulid> = by_ids_page2
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
+    let index_path_page2_ids: Vec<Ulid> = ids_from_items(&index_path_page2.items.0);
+    let by_ids_page2_ids: Vec<Ulid> = ids_from_items(&by_ids_page2.items.0);
     assert_eq!(
         index_path_page2_ids, by_ids_page2_ids,
         "descending page2 should match across index-prefix and by-ids paths"
@@ -1875,8 +1799,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
 
 #[test]
 fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = pushdown_rows_window(15_000);
     seed_pushdown_rows(&rows);
@@ -1947,8 +1870,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
 
 #[test]
 fn load_single_field_range_pushdown_matches_by_ids_fallback() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (18_001, 30, "t30"),
@@ -1985,8 +1907,7 @@ fn load_single_field_range_pushdown_matches_by_ids_fallback() {
 
 #[test]
 fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = pushdown_rows_with_group9(19_000);
     seed_pushdown_rows(&rows);
@@ -2016,8 +1937,7 @@ fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
 
 #[test]
 fn load_single_field_range_limit_matrix_matches_unbounded() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (31_001, 30, "t30"),
@@ -2055,8 +1975,7 @@ fn load_single_field_range_limit_matrix_matches_unbounded() {
 
 #[test]
 fn load_composite_range_limit_matrix_matches_unbounded() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (32_001, 7, 10, "g7-r10-a"),
@@ -2095,8 +2014,7 @@ fn load_composite_range_limit_matrix_matches_unbounded() {
 
 #[test]
 fn load_single_field_range_limit_exact_size_returns_single_page_without_cursor() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (33_001, 10, "t10-a"),
@@ -2122,7 +2040,7 @@ fn load_single_field_range_limit_exact_size_returns_single_page_without_cursor()
         .execute_paged_with_cursor(page_plan, planned_cursor)
         .expect("single-field exact-size page should execute");
 
-    let page_ids: Vec<Ulid> = page.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let page_ids: Vec<Ulid> = ids_from_items(&page.items.0);
     let expected_ids = indexed_metrics_ids_in_tag_range(&rows, 10, 30);
     assert_eq!(
         page_ids, expected_ids,
@@ -2136,8 +2054,7 @@ fn load_single_field_range_limit_exact_size_returns_single_page_without_cursor()
 
 #[test]
 fn load_composite_range_limit_terminal_page_suppresses_cursor() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (34_001, 7, 10, "g7-r10-a"),
@@ -2191,8 +2108,7 @@ fn load_composite_range_limit_terminal_page_suppresses_cursor() {
 
 #[test]
 fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligible_plan() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (35_001, 10, "t10-a"),
@@ -2243,8 +2159,7 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligibl
 
 #[test]
 fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (35_101, 10, "t10-a"),
@@ -2300,8 +2215,7 @@ fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
 
 #[test]
 fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligible_plan() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (35_201, 10, "t10-a"),
@@ -2358,8 +2272,7 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
 
 #[test]
 fn load_single_field_between_equivalent_pushdown_matches_by_ids_fallback() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (19_101, 30, "t30"),
@@ -2396,8 +2309,7 @@ fn load_single_field_between_equivalent_pushdown_matches_by_ids_fallback() {
 
 #[test]
 fn load_composite_between_equivalent_pushdown_matches_by_ids_fallback() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = pushdown_rows_with_group9(19_200);
     seed_pushdown_rows(&rows);
@@ -2429,8 +2341,7 @@ fn load_composite_between_equivalent_pushdown_matches_by_ids_fallback() {
 fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
     const MAX_TAG: u32 = u32::MAX;
 
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (19_301, 0, "t0"),
@@ -2501,8 +2412,7 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
 fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
     const MAX_RANK: u32 = u32::MAX;
 
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (19_401, 7, 0, "g7-r0"),
@@ -2573,8 +2483,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
 
 #[test]
 fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (20_001, 7, 5, "g7-r5"),
@@ -2638,8 +2547,7 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
 
 #[test]
 fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strictly_monotonic() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (20_101, 7, 10, "g7-r10-a"),
@@ -2676,7 +2584,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
     let unbounded = load
         .execute(unbounded_plan)
         .expect("unbounded execution should succeed");
-    let unbounded_ids: Vec<Ulid> = unbounded.0.iter().map(|(_, entity)| entity.id).collect();
+    let unbounded_ids: Vec<Ulid> = ids_from_items(&unbounded.0);
     let unbounded_row_bytes: Vec<Vec<u8>> = unbounded
         .0
         .iter()
@@ -2749,8 +2657,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
 
 #[test]
 fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (23_001, 5, "c5"),
@@ -2784,7 +2691,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
     let unbounded = load
         .execute(unbounded_plan)
         .expect("unique unbounded execution should succeed");
-    let unbounded_ids: Vec<Ulid> = unbounded.0.iter().map(|(_, entity)| entity.id).collect();
+    let unbounded_ids: Vec<Ulid> = ids_from_items(&unbounded.0);
     let unbounded_row_bytes: Vec<Vec<u8>> = unbounded
         .0
         .iter()
@@ -2854,8 +2761,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
 
 #[test]
 fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (21_001, 10, "t10-a"),
@@ -2889,12 +2795,7 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
     let base_page = load
         .execute_paged_with_cursor(base_plan, None)
         .expect("single-field base page should execute");
-    let all_ids: Vec<Ulid> = base_page
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
+    let all_ids: Vec<Ulid> = ids_from_items(&base_page.items.0);
     assert_eq!(
         all_ids.len(),
         4,
@@ -3010,7 +2911,7 @@ fn load_single_field_range_pushdown_parity_matrix_is_table_driven() {
         },
     ];
 
-    init_commit_store_for_tests().expect("commit store init should succeed");
+    setup_pagination_test();
     let rows = [
         (23_001, 0, "t0"),
         (23_002, 10, "t10-a"),
@@ -3133,7 +3034,7 @@ fn load_composite_range_pushdown_parity_matrix_is_table_driven() {
         },
     ];
 
-    init_commit_store_for_tests().expect("commit store init should succeed");
+    setup_pagination_test();
     let rows = [
         (24_001, 7, 0, "g7-r0"),
         (24_002, 7, 10, "g7-r10-a"),
@@ -3206,8 +3107,7 @@ fn load_composite_range_pushdown_parity_matrix_is_table_driven() {
 
 #[test]
 fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_edges() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
 
     let rows = [
         (25_001, 7, 10, "g7-r10-a"),
@@ -3244,12 +3144,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
     let base_page = load
         .execute_paged_with_cursor(base_plan, None)
         .expect("composite duplicate-edge base page should execute");
-    let all_ids: Vec<Ulid> = base_page
-        .items
-        .0
-        .iter()
-        .map(|(_, entity)| entity.id)
-        .collect();
+    let all_ids: Vec<Ulid> = ids_from_items(&base_page.items.0);
     assert_eq!(
         all_ids.len(),
         5,
@@ -3344,7 +3239,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         },
     ];
 
-    init_commit_store_for_tests().expect("commit store init should succeed");
+    setup_pagination_test();
 
     for case in cases {
         reset_store();
@@ -3401,8 +3296,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
 
 #[test]
 fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
-    init_commit_store_for_tests().expect("commit store init should succeed");
-    reset_store();
+    setup_pagination_test();
     seed_pushdown_rows(&pushdown_rows_trace(22_000));
 
     let logical = LogicalPlan {
