@@ -6,29 +6,22 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
-## [0.11.2] – 2026-02-17
+## [0.11.2] – 2026-02-17 - Rust Visibility Pass
+
+### 📝 Summary
+
+* This release completes a visibility pass across the DB internals based on `docs/VISIBILITY.md`. We tightened module boundaries, removed deep internal imports, and moved callers to clear subsystem root surfaces. This is better because internal refactors are safer, accidental API leakage is reduced, and privacy rules are now enforced by both module visibility and compile-fail tests.
 
 ### 🗑️ Removed
 
 * Removed the hidden `__internal` module from `icydb`.
 
-### 🔧 Changed
+### 🧪 Testing
 
-* Updated schema/codegen wiring to use explicit hidden macro paths instead of `__internal`, including `icydb::__macro::{CoreAsView, CoreCreateView, CoreUpdateView}` and `icydb::patch::MergePatchError`.
-* Exposed low-level visitor entry points through `icydb::visitor::{sanitize, validate}` so tests/tooling no longer need internal paths.
+* Updated privacy tests for `db::data`, `db::index`, and `db::executor`.
+* Updated sanitize/validate compile-fail tests to check private `visitor` internals.
 
-### 🧹 Cleanup
-
-* Continued the visibility refactor from `docs/Visibility.md` by narrowing non-API internals toward `pub(crate)` and keeping needed surfaces available through explicit facade exports.
-
-### 🧭 Migration Notes
-
-* Replace old internal paths with facade paths:
-  * `icydb::__internal::core::traits::AsView` -> `icydb::__macro::CoreAsView`
-  * `icydb::__internal::core::traits::CreateView` -> `icydb::__macro::CoreCreateView`
-  * `icydb::__internal::core::traits::UpdateView` -> `icydb::__macro::CoreUpdateView`
-  * `icydb::__internal::core::MergePatchError` -> `icydb::patch::MergePatchError`
-  * `icydb::__internal::core::{sanitize, validate}` -> `icydb::visitor::{sanitize, validate}`
+---
 
 ## [0.11.1] – 2026-02-17
 
