@@ -3,7 +3,11 @@ mod load;
 mod unique;
 
 use crate::{
-    db::{commit::CommitIndexOp, index::IndexStore},
+    db::{
+        Db,
+        commit::CommitIndexOp,
+        index::{IndexEntryCorruption, IndexKey, IndexStore},
+    },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,
     traits::{EntityKind, EntityValue},
@@ -60,7 +64,7 @@ pub(super) fn index_violation_error(path: &str, index_fields: &[&str]) -> Intern
 /// All fallible work happens here. The returned plan is safe to apply
 /// infallibly after a commit marker is written.
 pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
-    db: &crate::db::Db<E::Canister>,
+    db: &Db<E::Canister>,
     old: Option<&E>,
     new: Option<&E>,
 ) -> Result<IndexMutationPlan, InternalError> {
@@ -76,11 +80,11 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             .index_store();
 
         let old_key = match old {
-            Some(entity) => crate::db::index::IndexKey::new(entity, index)?,
+            Some(entity) => IndexKey::new(entity, index)?,
             None => None,
         };
         let new_key = match new {
-            Some(entity) => crate::db::index::IndexKey::new(entity, index)?,
+            Some(entity) => IndexKey::new(entity, index)?,
             None => None,
         };
 
@@ -103,10 +107,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
                         "index corrupted: {} ({}) -> {}",
                         E::PATH,
                         index.fields.join(", "),
-                        crate::db::index::IndexEntryCorruption::missing_key(
-                            old_key.to_raw(),
-                            old_entity_key,
-                        )
+                        IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_key)
                     ),
                 )
             })?;
@@ -118,9 +119,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
                         "index corrupted: {} ({}) -> {}",
                         E::PATH,
                         index.fields.join(", "),
-                        crate::db::index::IndexEntryCorruption::NonUniqueEntry {
-                            keys: entry.len(),
-                        }
+                        IndexEntryCorruption::NonUniqueEntry { keys: entry.len() }
                     ),
                 ));
             }
@@ -132,10 +131,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
                         "index corrupted: {} ({}) -> {}",
                         E::PATH,
                         index.fields.join(", "),
-                        crate::db::index::IndexEntryCorruption::missing_key(
-                            old_key.to_raw(),
-                            old_entity_key,
-                        )
+                        IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_key)
                     ),
                 ));
             }

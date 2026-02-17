@@ -1,5 +1,6 @@
 use crate::{
     db::query::plan::{AccessPath, AccessPlan, PlanError, canonical},
+    model::entity::EntityModel,
     traits::{EntityKind, FieldValue},
     value::Value,
 };
@@ -61,7 +62,7 @@ where
 
 // Convert model-level access plans into entity-keyed access plans.
 pub(crate) fn access_plan_to_entity_keys<E: EntityKind>(
-    model: &crate::model::entity::EntityModel,
+    model: &EntityModel,
     access: AccessPlan<Value>,
 ) -> Result<AccessPlan<E::Key>, PlanError> {
     let plan = match access {
@@ -87,7 +88,7 @@ pub(crate) fn access_plan_to_entity_keys<E: EntityKind>(
 
 // Convert model-level access paths into entity-keyed access paths.
 pub(crate) fn access_path_to_entity_keys<E: EntityKind>(
-    model: &crate::model::entity::EntityModel,
+    model: &EntityModel,
     path: AccessPath<Value>,
 ) -> Result<AccessPath<E::Key>, PlanError> {
     let path = match path {
@@ -123,7 +124,7 @@ pub(crate) fn access_path_to_entity_keys<E: EntityKind>(
 
 // Convert model-level key values into typed entity keys.
 pub(crate) fn coerce_entity_key<E: EntityKind>(
-    model: &crate::model::entity::EntityModel,
+    model: &EntityModel,
     key: &Value,
 ) -> Result<E::Key, PlanError> {
     E::Key::from_value(key).ok_or_else(|| PlanError::PrimaryKeyMismatch {

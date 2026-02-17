@@ -26,6 +26,7 @@ use crate::{
         registry::StoreHandle,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
+    traits::CanisterKind,
 };
 use std::sync::OnceLock;
 
@@ -45,9 +46,7 @@ static RECOVERED: OnceLock<()> = OnceLock::new();
 /// It may be invoked at operation boundaries (including read or mutation
 /// entrypoints), but must always complete **before** any operation-specific
 /// planning, validation, or apply phase begins.
-pub(crate) fn ensure_recovered(
-    db: &Db<impl crate::traits::CanisterKind>,
-) -> Result<(), InternalError> {
+pub(crate) fn ensure_recovered(db: &Db<impl CanisterKind>) -> Result<(), InternalError> {
     if RECOVERED.get().is_none() {
         return perform_recovery(db);
     }
@@ -67,13 +66,11 @@ pub(crate) fn ensure_recovered(
 ///
 /// Recovery must be idempotent and safe to run multiple times.
 /// All mutation entrypoints must call this before any commit boundary work.
-pub(crate) fn ensure_recovered_for_write(
-    db: &Db<impl crate::traits::CanisterKind>,
-) -> Result<(), InternalError> {
+pub(crate) fn ensure_recovered_for_write(db: &Db<impl CanisterKind>) -> Result<(), InternalError> {
     ensure_recovered(db)
 }
 
-fn perform_recovery(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {
+fn perform_recovery(db: &Db<impl CanisterKind>) -> Result<(), InternalError> {
     let marker = with_commit_store(|store| store.load())?;
     if let Some(marker) = marker {
         replay_recovery_row_ops(db, &marker.row_ops)?;
@@ -95,7 +92,7 @@ fn perform_recovery(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), Int
 /// Sequential replay is required for correctness when multiple row ops
 /// touch the same index entry in one marker.
 fn replay_recovery_row_ops(
-    db: &Db<impl crate::traits::CanisterKind>,
+    db: &Db<impl CanisterKind>,
     row_ops: &[CommitRowOp],
 ) -> Result<(), InternalError> {
     let mut rollbacks = Vec::<PreparedRowCommitOp>::with_capacity(row_ops.len());
@@ -122,9 +119,7 @@ struct IndexStoreSnapshot {
     entries: Vec<(RawIndexKey, RawIndexEntry)>,
 }
 
-fn rebuild_secondary_indexes_from_rows(
-    db: &Db<impl crate::traits::CanisterKind>,
-) -> Result<(), InternalError> {
+fn rebuild_secondary_indexes_from_rows(db: &Db<impl CanisterKind>) -> Result<(), InternalError> {
     if !db.has_runtime_hooks() {
         return Ok(());
     }
@@ -150,16 +145,14 @@ fn rebuild_secondary_indexes_from_rows(
     Ok(())
 }
 
-fn sorted_store_handles(
-    db: &Db<impl crate::traits::CanisterKind>,
-) -> Vec<(&'static str, StoreHandle)> {
+fn sorted_store_handles(db: &Db<impl CanisterKind>) -> Vec<(&'static str, StoreHandle)> {
     let mut stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
     stores.sort_by(|(left, _), (right, _)| left.cmp(right));
     stores
 }
 
 fn rebuild_secondary_indexes_in_place(
-    db: &Db<impl crate::traits::CanisterKind>,
+    db: &Db<impl CanisterKind>,
     stores: &[(&'static str, StoreHandle)],
 ) -> Result<(), InternalError> {
     for (_, handle) in stores {

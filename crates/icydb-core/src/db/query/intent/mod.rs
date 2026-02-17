@@ -26,6 +26,7 @@ use crate::{
         response::ResponseError,
     },
     error::InternalError,
+    model::entity::EntityModel,
     traits::{EntityKind, FieldValue, SingletonEntity},
     value::Value,
 };
@@ -116,7 +117,7 @@ impl DeleteSpec {
 
 #[derive(Debug)]
 pub(crate) struct QueryModel<'m, K> {
-    model: &'m crate::model::entity::EntityModel,
+    model: &'m EntityModel,
     mode: QueryMode,
     predicate: Option<Predicate>,
     key_access: Option<KeyAccessState<K>>,
@@ -127,10 +128,7 @@ pub(crate) struct QueryModel<'m, K> {
 
 impl<'m, K: FieldValue> QueryModel<'m, K> {
     #[must_use]
-    pub(crate) const fn new(
-        model: &'m crate::model::entity::EntityModel,
-        consistency: ReadConsistency,
-    ) -> Self {
+    pub(crate) const fn new(model: &'m EntityModel, consistency: ReadConsistency) -> Self {
         Self {
             model,
             mode: QueryMode::Load(LoadSpec::new()),
@@ -645,10 +643,7 @@ fn push_order(order: Option<OrderSpec>, field: &str, direction: OrderDirection) 
 // - preserve user field order
 // - remove explicit primary-key references from the user segment
 // - append exactly one primary-key field as the terminal tie-break
-fn canonicalize_order_spec(
-    model: &crate::model::entity::EntityModel,
-    order: Option<OrderSpec>,
-) -> Option<OrderSpec> {
+fn canonicalize_order_spec(model: &EntityModel, order: Option<OrderSpec>) -> Option<OrderSpec> {
     let mut order = order?;
     if order.fields.is_empty() {
         return Some(order);
