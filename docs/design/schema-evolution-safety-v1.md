@@ -1,4 +1,4 @@
-# Data Integrity Release Roadmap (Post-0.11 Milestone)
+# Data Integrity Release Roadmap
 
 Status: **Deferred from 0.11 to a future milestone**.
 

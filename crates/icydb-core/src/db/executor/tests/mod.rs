@@ -49,7 +49,7 @@ use crate::{
 };
 use icydb_derive::FieldValues;
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, sync::Mutex};
+use std::cell::RefCell;
 
 ///
 /// TestCanister
@@ -80,6 +80,7 @@ impl StoreKind for TestDataStore {
 thread_local! {
     static DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(0)));
     static INDEX_STORE: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(1)));
+    static TRACE_EVENTS: RefCell<Vec<QueryTraceEvent>> = const { RefCell::new(Vec::new()) };
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
         reg.register_store(TestDataStore::PATH, &DATA_STORE, &INDEX_STORE)
@@ -89,8 +90,6 @@ thread_local! {
 }
 
 static DB: Db<TestCanister> = Db::new(&STORE_REGISTRY);
-
-static TRACE_EVENTS: Mutex<Vec<QueryTraceEvent>> = Mutex::new(Vec::new());
 static TEST_TRACE_SINK: TestTraceSink = TestTraceSink;
 
 ///
@@ -101,21 +100,19 @@ struct TestTraceSink;
 
 impl QueryTraceSink for TestTraceSink {
     fn on_event(&self, event: QueryTraceEvent) {
-        TRACE_EVENTS
-            .lock()
-            .expect("trace event lock should succeed")
-            .push(event);
+        TRACE_EVENTS.with(|events| {
+            events.borrow_mut().push(event);
+        });
     }
 }
 
 // Clear and return all buffered trace events for structural assertions.
 fn take_trace_events() -> Vec<QueryTraceEvent> {
-    let mut events = TRACE_EVENTS
-        .lock()
-        .expect("trace event lock should succeed");
-    let out = events.clone();
-    events.clear();
-    out
+    TRACE_EVENTS.with(|events| {
+        let out = events.borrow().clone();
+        events.borrow_mut().clear();
+        out
+    })
 }
 
 ///

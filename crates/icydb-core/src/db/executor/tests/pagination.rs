@@ -12,7 +12,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin},
     serialize::serialize,
 };
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, ops::Bound};
 
 // Resolve ids directly from the `(group, rank)` index prefix in raw index-key order.
 fn ordered_ids_from_group_rank_index(group: u32) -> Vec<Ulid> {
@@ -1872,6 +1872,473 @@ fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
     assert_eq!(
         pushdown_ids, fallback_ids,
         "composite prefix+range pushdown rows should match by-ids fallback rows"
+    );
+}
+
+#[test]
+fn load_single_field_range_limit_matrix_matches_unbounded() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = [
+        (31_001, 30, "t30"),
+        (31_002, 10, "t10-a"),
+        (31_003, 10, "t10-b"),
+        (31_004, 20, "t20"),
+        (31_005, 25, "t25"),
+        (31_006, 40, "t40"),
+        (31_007, 5, "t5"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_range_predicate(10, 30);
+    let explain = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("tag")
+        .limit(2)
+        .explain()
+        .expect("single-field limit matrix explain should build");
+    assert!(
+        explain_contains_index_range(&explain.access, INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        "single-field limit matrix should plan an IndexRange access path"
+    );
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let unbounded_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("tag")
+        .plan()
+        .expect("single-field unbounded plan should build");
+    let unbounded = load
+        .execute(unbounded_plan)
+        .expect("single-field unbounded execution should succeed");
+    let unbounded_ids: Vec<Ulid> = unbounded.0.iter().map(|(_, entity)| entity.id).collect();
+
+    let limit_cases = [0_u32, 1_u32, 2_u32, 4_u32, 16_u32];
+    for limit in limit_cases {
+        let mut cursor: Option<Vec<u8>> = None;
+        let mut ids = Vec::new();
+        let mut pages = 0usize;
+
+        loop {
+            pages = pages.saturating_add(1);
+            assert!(pages <= 16, "single-field limit matrix must terminate");
+
+            let page_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("tag")
+                .limit(limit)
+                .plan()
+                .expect("single-field page plan should build");
+            let planned_cursor = page_plan
+                .plan_cursor(cursor.as_deref())
+                .expect("single-field page cursor should plan");
+            let page = load
+                .execute_paged_with_cursor(page_plan, planned_cursor)
+                .expect("single-field page execution should succeed");
+
+            ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
+
+            let Some(next_cursor) = page.next_cursor else {
+                break;
+            };
+            cursor = Some(next_cursor);
+        }
+
+        if limit == 0 {
+            assert!(
+                ids.is_empty(),
+                "limit=0 should produce an empty result window"
+            );
+            continue;
+        }
+
+        assert_eq!(
+            ids, unbounded_ids,
+            "single-field limit case {limit} should match unbounded result order"
+        );
+        let unique_ids: BTreeSet<Ulid> = ids.iter().copied().collect();
+        assert_eq!(
+            unique_ids.len(),
+            ids.len(),
+            "single-field limit case {limit} must not duplicate rows across pages"
+        );
+    }
+}
+
+#[test]
+fn load_composite_range_limit_matrix_matches_unbounded() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = [
+        (32_001, 7, 10, "g7-r10-a"),
+        (32_002, 7, 10, "g7-r10-b"),
+        (32_003, 7, 20, "g7-r20-a"),
+        (32_004, 7, 20, "g7-r20-b"),
+        (32_005, 7, 25, "g7-r25"),
+        (32_006, 7, 30, "g7-r30"),
+        (32_007, 7, 35, "g7-r35"),
+        (32_008, 8, 10, "g8-r10"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let predicate = group_rank_range_predicate(7, 10, 40);
+    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(2)
+        .explain()
+        .expect("composite limit matrix explain should build");
+    assert!(
+        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        "composite limit matrix should plan an IndexRange access path"
+    );
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let unbounded_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .plan()
+        .expect("composite unbounded plan should build");
+    let unbounded = load
+        .execute(unbounded_plan)
+        .expect("composite unbounded execution should succeed");
+    let unbounded_ids: Vec<Ulid> = unbounded.0.iter().map(|(_, entity)| entity.id).collect();
+
+    let limit_cases = [0_u32, 1_u32, 2_u32, 3_u32, 16_u32];
+    for limit in limit_cases {
+        let mut cursor: Option<Vec<u8>> = None;
+        let mut ids = Vec::new();
+        let mut pages = 0usize;
+
+        loop {
+            pages = pages.saturating_add(1);
+            assert!(pages <= 20, "composite limit matrix must terminate");
+
+            let page_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("rank")
+                .limit(limit)
+                .plan()
+                .expect("composite page plan should build");
+            let planned_cursor = page_plan
+                .plan_cursor(cursor.as_deref())
+                .expect("composite page cursor should plan");
+            let page = load
+                .execute_paged_with_cursor(page_plan, planned_cursor)
+                .expect("composite page execution should succeed");
+
+            ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
+
+            let Some(next_cursor) = page.next_cursor else {
+                break;
+            };
+            cursor = Some(next_cursor);
+        }
+
+        if limit == 0 {
+            assert!(
+                ids.is_empty(),
+                "limit=0 should produce an empty result window"
+            );
+            continue;
+        }
+
+        assert_eq!(
+            ids, unbounded_ids,
+            "composite limit case {limit} should match unbounded result order"
+        );
+        let unique_ids: BTreeSet<Ulid> = ids.iter().copied().collect();
+        assert_eq!(
+            unique_ids.len(),
+            ids.len(),
+            "composite limit case {limit} must not duplicate rows across pages"
+        );
+    }
+}
+
+#[test]
+fn load_single_field_range_limit_exact_size_returns_single_page_without_cursor() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = [
+        (33_001, 10, "t10-a"),
+        (33_002, 10, "t10-b"),
+        (33_003, 20, "t20"),
+        (33_004, 25, "t25"),
+        (33_005, 40, "t40"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_range_predicate(10, 30);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let page_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("tag")
+        .limit(4)
+        .plan()
+        .expect("single-field exact-size page plan should build");
+    let planned_cursor = page_plan
+        .plan_cursor(None)
+        .expect("single-field exact-size cursor should plan");
+    let page = load
+        .execute_paged_with_cursor(page_plan, planned_cursor)
+        .expect("single-field exact-size page should execute");
+
+    let page_ids: Vec<Ulid> = page.items.0.iter().map(|(_, entity)| entity.id).collect();
+    let expected_ids = indexed_metrics_ids_in_tag_range(&rows, 10, 30);
+    assert_eq!(
+        page_ids, expected_ids,
+        "exact-size single-field range page should return the full bounded result set"
+    );
+    assert!(
+        page.next_cursor.is_none(),
+        "exact-size single-field range page should not emit a continuation cursor"
+    );
+}
+
+#[test]
+fn load_composite_range_limit_terminal_page_suppresses_cursor() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = [
+        (34_001, 7, 10, "g7-r10-a"),
+        (34_002, 7, 10, "g7-r10-b"),
+        (34_003, 7, 20, "g7-r20-a"),
+        (34_004, 7, 20, "g7-r20-b"),
+        (34_005, 7, 25, "g7-r25"),
+        (34_006, 7, 30, "g7-r30"),
+        (34_007, 7, 35, "g7-r35"),
+        (34_008, 8, 10, "g8-r10"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let predicate = group_rank_range_predicate(7, 10, 40);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let mut cursor: Option<Vec<u8>> = None;
+    let mut page_sizes = Vec::new();
+    let mut pages = 0usize;
+
+    loop {
+        pages = pages.saturating_add(1);
+        assert!(pages <= 8, "composite terminal-page test must terminate");
+
+        let page_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(predicate.clone())
+            .order_by("rank")
+            .limit(3)
+            .plan()
+            .expect("composite terminal-page plan should build");
+        let planned_cursor = page_plan
+            .plan_cursor(cursor.as_deref())
+            .expect("composite terminal-page cursor should plan");
+        let page = load
+            .execute_paged_with_cursor(page_plan, planned_cursor)
+            .expect("composite terminal-page execution should succeed");
+
+        page_sizes.push(page.items.0.len());
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+        cursor = Some(next_cursor);
+    }
+
+    assert_eq!(
+        page_sizes,
+        vec![3, 3, 1],
+        "composite limited pagination should end with one terminal page item"
+    );
+}
+
+#[test]
+fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligible_plan() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = [
+        (35_001, 10, "t10-a"),
+        (35_002, 10, "t10-b"),
+        (35_003, 20, "t20"),
+        (35_004, 25, "t25"),
+        (35_005, 28, "t28"),
+        (35_006, 40, "t40"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let mut logical = LogicalPlan::new(
+        AccessPath::IndexRange {
+            index: INDEXED_METRICS_INDEX_MODELS[0],
+            prefix: Vec::new(),
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(30)),
+        },
+        ReadConsistency::MissingOk,
+    );
+    logical.order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    logical.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
+
+    let _ = take_trace_events();
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
+    let _page = load
+        .execute_paged_with_cursor(page_plan, None)
+        .expect("trace limit-pushdown execution should succeed");
+    let events = take_trace_events();
+
+    let access_rows = events.iter().find_map(|event| match event {
+        QueryTraceEvent::Phase {
+            phase: TracePhase::Access,
+            rows,
+            ..
+        } => Some(*rows),
+        _ => None,
+    });
+
+    assert_eq!(
+        access_rows,
+        Some(3),
+        "limit=2 index-range pushdown should scan only offset+limit+1 rows in access phase"
+    );
+}
+
+#[test]
+fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = [
+        (35_101, 10, "t10-a"),
+        (35_102, 20, "t20"),
+        (35_103, 25, "t25"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let mut logical = LogicalPlan::new(
+        AccessPath::IndexRange {
+            index: INDEXED_METRICS_INDEX_MODELS[0],
+            prefix: Vec::new(),
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(30)),
+        },
+        ReadConsistency::MissingOk,
+    );
+    logical.order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    logical.page = Some(PageSpec {
+        limit: Some(0),
+        offset: 0,
+    });
+    let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
+
+    let _ = take_trace_events();
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
+    let page = load
+        .execute_paged_with_cursor(page_plan, None)
+        .expect("limit=0 trace execution should succeed");
+    let events = take_trace_events();
+
+    let access_rows = events.iter().find_map(|event| match event {
+        QueryTraceEvent::Phase {
+            phase: TracePhase::Access,
+            rows,
+            ..
+        } => Some(*rows),
+        _ => None,
+    });
+
+    assert_eq!(
+        access_rows,
+        Some(0),
+        "limit=0 index-range pushdown should not scan access rows"
+    );
+    assert!(
+        page.items.0.is_empty(),
+        "limit=0 should return an empty page for eligible index-range plans"
+    );
+    assert!(
+        page.next_cursor.is_none(),
+        "limit=0 should not emit a continuation cursor"
+    );
+}
+
+#[test]
+fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligible_plan() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = [
+        (35_201, 10, "t10-a"),
+        (35_202, 20, "t20"),
+        (35_203, 25, "t25"),
+        (35_204, 28, "t28"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let mut logical = LogicalPlan::new(
+        AccessPath::IndexRange {
+            index: INDEXED_METRICS_INDEX_MODELS[0],
+            prefix: Vec::new(),
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(30)),
+        },
+        ReadConsistency::MissingOk,
+    );
+    logical.order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    logical.page = Some(PageSpec {
+        limit: Some(0),
+        offset: 2,
+    });
+    let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
+
+    let _ = take_trace_events();
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
+    let page = load
+        .execute_paged_with_cursor(page_plan, None)
+        .expect("limit=0 with offset trace execution should succeed");
+    let events = take_trace_events();
+
+    let access_rows = events.iter().find_map(|event| match event {
+        QueryTraceEvent::Phase {
+            phase: TracePhase::Access,
+            rows,
+            ..
+        } => Some(*rows),
+        _ => None,
+    });
+
+    assert_eq!(
+        access_rows,
+        Some(0),
+        "limit=0 should short-circuit access scanning even when offset is non-zero"
+    );
+    assert!(
+        page.items.0.is_empty(),
+        "limit=0 with offset should return an empty page for eligible index-range plans"
+    );
+    assert!(
+        page.next_cursor.is_none(),
+        "limit=0 with offset should not emit a continuation cursor"
     );
 }
 

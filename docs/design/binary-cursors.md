@@ -1,4 +1,4 @@
-# Binary Cursor Design (0.13)
+# Binary Cursor Design
 
 ## 1. Purpose
 

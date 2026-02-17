@@ -11,7 +11,7 @@ use crate::{
                 emit_access_post_access_phases, finish_trace_from_result, start_plan_trace,
             },
         },
-        index::IndexKey,
+        index::{IndexKey, RawIndexKey},
         query::plan::{
             AccessPath, ContinuationSignature, ContinuationToken, CursorBoundary, ExecutablePlan,
             IndexRangeCursorAnchor, LogicalPlan, OrderDirection, PlannedCursor,
@@ -156,6 +156,16 @@ where
                 &plan,
                 &secondary_pushdown_applicability,
                 cursor_boundary.as_ref(),
+                continuation_signature,
+            )? {
+                return Ok(Self::finish_fast_path(&mut span, trace.as_ref(), fast));
+            }
+
+            if let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
+                &ctx,
+                &plan,
+                cursor_boundary.as_ref(),
+                index_range_anchor.as_ref(),
                 continuation_signature,
             )? {
                 return Ok(Self::finish_fast_path(&mut span, trace.as_ref(), fast));
@@ -352,6 +362,115 @@ where
             page,
             rows_scanned,
         }))
+    }
+
+    // Limited IndexRange pushdown for semantically safe plan shapes.
+    fn try_execute_index_range_limit_pushdown_stream(
+        ctx: &Context<'_, E>,
+        plan: &LogicalPlan<E::Key>,
+        cursor_boundary: Option<&CursorBoundary>,
+        index_range_anchor: Option<&RawIndexKey>,
+        continuation_signature: ContinuationSignature,
+    ) -> Result<Option<FastLoadResult<E>>, InternalError> {
+        let Some(fetch_limit) = Self::index_range_limit_pushdown_fetch_limit(plan) else {
+            return Ok(None);
+        };
+        let Some(AccessPath::IndexRange {
+            index,
+            prefix,
+            lower,
+            upper,
+        }) = plan.access.as_path()
+        else {
+            return Ok(None);
+        };
+        if !Self::is_index_range_limit_pushdown_order_compatible(plan, index.fields, prefix.len()) {
+            return Ok(None);
+        }
+
+        // Phase 1: resolve candidate keys via bounded range traversal with early termination.
+        let ordered_keys = ctx.db.with_store_registry(|reg| {
+            reg.try_get_store(index.store).and_then(|store| {
+                store.with_index(|index_store| {
+                    index_store.resolve_data_values_in_range_limited::<E>(
+                        index,
+                        prefix,
+                        lower,
+                        upper,
+                        index_range_anchor,
+                        fetch_limit,
+                    )
+                })
+            })
+        })?;
+        let rows_scanned = ordered_keys.len();
+
+        // Phase 2: load rows preserving traversal order.
+        let data_rows = ctx.rows_from_ordered_data_keys(&ordered_keys, plan.consistency)?;
+        let mut rows = Context::deserialize_rows(data_rows)?;
+
+        // Phase 3: apply canonical post-access semantics and derive continuation.
+        let page = Self::finalize_rows_into_page(
+            plan,
+            &mut rows,
+            cursor_boundary,
+            continuation_signature,
+        )?;
+
+        Ok(Some(FastLoadResult {
+            post_access_rows: page.items.0.len(),
+            page,
+            rows_scanned,
+        }))
+    }
+
+    fn index_range_limit_pushdown_fetch_limit(plan: &LogicalPlan<E::Key>) -> Option<usize> {
+        if plan.predicate.is_some() {
+            return None;
+        }
+        let page = plan.page.as_ref()?;
+        let limit = page.limit?;
+        if limit == 0 {
+            return Some(0);
+        }
+        let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+        let page_end = offset.saturating_add(limit);
+
+        Some(page_end.saturating_add(1))
+    }
+
+    fn is_index_range_limit_pushdown_order_compatible(
+        plan: &LogicalPlan<E::Key>,
+        index_fields: &[&str],
+        prefix_len: usize,
+    ) -> bool {
+        let Some(order) = plan.order.as_ref() else {
+            return true;
+        };
+        if order.fields.is_empty() {
+            return true;
+        }
+        if order
+            .fields
+            .iter()
+            .any(|(_, direction)| !matches!(direction, OrderDirection::Asc))
+        {
+            return false;
+        }
+
+        let mut expected = Vec::with_capacity(index_fields.len().saturating_sub(prefix_len) + 1);
+        expected.extend(index_fields.iter().skip(prefix_len).copied());
+        expected.push(E::MODEL.primary_key.name);
+        if order.fields.len() != expected.len() {
+            return false;
+        }
+
+        order
+            .fields
+            .iter()
+            .map(|(field, _)| field.as_str())
+            .eq(expected)
     }
 
     // Build the fast-path scan config for canonical PK-ordered streaming.

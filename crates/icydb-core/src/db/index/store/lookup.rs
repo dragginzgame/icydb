@@ -105,6 +105,25 @@ impl IndexStore {
         upper: &Bound<Value>,
         continuation_start_exclusive: Option<&RawIndexKey>,
     ) -> Result<Vec<DataKey>, InternalError> {
+        self.resolve_data_values_in_range_limited::<E>(
+            index,
+            prefix,
+            lower,
+            upper,
+            continuation_start_exclusive,
+            usize::MAX,
+        )
+    }
+
+    pub(crate) fn resolve_data_values_in_range_limited<E: EntityKind>(
+        &self,
+        index: &IndexModel,
+        prefix: &[Value],
+        lower: &Bound<Value>,
+        upper: &Bound<Value>,
+        continuation_start_exclusive: Option<&RawIndexKey>,
+        limit: usize,
+    ) -> Result<Vec<DataKey>, InternalError> {
         if prefix.len() >= index.fields.len() {
             return Err(InternalError::new(
                 ErrorClass::Unsupported,
@@ -115,6 +134,10 @@ impl IndexStore {
                     index.fields.len()
                 ),
             ));
+        }
+
+        if limit == 0 {
+            return Ok(Vec::new());
         }
 
         let (mut start_raw, end_raw) = raw_bounds_for_index_component_range::<E>(
@@ -187,11 +210,12 @@ impl IndexStore {
                 ));
             }
 
-            out.extend(
-                storage_keys
-                    .into_iter()
-                    .map(|storage_key| DataKey::from_key::<E>(storage_key)),
-            );
+            for storage_key in storage_keys {
+                out.push(DataKey::from_key::<E>(storage_key));
+                if out.len() == limit {
+                    return Ok(out);
+                }
+            }
         }
 
         Ok(out)

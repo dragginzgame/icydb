@@ -6,6 +6,39 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.13.0] – 2026-02-17 - IndexRange LIMIT Pushdown
+
+### 📝 Summary
+
+* `0.13.0` focuses on `LIMIT` pushdown for `AccessPath::IndexRange` to stop scans earlier without changing query semantics.
+* It keeps 0.12 cursor behavior intact while reducing unnecessary traversal for large range windows.
+* Result ordering, continuation behavior, and plan semantics remain unchanged.
+
+### 🔧 Changed
+
+* Added a limited index-range resolver in `IndexStore` and kept the existing range resolver behavior by delegating through the same path.
+* Added executor wiring to use limited range traversal for eligible `IndexRange` + `LIMIT` plans.
+* Kept eligibility conservative (no residual predicate, compatible order shape) to avoid semantic drift while rollout is in progress.
+* Eligible `IndexRange` plans with `limit=0` now short-circuit without scanning index entries.
+
+### 🧪 Testing
+
+* Added limit-matrix pagination tests for single-field and composite `IndexRange` paths.
+* Covered `limit=0`, `limit=1`, bounded page sizes, and larger-than-result windows.
+* Verified paginated collect-all results still match unbounded execution order and remain duplicate-free.
+* Added exact-size and terminal-page assertions to confirm continuation cursors are suppressed when paging is complete.
+* Added a trace assertion for eligible `IndexRange` + `LIMIT` plans to verify access-phase row scans are capped to `offset + limit + 1`.
+* Added a trace assertion that `limit=0` eligible plans report zero access-phase rows scanned.
+* Added explicit `limit=0` + non-zero `offset` coverage to verify the same zero-scan behavior.
+* Isolated executor trace tests with thread-local event buffers so trace assertions stay deterministic under parallel test execution.
+
+### 🧭 Migration Notes
+
+* No public API migration required.
+* Binary cursor envelope work is explicitly out of scope for `0.13` and deferred to a later milestone.
+
+---
+
 ## [0.12.0] – 2026-02-17 - Cursor Pagination
 
 ### 📝 Summary
@@ -30,7 +63,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🧭 Migration Notes
 
 * No public API migration required yet.
-* Cursor format stability and binary cursor commitments are planned for follow-up work in `0.13`.
+* Cursor format stability and binary cursor commitments are planned for a later milestone.
 
 ---
 
