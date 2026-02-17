@@ -117,7 +117,6 @@ impl EntityName {
     }
 
     #[must_use]
-    #[expect(clippy::len_without_is_empty)]
     pub const fn len(&self) -> usize {
         self.len as usize
     }

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.11.1] – 2026-02-17 - Cleanup & Visibility Tightening
+
+### 🔧 Changed
+
+* Added a dedicated hidden macro wiring surface (`__macro`) in `icydb` so generated code no longer has to depend on long `__internal::core::...` DB paths.
+* Updated actor/store codegen to use `::icydb::__macro::{Db, DataStore, IndexStore, StoreRegistry, EntityRuntimeHooks, ...}` for cleaner internal codegen boundaries.
+
+### 🧹 Cleanup
+
+* Tightened several internal module boundaries from `pub` to `pub(crate)` in `db` and `db::query` where external visibility was not needed.
+* Removed dead predicate/query helpers and unused wrappers, including `IndexIdError`, unused text-op variants (`Eq`, `Contains`), unused typed visitor wrappers, and unused diagnostics helper constructors.
+* Simplified infallible merge and conversion helpers by removing unnecessary return values and dead branches.
+* Removed additional unused plan helpers while keeping current access-path behavior unchanged.
+
+---
+
 ## [0.11.0] – 2026-02-16 - Range Pushdown
 
 ### 🔧 Changed

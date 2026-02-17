@@ -86,6 +86,19 @@ pub mod __internal {
     pub use icydb_core as core;
 }
 
+/// Macro/runtime wiring surface used by generated code.
+/// This is intentionally narrow and not semver-stable.
+#[doc(hidden)]
+pub mod __macro {
+    pub use icydb_core::db::{
+        Db, EntityRuntimeHooks,
+        index::IndexStore,
+        prepare_row_commit_for_entity,
+        store::{DataStore, StoreRegistry},
+        validate_delete_strong_relations_for_source,
+    };
+}
+
 /// re-exports
 ///
 /// macros can use these, stops the user having to specify all the dependencies

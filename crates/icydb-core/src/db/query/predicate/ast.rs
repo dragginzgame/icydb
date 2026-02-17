@@ -155,8 +155,8 @@ impl Predicate {
         Self::Or(preds)
     }
 
-    #[expect(clippy::should_implement_trait)]
     #[must_use]
+    #[allow(clippy::should_implement_trait)]
     pub fn not(pred: Self) -> Self {
         Self::Not(Box::new(pred))
     }

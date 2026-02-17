@@ -57,7 +57,7 @@ impl Account {
     }
 
     /// Convert to the ICRC account representation.
-    pub fn to_icrc_type(&self) -> IcrcAccount {
+    pub fn to_icrc_type(self) -> IcrcAccount {
         IcrcAccount {
             owner: self.owner.into(),
             subaccount: self.subaccount.map(Into::into),
@@ -74,7 +74,7 @@ impl Account {
     }
 
     /// Convert the account into a deterministic, fixed-size byte representation.
-    pub fn to_bytes(&self) -> Result<Vec<u8>, AccountEncodeError> {
+    pub fn to_bytes(self) -> Result<Vec<u8>, AccountEncodeError> {
         let principal_bytes = self.owner.to_bytes()?;
         let len = principal_bytes.len();
         if len > Self::PRINCIPAL_MAX_LEN {

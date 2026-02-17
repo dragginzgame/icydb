@@ -4,14 +4,14 @@
 //! canonical contract for evaluation, coercion, and normalization.
 
 pub mod builder;
-pub mod diagnostics;
+pub(crate) mod diagnostics;
 pub mod expr;
-pub mod intent;
+pub(crate) mod intent;
 pub mod plan;
 pub(crate) mod policy;
 pub mod predicate;
 mod save;
-pub mod session;
+pub(crate) mod session;
 
 pub use builder::*;
 pub use diagnostics::{

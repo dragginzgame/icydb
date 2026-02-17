@@ -37,15 +37,6 @@ impl<K> AccessPlan<K> {
             Self::Union(_) | Self::Intersection(_) => None,
         }
     }
-
-    /// Consume this plan and return the concrete path when present.
-    #[must_use]
-    pub fn into_path(self) -> Option<AccessPath<K>> {
-        match self {
-            Self::Path(path) => Some(*path),
-            Self::Union(_) | Self::Intersection(_) => None,
-        }
-    }
 }
 
 impl<K> From<AccessPath<K>> for AccessPlan<K> {
@@ -71,6 +62,7 @@ pub enum AccessPath<K> {
     ByKeys(Vec<K>),
 
     /// Range scan over primary keys (inclusive).
+    #[allow(dead_code)]
     KeyRange { start: K, end: K },
 
     /// Index scan using a prefix of index fields and bound values.

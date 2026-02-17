@@ -29,11 +29,11 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         data_defs.extend(quote! {
             ::icydb::__reexports::canic_memory::eager_static! {
                 static #data_cell_ident: ::std::cell::RefCell<
-                    ::icydb::__internal::core::db::store::DataStore
+                    ::icydb::__macro::DataStore
                 > = ::std::cell::RefCell::new(
-                    ::icydb::__internal::core::db::store::DataStore::init(
+                    ::icydb::__macro::DataStore::init(
                         ::icydb::__reexports::canic_memory::ic_memory!(
-                            ::icydb::__internal::core::db::store::DataStore,
+                            ::icydb::__macro::DataStore,
                             #data_memory_id
                         )
                     )
@@ -44,11 +44,11 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
         index_defs.extend(quote! {
             ::icydb::__reexports::canic_memory::eager_static! {
                 static #index_cell_ident: ::std::cell::RefCell<
-                    ::icydb::__internal::core::db::index::IndexStore
+                    ::icydb::__macro::IndexStore
                 > = ::std::cell::RefCell::new(
-                    ::icydb::__internal::core::db::index::IndexStore::init(
+                    ::icydb::__macro::IndexStore::init(
                         ::icydb::__reexports::canic_memory::ic_memory!(
-                            ::icydb::__internal::core::db::index::IndexStore,
+                            ::icydb::__macro::IndexStore,
                             #index_memory_id
                         )
                     )
@@ -82,17 +82,17 @@ fn stores(builder: &ActorBuilder) -> TokenStream {
             #[allow(unused_mut)]
             #[allow(clippy::let_and_return)]
             static STORE_REGISTRY:
-                ::icydb::__internal::core::db::store::StoreRegistry =
+                ::icydb::__macro::StoreRegistry =
             {
                 let mut reg =
-                    ::icydb::__internal::core::db::store::StoreRegistry::new();
+                    ::icydb::__macro::StoreRegistry::new();
                 #store_inits
                 reg
             };
         }
 
-        static DB: ::icydb::__internal::core::db::Db<#canister_path> =
-            ::icydb::__internal::core::db::Db::<#canister_path>::new_with_hooks(
+        static DB: ::icydb::__macro::Db<#canister_path> =
+            ::icydb::__macro::Db::<#canister_path>::new_with_hooks(
                 &STORE_REGISTRY,
                 ENTITY_RUNTIME_HOOKS
             );
@@ -122,18 +122,18 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
         let entity_ty: syn::Path = parse_str(&entity_path)
             .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
         hook_inits.extend(quote! {
-            ::icydb::__internal::core::db::EntityRuntimeHooks::<#canister_path>::new(
+            ::icydb::__macro::EntityRuntimeHooks::<#canister_path>::new(
                 <#entity_ty as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
                 <#entity_ty as ::icydb::traits::Path>::PATH,
-                ::icydb::__internal::core::db::prepare_row_commit_for_entity::<#entity_ty>,
-                ::icydb::__internal::core::db::validate_delete_strong_relations_for_source::<#entity_ty>,
+                ::icydb::__macro::prepare_row_commit_for_entity::<#entity_ty>,
+                ::icydb::__macro::validate_delete_strong_relations_for_source::<#entity_ty>,
             ),
         });
     }
 
     quote! {
         static ENTITY_RUNTIME_HOOKS: &[
-            ::icydb::__internal::core::db::EntityRuntimeHooks<#canister_path>
+            ::icydb::__macro::EntityRuntimeHooks<#canister_path>
         ] = &[
             #hook_inits
         ];

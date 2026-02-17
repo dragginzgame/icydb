@@ -115,7 +115,7 @@ impl DeleteSpec {
 ///
 
 #[derive(Debug)]
-pub(crate) struct QueryModel<'m, K> {
+pub struct QueryModel<'m, K> {
     model: &'m crate::model::entity::EntityModel,
     mode: QueryMode,
     predicate: Option<Predicate>,

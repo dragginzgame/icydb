@@ -52,31 +52,3 @@ pub type QueryTraceExecutorKind = TraceExecutorKind;
 
 /// Public alias for trace phase kinds in query diagnostics.
 pub type QueryTracePhase = TracePhase;
-
-#[must_use]
-pub const fn start_event(
-    fingerprint: PlanFingerprint,
-    access: Option<TraceAccess>,
-    executor: TraceExecutorKind,
-) -> QueryTraceEvent {
-    QueryTraceEvent::Start {
-        fingerprint,
-        executor,
-        access,
-    }
-}
-
-#[must_use]
-pub const fn finish_event(
-    fingerprint: PlanFingerprint,
-    access: Option<TraceAccess>,
-    executor: TraceExecutorKind,
-    rows: u64,
-) -> QueryTraceEvent {
-    QueryTraceEvent::Finish {
-        fingerprint,
-        executor,
-        access,
-        rows,
-    }
-}

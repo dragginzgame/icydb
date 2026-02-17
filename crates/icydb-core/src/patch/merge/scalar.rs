@@ -4,13 +4,11 @@ use crate::{
 };
 
 /// Apply full-replacement semantics for atomic update payloads.
-pub fn merge_atomic<T>(value: &mut T, patch: T) -> Result<(), MergePatchError>
+pub fn merge_atomic<T>(value: &mut T, patch: T)
 where
     T: Atomic + UpdateView<UpdateViewType = T>,
 {
     *value = patch;
-
-    Ok(())
 }
 
 /// Apply optional update payloads with create-on-update semantics.

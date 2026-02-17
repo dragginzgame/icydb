@@ -95,7 +95,7 @@ impl Principal {
     }
 
     /// Encode this principal into bytes, enforcing the max-length invariant.
-    pub fn to_bytes(&self) -> Result<Vec<u8>, PrincipalEncodeError> {
+    pub fn to_bytes(self) -> Result<Vec<u8>, PrincipalEncodeError> {
         let len = self.as_slice().len();
         if len > Self::MAX_LENGTH_IN_BYTES as usize {
             return Err(PrincipalEncodeError::TooLarge {

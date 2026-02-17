@@ -275,14 +275,6 @@ pub fn perform_visit<S: Into<PathSegment>>(
     }
 }
 
-pub fn perform_visit_typed<S, V>(visitor: &mut dyn VisitorCore, node: &V, seg: S)
-where
-    S: Into<PathSegment>,
-    V: Visitable,
-{
-    perform_visit(visitor, node, seg);
-}
-
 // ============================================================================
 // VisitorMut (mutable)
 // ============================================================================
@@ -400,12 +392,4 @@ pub fn perform_visit_mut<S: Into<PathSegment>>(
     if should_push {
         visitor.pop();
     }
-}
-
-pub fn perform_visit_mut_typed<S, V>(visitor: &mut dyn VisitorMutCore, node: &mut V, seg: S)
-where
-    S: Into<PathSegment>,
-    V: Visitable,
-{
-    perform_visit_mut(visitor, node, seg);
 }

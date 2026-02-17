@@ -236,7 +236,8 @@ where
     type UpdateViewType = Self;
 
     fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
-        merge::merge_atomic(self, patch)
+        merge::merge_atomic(self, patch);
+        Ok(())
     }
 }
 

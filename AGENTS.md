@@ -240,7 +240,7 @@ Code is considered non-trivial if it:
 * Code examples are good when they help clarify behavior; include them only when relevant and keep them short.
 * Changelog bullets do not need to be single-line only; use extra sentence space when needed to preserve important context.
 * Prefer explaining **why** a change matters over listing only **what** changed.
-* For each minor release section, include at least one short, relevant code example.
+* Include code examples only when they are relevant to a developer (for example usage, migration, or behavior that is hard to infer from bullets alone).
 
 ---
 
