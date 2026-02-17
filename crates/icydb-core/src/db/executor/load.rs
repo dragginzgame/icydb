@@ -11,9 +11,11 @@ use crate::{
                 emit_access_post_access_phases, finish_trace_from_result, start_plan_trace,
             },
         },
+        index::IndexKey,
         query::plan::{
             AccessPath, ContinuationSignature, ContinuationToken, CursorBoundary, ExecutablePlan,
-            LogicalPlan, OrderDirection, decode_pk_cursor_boundary,
+            IndexRangeCursorAnchor, LogicalPlan, OrderDirection, PlannedCursor,
+            decode_pk_cursor_boundary,
             validate::{
                 PushdownApplicability, assess_secondary_order_pushdown_if_applicable_validated,
                 validate_executor_plan,
@@ -98,14 +100,19 @@ where
     }
 
     pub(crate) fn execute(&self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
-        self.execute_paged(plan, None).map(|page| page.items)
+        self.execute_paged_with_cursor(plan, PlannedCursor::none())
+            .map(|page| page.items)
     }
 
-    pub(crate) fn execute_paged(
+    pub(in crate::db) fn execute_paged_with_cursor(
         &self,
         plan: ExecutablePlan<E>,
-        cursor_boundary: Option<CursorBoundary>,
+        cursor: impl Into<PlannedCursor>,
     ) -> Result<CursorPage<E>, InternalError> {
+        let cursor: PlannedCursor = cursor.into();
+        let cursor_boundary = cursor.boundary().cloned();
+        let index_range_anchor = cursor.index_range_anchor().cloned();
+
         if !plan.mode().is_load() {
             return Err(InternalError::new(
                 ErrorClass::Unsupported,
@@ -154,7 +161,11 @@ where
                 return Ok(Self::finish_fast_path(&mut span, trace.as_ref(), fast));
             }
 
-            let data_rows = ctx.rows_from_access_plan(&plan.access, plan.consistency)?;
+            let data_rows = ctx.rows_from_access_plan_with_index_range_anchor(
+                &plan.access,
+                plan.consistency,
+                index_range_anchor.as_ref(),
+            )?;
             record_rows_scanned::<E>(data_rows.len());
 
             let mut rows = Context::deserialize_rows(data_rows)?;
@@ -503,14 +514,30 @@ where
         signature: ContinuationSignature,
     ) -> Result<Vec<u8>, InternalError> {
         let boundary = plan.cursor_boundary_from_entity(last_entity)?;
-        ContinuationToken::new(signature, boundary)
-            .encode()
-            .map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Serialize,
-                    format!("failed to encode continuation cursor: {err}"),
+        let token = match plan.access.as_path() {
+            Some(AccessPath::IndexRange { index, .. }) => {
+                let index_key =
+                    IndexKey::new(last_entity, index)?.ok_or_else(|| {
+                        InternalError::new(
+                            ErrorClass::InvariantViolation,
+                            ErrorOrigin::Query,
+                            "executor invariant violated: cursor row is not indexable for planned index-range access",
+                        )
+                    })?;
+                ContinuationToken::new_index_range(
+                    signature,
+                    boundary,
+                    IndexRangeCursorAnchor::new(index_key.to_raw()),
                 )
-            })
+            }
+            _ => ContinuationToken::new(signature, boundary),
+        };
+        token.encode().map_err(|err| {
+            InternalError::new(
+                ErrorClass::Internal,
+                ErrorOrigin::Serialize,
+                format!("failed to encode continuation cursor: {err}"),
+            )
+        })
     }
 }

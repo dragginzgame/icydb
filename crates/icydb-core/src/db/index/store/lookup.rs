@@ -2,7 +2,8 @@ use crate::{
     db::{
         data::DataKey,
         index::{
-            key::{IndexId, IndexKey, encode_canonical_index_component},
+            IndexId, IndexKey, IndexRangeBoundEncodeError, encode_canonical_index_component,
+            raw_bounds_for_index_component_range,
             store::{IndexStore, RawIndexKey},
         },
     },
@@ -96,12 +97,13 @@ impl IndexStore {
         Ok(out)
     }
 
-    pub(crate) fn resolve_data_values_in_range<E: EntityKind>(
+    pub(crate) fn resolve_data_values_in_range_from_start_exclusive<E: EntityKind>(
         &self,
         index: &IndexModel,
         prefix: &[Value],
         lower: &Bound<Value>,
         upper: &Bound<Value>,
+        continuation_start_exclusive: Option<&RawIndexKey>,
     ) -> Result<Vec<DataKey>, InternalError> {
         if prefix.len() >= index.fields.len() {
             return Err(InternalError::new(
@@ -115,32 +117,28 @@ impl IndexStore {
             ));
         }
 
-        let index_id = IndexId::new::<E>(index);
-
-        let mut prefix_components = Vec::with_capacity(prefix.len());
-        for value in prefix {
-            let component = encode_canonical_index_component(value).map_err(|_| {
-                InternalError::new(
-                    ErrorClass::Unsupported,
-                    ErrorOrigin::Index,
-                    "index range prefix value is not indexable",
-                )
-            })?;
-            prefix_components.push(component);
+        let (mut start_raw, end_raw) = raw_bounds_for_index_component_range::<E>(
+            index, prefix, lower, upper,
+        )
+        .map_err(|err| {
+            let message = match err {
+                IndexRangeBoundEncodeError::Prefix => {
+                    "index range prefix value is not indexable".to_string()
+                }
+                IndexRangeBoundEncodeError::Lower => {
+                    "index range lower bound value is not indexable".to_string()
+                }
+                IndexRangeBoundEncodeError::Upper => {
+                    "index range upper bound value is not indexable".to_string()
+                }
+            };
+            InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Index, message)
+        })?;
+        if let Some(raw_key) = continuation_start_exclusive {
+            // 0.12 continuation contract: preserve upper bound and rewrite only
+            // the lower bound to strict continuation in raw key space.
+            start_raw = Bound::Excluded(raw_key.clone());
         }
-
-        let lower_component = encode_index_component_bound(lower, "lower")?;
-        let upper_component = encode_index_component_bound(upper, "upper")?;
-        let (start, end) = IndexKey::bounds_for_prefix_component_range(
-            &index_id,
-            index.fields.len(),
-            &prefix_components,
-            lower_component,
-            upper_component,
-        );
-
-        let start_raw = raw_index_key_bound(start);
-        let end_raw = raw_index_key_bound(end);
         if range_is_empty(&start_raw, &end_raw) {
             return Ok(Vec::new());
         }
@@ -149,6 +147,16 @@ impl IndexStore {
         for entry in self.entry_map().range((start_raw, end_raw)) {
             let raw_key = entry.key();
             let value = entry.value();
+
+            if let Some(anchor) = continuation_start_exclusive
+                && raw_key <= anchor
+            {
+                return Err(InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Index,
+                    "index-range continuation scan did not advance beyond the anchor",
+                ));
+            }
 
             #[cfg(debug_assertions)]
             if let Err(err) = Self::verify_entry_fingerprint(Some(index), raw_key, &value) {
@@ -187,41 +195,6 @@ impl IndexStore {
         }
 
         Ok(out)
-    }
-}
-
-fn encode_index_component_bound(
-    bound: &Bound<Value>,
-    label: &str,
-) -> Result<Bound<Vec<u8>>, InternalError> {
-    match bound {
-        Bound::Unbounded => Ok(Bound::Unbounded),
-        Bound::Included(value) => encode_canonical_index_component(value)
-            .map(Bound::Included)
-            .map_err(|_| {
-                InternalError::new(
-                    ErrorClass::Unsupported,
-                    ErrorOrigin::Index,
-                    format!("index range {label} bound value is not indexable"),
-                )
-            }),
-        Bound::Excluded(value) => encode_canonical_index_component(value)
-            .map(Bound::Excluded)
-            .map_err(|_| {
-                InternalError::new(
-                    ErrorClass::Unsupported,
-                    ErrorOrigin::Index,
-                    format!("index range {label} bound value is not indexable"),
-                )
-            }),
-    }
-}
-
-fn raw_index_key_bound(bound: Bound<IndexKey>) -> Bound<RawIndexKey> {
-    match bound {
-        Bound::Unbounded => Bound::Unbounded,
-        Bound::Included(key) => Bound::Included(key.to_raw()),
-        Bound::Excluded(key) => Bound::Excluded(key.to_raw()),
     }
 }
 

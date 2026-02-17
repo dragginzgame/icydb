@@ -39,14 +39,14 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .plan()
         .expect("page1 plan should build");
     let page1 = load
-        .execute_paged(
+        .execute_paged_with_cursor(
             page1_plan,
             Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
                 .order_by("rank")
                 .limit(1)
                 .plan()
                 .expect("boundary plan should build")
-                .plan_cursor_boundary(None)
+                .plan_cursor(None)
                 .expect("page1 boundary should plan"),
         )
         .expect("page1 should execute");
@@ -77,10 +77,10 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .plan()
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .plan_cursor(Some(cursor.as_slice()))
         .expect("page2 boundary should plan");
     let page2 = load
-        .execute_paged(page2_plan, page2_boundary)
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("page2 should execute");
     assert_eq!(page2.items.0.len(), 1, "page2 should return one row");
     assert_eq!(
@@ -146,14 +146,14 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
         .plan()
         .expect("page1 plan should build");
     let page1 = load
-        .execute_paged(
+        .execute_paged_with_cursor(
             page1_plan,
             Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
                 .order_by("rank")
                 .limit(1)
                 .plan()
                 .expect("boundary plan should build")
-                .plan_cursor_boundary(None)
+                .plan_cursor(None)
                 .expect("page1 boundary should plan"),
         )
         .expect("page1 should execute");
@@ -184,10 +184,10 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
         .plan()
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .plan_cursor(Some(cursor.as_slice()))
         .expect("page2 boundary should plan");
     let page2 = load
-        .execute_paged(page2_plan, page2_boundary)
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("page2 should execute");
     assert_eq!(page2.items.0.len(), 1, "page2 should return one row");
     assert_eq!(
@@ -236,14 +236,14 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .plan()
         .expect("page1 plan should build");
     let page1 = load
-        .execute_paged(
+        .execute_paged_with_cursor(
             page1_plan,
             Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
                 .order_by("rank")
                 .limit(1)
                 .plan()
                 .expect("boundary plan should build")
-                .plan_cursor_boundary(None)
+                .plan_cursor(None)
                 .expect("page1 boundary should plan"),
         )
         .expect("page1 should execute");
@@ -279,10 +279,10 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .plan()
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .plan_cursor(Some(cursor.as_slice()))
         .expect("page2 boundary should plan");
     let page2 = load
-        .execute_paged(page2_plan, page2_boundary)
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("page2 should execute");
     assert_eq!(page2.items.0.len(), 1, "page2 should return one row");
     assert_eq!(

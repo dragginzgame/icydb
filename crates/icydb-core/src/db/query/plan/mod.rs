@@ -17,12 +17,13 @@ pub(crate) mod validate;
 pub(crate) use access_projection::{
     AccessPlanProjection, project_access_plan, project_explain_access_path,
 };
-pub(crate) use continuation::ContinuationSignature;
-pub(crate) use continuation::{ContinuationToken, decode_pk_cursor_boundary};
+pub(in crate::db) use continuation::{
+    ContinuationSignature, ContinuationToken, IndexRangeCursorAnchor, decode_pk_cursor_boundary,
+};
 ///
 /// Re-Exports
 ///
-pub(crate) use executable::ExecutablePlan;
+pub(in crate::db) use executable::{ExecutablePlan, PlannedCursor};
 #[cfg(test)]
 pub(crate) use explain::ExplainOrderPushdown;
 pub(crate) use explain::{

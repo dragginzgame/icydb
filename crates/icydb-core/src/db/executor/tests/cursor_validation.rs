@@ -19,7 +19,7 @@ fn load_cursor_rejects_version_mismatch_at_plan_time() {
         .expect("version-mismatch cursor should encode");
 
     let err = plan
-        .plan_cursor_boundary(Some(version_mismatch_cursor.as_slice()))
+        .plan_cursor(Some(version_mismatch_cursor.as_slice()))
         .expect_err("unsupported cursor version should be rejected during planning");
     assert!(
         matches!(
@@ -48,7 +48,7 @@ fn load_cursor_rejects_boundary_value_type_mismatch_at_plan_time() {
         .expect("boundary-type cursor should encode");
 
     let err = plan
-        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .plan_cursor(Some(cursor.as_slice()))
         .expect_err("boundary field type mismatch should be rejected during planning");
     assert!(
         matches!(
@@ -78,7 +78,7 @@ fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
         .expect("pk-type cursor should encode");
 
     let err = plan
-        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .plan_cursor(Some(cursor.as_slice()))
         .expect_err("pk type mismatch should be rejected during planning");
     assert!(
         matches!(
@@ -114,7 +114,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
         .plan()
         .expect("local entity plan should build");
     let err = local_plan
-        .plan_cursor_boundary(Some(foreign_cursor.as_slice()))
+        .plan_cursor(Some(foreign_cursor.as_slice()))
         .expect_err("cursor from a different entity path should be rejected during planning");
     assert!(
         matches!(

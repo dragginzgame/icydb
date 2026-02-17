@@ -436,10 +436,13 @@ impl<C: CanisterKind> DbSession<C> {
             })?),
             None => None,
         };
-        let boundary = plan.plan_cursor_boundary(cursor_bytes.as_deref())?;
+        let cursor = plan.plan_cursor(cursor_bytes.as_deref())?;
 
         let page = self
-            .with_metrics(|| self.load_executor::<E>().execute_paged(plan, boundary))
+            .with_metrics(|| {
+                self.load_executor::<E>()
+                    .execute_paged_with_cursor(plan, cursor)
+            })
             .map_err(QueryError::Execute)?;
 
         Ok((page.items, page.next_cursor))

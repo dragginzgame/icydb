@@ -10,6 +10,7 @@ use crate::{
         },
     },
     error::{ErrorClass, ErrorOrigin},
+    serialize::serialize,
 };
 use std::collections::BTreeSet;
 
@@ -124,6 +125,24 @@ fn seed_indexed_metrics_rows(rows: &[IndexedMetricsSeedRow]) {
     }
 }
 
+type UniqueIndexRangeSeedRow = (u128, u32, &'static str);
+
+fn unique_index_range_entity((id, code, label): UniqueIndexRangeSeedRow) -> UniqueIndexRangeEntity {
+    UniqueIndexRangeEntity {
+        id: Ulid::from_u128(id),
+        code,
+        label: label.to_string(),
+    }
+}
+
+fn seed_unique_index_range_rows(rows: &[UniqueIndexRangeSeedRow]) {
+    let save = SaveExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+    for row in rows {
+        save.insert(unique_index_range_entity(*row))
+            .expect("unique-index-range seed row save should succeed");
+    }
+}
+
 fn strict_compare_predicate(field: &str, op: CompareOp, value: Value) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         field,
@@ -142,6 +161,21 @@ fn tag_range_predicate(lower_inclusive: u32, upper_exclusive: u32) -> Predicate 
         ),
         strict_compare_predicate(
             "tag",
+            CompareOp::Lt,
+            Value::Uint(u64::from(upper_exclusive)),
+        ),
+    ])
+}
+
+fn unique_code_range_predicate(lower_inclusive: u32, upper_exclusive: u32) -> Predicate {
+    Predicate::And(vec![
+        strict_compare_predicate(
+            "code",
+            CompareOp::Gte,
+            Value::Uint(u64::from(lower_inclusive)),
+        ),
+        strict_compare_predicate(
+            "code",
             CompareOp::Lt,
             Value::Uint(u64::from(upper_exclusive)),
         ),
@@ -381,10 +415,10 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
         .plan()
         .expect("offset page plan should build");
     let page_boundary = page_plan
-        .plan_cursor_boundary(None)
+        .plan_cursor(None)
         .expect("offset page boundary should plan");
     let page = load
-        .execute_paged(page_plan, page_boundary)
+        .execute_paged_with_cursor(page_plan, page_boundary)
         .expect("offset page should execute");
 
     let page_ids: Vec<Ulid> = page.items.0.iter().map(|(_, entity)| entity.id).collect();
@@ -437,10 +471,10 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
         .plan()
         .expect("pk-order page1 plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor_boundary(None)
+        .plan_cursor(None)
         .expect("pk-order page1 boundary should plan");
     let page1 = load
-        .execute_paged(page1_plan, page1_boundary)
+        .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("pk-order page1 should execute");
     let page1_ids: Vec<Ulid> = page1.items.0.iter().map(|(_, entity)| entity.id).collect();
     assert_eq!(page1_ids, vec![Ulid::from_u128(1), Ulid::from_u128(2)]);
@@ -455,10 +489,10 @@ fn load_cursor_pagination_pk_order_round_trips_across_pages() {
         .plan()
         .expect("pk-order page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .plan_cursor(Some(cursor.as_slice()))
         .expect("pk-order page2 boundary should plan");
     let page2 = load
-        .execute_paged(page2_plan, page2_boundary)
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("pk-order page2 should execute");
     let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
     assert_eq!(page2_ids, vec![Ulid::from_u128(3), Ulid::from_u128(4)]);
@@ -492,10 +526,10 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .plan()
         .expect("fast page1 plan should build");
     let fast_page1_boundary = fast_page1_plan
-        .plan_cursor_boundary(None)
+        .plan_cursor(None)
         .expect("fast page1 boundary should plan");
     let fast_page1 = load
-        .execute_paged(fast_page1_plan, fast_page1_boundary)
+        .execute_paged_with_cursor(fast_page1_plan, fast_page1_boundary)
         .expect("fast page1 should execute");
 
     // Path B: key-batch access forces non-fast path, but post-access semantics are identical.
@@ -507,10 +541,10 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .plan()
         .expect("non-fast page1 plan should build");
     let non_fast_page1_boundary = non_fast_page1_plan
-        .plan_cursor_boundary(None)
+        .plan_cursor(None)
         .expect("non-fast page1 boundary should plan");
     let non_fast_page1 = load
-        .execute_paged(non_fast_page1_plan, non_fast_page1_boundary)
+        .execute_paged_with_cursor(non_fast_page1_plan, non_fast_page1_boundary)
         .expect("non-fast page1 should execute");
 
     let fast_page1_ids: Vec<Ulid> = fast_page1
@@ -560,10 +594,10 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .plan()
         .expect("fast page2 plan should build");
     let fast_page2_boundary = fast_page2_plan
-        .plan_cursor_boundary(Some(fast_cursor_page1.as_slice()))
+        .plan_cursor(Some(fast_cursor_page1.as_slice()))
         .expect("fast page2 boundary should plan");
     let fast_page2 = load
-        .execute_paged(fast_page2_plan, fast_page2_boundary)
+        .execute_paged_with_cursor(fast_page2_plan, fast_page2_boundary)
         .expect("fast page2 should execute");
 
     let non_fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
@@ -574,10 +608,10 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .plan()
         .expect("non-fast page2 plan should build");
     let non_fast_page2_boundary = non_fast_page2_plan
-        .plan_cursor_boundary(Some(non_fast_cursor_page1.as_slice()))
+        .plan_cursor(Some(non_fast_cursor_page1.as_slice()))
         .expect("non-fast page2 boundary should plan");
     let non_fast_page2 = load
-        .execute_paged(non_fast_page2_plan, non_fast_page2_boundary)
+        .execute_paged_with_cursor(non_fast_page2_plan, non_fast_page2_boundary)
         .expect("non-fast page2 should execute");
 
     let fast_page2_ids: Vec<Ulid> = fast_page2
@@ -627,10 +661,10 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .plan()
         .expect("cursor source plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor_boundary(None)
+        .plan_cursor(None)
         .expect("cursor source boundary should plan");
     let page1 = load
-        .execute_paged(page1_plan, page1_boundary)
+        .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("cursor source page should execute");
     let cursor_bytes = page1
         .next_cursor
@@ -647,7 +681,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .plan()
         .expect("fast page2 plan should build");
     let fast_page2 = load
-        .execute_paged(fast_page2_plan, Some(shared_boundary.clone()))
+        .execute_paged_with_cursor(fast_page2_plan, Some(shared_boundary.clone()))
         .expect("fast page2 should execute");
 
     let non_fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
@@ -657,7 +691,7 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .plan()
         .expect("non-fast page2 plan should build");
     let non_fast_page2 = load
-        .execute_paged(non_fast_page2_plan, Some(shared_boundary))
+        .execute_paged_with_cursor(non_fast_page2_plan, Some(shared_boundary))
         .expect("non-fast page2 should execute");
 
     let fast_ids: Vec<Ulid> = fast_page2
@@ -733,10 +767,10 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let page1_plan = ExecutablePlan::<SimpleEntity>::new(page1_logical);
     let page1_boundary = page1_plan
-        .plan_cursor_boundary(None)
+        .plan_cursor(None)
         .expect("pk-range page1 boundary should plan");
     let page1 = load
-        .execute_paged(page1_plan, page1_boundary)
+        .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("pk-range page1 should execute");
     let page1_ids: Vec<Ulid> = page1.items.0.iter().map(|(_, entity)| entity.id).collect();
     assert_eq!(page1_ids, vec![Ulid::from_u128(2), Ulid::from_u128(3)]);
@@ -761,10 +795,10 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
     });
     let page2_plan = ExecutablePlan::<SimpleEntity>::new(page2_logical);
     let page2_boundary = page2_plan
-        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .plan_cursor(Some(cursor.as_slice()))
         .expect("pk-range page2 boundary should plan");
     let page2 = load
-        .execute_paged(page2_plan, page2_boundary)
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("pk-range page2 should execute");
     let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
     assert_eq!(page2_ids, vec![Ulid::from_u128(4)]);
@@ -810,7 +844,7 @@ fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page(
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let page = load
-        .execute_paged(plan, boundary)
+        .execute_paged_with_cursor(plan, boundary)
         .expect("pk-range cursor past end should execute");
 
     assert!(
@@ -844,7 +878,7 @@ fn load_cursor_pagination_pk_order_missing_slot_is_invariant_violation() {
         .expect("pk-order plan should build");
 
     let err = load
-        .execute_paged(
+        .execute_paged_with_cursor(
             plan,
             Some(CursorBoundary {
                 slots: vec![CursorBoundarySlot::Missing],
@@ -888,7 +922,7 @@ fn load_cursor_pagination_pk_order_type_mismatch_is_invariant_violation() {
         .expect("pk-order plan should build");
 
     let err = load
-        .execute_paged(
+        .execute_paged_with_cursor(
             plan,
             Some(CursorBoundary {
                 slots: vec![CursorBoundarySlot::Present(Value::Text(
@@ -934,7 +968,7 @@ fn load_cursor_pagination_pk_order_arity_mismatch_is_invariant_violation() {
         .expect("pk-order plan should build");
 
     let err = load
-        .execute_paged(
+        .execute_paged_with_cursor(
             plan,
             Some(CursorBoundary {
                 slots: vec![
@@ -1008,10 +1042,10 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
         .plan()
         .expect("cursor page1 plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor_boundary(None)
+        .plan_cursor(None)
         .expect("cursor page1 boundary should plan");
     let page1 = load
-        .execute_paged(page1_plan, page1_boundary)
+        .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("cursor page1 should execute");
     assert_eq!(page1.items.0.len(), 1, "page1 should return one row");
     assert_eq!(page1.items.0[0].1.id, Ulid::from_u128(1100));
@@ -1026,10 +1060,10 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
         .plan()
         .expect("cursor page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor_boundary(Some(cursor1.as_slice()))
+        .plan_cursor(Some(cursor1.as_slice()))
         .expect("cursor page2 boundary should plan");
     let page2 = load
-        .execute_paged(page2_plan, page2_boundary)
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("cursor page2 should execute");
     assert_eq!(page2.items.0.len(), 1, "page2 should return one row");
     assert_eq!(
@@ -1048,10 +1082,10 @@ fn load_cursor_pagination_skips_strictly_before_limit() {
         .plan()
         .expect("cursor page3 plan should build");
     let page3_boundary = page3_plan
-        .plan_cursor_boundary(Some(cursor2.as_slice()))
+        .plan_cursor(Some(cursor2.as_slice()))
         .expect("cursor page3 boundary should plan");
     let page3 = load
-        .execute_paged(page3_plan, page3_boundary)
+        .execute_paged_with_cursor(page3_plan, page3_boundary)
         .expect("cursor page3 should execute");
     assert_eq!(page3.items.0.len(), 1, "page3 should return one row");
     assert_eq!(
@@ -1107,10 +1141,10 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
         .plan()
         .expect("cursor next-cursor plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor_boundary(None)
+        .plan_cursor(None)
         .expect("cursor page1 boundary should plan");
     let page1 = load
-        .execute_paged(page1_plan, page1_boundary)
+        .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("cursor page1 should execute");
     assert_eq!(page1.items.0.len(), 2, "page1 should return two rows");
     assert_eq!(page1.items.0[0].1.id, Ulid::from_u128(1200));
@@ -1147,10 +1181,10 @@ fn load_cursor_next_cursor_uses_last_returned_row_boundary() {
         .plan()
         .expect("cursor page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor_boundary(Some(cursor_bytes.as_slice()))
+        .plan_cursor(Some(cursor_bytes.as_slice()))
         .expect("cursor page2 boundary should plan");
     let page2 = load
-        .execute_paged(page2_plan, page2_boundary)
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("cursor page2 should execute");
     let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
     assert_eq!(
@@ -1210,10 +1244,10 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
         .plan()
         .expect("descending page1 plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor_boundary(None)
+        .plan_cursor(None)
         .expect("descending page1 boundary should plan");
     let page1 = load
-        .execute_paged(page1_plan, page1_boundary)
+        .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("descending page1 should execute");
     let page1_ids: Vec<Ulid> = page1.items.0.iter().map(|(_, entity)| entity.id).collect();
     assert_eq!(
@@ -1232,10 +1266,10 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
         .plan()
         .expect("descending page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .plan_cursor(Some(cursor.as_slice()))
         .expect("descending page2 boundary should plan");
     let page2 = load
-        .execute_paged(page2_plan, page2_boundary)
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("descending page2 should execute");
     let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
     assert_eq!(
@@ -1281,10 +1315,10 @@ fn load_cursor_rejects_signature_mismatch() {
         .plan()
         .expect("ascending cursor plan should build");
     let asc_boundary = asc_plan
-        .plan_cursor_boundary(None)
+        .plan_cursor(None)
         .expect("ascending boundary should plan");
     let asc_page = load
-        .execute_paged(asc_plan, asc_boundary)
+        .execute_paged_with_cursor(asc_plan, asc_boundary)
         .expect("ascending cursor page should execute");
     let cursor = asc_page
         .next_cursor
@@ -1296,7 +1330,7 @@ fn load_cursor_rejects_signature_mismatch() {
         .plan()
         .expect("descending plan should build");
     let err = desc_plan
-        .plan_cursor_boundary(Some(cursor.as_slice()))
+        .plan_cursor(Some(cursor.as_slice()))
         .expect_err("cursor from different canonical plan should be rejected");
     assert!(
         matches!(err, PlanError::ContinuationCursorSignatureMismatch { .. }),
@@ -1363,10 +1397,10 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
         .plan()
         .expect("page1 parity plan should build");
     let page1_boundary = page1_plan
-        .plan_cursor_boundary(None)
+        .plan_cursor(None)
         .expect("page1 parity boundary should plan");
     let page1 = load
-        .execute_paged(page1_plan, page1_boundary)
+        .execute_paged_with_cursor(page1_plan, page1_boundary)
         .expect("page1 parity should execute");
     let page1_ids: Vec<Ulid> = page1.items.0.iter().map(|(_, entity)| entity.id).collect();
 
@@ -1389,10 +1423,10 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
         .plan()
         .expect("page2 parity plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor_boundary(Some(page2_cursor.as_slice()))
+        .plan_cursor(Some(page2_cursor.as_slice()))
         .expect("page2 parity boundary should plan");
     let page2 = load
-        .execute_paged(page2_plan, page2_boundary)
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("page2 parity should execute");
     let page2_ids: Vec<Ulid> = page2.items.0.iter().map(|(_, entity)| entity.id).collect();
 
@@ -1422,7 +1456,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .plan()
         .expect("pushdown plan should build");
     let pushdown_page = load
-        .execute_paged(pushdown_plan, None)
+        .execute_paged_with_cursor(pushdown_plan, None)
         .expect("pushdown page should execute");
 
     let fallback_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -1432,7 +1466,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .plan()
         .expect("fallback plan should build");
     let fallback_page = load
-        .execute_paged(fallback_plan, None)
+        .execute_paged_with_cursor(fallback_plan, None)
         .expect("fallback page should execute");
 
     let pushdown_ids: Vec<Ulid> = pushdown_page
@@ -1490,7 +1524,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .plan()
         .expect("seed plan should build");
     let seed_page = load
-        .execute_paged(seed_plan, None)
+        .execute_paged_with_cursor(seed_plan, None)
         .expect("seed page should execute");
     let seed_cursor = seed_page
         .next_cursor
@@ -1508,7 +1542,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .plan()
         .expect("pushdown page2 plan should build");
     let pushdown_page2 = load
-        .execute_paged(pushdown_page2_plan, Some(shared_boundary.clone()))
+        .execute_paged_with_cursor(pushdown_page2_plan, Some(shared_boundary.clone()))
         .expect("pushdown page2 should execute");
 
     let fallback_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -1518,7 +1552,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .plan()
         .expect("fallback page2 plan should build");
     let fallback_page2 = load
-        .execute_paged(fallback_page2_plan, Some(shared_boundary))
+        .execute_paged_with_cursor(fallback_page2_plan, Some(shared_boundary))
         .expect("fallback page2 should execute");
 
     let pushdown_page2_ids: Vec<Ulid> = pushdown_page2
@@ -1590,7 +1624,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .plan()
         .expect("index-path desc page1 plan should build");
     let index_path_page1 = load
-        .execute_paged(index_path_page1_plan, None)
+        .execute_paged_with_cursor(index_path_page1_plan, None)
         .expect("index-path desc page1 should execute");
 
     let by_ids_page1_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -1600,7 +1634,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .plan()
         .expect("by-ids desc page1 plan should build");
     let by_ids_page1 = load
-        .execute_paged(by_ids_page1_plan, None)
+        .execute_paged_with_cursor(by_ids_page1_plan, None)
         .expect("by-ids desc page1 should execute");
 
     let index_path_page1_ids: Vec<Ulid> = index_path_page1
@@ -1637,7 +1671,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .plan()
         .expect("index-path desc page2 plan should build");
     let index_path_page2 = load
-        .execute_paged(index_path_page2_plan, Some(shared_boundary.clone()))
+        .execute_paged_with_cursor(index_path_page2_plan, Some(shared_boundary.clone()))
         .expect("index-path desc page2 should execute");
 
     let by_ids_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -1647,7 +1681,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .plan()
         .expect("by-ids desc page2 plan should build");
     let by_ids_page2 = load
-        .execute_paged(by_ids_page2_plan, Some(shared_boundary))
+        .execute_paged_with_cursor(by_ids_page2_plan, Some(shared_boundary))
         .expect("by-ids desc page2 should execute");
 
     let index_path_page2_ids: Vec<Ulid> = index_path_page2
@@ -1686,7 +1720,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .plan()
         .expect("prefix window page1 plan should build");
     let page1 = load
-        .execute_paged(page1_plan, None)
+        .execute_paged_with_cursor(page1_plan, None)
         .expect("prefix window page1 should execute");
 
     let page1_cursor = page1
@@ -1700,10 +1734,10 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .plan()
         .expect("prefix window page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor_boundary(Some(page1_cursor.as_slice()))
+        .plan_cursor(Some(page1_cursor.as_slice()))
         .expect("prefix window page2 boundary should plan");
     let page2 = load
-        .execute_paged(page2_plan, page2_boundary)
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
         .expect("prefix window page2 should execute");
     assert_eq!(page2.items.0.len(), 1, "page2 should return final row only");
     assert!(
@@ -1728,7 +1762,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .plan()
         .expect("past-end plan should build");
     let past_end = load
-        .execute_paged(past_end_plan, Some(explicit_boundary))
+        .execute_paged_with_cursor(past_end_plan, Some(explicit_boundary))
         .expect("past-end execution should succeed");
     assert!(
         past_end.items.0.is_empty(),
@@ -2201,10 +2235,10 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
             .plan()
             .expect("pushdown pagination plan should build");
         let boundary = plan
-            .plan_cursor_boundary(pushdown_cursor.as_deref())
+            .plan_cursor(pushdown_cursor.as_deref())
             .expect("pushdown pagination boundary should plan");
         let page = load
-            .execute_paged(plan, boundary)
+            .execute_paged_with_cursor(plan, boundary)
             .expect("pushdown pagination page should execute");
 
         pushdown_ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
@@ -2232,10 +2266,10 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
             .plan()
             .expect("fallback pagination plan should build");
         let boundary = plan
-            .plan_cursor_boundary(fallback_cursor.as_deref())
+            .plan_cursor(fallback_cursor.as_deref())
             .expect("fallback pagination boundary should plan");
         let page = load
-            .execute_paged(plan, boundary)
+            .execute_paged_with_cursor(plan, boundary)
             .expect("fallback pagination page should execute");
 
         fallback_ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
@@ -2254,6 +2288,235 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
         unique_pushdown_ids.len(),
         pushdown_ids.len(),
         "composite range cursor pagination must not emit duplicate rows"
+    );
+}
+
+#[test]
+fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strictly_monotonic() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = [
+        (20_101, 7, 10, "g7-r10-a"),
+        (20_102, 7, 10, "g7-r10-b"),
+        (20_103, 7, 20, "g7-r20-a"),
+        (20_104, 7, 20, "g7-r20-b"),
+        (20_105, 7, 25, "g7-r25"),
+        (20_106, 7, 30, "g7-r30"),
+        (20_107, 7, 35, "g7-r35"),
+        (20_108, 8, 10, "g8-r10"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let predicate = group_rank_range_predicate(7, 10, 40);
+    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .limit(3)
+        .explain()
+        .expect("composite range monotonicity explain should build");
+    assert!(
+        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        "composite range monotonicity test should plan an IndexRange access path"
+    );
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    // Baseline: one unbounded execution for the exact same predicate + order.
+    let unbounded_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .plan()
+        .expect("unbounded plan should build");
+    let unbounded = load
+        .execute(unbounded_plan)
+        .expect("unbounded execution should succeed");
+    let unbounded_ids: Vec<Ulid> = unbounded.0.iter().map(|(_, entity)| entity.id).collect();
+    let unbounded_row_bytes: Vec<Vec<u8>> = unbounded
+        .0
+        .iter()
+        .map(|(_, entity)| serialize(entity).expect("entity serialization should succeed"))
+        .collect();
+
+    // Paginated: iterate with continuation cursors and accumulate results.
+    let mut cursor: Option<Vec<u8>> = None;
+    let mut paged_ids = Vec::new();
+    let mut paged_row_bytes = Vec::new();
+    let mut page_anchors = Vec::new();
+    let mut pages = 0usize;
+
+    loop {
+        pages = pages.saturating_add(1);
+        assert!(
+            pages <= 8,
+            "composite range pagination should terminate in bounded pages"
+        );
+
+        let page_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(predicate.clone())
+            .order_by("rank")
+            .limit(3)
+            .plan()
+            .expect("page plan should build");
+        let planned_cursor = page_plan
+            .plan_cursor(cursor.as_deref())
+            .expect("page cursor should plan");
+        let page = load
+            .execute_paged_with_cursor(page_plan, planned_cursor)
+            .expect("paged execution should succeed");
+
+        paged_ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
+        paged_row_bytes.extend(
+            page.items
+                .0
+                .iter()
+                .map(|(_, entity)| serialize(entity).expect("entity serialization should succeed")),
+        );
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+
+        let token = ContinuationToken::decode(next_cursor.as_slice())
+            .expect("continuation cursor should decode");
+        let anchor = token
+            .index_range_anchor()
+            .expect("index-range cursor should include a raw-key anchor")
+            .last_raw_key()
+            .clone();
+
+        if let Some(previous_anchor) = page_anchors.last() {
+            assert!(
+                previous_anchor < &anchor,
+                "index-range continuation anchors must progress strictly monotonically"
+            );
+        }
+        page_anchors.push(anchor);
+        cursor = Some(next_cursor);
+    }
+
+    assert!(
+        page_anchors.len() >= 2,
+        "fixture should produce at least two continuation anchors"
+    );
+    assert_eq!(
+        paged_ids, unbounded_ids,
+        "concatenated paginated ids must match unbounded ids in the same order"
+    );
+    assert_eq!(
+        paged_row_bytes, unbounded_row_bytes,
+        "concatenated paginated rows must be byte-for-byte identical to the unbounded result set"
+    );
+}
+
+#[test]
+fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let rows = [
+        (23_001, 5, "c5"),
+        (23_002, 10, "c10"),
+        (23_003, 20, "c20"),
+        (23_004, 30, "c30"),
+        (23_005, 40, "c40"),
+        (23_006, 55, "c55"),
+        (23_007, 70, "c70"),
+    ];
+    seed_unique_index_range_rows(&rows);
+
+    let predicate = unique_code_range_predicate(10, 60);
+    let explain = Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("code")
+        .limit(2)
+        .explain()
+        .expect("unique index-range explain should build");
+    assert!(
+        explain_contains_index_range(&explain.access, UNIQUE_INDEX_RANGE_INDEX_MODELS[0].name, 0),
+        "unique index-range continuation should plan an IndexRange access path"
+    );
+
+    let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+    let unbounded_plan = Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("code")
+        .plan()
+        .expect("unique unbounded plan should build");
+    let unbounded = load
+        .execute(unbounded_plan)
+        .expect("unique unbounded execution should succeed");
+    let unbounded_ids: Vec<Ulid> = unbounded.0.iter().map(|(_, entity)| entity.id).collect();
+    let unbounded_row_bytes: Vec<Vec<u8>> = unbounded
+        .0
+        .iter()
+        .map(|(_, entity)| serialize(entity).expect("entity serialization should succeed"))
+        .collect();
+
+    let mut cursor: Option<Vec<u8>> = None;
+    let mut paged_ids = Vec::new();
+    let mut paged_row_bytes = Vec::new();
+    let mut anchors = Vec::new();
+    let mut pages = 0usize;
+
+    loop {
+        pages = pages.saturating_add(1);
+        assert!(pages <= 8, "unique index-range pagination should terminate");
+
+        let page_plan = Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+            .filter(predicate.clone())
+            .order_by("code")
+            .limit(2)
+            .plan()
+            .expect("unique page plan should build");
+        let planned_cursor = page_plan
+            .plan_cursor(cursor.as_deref())
+            .expect("unique page cursor should plan");
+        let page = load
+            .execute_paged_with_cursor(page_plan, planned_cursor)
+            .expect("unique paged execution should succeed");
+
+        paged_ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
+        paged_row_bytes.extend(
+            page.items
+                .0
+                .iter()
+                .map(|(_, entity)| serialize(entity).expect("entity serialization should succeed")),
+        );
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+        let token = ContinuationToken::decode(next_cursor.as_slice())
+            .expect("unique continuation cursor should decode");
+        let anchor = token
+            .index_range_anchor()
+            .expect("unique index-range cursor should include a raw-key anchor")
+            .last_raw_key()
+            .clone();
+        if let Some(previous_anchor) = anchors.last() {
+            assert!(
+                previous_anchor < &anchor,
+                "unique index-range continuation anchors must advance strictly"
+            );
+        }
+        anchors.push(anchor);
+        cursor = Some(next_cursor);
+    }
+
+    let unique_paged_ids: BTreeSet<Ulid> = paged_ids.iter().copied().collect();
+    assert_eq!(
+        unique_paged_ids.len(),
+        paged_ids.len(),
+        "unique index-range pagination must not emit duplicate rows"
+    );
+    assert_eq!(
+        paged_ids, unbounded_ids,
+        "unique index-range paginated ids must match unbounded ids in order"
+    );
+    assert_eq!(
+        paged_row_bytes, unbounded_row_bytes,
+        "unique index-range paginated rows must match unbounded rows byte-for-byte"
     );
 }
 
@@ -2292,7 +2555,7 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
         .plan()
         .expect("single-field base plan should build");
     let base_page = load
-        .execute_paged(base_plan, None)
+        .execute_paged_with_cursor(base_plan, None)
         .expect("single-field base page should execute");
     let all_ids: Vec<Ulid> = base_page
         .items
@@ -2324,7 +2587,7 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
         .plan()
         .expect("single-field after-lower plan should build");
     let after_lower = load
-        .execute_paged(after_lower_plan, Some(lower_boundary))
+        .execute_paged_with_cursor(after_lower_plan, Some(lower_boundary))
         .expect("single-field after-lower page should execute");
     let after_lower_ids: Vec<Ulid> = after_lower
         .items
@@ -2356,7 +2619,7 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
         .plan()
         .expect("single-field past-end plan should build");
     let past_end = load
-        .execute_paged(past_end_plan, Some(terminal_boundary))
+        .execute_paged_with_cursor(past_end_plan, Some(terminal_boundary))
         .expect("single-field past-end page should execute");
     assert!(
         past_end.items.0.is_empty(),
@@ -2702,7 +2965,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
         .plan()
         .expect("composite duplicate-edge base plan should build");
     let base_page = load
-        .execute_paged(base_plan, None)
+        .execute_paged_with_cursor(base_plan, None)
         .expect("composite duplicate-edge base page should execute");
     let all_ids: Vec<Ulid> = base_page
         .items
@@ -2735,7 +2998,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
         .plan()
         .expect("composite duplicate-edge after-lower plan should build");
     let after_lower = load
-        .execute_paged(after_lower_plan, Some(lower_boundary))
+        .execute_paged_with_cursor(after_lower_plan, Some(lower_boundary))
         .expect("composite duplicate-edge after-lower page should execute");
     let after_lower_ids: Vec<Ulid> = after_lower
         .items
@@ -2768,7 +3031,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
         .plan()
         .expect("composite duplicate-edge after-mid plan should build");
     let after_mid = load
-        .execute_paged(after_mid_plan, Some(mid_boundary))
+        .execute_paged_with_cursor(after_mid_plan, Some(mid_boundary))
         .expect("composite duplicate-edge after-mid page should execute");
     let after_mid_ids: Vec<Ulid> = after_mid
         .items
@@ -2801,7 +3064,7 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
         .plan()
         .expect("composite duplicate-edge past-end plan should build");
     let past_end = load
-        .execute_paged(past_end_plan, Some(terminal_boundary))
+        .execute_paged_with_cursor(past_end_plan, Some(terminal_boundary))
         .expect("composite duplicate-edge past-end page should execute");
     assert!(
         past_end.items.0.is_empty(),
@@ -2868,7 +3131,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         let load =
             LoadExecutor::<PushdownParityEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
         let _page = load
-            .execute_paged(plan, None)
+            .execute_paged_with_cursor(plan, None)
             .expect("trace outcome execution should succeed for case");
         let events = take_trace_events();
 
@@ -2932,7 +3195,7 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
     let _ = take_trace_events();
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
     let _page = load
-        .execute_paged(plan, None)
+        .execute_paged_with_cursor(plan, None)
         .expect("composite-index-range trace test execution should succeed");
     let events = take_trace_events();
 

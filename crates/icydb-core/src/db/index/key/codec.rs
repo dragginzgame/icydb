@@ -175,6 +175,21 @@ impl IndexKey {
     }
 
     #[must_use]
+    pub(in crate::db) const fn key_kind(&self) -> IndexKeyKind {
+        self.key_kind
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn index_id(&self) -> &IndexId {
+        &self.index_id
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn component_count(&self) -> usize {
+        self.component_count as usize
+    }
+
+    #[must_use]
     pub(crate) fn wildcard_low_component() -> Vec<u8> {
         vec![0]
     }

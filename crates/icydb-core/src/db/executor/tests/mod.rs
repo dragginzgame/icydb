@@ -285,6 +285,98 @@ impl EntityValue for IndexedMetricsEntity {
 }
 
 ///
+/// UniqueIndexRangeEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct UniqueIndexRangeEntity {
+    id: Ulid,
+    code: u32,
+    label: String,
+}
+
+impl AsView for UniqueIndexRangeEntity {
+    type ViewType = Self;
+
+    fn as_view(&self) -> Self::ViewType {
+        self.clone()
+    }
+
+    fn from_view(view: Self::ViewType) -> Self {
+        view
+    }
+}
+
+impl SanitizeAuto for UniqueIndexRangeEntity {}
+impl SanitizeCustom for UniqueIndexRangeEntity {}
+impl ValidateAuto for UniqueIndexRangeEntity {}
+impl ValidateCustom for UniqueIndexRangeEntity {}
+impl Visitable for UniqueIndexRangeEntity {}
+
+impl Path for UniqueIndexRangeEntity {
+    const PATH: &'static str = "executor_tests::UniqueIndexRangeEntity";
+}
+
+impl EntityKey for UniqueIndexRangeEntity {
+    type Key = Ulid;
+}
+
+impl EntityIdentity for UniqueIndexRangeEntity {
+    const ENTITY_NAME: &'static str = "UniqueIndexRangeEntity";
+    const PRIMARY_KEY: &'static str = "id";
+}
+
+static UNIQUE_INDEX_RANGE_FIELDS: [FieldModel; 3] = [
+    FieldModel {
+        name: "id",
+        kind: FieldKind::Ulid,
+    },
+    FieldModel {
+        name: "code",
+        kind: FieldKind::Uint,
+    },
+    FieldModel {
+        name: "label",
+        kind: FieldKind::Text,
+    },
+];
+static UNIQUE_INDEX_RANGE_FIELD_NAMES: [&str; 3] = ["id", "code", "label"];
+static UNIQUE_INDEX_RANGE_INDEX_FIELDS: [&str; 1] = ["code"];
+static UNIQUE_INDEX_RANGE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
+    "code_unique",
+    TestDataStore::PATH,
+    &UNIQUE_INDEX_RANGE_INDEX_FIELDS,
+    true,
+)];
+static UNIQUE_INDEX_RANGE_INDEXES: [&IndexModel; 1] = [&UNIQUE_INDEX_RANGE_INDEX_MODELS[0]];
+static UNIQUE_INDEX_RANGE_MODEL: EntityModel = entity_model_from_static(
+    "executor_tests::UniqueIndexRangeEntity",
+    "UniqueIndexRangeEntity",
+    &UNIQUE_INDEX_RANGE_FIELDS[0],
+    &UNIQUE_INDEX_RANGE_FIELDS,
+    &UNIQUE_INDEX_RANGE_INDEXES,
+);
+
+impl EntitySchema for UniqueIndexRangeEntity {
+    const MODEL: &'static EntityModel = &UNIQUE_INDEX_RANGE_MODEL;
+    const FIELDS: &'static [&'static str] = &UNIQUE_INDEX_RANGE_FIELD_NAMES;
+    const INDEXES: &'static [&'static IndexModel] = &UNIQUE_INDEX_RANGE_INDEXES;
+}
+
+impl EntityPlacement for UniqueIndexRangeEntity {
+    type Store = TestDataStore;
+    type Canister = TestCanister;
+}
+
+impl EntityKind for UniqueIndexRangeEntity {}
+
+impl EntityValue for UniqueIndexRangeEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
+}
+
+///
 /// PushdownParityEntity
 ///
 

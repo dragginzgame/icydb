@@ -4,12 +4,13 @@ use crate::{
         data::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
         decode::decode_entity_with_expected_key,
         executor::ExecutorError,
+        index::RawIndexKey,
         query::{
             ReadConsistency,
             plan::{AccessPath, AccessPlan},
         },
     },
-    error::{ErrorOrigin, InternalError},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue, Path},
     types::Id,
 };
@@ -82,6 +83,19 @@ where
     where
         E: EntityKind,
     {
+        self.candidates_from_access_with_index_range_anchor(access, None)
+    }
+
+    pub(crate) fn candidates_from_access_with_index_range_anchor(
+        &self,
+        access: &AccessPath<E::Key>,
+        index_range_anchor: Option<&RawIndexKey>,
+    ) -> Result<Vec<DataKey>, InternalError>
+    where
+        E: EntityKind,
+    {
+        Self::ensure_anchor_matches_access_path(access, index_range_anchor)?;
+
         let is_index_path = matches!(
             access,
             AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. }
@@ -134,7 +148,13 @@ where
                     .db
                     .with_store_registry(|reg| reg.try_get_store(index.store))?;
                 store.with_index(|s| {
-                    s.resolve_data_values_in_range::<E>(index, prefix, lower, upper)
+                    s.resolve_data_values_in_range_from_start_exclusive::<E>(
+                        index,
+                        prefix,
+                        lower,
+                        upper,
+                        index_range_anchor,
+                    )
                 })?
             }
         };
@@ -146,14 +166,17 @@ where
         Ok(candidates)
     }
 
-    pub(crate) fn rows_from_access(
+    pub(crate) fn rows_from_access_with_index_range_anchor(
         &self,
         access: &AccessPath<E::Key>,
         consistency: ReadConsistency,
+        index_range_anchor: Option<&RawIndexKey>,
     ) -> Result<Vec<DataRow>, InternalError>
     where
         E: EntityKind,
     {
+        Self::ensure_anchor_matches_access_path(access, index_range_anchor)?;
+
         match access {
             AccessPath::ByKey(key) => {
                 let keys = vec![Self::data_key_from_key(*key)?];
@@ -189,7 +212,8 @@ where
             })?,
 
             AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. } => {
-                let keys = self.candidates_from_access(access)?;
+                let keys = self
+                    .candidates_from_access_with_index_range_anchor(access, index_range_anchor)?;
                 self.load_many_with_consistency(&keys, consistency)
             }
         }
@@ -203,8 +227,24 @@ where
     where
         E: EntityKind,
     {
+        self.rows_from_access_plan_with_index_range_anchor(access, consistency, None)
+    }
+
+    pub(crate) fn rows_from_access_plan_with_index_range_anchor(
+        &self,
+        access: &AccessPlan<E::Key>,
+        consistency: ReadConsistency,
+        index_range_anchor: Option<&RawIndexKey>,
+    ) -> Result<Vec<DataRow>, InternalError>
+    where
+        E: EntityKind,
+    {
+        Self::ensure_anchor_matches_access_plan(access, index_range_anchor)?;
+
         match access {
-            AccessPlan::Path(path) => self.rows_from_access(path, consistency),
+            AccessPlan::Path(path) => {
+                self.rows_from_access_with_index_range_anchor(path, consistency, index_range_anchor)
+            }
 
             AccessPlan::Union(_) | AccessPlan::Intersection(_) => {
                 let keys = self.candidate_keys_for_plan(access)?;
@@ -231,6 +271,47 @@ where
         E: EntityKind,
     {
         DataKey::try_new::<E>(key)
+    }
+
+    fn ensure_anchor_matches_access_path(
+        access: &AccessPath<E::Key>,
+        index_range_anchor: Option<&RawIndexKey>,
+    ) -> Result<(), InternalError> {
+        Self::ensure_anchor_supported(
+            matches!(access, AccessPath::IndexRange { .. }),
+            index_range_anchor,
+            "executor invariant violated: unexpected index-range anchor for non-index-range access path",
+        )
+    }
+
+    fn ensure_anchor_matches_access_plan(
+        access: &AccessPlan<E::Key>,
+        index_range_anchor: Option<&RawIndexKey>,
+    ) -> Result<(), InternalError> {
+        Self::ensure_anchor_supported(
+            matches!(
+                access,
+                AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::IndexRange { .. })
+            ),
+            index_range_anchor,
+            "executor invariant violated: unexpected index-range anchor for composite or non-index-range access plan",
+        )
+    }
+
+    fn ensure_anchor_supported(
+        supports_anchor: bool,
+        index_range_anchor: Option<&RawIndexKey>,
+        message: &'static str,
+    ) -> Result<(), InternalError> {
+        if index_range_anchor.is_some() && !supports_anchor {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                message,
+            ));
+        }
+
+        Ok(())
     }
 
     fn dedup_keys(keys: Vec<E::Key>) -> Vec<E::Key> {

@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.12.0] – 2026-02-17 - Cursor Pagination
+
+### 📝 Summary
+
+* `0.12.0` completes the `IndexRange` cursor hardening work.
+* Continuation now resumes from exact raw index-key position, stays inside original range bounds, and keeps page traversal deterministic.
+* This reduces duplicate/skip risk and makes pagination behavior more predictable for range-heavy queries.
+
+### 🔧 Changed
+
+* `IndexRange` cursors now carry a raw-key anchor (`last_raw_key`) and resume by rewriting only the lower bound to `Bound::Excluded(last_raw_key)`.
+* Cursor validation now checks raw-key decode, index identity/namespace/arity, and envelope membership against the original `(prefix, lower, upper)` range.
+* Planning and execution now share one canonical raw-bound builder to prevent drift between validation and store traversal.
+* Load execution now passes planned cursor state (boundary + optional raw anchor) through to store-level range traversal.
+
+### 🧪 Testing
+
+* Added multi-page parity coverage that compares paginated results to unbounded execution, including byte-for-byte row parity checks.
+* Added strict monotonic anchor-progression assertions across continuation pages.
+* Added explicit unique-index continuation coverage for `IndexRange` (design Case F).
+
+### 🧭 Migration Notes
+
+* No public API migration required yet.
+* Cursor format stability and binary cursor commitments are planned for follow-up work in `0.13`.
+
+---
+
 ## [0.11.2] – 2026-02-17 - Rust Visibility Pass
 
 ### 📝 Summary

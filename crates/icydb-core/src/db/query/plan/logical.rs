@@ -66,7 +66,11 @@ pub(crate) struct LogicalPlan<K> {
     pub(crate) consistency: ReadConsistency,
 }
 
+///
+/// PlanRow
 /// Row abstraction for applying plan semantics to executor rows.
+///
+
 pub(crate) trait PlanRow<E: EntityKind> {
     fn entity(&self) -> &E;
 }

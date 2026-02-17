@@ -1,20 +1,22 @@
 //! Continuation signature for cursor pagination compatibility checks.
-#![allow(clippy::cast_possible_truncation)]
-
 use super::{CursorBoundary, CursorBoundarySlot, ExplainPlan, OrderSpec, PlanError};
 use crate::{
-    db::query::{
-        plan::hash_parts,
-        predicate::{SchemaInfo, validate::literal_matches_type},
+    db::{
+        index::RawIndexKey,
+        query::{
+            plan::hash_parts,
+            predicate::{SchemaInfo, validate::literal_matches_type},
+        },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::entity::EntityModel,
     serialize::{deserialize_bounded, serialize},
-    traits::{EntityKind, FieldValue},
+    traits::{EntityKind, FieldValue, Storable},
     value::Value,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use thiserror::Error as ThisError;
 
 ///
@@ -161,6 +163,7 @@ where
 pub(crate) struct ContinuationToken {
     signature: ContinuationSignature,
     boundary: CursorBoundary,
+    index_range_anchor: Option<IndexRangeCursorAnchor>,
 }
 
 impl ContinuationToken {
@@ -168,6 +171,19 @@ impl ContinuationToken {
         Self {
             signature,
             boundary,
+            index_range_anchor: None,
+        }
+    }
+
+    pub(in crate::db) const fn new_index_range(
+        signature: ContinuationSignature,
+        boundary: CursorBoundary,
+        index_range_anchor: IndexRangeCursorAnchor,
+    ) -> Self {
+        Self {
+            signature,
+            boundary,
+            index_range_anchor: Some(index_range_anchor),
         }
     }
 
@@ -179,11 +195,19 @@ impl ContinuationToken {
         &self.boundary
     }
 
+    pub(in crate::db) const fn index_range_anchor(&self) -> Option<&IndexRangeCursorAnchor> {
+        self.index_range_anchor.as_ref()
+    }
+
     pub(crate) fn encode(&self) -> Result<Vec<u8>, ContinuationTokenError> {
+        let index_range_anchor = self
+            .index_range_anchor()
+            .map(IndexRangeCursorAnchorWire::from);
         let wire = ContinuationTokenWire {
             version: CONTINUATION_TOKEN_VERSION_V1,
             signature: self.signature.into_bytes(),
             boundary: self.boundary.clone(),
+            index_range_anchor,
         };
 
         serialize(&wire).map_err(|err| ContinuationTokenError::Encode(err.to_string()))
@@ -199,10 +223,16 @@ impl ContinuationToken {
             });
         }
 
-        Ok(Self {
-            signature: ContinuationSignature::from_bytes(wire.signature),
-            boundary: wire.boundary,
-        })
+        let signature = ContinuationSignature::from_bytes(wire.signature);
+        let boundary = wire.boundary;
+
+        match wire
+            .index_range_anchor
+            .map(IndexRangeCursorAnchorWire::into_anchor)
+        {
+            Some(anchor) => Ok(Self::new_index_range(signature, boundary, anchor)),
+            None => Ok(Self::new(signature, boundary)),
+        }
     }
 
     #[cfg(test)]
@@ -210,10 +240,14 @@ impl ContinuationToken {
         &self,
         version: u8,
     ) -> Result<Vec<u8>, ContinuationTokenError> {
+        let index_range_anchor = self
+            .index_range_anchor()
+            .map(IndexRangeCursorAnchorWire::from);
         let wire = ContinuationTokenWire {
             version,
             signature: self.signature.into_bytes(),
             boundary: self.boundary.clone(),
+            index_range_anchor,
         };
 
         serialize(&wire).map_err(|err| ContinuationTokenError::Encode(err.to_string()))
@@ -246,16 +280,83 @@ struct ContinuationTokenWire {
     version: u8,
     signature: [u8; 32],
     boundary: CursorBoundary,
+    #[serde(default)]
+    index_range_anchor: Option<IndexRangeCursorAnchorWire>,
+}
+
+///
+/// IndexRangeCursorAnchor
+/// Dedicated continuation anchor for `AccessPath::IndexRange`.
+///
+/// This tracks the exact raw index key of the last emitted row so continuation
+/// can resume from `Bound::Excluded(last_raw_key)` in store traversal space.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct IndexRangeCursorAnchor {
+    last_raw_key: RawIndexKey,
+}
+
+impl IndexRangeCursorAnchor {
+    pub(in crate::db) const fn new(last_raw_key: RawIndexKey) -> Self {
+        Self { last_raw_key }
+    }
+
+    pub(in crate::db) const fn last_raw_key(&self) -> &RawIndexKey {
+        &self.last_raw_key
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct IndexRangeCursorAnchorWire {
+    last_raw_key: Vec<u8>,
+}
+
+impl From<&IndexRangeCursorAnchor> for IndexRangeCursorAnchorWire {
+    fn from(anchor: &IndexRangeCursorAnchor) -> Self {
+        Self {
+            last_raw_key: anchor.last_raw_key().as_bytes().to_vec(),
+        }
+    }
+}
+
+impl IndexRangeCursorAnchorWire {
+    fn into_anchor(self) -> IndexRangeCursorAnchor {
+        IndexRangeCursorAnchor::new(<RawIndexKey as Storable>::from_bytes(Cow::Owned(
+            self.last_raw_key,
+        )))
+    }
+}
+
+///
+/// DecodedContinuationCursor
+/// Validated continuation payload exposed to planning/execution boundaries.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct DecodedContinuationCursor {
+    boundary: CursorBoundary,
+    index_range_anchor: Option<IndexRangeCursorAnchor>,
+}
+
+impl DecodedContinuationCursor {
+    pub(in crate::db) const fn boundary(&self) -> &CursorBoundary {
+        &self.boundary
+    }
+
+    pub(in crate::db) const fn index_range_anchor(&self) -> Option<&IndexRangeCursorAnchor> {
+        self.index_range_anchor.as_ref()
+    }
 }
 
 // Decode and validate one continuation cursor against a canonical plan surface.
-pub(crate) fn decode_validated_cursor_boundary(
+pub(in crate::db) fn decode_validated_cursor(
     cursor: &[u8],
     entity_path: &'static str,
     model: &EntityModel,
     order: &OrderSpec,
     expected_signature: ContinuationSignature,
-) -> Result<CursorBoundary, PlanError> {
+) -> Result<DecodedContinuationCursor, PlanError> {
     let token = ContinuationToken::decode(cursor).map_err(|err| match err {
         ContinuationTokenError::Encode(message) | ContinuationTokenError::Decode(message) => {
             PlanError::InvalidContinuationCursor { reason: message }
@@ -282,7 +383,10 @@ pub(crate) fn decode_validated_cursor_boundary(
 
     validate_cursor_boundary_types(model, order, token.boundary())?;
 
-    Ok(token.boundary().clone())
+    Ok(DecodedContinuationCursor {
+        boundary: token.boundary().clone(),
+        index_range_anchor: token.index_range_anchor().cloned(),
+    })
 }
 
 // Validate decoded cursor boundary slot types against canonical order fields.
@@ -401,12 +505,15 @@ impl ExplainPlan {
 
 #[cfg(test)]
 mod tests {
+    use super::{ContinuationSignature, ContinuationToken, IndexRangeCursorAnchor};
     use crate::db::query::intent::{KeyAccess, LoadSpec, access_plan_from_keys_value};
-    use crate::db::query::plan::{AccessPath, LogicalPlan};
+    use crate::db::query::plan::{AccessPath, CursorBoundary, CursorBoundarySlot, LogicalPlan};
     use crate::db::query::predicate::Predicate;
     use crate::db::query::{ReadConsistency, builder::field::FieldRef, intent::QueryMode};
     use crate::types::Ulid;
     use crate::value::Value;
+    use crate::{db::index::RawIndexKey, traits::Storable};
+    use std::borrow::Cow;
 
     #[test]
     fn signature_is_deterministic_for_equivalent_predicates() {
@@ -525,5 +632,33 @@ mod tests {
             plan.continuation_signature("tests::EntityA"),
             plan.continuation_signature("tests::EntityB")
         );
+    }
+
+    #[test]
+    fn continuation_token_round_trips_index_range_anchor() {
+        let raw_key = <RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![0xAA, 0xBB, 0xCC]));
+        let boundary = CursorBoundary {
+            slots: vec![CursorBoundarySlot::Present(Value::Uint(42))],
+        };
+        let signature = ContinuationSignature::from_bytes([7u8; 32]);
+
+        let token = ContinuationToken::new_index_range(
+            signature,
+            boundary.clone(),
+            IndexRangeCursorAnchor::new(raw_key.clone()),
+        );
+
+        let encoded = token
+            .encode()
+            .expect("token with index-range anchor encodes");
+        let decoded =
+            ContinuationToken::decode(&encoded).expect("token with index-range anchor decodes");
+
+        assert_eq!(decoded.signature(), signature);
+        assert_eq!(decoded.boundary(), &boundary);
+        let decoded_anchor = decoded
+            .index_range_anchor()
+            .expect("decoded token should include index-range anchor");
+        assert_eq!(decoded_anchor.last_raw_key().as_bytes(), raw_key.as_bytes());
     }
 }
