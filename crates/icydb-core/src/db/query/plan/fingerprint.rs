@@ -21,7 +21,7 @@ impl PlanFingerprint {
 
     #[must_use]
     pub fn as_hex(&self) -> String {
-        crate::db::cursor::encode_cursor(&self.0)
+        super::encode_plan_hex(&self.0)
     }
 }
 
@@ -69,7 +69,7 @@ mod tests {
     use std::ops::Bound;
 
     use crate::db::query::intent::{DeleteSpec, KeyAccess, LoadSpec, access_plan_from_keys_value};
-    use crate::db::query::plan::{AccessPath, DeleteLimitSpec, LogicalPlan};
+    use crate::db::query::plan::{AccessPath, DeleteLimitSpec, LogicalPlan, PageSpec};
     use crate::db::query::predicate::Predicate;
     use crate::db::query::{ReadConsistency, builder::field::FieldRef, intent::QueryMode};
     use crate::model::index::IndexModel;
@@ -151,14 +151,14 @@ mod tests {
                 index: INDEX_A,
                 values: vec![Value::Text("alpha".to_string())],
             },
-            crate::db::query::ReadConsistency::MissingOk,
+            ReadConsistency::MissingOk,
         );
         let plan_b: LogicalPlan<Value> = LogicalPlan::new(
             AccessPath::IndexPrefix {
                 index: INDEX_B,
                 values: vec![Value::Text("alpha".to_string())],
             },
-            crate::db::query::ReadConsistency::MissingOk,
+            ReadConsistency::MissingOk,
         );
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -170,11 +170,11 @@ mod tests {
             LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         let mut plan_b: LogicalPlan<Value> =
             LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
-        plan_a.page = Some(crate::db::query::plan::PageSpec {
+        plan_a.page = Some(PageSpec {
             limit: Some(10),
             offset: 0,
         });
-        plan_b.page = Some(crate::db::query::plan::PageSpec {
+        plan_b.page = Some(PageSpec {
             limit: Some(10),
             offset: 1,
         });

@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        Db,
         data::DataKey,
         index::{
             IndexEntry, IndexEntryCorruption,
@@ -22,7 +23,7 @@ use std::collections::BTreeSet;
 /// - Uniqueness violations (conflicting key ownership)
 #[expect(clippy::too_many_lines)]
 pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
-    db: &crate::db::Db<E::Canister>,
+    db: &Db<E::Canister>,
     index: &IndexModel,
     _entry: Option<&IndexEntry<E>>,
     new_key: Option<&E::Key>,

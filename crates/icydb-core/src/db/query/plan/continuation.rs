@@ -1,5 +1,7 @@
 //! Continuation signature for cursor pagination compatibility checks.
-use super::{CursorBoundary, CursorBoundarySlot, ExplainPlan, OrderSpec, PlanError};
+use super::{
+    CursorBoundary, CursorBoundarySlot, ExplainPlan, OrderSpec, PlanError, encode_plan_hex,
+};
 use crate::{
     db::{
         index::RawIndexKey,
@@ -40,7 +42,7 @@ impl ContinuationSignature {
 
     #[must_use]
     pub fn as_hex(&self) -> String {
-        crate::db::cursor::encode_cursor(&self.0)
+        encode_plan_hex(&self.0)
     }
 }
 
@@ -507,7 +509,10 @@ impl ExplainPlan {
 mod tests {
     use super::{ContinuationSignature, ContinuationToken, IndexRangeCursorAnchor};
     use crate::db::query::intent::{KeyAccess, LoadSpec, access_plan_from_keys_value};
-    use crate::db::query::plan::{AccessPath, CursorBoundary, CursorBoundarySlot, LogicalPlan};
+    use crate::db::query::plan::{
+        AccessPath, CursorBoundary, CursorBoundarySlot, LogicalPlan, OrderDirection, OrderSpec,
+        PageSpec,
+    };
     use crate::db::query::predicate::Predicate;
     use crate::db::query::{ReadConsistency, builder::field::FieldRef, intent::QueryMode};
     use crate::types::Ulid;
@@ -582,11 +587,11 @@ mod tests {
         let mut plan_b: LogicalPlan<Value> =
             LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
 
-        plan_a.page = Some(crate::db::query::plan::PageSpec {
+        plan_a.page = Some(PageSpec {
             limit: Some(10),
             offset: 0,
         });
-        plan_b.page = Some(crate::db::query::plan::PageSpec {
+        plan_b.page = Some(PageSpec {
             limit: Some(10),
             offset: 999,
         });
@@ -604,17 +609,11 @@ mod tests {
         let mut plan_b: LogicalPlan<Value> =
             LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
 
-        plan_a.order = Some(crate::db::query::plan::OrderSpec {
-            fields: vec![(
-                "name".to_string(),
-                crate::db::query::plan::OrderDirection::Asc,
-            )],
+        plan_a.order = Some(OrderSpec {
+            fields: vec![("name".to_string(), OrderDirection::Asc)],
         });
-        plan_b.order = Some(crate::db::query::plan::OrderSpec {
-            fields: vec![(
-                "name".to_string(),
-                crate::db::query::plan::OrderDirection::Desc,
-            )],
+        plan_b.order = Some(OrderSpec {
+            fields: vec![("name".to_string(), OrderDirection::Desc)],
         });
 
         assert_ne!(

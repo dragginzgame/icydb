@@ -38,3 +38,7 @@ pub(crate) use types::{
     PageSpec,
 };
 pub use validate::PlanError;
+
+pub(super) fn encode_plan_hex(bytes: &[u8]) -> String {
+    crate::db::cursor::encode_cursor(bytes)
+}
