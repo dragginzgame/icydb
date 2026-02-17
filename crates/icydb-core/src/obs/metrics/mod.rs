@@ -7,9 +7,9 @@ use canic_cdk::utils::time::now_millis;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, cmp::Ordering, collections::BTreeMap};
 
-///
 /// EventState
-///
+/// Mutable runtime counters and rolling perf state for the current window.
+/// Stored in thread-local memory for update-only instrumentation.
 
 #[derive(CandidType, Clone, Debug, Deserialize, Serialize)]
 pub struct EventState {
@@ -30,10 +30,9 @@ impl Default for EventState {
     }
 }
 
-///
 /// EventOps
-///
-
+/// Aggregated operation counters for executors, plans, rows, and index maintenance.
+/// Values are monotonic within a metrics window.
 /// Call counters are execution attempts; errors still increment them.
 /// Row counters reflect rows touched after execution, not requested rows.
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
@@ -64,9 +63,9 @@ pub struct EventOps {
     pub unique_violations: u64,
 }
 
-///
 /// EntityCounters
-///
+/// Per-entity counters mirroring `EventOps` categories.
+/// Used to compute report-level per-entity summaries.
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EntityCounters {
@@ -85,10 +84,9 @@ pub struct EntityCounters {
     pub unique_violations: u64,
 }
 
-///
 /// EventPerf
-///
-
+/// Aggregate and max instruction deltas per executor kind.
+/// Captures execution pressure, not wall-clock latency.
 /// Instruction deltas are pressure indicators (validation + planning + execution),
 /// not latency measurements.
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
@@ -136,10 +134,9 @@ pub(super) fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64)
     }
 }
 
-///
 /// EventReport
-/// Event/counter report; storage snapshot types live in snapshot/storage modules.
-///
+/// Event/counter report for runtime metrics query endpoints.
+/// Storage snapshot types live in snapshot/storage modules.
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EventReport {
@@ -149,9 +146,9 @@ pub struct EventReport {
     pub entity_counters: Vec<EntitySummary>,
 }
 
-///
 /// EntitySummary
-///
+/// Derived per-entity metrics for report consumers.
+/// Includes absolute counters and simple averages.
 
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct EntitySummary {

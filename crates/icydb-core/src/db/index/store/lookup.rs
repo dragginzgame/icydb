@@ -1,3 +1,4 @@
+use super::InlineIndexValue;
 use crate::{
     db::{
         data::DataKey,
@@ -54,43 +55,12 @@ impl IndexStore {
         for entry in self.entry_map().range(start_raw..=end_raw) {
             let raw_key = entry.key();
             let value = entry.value();
-
-            #[cfg(debug_assertions)]
-            if let Err(err) = Self::verify_entry_fingerprint(Some(index), raw_key, &value) {
-                panic!(
-                    "invariant violation (debug-only): index fingerprint verification failed: {err}"
-                );
-            }
-
-            let raw_entry = value.entry;
-
-            // Validate index key structure.
-            IndexKey::try_from_raw(raw_key).map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Index,
-                    format!("index key corrupted during resolve: {err}"),
-                )
-            })?;
-
-            // Decode storage keys.
-            let storage_keys = raw_entry.decode_keys().map_err(|err| {
-                InternalError::new(ErrorClass::Corruption, ErrorOrigin::Index, err.to_string())
-            })?;
-
-            if index.unique && storage_keys.len() != 1 {
-                return Err(InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Index,
-                    "unique index entry contains an unexpected number of keys",
-                ));
-            }
-
-            // Convert to DataKeys (storage boundary — no typed IDs).
-            out.extend(
-                storage_keys
-                    .into_iter()
-                    .map(|storage_key| DataKey::from_key::<E>(storage_key)),
+            let reached_limit = Self::decode_index_entry_and_push::<E>(
+                index, raw_key, &value, &mut out, None, "resolve",
+            )?;
+            debug_assert!(
+                !reached_limit,
+                "unbounded prefix resolution must not hit a decode helper limit"
             );
         }
 
@@ -180,45 +150,66 @@ impl IndexStore {
                     "index-range continuation scan did not advance beyond the anchor",
                 ));
             }
-
-            #[cfg(debug_assertions)]
-            if let Err(err) = Self::verify_entry_fingerprint(Some(index), raw_key, &value) {
-                panic!(
-                    "invariant violation (debug-only): index fingerprint verification failed: {err}"
-                );
-            }
-
-            let raw_entry = value.entry;
-
-            IndexKey::try_from_raw(raw_key).map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Index,
-                    format!("index key corrupted during range resolve: {err}"),
-                )
-            })?;
-
-            let storage_keys = raw_entry.decode_keys().map_err(|err| {
-                InternalError::new(ErrorClass::Corruption, ErrorOrigin::Index, err.to_string())
-            })?;
-
-            if index.unique && storage_keys.len() != 1 {
-                return Err(InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Index,
-                    "unique index entry contains an unexpected number of keys",
-                ));
-            }
-
-            for storage_key in storage_keys {
-                out.push(DataKey::from_key::<E>(storage_key));
-                if out.len() == limit {
-                    return Ok(out);
-                }
+            if Self::decode_index_entry_and_push::<E>(
+                index,
+                raw_key,
+                &value,
+                &mut out,
+                Some(limit),
+                "range resolve",
+            )? {
+                return Ok(out);
             }
         }
 
         Ok(out)
+    }
+
+    fn decode_index_entry_and_push<E: EntityKind>(
+        index: &IndexModel,
+        raw_key: &RawIndexKey,
+        value: &InlineIndexValue,
+        out: &mut Vec<DataKey>,
+        limit: Option<usize>,
+        context: &'static str,
+    ) -> Result<bool, InternalError> {
+        #[cfg(debug_assertions)]
+        if let Err(err) = Self::verify_entry_fingerprint(Some(index), raw_key, value) {
+            panic!(
+                "invariant violation (debug-only): index fingerprint verification failed: {err}"
+            );
+        }
+
+        IndexKey::try_from_raw(raw_key).map_err(|err| {
+            InternalError::new(
+                ErrorClass::Corruption,
+                ErrorOrigin::Index,
+                format!("index key corrupted during {context}: {err}"),
+            )
+        })?;
+
+        let storage_keys = value.entry.decode_keys().map_err(|err| {
+            InternalError::new(ErrorClass::Corruption, ErrorOrigin::Index, err.to_string())
+        })?;
+
+        if index.unique && storage_keys.len() != 1 {
+            return Err(InternalError::new(
+                ErrorClass::Corruption,
+                ErrorOrigin::Index,
+                "unique index entry contains an unexpected number of keys",
+            ));
+        }
+
+        for storage_key in storage_keys {
+            out.push(DataKey::from_key::<E>(storage_key));
+            if let Some(limit) = limit
+                && out.len() == limit
+            {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 }
 

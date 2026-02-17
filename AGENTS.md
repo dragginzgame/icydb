@@ -214,6 +214,13 @@ Code must be readable top-down without reverse-engineering intent.
 
 * Every public `struct`, `enum`, `trait`, and `fn` MUST have a doc comment (`///`).
 * Public `struct` definitions MUST be preceded by **at least three consecutive doc comment lines**.
+* Every non-trivial `struct` (public or private) MUST be preceded by **at least three consecutive doc comment lines**.
+* For every non-trivial `struct`, the first doc comment line MUST repeat the struct name (for example, `/// QueryDiagnostics`).
+* For every non-trivial `struct`, use this exact doc-block shape:
+  * Line 1: `/// <StructName>`
+  * Line 2: `///`
+  * Line 3+: one or more descriptive `///` lines
+  * Then one blank source line before `struct <StructName> { ... }`
 * After the doc comment block for a `struct`, there MUST be a blank line before the `struct` definition.
 * Every non-trivial private function or struct MUST have at least a brief explanatory comment.
 * Functions with multiple logical phases MUST include inline comments separating those phases.

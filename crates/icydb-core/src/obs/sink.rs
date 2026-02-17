@@ -86,9 +86,9 @@ pub trait MetricsSink {
     fn record(&self, event: MetricsEvent);
 }
 
-///
 /// GlobalMetricsSink
-///
+/// Default process-local sink that writes into global metrics state.
+/// Acts as the concrete sink when no scoped override is installed.
 
 pub(crate) struct GlobalMetricsSink;
 
@@ -331,10 +331,9 @@ pub(crate) fn with_metrics_sink<T>(sink: &dyn MetricsSink, f: impl FnOnce() -> T
     f()
 }
 
-///
 /// Span
-/// RAII guard to simplify metrics instrumentation
-///
+/// RAII guard that emits start/finish metrics events for one executor call.
+/// Ensures finish accounting happens even on unwind.
 
 pub(crate) struct Span<E: EntityKind> {
     kind: ExecKind,

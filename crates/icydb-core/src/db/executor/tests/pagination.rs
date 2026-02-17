@@ -1,12 +1,15 @@
 #![expect(clippy::too_many_lines)]
 use super::*;
 use crate::{
-    db::query::{
-        intent::{LoadSpec, QueryMode},
-        plan::{
-            AccessPath, AccessPlan, ExecutablePlan, ExplainAccessPath, ExplainOrderPushdown,
-            LogicalPlan, OrderDirection, OrderSpec, PageSpec, PlanError,
-            validate::SecondaryOrderPushdownRejection,
+    db::{
+        index::RawIndexKey,
+        query::{
+            intent::{LoadSpec, QueryMode},
+            plan::{
+                AccessPath, AccessPlan, ExecutablePlan, ExplainAccessPath, ExplainOrderPushdown,
+                LogicalPlan, OrderDirection, OrderSpec, PageSpec, PlanError,
+                validate::SecondaryOrderPushdownRejection,
+            },
         },
     },
     error::{ErrorClass, ErrorOrigin},
@@ -362,6 +365,73 @@ fn explain_contains_index_range(
             .any(|child| explain_contains_index_range(child, index_name, prefix_len)),
         _ => false,
     }
+}
+
+fn collect_paged_ids<E, F>(
+    load: &LoadExecutor<E>,
+    mut build_plan: F,
+    max_pages: usize,
+    termination_message: &'static str,
+) -> Vec<Ulid>
+where
+    E: EntityKind<Key = Ulid> + EntityValue,
+    F: FnMut() -> ExecutablePlan<E>,
+{
+    let mut cursor: Option<Vec<u8>> = None;
+    let mut ids = Vec::new();
+    let mut pages = 0usize;
+
+    loop {
+        pages = pages.saturating_add(1);
+        assert!(pages <= max_pages, "{termination_message}");
+
+        let page_plan = build_plan();
+        let planned_cursor = page_plan
+            .plan_cursor(cursor.as_deref())
+            .expect("paged cursor should plan");
+        let page = load
+            .execute_paged_with_cursor(page_plan, planned_cursor)
+            .expect("paged execution should succeed");
+        ids.extend(page.items.0.iter().map(|(id, _)| id.key()));
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+        cursor = Some(next_cursor);
+    }
+
+    ids
+}
+
+fn extract_access_rows(events: &[QueryTraceEvent]) -> Option<u64> {
+    events.iter().find_map(|event| match event {
+        QueryTraceEvent::Phase {
+            phase: TracePhase::Access,
+            rows,
+            ..
+        } => Some(*rows),
+        _ => None,
+    })
+}
+
+fn assert_anchor_monotonic(
+    anchors: &mut Vec<RawIndexKey>,
+    next_cursor: &[u8],
+    decode_message: &'static str,
+    missing_anchor_message: &'static str,
+    monotonic_message: &'static str,
+) {
+    let token = ContinuationToken::decode(next_cursor).expect(decode_message);
+    let anchor = token
+        .index_range_anchor()
+        .expect(missing_anchor_message)
+        .last_raw_key()
+        .clone();
+
+    if let Some(previous_anchor) = anchors.last() {
+        assert!(previous_anchor < &anchor, "{monotonic_message}");
+    }
+    anchors.push(anchor);
 }
 
 #[test]
@@ -1916,34 +1986,19 @@ fn load_single_field_range_limit_matrix_matches_unbounded() {
 
     let limit_cases = [0_u32, 1_u32, 2_u32, 4_u32, 16_u32];
     for limit in limit_cases {
-        let mut cursor: Option<Vec<u8>> = None;
-        let mut ids = Vec::new();
-        let mut pages = 0usize;
-
-        loop {
-            pages = pages.saturating_add(1);
-            assert!(pages <= 16, "single-field limit matrix must terminate");
-
-            let page_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-                .filter(predicate.clone())
-                .order_by("tag")
-                .limit(limit)
-                .plan()
-                .expect("single-field page plan should build");
-            let planned_cursor = page_plan
-                .plan_cursor(cursor.as_deref())
-                .expect("single-field page cursor should plan");
-            let page = load
-                .execute_paged_with_cursor(page_plan, planned_cursor)
-                .expect("single-field page execution should succeed");
-
-            ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
-
-            let Some(next_cursor) = page.next_cursor else {
-                break;
-            };
-            cursor = Some(next_cursor);
-        }
+        let ids = collect_paged_ids(
+            &load,
+            || {
+                Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                    .filter(predicate.clone())
+                    .order_by("tag")
+                    .limit(limit)
+                    .plan()
+                    .expect("single-field page plan should build")
+            },
+            16,
+            "single-field limit matrix must terminate",
+        );
 
         if limit == 0 {
             assert!(
@@ -2008,34 +2063,19 @@ fn load_composite_range_limit_matrix_matches_unbounded() {
 
     let limit_cases = [0_u32, 1_u32, 2_u32, 3_u32, 16_u32];
     for limit in limit_cases {
-        let mut cursor: Option<Vec<u8>> = None;
-        let mut ids = Vec::new();
-        let mut pages = 0usize;
-
-        loop {
-            pages = pages.saturating_add(1);
-            assert!(pages <= 20, "composite limit matrix must terminate");
-
-            let page_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-                .filter(predicate.clone())
-                .order_by("rank")
-                .limit(limit)
-                .plan()
-                .expect("composite page plan should build");
-            let planned_cursor = page_plan
-                .plan_cursor(cursor.as_deref())
-                .expect("composite page cursor should plan");
-            let page = load
-                .execute_paged_with_cursor(page_plan, planned_cursor)
-                .expect("composite page execution should succeed");
-
-            ids.extend(page.items.0.iter().map(|(_, entity)| entity.id));
-
-            let Some(next_cursor) = page.next_cursor else {
-                break;
-            };
-            cursor = Some(next_cursor);
-        }
+        let ids = collect_paged_ids(
+            &load,
+            || {
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(predicate.clone())
+                    .order_by("rank")
+                    .limit(limit)
+                    .plan()
+                    .expect("composite page plan should build")
+            },
+            20,
+            "composite limit matrix must terminate",
+        );
 
         if limit == 0 {
             assert!(
@@ -2197,14 +2237,7 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligibl
         .expect("trace limit-pushdown execution should succeed");
     let events = take_trace_events();
 
-    let access_rows = events.iter().find_map(|event| match event {
-        QueryTraceEvent::Phase {
-            phase: TracePhase::Access,
-            rows,
-            ..
-        } => Some(*rows),
-        _ => None,
-    });
+    let access_rows = extract_access_rows(&events);
 
     assert_eq!(
         access_rows,
@@ -2253,14 +2286,7 @@ fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
         .expect("limit=0 trace execution should succeed");
     let events = take_trace_events();
 
-    let access_rows = events.iter().find_map(|event| match event {
-        QueryTraceEvent::Phase {
-            phase: TracePhase::Access,
-            rows,
-            ..
-        } => Some(*rows),
-        _ => None,
-    });
+    let access_rows = extract_access_rows(&events);
 
     assert_eq!(
         access_rows,
@@ -2318,14 +2344,7 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
         .expect("limit=0 with offset trace execution should succeed");
     let events = take_trace_events();
 
-    let access_rows = events.iter().find_map(|event| match event {
-        QueryTraceEvent::Phase {
-            phase: TracePhase::Access,
-            rows,
-            ..
-        } => Some(*rows),
-        _ => None,
-    });
+    let access_rows = extract_access_rows(&events);
 
     assert_eq!(
         access_rows,
@@ -2844,21 +2863,13 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
             break;
         };
 
-        let token = ContinuationToken::decode(next_cursor.as_slice())
-            .expect("continuation cursor should decode");
-        let anchor = token
-            .index_range_anchor()
-            .expect("index-range cursor should include a raw-key anchor")
-            .last_raw_key()
-            .clone();
-
-        if let Some(previous_anchor) = page_anchors.last() {
-            assert!(
-                previous_anchor < &anchor,
-                "index-range continuation anchors must progress strictly monotonically"
-            );
-        }
-        page_anchors.push(anchor);
+        assert_anchor_monotonic(
+            &mut page_anchors,
+            next_cursor.as_slice(),
+            "continuation cursor should decode",
+            "index-range cursor should include a raw-key anchor",
+            "index-range continuation anchors must progress strictly monotonically",
+        );
         cursor = Some(next_cursor);
     }
 
@@ -2954,20 +2965,13 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
         let Some(next_cursor) = page.next_cursor else {
             break;
         };
-        let token = ContinuationToken::decode(next_cursor.as_slice())
-            .expect("unique continuation cursor should decode");
-        let anchor = token
-            .index_range_anchor()
-            .expect("unique index-range cursor should include a raw-key anchor")
-            .last_raw_key()
-            .clone();
-        if let Some(previous_anchor) = anchors.last() {
-            assert!(
-                previous_anchor < &anchor,
-                "unique index-range continuation anchors must advance strictly"
-            );
-        }
-        anchors.push(anchor);
+        assert_anchor_monotonic(
+            &mut anchors,
+            next_cursor.as_slice(),
+            "unique continuation cursor should decode",
+            "unique index-range cursor should include a raw-key anchor",
+            "unique index-range continuation anchors must advance strictly",
+        );
         cursor = Some(next_cursor);
     }
 

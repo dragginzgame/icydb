@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.13.1] – 2026-02-17
+
+### 🧹 Cleanup
+
+* Deduplicated tests that are going to get more complicated in 0.14
+* Started splitting up the LoadExecutor in preparation too
+
+---
 
 ## [0.13.0] – 2026-02-17 - IndexRange LIMIT Pushdown
 
