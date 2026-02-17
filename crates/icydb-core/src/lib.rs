@@ -1,6 +1,6 @@
 //! Core runtime for IcyDB: entity traits, values, executors, visitors, and
 //! the ergonomics exported via the `prelude`.
-#![warn(unreachable_pub)]
+#![warn(unreachable_pub)] // too complex to adhere to right now
 
 extern crate self as icydb;
 
@@ -21,6 +21,7 @@ pub mod validate;
 pub mod value;
 pub mod visitor;
 
+// test
 #[cfg(test)]
 pub(crate) mod test_fixtures;
 #[cfg(test)]

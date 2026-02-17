@@ -1,6 +1,6 @@
 use crate::{
     MAX_INDEX_FIELDS,
-    db::{identity::IndexName, index::key::IndexId, store::StorageKey},
+    db::{data::StorageKey, identity::IndexName, index::key::IndexId},
     traits::Storable,
 };
 use canic_cdk::structures::storable::Bound;
@@ -20,7 +20,7 @@ const KEY_PREFIX_SIZE: usize = KEY_KIND_TAG_SIZE + INDEX_ID_SIZE + COMPONENT_COU
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
-pub enum IndexKeyKind {
+pub(crate) enum IndexKeyKind {
     User = 0,
     System = 1,
 }
@@ -52,7 +52,7 @@ impl IndexKeyKind {
 ///
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct IndexKey {
+pub(crate) struct IndexKey {
     pub(super) key_kind: IndexKeyKind,
     pub(super) index_id: IndexId,
     pub(super) component_count: u8,
@@ -62,31 +62,32 @@ pub struct IndexKey {
 
 #[expect(clippy::cast_possible_truncation)]
 impl IndexKey {
-    pub const MAX_COMPONENT_SIZE: usize = 4 * 1024;
-    pub const MAX_PK_SIZE: usize = StorageKey::STORED_SIZE_USIZE;
+    pub(crate) const MAX_COMPONENT_SIZE: usize = 4 * 1024;
+    pub(crate) const MAX_PK_SIZE: usize = StorageKey::STORED_SIZE_USIZE;
 
     const MIN_SEGMENT_SIZE: usize = 1;
 
     /// Maximum on-disk size in bytes (stable, protocol-level bound)
-    pub const MAX_INDEX_KEY_BYTES: u64 = (KEY_PREFIX_SIZE
+    pub(crate) const MAX_INDEX_KEY_BYTES: u64 = (KEY_PREFIX_SIZE
         + (MAX_INDEX_FIELDS * (SEGMENT_LEN_SIZE + Self::MAX_COMPONENT_SIZE))
-        + (SEGMENT_LEN_SIZE + Self::MAX_PK_SIZE)) as u64;
+        + (SEGMENT_LEN_SIZE + Self::MAX_PK_SIZE))
+        as u64;
 
     /// Maximum on-disk size in bytes (stable, protocol-level bound)
-    pub const STORED_SIZE_BYTES: u64 = Self::MAX_INDEX_KEY_BYTES;
+    pub(crate) const STORED_SIZE_BYTES: u64 = Self::MAX_INDEX_KEY_BYTES;
 
     /// Maximum in-memory size (for bounds checks)
-    pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
+    pub(crate) const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
 
     /// Minimum encoded size for an empty index key.
-    pub const MIN_STORED_SIZE_BYTES: u64 =
+    pub(crate) const MIN_STORED_SIZE_BYTES: u64 =
         (KEY_PREFIX_SIZE + SEGMENT_LEN_SIZE + Self::MIN_SEGMENT_SIZE) as u64;
 
     /// Minimum encoded size for an empty index key.
-    pub const MIN_STORED_SIZE_USIZE: usize = Self::MIN_STORED_SIZE_BYTES as usize;
+    pub(crate) const MIN_STORED_SIZE_USIZE: usize = Self::MIN_STORED_SIZE_BYTES as usize;
 
     #[must_use]
-    pub fn to_raw(&self) -> RawIndexKey {
+    pub(crate) fn to_raw(&self) -> RawIndexKey {
         let component_count = usize::from(self.component_count);
 
         debug_assert_eq!(component_count, self.components.len());
@@ -119,7 +120,7 @@ impl IndexKey {
         RawIndexKey(bytes)
     }
 
-    pub fn try_from_raw(raw: &RawIndexKey) -> Result<Self, &'static str> {
+    pub(crate) fn try_from_raw(raw: &RawIndexKey) -> Result<Self, &'static str> {
         let bytes = raw.as_bytes();
         if bytes.len() < Self::MIN_STORED_SIZE_USIZE || bytes.len() > Self::STORED_SIZE_USIZE {
             return Err("corrupted IndexKey: invalid size");
@@ -247,12 +248,12 @@ fn read_segment<'a>(
 ///
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RawIndexKey(Vec<u8>);
+pub(crate) struct RawIndexKey(Vec<u8>);
 
 impl RawIndexKey {
     /// Borrow the raw byte representation.
     #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 }

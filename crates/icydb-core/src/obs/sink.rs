@@ -87,16 +87,6 @@ pub trait MetricsSink {
 }
 
 ///
-/// NoopMetricsSink
-///
-
-pub(crate) struct NoopMetricsSink;
-
-impl MetricsSink for NoopMetricsSink {
-    fn record(&self, _: MetricsEvent) {}
-}
-
-///
 /// GlobalMetricsSink
 ///
 
@@ -299,11 +289,6 @@ pub(crate) fn record(event: MetricsEvent) {
 #[must_use]
 pub fn metrics_report(window_start_ms: Option<u64>) -> metrics::EventReport {
     metrics::report_window_start(window_start_ms)
-}
-
-/// Reset ephemeral metrics counters.
-pub(crate) fn metrics_reset() {
-    metrics::reset();
 }
 
 /// Reset all metrics state (counters + perf).

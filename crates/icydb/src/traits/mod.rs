@@ -3,14 +3,16 @@ mod aliases;
 pub use aliases::*;
 
 pub use icydb_core::traits::{
-    Add, AddAssign, AsView as CoreAsView, Atomic, CanisterKind, Collection,
-    CreateView as CoreCreateView, Debug, Default, Deserialize, DeserializeOwned, Div, DivAssign,
-    EntityIdentity, EntityKey, EntityKeyBytes, EntityKind, EntityPlacement, EntitySchema,
-    EntityValue, EnumValue, Eq, FieldValue, FieldValueKind, FieldValues, From, Hash, Inner, Kind,
-    MapCollection, Mul, MulAssign, NumCast, NumFromPrimitive, NumToPrimitive, Ordering, PartialEq,
-    Path, Rem, Sanitize, SanitizeAuto, SanitizeCustom, Sanitizer, Serialize, SingletonEntity,
-    Storable, StoreKind, Sub, SubAssign, TypeKind, UpdateView as CoreUpdateView, Validate,
+    Add, AddAssign, Atomic, CanisterKind, Collection, Debug, Default, Deserialize,
+    DeserializeOwned, Div, DivAssign, EntityIdentity, EntityKey, EntityKeyBytes, EntityKind,
+    EntityPlacement, EntitySchema, EntityValue, EnumValue, Eq, FieldValue, FieldValueKind,
+    FieldValues, From, Hash, Inner, Kind, MapCollection, Mul, MulAssign, NumCast, NumFromPrimitive,
+    NumToPrimitive, Ordering, PartialEq, Path, Rem, Sanitize, SanitizeAuto, SanitizeCustom,
+    Sanitizer, Serialize, SingletonEntity, Storable, StoreKind, Sub, SubAssign, TypeKind, Validate,
     ValidateAuto, ValidateCustom, Validator, Visitable,
+};
+use icydb_core::traits::{
+    AsView as CoreAsView, CreateView as CoreCreateView, UpdateView as CoreUpdateView,
 };
 
 use crate::error::Error;

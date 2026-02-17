@@ -1,8 +1,8 @@
 use crate::{
     db::{
         Db,
+        data::{DataKey, RawDataKey, StorageKey, StorageKeyEncodeError},
         identity::{EntityName, EntityNameError},
-        store::{DataKey, RawDataKey, StorageKey, StorageKeyEncodeError},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue},
@@ -26,7 +26,7 @@ pub use validate::validate_delete_strong_relations_for_source;
 /// Function-pointer contract for delete-side strong relation validators.
 ///
 
-pub type StrongRelationDeleteValidateFn<C> =
+pub(crate) type StrongRelationDeleteValidateFn<C> =
     fn(&Db<C>, &str, &BTreeSet<RawDataKey>) -> Result<(), InternalError>;
 
 ///

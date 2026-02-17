@@ -52,7 +52,7 @@ impl Imp<Enum> for UpdateViewTrait {
             fn merge(
                 &mut self,
                 patch: Self::UpdateViewType,
-            ) -> ::core::result::Result<(), ::icydb::__internal::core::MergePatchError> {
+            ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
                 *self = patch.into();
 
                 Ok(())
@@ -71,7 +71,7 @@ impl Imp<Tuple> for UpdateViewTrait {
             let idx = syn::Index::from(i);
             quote! {
                 if let Some(v) = patch.#idx {
-                    ::icydb::__internal::core::traits::UpdateView::merge(&mut next.#idx, v)
+                    ::icydb::__macro::CoreUpdateView::merge(&mut next.#idx, v)
                         .map_err(|err| err.with_index(#i))?;
                 }
             }
@@ -81,7 +81,7 @@ impl Imp<Tuple> for UpdateViewTrait {
             fn merge(
                 &mut self,
                 patch: Self::UpdateViewType,
-            ) -> ::core::result::Result<(), ::icydb::__internal::core::MergePatchError> {
+            ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
                 let mut next = self.clone();
                 #(#merge_parts)*
                 *self = next;
@@ -106,7 +106,7 @@ where
         .map(|ident| {
             quote! {
                 if let Some(v) = patch.#ident {
-                    ::icydb::__internal::core::traits::UpdateView::merge(&mut next.#ident, v)
+                    ::icydb::__macro::CoreUpdateView::merge(&mut next.#ident, v)
                         .map_err(|err| err.with_field(stringify!(#ident)))?;
                 }
             }
@@ -117,7 +117,7 @@ where
         fn merge(
             &mut self,
             patch: Self::UpdateViewType,
-        ) -> ::core::result::Result<(), ::icydb::__internal::core::MergePatchError> {
+        ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
             let mut next = self.clone();
             #(#merge_pairs)*
             *self = next;
@@ -134,9 +134,9 @@ fn update_impl_delegate(node: &impl HasType) -> TraitStrategy {
         fn merge(
             &mut self,
             patch: Self::UpdateViewType,
-        ) -> ::core::result::Result<(), ::icydb::__internal::core::MergePatchError> {
+        ) -> ::core::result::Result<(), ::icydb::patch::MergePatchError> {
             let mut next = self.clone();
-            ::icydb::__internal::core::traits::UpdateView::merge(&mut next.0, patch)
+            ::icydb::__macro::CoreUpdateView::merge(&mut next.0, patch)
                 .map_err(|err| err.with_index(0))?;
             *self = next;
 

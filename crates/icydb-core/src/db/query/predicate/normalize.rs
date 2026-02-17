@@ -25,7 +25,7 @@ use crate::{
 /// - predictable test behavior
 ///
 #[must_use]
-pub fn normalize(predicate: &Predicate) -> Predicate {
+pub(crate) fn normalize(predicate: &Predicate) -> Predicate {
     match predicate {
         Predicate::True => Predicate::True,
         Predicate::False => Predicate::False,

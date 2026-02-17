@@ -2,10 +2,11 @@ use super::*;
 use crate::{
     db::{
         commit::{ensure_recovered_for_write, init_commit_store_for_tests},
+        data::{DataKey, DataStore},
         executor::DeleteExecutor,
         index::IndexStore,
         query::{ReadConsistency, intent::Query},
-        store::{DataKey, DataStore, StoreRegistry},
+        registry::StoreRegistry,
     },
     error::{ErrorClass, ErrorOrigin},
     model::{

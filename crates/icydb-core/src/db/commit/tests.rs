@@ -6,9 +6,10 @@ use crate::{
             ensure_recovered_for_write, finish_commit, init_commit_store_for_tests,
             prepare_row_commit_for_entity, store,
         },
+        data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
         index::{IndexKey, IndexStore, RawIndexEntry},
+        registry::{StoreHandle, StoreRegistry},
         relation::validate_delete_strong_relations_for_source,
-        store::{DataKey, DataStore, RawDataKey, RawRow, StorageKey, StoreHandle, StoreRegistry},
     },
     error::{ErrorClass, ErrorOrigin},
     model::{

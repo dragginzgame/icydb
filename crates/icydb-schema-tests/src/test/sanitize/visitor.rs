@@ -114,7 +114,7 @@ pub struct VisitorRejectMapOuter {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::__internal::core::sanitize;
+    use icydb::visitor::sanitize;
     use std::collections::HashMap;
 
     #[test]

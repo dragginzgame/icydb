@@ -189,8 +189,13 @@ impl FromMeta for TraitKind {
 impl ToTokens for TraitKind {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         if matches!(self, Self::AsView | Self::CreateView | Self::UpdateView) {
-            let trait_name = format_ident!("{}", self.to_string());
-            quote!(::icydb::__internal::core::traits::#trait_name).to_tokens(tokens);
+            let trait_name = match self {
+                Self::AsView => format_ident!("CoreAsView"),
+                Self::CreateView => format_ident!("CoreCreateView"),
+                Self::UpdateView => format_ident!("CoreUpdateView"),
+                _ => unreachable!("handled by matches! guard"),
+            };
+            quote!(::icydb::__macro::#trait_name).to_tokens(tokens);
             return;
         }
 

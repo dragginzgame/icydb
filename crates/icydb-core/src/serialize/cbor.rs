@@ -1,4 +1,4 @@
-use crate::{db::store::MAX_ROW_BYTES, serialize::SerializeError};
+use crate::{db::data::MAX_ROW_BYTES, serialize::SerializeError};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_cbor::{from_slice, to_vec};
 use std::panic::{AssertUnwindSafe, catch_unwind};

@@ -1,8 +1,8 @@
 use crate::{
     db::{
+        data::{DataKey, DataRow, RawRow},
         decode::decode_entity_with_expected_key,
         executor::ExecutorError,
-        store::{DataKey, DataRow, RawRow},
     },
     error::{ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue},

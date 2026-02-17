@@ -138,7 +138,7 @@ impl IndexStore {
     }
 
     /// Snapshot all index entry pairs (diagnostics only).
-    pub fn entries(&self) -> Vec<(RawIndexKey, RawIndexEntry)> {
+    pub(crate) fn entries(&self) -> Vec<(RawIndexKey, RawIndexEntry)> {
         self.entry_map()
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().entry))
@@ -153,7 +153,7 @@ impl IndexStore {
         self.entry_map().is_empty()
     }
 
-    pub fn get(&self, key: &RawIndexKey) -> Option<RawIndexEntry> {
+    pub(crate) fn get(&self, key: &RawIndexKey) -> Option<RawIndexEntry> {
         let value = self.entry_map().get(key);
 
         // Debug-only verification: fingerprints are non-authoritative and
@@ -170,7 +170,7 @@ impl IndexStore {
         value.map(|inline| inline.entry)
     }
 
-    pub fn insert(&self, key: RawIndexKey, value: RawIndexEntry) -> Option<RawIndexEntry> {
+    pub(crate) fn insert(&self, key: RawIndexKey, value: RawIndexEntry) -> Option<RawIndexEntry> {
         let fingerprint = Self::entry_fingerprint(&key, &value);
         let inline = InlineIndexValue {
             entry: value,
@@ -179,7 +179,7 @@ impl IndexStore {
         self.entry_map().insert(key, inline).map(|prev| prev.entry)
     }
 
-    pub fn remove(&self, key: &RawIndexKey) -> Option<RawIndexEntry> {
+    pub(crate) fn remove(&self, key: &RawIndexKey) -> Option<RawIndexEntry> {
         self.entry_map().remove(key).map(|prev| prev.entry)
     }
 

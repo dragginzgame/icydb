@@ -83,6 +83,113 @@ use crate::{
 `crate::{...}` imports make dependencies explicit, grep-friendly, and resilient to refactors.
 Relative imports hide coupling and complicate auditing and large-scale reorganization.
 
+### Module Export Boundary Rule
+
+1. Every module defines its own boundary.
+
+If a module has submodules, then:
+
+mod.rs (or the module root file) is the only place that may export items from those children.
+
+External callers must import from the module root.
+
+Deep submodules are implementation detail by default.
+
+2. Export Rule
+
+Inside a module:
+
+```rust
+mod child_a;
+mod child_b;
+
+pub use child_a::{TypeA, TypeB};
+```
+
+child_a and child_b remain private (or pub(crate) if needed).
+
+Only explicitly re-exported items form the module's public surface.
+
+3. Caller Rule
+
+Outside the module subtree:
+
+Import from the module root only.
+
+Do not import from deep paths.
+
+Correct:
+
+```rust
+use crate::db::query::Predicate;
+```
+
+Incorrect:
+
+```rust
+use crate::db::query::predicate::internal::NormalizePass;
+```
+
+4. Nested Modules
+
+If db::query::predicate has its own submodules:
+
+predicate/mod.rs defines its own export surface.
+
+External callers use:
+
+```rust
+crate::db::query::predicate::{...}
+```
+
+Not deeper.
+
+5. Deep Imports Allowed Only Internally
+
+Inside the module subtree itself, deep imports are allowed.
+
+For example, inside db::query:
+
+```rust
+use super::predicate::normalize::NormalizePass;
+```
+
+This is acceptable because it remains inside the boundary.
+
+6. Visibility Tiering
+
+Level 1 (crate root): namespace only.
+
+Level 2 (subsystem root): public boundary.
+
+Level 3+: internal unless explicitly re-exported.
+
+Why This Is Correct
+
+This rule:
+
+Prevents deep coupling.
+
+Prevents namespace leakage.
+
+Allows internal refactors.
+
+Preserves your two-tier public surface model.
+
+Avoids accidental third-level APIs.
+
+Important Clarification
+
+This rule does not mean:
+
+Flatten everything to second level.
+
+It means:
+
+Each module is responsible for its own boundary.
+
+If something is nested three levels deep and is part of the API, that module root must re-export it intentionally.
+
 ---
 
 ## Coding Style & Naming Conventions
@@ -242,6 +349,8 @@ Code is considered non-trivial if it:
 * Changelog bullets do not need to be single-line only; use extra sentence space when needed to preserve important context.
 * Prefer explaining **why** a change matters over listing only **what** changed.
 * Include code examples only when they are relevant to a developer (for example usage, migration, or behavior that is hard to infer from bullets alone).
+* Try and break up the text, so there's something in ``` at least once per page, whether it's a code example or a binary specification
+or whatever.
 
 ---
 

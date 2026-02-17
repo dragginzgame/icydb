@@ -9,6 +9,7 @@ use crate::{
     db::{
         CommitRowOp, Db,
         commit::ensure_recovered_for_write,
+        data::{DataKey, RawRow},
         decode::decode_entity_with_expected_key,
         executor::{
             Context, ExecutorError,
@@ -21,7 +22,6 @@ use crate::{
             },
         },
         query::save::SaveMode,
-        store::{DataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{ExecKind, Span},

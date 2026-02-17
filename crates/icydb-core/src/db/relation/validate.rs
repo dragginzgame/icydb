@@ -10,7 +10,7 @@ use super::{
 use crate::{
     db::{
         Db,
-        store::{DataKey, RawDataKey},
+        data::{DataKey, RawDataKey},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{MetricsEvent, record},

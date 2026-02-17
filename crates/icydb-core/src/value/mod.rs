@@ -8,7 +8,7 @@ mod wire;
 mod tests;
 
 use crate::{
-    db::store::StorageKey,
+    db::data::StorageKey,
     prelude::*,
     traits::{EnumValue, FieldValue, NumFromPrimitive},
     types::*,

@@ -14,6 +14,7 @@ use crate::{
             CommitMarker, begin_commit, commit_marker_present, ensure_recovered_for_write,
             init_commit_store_for_tests, prepare_row_commit_for_entity,
         },
+        data::DataStore,
         executor::{
             DeleteExecutor, LoadExecutor, SaveExecutor,
             trace::{
@@ -28,8 +29,8 @@ use crate::{
             plan::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
             predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         },
+        registry::StoreRegistry,
         relation::validate_delete_strong_relations_for_source,
-        store::{DataStore, StoreRegistry},
     },
     model::{
         entity::EntityModel,

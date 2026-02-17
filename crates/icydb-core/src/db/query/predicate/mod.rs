@@ -10,8 +10,9 @@ mod tests;
 pub use ast::{CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use coercion::CoercionId;
 #[cfg(test)]
-pub use coercion::CoercionSpec;
+pub(crate) use coercion::CoercionSpec;
 pub(crate) use eval::eval;
-pub use normalize::normalize;
+pub(crate) use normalize::normalize;
+pub(crate) use validate::SchemaInfo;
+pub use validate::ValidateError;
 pub(crate) use validate::validate;
-pub use validate::{SchemaInfo, ValidateError};

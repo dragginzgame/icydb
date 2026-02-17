@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.11.2] – 2026-02-17
+
+### 🗑️ Removed
+
+* Removed the hidden `__internal` module from `icydb`.
+
+### 🔧 Changed
+
+* Updated schema/codegen wiring to use explicit hidden macro paths instead of `__internal`, including `icydb::__macro::{CoreAsView, CoreCreateView, CoreUpdateView}` and `icydb::patch::MergePatchError`.
+* Exposed low-level visitor entry points through `icydb::visitor::{sanitize, validate}` so tests/tooling no longer need internal paths.
+
+### 🧹 Cleanup
+
+* Continued the visibility refactor from `docs/Visibility.md` by narrowing non-API internals toward `pub(crate)` and keeping needed surfaces available through explicit facade exports.
+
+### 🧭 Migration Notes
+
+* Replace old internal paths with facade paths:
+  * `icydb::__internal::core::traits::AsView` -> `icydb::__macro::CoreAsView`
+  * `icydb::__internal::core::traits::CreateView` -> `icydb::__macro::CoreCreateView`
+  * `icydb::__internal::core::traits::UpdateView` -> `icydb::__macro::CoreUpdateView`
+  * `icydb::__internal::core::MergePatchError` -> `icydb::patch::MergePatchError`
+  * `icydb::__internal::core::{sanitize, validate}` -> `icydb::visitor::{sanitize, validate}`
+
 ## [0.11.1] – 2026-02-17
 
 ### 🔧 Changed

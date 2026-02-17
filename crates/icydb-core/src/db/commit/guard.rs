@@ -17,7 +17,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 /// can be removed without changing user-visible correctness.
 ///
 
-pub struct CommitApplyGuard {
+pub(crate) struct CommitApplyGuard {
     phase: &'static str,
     finished: bool,
     rollbacks: Vec<Box<dyn FnOnce()>>,

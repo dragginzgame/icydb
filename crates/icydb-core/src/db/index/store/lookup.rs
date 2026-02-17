@@ -1,10 +1,10 @@
 use crate::{
     db::{
+        data::DataKey,
         index::{
             key::{IndexId, IndexKey, encode_canonical_index_component},
-            store::IndexStore,
+            store::{IndexStore, RawIndexKey},
         },
-        store::DataKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,
@@ -217,7 +217,7 @@ fn encode_index_component_bound(
     }
 }
 
-fn raw_index_key_bound(bound: Bound<IndexKey>) -> Bound<crate::db::index::RawIndexKey> {
+fn raw_index_key_bound(bound: Bound<IndexKey>) -> Bound<RawIndexKey> {
     match bound {
         Bound::Unbounded => Bound::Unbounded,
         Bound::Included(key) => Bound::Included(key.to_raw()),
@@ -225,10 +225,7 @@ fn raw_index_key_bound(bound: Bound<IndexKey>) -> Bound<crate::db::index::RawInd
     }
 }
 
-fn range_is_empty(
-    lower: &Bound<crate::db::index::RawIndexKey>,
-    upper: &Bound<crate::db::index::RawIndexKey>,
-) -> bool {
+fn range_is_empty(lower: &Bound<RawIndexKey>, upper: &Bound<RawIndexKey>) -> bool {
     let (Some(lower_key), Some(upper_key)) = (bound_key(lower), bound_key(upper)) else {
         return false;
     };
@@ -243,9 +240,7 @@ fn range_is_empty(
     !matches!(lower, Bound::Included(_)) || !matches!(upper, Bound::Included(_))
 }
 
-const fn bound_key(
-    bound: &Bound<crate::db::index::RawIndexKey>,
-) -> Option<&crate::db::index::RawIndexKey> {
+const fn bound_key(bound: &Bound<RawIndexKey>) -> Option<&RawIndexKey> {
     match bound {
         Bound::Included(value) | Bound::Excluded(value) => Some(value),
         Bound::Unbounded => None,

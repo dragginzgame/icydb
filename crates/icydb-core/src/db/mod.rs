@@ -1,26 +1,22 @@
 pub(crate) mod commit;
 pub(crate) mod cursor;
+pub(crate) mod data;
 pub(crate) mod decode;
 pub(crate) mod executor;
 pub(crate) mod identity;
 pub(crate) mod index;
 pub(crate) mod query;
+pub(crate) mod registry;
 pub(crate) mod relation;
 pub(crate) mod response;
-pub(crate) mod store;
 
 use crate::{
     db::{
         commit::ensure_recovered,
+        data::RawDataKey,
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor},
-        query::{
-            ReadConsistency,
-            intent::{Query, QueryMode},
-            session::{delete::SessionDeleteQuery, load::SessionLoadQuery},
-        },
+        query::intent::QueryMode,
         relation::StrongRelationDeleteValidateFn,
-        response::{Response, WriteBatchResponse, WriteResponse},
-        store::RawDataKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{MetricsSink, with_metrics_sink},
@@ -30,15 +26,27 @@ use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
 /// re-exports
 pub use commit::{CommitRowOp, PreparedRowCommitOp, prepare_row_commit_for_entity};
+pub use cursor::encode_cursor;
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
 pub use query::{
+    ReadConsistency,
+    builder::field::FieldRef,
+    expr::{FilterExpr, SortExpr},
+    intent::Query,
     intent::{IntentError, QueryError},
-    plan::PlanError,
+    plan::{OrderDirection, PlanError},
+    predicate::{
+        CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature, ValidateError,
+    },
+    session::{
+        delete::SessionDeleteQuery,
+        load::{PagedLoadQuery, SessionLoadQuery},
+    },
 };
+pub use registry::StoreRegistry;
 pub use relation::validate_delete_strong_relations_for_source;
-pub use response::{ResponseError, Row};
-pub use store::{DataStore, StoreRegistry};
+pub use response::{Response, ResponseError, Row, WriteBatchResponse, WriteResponse};
 
 ///
 /// Db
@@ -537,7 +545,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn clear_stores_for_tests(&self) {
         self.db.with_store_registry(|reg| {
             for (_, store) in reg.iter() {
-                store.with_data_mut(crate::db::store::DataStore::clear);
+                store.with_data_mut(crate::db::data::DataStore::clear);
                 store.with_index_mut(crate::db::index::IndexStore::clear);
             }
         });

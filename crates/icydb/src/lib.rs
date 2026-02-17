@@ -9,7 +9,7 @@
 //! - and a small set of macros and entry points that wire generated code.
 //!
 //! Low-level execution, storage, and engine internals live in
-//! `icydb-core` and are exposed only through `__internal`.
+//! `icydb-core` and are re-exposed selectively through stable facade modules.
 //!
 //! ## Crate layout
 //!
@@ -26,9 +26,6 @@
 //! - `model` / `obs` *(internal)*
 //!   Runtime model and metrics internals. Exposed for advanced tooling only;
 //!   not part of the supported semver surface.
-//!
-//! - `__internal::core` *(internal)*
-//!   Full engine internals for macros/tests. Not covered by semver guarantees.
 //!
 //! - `error`
 //!   Shared error types for generated code and runtime boundaries.
@@ -55,9 +52,8 @@
 //!
 //! ## Internal boundaries
 //!
-//! The `__internal` module exposes selected engine internals strictly for
-//! generated code and macro expansion. It is not part of the supported API
-//! surface and may change without notice.
+//! Generated code targets explicit facade surfaces (`traits`, `patch`,
+//! and `__macro`) instead of a broad internal-export module.
 
 // export so things just work in base/
 extern crate self as icydb;
@@ -74,7 +70,21 @@ pub use icydb_core::{types, value};
 
 #[doc(hidden)]
 pub mod model {
-    pub use icydb_core::model::{EntityModel, FieldModel, IndexModel};
+    pub mod entity {
+        pub use icydb_core::model::EntityModel;
+    }
+
+    pub mod field {
+        pub use icydb_core::model::{FieldKind, FieldModel, RelationStrength};
+    }
+
+    pub mod index {
+        pub use icydb_core::model::IndexModel;
+    }
+
+    pub use entity::EntityModel;
+    pub use field::FieldModel;
+    pub use index::IndexModel;
 }
 
 #[doc(hidden)]
@@ -85,7 +95,7 @@ pub mod obs {
 }
 
 pub mod patch {
-    pub use icydb_core::patch::{ListPatch, MapPatch, SetPatch};
+    pub use icydb_core::patch::{ListPatch, MapPatch, MergePatchError, SetPatch};
 }
 
 pub mod visitor {
@@ -93,6 +103,7 @@ pub mod visitor {
         Issue, PathSegment, ScopedContext, VisitorContext, VisitorCore, VisitorError,
         VisitorIssues, VisitorMutCore, perform_visit, perform_visit_mut,
     };
+    pub use icydb_core::{sanitize::sanitize, validate::validate};
 }
 
 // facade modules
@@ -102,12 +113,6 @@ pub mod error;
 pub mod traits;
 pub use error::Error;
 
-/// Internal
-#[doc(hidden)]
-pub mod __internal {
-    pub use icydb_core as core;
-}
-
 /// Macro/runtime wiring surface used by generated code.
 /// This is intentionally narrow and not semver-stable.
 #[doc(hidden)]
@@ -115,6 +120,9 @@ pub mod __macro {
     pub use icydb_core::db::{
         DataStore, Db, EntityRuntimeHooks, IndexStore, StoreRegistry,
         prepare_row_commit_for_entity, validate_delete_strong_relations_for_source,
+    };
+    pub use icydb_core::traits::{
+        AsView as CoreAsView, CreateView as CoreCreateView, UpdateView as CoreUpdateView,
     };
 }
 

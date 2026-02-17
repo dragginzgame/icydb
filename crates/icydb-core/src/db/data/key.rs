@@ -1,8 +1,8 @@
 #![expect(clippy::cast_possible_truncation)]
 use crate::{
     db::{
+        data::storage_key::{StorageKey, StorageKeyEncodeError},
         identity::{EntityName, IdentityDecodeError},
-        store::storage_key::{StorageKey, StorageKeyEncodeError},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, FieldValue, Storable},

@@ -11,7 +11,7 @@ impl ViewExpr for ItemView<'_> {
         let node = self.0;
         let ty = node.view_type_expr();
 
-        quote!(<#ty as ::icydb::__internal::core::traits::AsView>::ViewType).into()
+        quote!(<#ty as ::icydb::__macro::CoreAsView>::ViewType).into()
     }
 }
 
@@ -26,6 +26,6 @@ impl ViewExpr for ItemUpdate<'_> {
         let node = self.0;
         let ty = node.view_type_expr();
 
-        quote!(<#ty as ::icydb::__internal::core::traits::UpdateView>::UpdateViewType).into()
+        quote!(<#ty as ::icydb::__macro::CoreUpdateView>::UpdateViewType).into()
     }
 }

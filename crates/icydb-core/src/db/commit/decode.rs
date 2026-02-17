@@ -2,8 +2,8 @@
 
 use crate::{
     db::{
+        data::{DataKey, RawDataKey},
         index::{IndexKey, MAX_INDEX_ENTRY_BYTES, RawIndexEntry, RawIndexKey},
-        store::{DataKey, RawDataKey},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
 };

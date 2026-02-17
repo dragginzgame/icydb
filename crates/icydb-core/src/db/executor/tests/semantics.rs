@@ -1,5 +1,6 @@
 #![expect(clippy::similar_names)]
 use super::*;
+use crate::db::data::DataKey;
 
 #[test]
 fn singleton_unit_key_insert_and_only_load_round_trip() {
@@ -880,7 +881,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
         id: source_id,
         target: target_id,
     };
-    let raw_key = crate::db::store::DataKey::try_new::<RelationSourceEntity>(source.id)
+    let raw_key = DataKey::try_new::<RelationSourceEntity>(source.id)
         .expect("source data key should build")
         .to_raw()
         .expect("source data key should encode");
@@ -956,11 +957,11 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
         .insert(RelationTargetEntity { id: target_id })
         .expect("target save should succeed");
 
-    let source_a_key = crate::db::store::DataKey::try_new::<RelationSourceEntity>(source_a)
+    let source_a_key = DataKey::try_new::<RelationSourceEntity>(source_a)
         .expect("source A key should build")
         .to_raw()
         .expect("source A key should encode");
-    let source_b_key = crate::db::store::DataKey::try_new::<RelationSourceEntity>(source_b)
+    let source_b_key = DataKey::try_new::<RelationSourceEntity>(source_b)
         .expect("source B key should build")
         .to_raw()
         .expect("source B key should encode");
@@ -1106,7 +1107,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
         })
         .expect("source insert should succeed");
 
-    let source_key = crate::db::store::DataKey::try_new::<RelationSourceEntity>(source_id)
+    let source_key = DataKey::try_new::<RelationSourceEntity>(source_id)
         .expect("source key should build")
         .to_raw()
         .expect("source key should encode");
@@ -1199,7 +1200,7 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         })
         .expect("source insert should succeed");
 
-    let source_key = crate::db::store::DataKey::try_new::<RelationSourceEntity>(source_id)
+    let source_key = DataKey::try_new::<RelationSourceEntity>(source_id)
         .expect("source key should build")
         .to_raw()
         .expect("source key should encode");
@@ -1358,11 +1359,11 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     // Phase 2: persist a marker with a partial update in one block:
     // - source 1 moves A -> B
     // - source 2 stays on A (before==after relation value)
-    let source_1_key = crate::db::store::DataKey::try_new::<RelationSourceEntity>(source_1)
+    let source_1_key = DataKey::try_new::<RelationSourceEntity>(source_1)
         .expect("source 1 key should build")
         .to_raw()
         .expect("source 1 key should encode");
-    let source_2_key = crate::db::store::DataKey::try_new::<RelationSourceEntity>(source_2)
+    let source_2_key = DataKey::try_new::<RelationSourceEntity>(source_2)
         .expect("source 2 key should build")
         .to_raw()
         .expect("source 2 key should encode");

@@ -2,8 +2,8 @@ use crate::{
     db::{
         Db, EntityName,
         commit::ensure_recovered,
+        data::{DataKey, StorageKey},
         index::IndexKey,
-        store::{DataKey, StorageKey},
     },
     error::InternalError,
     traits::CanisterKind,

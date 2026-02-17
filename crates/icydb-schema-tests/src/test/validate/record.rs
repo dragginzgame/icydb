@@ -36,7 +36,7 @@ pub struct Record {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::__internal::core::validate;
+    use icydb::visitor::validate;
 
     #[test]
     fn base_record_validation_fields_fail_as_expected() {

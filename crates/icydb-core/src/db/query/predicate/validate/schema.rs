@@ -69,7 +69,7 @@ fn validate_index_fields(
 ///
 
 #[derive(Clone, Debug)]
-pub struct SchemaInfo {
+pub(crate) struct SchemaInfo {
     fields: BTreeMap<String, FieldType>,
 }
 
@@ -80,7 +80,7 @@ impl SchemaInfo {
     }
 
     /// Builds runtime predicate schema information from an entity model.
-    pub fn from_entity_model(model: &EntityModel) -> Result<Self, ValidateError> {
+    pub(crate) fn from_entity_model(model: &EntityModel) -> Result<Self, ValidateError> {
         // Validate identity constraints before building schema maps.
         let entity_name = EntityName::try_from_str(model.entity_name).map_err(|err| {
             ValidateError::InvalidEntityName {

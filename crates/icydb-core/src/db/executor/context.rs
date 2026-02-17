@@ -1,13 +1,13 @@
 use crate::{
     db::{
         Db,
+        data::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
         decode::decode_entity_with_expected_key,
         executor::ExecutorError,
         query::{
             ReadConsistency,
             plan::{AccessPath, AccessPlan},
         },
-        store::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue, Path},

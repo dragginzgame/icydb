@@ -182,7 +182,7 @@ mod tests {
     use crate::{
         db::{
             commit::{CommitMarker, CommitRowOp, MAX_COMMIT_BYTES},
-            store::MAX_ROW_BYTES,
+            data::MAX_ROW_BYTES,
         },
         error::{ErrorClass, ErrorOrigin},
         serialize::{SerializeError, deserialize_bounded, serialize},

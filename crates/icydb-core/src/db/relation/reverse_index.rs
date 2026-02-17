@@ -8,12 +8,12 @@ use crate::{
     db::{
         Db,
         commit::PreparedIndexMutation,
+        data::RawDataKey,
         identity::{EntityName, IndexName},
         index::{
             IndexEntry, IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
             key::encode_canonical_index_component,
         },
-        store::RawDataKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue},

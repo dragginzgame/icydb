@@ -27,7 +27,7 @@ pub(crate) trait QueryTraceSink: Send + Sync {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TraceExecutorKind {
+pub(crate) enum TraceExecutorKind {
     Load,
     Save,
     Delete,
@@ -38,7 +38,7 @@ pub enum TraceExecutorKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TraceAccess {
+pub(crate) enum TraceAccess {
     ByKey,
     ByKeys { count: u32 },
     KeyRange,
@@ -54,7 +54,7 @@ pub enum TraceAccess {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TracePhase {
+pub(crate) enum TracePhase {
     Access,
     PostAccess,
 }
@@ -64,7 +64,7 @@ pub enum TracePhase {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TracePushdownRejectionReason {
+pub(crate) enum TracePushdownRejectionReason {
     NoOrderBy,
     AccessPathNotSingleIndexPrefix,
     AccessPathIndexRangeUnsupported,
@@ -109,7 +109,7 @@ impl From<&SecondaryOrderPushdownRejection> for TracePushdownRejectionReason {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TracePushdownDecision {
+pub(crate) enum TracePushdownDecision {
     AcceptedSecondaryIndexOrder,
     RejectedSecondaryIndexOrder {
         reason: TracePushdownRejectionReason,
@@ -134,7 +134,7 @@ impl From<PushdownSurfaceEligibility<'_>> for TracePushdownDecision {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum QueryTraceEvent {
+pub(crate) enum QueryTraceEvent {
     Start {
         fingerprint: PlanFingerprint,
         executor: TraceExecutorKind,

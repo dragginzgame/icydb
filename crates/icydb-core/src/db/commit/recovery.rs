@@ -21,8 +21,9 @@ use crate::{
             rollback_prepared_row_ops_reverse, snapshot_row_rollback,
             store::{commit_marker_present_fast, with_commit_store},
         },
-        index::{RawIndexEntry, RawIndexKey},
-        store::{DataKey, RawDataKey, RawRow, StoreHandle},
+        data::{DataKey, RawDataKey, RawRow},
+        index::{IndexStore, RawIndexEntry, RawIndexKey},
+        registry::StoreHandle,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
@@ -44,7 +45,9 @@ static RECOVERED: OnceLock<()> = OnceLock::new();
 /// It may be invoked at operation boundaries (including read or mutation
 /// entrypoints), but must always complete **before** any operation-specific
 /// planning, validation, or apply phase begins.
-pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(), InternalError> {
+pub(crate) fn ensure_recovered(
+    db: &Db<impl crate::traits::CanisterKind>,
+) -> Result<(), InternalError> {
     if RECOVERED.get().is_none() {
         return perform_recovery(db);
     }
@@ -64,7 +67,7 @@ pub fn ensure_recovered(db: &Db<impl crate::traits::CanisterKind>) -> Result<(),
 ///
 /// Recovery must be idempotent and safe to run multiple times.
 /// All mutation entrypoints must call this before any commit boundary work.
-pub fn ensure_recovered_for_write(
+pub(crate) fn ensure_recovered_for_write(
     db: &Db<impl crate::traits::CanisterKind>,
 ) -> Result<(), InternalError> {
     ensure_recovered(db)
@@ -132,7 +135,7 @@ fn rebuild_secondary_indexes_from_rows(
         .iter()
         .map(|(_, handle)| IndexStoreSnapshot {
             handle: *handle,
-            entries: handle.with_index(crate::db::index::IndexStore::entries),
+            entries: handle.with_index(IndexStore::entries),
         })
         .collect::<Vec<_>>();
 
@@ -160,7 +163,7 @@ fn rebuild_secondary_indexes_in_place(
     stores: &[(&'static str, StoreHandle)],
 ) -> Result<(), InternalError> {
     for (_, handle) in stores {
-        handle.with_index_mut(crate::db::index::IndexStore::clear);
+        handle.with_index_mut(IndexStore::clear);
     }
 
     for (store_path, handle) in stores {

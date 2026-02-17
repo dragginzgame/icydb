@@ -70,7 +70,7 @@ pub struct MergeTuple {}
 mod tests {
     use super::*;
     use icydb::{
-        error::{ErrorKind, PatchError, UpdateErrorKind},
+        error::{ErrorKind, ErrorOrigin, PatchError, UpdateErrorKind},
         patch::{ListPatch, MapPatch, SetPatch},
         traits::{Update, UpdateView},
     };
@@ -327,7 +327,7 @@ mod tests {
             .merge(update)
             .expect_err("duplicate map-key operations should fail and preserve field path");
 
-        assert_eq!(err.origin, icydb::error::ErrorOrigin::Interface);
+        assert_eq!(err.origin, ErrorOrigin::Interface);
         assert!(err.message.contains("settings[0]"));
         assert!(matches!(
             err.kind,

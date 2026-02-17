@@ -84,7 +84,10 @@ pub(crate) fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(),
 
 /// Builds schema information from a model and validates a predicate against it.
 #[cfg(test)]
-pub fn validate_model(model: &EntityModel, predicate: &Predicate) -> Result<(), ValidateError> {
+pub(crate) fn validate_model(
+    model: &EntityModel,
+    predicate: &Predicate,
+) -> Result<(), ValidateError> {
     let schema = SchemaInfo::from_entity_model(model)?;
     validate(&schema, predicate)
 }

@@ -65,6 +65,7 @@ pub struct ExternalPrimaryKeyEntity {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use icydb::traits::EntityIdentity;
 
     #[test]
     fn internal_primary_key_uses_declared_field_type() {
@@ -74,9 +75,6 @@ mod tests {
 
     #[test]
     fn entity_name_defaults_and_override() {
-        assert_eq!(
-            <RenamedEntity as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
-            "Potato"
-        );
+        assert_eq!(<RenamedEntity as EntityIdentity>::ENTITY_NAME, "Potato");
     }
 }

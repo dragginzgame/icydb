@@ -24,7 +24,7 @@ pub(super) use save::SaveExecutor;
 //   indicate executor/planner contract breaches.
 
 use crate::{
-    db::store::DataKey,
+    db::data::DataKey,
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
 use thiserror::Error as ThisError;

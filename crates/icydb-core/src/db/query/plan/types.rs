@@ -112,8 +112,8 @@ pub enum OrderDirection {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct OrderSpec {
-    pub fields: Vec<(String, OrderDirection)>,
+pub(crate) struct OrderSpec {
+    pub(crate) fields: Vec<(String, OrderDirection)>,
 }
 
 ///

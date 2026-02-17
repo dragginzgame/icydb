@@ -15,7 +15,7 @@ pub struct FilterExpr(pub Predicate);
 
 impl FilterExpr {
     /// Lower the filter expression into a validated predicate for the provided schema.
-    pub fn lower_with(&self, schema: &SchemaInfo) -> Result<Predicate, ValidateError> {
+    pub(crate) fn lower_with(&self, schema: &SchemaInfo) -> Result<Predicate, ValidateError> {
         predicate::validate::reject_unsupported_query_features(&self.0)?;
         predicate::validate(schema, &self.0)?;
 
@@ -36,7 +36,7 @@ pub struct SortExpr {
 
 impl SortExpr {
     /// Lower the sort expression into a validated order spec for the provided schema.
-    pub fn lower_with(&self, schema: &SchemaInfo) -> Result<OrderSpec, SortLowerError> {
+    pub(crate) fn lower_with(&self, schema: &SchemaInfo) -> Result<OrderSpec, SortLowerError> {
         let spec = OrderSpec {
             fields: self.fields.clone(),
         };
@@ -53,7 +53,7 @@ impl SortExpr {
 ///
 
 #[derive(Debug, ThisError)]
-pub enum SortLowerError {
+pub(crate) enum SortLowerError {
     #[error("{0}")]
     Validate(#[from] ValidateError),
 

@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context, Db,
+        data::DataKey,
         decode::decode_entity_with_expected_key,
         executor::{
             debug::{access_summary, yes_no},
@@ -19,7 +20,6 @@ use crate::{
             },
         },
         response::Response,
-        store::DataKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{ExecKind, Span},

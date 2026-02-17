@@ -1,11 +1,11 @@
 use crate::{
     db::{
+        data::DataKey,
         index::{
             IndexEntry, IndexEntryCorruption,
             key::encode_canonical_index_component,
             plan::{corruption_error, index_violation_error},
         },
-        store::DataKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,

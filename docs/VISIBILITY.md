@@ -2,238 +2,265 @@
 
 ## Purpose
 
-This document defines the **mandatory visibility architecture** for `icydb-core`.
+This document defines the mandatory visibility architecture for `icydb-core`.
 
-It is not advisory.
+It is authoritative.
 
-It is the authoritative rule for:
-
-* Public API surface
-* Internal layering
-* Subsystem boundaries
-* Re-export structure
-
-Any change that violates this document is an architectural regression.
+Any change that violates these rules is an architectural regression.
 
 ---
 
-# 1. Crate-Level API Rule
+# Core Model
 
-`icydb-core` exposes a **structured public API**.
+`icydb-core` uses a **wide namespace, shallow API** model.
 
-It does **not** flatten types or functions into the crate root.
+* **Tier 1 — Crate Root:** Namespace only.
+* **Tier 2 — Subsystem Roots:** Public API boundaries.
+* **Tier 3+ — Implementation Layers:** Internal unless explicitly re-exported by Tier 2.
 
-The crate root must remain minimal and namespace-oriented.
+Public surface is shallow.
+Namespaces may be wide.
 
 ---
 
-# 2. Only These Modules Are Public at Crate Root
+# 1. Crate Root (Tier 1)
 
-In `lib.rs`, the only allowed `pub mod` declarations are:
+## 1.1 Root Is Namespace Only
+
+The crate root defines subsystem namespaces.
+
+Example:
 
 ```rust
-pub mod types;
-pub mod value;
-pub mod traits;
 pub mod db;
 pub mod error;
-```
-
-No other `pub mod` declarations are permitted at crate root.
-
-Specifically forbidden:
-
-```rust
 pub mod model;
+pub mod obs;
 pub mod patch;
 pub mod sanitize;
-pub mod validate;
-pub mod visitor;
-pub mod obs;
 pub mod serialize;
+pub mod traits;
+pub mod types;
+pub mod validate;
+pub mod value;
+pub mod visitor;
 ```
 
-These must not be publicly exposed at crate root.
+Root modules may be `pub` to support:
+
+* Macros
+* Derive expansions
+* Stable namespace paths
+
+This does **not** mean all contents are public API.
 
 ---
 
-# 3. No Root-Level Flattening
+## 1.2 No Root Flattening
 
-The following pattern is prohibited in `lib.rs`:
+The crate root must not become a type surface.
+
+Forbidden:
 
 ```rust
-pub use some_module::SomeType;
+pub use some_module::Type;
 ```
 
-Unless `SomeType` is explicitly part of the documented root API (currently only `error` items if needed).
-
-Specifically forbidden examples:
-
-```
-icydb_core::Ulid
-icydb_core::Session
-icydb_core::VisitorContext
-icydb_core::deserialize
-```
+Unless explicitly intended as part of documented public API.
 
 Correct usage:
 
 ```
-icydb_core::types::Ulid
 icydb_core::db::Session
-icydb_core::value::Value
+icydb_core::types::Ulid
 ```
 
-Root namespace must not become a type dump.
+Incorrect usage:
+
+```
+icydb_core::Session
+icydb_core::Ulid
+```
+
+Root is a namespace index only.
 
 ---
 
-# 4. Second-Level Flattening Rule (Mandatory)
+# 2. Subsystem Boundaries (Tier 2)
 
-Inside each public top-level module:
+Each root module defines its own public surface.
 
-* Submodules must be private (`mod`, not `pub mod`)
-* Public items must be re-exported one level up
+Only Tier-2 modules define external API.
 
-Example:
+Each Tier-2 module owns its subtree and is responsible for:
 
-### Correct (`types/mod.rs`)
+Re-export discipline
 
-```rust
-mod ulid;
-mod timestamp;
-mod account;
+Preventing deep pub
 
-pub use ulid::Ulid;
-pub use timestamp::Timestamp;
-pub use account::Account;
-```
-
-### Forbidden
-
-```rust
-pub mod ulid;
-pub mod timestamp;
-```
-
-No deep module trees may be public.
+Maintaining API stability
 
 ---
 
-# 5. Subsystem Boundary Rule (db Example)
+## 2.1 Module Root Defines API
 
-Inside `db/mod.rs`:
-
-```rust
-mod session;
-mod query;
-mod executor;
-mod index;
-mod store;
-
-pub use session::Session;
-pub use query::{Query, QueryError};
-```
-
-Strictly forbidden:
+Inside a subsystem:
 
 ```rust
-pub mod query;
-pub use query::*;
+mod child_a;
+mod child_b;
+
+pub use child_a::TypeA;
+pub use child_b::TypeB;
 ```
 
-Wildcard re-exports are prohibited.
+* Child modules must not be `pub mod`.
+* All public API must be re-exported at the subsystem root.
+* No wildcard re-exports.
 
-Deep internal modules must remain sealed:
+Forbidden:
 
+```rust
+pub mod child_a;
+pub use child_a::*;
 ```
-db::query::plan
-db::executor::context
-db::index::lookup
-```
-
-These must not be reachable from outside the crate.
 
 ---
 
-# 6. Internal Infrastructure Modules
+## 2.2 External Imports Must Use Tier 2
 
-Some modules are shared internally but not part of public API.
+External crates must import only from subsystem roots.
 
-These must be declared:
+Allowed:
 
 ```rust
-pub(crate) mod sanitize;
-pub(crate) mod validate;
-pub(crate) mod patch;
-pub(crate) mod visitor;
-pub(crate) mod serialize;
-pub(crate) mod obs;
-pub(crate) mod model;
+icydb_core::db::QueryError
 ```
 
-Rules:
+Forbidden:
 
-* They must NOT be `pub mod`
-* They must NOT be re-exported at crate root
-* They must NOT be reachable from external crates
+```rust
+icydb_core::db::query::plan::Planner
+```
 
-They are internal engine infrastructure only.
+Deep paths must not form part of public API.
 
 ---
 
-# 7. Deep Modules Must Never Be Public
+# 3. Internal Implementation (Tier 3+)
 
-The following patterns are permanently disallowed:
+Modules below Tier 2 are implementation detail.
+
+---
+
+## 3.1 Tier-3 Modules
+
+Inside Tier-2 modules:
+
+```rust
+pub(crate) mod child;
+```
+
+Not:
+
+```rust
+pub mod child;
+```
+
+Tier-3 modules must not define public API.
+
+---
+
+## 3.2 Tier-3 Re-Exports
+
+Within Tier-3 modules:
+
+```rust
+pub(crate) use child::Type;
+```
+
+Never `pub use`.
+
+Only Tier-2 may expose types publicly.
+
+---
+
+## 3.3 Deep Modules Must Never Be Public
+
+The following patterns must never be publicly reachable:
 
 ```
-query::plan::*
-query::validate::*
-index::store::*
-executor::*
+db::query::plan::*
+db::query::validate::*
+db::executor::*
+db::index::store::*
+db::index::key::*
 diagnostics::*
 access::*
 logical::*
 ```
 
-If a type from these areas is needed externally, it must be:
-
-1. Re-exported at the subsystem boundary (e.g., `db`)
-2. Not exposed via its deep path
+If required publicly, re-export at Tier-2.
 
 ---
 
-# 8. Sibling Crate Rule
+# 4. Import Discipline
 
-`icydb` and `icydb-schema-derive` must never rely on deep internal paths.
+## 4.1 Inside the Crate
 
-Forbidden:
+Implementation code may use deep imports within its subtree.
 
-```
-icydb_core::db::query::plan::...
-icydb_core::model::entity::...
-```
+Example (inside `db`):
 
-Allowed:
-
-```
-icydb_core::db::QueryError
-icydb_core::types::Ulid
+```rust
+use super::query::plan::Planner;
 ```
 
-If a sibling crate requires something:
+Across subsystems, use Tier-2 boundary paths.
 
-* It must be publicly re-exported at the correct boundary.
-* Core internals must not be widened just to satisfy it.
+Correct:
+
+```rust
+use crate::db::QueryError;
+```
+
+Incorrect:
+
+```rust
+use crate::db::query::plan::QueryError;
+```
 
 ---
 
-# 9. Re-Export Discipline
+## 4.2 Sibling Crates
 
-Re-exports must occur only at:
+Sibling crates (`icydb`, `icydb-schema-derive`) must not rely on deep paths.
 
-* Crate root (top-level namespaces only)
-* Subsystem boundary modules (`types`, `db`, etc.)
+If a type is required:
+
+* Re-export it intentionally at Tier-2.
+* Do not widen deep module visibility.
+
+---
+
+# 5. Infrastructure Modules
+
+Infrastructure modules (e.g., `sanitize`, `validate`, `patch`, `visitor`, etc.):
+
+* May be `pub mod` at root for namespace stability.
+* Must not expose deep internal modules.
+* Must follow Tier-2 / Tier-3 rules internally.
+
+Namespace visibility does not equal API exposure.
+
+---
+
+# 6. Re-Export Discipline
+
+Re-exports are allowed only at:
+
+* Tier 2 (subsystem root)
+* Rarely at Tier 1 (explicitly documented)
 
 Never re-export from deep modules directly.
 
@@ -253,56 +280,43 @@ Flatten one level at a time.
 
 ---
 
-# 10. unreachable_pub Policy
+# 7. Lint Enforcement
 
-After module sealing is complete:
+The crate must enable:
 
 ```rust
 #![warn(unreachable_pub)]
 ```
 
-is mandatory.
+This ensures:
 
-Purpose:
+* No accidental deep public items.
+* No unintended API leakage.
 
-* Detect stray `pub` items that are no longer reachable.
-* Enforce minimal external API surface.
-
-It is not required that all internal `pub(crate)` be eliminated.
-Only `pub` visibility is policed.
+`pub(crate)` in Tier-3 is intentional and allowed.
 
 ---
 
-# 11. Internal Import Rule
+# 8. Architectural Guarantees
 
-Inside the crate:
+This model guarantees:
 
-* Use full internal paths for implementation dependencies:
-
-  ```
-  crate::db::query::plan::Planner
-  ```
-
-* Use boundary paths only when depending on subsystem API:
-
-  ```
-  crate::db::QueryError
-  ```
-
-Do not use public re-exports to hide internal coupling.
+* Stable namespace paths (macro-safe).
+* Shallow, controlled public API.
+* No deep public module trees.
+* Internal refactor freedom.
+* Clear subsystem ownership.
+* Minimal accidental coupling.
 
 ---
 
-# 12. Architectural Intent
+# Absolute Rule
 
-`icydb-core` is an engine crate.
+Root modules may be public namespaces.
 
-It must:
+Only Tier-2 modules define public API.
 
-* Expose stable subsystem boundaries.
-* Seal planner, executor, and index internals.
-* Allow refactors of internal modules without external breakage.
-* Prevent namespace pollution at crate root.
+Tier-3 and below never define public API.
 
-This visibility structure is part of the engine contract.
+Everything else is implementation detail.
 

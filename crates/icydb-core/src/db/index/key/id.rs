@@ -10,13 +10,13 @@ use derive_more::Display;
 ///
 
 #[derive(Clone, Copy, Debug, Display, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct IndexId(pub IndexName);
+pub(crate) struct IndexId(pub(crate) IndexName);
 
 impl IndexId {
     /// Maximum sentinel value for test-only stable-memory bound checks.
     #[cfg(test)]
     #[must_use]
-    pub const fn max_storable() -> Self {
+    pub(crate) const fn max_storable() -> Self {
         Self(IndexName::max_storable())
     }
 }

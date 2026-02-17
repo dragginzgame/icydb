@@ -100,7 +100,7 @@ fn default_strategy_entity(node: &Entity) -> TraitStrategy {
 
         if ident == primary_key {
             if let Some(default) = &f.default {
-                quote!(#ident: ::icydb::__internal::core::traits::AsView::from_view(#default))
+                quote!(#ident: ::icydb::__macro::CoreAsView::from_view(#default))
             } else {
                 quote!(#ident: Default::default())
             }

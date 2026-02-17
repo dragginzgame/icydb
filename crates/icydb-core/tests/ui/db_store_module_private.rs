@@ -1,3 +1,3 @@
-use icydb_core::db::store::StoreRegistry;
+use icydb_core::db::data::DataStore;
 
 fn main() {}

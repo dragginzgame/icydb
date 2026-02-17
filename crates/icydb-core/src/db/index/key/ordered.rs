@@ -22,7 +22,7 @@ const ACCOUNT_SUBACCOUNT_TAG: u8 = 0x80;
 ///
 
 #[derive(Debug, ThisError)]
-pub enum OrderedValueEncodeError {
+pub(crate) enum OrderedValueEncodeError {
     #[error("null values are not indexable")]
     NullNotIndexable,
 
@@ -40,13 +40,6 @@ pub enum OrderedValueEncodeError {
 
     #[error("decimal exponent overflow during canonical encoding")]
     DecimalExponentOverflow,
-}
-
-impl OrderedValueEncodeError {
-    #[must_use]
-    pub const fn is_null_not_indexable(&self) -> bool {
-        matches!(self, Self::NullNotIndexable)
-    }
 }
 
 impl From<OrderedValueEncodeError> for InternalError {

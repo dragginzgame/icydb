@@ -20,7 +20,7 @@ pub fn encode_cursor(bytes: &[u8]) -> String {
 ///
 /// The token may include surrounding whitespace, which is trimmed.
 /// Returns a descriptive error string for invalid tokens.
-pub fn decode_cursor(token: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn decode_cursor(token: &str) -> Result<Vec<u8>, String> {
     let token = token.trim();
     if token.is_empty() {
         return Err("cursor token is empty".to_string());

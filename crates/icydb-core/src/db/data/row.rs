@@ -1,3 +1,4 @@
+use super::DataKey;
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     serialize::{SerializeError, deserialize},
@@ -6,6 +7,12 @@ use crate::{
 use canic_cdk::structures::storable::Bound;
 use std::borrow::Cow;
 use thiserror::Error as ThisError;
+
+///
+/// DataRow
+///
+
+pub(crate) type DataRow = (DataKey, RawRow);
 
 ///
 /// RawRowError
@@ -55,7 +62,7 @@ pub enum RowDecodeError {
 ///
 
 /// Max serialized bytes for a single row (protocol-level limit).
-pub const MAX_ROW_BYTES: u32 = 4 * 1024 * 1024;
+pub(crate) const MAX_ROW_BYTES: u32 = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RawRow(Vec<u8>);

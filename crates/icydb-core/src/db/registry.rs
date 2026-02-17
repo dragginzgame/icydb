@@ -1,15 +1,5 @@
-mod data;
-mod data_key;
-mod row;
-mod storage_key;
-
-pub use data::*;
-pub use data_key::*;
-pub use row::*;
-pub use storage_key::*;
-
 use crate::{
-    db::index::IndexStore,
+    db::{data::DataStore, index::store::IndexStore},
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
 use std::{cell::RefCell, collections::HashMap, thread::LocalKey};
@@ -23,6 +13,7 @@ use thiserror::Error as ThisError;
 pub enum StoreRegistryError {
     #[error("store '{0}' not found")]
     StoreNotFound(String),
+
     #[error("store '{0}' already registered")]
     StoreAlreadyRegistered(String),
 }
@@ -147,10 +138,7 @@ impl StoreRegistry {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::{
-            index::IndexStore,
-            store::{DataStore, StoreRegistry},
-        },
+        db::{data::DataStore, index::IndexStore, registry::StoreRegistry},
         error::{ErrorClass, ErrorOrigin},
         test_support::test_memory,
     };

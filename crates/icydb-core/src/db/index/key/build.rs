@@ -1,12 +1,12 @@
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
+        data::StorageKey,
         identity::{EntityName, IndexName},
         index::key::{
-            IndexId, IndexKey, IndexKeyKind,
-            ordered::{OrderedValueEncodeError, encode_canonical_index_component},
+            IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError,
+            encode_canonical_index_component,
         },
-        store::StorageKey,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,
@@ -21,7 +21,7 @@ impl IndexId {
     /// to hold for schema-defined indexes. Any violation is a programmer
     /// or schema error and will panic.
     #[must_use]
-    pub fn new<E: EntityKind>(index: &IndexModel) -> Self {
+    pub(crate) fn new<E: EntityKind>(index: &IndexModel) -> Self {
         let entity = EntityName::try_from_str(E::ENTITY_NAME)
             .expect("EntityKind::ENTITY_NAME must be a valid EntityName");
 
@@ -35,7 +35,7 @@ impl IndexId {
 impl IndexKey {
     /// Build an index key; returns `Ok(None)` if any indexed field is missing or non-indexable.
     /// `Value::Null` and unsupported canonical kinds are treated as non-indexable.
-    pub fn new<E: EntityKind + EntityValue>(
+    pub(crate) fn new<E: EntityKind + EntityValue>(
         entity: &E,
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
@@ -102,12 +102,12 @@ impl IndexKey {
 
     #[cfg(test)]
     #[must_use]
-    pub fn empty(index_id: &IndexId) -> Self {
+    pub(crate) fn empty(index_id: &IndexId) -> Self {
         Self::empty_with_kind(index_id, IndexKeyKind::User)
     }
 
     #[must_use]
-    pub fn empty_with_kind(index_id: &IndexId, key_kind: IndexKeyKind) -> Self {
+    pub(crate) fn empty_with_kind(index_id: &IndexId, key_kind: IndexKeyKind) -> Self {
         Self {
             key_kind,
             index_id: *index_id,
@@ -118,7 +118,7 @@ impl IndexKey {
     }
 
     #[must_use]
-    pub fn bounds_for_prefix(
+    pub(crate) fn bounds_for_prefix(
         index_id: &IndexId,
         index_len: usize,
         prefix: &[Vec<u8>],
@@ -128,7 +128,7 @@ impl IndexKey {
 
     #[must_use]
     #[expect(clippy::cast_possible_truncation)]
-    pub fn bounds_for_prefix_with_kind(
+    pub(crate) fn bounds_for_prefix_with_kind(
         index_id: &IndexId,
         key_kind: IndexKeyKind,
         index_len: usize,
@@ -185,7 +185,7 @@ impl IndexKey {
     /// - bounds constrain component `prefix.len()`
     /// - remaining suffix components and PK are set to canonical min/max sentinels
     #[must_use]
-    pub fn bounds_for_prefix_component_range(
+    pub(crate) fn bounds_for_prefix_component_range(
         index_id: &IndexId,
         index_len: usize,
         prefix: &[Vec<u8>],
@@ -205,7 +205,7 @@ impl IndexKey {
     /// Variant of `bounds_for_prefix_component_range` with explicit key kind.
     #[must_use]
     #[expect(clippy::cast_possible_truncation)]
-    pub fn bounds_for_prefix_component_range_with_kind(
+    pub(crate) fn bounds_for_prefix_component_range_with_kind(
         index_id: &IndexId,
         key_kind: IndexKeyKind,
         index_len: usize,

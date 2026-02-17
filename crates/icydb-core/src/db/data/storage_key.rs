@@ -205,7 +205,9 @@ impl StorageKey {
         self.tag()
     }
 
-    fn from_account_encode_error(err: crate::types::AccountEncodeError) -> StorageKeyEncodeError {
+    const fn from_account_encode_error(
+        err: crate::types::AccountEncodeError,
+    ) -> StorageKeyEncodeError {
         match err {
             crate::types::AccountEncodeError::OwnerEncode(inner) => {
                 Self::from_principal_encode_error(inner)
@@ -216,7 +218,7 @@ impl StorageKey {
         }
     }
 
-    fn from_principal_encode_error(
+    const fn from_principal_encode_error(
         err: crate::types::PrincipalEncodeError,
     ) -> StorageKeyEncodeError {
         match err {

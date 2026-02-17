@@ -1,13 +1,8 @@
-use crate::db::store::{DataKey, RawDataKey, RawRow};
+use crate::db::data::{DataKey, RawDataKey, RawRow};
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
 use derive_more::{Deref, DerefMut};
 
 ///
-/// DataRow
-///
-
-pub type DataRow = (DataKey, RawRow);
-
 /// DataStore
 ///
 

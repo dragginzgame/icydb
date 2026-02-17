@@ -1,7 +1,7 @@
 use crate::{
     db::{
+        data::{StorageKey, StorageKeyEncodeError},
         index::RawIndexKey,
-        store::{StorageKey, StorageKeyEncodeError},
     },
     traits::{EntityKind, FieldValue, Storable},
     value::Value,
@@ -18,7 +18,7 @@ const INDEX_ENTRY_LEN_BYTES: usize = 4;
 pub(crate) const MAX_INDEX_ENTRY_KEYS: usize = 65_535;
 
 #[expect(clippy::cast_possible_truncation)]
-pub const MAX_INDEX_ENTRY_BYTES: u32 =
+pub(crate) const MAX_INDEX_ENTRY_BYTES: u32 =
     (INDEX_ENTRY_LEN_BYTES + (MAX_INDEX_ENTRY_KEYS * StorageKey::STORED_SIZE_USIZE)) as u32;
 
 ///
@@ -26,7 +26,7 @@ pub const MAX_INDEX_ENTRY_BYTES: u32 =
 ///
 
 #[derive(Debug, ThisError)]
-pub enum IndexEntryCorruption {
+pub(crate) enum IndexEntryCorruption {
     #[error("index entry exceeds max size")]
     TooLarge { len: usize },
 
@@ -66,7 +66,7 @@ pub enum IndexEntryCorruption {
 
 impl IndexEntryCorruption {
     #[must_use]
-    pub fn missing_key(index_key: RawIndexKey, entity_key: impl FieldValue) -> Self {
+    pub(crate) fn missing_key(index_key: RawIndexKey, entity_key: impl FieldValue) -> Self {
         Self::MissingKey {
             index_key: Box::new(index_key),
             entity_key: entity_key.to_value(),
@@ -79,7 +79,7 @@ impl IndexEntryCorruption {
 ///
 
 #[derive(Debug, ThisError)]
-pub enum IndexEntryEncodeError {
+pub(crate) enum IndexEntryEncodeError {
     #[error("index entry exceeds max keys: {keys} (limit {MAX_INDEX_ENTRY_KEYS})")]
     TooManyKeys { keys: usize },
 
@@ -87,71 +87,48 @@ pub enum IndexEntryEncodeError {
     KeyEncoding(#[from] StorageKeyEncodeError),
 }
 
-impl IndexEntryEncodeError {
-    #[must_use]
-    pub const fn keys(&self) -> usize {
-        match self {
-            Self::TooManyKeys { keys } => *keys,
-            Self::KeyEncoding(_) => 0,
-        }
-    }
-}
-
 ///
 /// IndexEntry
 ///
 
 #[derive(Clone, Debug)]
-pub struct IndexEntry<E: EntityKind> {
+pub(crate) struct IndexEntry<E: EntityKind> {
     ids: BTreeSet<E::Key>,
 }
 
 impl<E: EntityKind> IndexEntry<E> {
     #[must_use]
-    pub fn new(id: E::Key) -> Self {
+    pub(crate) fn new(id: E::Key) -> Self {
         let mut ids = BTreeSet::new();
         ids.insert(id);
         Self { ids }
     }
 
-    pub fn insert(&mut self, id: E::Key) {
+    pub(crate) fn insert(&mut self, id: E::Key) {
         self.ids.insert(id);
     }
 
-    pub fn remove(&mut self, id: E::Key) {
+    pub(crate) fn remove(&mut self, id: E::Key) {
         self.ids.remove(&id);
     }
 
     #[must_use]
-    pub fn contains(&self, id: E::Key) -> bool {
+    pub(crate) fn contains(&self, id: E::Key) -> bool {
         self.ids.contains(&id)
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.ids.is_empty()
     }
 
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.ids.len()
     }
 
-    pub fn iter_ids(&self) -> impl Iterator<Item = E::Key> + '_ {
+    pub(crate) fn iter_ids(&self) -> impl Iterator<Item = E::Key> + '_ {
         self.ids.iter().copied()
-    }
-
-    #[must_use]
-    pub fn single_id(&self) -> Option<E::Key> {
-        if self.ids.len() == 1 {
-            self.ids.iter().copied().next()
-        } else {
-            None
-        }
-    }
-
-    pub fn try_to_raw(&self) -> Result<RawIndexEntry, IndexEntryEncodeError> {
-        RawIndexEntry::try_from_entry(self)
     }
 }
 
@@ -160,10 +137,10 @@ impl<E: EntityKind> IndexEntry<E> {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RawIndexEntry(Vec<u8>);
+pub(crate) struct RawIndexEntry(Vec<u8>);
 
 impl RawIndexEntry {
-    pub fn try_from_entry<E: EntityKind>(
+    pub(crate) fn try_from_entry<E: EntityKind>(
         entry: &IndexEntry<E>,
     ) -> Result<Self, IndexEntryEncodeError> {
         let mut keys = Vec::with_capacity(entry.ids.len());
@@ -176,7 +153,7 @@ impl RawIndexEntry {
         Self::try_from_keys(keys)
     }
 
-    pub fn try_decode<E: EntityKind>(&self) -> Result<IndexEntry<E>, IndexEntryCorruption> {
+    pub(crate) fn try_decode<E: EntityKind>(&self) -> Result<IndexEntry<E>, IndexEntryCorruption> {
         let storage_keys = self.decode_keys()?;
         let mut ids = BTreeSet::new();
 
@@ -195,7 +172,7 @@ impl RawIndexEntry {
         Ok(IndexEntry { ids })
     }
 
-    pub fn try_from_keys<I>(keys: I) -> Result<Self, IndexEntryEncodeError>
+    pub(crate) fn try_from_keys<I>(keys: I) -> Result<Self, IndexEntryEncodeError>
     where
         I: IntoIterator<Item = StorageKey>,
     {
@@ -220,7 +197,7 @@ impl RawIndexEntry {
         Ok(Self(out))
     }
 
-    pub fn decode_keys(&self) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
+    pub(crate) fn decode_keys(&self) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
         self.validate()?;
 
         let bytes = self.0.as_slice();
@@ -245,7 +222,7 @@ impl RawIndexEntry {
     }
 
     /// Validate the raw index entry structure without binding to an entity.
-    pub fn validate(&self) -> Result<(), IndexEntryCorruption> {
+    pub(crate) fn validate(&self) -> Result<(), IndexEntryCorruption> {
         let bytes = self.0.as_slice();
 
         if bytes.len() > MAX_INDEX_ENTRY_BYTES as usize {
@@ -296,18 +273,13 @@ impl RawIndexEntry {
     }
 
     #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
     #[must_use]
-    pub const fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.0.len()
-    }
-
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 }
 
@@ -345,7 +317,7 @@ impl Storable for RawIndexEntry {
 #[cfg(test)]
 mod tests {
     use super::{IndexEntryCorruption, MAX_INDEX_ENTRY_BYTES, MAX_INDEX_ENTRY_KEYS, RawIndexEntry};
-    use crate::{db::store::StorageKey, traits::Storable};
+    use crate::{db::data::StorageKey, traits::Storable};
     use std::borrow::Cow;
 
     #[test]

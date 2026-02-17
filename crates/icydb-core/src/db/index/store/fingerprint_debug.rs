@@ -1,7 +1,7 @@
 use crate::{
     db::index::{
-        RawIndexKey,
-        store::{IndexStore, InlineIndexValue, RawIndexFingerprint},
+        key::IndexKey,
+        store::{IndexStore, InlineIndexValue, RawIndexFingerprint, RawIndexKey},
     },
     model::index::IndexModel,
 };
@@ -20,7 +20,7 @@ impl IndexStore {
         let label = index
             .map(|idx| format!("index='{}'", idx.name))
             .or_else(|| {
-                crate::db::index::IndexKey::try_from_raw(key)
+                IndexKey::try_from_raw(key)
                     .ok()
                     .map(|decoded| format!("index_key={decoded:?}"))
             })

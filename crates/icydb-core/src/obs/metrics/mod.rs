@@ -173,12 +173,6 @@ pub struct EntitySummary {
     pub unique_violations: u64,
 }
 
-/// Build a metrics report by inspecting in-memory counters only.
-#[must_use]
-pub(crate) fn report() -> EventReport {
-    report_window_start(None)
-}
-
 /// Build a metrics report gated by `window_start_ms`.
 ///
 /// This is a window-start filter:
@@ -263,7 +257,9 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
 #[cfg(test)]
 #[expect(clippy::float_cmp)]
 mod tests {
-    use crate::obs::metrics::{EntityCounters, report, reset_all, with_state, with_state_mut};
+    use crate::obs::metrics::{
+        EntityCounters, report_window_start, reset_all, with_state, with_state_mut,
+    };
 
     #[test]
     fn reset_all_clears_state() {
@@ -320,7 +316,7 @@ mod tests {
             );
         });
 
-        let report = report();
+        let report = report_window_start(None);
         let paths: Vec<_> = report
             .entity_counters
             .iter()

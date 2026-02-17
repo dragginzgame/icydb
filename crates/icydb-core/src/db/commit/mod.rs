@@ -27,12 +27,12 @@ use crate::{
             decode::{decode_data_key, decode_index_entry, decode_index_key},
             store::{CommitStore, with_commit_store, with_commit_store_infallible},
         },
+        data::{DataKey, DataStore, RawDataKey, RawRow},
         decode::decode_entity_with_expected_key,
         index::{
             IndexKey, IndexStore, RawIndexEntry, RawIndexKey, plan::plan_index_mutation_for_entity,
         },
         relation::prepare_reverse_relation_index_mutations_for_source,
-        store::{DataKey, DataStore, RawDataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue, Path},
