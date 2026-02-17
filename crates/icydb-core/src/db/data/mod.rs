@@ -1,10 +1,10 @@
-pub(crate) mod key;
-pub(crate) mod row;
-pub(crate) mod storage_key;
-pub(crate) mod store;
+mod key;
+mod row;
+mod storage_key;
+mod store;
 
-// re-exports
+// re-exports (Tier-3 → Tier-2 boundary)
 pub(crate) use key::{DataKey, RawDataKey};
-pub(crate) use row::{MAX_ROW_BYTES, RawRow};
+pub(crate) use row::{DataRow, MAX_ROW_BYTES, RawRow};
 pub(crate) use storage_key::{StorageKey, StorageKeyEncodeError};
-pub(crate) use store::DataStore;
+pub use store::DataStore;

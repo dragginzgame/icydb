@@ -1,7 +1,7 @@
 //! Commit store memory allocation helpers.
 
 use crate::{
-    db::commit::COMMIT_LABEL,
+    db::commit::marker::COMMIT_LABEL,
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
 use canic_memory::{

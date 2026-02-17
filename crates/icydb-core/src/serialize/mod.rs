@@ -4,6 +4,13 @@ use crate::error::{ErrorClass, ErrorOrigin, InternalError};
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error as ThisError;
 
+/// Generic CBOR serialization infrastructure.
+///
+/// This module is format-level only:
+/// - No database-layer constants or policy limits are defined here.
+/// - Callers that need bounded decode must pass explicit limits.
+/// - Engine-specific decode policy belongs in subsystem wrappers (for example, `db::codec`).
+
 ///
 /// SerializeError
 ///
@@ -17,16 +24,10 @@ pub enum SerializeError {
     Deserialize(String),
 }
 
-impl SerializeError {
-    pub(crate) const fn class() -> ErrorClass {
-        ErrorClass::Internal
-    }
-}
-
 impl From<SerializeError> for InternalError {
     fn from(err: SerializeError) -> Self {
         Self::new(
-            SerializeError::class(),
+            ErrorClass::Internal,
             ErrorOrigin::Serialize,
             err.to_string(),
         )
@@ -52,6 +53,8 @@ where
 }
 
 /// Deserialize a value produced by [`serialize`], with an explicit size limit.
+///
+/// Size limits are caller policy, not serialization-format policy.
 pub fn deserialize_bounded<T>(bytes: &[u8], max_bytes: usize) -> Result<T, SerializeError>
 where
     T: DeserializeOwned,

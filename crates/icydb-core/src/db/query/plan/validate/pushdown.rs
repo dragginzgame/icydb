@@ -319,7 +319,7 @@ fn applicability_from_eligibility(
 /// Returns `PushdownApplicability::NotApplicable` for non-applicable shapes:
 /// - no ORDER BY fields
 /// - access path is not a secondary index path
-pub fn assess_secondary_order_pushdown_if_applicable<K>(
+pub(crate) fn assess_secondary_order_pushdown_if_applicable<K>(
     model: &EntityModel,
     plan: &LogicalPlan<K>,
 ) -> PushdownApplicability {

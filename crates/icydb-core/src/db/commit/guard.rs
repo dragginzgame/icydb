@@ -1,4 +1,10 @@
-use crate::error::{ErrorClass, ErrorOrigin, InternalError};
+use crate::{
+    db::commit::{
+        marker::CommitMarker,
+        store::{CommitStore, with_commit_store, with_commit_store_infallible},
+    },
+    error::{ErrorClass, ErrorOrigin, InternalError},
+};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 ///
@@ -74,4 +80,66 @@ impl Drop for CommitApplyGuard {
             self.rollback_best_effort();
         }
     }
+}
+
+///
+/// CommitGuard
+///
+/// In-flight commit handle that clears the marker on completion.
+/// Must not be leaked across mutation boundaries.
+///
+
+#[derive(Clone, Debug)]
+pub(crate) struct CommitGuard {
+    pub(crate) marker: CommitMarker,
+}
+
+impl CommitGuard {
+    // Clear the commit marker without surfacing errors.
+    fn clear(self) {
+        let _ = self;
+        with_commit_store_infallible(CommitStore::clear_infallible);
+    }
+}
+
+/// Persist a commit marker and open the commit window.
+pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
+    with_commit_store(|store| {
+        if store.load()?.is_some() {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Store,
+                "commit marker already present before begin",
+            ));
+        }
+        store.set(&marker)?;
+
+        Ok(CommitGuard { marker })
+    })
+}
+
+/// Apply commit ops and clear the marker regardless of outcome.
+///
+/// The apply closure performs mechanical marker application only.
+/// Any in-process rollback guard used by the closure is non-authoritative
+/// transitional cleanup; durable authority remains the commit marker protocol.
+pub(crate) fn finish_commit(
+    mut guard: CommitGuard,
+    apply: impl FnOnce(&mut CommitGuard) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    // COMMIT WINDOW:
+    // Apply mutates stores from a prevalidated marker payload.
+    // Marker durability + recovery replay remain the atomicity authority.
+    // We clear the marker on any outcome so recovery does not reapply an
+    // already-attempted marker in this process.
+    let result = apply(&mut guard);
+    let commit_id = guard.marker.id;
+    guard.clear();
+    // Internal invariant: commit markers must not persist after a finished mutation.
+    assert!(
+        with_commit_store_infallible(|store| store.is_empty()),
+        "commit marker must be cleared after finish_commit (commit_id={commit_id:?})"
+    );
+
+    result
 }

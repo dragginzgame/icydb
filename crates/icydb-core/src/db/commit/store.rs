@@ -176,6 +176,10 @@ fn commit_memory() -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
     Ok(MEMORY_MANAGER.with_borrow_mut(|mgr| mgr.get(MemoryId::new(id))))
 }
 
+///
+/// TESTS
+///
+
 #[cfg(test)]
 mod tests {
     use super::RawCommitMarker;

@@ -1,7 +1,7 @@
 use super::DataKey;
 use crate::{
+    db::codec::deserialize_row,
     error::{ErrorClass, ErrorOrigin, InternalError},
-    serialize::{SerializeError, deserialize},
     traits::{EntityKind, Storable},
 };
 use canic_cdk::structures::storable::Bound;
@@ -53,7 +53,7 @@ pub enum RowDecodeError {
     #[error("row failed to deserialize: {source}")]
     Deserialize {
         #[source]
-        source: SerializeError,
+        source: InternalError,
     },
 }
 
@@ -96,7 +96,7 @@ impl RawRow {
 
     /// Decode into an entity.
     pub fn try_decode<E: EntityKind>(&self) -> Result<E, RowDecodeError> {
-        deserialize::<E>(&self.0).map_err(|source| RowDecodeError::Deserialize { source })
+        deserialize_row::<E>(&self.0).map_err(|source| RowDecodeError::Deserialize { source })
     }
 }
 

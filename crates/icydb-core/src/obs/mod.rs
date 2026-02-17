@@ -1,10 +1,22 @@
-//! Observability: runtime event telemetry (metrics) and storage snapshots.
+//! Observability: runtime telemetry (metrics) and sink abstractions.
+//!
+//! This module does not access storage internals directly.
+//! Engine-level storage inspection lives in `db`.
 
 pub(crate) mod metrics;
 pub(crate) mod sink;
-pub(crate) mod snapshot;
+
+use crate::{db::Db, error::InternalError, traits::CanisterKind};
 
 // re-exports
+pub use crate::db::diagnostics::snapshot::StorageReport;
 pub use metrics::EventReport;
 pub use sink::{MetricsSink, metrics_report, metrics_reset_all};
-pub use snapshot::{StorageReport, storage_report};
+
+/// Build a point-in-time storage report for observability surfaces.
+pub fn storage_report<C: CanisterKind>(
+    db: &Db<C>,
+    name_to_path: &[(&'static str, &'static str)],
+) -> Result<StorageReport, InternalError> {
+    crate::db::diagnostics::snapshot::storage_report(db, name_to_path)
+}

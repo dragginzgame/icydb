@@ -119,7 +119,7 @@ pub use error::Error;
 pub mod __macro {
     pub use icydb_core::db::{
         DataStore, Db, EntityRuntimeHooks, IndexStore, StoreRegistry,
-        prepare_row_commit_for_entity, validate_delete_strong_relations_for_source,
+        validate_delete_strong_relations_for_source,
     };
     pub use icydb_core::traits::{
         AsView as CoreAsView, CreateView as CoreCreateView, UpdateView as CoreUpdateView,

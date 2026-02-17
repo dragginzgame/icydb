@@ -1,7 +1,6 @@
 use crate::{
     db::{
         Db, EntityName,
-        commit::ensure_recovered,
         data::{DataKey, StorageKey},
         index::IndexKey,
     },
@@ -116,11 +115,11 @@ impl EntityStats {
 }
 
 /// Build storage snapshot and per-entity breakdown; enrich path names using name→path map
-pub fn storage_report<C: CanisterKind>(
+pub(crate) fn storage_report<C: CanisterKind>(
     db: &Db<C>,
     name_to_path: &[(&'static str, &'static str)],
 ) -> Result<StorageReport, InternalError> {
-    ensure_recovered(db)?;
+    db.ensure_recovered_state()?;
     // Build name→path map once, reuse across stores
     let name_map: BTreeMap<&'static str, &str> = name_to_path.iter().copied().collect();
     let mut data = Vec::new();

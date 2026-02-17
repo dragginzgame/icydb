@@ -1,4 +1,4 @@
-use crate::{db::data::MAX_ROW_BYTES, serialize::SerializeError};
+use crate::serialize::SerializeError;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_cbor::{from_slice, to_vec};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -9,6 +9,14 @@ where
     T: Serialize,
 {
     to_vec(t).map_err(|e| SerializeError::Serialize(e.to_string()))
+}
+
+/// Deserialize CBOR bytes into a value without a size limit.
+pub(super) fn deserialize<T>(bytes: &[u8]) -> Result<T, SerializeError>
+where
+    T: DeserializeOwned,
+{
+    deserialize_bounded(bytes, usize::MAX)
 }
 
 /// Deserialize CBOR bytes into a value with a caller-provided size limit.
@@ -37,12 +45,4 @@ where
             "panic during CBOR deserialization".into(),
         )),
     }
-}
-
-/// Deserialize CBOR bytes into a value using the default size limit.
-pub(super) fn deserialize<T>(bytes: &[u8]) -> Result<T, SerializeError>
-where
-    T: DeserializeOwned,
-{
-    deserialize_bounded(bytes, MAX_ROW_BYTES as usize)
 }

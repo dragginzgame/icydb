@@ -310,6 +310,15 @@ Code is considered non-trivial if it:
 
 * Framework: Rust test harness.
 * Unit tests live near code (`mod tests`); integration tests live in `crates/icydb-schema-tests`.
+* Every inline unit test module (`mod tests`) MUST be preceded by the exact doc banner:
+
+```rust
+///
+/// TESTS
+///
+```
+
+* Leave exactly one blank line before and one blank line after that banner block.
 * Run all tests with `make test`.
 * In `icydb-core` tests, do not create ad-hoc `DummyEntity` types; macro-driven entity and index tests belong in `crates/icydb-schema-tests`.
 

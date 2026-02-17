@@ -1,40 +1,32 @@
-pub(crate) mod commit;
+// 1️⃣ Module declarations
 pub(crate) mod cursor;
-pub(crate) mod data;
 pub(crate) mod decode;
-pub(crate) mod executor;
+pub(crate) mod diagnostics;
 pub(crate) mod identity;
-pub(crate) mod index;
 pub(crate) mod query;
 pub(crate) mod registry;
-pub(crate) mod relation;
 pub(crate) mod response;
 
-use crate::{
-    db::{
-        commit::ensure_recovered,
-        data::RawDataKey,
-        executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor},
-        query::intent::QueryMode,
-        relation::StrongRelationDeleteValidateFn,
-    },
-    error::{ErrorClass, ErrorOrigin, InternalError},
-    obs::sink::{MetricsSink, with_metrics_sink},
-    traits::{CanisterKind, EntityKind, EntityValue},
-};
-use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
+pub(in crate::db) mod codec;
+pub(in crate::db) mod commit;
+pub(in crate::db) mod data;
+pub(in crate::db) mod executor;
+pub(in crate::db) mod index;
+pub(in crate::db) mod relation;
 
-/// re-exports
-pub use commit::{CommitRowOp, PreparedRowCommitOp, prepare_row_commit_for_entity};
+// 2️⃣ Public re-exports (Tier-2 API surface)
 pub use cursor::encode_cursor;
+pub use data::DataStore;
+pub(crate) use data::StorageKey;
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
+#[cfg(test)]
+pub(crate) use index::fingerprint::hash_value;
 pub use query::{
     ReadConsistency,
     builder::field::FieldRef,
     expr::{FilterExpr, SortExpr},
-    intent::Query,
-    intent::{IntentError, QueryError},
+    intent::{IntentError, Query, QueryError},
     plan::{OrderDirection, PlanError},
     predicate::{
         CoercionId, CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature, ValidateError,
@@ -48,9 +40,26 @@ pub use registry::StoreRegistry;
 pub use relation::validate_delete_strong_relations_for_source;
 pub use response::{Response, ResponseError, Row, WriteBatchResponse, WriteResponse};
 
+// 3️⃣ Internal imports (implementation wiring)
+use crate::{
+    db::{
+        commit::{
+            CommitRowOp, PreparedRowCommitOp, ensure_recovered, prepare_row_commit_for_entity,
+        },
+        data::RawDataKey,
+        diagnostics::snapshot::StorageReport,
+        executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor},
+        query::intent::QueryMode,
+        relation::StrongRelationDeleteValidateFn,
+    },
+    error::{ErrorClass, ErrorOrigin, InternalError},
+    obs::sink::{MetricsSink, with_metrics_sink},
+    traits::{CanisterKind, EntityIdentity, EntityKind, EntityValue},
+};
+use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
+
 ///
 /// Db
-///
 /// A handle to the set of stores registered for a specific canister domain.
 ///
 
@@ -99,11 +108,23 @@ impl<C: CanisterKind> Db<C> {
         Ok(Context::new(self))
     }
 
+    /// Ensure startup/in-progress commit recovery has been applied.
+    pub(crate) fn ensure_recovered_state(&self) -> Result<(), InternalError> {
+        ensure_recovered(self)
+    }
+
     pub(crate) fn with_store_registry<R>(&self, f: impl FnOnce(&StoreRegistry) -> R) -> R {
         self.store.with(|reg| f(reg))
     }
 
-    pub(crate) fn prepare_row_commit_op(
+    pub fn storage_report(
+        &self,
+        name_to_path: &[(&'static str, &'static str)],
+    ) -> Result<StorageReport, InternalError> {
+        diagnostics::snapshot::storage_report(self, name_to_path)
+    }
+
+    pub(in crate::db) fn prepare_row_commit_op(
         &self,
         op: &CommitRowOp,
     ) -> Result<PreparedRowCommitOp, InternalError> {
@@ -144,14 +165,14 @@ impl<C: CanisterKind> Db<C> {
 pub struct EntityRuntimeHooks<C: CanisterKind> {
     pub(crate) entity_name: &'static str,
     pub(crate) entity_path: &'static str,
-    pub(crate) prepare_row_commit:
+    pub(in crate::db) prepare_row_commit:
         fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
     pub(crate) validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
 }
 
 impl<C: CanisterKind> EntityRuntimeHooks<C> {
     #[must_use]
-    pub const fn new(
+    pub(in crate::db) const fn new(
         entity_name: &'static str,
         entity_path: &'static str,
         prepare_row_commit: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
@@ -163,6 +184,21 @@ impl<C: CanisterKind> EntityRuntimeHooks<C> {
             prepare_row_commit,
             validate_delete_strong_relations,
         }
+    }
+
+    #[must_use]
+    pub const fn for_entity<E>(
+        validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
+    ) -> Self
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        Self::new(
+            <E as EntityIdentity>::ENTITY_NAME,
+            E::PATH,
+            prepare_row_commit_for_entity::<E>,
+            validate_delete_strong_relations,
+        )
     }
 }
 

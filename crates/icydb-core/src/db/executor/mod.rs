@@ -7,7 +7,7 @@ mod plan;
 mod save;
 #[cfg(test)]
 mod tests;
-pub(crate) mod trace;
+mod trace;
 
 pub(super) use context::*;
 pub(super) use delete::DeleteExecutor;
@@ -34,15 +34,12 @@ use thiserror::Error as ThisError;
 ///
 
 #[derive(Debug, ThisError)]
-pub enum ExecutorError {
+pub(crate) enum ExecutorError {
     #[error("corruption detected ({origin}): {message}")]
     Corruption {
         origin: ErrorOrigin,
         message: String,
     },
-
-    #[error("index constraint violation: {0} ({1})")]
-    IndexViolation(String, String),
 
     #[error("data key exists: {0}")]
     KeyExists(DataKey),
@@ -51,7 +48,7 @@ pub enum ExecutorError {
 impl ExecutorError {
     pub(crate) const fn class(&self) -> ErrorClass {
         match self {
-            Self::KeyExists(_) | Self::IndexViolation(_, _) => ErrorClass::Conflict,
+            Self::KeyExists(_) => ErrorClass::Conflict,
             Self::Corruption { .. } => ErrorClass::Corruption,
         }
     }
@@ -59,7 +56,6 @@ impl ExecutorError {
     pub(crate) const fn origin(&self) -> ErrorOrigin {
         match self {
             Self::KeyExists(_) => ErrorOrigin::Store,
-            Self::IndexViolation(_, _) => ErrorOrigin::Index,
             Self::Corruption { origin, .. } => *origin,
         }
     }

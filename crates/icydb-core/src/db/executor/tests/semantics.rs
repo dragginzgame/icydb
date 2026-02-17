@@ -887,7 +887,7 @@ fn recovery_replays_reverse_relation_index_mutations() {
         .expect("source data key should encode");
     let row_bytes = crate::serialize::serialize(&source).expect("source row should serialize");
 
-    let marker = CommitMarker::new(vec![crate::db::CommitRowOp::new(
+    let marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
         raw_key.as_bytes().to_vec(),
         None,
@@ -977,7 +977,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     .expect("source B row should serialize");
 
     // Phase 1: replay first save marker.
-    let save_a_marker = CommitMarker::new(vec![crate::db::CommitRowOp::new(
+    let save_a_marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
         source_a_key.as_bytes().to_vec(),
         None,
@@ -999,7 +999,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     );
 
     // Phase 2: replay second save marker targeting the same target key.
-    let save_b_marker = CommitMarker::new(vec![crate::db::CommitRowOp::new(
+    let save_b_marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
         source_b_key.as_bytes().to_vec(),
         None,
@@ -1021,7 +1021,7 @@ fn recovery_replays_reverse_index_mixed_save_save_delete_sequence() {
     );
 
     // Phase 3: replay delete marker for one source row.
-    let delete_a_marker = CommitMarker::new(vec![crate::db::CommitRowOp::new(
+    let delete_a_marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
         source_a_key.as_bytes().to_vec(),
         Some(source_a_row),
@@ -1122,7 +1122,7 @@ fn recovery_replays_retarget_update_moves_reverse_index_membership() {
     })
     .expect("after row should serialize");
 
-    let marker = CommitMarker::new(vec![crate::db::CommitRowOp::new(
+    let marker = CommitMarker::new(vec![crate::db::commit::CommitRowOp::new(
         RelationSourceEntity::PATH,
         source_key.as_bytes().to_vec(),
         Some(before),
@@ -1217,13 +1217,13 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
     .expect("update after row should serialize");
 
     let marker = CommitMarker::new(vec![
-        crate::db::CommitRowOp::new(
+        crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             source_key.as_bytes().to_vec(),
             Some(update_before),
             Some(update_after),
         ),
-        crate::db::CommitRowOp::new(
+        crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             vec![7, 8, 9],
             None,
@@ -1385,13 +1385,13 @@ fn recovery_partial_fk_update_preserves_reverse_index_invariants() {
     .expect("source 2 row should serialize");
 
     let marker = CommitMarker::new(vec![
-        crate::db::CommitRowOp::new(
+        crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             source_1_key.as_bytes().to_vec(),
             Some(source_1_before),
             Some(source_1_after),
         ),
-        crate::db::CommitRowOp::new(
+        crate::db::commit::CommitRowOp::new(
             RelationSourceEntity::PATH,
             source_2_key.as_bytes().to_vec(),
             Some(source_2_same.clone()),

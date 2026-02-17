@@ -7,8 +7,8 @@ mod tests;
 use crate::value::Value;
 use crate::{
     db::{
-        CommitRowOp, Db,
-        commit::ensure_recovered_for_write,
+        Db,
+        commit::{CommitRowOp, ensure_recovered_for_write},
         data::{DataKey, RawRow},
         decode::decode_entity_with_expected_key,
         executor::{

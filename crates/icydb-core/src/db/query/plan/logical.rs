@@ -114,7 +114,7 @@ impl<K> LogicalPlan<K> {
     ///
     /// Predicates, ordering, and pagination may be attached later.
     #[cfg(test)]
-    pub fn new(access: AccessPath<K>, consistency: ReadConsistency) -> Self {
+    pub(crate) fn new(access: AccessPath<K>, consistency: ReadConsistency) -> Self {
         Self {
             mode: QueryMode::Load(LoadSpec::new()),
             access: AccessPlan::path(access),

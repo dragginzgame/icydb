@@ -1,7 +1,7 @@
 use crate::model::{entity::EntityModel, field::FieldModel, index::IndexModel};
 
 /// Construct a test `EntityModel` from static components.
-pub const fn entity_model_from_static(
+pub(crate) const fn entity_model_from_static(
     path: &'static str,
     entity_name: &'static str,
     primary_key: &'static FieldModel,
@@ -24,7 +24,7 @@ pub const fn entity_model_from_static(
 /// Use this for negative tests that must bypass schema invariants.
 ///
 
-pub struct InvalidEntityModelBuilder;
+pub(crate) struct InvalidEntityModelBuilder;
 
 impl InvalidEntityModelBuilder {
     ///
@@ -33,7 +33,7 @@ impl InvalidEntityModelBuilder {
     /// Build an invalid test `EntityModel` with default identity and no indexes.
     /// Leaks field storage to satisfy static lifetime requirements.
     ///
-    pub fn from_fields(fields: Vec<FieldModel>, pk_index: usize) -> EntityModel {
+    pub(crate) fn from_fields(fields: Vec<FieldModel>, pk_index: usize) -> EntityModel {
         Self::from_fields_and_indexes("test_fixtures::Entity", "TestEntity", fields, pk_index, &[])
     }
 
@@ -43,7 +43,7 @@ impl InvalidEntityModelBuilder {
     /// Build an invalid test `EntityModel` with explicit identity and indexes.
     /// Leaks field storage to satisfy static lifetime requirements.
     ///
-    pub fn from_fields_and_indexes(
+    pub(crate) fn from_fields_and_indexes(
         path: &'static str,
         entity_name: &'static str,
         fields: Vec<FieldModel>,
@@ -62,7 +62,7 @@ impl InvalidEntityModelBuilder {
     ///
     /// Build an invalid test `EntityModel` from pre-allocated static slices.
     ///
-    pub const fn from_static(
+    pub(crate) const fn from_static(
         path: &'static str,
         entity_name: &'static str,
         primary_key: &'static FieldModel,

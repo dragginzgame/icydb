@@ -1,5 +1,5 @@
 use crate::{
-    db::index::fingerprint::hash_value,
+    db::hash_value,
     serialize::{deserialize, serialize},
     traits::NumFromPrimitive,
     types::{

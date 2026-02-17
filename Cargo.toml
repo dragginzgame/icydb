@@ -70,12 +70,12 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 
-unnecessary_cast = "warn"
 missing_const_for_fn = "warn"
 must_use_candidate = "warn"
 redundant_clone = "warn"
 semicolon_if_nothing_returned = "warn"
 uninlined_format_args = "warn"
+unnecessary_cast = "warn"
 use_self = "warn"
 
 doc_markdown = "allow"

@@ -1,10 +1,17 @@
+//! Response subsystem (Tier-2 boundary within `db`).
+//!
+//! Defines the materialized query result surface returned by
+//! session execution. Types in this module form part of the
+//! stable `db` public contract.
+//!
+//! Internal write-specific helpers live in `write`.
 mod write;
 
 use crate::{prelude::*, traits::AsView, types::Id};
 use thiserror::Error as ThisError;
 
 // re-exports
-pub use write::*;
+pub use write::{WriteBatchResponse, WriteResponse};
 
 ///
 /// Row

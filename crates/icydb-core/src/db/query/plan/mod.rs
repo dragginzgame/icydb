@@ -24,7 +24,7 @@ pub(crate) use continuation::{ContinuationToken, decode_pk_cursor_boundary};
 ///
 pub(crate) use executable::ExecutablePlan;
 #[cfg(test)]
-pub use explain::ExplainOrderPushdown;
+pub(crate) use explain::ExplainOrderPushdown;
 pub(crate) use explain::{
     ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination, ExplainPlan,
     ExplainPredicate,

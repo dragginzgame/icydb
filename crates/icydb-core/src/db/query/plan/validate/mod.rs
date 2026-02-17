@@ -37,7 +37,7 @@ pub(crate) use pushdown::SecondaryOrderPushdownEligibility;
 pub(crate) use pushdown::SecondaryOrderPushdownRejection;
 pub(crate) use pushdown::assess_secondary_order_pushdown;
 #[cfg(test)]
-pub use pushdown::assess_secondary_order_pushdown_if_applicable;
+pub(crate) use pushdown::assess_secondary_order_pushdown_if_applicable;
 pub(crate) use pushdown::assess_secondary_order_pushdown_if_applicable_validated;
 
 ///

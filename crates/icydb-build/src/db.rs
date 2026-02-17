@@ -122,10 +122,7 @@ fn entity_runtime_hooks(builder: &ActorBuilder, canister_path: &syn::Path) -> To
         let entity_ty: syn::Path = parse_str(&entity_path)
             .unwrap_or_else(|_| panic!("invalid entity path: {entity_path}"));
         hook_inits.extend(quote! {
-            ::icydb::__macro::EntityRuntimeHooks::<#canister_path>::new(
-                <#entity_ty as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
-                <#entity_ty as ::icydb::traits::Path>::PATH,
-                ::icydb::__macro::prepare_row_commit_for_entity::<#entity_ty>,
+            ::icydb::__macro::EntityRuntimeHooks::<#canister_path>::for_entity::<#entity_ty>(
                 ::icydb::__macro::validate_delete_strong_relations_for_source::<#entity_ty>,
             ),
         });
