@@ -1,14 +1,10 @@
 //! Observability: runtime event telemetry (metrics) and storage snapshots.
 
-pub mod metrics;
-pub mod sink;
-pub mod snapshot;
+pub(crate) mod metrics;
+pub(crate) mod sink;
+pub(crate) mod snapshot;
 
-// Convenient re-exports
-pub use metrics::{
-    EntityCounters, EntitySummary, EventOps, EventPerf, EventReport, EventState,
-    report as event_report, reset_all as event_reset_all,
-};
-pub use snapshot::{
-    DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, StorageReport, storage_report,
-};
+// re-exports
+pub use metrics::EventReport;
+pub use sink::{MetricsSink, metrics_report, metrics_reset_all};
+pub use snapshot::{StorageReport, storage_report};

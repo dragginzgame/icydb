@@ -17,9 +17,9 @@ use thiserror::Error as ThisError;
 /// Constants
 ///
 
-pub const MAX_ENTITY_NAME_LEN: usize = 64;
-pub const MAX_INDEX_FIELD_NAME_LEN: usize = 64;
-pub const MAX_INDEX_NAME_LEN: usize =
+pub(super) const MAX_ENTITY_NAME_LEN: usize = 64;
+pub(super) const MAX_INDEX_FIELD_NAME_LEN: usize = 64;
+pub(super) const MAX_INDEX_NAME_LEN: usize =
     MAX_ENTITY_NAME_LEN + (MAX_INDEX_FIELDS * (MAX_INDEX_FIELD_NAME_LEN + 1));
 
 ///
@@ -119,6 +119,11 @@ impl EntityName {
     #[must_use]
     pub const fn len(&self) -> usize {
         self.len as usize
+    }
+
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     #[must_use]

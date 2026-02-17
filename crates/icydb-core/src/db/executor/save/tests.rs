@@ -4,16 +4,16 @@ use crate::{
         commit::{ensure_recovered_for_write, init_commit_store_for_tests},
         executor::DeleteExecutor,
         index::IndexStore,
-        query::{Query, ReadConsistency},
+        query::{ReadConsistency, intent::Query},
         store::{DataKey, DataStore, StoreRegistry},
     },
     error::{ErrorClass, ErrorOrigin},
     model::{
         entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel, RelationStrength},
+        field::{FieldKind, FieldModel, RelationStrength},
         index::IndexModel,
     },
-    obs::sink::{metrics_report, metrics_reset_all},
+    obs::{metrics_report, metrics_reset_all},
     test_fixtures::entity_model_from_static,
     test_support::test_memory,
     traits::{
@@ -154,9 +154,9 @@ impl EntityIdentity for TargetEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static TARGET_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
+static TARGET_FIELDS: [FieldModel; 1] = [FieldModel {
     name: "id",
-    kind: EntityFieldKind::Ulid,
+    kind: FieldKind::Ulid,
 }];
 static TARGET_FIELD_NAMES: [&str; 1] = ["id"];
 static TARGET_INDEXES: [&crate::model::index::IndexModel; 0] = [];
@@ -229,18 +229,18 @@ impl EntityIdentity for SourceEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static SOURCE_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static SOURCE_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "target",
-        kind: EntityFieldKind::Relation {
+        kind: FieldKind::Relation {
             target_path: TargetEntity::PATH,
             target_entity_name: TargetEntity::ENTITY_NAME,
             target_store_path: TargetStore::PATH,
-            key_kind: &EntityFieldKind::Ulid,
+            key_kind: &FieldKind::Ulid,
             strength: RelationStrength::Strong,
         },
     },
@@ -315,18 +315,18 @@ impl EntityIdentity for InvalidRelationMetadataEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static INVALID_RELATION_METADATA_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static INVALID_RELATION_METADATA_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "target",
-        kind: EntityFieldKind::Relation {
+        kind: FieldKind::Relation {
             target_path: TargetEntity::PATH,
             target_entity_name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             target_store_path: TargetStore::PATH,
-            key_kind: &EntityFieldKind::Ulid,
+            key_kind: &FieldKind::Ulid,
             strength: RelationStrength::Strong,
         },
     },
@@ -402,21 +402,21 @@ impl EntityIdentity for SourceSetEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static SOURCE_SET_TARGET_KIND: EntityFieldKind = EntityFieldKind::Relation {
+static SOURCE_SET_TARGET_KIND: FieldKind = FieldKind::Relation {
     target_path: TargetEntity::PATH,
     target_entity_name: TargetEntity::ENTITY_NAME,
     target_store_path: TargetStore::PATH,
-    key_kind: &EntityFieldKind::Ulid,
+    key_kind: &FieldKind::Ulid,
     strength: RelationStrength::Strong,
 };
-static SOURCE_SET_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static SOURCE_SET_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "targets",
-        kind: EntityFieldKind::Set(&SOURCE_SET_TARGET_KIND),
+        kind: FieldKind::Set(&SOURCE_SET_TARGET_KIND),
     },
 ];
 static SOURCE_SET_FIELD_NAMES: [&str; 2] = ["id", "targets"];
@@ -489,14 +489,14 @@ impl EntityIdentity for UniqueEmailEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static UNIQUE_EMAIL_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static UNIQUE_EMAIL_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "email",
-        kind: EntityFieldKind::Text,
+        kind: FieldKind::Text,
     },
 ];
 static UNIQUE_EMAIL_FIELD_NAMES: [&str; 2] = ["id", "email"];
@@ -604,14 +604,14 @@ impl EntityIdentity for MismatchedPkEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static MISMATCHED_PK_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static MISMATCHED_PK_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "actual_id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
 ];
 static MISMATCHED_PK_FIELD_NAMES: [&str; 2] = ["id", "actual_id"];
@@ -1397,7 +1397,7 @@ fn batch_lane_metrics_atomic_success_failure_and_non_atomic_partial_are_distinct
 
 #[test]
 fn set_field_encoding_requires_canonical_order_and_uniqueness() {
-    let kind = EntityFieldKind::Set(&EntityFieldKind::Ulid);
+    let kind = FieldKind::Set(&FieldKind::Ulid);
     let lower = Value::Ulid(Ulid::from_u128(1));
     let higher = Value::Ulid(Ulid::from_u128(2));
 
@@ -1429,9 +1429,9 @@ fn set_field_encoding_requires_canonical_order_and_uniqueness() {
 
 #[test]
 fn map_field_encoding_requires_canonical_entry_order() {
-    let kind = EntityFieldKind::Map {
-        key: &EntityFieldKind::Text,
-        value: &EntityFieldKind::Uint,
+    let kind = FieldKind::Map {
+        key: &FieldKind::Text,
+        value: &FieldKind::Uint,
     };
     let unordered = Value::Map(vec![
         (Value::Text("z".to_string()), Value::Uint(9u64)),

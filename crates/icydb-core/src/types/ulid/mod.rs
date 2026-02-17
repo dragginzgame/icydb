@@ -1,5 +1,5 @@
-pub mod fixture;
-pub mod generator;
+pub(crate) mod fixture;
+pub(crate) mod generator;
 
 use crate::{
     traits::{

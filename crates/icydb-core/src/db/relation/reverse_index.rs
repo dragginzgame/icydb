@@ -209,7 +209,7 @@ where
 ///
 /// This derives mechanical index writes/deletes that keep delete-time strong
 /// relation validation O(referrers) instead of O(source rows).
-pub fn prepare_reverse_relation_index_mutations_for_source<S>(
+pub(crate) fn prepare_reverse_relation_index_mutations_for_source<S>(
     db: &Db<S::Canister>,
     old: Option<&S>,
     new: Option<&S>,

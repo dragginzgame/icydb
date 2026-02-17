@@ -61,7 +61,9 @@ impl From<OrderedValueEncodeError> for InternalError {
 
 /// Encode one scalar index component so lexicographic byte order matches
 /// canonical `Value` order for supported primitive variants.
-pub fn encode_canonical_index_component(value: &Value) -> Result<Vec<u8>, OrderedValueEncodeError> {
+pub(crate) fn encode_canonical_index_component(
+    value: &Value,
+) -> Result<Vec<u8>, OrderedValueEncodeError> {
     let mut out = Vec::new();
 
     out.push(value.canonical_tag().to_u8());

@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Validate ORDER BY fields against the schema.
-pub fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
+pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
     for (field, _) in &order.fields {
         let field_type = schema
             .field(field)
@@ -29,13 +29,16 @@ pub fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), Plan
 /// Validate ORDER BY fields for executor-only plans.
 ///
 /// CONTRACT: executor ordering validation matches planner rules.
-pub fn validate_executor_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
+pub(super) fn validate_executor_order(
+    schema: &SchemaInfo,
+    order: &OrderSpec,
+) -> Result<(), PlanError> {
     validate_order(schema, order)
 }
 
 // Ordered plans must include exactly one terminal primary-key field so ordering is total and
 // deterministic across explain, fingerprint, and executor comparison paths.
-pub fn validate_primary_key_tie_break(
+pub(crate) fn validate_primary_key_tie_break(
     model: &EntityModel,
     order: &OrderSpec,
 ) -> Result<(), PlanError> {

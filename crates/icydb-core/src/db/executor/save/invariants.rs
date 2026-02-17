@@ -7,7 +7,7 @@ use crate::{
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    model::field::EntityFieldKind,
+    model::field::FieldKind,
     traits::{EntityKind, EntityValue},
     value::Value,
 };
@@ -170,12 +170,12 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// Enforce deterministic value encodings for collection-like field kinds.
     pub(super) fn validate_deterministic_field_value(
         field_name: &str,
-        kind: &EntityFieldKind,
+        kind: &FieldKind,
         value: &Value,
     ) -> Result<(), InternalError> {
         match kind {
-            EntityFieldKind::Set(_) => Self::validate_set_encoding(field_name, value),
-            EntityFieldKind::Map { .. } => Self::validate_map_encoding(field_name, value),
+            FieldKind::Set(_) => Self::validate_set_encoding(field_name, value),
+            FieldKind::Map { .. } => Self::validate_map_encoding(field_name, value),
             _ => Ok(()),
         }
     }

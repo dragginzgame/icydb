@@ -4,10 +4,9 @@ mod map;
 mod scalar;
 mod set;
 
-pub use crate::patch::merge::{
-    error::MergePatchError,
-    list::merge_vec,
-    map::{merge_btree_map, merge_hash_map},
-    scalar::{merge_atomic, merge_option},
-    set::{merge_btree_set, merge_hash_set},
-};
+pub use error::MergePatchError;
+
+pub(crate) use list::merge_vec;
+pub(crate) use map::{merge_btree_map, merge_hash_map};
+pub(crate) use scalar::{merge_atomic, merge_option};
+pub(crate) use set::{merge_btree_set, merge_hash_set};

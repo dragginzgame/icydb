@@ -1,8 +1,13 @@
 //! Core runtime for IcyDB: entity traits, values, executors, visitors, and
 //! the ergonomics exported via the `prelude`.
+#![warn(unreachable_pub)]
+
 extern crate self as icydb;
+
 #[macro_use]
 pub(crate) mod scalar_registry;
+
+// public exports are one module level down
 pub mod db;
 pub mod error;
 pub mod model;
@@ -20,8 +25,6 @@ pub mod visitor;
 pub(crate) mod test_fixtures;
 #[cfg(test)]
 pub(crate) mod test_support;
-
-pub use error::InternalError;
 
 ///
 /// CONSTANTS

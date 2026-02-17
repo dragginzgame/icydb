@@ -1,6 +1,6 @@
 use crate::{
     db::query::plan::{AccessPlan, AccessPlanProjection, project_access_plan},
-    obs::sink::{self, MetricsEvent, PlanKind, Span},
+    obs::sink::{MetricsEvent, PlanKind, Span, record},
     traits::EntityKind,
     value::Value,
 };
@@ -8,11 +8,11 @@ use std::ops::Bound;
 
 /// Records metrics for the chosen execution plan.
 /// Must be called exactly once per execution.
-pub fn record_plan_metrics<K>(access: &AccessPlan<K>) {
+pub(super) fn record_plan_metrics<K>(access: &AccessPlan<K>) {
     let mut projection = PlanKindProjection;
     let kind = project_access_plan(access, &mut projection);
 
-    sink::record(MetricsEvent::Plan { kind });
+    record(MetricsEvent::Plan { kind });
 }
 
 struct PlanKindProjection;
@@ -68,13 +68,13 @@ impl<K> AccessPlanProjection<K> for PlanKindProjection {
 }
 
 /// Convenience: set span rows from a usize length.
-pub const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: usize) {
+pub(super) const fn set_rows_from_len<E: EntityKind>(span: &mut Span<E>, len: usize) {
     span.set_rows(len as u64);
 }
 
 /// Record per-request rows scanned metrics with saturated diagnostics counts.
-pub fn record_rows_scanned<E: EntityKind>(rows_scanned: usize) {
-    sink::record(MetricsEvent::RowsScanned {
+pub(super) fn record_rows_scanned<E: EntityKind>(rows_scanned: usize) {
+    record(MetricsEvent::RowsScanned {
         entity_path: E::PATH,
         rows_scanned: u64::try_from(rows_scanned).unwrap_or(u64::MAX),
     });

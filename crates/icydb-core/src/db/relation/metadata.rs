@@ -1,5 +1,5 @@
 use crate::{
-    model::field::{EntityFieldKind, RelationStrength},
+    model::field::{FieldKind, RelationStrength},
     traits::EntityKind,
 };
 
@@ -25,32 +25,32 @@ pub(super) struct StrongRelationInfo {
 
 #[expect(clippy::struct_field_names)]
 #[derive(Clone, Copy)]
-pub struct StrongRelationTargetInfo {
+pub(crate) struct StrongRelationTargetInfo {
     pub target_path: &'static str,
     pub target_entity_name: &'static str,
     pub target_store_path: &'static str,
 }
 
 // Resolve a model field-kind into strong relation target metadata (if applicable).
-pub const fn strong_relation_target_from_kind(
-    kind: &EntityFieldKind,
+pub(crate) const fn strong_relation_target_from_kind(
+    kind: &FieldKind,
 ) -> Option<StrongRelationTargetInfo> {
     match kind {
-        EntityFieldKind::Relation {
+        FieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,
             strength: RelationStrength::Strong,
             ..
         }
-        | EntityFieldKind::List(EntityFieldKind::Relation {
+        | FieldKind::List(FieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,
             strength: RelationStrength::Strong,
             ..
         })
-        | EntityFieldKind::Set(EntityFieldKind::Relation {
+        | FieldKind::Set(FieldKind::Relation {
             target_path,
             target_entity_name,
             target_store_path,
@@ -68,7 +68,7 @@ pub const fn strong_relation_target_from_kind(
 // Resolve a model field into strong relation metadata (if applicable).
 const fn strong_relation_from_field(
     field_name: &'static str,
-    kind: &EntityFieldKind,
+    kind: &FieldKind,
 ) -> Option<StrongRelationInfo> {
     let Some(target) = strong_relation_target_from_kind(kind) else {
         return None;

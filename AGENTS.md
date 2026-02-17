@@ -61,6 +61,7 @@ use crate::{
 };
 ```
 * Use nested paths to reflect hierarchy and ownership.
+* Prefer imported symbols over inline fully-qualified `crate::...` paths in code bodies (including tests); bring dependencies into top-level `use` blocks instead.
 
 ### Prohibited (by default)
 

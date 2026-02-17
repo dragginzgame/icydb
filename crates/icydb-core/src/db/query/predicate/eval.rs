@@ -17,7 +17,7 @@ use std::cmp::Ordering;
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum FieldPresence {
+pub(crate) enum FieldPresence {
     /// Field exists and has a value (including `Value::Null`).
     Present(Value),
     /// Field is not present on the row.
@@ -31,7 +31,7 @@ pub enum FieldPresence {
 /// This decouples predicate evaluation from concrete entity types.
 ///
 
-pub trait Row {
+pub(crate) trait Row {
     fn field(&self, name: &str) -> FieldPresence;
 }
 
@@ -70,7 +70,7 @@ fn on_present<R: Row + ?Sized>(row: &R, field: &str, f: impl FnOnce(&Value) -> b
 ///
 #[must_use]
 #[expect(clippy::match_like_matches_macro)]
-pub fn eval<R: Row + ?Sized>(row: &R, predicate: &Predicate) -> bool {
+pub(crate) fn eval<R: Row + ?Sized>(row: &R, predicate: &Predicate) -> bool {
     match predicate {
         Predicate::True => true,
         Predicate::False => false,

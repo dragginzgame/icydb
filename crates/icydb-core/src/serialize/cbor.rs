@@ -17,7 +17,7 @@ where
 /// - Input size is bounded before decode.
 /// - Any panic during decode is caught and reported as a deserialize error.
 /// - No panic escapes this function.
-pub fn deserialize_bounded<T>(bytes: &[u8], max_bytes: usize) -> Result<T, SerializeError>
+pub(super) fn deserialize_bounded<T>(bytes: &[u8], max_bytes: usize) -> Result<T, SerializeError>
 where
     T: DeserializeOwned,
 {
@@ -40,7 +40,7 @@ where
 }
 
 /// Deserialize CBOR bytes into a value using the default size limit.
-pub fn deserialize<T>(bytes: &[u8]) -> Result<T, SerializeError>
+pub(super) fn deserialize<T>(bytes: &[u8]) -> Result<T, SerializeError>
 where
     T: DeserializeOwned,
 {

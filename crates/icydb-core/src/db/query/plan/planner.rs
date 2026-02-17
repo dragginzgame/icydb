@@ -25,7 +25,7 @@ use thiserror::Error as ThisError;
 ///
 
 #[derive(Debug, ThisError)]
-pub(crate) enum PlannerError {
+pub enum PlannerError {
     #[error("{0}")]
     Plan(Box<PlanError>),
 

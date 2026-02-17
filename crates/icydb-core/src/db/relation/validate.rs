@@ -13,7 +13,7 @@ use crate::{
         store::{DataKey, RawDataKey},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    obs::sink::{self, MetricsEvent},
+    obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue, Path},
     value::Value,
 };
@@ -62,7 +62,7 @@ where
 
             // Relation metrics are emitted as operation deltas so sink aggregation
             // always reflects the exact lookup/block operations performed.
-            sink::record(MetricsEvent::RelationValidation {
+            record(MetricsEvent::RelationValidation {
                 entity_path: S::PATH,
                 reverse_lookups: 1,
                 blocked_deletes: 0,
@@ -107,7 +107,7 @@ where
 
                 let source_targets = relation_target_keys_for_source(&source, relation)?;
                 if source_targets.contains(target_raw_key) {
-                    sink::record(MetricsEvent::RelationValidation {
+                    record(MetricsEvent::RelationValidation {
                         entity_path: S::PATH,
                         reverse_lookups: 0,
                         blocked_deletes: 1,

@@ -7,12 +7,13 @@ use crate::{
 /// ValidateVisitor
 /// Walks a tree and applies validation at each node.
 ///
+
 #[derive(Debug, Default)]
-pub struct ValidateVisitor;
+pub(crate) struct ValidateVisitor;
 
 impl ValidateVisitor {
     #[must_use]
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 }

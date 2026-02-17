@@ -1,2 +1,2 @@
 // re-exports
-pub use icydb_core::patch::{ListPatch, MapPatch, SetPatch};
+pub use icydb_core::{ListPatch, MapPatch, SetPatch};

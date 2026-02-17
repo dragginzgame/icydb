@@ -7,7 +7,9 @@
 //! - Diagnostics never execute queries unless explicitly requested.
 //! - Diagnostics are observational only; they are not correctness proofs.
 
-pub use crate::db::executor::trace::{QueryTraceEvent, TraceAccess, TraceExecutorKind, TracePhase};
+pub(crate) use crate::db::executor::trace::{
+    QueryTraceEvent, TraceAccess, TraceExecutorKind, TracePhase,
+};
 use crate::db::query::plan::{ExplainPlan, PlanFingerprint};
 
 ///

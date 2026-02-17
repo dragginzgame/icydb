@@ -28,7 +28,9 @@ use crate::{
             store::{CommitStore, with_commit_store, with_commit_store_infallible},
         },
         decode::decode_entity_with_expected_key,
-        index::{IndexKey, RawIndexEntry, RawIndexKey, plan::plan_index_mutation_for_entity},
+        index::{
+            IndexKey, IndexStore, RawIndexEntry, RawIndexKey, plan::plan_index_mutation_for_entity,
+        },
         relation::prepare_reverse_relation_index_mutations_for_source,
         store::{DataKey, DataStore, RawDataKey, RawRow},
     },
@@ -46,12 +48,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::{cell::RefCell, collections::BTreeMap, thread::LocalKey};
 
-pub use guard::CommitApplyGuard;
-pub use recovery::{ensure_recovered, ensure_recovered_for_write};
+pub(crate) use guard::CommitApplyGuard;
+pub(crate) use recovery::{ensure_recovered, ensure_recovered_for_write};
 
 #[cfg(test)]
 /// Return true if a commit marker is currently persisted.
-pub fn commit_marker_present() -> Result<bool, InternalError> {
+pub(crate) fn commit_marker_present() -> Result<bool, InternalError> {
     store::commit_marker_present()
 }
 
@@ -60,7 +62,7 @@ pub fn commit_marker_present() -> Result<bool, InternalError> {
 ///
 /// This registers a placeholder data-store entry if none exists so the commit
 /// memory allocator can select the correct reserved range.
-pub fn init_commit_store_for_tests() -> Result<(), InternalError> {
+pub(crate) fn init_commit_store_for_tests() -> Result<(), InternalError> {
     // Phase 1: ensure the memory registry has at least one reserved range.
     let init_result = MemoryRegistryRuntime::init(Some(("icydb_test", 1, 200)));
     match init_result {
@@ -151,7 +153,7 @@ const COMMIT_ID_BYTES: usize = 16;
 
 // Conservative upper bound to avoid rejecting valid commits when index entries
 // are large; still small enough to fit typical canister constraints.
-pub const MAX_COMMIT_BYTES: u32 = 16 * 1024 * 1024;
+pub(crate) const MAX_COMMIT_BYTES: u32 = 16 * 1024 * 1024;
 
 ///
 /// CommitRowOp
@@ -162,17 +164,17 @@ pub const MAX_COMMIT_BYTES: u32 = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct CommitRowOp {
-    pub entity_path: String,
-    pub key: Vec<u8>,
-    pub before: Option<Vec<u8>>,
-    pub after: Option<Vec<u8>>,
+pub(crate) struct CommitRowOp {
+    pub(crate) entity_path: String,
+    pub(crate) key: Vec<u8>,
+    pub(crate) before: Option<Vec<u8>>,
+    pub(crate) after: Option<Vec<u8>>,
 }
 
 impl CommitRowOp {
     /// Construct a row-level commit operation.
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         entity_path: impl Into<String>,
         key: Vec<u8>,
         before: Option<Vec<u8>>,
@@ -195,10 +197,10 @@ impl CommitRowOp {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct CommitIndexOp {
-    pub store: String,
-    pub key: Vec<u8>,
-    pub value: Option<Vec<u8>>,
+pub(crate) struct CommitIndexOp {
+    pub(crate) store: String,
+    pub(crate) key: Vec<u8>,
+    pub(crate) value: Option<Vec<u8>>,
 }
 
 ///
@@ -211,14 +213,14 @@ pub struct CommitIndexOp {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct CommitMarker {
-    pub id: [u8; COMMIT_ID_BYTES],
-    pub row_ops: Vec<CommitRowOp>,
+pub(crate) struct CommitMarker {
+    pub(crate) id: [u8; COMMIT_ID_BYTES],
+    pub(crate) row_ops: Vec<CommitRowOp>,
 }
 
 impl CommitMarker {
     /// Construct a new commit marker with a fresh commit id.
-    pub fn new(row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
+    pub(crate) fn new(row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
         let id = Ulid::try_generate()
             .map_err(|err| {
                 InternalError::new(
@@ -241,7 +243,7 @@ impl CommitMarker {
 /// - delete (`before=Some`, `after=None`)
 ///
 /// The empty shape (`before=None`, `after=None`) is corruption.
-pub fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), InternalError> {
+pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), InternalError> {
     // Phase 1: reject row ops that cannot encode any mutation semantics.
     for row_op in &marker.row_ops {
         if row_op.before.is_none() && row_op.after.is_none() {
@@ -263,10 +265,10 @@ pub fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), Interna
 ///
 
 #[derive(Clone)]
-pub struct PreparedIndexMutation {
-    pub store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
-    pub key: RawIndexKey,
-    pub value: Option<RawIndexEntry>,
+pub(crate) struct PreparedIndexMutation {
+    pub(crate) store: &'static LocalKey<RefCell<IndexStore>>,
+    pub(crate) key: RawIndexKey,
+    pub(crate) value: Option<RawIndexEntry>,
 }
 
 ///
@@ -276,20 +278,20 @@ pub struct PreparedIndexMutation {
 ///
 
 #[derive(Clone)]
-pub struct PreparedRowCommitOp {
-    pub index_ops: Vec<PreparedIndexMutation>,
-    pub data_store: &'static LocalKey<RefCell<DataStore>>,
-    pub data_key: RawDataKey,
-    pub data_value: Option<RawRow>,
-    pub index_remove_count: usize,
-    pub index_insert_count: usize,
-    pub reverse_index_remove_count: usize,
-    pub reverse_index_insert_count: usize,
+pub(crate) struct PreparedRowCommitOp {
+    pub(crate) index_ops: Vec<PreparedIndexMutation>,
+    pub(crate) data_store: &'static LocalKey<RefCell<DataStore>>,
+    pub(crate) data_key: RawDataKey,
+    pub(crate) data_value: Option<RawRow>,
+    pub(crate) index_remove_count: usize,
+    pub(crate) index_insert_count: usize,
+    pub(crate) reverse_index_remove_count: usize,
+    pub(crate) reverse_index_insert_count: usize,
 }
 
 impl PreparedRowCommitOp {
     /// Apply the prepared row operation infallibly.
-    pub fn apply(self) {
+    pub(crate) fn apply(self) {
         for index_op in self.index_ops {
             index_op.store.with_borrow_mut(|store| {
                 if let Some(value) = index_op.value {
@@ -314,7 +316,7 @@ impl PreparedRowCommitOp {
 ///
 /// The returned op writes the prior index/data values back when applied.
 #[must_use]
-pub fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
+pub(crate) fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
     let mut index_ops = Vec::with_capacity(op.index_ops.len());
     for index_op in &op.index_ops {
         let existing = index_op.store.with_borrow(|store| store.get(&index_op.key));
@@ -343,7 +345,7 @@ pub fn snapshot_row_rollback(op: &PreparedRowCommitOp) -> PreparedRowCommitOp {
 ///
 /// This is shared by preflight/recovery paths so rollback ordering remains
 /// mechanically consistent across commit-related execution phases.
-pub fn rollback_prepared_row_ops_reverse(ops: Vec<PreparedRowCommitOp>) {
+pub(crate) fn rollback_prepared_row_ops_reverse(ops: Vec<PreparedRowCommitOp>) {
     for op in ops.into_iter().rev() {
         op.apply();
     }
@@ -354,7 +356,7 @@ pub fn rollback_prepared_row_ops_reverse(ops: Vec<PreparedRowCommitOp>) {
 /// This resolves store handles and index/data mutations so commit/recovery
 /// apply can remain mechanical.
 #[expect(clippy::too_many_lines)]
-pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
+pub(crate) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     op: &CommitRowOp,
 ) -> Result<PreparedRowCommitOp, InternalError> {
@@ -515,8 +517,8 @@ pub fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
 ///
 
 #[derive(Clone, Debug)]
-pub struct CommitGuard {
-    pub marker: CommitMarker,
+pub(crate) struct CommitGuard {
+    pub(crate) marker: CommitMarker,
 }
 
 impl CommitGuard {
@@ -528,7 +530,7 @@ impl CommitGuard {
 }
 
 /// Persist a commit marker and open the commit window.
-pub fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
+pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
     with_commit_store(|store| {
         if store.load()?.is_some() {
             return Err(InternalError::new(
@@ -548,7 +550,7 @@ pub fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> 
 /// The apply closure performs mechanical marker application only.
 /// Any in-process rollback guard used by the closure is non-authoritative
 /// transitional cleanup; durable authority remains the commit marker protocol.
-pub fn finish_commit(
+pub(crate) fn finish_commit(
     mut guard: CommitGuard,
     apply: impl FnOnce(&mut CommitGuard) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {

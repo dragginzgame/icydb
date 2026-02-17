@@ -102,7 +102,7 @@ impl Storable for RawCommitMarker {
 /// Stable-cell wrapper for commit marker storage.
 ///
 
-pub struct CommitStore {
+pub(super) struct CommitStore {
     cell: StableCell<RawCommitMarker, VirtualMemory<DefaultMemoryImpl>>,
 }
 

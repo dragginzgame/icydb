@@ -22,7 +22,7 @@ use icydb_core as core;
 ///
 
 pub struct SessionDeleteQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
-    pub(crate) inner: core::db::query::SessionDeleteQuery<'a, C, E>,
+    pub(crate) inner: core::db::SessionDeleteQuery<'a, C, E>,
 }
 
 impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> {

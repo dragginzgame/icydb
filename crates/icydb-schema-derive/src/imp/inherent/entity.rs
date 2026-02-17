@@ -44,8 +44,8 @@ impl Imp<Entity> for InherentTrait {
                 let kind = model_kind_from_value(&field.value);
 
                 quote! {
-                    const #ident: ::icydb::model::field::EntityFieldModel =
-                        ::icydb::model::field::EntityFieldModel {
+                    const #ident: ::icydb::model::field::FieldModel =
+                        ::icydb::model::field::FieldModel {
                             name: #name,
                             kind: #kind,
                         };
@@ -66,7 +66,7 @@ impl Imp<Entity> for InherentTrait {
         let model_ident = format_ident!("__ENTITY_MODEL");
         let model_fields = quote! {
             const #model_fields_ident:
-                [::icydb::model::field::EntityFieldModel; #fields_len] = [
+                [::icydb::model::field::FieldModel; #fields_len] = [
                     #( Self::#model_field_idents ),*
                 ];
         };

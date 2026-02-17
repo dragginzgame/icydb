@@ -8,9 +8,7 @@
 
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
-    types::{
-        Account, AccountEncodeError, Principal, PrincipalEncodeError, Subaccount, Timestamp, Ulid,
-    },
+    types::{Account, Principal, Subaccount, Timestamp, Ulid},
     value::Value,
 };
 use candid::CandidType;
@@ -26,8 +24,8 @@ use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError)]
 pub enum StorageKeyEncodeError {
-    #[error("account encoding failed: {0}")]
-    Account(#[from] AccountEncodeError),
+    #[error("account owner principal exceeds max length: {len} bytes (limit {max})")]
+    AccountOwnerTooLarge { len: usize, max: usize },
 
     #[error("account payload length mismatch: {len} bytes (expected {expected})")]
     AccountLengthMismatch { len: usize, expected: usize },
@@ -35,8 +33,8 @@ pub enum StorageKeyEncodeError {
     #[error("value kind '{kind}' is not storage-key encodable")]
     UnsupportedValueKind { kind: &'static str },
 
-    #[error("principal encoding failed: {0}")]
-    Principal(#[from] PrincipalEncodeError),
+    #[error("principal exceeds max length: {len} bytes (limit {max})")]
+    PrincipalTooLarge { len: usize, max: usize },
 }
 
 impl From<StorageKeyEncodeError> for InternalError {
@@ -207,6 +205,27 @@ impl StorageKey {
         self.tag()
     }
 
+    fn from_account_encode_error(err: crate::types::AccountEncodeError) -> StorageKeyEncodeError {
+        match err {
+            crate::types::AccountEncodeError::OwnerEncode(inner) => {
+                Self::from_principal_encode_error(inner)
+            }
+            crate::types::AccountEncodeError::OwnerTooLarge { len, max } => {
+                StorageKeyEncodeError::AccountOwnerTooLarge { len, max }
+            }
+        }
+    }
+
+    fn from_principal_encode_error(
+        err: crate::types::PrincipalEncodeError,
+    ) -> StorageKeyEncodeError {
+        match err {
+            crate::types::PrincipalEncodeError::TooLarge { len, max } => {
+                StorageKeyEncodeError::PrincipalTooLarge { len, max }
+            }
+        }
+    }
+
     /// Encode this key into its fixed-size on-disk representation.
     pub fn to_bytes(self) -> Result<[u8; Self::STORED_SIZE_USIZE], StorageKeyEncodeError> {
         let mut buf = [0u8; Self::STORED_SIZE_USIZE];
@@ -215,7 +234,7 @@ impl StorageKey {
 
         match self {
             Self::Account(v) => {
-                let bytes = v.to_bytes()?;
+                let bytes = v.to_bytes().map_err(Self::from_account_encode_error)?;
                 if bytes.len() != Self::ACCOUNT_MAX_SIZE {
                     return Err(StorageKeyEncodeError::AccountLengthMismatch {
                         len: bytes.len(),
@@ -233,14 +252,13 @@ impl StorageKey {
                 payload[..Self::TIMESTAMP_SIZE].copy_from_slice(&v.get().to_be_bytes());
             }
             Self::Principal(v) => {
-                let bytes = v.to_bytes()?;
+                let bytes = v.to_bytes().map_err(Self::from_principal_encode_error)?;
                 let len = bytes.len();
-                payload[0] = u8::try_from(len).map_err(|_| {
-                    StorageKeyEncodeError::Principal(PrincipalEncodeError::TooLarge {
+                payload[0] =
+                    u8::try_from(len).map_err(|_| StorageKeyEncodeError::PrincipalTooLarge {
                         len,
                         max: Principal::MAX_LENGTH_IN_BYTES as usize,
-                    })
-                })?;
+                    })?;
                 payload[1..=len].copy_from_slice(&bytes[..len]);
             }
             Self::Subaccount(v) => payload[..Self::SUBACCOUNT_SIZE].copy_from_slice(&v.to_array()),

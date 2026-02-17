@@ -3,28 +3,15 @@
 //! Predicate semantics are defined in `docs/QUERY_PRACTICE.md` and are the
 //! canonical contract for evaluation, coercion, and normalization.
 
-pub mod builder;
+pub(crate) mod builder;
 pub(crate) mod diagnostics;
-pub mod expr;
+pub(crate) mod expr;
 pub(crate) mod intent;
-pub mod plan;
+pub(crate) mod plan;
 pub(crate) mod policy;
-pub mod predicate;
-mod save;
+pub(crate) mod predicate;
+pub(crate) mod save;
 pub(crate) mod session;
-
-pub use builder::*;
-pub use diagnostics::{
-    QueryDiagnostics, QueryExecutionDiagnostics, QueryTraceAccess, QueryTraceEvent,
-    QueryTraceExecutorKind, QueryTracePhase,
-};
-pub use expr::{FilterExpr, SortExpr, SortLowerError};
-pub use intent::{DeleteSpec, IntentError, LoadSpec, Query, QueryError, QueryMode};
-pub(crate) use save::SaveMode;
-pub use session::{
-    delete::SessionDeleteQuery,
-    load::{PagedLoadQuery, SessionLoadQuery},
-};
 
 ///
 /// ReadConsistency

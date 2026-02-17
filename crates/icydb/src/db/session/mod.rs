@@ -8,7 +8,7 @@ use crate::{
         response::{Response, WriteBatchResponse, WriteResponse},
     },
     error::Error,
-    obs::sink::MetricsSink,
+    obs::MetricsSink,
     traits::{CanisterKind, EntityKind, EntityValue, Update, UpdateView},
     types::Id,
 };

@@ -2,7 +2,7 @@ use crate::{
     traits::{AsView, EntityKind, EntityValue, View},
     types::Id,
 };
-use icydb_core::db::response::{
+use icydb_core::db::{
     WriteBatchResponse as CoreWriteBatchResponse, WriteResponse as CoreWriteResponse,
 };
 

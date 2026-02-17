@@ -13,7 +13,7 @@ thread_local! {
 }
 
 /// Generate a ULID using the global monotonic generator.
-pub fn generate() -> Result<Ulid, UlidError> {
+pub(crate) fn generate() -> Result<Ulid, UlidError> {
     GENERATOR.with(|g| g.borrow_mut().generate())
 }
 
@@ -25,14 +25,14 @@ pub fn generate() -> Result<Ulid, UlidError> {
 ///
 
 #[derive(Default)]
-pub struct Generator {
+pub(crate) struct Generator {
     previous: Ulid,
 }
 
 impl Generator {
     // generate
     /// Monotonic ULID generation; increments within the same millisecond.
-    pub fn generate(&mut self) -> Result<Ulid, UlidError> {
+    pub(crate) fn generate(&mut self) -> Result<Ulid, UlidError> {
         let last_ts = self.previous.timestamp_ms();
         let ts = now_millis();
 

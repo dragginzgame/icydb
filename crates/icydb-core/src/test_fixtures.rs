@@ -1,11 +1,11 @@
-use crate::model::{entity::EntityModel, field::EntityFieldModel, index::IndexModel};
+use crate::model::{entity::EntityModel, field::FieldModel, index::IndexModel};
 
 /// Construct a test `EntityModel` from static components.
 pub const fn entity_model_from_static(
     path: &'static str,
     entity_name: &'static str,
-    primary_key: &'static EntityFieldModel,
-    fields: &'static [EntityFieldModel],
+    primary_key: &'static FieldModel,
+    fields: &'static [FieldModel],
     indexes: &'static [&'static IndexModel],
 ) -> EntityModel {
     EntityModel {
@@ -33,7 +33,7 @@ impl InvalidEntityModelBuilder {
     /// Build an invalid test `EntityModel` with default identity and no indexes.
     /// Leaks field storage to satisfy static lifetime requirements.
     ///
-    pub fn from_fields(fields: Vec<EntityFieldModel>, pk_index: usize) -> EntityModel {
+    pub fn from_fields(fields: Vec<FieldModel>, pk_index: usize) -> EntityModel {
         Self::from_fields_and_indexes("test_fixtures::Entity", "TestEntity", fields, pk_index, &[])
     }
 
@@ -46,12 +46,12 @@ impl InvalidEntityModelBuilder {
     pub fn from_fields_and_indexes(
         path: &'static str,
         entity_name: &'static str,
-        fields: Vec<EntityFieldModel>,
+        fields: Vec<FieldModel>,
         pk_index: usize,
         indexes: &'static [&'static IndexModel],
     ) -> EntityModel {
         // Leak the fields to satisfy the static lifetime required by EntityModel.
-        let fields: &'static [EntityFieldModel] = Box::leak(fields.into_boxed_slice());
+        let fields: &'static [FieldModel] = Box::leak(fields.into_boxed_slice());
         let primary_key = &fields[pk_index];
 
         entity_model_from_static(path, entity_name, primary_key, fields, indexes)
@@ -65,8 +65,8 @@ impl InvalidEntityModelBuilder {
     pub const fn from_static(
         path: &'static str,
         entity_name: &'static str,
-        primary_key: &'static EntityFieldModel,
-        fields: &'static [EntityFieldModel],
+        primary_key: &'static FieldModel,
+        fields: &'static [FieldModel],
         indexes: &'static [&'static IndexModel],
     ) -> EntityModel {
         entity_model_from_static(path, entity_name, primary_key, fields, indexes)
@@ -94,11 +94,11 @@ macro_rules! test_entity_schema {
         struct $name;
 
         impl $name {
-            const FIELD_MODELS: [$crate::model::field::EntityFieldModel;
+            const FIELD_MODELS: [$crate::model::field::FieldModel;
                 $crate::test_entity_schema!(@count $( $field_name ),+)
             ] = [
                 $(
-                    $crate::model::field::EntityFieldModel {
+                    $crate::model::field::FieldModel {
                         name: $field_name,
                         kind: $field_kind,
                     },

@@ -7,10 +7,10 @@ use super::{
 };
 use crate::{
     db::query::{
-        FieldRef,
+        builder::field::FieldRef,
         predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
     },
-    model::field::{EntityFieldKind, EntityFieldModel},
+    model::field::{FieldKind, FieldModel},
     test_fixtures::InvalidEntityModelBuilder,
     traits::{EntitySchema, FieldValue},
     types::{
@@ -134,8 +134,8 @@ fn sample_value_for_scalar(scalar: ScalarType) -> Value {
     }
 }
 
-fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
-    EntityFieldModel { name, kind }
+fn field(name: &'static str, kind: FieldKind) -> FieldModel {
+    FieldModel { name, kind }
 }
 
 crate::test_entity_schema! {
@@ -146,11 +146,11 @@ crate::test_entity_schema! {
     primary_key = "id",
     pk_index = 0,
     fields = [
-        ("id", EntityFieldKind::Ulid),
-        ("email", EntityFieldKind::Text),
-        ("age", EntityFieldKind::Uint),
-        ("created_at", EntityFieldKind::Timestamp),
-        ("active", EntityFieldKind::Bool),
+        ("id", FieldKind::Ulid),
+        ("email", FieldKind::Text),
+        ("age", FieldKind::Uint),
+        ("created_at", FieldKind::Timestamp),
+        ("active", FieldKind::Bool),
     ],
     indexes = [],
 }
@@ -163,14 +163,14 @@ crate::test_entity_schema! {
     primary_key = "id",
     pk_index = 0,
     fields = [
-        ("id", EntityFieldKind::Ulid),
-        ("tags", EntityFieldKind::List(&EntityFieldKind::Text)),
-        ("principals", EntityFieldKind::Set(&EntityFieldKind::Principal)),
+        ("id", FieldKind::Ulid),
+        ("tags", FieldKind::List(&FieldKind::Text)),
+        ("principals", FieldKind::Set(&FieldKind::Principal)),
         (
             "attributes",
-            EntityFieldKind::Map {
-                key: &EntityFieldKind::Text,
-                value: &EntityFieldKind::Uint,
+            FieldKind::Map {
+                key: &FieldKind::Text,
+                value: &FieldKind::Uint,
             }
         ),
     ],
@@ -185,14 +185,14 @@ crate::test_entity_schema! {
     primary_key = "id",
     pk_index = 0,
     fields = [
-        ("id", EntityFieldKind::Ulid),
-        ("date", EntityFieldKind::Date),
-        ("int_big", EntityFieldKind::IntBig),
-        ("uint_big", EntityFieldKind::UintBig),
-        ("int_small", EntityFieldKind::Int),
-        ("uint_small", EntityFieldKind::Uint),
-        ("decimal", EntityFieldKind::Decimal),
-        ("e8s", EntityFieldKind::E8s),
+        ("id", FieldKind::Ulid),
+        ("date", FieldKind::Date),
+        ("int_big", FieldKind::IntBig),
+        ("uint_big", FieldKind::UintBig),
+        ("int_small", FieldKind::Int),
+        ("uint_small", FieldKind::Uint),
+        ("decimal", FieldKind::Decimal),
+        ("e8s", FieldKind::E8s),
     ],
     indexes = [],
 }
@@ -228,8 +228,8 @@ fn validate_model_accepts_deterministic_set_predicates() {
 fn validate_model_rejects_non_queryable_fields() {
     let model = InvalidEntityModelBuilder::from_fields(
         vec![
-            field("id", EntityFieldKind::Ulid),
-            field("broken", EntityFieldKind::Structured { queryable: false }),
+            field("id", FieldKind::Ulid),
+            field("broken", FieldKind::Structured { queryable: false }),
         ],
         0,
     );

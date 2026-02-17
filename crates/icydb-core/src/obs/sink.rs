@@ -90,7 +90,7 @@ pub trait MetricsSink {
 /// NoopMetricsSink
 ///
 
-pub struct NoopMetricsSink;
+pub(crate) struct NoopMetricsSink;
 
 impl MetricsSink for NoopMetricsSink {
     fn record(&self, _: MetricsEvent) {}
@@ -100,7 +100,7 @@ impl MetricsSink for NoopMetricsSink {
 /// GlobalMetricsSink
 ///
 
-pub struct GlobalMetricsSink;
+pub(crate) struct GlobalMetricsSink;
 
 impl MetricsSink for GlobalMetricsSink {
     #[expect(clippy::too_many_lines)]
@@ -264,9 +264,9 @@ impl MetricsSink for GlobalMetricsSink {
     }
 }
 
-pub const GLOBAL_METRICS_SINK: GlobalMetricsSink = GlobalMetricsSink;
+pub(crate) const GLOBAL_METRICS_SINK: GlobalMetricsSink = GlobalMetricsSink;
 
-pub fn record(event: MetricsEvent) {
+pub(crate) fn record(event: MetricsEvent) {
     let override_ptr = SINK_OVERRIDE.with(|cell| *cell.borrow());
     if let Some(ptr) = override_ptr {
         // SAFETY:
@@ -302,7 +302,7 @@ pub fn metrics_report(window_start_ms: Option<u64>) -> metrics::EventReport {
 }
 
 /// Reset ephemeral metrics counters.
-pub fn metrics_reset() {
+pub(crate) fn metrics_reset() {
     metrics::reset();
 }
 
@@ -312,7 +312,7 @@ pub fn metrics_reset_all() {
 }
 
 /// Run a closure with a temporary metrics sink override.
-pub fn with_metrics_sink<T>(sink: &dyn MetricsSink, f: impl FnOnce() -> T) -> T {
+pub(crate) fn with_metrics_sink<T>(sink: &dyn MetricsSink, f: impl FnOnce() -> T) -> T {
     struct Guard(Option<*const dyn MetricsSink>);
 
     impl Drop for Guard {

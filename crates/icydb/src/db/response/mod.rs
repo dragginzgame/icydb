@@ -6,7 +6,7 @@ use crate::{
     traits::{EntityKind, View},
     types::Id,
 };
-use icydb_core::db::response::Response as CoreResponse;
+use icydb_core::db::Response as CoreResponse;
 
 // re-exports
 pub use paged::PagedResponse;

@@ -1,5 +1,11 @@
 use crate::{
-    patch::{ListPatch, MapPatch, MergePatchError, SetPatch, merge},
+    patch::{
+        ListPatch, MapPatch, MergePatchError, SetPatch,
+        merge::{
+            merge_atomic, merge_btree_map, merge_btree_set, merge_hash_map, merge_hash_set,
+            merge_option, merge_vec,
+        },
+    },
     traits::Atomic,
 };
 use candid::CandidType;
@@ -236,7 +242,8 @@ where
     type UpdateViewType = Self;
 
     fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
-        merge::merge_atomic(self, patch);
+        merge_atomic(self, patch);
+
         Ok(())
     }
 }
@@ -248,7 +255,7 @@ where
     type UpdateViewType = Option<T::UpdateViewType>;
 
     fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
-        merge::merge_option(self, patch)
+        merge_option(self, patch)
     }
 }
 
@@ -259,7 +266,7 @@ where
     type UpdateViewType = Vec<ListPatch<T::UpdateViewType>>;
 
     fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
-        merge::merge_vec(self, patch)
+        merge_vec(self, patch)
     }
 }
 
@@ -271,7 +278,7 @@ where
     type UpdateViewType = Vec<SetPatch<T::UpdateViewType>>;
 
     fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
-        merge::merge_hash_set(self, patch)
+        merge_hash_set(self, patch)
     }
 }
 
@@ -284,7 +291,7 @@ where
     type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
 
     fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
-        merge::merge_hash_map(self, patch)
+        merge_hash_map(self, patch)
     }
 }
 
@@ -295,7 +302,7 @@ where
     type UpdateViewType = Vec<SetPatch<T::UpdateViewType>>;
 
     fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
-        merge::merge_btree_set(self, patch)
+        merge_btree_set(self, patch)
     }
 }
 
@@ -307,6 +314,6 @@ where
     type UpdateViewType = Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>;
 
     fn merge(&mut self, patch: Self::UpdateViewType) -> Result<(), MergePatchError> {
-        merge::merge_btree_map(self, patch)
+        merge_btree_map(self, patch)
     }
 }

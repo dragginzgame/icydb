@@ -1,7 +1,8 @@
 //! Executor contract for a fully resolved logical plan; must not plan or validate.
 use crate::{
     db::query::{
-        QueryMode, ReadConsistency,
+        ReadConsistency,
+        intent::QueryMode,
         plan::{
             AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec, OrderDirection,
             OrderSpec, PageSpec,
@@ -16,7 +17,7 @@ use crate::{
 use std::cmp::Ordering;
 
 #[cfg(test)]
-use crate::db::query::{LoadSpec, plan::AccessPath};
+use crate::db::query::{intent::LoadSpec, plan::AccessPath};
 
 ///
 /// LogicalPlan
@@ -42,7 +43,7 @@ use crate::db::query::{LoadSpec, plan::AccessPath};
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LogicalPlan<K> {
+pub(crate) struct LogicalPlan<K> {
     /// Load vs delete intent.
     pub(crate) mode: QueryMode,
 
@@ -66,7 +67,7 @@ pub struct LogicalPlan<K> {
 }
 
 /// Row abstraction for applying plan semantics to executor rows.
-pub trait PlanRow<E: EntityKind> {
+pub(crate) trait PlanRow<E: EntityKind> {
     fn entity(&self) -> &E;
 }
 
@@ -89,7 +90,7 @@ impl<E: EntityKind> PlanRow<E> for (Id<E>, E) {
 ///
 
 #[allow(clippy::struct_excessive_bools)]
-pub struct PostAccessStats {
+pub(crate) struct PostAccessStats {
     pub(crate) delete_was_limited: bool,
     pub(crate) rows_after_cursor: usize,
     #[cfg(test)]

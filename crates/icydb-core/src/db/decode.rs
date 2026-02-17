@@ -7,7 +7,13 @@ use crate::{
 ///
 /// Callers provide decode and error-formatting closures so boundary-specific
 /// diagnostics and error classes remain unchanged.
-pub fn decode_entity_with_expected_key<E, DecodeFn, DecodeErr, DecodeErrMap, MismatchErrMap>(
+pub(super) fn decode_entity_with_expected_key<
+    E,
+    DecodeFn,
+    DecodeErr,
+    DecodeErrMap,
+    MismatchErrMap,
+>(
     expected_key: E::Key,
     decode_entity: DecodeFn,
     map_decode_error: DecodeErrMap,

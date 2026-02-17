@@ -10,7 +10,7 @@ use std::ops::Bound;
 /// Shared visitor for projecting `AccessPlan` / `AccessPath` into
 /// diagnostics-specific representations.
 ///
-pub trait AccessPlanProjection<K> {
+pub(crate) trait AccessPlanProjection<K> {
     type Output;
 
     fn by_key(&mut self, key: &K) -> Self::Output;
@@ -38,7 +38,7 @@ pub trait AccessPlanProjection<K> {
 }
 
 /// Project an access plan by exhaustively walking canonical access variants.
-pub fn project_access_plan<K, P>(plan: &AccessPlan<K>, projection: &mut P) -> P::Output
+pub(crate) fn project_access_plan<K, P>(plan: &AccessPlan<K>, projection: &mut P) -> P::Output
 where
     P: AccessPlanProjection<K>,
 {
@@ -84,7 +84,10 @@ where
 }
 
 /// Project an explain access path using the same shared access-shape visitor.
-pub fn project_explain_access_path<P>(access: &ExplainAccessPath, projection: &mut P) -> P::Output
+pub(crate) fn project_explain_access_path<P>(
+    access: &ExplainAccessPath,
+    projection: &mut P,
+) -> P::Output
 where
     P: AccessPlanProjection<Value>,
 {

@@ -27,7 +27,7 @@ pub enum SecondaryOrderPushdownEligibility {
 /// keeps "not applicable" separate from "applicable but rejected".
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum PushdownApplicability {
+pub(crate) enum PushdownApplicability {
     NotApplicable,
     Applicable(SecondaryOrderPushdownEligibility),
 }
@@ -35,7 +35,7 @@ pub enum PushdownApplicability {
 impl PushdownApplicability {
     /// Return true when this applicability state is eligible for secondary-order pushdown.
     #[must_use]
-    pub const fn is_eligible(&self) -> bool {
+    pub(crate) const fn is_eligible(&self) -> bool {
         matches!(
             self,
             Self::Applicable(SecondaryOrderPushdownEligibility::Eligible { .. })
@@ -44,7 +44,7 @@ impl PushdownApplicability {
 
     /// Return a shared surface projection when pushdown applicability is present.
     #[must_use]
-    pub const fn surface_eligibility(&self) -> Option<PushdownSurfaceEligibility<'_>> {
+    pub(crate) const fn surface_eligibility(&self) -> Option<PushdownSurfaceEligibility<'_>> {
         match self {
             Self::NotApplicable => None,
             Self::Applicable(SecondaryOrderPushdownEligibility::Eligible { index, prefix_len }) => {
@@ -128,7 +128,7 @@ pub enum SecondaryOrderPushdownRejection {
 }
 
 /// Evaluate the secondary-index ORDER BY pushdown matrix for one plan.
-pub fn assess_secondary_order_pushdown<K>(
+pub(crate) fn assess_secondary_order_pushdown<K>(
     model: &EntityModel,
     plan: &LogicalPlan<K>,
 ) -> SecondaryOrderPushdownEligibility {
@@ -331,7 +331,7 @@ pub fn assess_secondary_order_pushdown_if_applicable<K>(
 ///
 /// This variant keeps applicability explicit and assumes validated invariants
 /// with debug assertions, while preserving safe fallbacks in release builds.
-pub fn assess_secondary_order_pushdown_if_applicable_validated<K>(
+pub(crate) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
     model: &EntityModel,
     plan: &LogicalPlan<K>,
 ) -> PushdownApplicability {

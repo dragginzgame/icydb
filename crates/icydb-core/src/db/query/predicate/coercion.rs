@@ -84,7 +84,7 @@ impl Default for CoercionSpec {
 /// This exists only to express "any" versus an exact family in the coercion table.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CoercionRuleFamily {
+pub(crate) enum CoercionRuleFamily {
     Any,
     Family(CoercionFamily),
 }
@@ -100,7 +100,7 @@ pub enum CoercionRuleFamily {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CoercionRule {
+pub(crate) struct CoercionRule {
     pub left: CoercionRuleFamily,
     pub right: CoercionRuleFamily,
     pub id: CoercionId,
@@ -109,7 +109,7 @@ pub struct CoercionRule {
 // CoercionFamily is a routing category only.
 // Capability checks (numeric coercion eligibility, etc.) are registry-driven
 // and must be applied before consulting this table.
-pub const COERCION_TABLE: &[CoercionRule] = &[
+pub(crate) const COERCION_TABLE: &[CoercionRule] = &[
     CoercionRule {
         left: CoercionRuleFamily::Any,
         right: CoercionRuleFamily::Any,
@@ -134,7 +134,11 @@ pub const COERCION_TABLE: &[CoercionRule] = &[
 
 /// Returns whether a coercion rule exists for the provided routing families.
 #[must_use]
-pub fn supports_coercion(left: CoercionFamily, right: CoercionFamily, id: CoercionId) -> bool {
+pub(crate) fn supports_coercion(
+    left: CoercionFamily,
+    right: CoercionFamily,
+    id: CoercionId,
+) -> bool {
     COERCION_TABLE.iter().any(|rule| {
         rule.id == id && family_matches(rule.left, left) && family_matches(rule.right, right)
     })
@@ -152,7 +156,7 @@ fn family_matches(rule: CoercionRuleFamily, value: CoercionFamily) -> bool {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TextOp {
+pub(crate) enum TextOp {
     StartsWith,
     EndsWith,
 }
@@ -162,7 +166,7 @@ pub enum TextOp {
 /// Returns `None` if the comparison is not defined for the
 /// given values and coercion.
 #[must_use]
-pub fn compare_eq(left: &Value, right: &Value, coercion: &CoercionSpec) -> Option<bool> {
+pub(crate) fn compare_eq(left: &Value, right: &Value, coercion: &CoercionSpec) -> Option<bool> {
     match coercion.id {
         CoercionId::Strict | CoercionId::CollectionElement => {
             same_variant(left, right).then_some(left == right)
@@ -183,7 +187,11 @@ pub fn compare_eq(left: &Value, right: &Value, coercion: &CoercionSpec) -> Optio
 /// Returns `None` if ordering is undefined for the given
 /// values or coercion.
 #[must_use]
-pub fn compare_order(left: &Value, right: &Value, coercion: &CoercionSpec) -> Option<Ordering> {
+pub(crate) fn compare_order(
+    left: &Value,
+    right: &Value,
+    coercion: &CoercionSpec,
+) -> Option<Ordering> {
     match coercion.id {
         CoercionId::Strict | CoercionId::CollectionElement => {
             if !same_variant(left, right) {
@@ -226,7 +234,7 @@ pub(crate) fn canonical_cmp(left: &Value, right: &Value) -> Ordering {
 /// Only strict and casefold coercions are supported.
 /// Other coercions return `None`.
 #[must_use]
-pub fn compare_text(
+pub(crate) fn compare_text(
     left: &Value,
     right: &Value,
     coercion: &CoercionSpec,

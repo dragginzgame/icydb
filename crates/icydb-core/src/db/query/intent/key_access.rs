@@ -10,7 +10,7 @@ use crate::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum KeyAccess<K> {
+pub(crate) enum KeyAccess<K> {
     Single(K),
     Many(Vec<K>),
 }
@@ -21,7 +21,7 @@ pub enum KeyAccess<K> {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum KeyAccessKind {
+pub(crate) enum KeyAccessKind {
     Single,
     Many,
     Only,
@@ -33,13 +33,13 @@ pub enum KeyAccessKind {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct KeyAccessState<K> {
+pub(crate) struct KeyAccessState<K> {
     pub kind: KeyAccessKind,
     pub access: KeyAccess<K>,
 }
 
 // Build a model-level access plan for key-only intents.
-pub fn access_plan_from_keys_value<K>(access: &KeyAccess<K>) -> AccessPlan<Value>
+pub(crate) fn access_plan_from_keys_value<K>(access: &KeyAccess<K>) -> AccessPlan<Value>
 where
     K: FieldValue,
 {
@@ -60,7 +60,7 @@ where
 }
 
 // Convert model-level access plans into entity-keyed access plans.
-pub fn access_plan_to_entity_keys<E: EntityKind>(
+pub(crate) fn access_plan_to_entity_keys<E: EntityKind>(
     model: &crate::model::entity::EntityModel,
     access: AccessPlan<Value>,
 ) -> Result<AccessPlan<E::Key>, PlanError> {
@@ -86,7 +86,7 @@ pub fn access_plan_to_entity_keys<E: EntityKind>(
 }
 
 // Convert model-level access paths into entity-keyed access paths.
-pub fn access_path_to_entity_keys<E: EntityKind>(
+pub(crate) fn access_path_to_entity_keys<E: EntityKind>(
     model: &crate::model::entity::EntityModel,
     path: AccessPath<Value>,
 ) -> Result<AccessPath<E::Key>, PlanError> {
@@ -122,7 +122,7 @@ pub fn access_path_to_entity_keys<E: EntityKind>(
 }
 
 // Convert model-level key values into typed entity keys.
-pub fn coerce_entity_key<E: EntityKind>(
+pub(crate) fn coerce_entity_key<E: EntityKind>(
     model: &crate::model::entity::EntityModel,
     key: &Value,
 ) -> Result<E::Key, PlanError> {

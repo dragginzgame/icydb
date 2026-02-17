@@ -9,7 +9,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,
-    obs::sink::{self, MetricsEvent},
+    obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue, FieldValue},
 };
 use std::collections::BTreeSet;
@@ -172,7 +172,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         }
     }
 
-    sink::record(MetricsEvent::UniqueViolation {
+    record(MetricsEvent::UniqueViolation {
         entity_path: E::PATH,
     });
 

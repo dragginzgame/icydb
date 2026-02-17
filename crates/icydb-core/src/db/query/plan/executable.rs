@@ -1,6 +1,6 @@
 use crate::{
     db::query::{
-        QueryMode,
+        intent::QueryMode,
         plan::{
             ContinuationSignature, CursorBoundary, ExplainPlan, LogicalPlan, PlanError,
             PlanFingerprint,

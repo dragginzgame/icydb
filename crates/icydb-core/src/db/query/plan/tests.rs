@@ -4,7 +4,7 @@ use crate::{
         plan::planner::plan_access,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo},
     },
-    model::{entity::EntityModel, field::EntityFieldKind, index::IndexModel},
+    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
     traits::EntitySchema,
     types::Ulid,
     value::Value,
@@ -34,8 +34,8 @@ crate::test_entity_schema! {
     primary_key = "id",
     pk_index = 0,
     fields = [
-        ("id", EntityFieldKind::Ulid),
-        ("tag", EntityFieldKind::Text),
+        ("id", FieldKind::Ulid),
+        ("tag", FieldKind::Text),
     ],
     indexes = [&INDEX_MODEL],
 }
@@ -48,10 +48,10 @@ crate::test_entity_schema! {
     primary_key = "id",
     pk_index = 0,
     fields = [
-        ("id", EntityFieldKind::Ulid),
-        ("a", EntityFieldKind::Uint),
-        ("b", EntityFieldKind::Uint),
-        ("c", EntityFieldKind::Uint),
+        ("id", FieldKind::Ulid),
+        ("a", FieldKind::Uint),
+        ("b", FieldKind::Uint),
+        ("c", FieldKind::Uint),
     ],
     indexes = [&RANGE_INDEX_MODEL],
 }

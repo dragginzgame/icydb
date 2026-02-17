@@ -4,7 +4,7 @@ mod tests;
 
 // Key-only access intent and helpers (split out for readability).
 mod key_access;
-pub use key_access::*;
+pub(crate) use key_access::*;
 
 use crate::{
     db::{
@@ -115,7 +115,7 @@ impl DeleteSpec {
 ///
 
 #[derive(Debug)]
-pub struct QueryModel<'m, K> {
+pub(crate) struct QueryModel<'m, K> {
     model: &'m crate::model::entity::EntityModel,
     mode: QueryMode,
     predicate: Option<Predicate>,
@@ -127,7 +127,7 @@ pub struct QueryModel<'m, K> {
 
 impl<'m, K: FieldValue> QueryModel<'m, K> {
     #[must_use]
-    pub const fn new(
+    pub(crate) const fn new(
         model: &'m crate::model::entity::EntityModel,
         consistency: ReadConsistency,
     ) -> Self {
@@ -144,7 +144,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     /// Return the intent mode (load vs delete).
     #[must_use]
-    pub const fn mode(&self) -> QueryMode {
+    pub(crate) const fn mode(&self) -> QueryMode {
         self.mode
     }
 
@@ -163,7 +163,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     /// Add a predicate, implicitly AND-ing with any existing predicate.
     #[must_use]
-    pub fn filter(mut self, predicate: Predicate) -> Self {
+    pub(crate) fn filter(mut self, predicate: Predicate) -> Self {
         self.predicate = match self.predicate.take() {
             Some(existing) => Some(Predicate::And(vec![existing, predicate])),
             None => Some(predicate),
@@ -197,14 +197,14 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     /// Append an ascending sort key.
     #[must_use]
-    pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
+    pub(crate) fn order_by(mut self, field: impl AsRef<str>) -> Self {
         self.order = Some(push_order(self.order, field.as_ref(), OrderDirection::Asc));
         self
     }
 
     /// Append a descending sort key.
     #[must_use]
-    pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
+    pub(crate) fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
         self.order = Some(push_order(self.order, field.as_ref(), OrderDirection::Desc));
         self
     }
@@ -251,7 +251,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     /// Mark this intent as a delete query.
     #[must_use]
-    pub const fn delete(mut self) -> Self {
+    pub(crate) const fn delete(mut self) -> Self {
         if self.mode.is_load() {
             self.mode = QueryMode::Delete(DeleteSpec::new());
         }
@@ -262,7 +262,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     ///
     /// Load limits bound result size; delete limits bound mutation size.
     #[must_use]
-    pub const fn limit(mut self, limit: u32) -> Self {
+    pub(crate) const fn limit(mut self, limit: u32) -> Self {
         match self.mode {
             QueryMode::Load(mut spec) => {
                 spec.limit = Some(limit);
@@ -278,7 +278,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     /// Apply an offset to a load intent.
     #[must_use]
-    pub const fn offset(mut self, offset: u32) -> Self {
+    pub(crate) const fn offset(mut self, offset: u32) -> Self {
         if let QueryMode::Load(mut spec) = self.mode {
             spec.offset = offset;
             self.mode = QueryMode::Load(spec);

@@ -1,15 +1,13 @@
-error[E0603]: struct `LogicalPlan` is private
- --> tests/ui/logical_plan_private.rs:1:34
+error[E0603]: module `query` is private
+ --> tests/ui/logical_plan_private.rs:1:21
   |
 1 | use icydb_core::db::query::plan::LogicalPlan;
-  |                                  ^^^^^^^^^^^ private struct
+  |                     ^^^^^  ---- module `plan` is not publicly re-exported
+  |                     |
+  |                     private module
   |
-note: the struct `LogicalPlan` is defined here
- --> src/db/query/plan/mod.rs
+note: the module `query` is defined here
+ --> src/db/mod.rs
   |
-  | pub(crate) use logical::LogicalPlan;
-  |                ^^^^^^^^^^^^^^^^^^^^
-help: import `LogicalPlan` directly
-  |
-1 | use icydb_core::db::query::plan::logical::LogicalPlan;
-  |                                  +++++++++
+  | pub(crate) mod query;
+  | ^^^^^^^^^^^^^^^^^^^^

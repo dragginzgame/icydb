@@ -3,12 +3,9 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use icydb_core::{
-    self as core,
-    db::query::{
-        QueryError,
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-    },
+use icydb_core::db::{
+    CoercionId, CompareOp, ComparePredicate, FilterExpr as CoreFilterExpr,
+    OrderDirection as CoreOrderDirection, Predicate, QueryError, SortExpr as CoreSortExpr,
 };
 use serde::{Deserialize, Serialize};
 
@@ -152,7 +149,7 @@ impl FilterExpr {
     // ─────────────────────────────────────────────────────────────
 
     #[expect(clippy::too_many_lines)]
-    pub fn lower<E: EntityKind>(&self) -> Result<core::db::query::expr::FilterExpr, QueryError> {
+    pub fn lower<E: EntityKind>(&self) -> Result<CoreFilterExpr, QueryError> {
         let lower_pred =
             |expr: &Self| -> Result<Predicate, QueryError> { Ok(expr.lower::<E>()?.0) };
 
@@ -301,7 +298,7 @@ impl FilterExpr {
             },
         };
 
-        Ok(core::db::query::expr::FilterExpr(pred))
+        Ok(CoreFilterExpr(pred))
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -493,20 +490,20 @@ pub struct SortExpr {
 
 impl SortExpr {
     #[must_use]
-    pub fn lower(&self) -> core::db::query::expr::SortExpr {
+    pub fn lower(&self) -> CoreSortExpr {
         let fields = self
             .fields
             .iter()
             .map(|(field, dir)| {
                 let dir = match dir {
-                    OrderDirection::Asc => core::db::query::plan::OrderDirection::Asc,
-                    OrderDirection::Desc => core::db::query::plan::OrderDirection::Desc,
+                    OrderDirection::Asc => CoreOrderDirection::Asc,
+                    OrderDirection::Desc => CoreOrderDirection::Desc,
                 };
                 (field.clone(), dir)
             })
             .collect();
 
-        core::db::query::expr::SortExpr { fields }
+        CoreSortExpr { fields }
     }
 }
 

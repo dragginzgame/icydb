@@ -1,2 +1,2 @@
-pub mod delete;
-pub mod load;
+pub(crate) mod delete;
+pub(crate) mod load;

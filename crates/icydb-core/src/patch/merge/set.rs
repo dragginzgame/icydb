@@ -103,7 +103,7 @@ where
 }
 
 /// Apply set patch operations for hash sets.
-pub fn merge_hash_set<T, S>(
+pub(crate) fn merge_hash_set<T, S>(
     values: &mut HashSet<T, S>,
     patches: Vec<SetPatch<T::UpdateViewType>>,
 ) -> Result<(), MergePatchError>
@@ -115,7 +115,7 @@ where
 }
 
 /// Apply set patch operations for ordered sets.
-pub fn merge_btree_set<T>(
+pub(crate) fn merge_btree_set<T>(
     values: &mut BTreeSet<T>,
     patches: Vec<SetPatch<T::UpdateViewType>>,
 ) -> Result<(), MergePatchError>

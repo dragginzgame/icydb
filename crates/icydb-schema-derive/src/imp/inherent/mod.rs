@@ -20,9 +20,9 @@ pub struct InherentTrait {}
 
 impl Imp<Enum> for InherentTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
-        let kind = quote!(::icydb::model::field::EntityFieldKind::Enum);
+        let kind = quote!(::icydb::model::field::FieldKind::Enum);
         let tokens = quote! {
-            pub const KIND: ::icydb::model::field::EntityFieldKind = #kind;
+            pub const KIND: ::icydb::model::field::FieldKind = #kind;
         };
 
         Some(TraitStrategy::from_impl(
@@ -41,7 +41,7 @@ impl Imp<Newtype> for InherentTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
         let kind = model_kind_from_item(&node.item);
         let mut tokens = quote! {
-            pub const KIND: ::icydb::model::field::EntityFieldKind = #kind;
+            pub const KIND: ::icydb::model::field::FieldKind = #kind;
         };
 
         if let Some(primitive) = node.primitive
@@ -78,11 +78,11 @@ impl Imp<Newtype> for InherentTrait {
 
 impl Imp<Record> for InherentTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        let kind = quote!(::icydb::model::field::EntityFieldKind::Structured { queryable: false });
+        let kind = quote!(::icydb::model::field::FieldKind::Structured { queryable: false });
         let relation_accessors = relation_accessor_tokens(node.fields.iter());
 
         let tokens = quote! {
-            pub const KIND: ::icydb::model::field::EntityFieldKind = #kind;
+            pub const KIND: ::icydb::model::field::FieldKind = #kind;
             #(#relation_accessors)*
         };
 
@@ -100,9 +100,9 @@ impl Imp<Record> for InherentTrait {
 
 impl Imp<Tuple> for InherentTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
-        let kind = quote!(::icydb::model::field::EntityFieldKind::Structured { queryable: false });
+        let kind = quote!(::icydb::model::field::FieldKind::Structured { queryable: false });
         let tokens = quote! {
-            pub const KIND: ::icydb::model::field::EntityFieldKind = #kind;
+            pub const KIND: ::icydb::model::field::FieldKind = #kind;
         };
 
         let tokens = Implementor::new(node.def(), TraitKind::Inherent)

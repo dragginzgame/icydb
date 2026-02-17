@@ -18,7 +18,7 @@
 //! Field names are entity-scoped. Callers that combine entities must
 //! namespace by entity at the call site.
 
-use crate::model::{field::EntityFieldModel, index::IndexModel};
+use crate::model::{field::FieldModel, index::IndexModel};
 
 ///
 /// EntityModel
@@ -36,10 +36,10 @@ pub struct EntityModel {
     pub entity_name: &'static str,
 
     /// Primary key field (points at an entry in `fields`).
-    pub primary_key: &'static EntityFieldModel,
+    pub primary_key: &'static FieldModel,
 
     /// Ordered field list (authoritative for runtime planning).
-    pub fields: &'static [EntityFieldModel],
+    pub fields: &'static [FieldModel],
 
     /// Index definitions (field order is significant).
     pub indexes: &'static [&'static IndexModel],

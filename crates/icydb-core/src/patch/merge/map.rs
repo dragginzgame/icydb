@@ -255,7 +255,7 @@ where
 }
 
 /// Apply map patch operations for hash maps.
-pub fn merge_hash_map<K, V, S>(
+pub(crate) fn merge_hash_map<K, V, S>(
     values: &mut HashMap<K, V, S>,
     patches: Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>,
 ) -> Result<(), MergePatchError>
@@ -268,7 +268,7 @@ where
 }
 
 /// Apply map patch operations for ordered maps.
-pub fn merge_btree_map<K, V>(
+pub(crate) fn merge_btree_map<K, V>(
     values: &mut BTreeMap<K, V>,
     patches: Vec<MapPatch<K::UpdateViewType, V::UpdateViewType>>,
 ) -> Result<(), MergePatchError>

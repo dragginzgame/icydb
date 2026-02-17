@@ -6,7 +6,8 @@ use super::{
 };
 use crate::{
     db::query::{
-        QueryMode, ReadConsistency,
+        ReadConsistency,
+        intent::QueryMode,
         plan::validate::{
             PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
             SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
@@ -174,14 +175,14 @@ where
 {
     /// Produce a stable, deterministic explanation of this logical plan.
     #[must_use]
-    pub fn explain(&self) -> ExplainPlan {
+    pub(crate) fn explain(&self) -> ExplainPlan {
         self.explain_inner(None)
     }
 
     /// Produce a stable, deterministic explanation of this logical plan
     /// with model-aware pushdown eligibility diagnostics.
     #[must_use]
-    pub fn explain_with_model(&self, model: &EntityModel) -> ExplainPlan {
+    pub(crate) fn explain_with_model(&self, model: &EntityModel) -> ExplainPlan {
         self.explain_inner(Some(model))
     }
 
@@ -414,11 +415,11 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::query::intent::{KeyAccess, access_plan_from_keys_value};
+    use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value};
     use crate::db::query::plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec};
     use crate::db::query::predicate::Predicate;
-    use crate::db::query::{FieldRef, LoadSpec, QueryMode, ReadConsistency};
-    use crate::model::{field::EntityFieldKind, index::IndexModel};
+    use crate::db::query::{ReadConsistency, builder::field::FieldRef};
+    use crate::model::{field::FieldKind, index::IndexModel};
     use crate::traits::EntitySchema;
     use crate::types::Ulid;
     use crate::value::Value;
@@ -439,9 +440,9 @@ mod tests {
         primary_key = "id",
         pk_index = 0,
         fields = [
-            ("id", EntityFieldKind::Ulid),
-            ("tag", EntityFieldKind::Text),
-            ("rank", EntityFieldKind::Int),
+            ("id", FieldKind::Ulid),
+            ("tag", FieldKind::Text),
+            ("rank", FieldKind::Int),
         ],
         indexes = [&PUSHDOWN_INDEX],
     }

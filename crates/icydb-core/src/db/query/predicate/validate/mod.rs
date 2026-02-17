@@ -5,7 +5,8 @@ mod schema;
 mod tests;
 
 pub(crate) use model::literal_matches_type;
+pub(crate) use rules::reject_unsupported_query_features;
+pub(crate) use rules::validate;
 #[cfg(test)]
 pub use rules::validate_model;
-pub use rules::{reject_unsupported_query_features, validate};
 pub use schema::{SchemaInfo, ValidateError};

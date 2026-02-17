@@ -1,6 +1,5 @@
 mod account;
 mod blob;
-mod collection;
 mod date;
 mod decimal;
 mod duration;
@@ -18,7 +17,6 @@ mod unit;
 
 pub use account::*;
 pub use blob::*;
-pub use collection::*;
 pub use date::*;
 pub use decimal::*;
 pub use duration::*;
@@ -34,17 +32,6 @@ pub use timestamp::*;
 pub use ulid::*;
 pub use unit::*;
 
-pub type Bool = bool;
-pub type Int8 = i8;
-pub type Int16 = i16;
-pub type Int32 = i32;
-pub type Int64 = i64;
-pub type Nat8 = u8;
-pub type Nat16 = u16;
-pub type Nat32 = u32;
-pub type Nat64 = u64;
-pub type Text = String;
-
 //
 // TypeView Mapping Overview
 //
@@ -58,3 +45,14 @@ pub type Text = String;
 // - Display for fixed‑point types prints normalized decimal (human‑readable),
 //   not raw atomics.
 // - Ulid serde deserialization fails on invalid strings.
+
+pub type Bool = bool;
+pub type Int8 = i8;
+pub type Int16 = i16;
+pub type Int32 = i32;
+pub type Int64 = i64;
+pub type Nat8 = u8;
+pub type Nat16 = u16;
+pub type Nat32 = u32;
+pub type Nat64 = u64;
+pub type Text = String;

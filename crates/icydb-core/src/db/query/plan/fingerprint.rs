@@ -37,7 +37,7 @@ where
 {
     /// Compute a stable fingerprint for this logical plan.
     #[must_use]
-    pub fn fingerprint(&self) -> PlanFingerprint {
+    pub(crate) fn fingerprint(&self) -> PlanFingerprint {
         self.explain().fingerprint()
     }
 }
@@ -68,10 +68,10 @@ impl ExplainPlan {
 mod tests {
     use std::ops::Bound;
 
-    use crate::db::query::intent::{KeyAccess, access_plan_from_keys_value};
+    use crate::db::query::intent::{DeleteSpec, KeyAccess, LoadSpec, access_plan_from_keys_value};
     use crate::db::query::plan::{AccessPath, DeleteLimitSpec, LogicalPlan};
     use crate::db::query::predicate::Predicate;
-    use crate::db::query::{FieldRef, QueryMode, ReadConsistency};
+    use crate::db::query::{ReadConsistency, builder::field::FieldRef, intent::QueryMode};
     use crate::model::index::IndexModel;
     use crate::types::Ulid;
     use crate::value::Value;
@@ -109,7 +109,7 @@ mod tests {
         let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
 
         let plan_a: LogicalPlan<Value> = LogicalPlan {
-            mode: QueryMode::Load(crate::db::query::LoadSpec::new()),
+            mode: QueryMode::Load(LoadSpec::new()),
             access: access_a,
             predicate: None,
             order: None,
@@ -118,7 +118,7 @@ mod tests {
             consistency: ReadConsistency::MissingOk,
         };
         let plan_b: LogicalPlan<Value> = LogicalPlan {
-            mode: QueryMode::Load(crate::db::query::LoadSpec::new()),
+            mode: QueryMode::Load(LoadSpec::new()),
             access: access_b,
             predicate: None,
             order: None,
@@ -188,8 +188,8 @@ mod tests {
             LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         let mut plan_b: LogicalPlan<Value> =
             LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
-        plan_a.mode = QueryMode::Delete(crate::db::query::DeleteSpec::new());
-        plan_b.mode = QueryMode::Delete(crate::db::query::DeleteSpec::new());
+        plan_a.mode = QueryMode::Delete(DeleteSpec::new());
+        plan_b.mode = QueryMode::Delete(DeleteSpec::new());
         plan_a.delete_limit = Some(DeleteLimitSpec { max_rows: 2 });
         plan_b.delete_limit = Some(DeleteLimitSpec { max_rows: 3 });
 

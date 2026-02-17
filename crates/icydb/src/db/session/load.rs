@@ -19,7 +19,7 @@ use std::{collections::HashMap, hash::Hash};
 ///
 
 pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
-    pub(crate) inner: core::db::query::SessionLoadQuery<'a, C, E>,
+    pub(crate) inner: core::db::SessionLoadQuery<'a, C, E>,
 }
 
 ///
@@ -30,7 +30,7 @@ pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
 ///
 
 pub struct PagedLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
-    pub(crate) inner: core::db::query::PagedLoadQuery<'a, C, E>,
+    pub(crate) inner: core::db::PagedLoadQuery<'a, C, E>,
 }
 
 impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E> {
@@ -164,7 +164,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> PagedLoadQuery<'_, C, E> {
 
         Ok(PagedResponse {
             items: items.views(),
-            next_cursor: next_cursor.map(|bytes| core::db::cursor::encode_cursor(&bytes)),
+            next_cursor: next_cursor.map(|bytes| core::db::encode_cursor(&bytes)),
         })
     }
 }

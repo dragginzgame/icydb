@@ -1,6 +1,8 @@
 use crate::{
     traits::Visitable,
-    visitor::{PathSegment, SanitizeVisitor, VisitorError, VisitorMutAdapter, perform_visit_mut},
+    visitor::{
+        PathSegment, VisitorError, VisitorMutAdapter, perform_visit_mut, sanitize::SanitizeVisitor,
+    },
 };
 
 ///

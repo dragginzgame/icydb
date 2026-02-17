@@ -15,7 +15,7 @@ use crate::db::query::predicate::validate::{
 };
 
 /// Reject policy-level non-queryable features before planning.
-pub fn reject_unsupported_query_features(
+pub(crate) fn reject_unsupported_query_features(
     predicate: &Predicate,
 ) -> Result<(), UnsupportedQueryFeature> {
     match predicate {
@@ -40,7 +40,7 @@ pub fn reject_unsupported_query_features(
 }
 
 /// Validates a predicate against the provided schema information.
-pub fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), ValidateError> {
+pub(crate) fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), ValidateError> {
     reject_unsupported_query_features(predicate)?;
 
     match predicate {
@@ -295,7 +295,7 @@ fn ensure_scalar_literal(field: &str, value: &Value) -> Result<(), ValidateError
     Ok(())
 }
 
-pub fn ensure_coercion(
+pub(super) fn ensure_coercion(
     field: &str,
     field_type: &FieldType,
     literal: &Value,

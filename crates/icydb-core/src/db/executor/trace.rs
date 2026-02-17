@@ -18,7 +18,7 @@ use std::ops::Bound;
 /// QueryTraceSink
 ///
 
-pub trait QueryTraceSink: Send + Sync {
+pub(crate) trait QueryTraceSink: Send + Sync {
     fn on_event(&self, event: QueryTraceEvent);
 }
 
@@ -172,7 +172,7 @@ pub enum QueryTraceEvent {
 /// TraceScope
 ///
 
-pub struct TraceScope {
+pub(crate) struct TraceScope {
     sink: &'static dyn QueryTraceSink,
     fingerprint: PlanFingerprint,
     executor: TraceExecutorKind,
@@ -238,7 +238,7 @@ impl TraceScope {
     }
 }
 
-pub fn start_plan_trace<E: EntityKind>(
+pub(crate) fn start_plan_trace<E: EntityKind>(
     sink: Option<&'static dyn QueryTraceSink>,
     executor: TraceExecutorKind,
     plan: &ExecutablePlan<E>,
@@ -249,7 +249,7 @@ pub fn start_plan_trace<E: EntityKind>(
     Some(TraceScope::new(sink, fingerprint, executor, access))
 }
 
-pub fn start_exec_trace(
+pub(crate) fn start_exec_trace(
     sink: Option<&'static dyn QueryTraceSink>,
     executor: TraceExecutorKind,
     entity_path: &'static str,
@@ -263,12 +263,12 @@ pub fn start_exec_trace(
 
 /// Convert a `usize` count to `u64` with saturation.
 #[must_use]
-pub fn saturating_rows(value: usize) -> u64 {
+pub(crate) fn saturating_rows(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }
 
 /// Emit canonical access/post-access trace phases with saturated row counts.
-pub fn emit_access_post_access_phases(
+pub(crate) fn emit_access_post_access_phases(
     trace: Option<&TraceScope>,
     access_rows: usize,
     post_access_rows: usize,
@@ -282,7 +282,7 @@ pub fn emit_access_post_access_phases(
 }
 
 /// Finish or error a trace scope from an executor result.
-pub fn finish_trace_from_result<T>(
+pub(crate) fn finish_trace_from_result<T>(
     trace: Option<TraceScope>,
     result: &Result<T, InternalError>,
     ok_rows: impl Fn(&T) -> usize,

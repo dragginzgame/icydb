@@ -8,12 +8,14 @@ use super::{
 };
 use crate::{
     db::query::{
+        ReadConsistency,
+        intent::{LoadSpec, QueryMode},
         plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec},
         predicate::{SchemaInfo, ValidateError},
     },
     model::{
         entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel},
+        field::{FieldKind, FieldModel},
         index::IndexModel,
     },
     test_fixtures::InvalidEntityModelBuilder,
@@ -23,8 +25,8 @@ use crate::{
 };
 use std::ops::Bound;
 
-fn field(name: &'static str, kind: EntityFieldKind) -> EntityFieldModel {
-    EntityFieldModel { name, kind }
+fn field(name: &'static str, kind: FieldKind) -> FieldModel {
+    FieldModel { name, kind }
 }
 
 const INDEX_FIELDS: [&str; 1] = ["tag"];
@@ -39,9 +41,9 @@ crate::test_entity_schema! {
     primary_key = "id",
     pk_index = 0,
     fields = [
-        ("id", EntityFieldKind::Ulid),
-        ("tag", EntityFieldKind::Text),
-        ("rank", EntityFieldKind::Int),
+        ("id", FieldKind::Ulid),
+        ("tag", FieldKind::Text),
+        ("rank", FieldKind::Int),
     ],
     indexes = [&INDEX_MODEL],
 }
@@ -54,8 +56,8 @@ crate::test_entity_schema! {
     primary_key = "id",
     pk_index = 0,
     fields = [
-        ("id", EntityFieldKind::Ulid),
-        ("tags", EntityFieldKind::List(&EntityFieldKind::Text)),
+        ("id", FieldKind::Ulid),
+        ("tags", FieldKind::List(&FieldKind::Text)),
     ],
     indexes = [],
 }
@@ -67,13 +69,13 @@ fn model_with_index() -> &'static EntityModel {
 
 fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> LogicalPlan<Value> {
     LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        mode: QueryMode::Load(LoadSpec::new()),
         access,
         predicate: None,
         order,
         delete_limit: None,
         page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
+        consistency: ReadConsistency::MissingOk,
     }
 }
 
@@ -131,9 +133,9 @@ fn load_index_range_plan(
 fn model_rejects_missing_primary_key() {
     // Invalid test scaffolding: models are hand-built to exercise
     // validation failures that helpers intentionally prevent.
-    let fields: &'static [EntityFieldModel] =
-        Box::leak(vec![field("id", EntityFieldKind::Ulid)].into_boxed_slice());
-    let missing_pk = Box::leak(Box::new(field("missing", EntityFieldKind::Ulid)));
+    let fields: &'static [FieldModel] =
+        Box::leak(vec![field("id", FieldKind::Ulid)].into_boxed_slice());
+    let missing_pk = Box::leak(Box::new(field("missing", FieldKind::Ulid)));
 
     let model = InvalidEntityModelBuilder::from_static(
         "test::Entity",
@@ -152,10 +154,7 @@ fn model_rejects_missing_primary_key() {
 #[test]
 fn model_rejects_duplicate_fields() {
     let model = InvalidEntityModelBuilder::from_fields(
-        vec![
-            field("dup", EntityFieldKind::Text),
-            field("dup", EntityFieldKind::Text),
-        ],
+        vec![field("dup", FieldKind::Text), field("dup", FieldKind::Text)],
         0,
     );
 
@@ -168,7 +167,7 @@ fn model_rejects_duplicate_fields() {
 #[test]
 fn model_rejects_invalid_primary_key_type() {
     let model = InvalidEntityModelBuilder::from_fields(
-        vec![field("pk", EntityFieldKind::List(&EntityFieldKind::Text))],
+        vec![field("pk", FieldKind::List(&FieldKind::Text))],
         0,
     );
 
@@ -189,8 +188,8 @@ fn model_rejects_index_unknown_field() {
     );
     const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
 
-    let fields: &'static [EntityFieldModel] =
-        Box::leak(vec![field("id", EntityFieldKind::Ulid)].into_boxed_slice());
+    let fields: &'static [FieldModel] =
+        Box::leak(vec![field("id", FieldKind::Ulid)].into_boxed_slice());
     let model = InvalidEntityModelBuilder::from_static(
         "test::Entity",
         "TestEntity",
@@ -212,10 +211,10 @@ fn model_rejects_index_non_queryable_field() {
         IndexModel::new("test::idx_broken", "test::IndexStore", &INDEX_FIELDS, false);
     const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
 
-    let fields: &'static [EntityFieldModel] = Box::leak(
+    let fields: &'static [FieldModel] = Box::leak(
         vec![
-            field("id", EntityFieldKind::Ulid),
-            field("broken", EntityFieldKind::Structured { queryable: false }),
+            field("id", FieldKind::Ulid),
+            field("broken", FieldKind::Structured { queryable: false }),
         ]
         .into_boxed_slice(),
     );
@@ -244,14 +243,14 @@ fn model_rejects_index_map_field_in_0_7_x() {
     );
     const INDEXES: [&IndexModel; 1] = [&INDEX_MODEL];
 
-    let fields: &'static [EntityFieldModel] = Box::leak(
+    let fields: &'static [FieldModel] = Box::leak(
         vec![
-            field("id", EntityFieldKind::Ulid),
+            field("id", FieldKind::Ulid),
             field(
                 "attributes",
-                EntityFieldKind::Map {
-                    key: &EntityFieldKind::Text,
-                    value: &EntityFieldKind::Uint,
+                FieldKind::Map {
+                    key: &FieldKind::Text,
+                    value: &FieldKind::Uint,
                 },
             ),
         ]
@@ -289,10 +288,10 @@ fn model_rejects_duplicate_index_names() {
     );
     const INDEXES: [&IndexModel; 2] = [&INDEX_A, &INDEX_B];
 
-    let fields: &'static [EntityFieldModel] = Box::leak(
+    let fields: &'static [FieldModel] = Box::leak(
         vec![
-            field("id", EntityFieldKind::Ulid),
-            field("other", EntityFieldKind::Text),
+            field("id", FieldKind::Ulid),
+            field("other", FieldKind::Text),
         ]
         .into_boxed_slice(),
     );
@@ -316,7 +315,7 @@ fn plan_rejects_unorderable_field() {
 
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        mode: QueryMode::Load(LoadSpec::new()),
         access: AccessPlan::path(AccessPath::FullScan),
         predicate: None,
         order: Some(OrderSpec {
@@ -336,7 +335,7 @@ fn plan_rejects_index_prefix_too_long() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        mode: QueryMode::Load(LoadSpec::new()),
         access: AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
             values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
@@ -358,7 +357,7 @@ fn plan_rejects_empty_index_prefix() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        mode: QueryMode::Load(LoadSpec::new()),
         access: AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
             values: vec![],
@@ -379,7 +378,7 @@ fn plan_accepts_model_based_validation() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        mode: QueryMode::Load(LoadSpec::new()),
         access: AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::nil()))),
         predicate: None,
         order: None,
@@ -396,7 +395,7 @@ fn plan_rejects_unordered_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        mode: QueryMode::Load(LoadSpec::new()),
         access: AccessPlan::path(AccessPath::FullScan),
         predicate: None,
         order: None,
@@ -418,7 +417,7 @@ fn plan_accepts_ordered_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        mode: QueryMode::Load(LoadSpec::new()),
         access: AccessPlan::path(AccessPath::FullScan),
         predicate: None,
         order: Some(OrderSpec {
@@ -440,7 +439,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
     let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
+        mode: QueryMode::Load(LoadSpec::new()),
         access: AccessPlan::path(AccessPath::FullScan),
         predicate: None,
         order: Some(OrderSpec {

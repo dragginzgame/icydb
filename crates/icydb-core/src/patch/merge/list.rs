@@ -4,7 +4,7 @@ use crate::{
 };
 
 /// Apply ordered list patch operations in sequence.
-pub fn merge_vec<T>(
+pub(crate) fn merge_vec<T>(
     values: &mut Vec<T>,
     patches: Vec<ListPatch<T::UpdateViewType>>,
 ) -> Result<(), MergePatchError>

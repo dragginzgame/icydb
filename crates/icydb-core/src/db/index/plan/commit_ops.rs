@@ -1,9 +1,10 @@
 use crate::{
     db::{
-        CommitIndexOp,
+        commit::CommitIndexOp,
         index::{IndexEntry, IndexEntryEncodeError, IndexKey, RawIndexEntry, RawIndexKey},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
+    model::index::IndexModel,
     traits::{EntityKind, Storable},
 };
 use std::collections::BTreeMap;
@@ -19,7 +20,7 @@ use std::collections::BTreeMap;
 #[expect(clippy::too_many_arguments)]
 pub(super) fn build_commit_ops_for_index<E: EntityKind>(
     commit_ops: &mut Vec<CommitIndexOp>,
-    index: &'static crate::model::index::IndexModel,
+    index: &'static IndexModel,
     old_key: Option<IndexKey>,
     new_key: Option<IndexKey>,
     old_entry: Option<IndexEntry<E>>,

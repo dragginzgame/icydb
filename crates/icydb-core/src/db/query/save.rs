@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 ///
 
 #[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Display, Serialize)]
-pub enum SaveMode {
+pub(crate) enum SaveMode {
     #[default]
     Insert,
     Replace,

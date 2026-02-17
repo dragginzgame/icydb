@@ -14,9 +14,9 @@ impl Imp<List> for InherentTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
         let item_kind = model_kind_from_item(&node.item);
-        let kind = quote!(::icydb::model::field::EntityFieldKind::List(&#item_kind));
+        let kind = quote!(::icydb::model::field::FieldKind::List(&#item_kind));
         let tokens = quote! {
-            pub const KIND: ::icydb::model::field::EntityFieldKind = #kind;
+            pub const KIND: ::icydb::model::field::FieldKind = #kind;
 
             /// Appends an item to the list.
             pub fn push(&mut self, value: #item) {
@@ -65,9 +65,9 @@ impl Imp<Set> for InherentTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
         let item_kind = model_kind_from_item(&node.item);
-        let kind = quote!(::icydb::model::field::EntityFieldKind::Set(&#item_kind));
+        let kind = quote!(::icydb::model::field::FieldKind::Set(&#item_kind));
         let tokens = quote! {
-            pub const KIND: ::icydb::model::field::EntityFieldKind = #kind;
+            pub const KIND: ::icydb::model::field::FieldKind = #kind;
 
             /// Inserts a value into the set. Returns true if it was newly inserted.
             pub fn insert(&mut self, value: #item) -> bool {
@@ -104,14 +104,14 @@ impl Imp<Map> for InherentTrait {
         let key = node.key.type_expr();
         let value = node.value.type_expr();
         let kind = quote! {
-            ::icydb::model::field::EntityFieldKind::Map {
+            ::icydb::model::field::FieldKind::Map {
                 key: &#key_kind,
                 value: &#value_kind,
             }
         };
 
         let tokens = quote! {
-            pub const KIND: ::icydb::model::field::EntityFieldKind = #kind;
+            pub const KIND: ::icydb::model::field::FieldKind = #kind;
 
             /// Returns a reference to the value for `key`, if present.
             pub fn get(&self, key: &#key) -> Option<&#value> {

@@ -165,7 +165,7 @@ fn validate_access_path_with<K>(
 /// Validate executor-visible access paths.
 ///
 /// This ensures keys, ranges, and index prefixes are schema-compatible.
-pub fn validate_access_plan<K>(
+pub(crate) fn validate_access_plan<K>(
     schema: &SchemaInfo,
     model: &EntityModel,
     access: &AccessPlan<K>,
@@ -177,7 +177,7 @@ where
 }
 
 /// Validate access paths that carry model-level key values.
-pub fn validate_access_plan_model(
+pub(crate) fn validate_access_plan_model(
     schema: &SchemaInfo,
     model: &EntityModel,
     access: &AccessPlan<Value>,

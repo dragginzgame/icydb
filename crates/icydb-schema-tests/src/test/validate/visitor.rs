@@ -151,7 +151,7 @@ pub struct VisitorLengthOuter {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb::__internal::core::validate::validate;
+    use icydb::__internal::core::validate;
 
     #[test]
     fn validate_tracks_paths_for_nested_structures() {

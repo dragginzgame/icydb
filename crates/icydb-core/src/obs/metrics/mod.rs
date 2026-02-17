@@ -119,17 +119,17 @@ pub(crate) fn with_state_mut<R>(f: impl FnOnce(&mut EventState) -> R) -> R {
 }
 
 /// Reset all counters (useful in tests).
-pub fn reset() {
+pub(super) fn reset() {
     with_state_mut(|m| *m = EventState::default());
 }
 
 /// Reset all event state: counters, perf, and serialize counters.
-pub fn reset_all() {
+pub(crate) fn reset_all() {
     reset();
 }
 
 /// Accumulate instruction counts and track a max.
-pub fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64) {
+pub(super) fn add_instructions(total: &mut u128, max: &mut u64, delta_inst: u64) {
     *total = total.saturating_add(u128::from(delta_inst));
     if delta_inst > *max {
         *max = delta_inst;
@@ -175,7 +175,7 @@ pub struct EntitySummary {
 
 /// Build a metrics report by inspecting in-memory counters only.
 #[must_use]
-pub fn report() -> EventReport {
+pub(crate) fn report() -> EventReport {
     report_window_start(None)
 }
 
@@ -190,7 +190,7 @@ pub fn report() -> EventReport {
 /// sub-window report after `state.window_start_ms`.
 #[must_use]
 #[expect(clippy::cast_precision_loss)]
-pub fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
+pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
     let snap = with_state(Clone::clone);
     if let Some(requested_window_start_ms) = window_start_ms
         && requested_window_start_ms > snap.window_start_ms

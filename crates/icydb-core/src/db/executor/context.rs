@@ -19,7 +19,7 @@ use std::{collections::BTreeSet, marker::PhantomData, ops::Bound};
 /// Context
 ///
 
-pub struct Context<'a, E: EntityKind + EntityValue> {
+pub(crate) struct Context<'a, E: EntityKind + EntityValue> {
     pub db: &'a Db<E::Canister>,
     _marker: PhantomData<E>,
 }
@@ -29,7 +29,7 @@ where
     E: EntityKind + EntityValue,
 {
     #[must_use]
-    pub const fn new(db: &'a Db<E::Canister>) -> Self {
+    pub(crate) const fn new(db: &'a Db<E::Canister>) -> Self {
         Self {
             db,
             _marker: PhantomData,
@@ -40,7 +40,10 @@ where
     // Store access
     // ------------------------------------------------------------------
 
-    pub fn with_store<R>(&self, f: impl FnOnce(&DataStore) -> R) -> Result<R, InternalError> {
+    pub(crate) fn with_store<R>(
+        &self,
+        f: impl FnOnce(&DataStore) -> R,
+    ) -> Result<R, InternalError> {
         self.db.with_store_registry(|reg| {
             reg.try_get_store(E::Store::PATH)
                 .map(|store| store.with_data(f))
@@ -51,7 +54,7 @@ where
     // Row reads
     // ------------------------------------------------------------------
 
-    pub fn read(&self, key: &DataKey) -> Result<RawRow, InternalError> {
+    pub(crate) fn read(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
             let raw = key.to_raw()?;
             s.get(&raw)
@@ -59,7 +62,7 @@ where
         })?
     }
 
-    pub fn read_strict(&self, key: &DataKey) -> Result<RawRow, InternalError> {
+    pub(crate) fn read_strict(&self, key: &DataKey) -> Result<RawRow, InternalError> {
         self.with_store(|s| {
             let raw = key.to_raw()?;
             s.get(&raw).ok_or_else(|| {
@@ -314,7 +317,7 @@ where
             .map_err(|err| ExecutorError::corruption(ErrorOrigin::Store, err.to_string()).into())
     }
 
-    pub fn deserialize_rows(rows: Vec<DataRow>) -> Result<Vec<(Id<E>, E)>, InternalError>
+    pub(crate) fn deserialize_rows(rows: Vec<DataRow>) -> Result<Vec<(Id<E>, E)>, InternalError>
     where
         E: EntityKind + EntityValue,
     {

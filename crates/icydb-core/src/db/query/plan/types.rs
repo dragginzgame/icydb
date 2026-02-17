@@ -10,7 +10,7 @@ use std::ops::Bound;
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AccessPlan<K> {
+pub(crate) enum AccessPlan<K> {
     Path(Box<AccessPath<K>>),
     Union(Vec<Self>),
     Intersection(Vec<Self>),
@@ -19,19 +19,19 @@ pub enum AccessPlan<K> {
 impl<K> AccessPlan<K> {
     /// Construct a plan from one concrete access path.
     #[must_use]
-    pub fn path(path: AccessPath<K>) -> Self {
+    pub(crate) fn path(path: AccessPath<K>) -> Self {
         Self::Path(Box::new(path))
     }
 
     /// Construct a plan that forces a full scan.
     #[must_use]
-    pub fn full_scan() -> Self {
+    pub(crate) fn full_scan() -> Self {
         Self::path(AccessPath::FullScan)
     }
 
     /// Borrow the concrete path when this plan is a single-path node.
     #[must_use]
-    pub fn as_path(&self) -> Option<&AccessPath<K>> {
+    pub(crate) fn as_path(&self) -> Option<&AccessPath<K>> {
         match self {
             Self::Path(path) => Some(path.as_ref()),
             Self::Union(_) | Self::Intersection(_) => None,
@@ -51,7 +51,7 @@ impl<K> From<AccessPath<K>> for AccessPlan<K> {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AccessPath<K> {
+pub(crate) enum AccessPath<K> {
     /// Direct lookup by a single primary key.
     ByKey(K),
 
@@ -122,7 +122,7 @@ pub struct OrderSpec {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DeleteLimitSpec {
+pub(crate) struct DeleteLimitSpec {
     pub max_rows: u32,
 }
 
@@ -132,7 +132,7 @@ pub struct DeleteLimitSpec {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PageSpec {
+pub(crate) struct PageSpec {
     pub limit: Option<u32>,
     pub offset: u32,
 }
@@ -143,7 +143,7 @@ pub struct PageSpec {
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub enum CursorBoundarySlot {
+pub(crate) enum CursorBoundarySlot {
     Missing,
     Present(Value),
 }
@@ -154,6 +154,6 @@ pub enum CursorBoundarySlot {
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct CursorBoundary {
+pub(crate) struct CursorBoundary {
     pub(crate) slots: Vec<CursorBoundarySlot>,
 }

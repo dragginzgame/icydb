@@ -70,7 +70,26 @@ pub use icydb_schema_derive as macros;
 
 // core modules
 #[doc(hidden)]
-pub use icydb_core::{model, obs, types, value, visitor};
+pub use icydb_core::{types, value};
+
+#[doc(hidden)]
+pub mod model {
+    pub use icydb_core::model::{EntityModel, FieldModel, IndexModel};
+}
+
+#[doc(hidden)]
+pub mod obs {
+    pub use icydb_core::obs::{
+        EventReport, MetricsSink, StorageReport, metrics_report, metrics_reset_all, storage_report,
+    };
+}
+
+pub mod visitor {
+    pub use icydb_core::{
+        Issue, PathSegment, ScopedContext, VisitorContext, VisitorCore, VisitorError,
+        VisitorIssues, VisitorMutCore, perform_visit, perform_visit_mut,
+    };
+}
 
 // facade modules
 pub mod base;
@@ -91,11 +110,8 @@ pub mod __internal {
 #[doc(hidden)]
 pub mod __macro {
     pub use icydb_core::db::{
-        Db, EntityRuntimeHooks,
-        index::IndexStore,
-        prepare_row_commit_for_entity,
-        store::{DataStore, StoreRegistry},
-        validate_delete_strong_relations_for_source,
+        DataStore, Db, EntityRuntimeHooks, IndexStore, StoreRegistry,
+        prepare_row_commit_for_entity, validate_delete_strong_relations_for_source,
     };
 }
 
@@ -171,7 +187,7 @@ pub mod design {
 ///
 /// -------------------------- CODE -----------------------------------
 ///
-use icydb_core::{error::InternalError, traits::Visitable};
+use icydb_core::{InternalError, traits::Visitable};
 use serde::{Serialize, de::DeserializeOwned};
 
 ///
@@ -209,14 +225,14 @@ macro_rules! db {
 
 /// Run sanitization over a mutable visitable tree.
 pub fn sanitize(node: &mut dyn Visitable) -> Result<(), Error> {
-    icydb_core::sanitize::sanitize(node)
+    icydb_core::sanitize(node)
         .map_err(InternalError::from)
         .map_err(Error::from)
 }
 
 /// Validate a visitable tree, collecting issues by path.
 pub fn validate(node: &dyn Visitable) -> Result<(), Error> {
-    icydb_core::validate::validate(node)
+    icydb_core::validate(node)
         .map_err(InternalError::from)
         .map_err(Error::from)
 }
@@ -229,7 +245,7 @@ pub fn serialize<T>(ty: &T) -> Result<Vec<u8>, Error>
 where
     T: Serialize,
 {
-    icydb_core::serialize::serialize(ty)
+    icydb_core::serialize(ty)
         .map_err(InternalError::from)
         .map_err(Error::from)
 }
@@ -242,7 +258,7 @@ pub fn deserialize<T>(bytes: &[u8]) -> Result<T, Error>
 where
     T: DeserializeOwned,
 {
-    icydb_core::serialize::deserialize(bytes)
+    icydb_core::deserialize(bytes)
         .map_err(InternalError::from)
         .map_err(Error::from)
 }

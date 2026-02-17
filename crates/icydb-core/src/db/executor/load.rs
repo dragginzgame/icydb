@@ -34,7 +34,7 @@ use std::{marker::PhantomData, ops::Bound};
 ///
 
 #[derive(Debug)]
-pub struct CursorPage<E: EntityKind> {
+pub(crate) struct CursorPage<E: EntityKind> {
     pub(crate) items: Response<E>,
 
     pub(crate) next_cursor: Option<Vec<u8>>,
@@ -64,7 +64,7 @@ struct PkStreamScanResult<E: EntityKind> {
 ///
 
 #[derive(Clone)]
-pub struct LoadExecutor<E: EntityKind> {
+pub(crate) struct LoadExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
     trace: Option<&'static dyn QueryTraceSink>,
@@ -76,7 +76,7 @@ where
     E: EntityKind + EntityValue,
 {
     #[must_use]
-    pub const fn new(db: Db<E::Canister>, debug: bool) -> Self {
+    pub(crate) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
         Self {
             db,
             debug,
@@ -97,7 +97,7 @@ where
         }
     }
 
-    pub fn execute(&self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
+    pub(crate) fn execute(&self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
         self.execute_paged(plan, None).map(|page| page.items)
     }
 

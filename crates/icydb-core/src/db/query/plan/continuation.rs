@@ -355,7 +355,10 @@ where
     /// This is used to validate that a continuation token belongs to the
     /// same canonical query shape.
     #[must_use]
-    pub fn continuation_signature(&self, entity_path: &'static str) -> ContinuationSignature {
+    pub(crate) fn continuation_signature(
+        &self,
+        entity_path: &'static str,
+    ) -> ContinuationSignature {
         self.explain().continuation_signature(entity_path)
     }
 }
@@ -398,10 +401,10 @@ impl ExplainPlan {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::query::intent::{KeyAccess, access_plan_from_keys_value};
+    use crate::db::query::intent::{KeyAccess, LoadSpec, access_plan_from_keys_value};
     use crate::db::query::plan::{AccessPath, LogicalPlan};
     use crate::db::query::predicate::Predicate;
-    use crate::db::query::{FieldRef, QueryMode, ReadConsistency};
+    use crate::db::query::{ReadConsistency, builder::field::FieldRef, intent::QueryMode};
     use crate::types::Ulid;
     use crate::value::Value;
 
@@ -441,7 +444,7 @@ mod tests {
         let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
 
         let plan_a: LogicalPlan<Value> = LogicalPlan {
-            mode: QueryMode::Load(crate::db::query::LoadSpec::new()),
+            mode: QueryMode::Load(LoadSpec::new()),
             access: access_a,
             predicate: None,
             order: None,
@@ -450,7 +453,7 @@ mod tests {
             consistency: ReadConsistency::MissingOk,
         };
         let plan_b: LogicalPlan<Value> = LogicalPlan {
-            mode: QueryMode::Load(crate::db::query::LoadSpec::new()),
+            mode: QueryMode::Load(LoadSpec::new()),
             access: access_b,
             predicate: None,
             order: None,

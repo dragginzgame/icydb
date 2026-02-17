@@ -30,7 +30,7 @@ mod tests {
     use super::*;
     use icydb::{
         __internal::core::{
-            db::store::{DataKey, RawDataKey, RawRow, RowDecodeError},
+            db::{DataKey, RawDataKey, RawRow, RowDecodeError},
             traits::Storable,
         },
         serialize,

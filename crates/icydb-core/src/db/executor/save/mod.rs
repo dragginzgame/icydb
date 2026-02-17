@@ -8,8 +8,8 @@ use crate::value::Value;
 use crate::{
     db::{
         CommitRowOp, Db,
+        commit::ensure_recovered_for_write,
         decode::decode_entity_with_expected_key,
-        ensure_recovered_for_write,
         executor::{
             Context, ExecutorError,
             mutation::{
@@ -20,7 +20,7 @@ use crate::{
                 QueryTraceSink, TraceExecutorKind, finish_trace_from_result, start_exec_trace,
             },
         },
-        query::SaveMode,
+        query::save::SaveMode,
         store::{DataKey, RawRow},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -40,7 +40,7 @@ use std::{collections::BTreeSet, marker::PhantomData};
 ///
 
 #[derive(Clone, Copy)]
-pub struct SaveExecutor<E: EntityKind + EntityValue> {
+pub(crate) struct SaveExecutor<E: EntityKind + EntityValue> {
     db: Db<E::Canister>,
     debug: bool,
     trace: Option<&'static dyn QueryTraceSink>,
@@ -55,7 +55,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     // Debug is session-scoped via DbSession and propagated into executors;
     // executors do not expose independent debug control.
     #[must_use]
-    pub const fn new(db: Db<E::Canister>, debug: bool) -> Self {
+    pub(crate) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
         Self {
             db,
             debug,
@@ -75,32 +75,32 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     // ======================================================================
 
     /// Insert a brand-new entity (errors if the key already exists).
-    pub fn insert(&self, entity: E) -> Result<E, InternalError> {
+    pub(crate) fn insert(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Insert, entity)
     }
 
     /// Insert a new view, returning the stored view.
-    pub fn insert_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
+    pub(crate) fn insert_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
         self.save_view(SaveMode::Insert, view)
     }
 
     /// Update an existing entity (errors if it does not exist).
-    pub fn update(&self, entity: E) -> Result<E, InternalError> {
+    pub(crate) fn update(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Update, entity)
     }
 
     /// Update an existing view (errors if it does not exist).
-    pub fn update_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
+    pub(crate) fn update_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
         self.save_view(SaveMode::Update, view)
     }
 
     /// Replace an entity, inserting if missing.
-    pub fn replace(&self, entity: E) -> Result<E, InternalError> {
+    pub(crate) fn replace(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Replace, entity)
     }
 
     /// Replace a view, inserting if missing.
-    pub fn replace_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
+    pub(crate) fn replace_view(&self, view: E::ViewType) -> Result<E::ViewType, InternalError> {
         self.save_view(SaveMode::Replace, view)
     }
 
@@ -119,7 +119,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     ///
     /// WARNING: this helper is fail-fast and non-atomic. If one element fails,
     /// earlier elements in the batch remain committed.
-    pub fn save_batch_non_atomic(
+    pub(crate) fn save_batch_non_atomic(
         &self,
         mode: SaveMode,
         entities: impl IntoIterator<Item = E>,
@@ -157,7 +157,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// no row in this batch is persisted.
     ///
     /// This is not a multi-entity transaction surface.
-    pub fn save_batch_atomic(
+    pub(crate) fn save_batch_atomic(
         &self,
         mode: SaveMode,
         entities: impl IntoIterator<Item = E>,
@@ -248,7 +248,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// Insert a single-entity-type batch atomically in one commit window.
     ///
     /// This API is not a multi-entity transaction surface.
-    pub fn insert_many_atomic(
+    pub(crate) fn insert_many_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
@@ -258,7 +258,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// Update a single-entity-type batch atomically in one commit window.
     ///
     /// This API is not a multi-entity transaction surface.
-    pub fn update_many_atomic(
+    pub(crate) fn update_many_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
@@ -268,7 +268,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// Replace a single-entity-type batch atomically in one commit window.
     ///
     /// This API is not a multi-entity transaction surface.
-    pub fn replace_many_atomic(
+    pub(crate) fn replace_many_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
@@ -278,7 +278,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// Insert a batch with explicitly non-atomic semantics.
     ///
     /// WARNING: fail-fast and non-atomic. Earlier inserts may commit before an error.
-    pub fn insert_many_non_atomic(
+    pub(crate) fn insert_many_non_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
@@ -288,7 +288,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// Update a batch with explicitly non-atomic semantics.
     ///
     /// WARNING: fail-fast and non-atomic. Earlier updates may commit before an error.
-    pub fn update_many_non_atomic(
+    pub(crate) fn update_many_non_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
@@ -298,7 +298,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// Replace a batch with explicitly non-atomic semantics.
     ///
     /// WARNING: fail-fast and non-atomic. Earlier replaces may commit before an error.
-    pub fn replace_many_non_atomic(
+    pub(crate) fn replace_many_non_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {

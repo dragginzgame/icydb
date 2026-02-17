@@ -4,7 +4,7 @@
 //! canonical rule set into their own error types.
 
 use crate::db::query::{
-    LoadSpec, QueryMode,
+    intent::{LoadSpec, QueryMode},
     plan::{LogicalPlan, OrderSpec},
 };
 use thiserror::Error as ThisError;
@@ -18,12 +18,16 @@ use thiserror::Error as ThisError;
 pub enum PlanPolicyError {
     #[error("order specification must include at least one field")]
     EmptyOrderSpec,
+
     #[error("delete plans must not include pagination")]
     DeletePlanWithPagination,
+
     #[error("load plans must not include delete limits")]
     LoadPlanWithDeleteLimit,
+
     #[error("delete limit requires an explicit ordering")]
     DeleteLimitRequiresOrder,
+
     #[error("unordered pagination is not allowed")]
     UnorderedPagination,
 }
@@ -77,18 +81,18 @@ pub enum CursorOrderPolicyError {
 
 /// Return true when an ORDER BY exists and contains at least one field.
 #[must_use]
-pub fn has_explicit_order(order: Option<&OrderSpec>) -> bool {
+pub(crate) fn has_explicit_order(order: Option<&OrderSpec>) -> bool {
     order.is_some_and(|order| !order.fields.is_empty())
 }
 
 /// Return true when an ORDER BY exists but is empty.
 #[must_use]
-pub fn has_empty_order(order: Option<&OrderSpec>) -> bool {
+pub(crate) fn has_empty_order(order: Option<&OrderSpec>) -> bool {
     order.is_some_and(|order| order.fields.is_empty())
 }
 
 /// Require a non-empty ORDER BY and return the order spec.
-pub const fn require_cursor_order(
+pub(crate) const fn require_cursor_order(
     order: Option<&OrderSpec>,
 ) -> Result<&OrderSpec, CursorOrderPolicyError> {
     match order {
@@ -98,7 +102,7 @@ pub const fn require_cursor_order(
 }
 
 /// Validate cursor-pagination readiness for a load-spec + ordering pair.
-pub const fn validate_cursor_paging_requirements(
+pub(crate) const fn validate_cursor_paging_requirements(
     has_order: bool,
     spec: LoadSpec,
 ) -> Result<(), CursorPagingPolicyError> {
@@ -116,7 +120,7 @@ pub const fn validate_cursor_paging_requirements(
 }
 
 /// Validate order-shape rules shared across intent and logical plan boundaries.
-pub fn validate_order_shape(order: Option<&OrderSpec>) -> Result<(), PlanPolicyError> {
+pub(crate) fn validate_order_shape(order: Option<&OrderSpec>) -> Result<(), PlanPolicyError> {
     if has_empty_order(order) {
         return Err(PlanPolicyError::EmptyOrderSpec);
     }
@@ -125,7 +129,7 @@ pub fn validate_order_shape(order: Option<&OrderSpec>) -> Result<(), PlanPolicyE
 }
 
 /// Validate intent-level plan-shape rules derived from query mode + order.
-pub fn validate_intent_plan_shape(
+pub(crate) fn validate_intent_plan_shape(
     mode: QueryMode,
     order: Option<&OrderSpec>,
 ) -> Result<(), PlanPolicyError> {
@@ -140,7 +144,7 @@ pub fn validate_intent_plan_shape(
 }
 
 /// Validate mode/order/pagination invariants for a logical plan.
-pub fn validate_plan_shape<K>(plan: &LogicalPlan<K>) -> Result<(), PlanPolicyError> {
+pub(crate) fn validate_plan_shape<K>(plan: &LogicalPlan<K>) -> Result<(), PlanPolicyError> {
     validate_order_shape(plan.order.as_ref())?;
 
     let has_order = has_explicit_order(plan.order.as_ref());

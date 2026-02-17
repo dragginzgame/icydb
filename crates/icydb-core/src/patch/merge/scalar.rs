@@ -4,7 +4,7 @@ use crate::{
 };
 
 /// Apply full-replacement semantics for atomic update payloads.
-pub fn merge_atomic<T>(value: &mut T, patch: T)
+pub(crate) fn merge_atomic<T>(value: &mut T, patch: T)
 where
     T: Atomic + UpdateView<UpdateViewType = T>,
 {
@@ -12,7 +12,7 @@ where
 }
 
 /// Apply optional update payloads with create-on-update semantics.
-pub fn merge_option<T>(
+pub(crate) fn merge_option<T>(
     value: &mut Option<T>,
     patch: Option<T::UpdateViewType>,
 ) -> Result<(), MergePatchError>

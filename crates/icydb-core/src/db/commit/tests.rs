@@ -7,13 +7,13 @@ use crate::{
             prepare_row_commit_for_entity, store,
         },
         index::{IndexKey, IndexStore, RawIndexEntry},
-        store::{DataKey, DataStore, RawDataKey, RawRow, StorageKey, StoreRegistry},
-        validate_delete_strong_relations_for_source,
+        relation::validate_delete_strong_relations_for_source,
+        store::{DataKey, DataStore, RawDataKey, RawRow, StorageKey, StoreHandle, StoreRegistry},
     },
     error::{ErrorClass, ErrorOrigin},
     model::{
         entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel},
+        field::{FieldKind, FieldModel},
         index::IndexModel,
     },
     serialize::serialize,
@@ -92,12 +92,12 @@ impl EntityIdentity for RecoveryTestEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static RECOVERY_TEST_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
+static RECOVERY_TEST_FIELDS: [FieldModel; 1] = [FieldModel {
     name: "id",
-    kind: EntityFieldKind::Ulid,
+    kind: FieldKind::Ulid,
 }];
 static RECOVERY_TEST_FIELD_NAMES: [&str; 1] = ["id"];
-static RECOVERY_TEST_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static RECOVERY_TEST_INDEXES: [&IndexModel; 0] = [];
 static RECOVERY_TEST_MODEL: EntityModel = entity_model_from_static(
     "commit_tests::RecoveryTestEntity",
     "RecoveryTestEntity",
@@ -109,7 +109,7 @@ static RECOVERY_TEST_MODEL: EntityModel = entity_model_from_static(
 impl EntitySchema for RecoveryTestEntity {
     const MODEL: &'static EntityModel = &RECOVERY_TEST_MODEL;
     const FIELDS: &'static [&'static str] = &RECOVERY_TEST_FIELD_NAMES;
-    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &RECOVERY_TEST_INDEXES;
+    const INDEXES: &'static [&'static IndexModel] = &RECOVERY_TEST_INDEXES;
 }
 
 impl EntityPlacement for RecoveryTestEntity {
@@ -162,14 +162,14 @@ impl EntityIdentity for RecoveryIndexedEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static RECOVERY_INDEXED_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static RECOVERY_INDEXED_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "group",
-        kind: EntityFieldKind::Uint,
+        kind: FieldKind::Uint,
     },
 ];
 static RECOVERY_INDEXED_FIELD_NAMES: [&str; 2] = ["id", "group"];
@@ -248,7 +248,7 @@ static MISWIRED_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>
 static MISWIRED_DB: Db<RecoveryTestCanister> =
     Db::new_with_hooks(&STORE_REGISTRY, MISWIRED_ENTITY_RUNTIME_HOOKS);
 
-fn with_recovery_store<R>(f: impl FnOnce(crate::db::store::StoreHandle) -> R) -> R {
+fn with_recovery_store<R>(f: impl FnOnce(StoreHandle) -> R) -> R {
     DB.with_store_registry(|reg| reg.try_get_store(RecoveryTestDataStore::PATH).map(f))
         .expect("recovery test store access should succeed")
 }

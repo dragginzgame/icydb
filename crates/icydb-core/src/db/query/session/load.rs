@@ -2,8 +2,8 @@ use crate::{
     db::{
         DbSession,
         query::{
-            IntentError, Query, QueryError,
             expr::{FilterExpr, SortExpr},
+            intent::{IntentError, Query, QueryError},
             plan::{ExecutablePlan, ExplainPlan},
             policy,
             predicate::Predicate,

@@ -82,7 +82,7 @@ impl ValueTag {
 
 /// Stable canonical variant tag used by hash/fingerprint encodings.
 #[must_use]
-pub const fn canonical_tag(value: &Value) -> ValueTag {
+pub(super) const fn canonical_tag(value: &Value) -> ValueTag {
     match value {
         Value::Account(_) => ValueTag::Account,
         Value::Blob(_) => ValueTag::Blob,

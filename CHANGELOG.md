@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
-## [0.11.1] – 2026-02-17 - Cleanup & Visibility Tightening
+## [0.11.1] – 2026-02-17
 
 ### 🔧 Changed
 
@@ -19,8 +19,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Removed dead predicate/query helpers and unused wrappers, including `IndexIdError`, unused text-op variants (`Eq`, `Contains`), unused typed visitor wrappers, and unused diagnostics helper constructors.
 * Simplified infallible merge and conversion helpers by removing unnecessary return values and dead branches.
 * Removed additional unused plan helpers while keeping current access-path behavior unchanged.
-
----
 
 ## [0.11.0] – 2026-02-16 - Range Pushdown
 
@@ -123,6 +121,8 @@ let raw = key.to_raw();
 let decoded = IndexKey::try_from_raw(&raw)?;
 assert_eq!(decoded.to_raw().as_bytes(), raw.as_bytes());
 ```
+
+---
 
 ## [0.9.0] – 2026-02-15 - Strengthening Release
 

@@ -1,0 +1,16 @@
+error[E0603]: module `query` is private
+ --> tests/ui/query_plan_module_private.rs:1:21
+  |
+1 | use icydb_core::db::query::plan::PlanError;
+  |                     ^^^^^ private module
+  |
+note: the module `query` is defined here
+ --> src/db/mod.rs
+  |
+  | pub(crate) mod query;
+  | ^^^^^^^^^^^^^^^^^^^^
+help: consider importing this enum instead
+  |
+1 - use icydb_core::db::query::plan::PlanError;
+1 + use icydb_core::db::PlanError;
+  |

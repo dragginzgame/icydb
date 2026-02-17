@@ -1,8 +1,8 @@
-pub mod entry;
-pub mod fingerprint;
-pub mod key;
-pub mod plan;
-pub mod store;
+pub(crate) mod entry;
+pub(crate) mod fingerprint;
+pub(crate) mod key;
+pub(crate) mod plan;
+pub(crate) mod store;
 
 pub use entry::{
     IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,

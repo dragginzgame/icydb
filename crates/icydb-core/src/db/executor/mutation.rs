@@ -1,11 +1,14 @@
 use crate::{
     db::{
-        CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, Db, PreparedRowCommitOp,
-        begin_commit, finish_commit, prepare_row_commit_for_entity,
-        rollback_prepared_row_ops_reverse, snapshot_row_rollback,
+        Db,
+        commit::{
+            CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, PreparedRowCommitOp,
+            begin_commit, finish_commit, prepare_row_commit_for_entity,
+            rollback_prepared_row_ops_reverse, snapshot_row_rollback,
+        },
     },
     error::InternalError,
-    obs::sink::{self, MetricsEvent},
+    obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue},
 };
 
@@ -16,6 +19,7 @@ use crate::{
 /// Used by save/delete executors to emit consistent metrics without duplicating
 /// per-field folding logic.
 ///
+
 pub(super) struct PreparedRowOpDelta {
     pub(super) rows_touched: usize,
     pub(super) index_inserts: usize,
@@ -31,6 +35,7 @@ pub(super) struct PreparedRowOpDelta {
 /// Contains the persisted commit guard, preflight-prepared row ops, and
 /// precomputed delta counters.
 ///
+
 pub(super) struct OpenCommitWindow {
     pub(super) commit: CommitGuard,
     pub(super) prepared_row_ops: Vec<PreparedRowCommitOp>,
@@ -85,13 +90,13 @@ pub(super) fn emit_index_delta_metrics<E: EntityKind>(
     reverse_index_inserts: usize,
     reverse_index_removes: usize,
 ) {
-    sink::record(MetricsEvent::IndexDelta {
+    record(MetricsEvent::IndexDelta {
         entity_path: E::PATH,
         inserts: u64::try_from(index_inserts).unwrap_or(u64::MAX),
         removes: u64::try_from(index_removes).unwrap_or(u64::MAX),
     });
 
-    sink::record(MetricsEvent::ReverseIndexDelta {
+    record(MetricsEvent::ReverseIndexDelta {
         entity_path: E::PATH,
         inserts: u64::try_from(reverse_index_inserts).unwrap_or(u64::MAX),
         removes: u64::try_from(reverse_index_removes).unwrap_or(u64::MAX),

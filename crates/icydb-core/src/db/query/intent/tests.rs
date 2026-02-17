@@ -1,13 +1,13 @@
 use super::*;
 use crate::{
     db::query::{
-        FieldRef,
+        builder::field::FieldRef,
         plan::{AccessPath, AccessPlan, LogicalPlan},
         predicate::{CompareOp, ComparePredicate},
     },
     model::{
         entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel},
+        field::{FieldKind, FieldModel},
         index::IndexModel,
     },
     test_fixtures::entity_model_from_static,
@@ -64,14 +64,14 @@ impl EntityIdentity for PlanEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static PLAN_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static PLAN_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "name",
-        kind: EntityFieldKind::Text,
+        kind: FieldKind::Text,
     },
 ];
 static PLAN_FIELD_NAMES: [&str; 2] = ["id", "name"];
@@ -86,16 +86,16 @@ static PLAN_MODEL: EntityModel = entity_model_from_static(
     &PLAN_INDEXES,
 );
 
-static MAP_PLAN_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static MAP_PLAN_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "attributes",
-        kind: EntityFieldKind::Map {
-            key: &EntityFieldKind::Text,
-            value: &EntityFieldKind::Uint,
+        kind: FieldKind::Map {
+            key: &FieldKind::Text,
+            value: &FieldKind::Uint,
         },
     },
 ];
@@ -159,9 +159,9 @@ impl EntityValue for PlanSingleton {
     }
 }
 
-static SINGLETON_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
+static SINGLETON_FIELDS: [FieldModel; 1] = [FieldModel {
     name: "id",
-    kind: EntityFieldKind::Unit,
+    kind: FieldKind::Unit,
 }];
 static SINGLETON_FIELD_NAMES: [&str; 1] = ["id"];
 static SINGLETON_INDEXES: [&IndexModel; 0] = [];

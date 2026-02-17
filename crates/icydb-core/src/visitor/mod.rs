@@ -1,10 +1,6 @@
-pub mod context;
-pub mod sanitize;
-pub mod validate;
-
-pub use context::*;
-pub use sanitize::SanitizeVisitor;
-pub use validate::ValidateVisitor;
+pub(crate) mod context;
+pub(crate) mod sanitize;
+pub(crate) mod validate;
 
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -15,6 +11,9 @@ use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt};
 use thiserror::Error as ThisError;
+
+// re-exports
+pub use context::{Issue, PathSegment, ScopedContext, VisitorContext};
 
 ///
 /// VisitorError
@@ -118,7 +117,7 @@ impl std::error::Error for VisitorIssues {}
 /// (immutable)
 ///
 
-pub trait Visitor {
+pub(crate) trait Visitor {
     fn enter(&mut self, node: &dyn Visitable, ctx: &mut dyn VisitorContext);
     fn exit(&mut self, node: &dyn Visitable, ctx: &mut dyn VisitorContext);
 }
@@ -188,7 +187,7 @@ fn render_path(path: &[PathSegment], extra: Option<PathSegment>) -> String {
 // VisitorAdapter (immutable)
 // ============================================================================
 
-pub struct VisitorAdapter<V> {
+pub(crate) struct VisitorAdapter<V> {
     visitor: V,
     path: Vec<PathSegment>,
     issues: VisitorIssues,
@@ -198,7 +197,7 @@ impl<V> VisitorAdapter<V>
 where
     V: Visitor,
 {
-    pub const fn new(visitor: V) -> Self {
+    pub(crate) const fn new(visitor: V) -> Self {
         Self {
             visitor,
             path: Vec::new(),
@@ -206,11 +205,7 @@ where
         }
     }
 
-    pub const fn issues(&self) -> &VisitorIssues {
-        &self.issues
-    }
-
-    pub fn result(self) -> Result<(), VisitorIssues> {
+    pub(crate) fn result(self) -> Result<(), VisitorIssues> {
         if self.issues.is_empty() {
             Ok(())
         } else {
@@ -279,7 +274,7 @@ pub fn perform_visit<S: Into<PathSegment>>(
 // VisitorMut (mutable)
 // ============================================================================
 
-pub trait VisitorMut {
+pub(crate) trait VisitorMut {
     fn enter_mut(&mut self, node: &mut dyn Visitable, ctx: &mut dyn VisitorContext);
     fn exit_mut(&mut self, node: &mut dyn Visitable, ctx: &mut dyn VisitorContext);
 }
@@ -300,7 +295,7 @@ pub trait VisitorMutCore {
 // VisitorMutAdapter
 // ============================================================================
 
-pub struct VisitorMutAdapter<V> {
+pub(crate) struct VisitorMutAdapter<V> {
     visitor: V,
     path: Vec<PathSegment>,
     issues: VisitorIssues,
@@ -310,7 +305,7 @@ impl<V> VisitorMutAdapter<V>
 where
     V: VisitorMut,
 {
-    pub const fn new(visitor: V) -> Self {
+    pub(crate) const fn new(visitor: V) -> Self {
         Self {
             visitor,
             path: Vec::new(),
@@ -318,11 +313,7 @@ where
         }
     }
 
-    pub const fn issues(&self) -> &VisitorIssues {
-        &self.issues
-    }
-
-    pub fn result(self) -> Result<(), VisitorIssues> {
+    pub(crate) fn result(self) -> Result<(), VisitorIssues> {
         if self.issues.is_empty() {
             Ok(())
         } else {

@@ -19,7 +19,7 @@ use std::cmp::Ordering;
 
 // re-exports
 pub use coercion::{CoercionFamily, CoercionFamilyExt};
-pub(crate) use tag::ValueTag;
+pub use tag::ValueTag;
 
 ///
 /// CONSTANTS

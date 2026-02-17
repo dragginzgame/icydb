@@ -10,7 +10,7 @@ use quote::quote;
 pub fn model_kind_from_value(value: &Value) -> TokenStream {
     let base = model_kind_from_item(&value.item);
     match value.cardinality() {
-        Cardinality::Many => quote!(::icydb::model::field::EntityFieldKind::List(&#base)),
+        Cardinality::Many => quote!(::icydb::model::field::FieldKind::List(&#base)),
         Cardinality::One | Cardinality::Opt => base,
     }
 }
@@ -22,7 +22,7 @@ pub fn model_kind_from_nested_value(value: &Value) -> TokenStream {
 
 /// Returns the persisted model kind for an item.
 ///
-/// Relation items emit `EntityFieldKind::Relation` metadata while preserving
+/// Relation items emit `FieldKind::Relation` metadata while preserving
 /// the declared/derived storage key shape as `key_kind`.
 pub fn model_kind_from_item(item: &Item) -> TokenStream {
     let key_kind = model_storage_kind_from_item(item);
@@ -40,7 +40,7 @@ pub fn model_kind_from_item(item: &Item) -> TokenStream {
     };
 
     quote! {
-        ::icydb::model::field::EntityFieldKind::Relation {
+        ::icydb::model::field::FieldKind::Relation {
             target_path: <#target as ::icydb::traits::Path>::PATH,
             target_entity_name: <#target as ::icydb::traits::EntityIdentity>::ENTITY_NAME,
             target_store_path:
@@ -65,31 +65,31 @@ fn model_storage_kind_from_item(item: &Item) -> TokenStream {
 /// Returns the persisted model kind for a primitive type.
 pub fn model_kind_from_primitive(prim: Primitive) -> TokenStream {
     match prim {
-        Primitive::Account => quote!(::icydb::model::field::EntityFieldKind::Account),
-        Primitive::Blob => quote!(::icydb::model::field::EntityFieldKind::Blob),
-        Primitive::Bool => quote!(::icydb::model::field::EntityFieldKind::Bool),
-        Primitive::Date => quote!(::icydb::model::field::EntityFieldKind::Date),
-        Primitive::Decimal => quote!(::icydb::model::field::EntityFieldKind::Decimal),
-        Primitive::Duration => quote!(::icydb::model::field::EntityFieldKind::Duration),
-        Primitive::E8s => quote!(::icydb::model::field::EntityFieldKind::E8s),
-        Primitive::E18s => quote!(::icydb::model::field::EntityFieldKind::E18s),
-        Primitive::Float32 => quote!(::icydb::model::field::EntityFieldKind::Float32),
-        Primitive::Float64 => quote!(::icydb::model::field::EntityFieldKind::Float64),
-        Primitive::Int => quote!(::icydb::model::field::EntityFieldKind::IntBig),
+        Primitive::Account => quote!(::icydb::model::field::FieldKind::Account),
+        Primitive::Blob => quote!(::icydb::model::field::FieldKind::Blob),
+        Primitive::Bool => quote!(::icydb::model::field::FieldKind::Bool),
+        Primitive::Date => quote!(::icydb::model::field::FieldKind::Date),
+        Primitive::Decimal => quote!(::icydb::model::field::FieldKind::Decimal),
+        Primitive::Duration => quote!(::icydb::model::field::FieldKind::Duration),
+        Primitive::E8s => quote!(::icydb::model::field::FieldKind::E8s),
+        Primitive::E18s => quote!(::icydb::model::field::FieldKind::E18s),
+        Primitive::Float32 => quote!(::icydb::model::field::FieldKind::Float32),
+        Primitive::Float64 => quote!(::icydb::model::field::FieldKind::Float64),
+        Primitive::Int => quote!(::icydb::model::field::FieldKind::IntBig),
         Primitive::Int8 | Primitive::Int16 | Primitive::Int32 | Primitive::Int64 => {
-            quote!(::icydb::model::field::EntityFieldKind::Int)
+            quote!(::icydb::model::field::FieldKind::Int)
         }
-        Primitive::Int128 => quote!(::icydb::model::field::EntityFieldKind::Int128),
-        Primitive::Nat => quote!(::icydb::model::field::EntityFieldKind::UintBig),
+        Primitive::Int128 => quote!(::icydb::model::field::FieldKind::Int128),
+        Primitive::Nat => quote!(::icydb::model::field::FieldKind::UintBig),
         Primitive::Nat8 | Primitive::Nat16 | Primitive::Nat32 | Primitive::Nat64 => {
-            quote!(::icydb::model::field::EntityFieldKind::Uint)
+            quote!(::icydb::model::field::FieldKind::Uint)
         }
-        Primitive::Nat128 => quote!(::icydb::model::field::EntityFieldKind::Uint128),
-        Primitive::Principal => quote!(::icydb::model::field::EntityFieldKind::Principal),
-        Primitive::Subaccount => quote!(::icydb::model::field::EntityFieldKind::Subaccount),
-        Primitive::Text => quote!(::icydb::model::field::EntityFieldKind::Text),
-        Primitive::Timestamp => quote!(::icydb::model::field::EntityFieldKind::Timestamp),
-        Primitive::Ulid => quote!(::icydb::model::field::EntityFieldKind::Ulid),
-        Primitive::Unit => quote!(::icydb::model::field::EntityFieldKind::Unit),
+        Primitive::Nat128 => quote!(::icydb::model::field::FieldKind::Uint128),
+        Primitive::Principal => quote!(::icydb::model::field::FieldKind::Principal),
+        Primitive::Subaccount => quote!(::icydb::model::field::FieldKind::Subaccount),
+        Primitive::Text => quote!(::icydb::model::field::FieldKind::Text),
+        Primitive::Timestamp => quote!(::icydb::model::field::FieldKind::Timestamp),
+        Primitive::Ulid => quote!(::icydb::model::field::FieldKind::Ulid),
+        Primitive::Unit => quote!(::icydb::model::field::FieldKind::Unit),
     }
 }

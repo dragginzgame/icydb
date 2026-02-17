@@ -1,0 +1,11 @@
+error[E0603]: module `store` is private
+ --> tests/ui/db_store_module_private.rs:1:21
+  |
+1 | use icydb_core::db::store::StoreRegistry;
+  |                     ^^^^^ private module
+  |
+note: the module `store` is defined here
+ --> src/db/mod.rs
+  |
+  | pub(crate) mod store;
+  | ^^^^^^^^^^^^^^^^^^^^

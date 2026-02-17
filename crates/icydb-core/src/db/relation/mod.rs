@@ -15,9 +15,11 @@ mod reverse_index;
 mod validate;
 
 use metadata::StrongRelationInfo;
-pub use metadata::{StrongRelationTargetInfo, strong_relation_target_from_kind};
-pub use reverse_index::prepare_reverse_relation_index_mutations_for_source;
-pub use validate::validate_delete_strong_relations_for_source;
+
+pub(crate) use metadata::{StrongRelationTargetInfo, strong_relation_target_from_kind};
+pub(crate) use reverse_index::prepare_reverse_relation_index_mutations_for_source;
+#[cfg(test)]
+pub(crate) use validate::validate_delete_strong_relations_for_source;
 
 ///
 /// StrongRelationDeleteValidateFn
@@ -56,7 +58,7 @@ enum RelationTargetMismatchPolicy {
 ///
 
 #[derive(Debug)]
-pub enum RelationTargetRawKeyError {
+pub(super) enum RelationTargetRawKeyError {
     StorageKeyEncode(StorageKeyEncodeError),
     TargetEntityName(EntityNameError),
 }
@@ -70,7 +72,7 @@ fn raw_relation_target_key_from_parts(
 }
 
 /// Convert a relation target `Value` into its canonical `RawDataKey` representation.
-pub fn build_relation_target_raw_key(
+pub(super) fn build_relation_target_raw_key(
     target_entity_name: &str,
     value: &Value,
 ) -> Result<RawDataKey, RelationTargetRawKeyError> {
@@ -86,7 +88,7 @@ pub fn build_relation_target_raw_key(
 // Visit concrete relation target values for one relation field payload.
 // Runtime relation List/Set shapes are represented as `Value::List`, and
 // optional relation slots may be explicit `Value::Null`.
-pub fn for_each_relation_target_value(
+pub(super) fn for_each_relation_target_value(
     value: &Value,
     mut visit: impl FnMut(&Value) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {

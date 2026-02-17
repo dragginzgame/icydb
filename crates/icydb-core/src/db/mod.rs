@@ -1,41 +1,43 @@
-mod commit;
-pub mod cursor;
+pub(crate) mod commit;
+pub(crate) mod cursor;
 pub(crate) mod decode;
 pub(crate) mod executor;
 pub(crate) mod identity;
-pub mod index;
-pub mod query;
-mod relation;
-pub mod response;
-pub mod store;
-
-pub use commit::*;
-pub use relation::{StrongRelationDeleteValidateFn, validate_delete_strong_relations_for_source};
+pub(crate) mod index;
+pub(crate) mod query;
+pub(crate) mod relation;
+pub(crate) mod response;
+pub(crate) mod store;
 
 use crate::{
     db::{
+        commit::{CommitRowOp, PreparedRowCommitOp, ensure_recovered},
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor},
         query::{
-            Query, QueryError, QueryMode, ReadConsistency, SessionDeleteQuery, SessionLoadQuery,
+            ReadConsistency,
+            intent::{Query, QueryError, QueryMode},
             plan::PlanError,
+            session::{delete::SessionDeleteQuery, load::SessionLoadQuery},
         },
+        relation::StrongRelationDeleteValidateFn,
         response::{Response, WriteBatchResponse, WriteResponse},
         store::{RawDataKey, StoreRegistry},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    obs::sink::{self, MetricsSink},
+    obs::sink::{MetricsSink, with_metrics_sink},
     traits::{CanisterKind, EntityKind, EntityValue},
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
-#[cfg(test)]
-use crate::db::{index::IndexStore, store::DataStore};
+/// re-exports
+pub use identity::{EntityName, IndexName};
 
 ///
 /// Db
 ///
 /// A handle to the set of stores registered for a specific canister domain.
 ///
+
 pub struct Db<C: CanisterKind> {
     store: &'static LocalKey<StoreRegistry>,
     entity_runtime_hooks: &'static [EntityRuntimeHooks<C>],
@@ -124,15 +126,17 @@ impl<C: CanisterKind> Db<C> {
 ///
 
 pub struct EntityRuntimeHooks<C: CanisterKind> {
-    pub entity_name: &'static str,
-    pub entity_path: &'static str,
-    pub prepare_row_commit: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
-    pub validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
+    pub(crate) entity_name: &'static str,
+    pub(crate) entity_path: &'static str,
+    pub(crate) prepare_row_commit:
+        fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
+    pub(crate) validate_delete_strong_relations: StrongRelationDeleteValidateFn<C>,
 }
 
 impl<C: CanisterKind> EntityRuntimeHooks<C> {
+    #[cfg(test)]
     #[must_use]
-    pub const fn new(
+    pub(crate) const fn new(
         entity_name: &'static str,
         entity_path: &'static str,
         prepare_row_commit: fn(&Db<C>, &CommitRowOp) -> Result<PreparedRowCommitOp, InternalError>,
@@ -227,7 +231,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn with_metrics<T>(&self, f: impl FnOnce() -> T) -> T {
         if let Some(sink) = self.metrics {
-            sink::with_metrics_sink(sink, f)
+            with_metrics_sink(sink, f)
         } else {
             f()
         }
@@ -526,8 +530,8 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn clear_stores_for_tests(&self) {
         self.db.with_store_registry(|reg| {
             for (_, store) in reg.iter() {
-                store.with_data_mut(DataStore::clear);
-                store.with_index_mut(IndexStore::clear);
+                store.with_data_mut(crate::db::store::DataStore::clear);
+                store.with_index_mut(crate::db::index::IndexStore::clear);
             }
         });
     }

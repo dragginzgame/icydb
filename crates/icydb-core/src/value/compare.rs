@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 ///
 /// Mixed-variant comparisons are rank-only and must remain deterministic.
 #[must_use]
-pub fn canonical_cmp(left: &Value, right: &Value) -> Ordering {
+pub(super) fn canonical_cmp(left: &Value, right: &Value) -> Ordering {
     let rank = left.canonical_rank().cmp(&right.canonical_rank());
     if rank != Ordering::Equal {
         return rank;
@@ -20,7 +20,7 @@ pub fn canonical_cmp(left: &Value, right: &Value) -> Ordering {
 
 /// Total canonical comparator used for map-key normalization.
 #[must_use]
-pub fn canonical_cmp_key(left: &Value, right: &Value) -> Ordering {
+pub(super) fn canonical_cmp_key(left: &Value, right: &Value) -> Ordering {
     canonical_cmp(left, right)
 }
 
@@ -28,7 +28,7 @@ pub fn canonical_cmp_key(left: &Value, right: &Value) -> Ordering {
 ///
 /// Returns `None` for mismatched or non-orderable variants.
 #[must_use]
-pub fn strict_order_cmp(left: &Value, right: &Value) -> Option<Ordering> {
+pub(super) fn strict_order_cmp(left: &Value, right: &Value) -> Option<Ordering> {
     match (left, right) {
         (Value::Account(a), Value::Account(b)) => Some(a.cmp(b)),
         (Value::Bool(a), Value::Bool(b)) => a.partial_cmp(b),

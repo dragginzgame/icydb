@@ -1,6 +1,16 @@
 #![expect(clippy::too_many_lines)]
 use super::*;
-use crate::db::query::plan::ExplainAccessPath;
+use crate::{
+    db::query::{
+        intent::{LoadSpec, QueryMode},
+        plan::{
+            AccessPath, AccessPlan, ExecutablePlan, ExplainAccessPath, ExplainOrderPushdown,
+            LogicalPlan, OrderDirection, OrderSpec, PageSpec, PlanError,
+            validate::SecondaryOrderPushdownRejection,
+        },
+    },
+    error::{ErrorClass, ErrorOrigin},
+};
 use std::collections::BTreeSet;
 
 // Resolve ids directly from the `(group, rank)` index prefix in raw index-key order.
@@ -705,26 +715,23 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
         .expect("save should succeed");
     }
 
-    let mut page1_logical = crate::db::query::plan::LogicalPlan::<Ulid>::new(
-        crate::db::query::plan::AccessPath::KeyRange {
+    let mut page1_logical = LogicalPlan::<Ulid>::new(
+        AccessPath::KeyRange {
             start: Ulid::from_u128(2),
             end: Ulid::from_u128(4),
         },
         ReadConsistency::MissingOk,
     );
-    page1_logical.order = Some(crate::db::query::plan::OrderSpec {
-        fields: vec![(
-            "id".to_string(),
-            crate::db::query::plan::OrderDirection::Asc,
-        )],
+    page1_logical.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    page1_logical.page = Some(crate::db::query::plan::PageSpec {
+    page1_logical.page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
-    let page1_plan = crate::db::query::plan::ExecutablePlan::<SimpleEntity>::new(page1_logical);
+    let page1_plan = ExecutablePlan::<SimpleEntity>::new(page1_logical);
     let page1_boundary = page1_plan
         .plan_cursor_boundary(None)
         .expect("pk-range page1 boundary should plan");
@@ -738,24 +745,21 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
         .next_cursor
         .as_ref()
         .expect("pk-range page1 should emit continuation cursor");
-    let mut page2_logical = crate::db::query::plan::LogicalPlan::<Ulid>::new(
-        crate::db::query::plan::AccessPath::KeyRange {
+    let mut page2_logical = LogicalPlan::<Ulid>::new(
+        AccessPath::KeyRange {
             start: Ulid::from_u128(2),
             end: Ulid::from_u128(4),
         },
         ReadConsistency::MissingOk,
     );
-    page2_logical.order = Some(crate::db::query::plan::OrderSpec {
-        fields: vec![(
-            "id".to_string(),
-            crate::db::query::plan::OrderDirection::Asc,
-        )],
+    page2_logical.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    page2_logical.page = Some(crate::db::query::plan::PageSpec {
+    page2_logical.page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
-    let page2_plan = crate::db::query::plan::ExecutablePlan::<SimpleEntity>::new(page2_logical);
+    let page2_plan = ExecutablePlan::<SimpleEntity>::new(page2_logical);
     let page2_boundary = page2_plan
         .plan_cursor_boundary(Some(cursor.as_slice()))
         .expect("pk-range page2 boundary should plan");
@@ -783,24 +787,21 @@ fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page(
         .expect("save should succeed");
     }
 
-    let mut logical = crate::db::query::plan::LogicalPlan::<Ulid>::new(
-        crate::db::query::plan::AccessPath::KeyRange {
+    let mut logical = LogicalPlan::<Ulid>::new(
+        AccessPath::KeyRange {
             start: Ulid::from_u128(1),
             end: Ulid::from_u128(2),
         },
         ReadConsistency::MissingOk,
     );
-    logical.order = Some(crate::db::query::plan::OrderSpec {
-        fields: vec![(
-            "id".to_string(),
-            crate::db::query::plan::OrderDirection::Asc,
-        )],
+    logical.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    logical.page = Some(crate::db::query::plan::PageSpec {
+    logical.page = Some(PageSpec {
         limit: Some(2),
         offset: 0,
     });
-    let plan = crate::db::query::plan::ExecutablePlan::<SimpleEntity>::new(logical);
+    let plan = ExecutablePlan::<SimpleEntity>::new(logical);
     let boundary = Some(CursorBoundary {
         slots: vec![CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(
             99,
@@ -852,12 +853,12 @@ fn load_cursor_pagination_pk_order_missing_slot_is_invariant_violation() {
         .expect_err("missing pk slot should be rejected by executor invariants");
     assert_eq!(
         err.class,
-        crate::error::ErrorClass::InvariantViolation,
+        ErrorClass::InvariantViolation,
         "missing pk slot should classify as invariant violation"
     );
     assert_eq!(
         err.origin,
-        crate::error::ErrorOrigin::Query,
+        ErrorOrigin::Query,
         "missing pk slot should originate from query invariant checks"
     );
     assert!(
@@ -898,12 +899,12 @@ fn load_cursor_pagination_pk_order_type_mismatch_is_invariant_violation() {
         .expect_err("pk slot type mismatch should be rejected by executor invariants");
     assert_eq!(
         err.class,
-        crate::error::ErrorClass::InvariantViolation,
+        ErrorClass::InvariantViolation,
         "pk slot mismatch should classify as invariant violation"
     );
     assert_eq!(
         err.origin,
-        crate::error::ErrorOrigin::Query,
+        ErrorOrigin::Query,
         "pk slot mismatch should originate from query invariant checks"
     );
     assert!(
@@ -945,12 +946,12 @@ fn load_cursor_pagination_pk_order_arity_mismatch_is_invariant_violation() {
         .expect_err("pk slot arity mismatch should be rejected by executor invariants");
     assert_eq!(
         err.class,
-        crate::error::ErrorClass::InvariantViolation,
+        ErrorClass::InvariantViolation,
         "pk slot arity mismatch should classify as invariant violation"
     );
     assert_eq!(
         err.origin,
-        crate::error::ErrorOrigin::Query,
+        ErrorOrigin::Query,
         "pk slot arity mismatch should originate from query invariant checks"
     );
     assert!(
@@ -1298,10 +1299,7 @@ fn load_cursor_rejects_signature_mismatch() {
         .plan_cursor_boundary(Some(cursor.as_slice()))
         .expect_err("cursor from different canonical plan should be rejected");
     assert!(
-        matches!(
-            err,
-            crate::db::query::plan::PlanError::ContinuationCursorSignatureMismatch { .. }
-        ),
+        matches!(err, PlanError::ContinuationCursorSignatureMismatch { .. }),
         "planning should reject plan-signature mismatch"
     );
 }
@@ -1323,7 +1321,7 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
     assert!(
         matches!(
             explain.order_pushdown,
-            crate::db::query::plan::ExplainOrderPushdown::EligibleSecondaryIndex {
+            ExplainOrderPushdown::EligibleSecondaryIndex {
                 index,
                 prefix_len
             } if index == PUSHDOWN_PARITY_INDEX_MODELS[0].name && prefix_len == 1
@@ -1577,8 +1575,8 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
     assert!(
         matches!(
             explain.order_pushdown,
-            crate::db::query::plan::ExplainOrderPushdown::Matrix(
-                crate::db::query::plan::validate::SecondaryOrderPushdownRejection::NonAscendingDirection { field }
+            ExplainOrderPushdown::Matrix(
+                SecondaryOrderPushdownRejection::NonAscendingDirection { field }
             ) if field == "rank"
         ),
         "descending rank order should be ineligible and use fallback execution"
@@ -2907,34 +2905,29 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
     reset_store();
     seed_pushdown_rows(&pushdown_rows_trace(22_000));
 
-    let logical = crate::db::query::plan::LogicalPlan {
-        mode: crate::db::query::QueryMode::Load(crate::db::query::LoadSpec::new()),
-        access: crate::db::query::plan::AccessPlan::Union(vec![
-            crate::db::query::plan::AccessPlan::path(
-                crate::db::query::plan::AccessPath::IndexRange {
-                    index: PUSHDOWN_PARITY_INDEX_MODELS[0],
-                    prefix: vec![Value::Uint(7)],
-                    lower: std::ops::Bound::Included(Value::Uint(10)),
-                    upper: std::ops::Bound::Excluded(Value::Uint(20)),
-                },
-            ),
-            crate::db::query::plan::AccessPlan::path(crate::db::query::plan::AccessPath::FullScan),
+    let logical = LogicalPlan {
+        mode: QueryMode::Load(LoadSpec::new()),
+        access: AccessPlan::Union(vec![
+            AccessPlan::path(AccessPath::IndexRange {
+                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+                prefix: vec![Value::Uint(7)],
+                lower: std::ops::Bound::Included(Value::Uint(10)),
+                upper: std::ops::Bound::Excluded(Value::Uint(20)),
+            }),
+            AccessPlan::path(AccessPath::FullScan),
         ]),
         predicate: None,
-        order: Some(crate::db::query::plan::OrderSpec {
-            fields: vec![(
-                "id".to_string(),
-                crate::db::query::plan::OrderDirection::Asc,
-            )],
+        order: Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
         }),
         delete_limit: None,
-        page: Some(crate::db::query::plan::PageSpec {
+        page: Some(PageSpec {
             limit: Some(1),
             offset: 0,
         }),
         consistency: ReadConsistency::MissingOk,
     };
-    let plan = crate::db::query::plan::ExecutablePlan::<PushdownParityEntity>::new(logical);
+    let plan = ExecutablePlan::<PushdownParityEntity>::new(logical);
 
     let _ = take_trace_events();
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);

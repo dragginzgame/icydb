@@ -15,7 +15,7 @@ use thiserror::Error as ThisError;
 ///
 
 const INDEX_ENTRY_LEN_BYTES: usize = 4;
-pub const MAX_INDEX_ENTRY_KEYS: usize = 65_535;
+pub(crate) const MAX_INDEX_ENTRY_KEYS: usize = 65_535;
 
 #[expect(clippy::cast_possible_truncation)]
 pub const MAX_INDEX_ENTRY_BYTES: u32 =

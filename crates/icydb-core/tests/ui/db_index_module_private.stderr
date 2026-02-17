@@ -1,0 +1,11 @@
+error[E0603]: module `index` is private
+ --> tests/ui/db_index_module_private.rs:1:21
+  |
+1 | use icydb_core::db::index::IndexStore;
+  |                     ^^^^^ private module
+  |
+note: the module `index` is defined here
+ --> src/db/mod.rs
+  |
+  | pub(crate) mod index;
+  | ^^^^^^^^^^^^^^^^^^^^

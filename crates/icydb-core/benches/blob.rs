@@ -1,9 +1,6 @@
 #![expect(clippy::cast_possible_truncation)]
 use bencher::*;
-use icydb_core::{
-    serialize::{deserialize, serialize},
-    types::Blob,
-};
+use icydb_core::{deserialize, serialize, types::Blob};
 
 benchmark_group!(benchmarks, serialize_blob_round_trip);
 

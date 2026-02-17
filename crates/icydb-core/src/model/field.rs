@@ -1,7 +1,7 @@
 use crate::traits::FieldValueKind;
 
 ///
-/// EntityFieldModel
+/// FieldModel
 ///
 /// Runtime field metadata surfaced by macro-generated `EntityModel` values.
 ///
@@ -10,11 +10,11 @@ use crate::traits::FieldValueKind;
 ///
 
 #[derive(Debug)]
-pub struct EntityFieldModel {
+pub struct FieldModel {
     /// Field name as used in predicates and indexing.
     pub name: &'static str,
     /// Runtime type shape (no schema-layer graph nodes).
-    pub kind: EntityFieldKind,
+    pub kind: FieldKind,
 }
 
 ///
@@ -30,7 +30,7 @@ pub enum RelationStrength {
 }
 
 ///
-/// EntityFieldKind
+/// FieldKind
 ///
 /// Minimal runtime type surface needed by planning, validation, and execution.
 ///
@@ -39,7 +39,7 @@ pub enum RelationStrength {
 ///
 
 #[derive(Debug)]
-pub enum EntityFieldKind {
+pub enum FieldKind {
     // Scalar primitives
     Account,
     Blob,
@@ -97,7 +97,7 @@ pub enum EntityFieldKind {
     },
 }
 
-impl EntityFieldKind {
+impl FieldKind {
     #[must_use]
     pub const fn value_kind(&self) -> FieldValueKind {
         match self {

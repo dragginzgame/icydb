@@ -12,7 +12,7 @@ use crate::{
         Context, Db, DbSession, EntityRuntimeHooks,
         commit::{
             CommitMarker, begin_commit, commit_marker_present, ensure_recovered_for_write,
-            init_commit_store_for_tests,
+            init_commit_store_for_tests, prepare_row_commit_for_entity,
         },
         executor::{
             DeleteExecutor, LoadExecutor, SaveExecutor,
@@ -23,16 +23,17 @@ use crate::{
         },
         index::IndexStore,
         query::{
-            IntentError, Query, QueryError, ReadConsistency,
+            ReadConsistency,
+            intent::{IntentError, Query, QueryError},
             plan::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
             predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         },
+        relation::validate_delete_strong_relations_for_source,
         store::{DataStore, StoreRegistry},
-        validate_delete_strong_relations_for_source,
     },
     model::{
         entity::EntityModel,
-        field::{EntityFieldKind, EntityFieldModel, RelationStrength},
+        field::{FieldKind, FieldModel, RelationStrength},
         index::IndexModel,
     },
     test_fixtures::entity_model_from_static,
@@ -156,12 +157,12 @@ impl EntityIdentity for SimpleEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static SIMPLE_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
+static SIMPLE_FIELDS: [FieldModel; 1] = [FieldModel {
     name: "id",
-    kind: EntityFieldKind::Ulid,
+    kind: FieldKind::Ulid,
 }];
 static SIMPLE_FIELD_NAMES: [&str; 1] = ["id"];
-static SIMPLE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static SIMPLE_INDEXES: [&IndexModel; 0] = [];
 // NOTE: Executor tests use manual models to avoid schema macros.
 static SIMPLE_MODEL: EntityModel = entity_model_from_static(
     "executor_tests::SimpleEntity",
@@ -174,7 +175,7 @@ static SIMPLE_MODEL: EntityModel = entity_model_from_static(
 impl EntitySchema for SimpleEntity {
     const MODEL: &'static EntityModel = &SIMPLE_MODEL;
     const FIELDS: &'static [&'static str] = &SIMPLE_FIELD_NAMES;
-    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &SIMPLE_INDEXES;
+    const INDEXES: &'static [&'static IndexModel] = &SIMPLE_INDEXES;
 }
 
 impl EntityPlacement for SimpleEntity {
@@ -232,18 +233,18 @@ impl EntityIdentity for IndexedMetricsEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static INDEXED_METRICS_FIELDS: [EntityFieldModel; 3] = [
-    EntityFieldModel {
+static INDEXED_METRICS_FIELDS: [FieldModel; 3] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "tag",
-        kind: EntityFieldKind::Uint,
+        kind: FieldKind::Uint,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "label",
-        kind: EntityFieldKind::Text,
+        kind: FieldKind::Text,
     },
 ];
 static INDEXED_METRICS_FIELD_NAMES: [&str; 3] = ["id", "tag", "label"];
@@ -325,22 +326,22 @@ impl EntityIdentity for PushdownParityEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static PUSHDOWN_PARITY_FIELDS: [EntityFieldModel; 4] = [
-    EntityFieldModel {
+static PUSHDOWN_PARITY_FIELDS: [FieldModel; 4] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "group",
-        kind: EntityFieldKind::Uint,
+        kind: FieldKind::Uint,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "rank",
-        kind: EntityFieldKind::Uint,
+        kind: FieldKind::Uint,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "label",
-        kind: EntityFieldKind::Text,
+        kind: FieldKind::Text,
     },
 ];
 static PUSHDOWN_PARITY_FIELD_NAMES: [&str; 4] = ["id", "group", "rank", "label"];
@@ -420,18 +421,18 @@ impl EntityIdentity for SingletonUnitEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static SINGLETON_UNIT_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static SINGLETON_UNIT_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Unit,
+        kind: FieldKind::Unit,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "label",
-        kind: EntityFieldKind::Text,
+        kind: FieldKind::Text,
     },
 ];
 static SINGLETON_UNIT_FIELD_NAMES: [&str; 2] = ["id", "label"];
-static SINGLETON_UNIT_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static SINGLETON_UNIT_INDEXES: [&IndexModel; 0] = [];
 static SINGLETON_UNIT_MODEL: EntityModel = entity_model_from_static(
     "executor_tests::SingletonUnitEntity",
     "SingletonUnitEntity",
@@ -443,7 +444,7 @@ static SINGLETON_UNIT_MODEL: EntityModel = entity_model_from_static(
 impl EntitySchema for SingletonUnitEntity {
     const MODEL: &'static EntityModel = &SINGLETON_UNIT_MODEL;
     const FIELDS: &'static [&'static str] = &SINGLETON_UNIT_FIELD_NAMES;
-    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &SINGLETON_UNIT_INDEXES;
+    const INDEXES: &'static [&'static IndexModel] = &SINGLETON_UNIT_INDEXES;
 }
 
 impl EntityPlacement for SingletonUnitEntity {
@@ -505,32 +506,32 @@ impl EntityIdentity for PhaseEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static PHASE_TAG_KIND: EntityFieldKind = EntityFieldKind::Uint;
-static PHASE_FIELDS: [EntityFieldModel; 5] = [
-    EntityFieldModel {
+static PHASE_TAG_KIND: FieldKind = FieldKind::Uint;
+static PHASE_FIELDS: [FieldModel; 5] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         // Optional scalar fields are represented as scalar kinds in runtime models.
         name: "opt_rank",
-        kind: EntityFieldKind::Uint,
+        kind: FieldKind::Uint,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "rank",
-        kind: EntityFieldKind::Uint,
+        kind: FieldKind::Uint,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "tags",
-        kind: EntityFieldKind::List(&PHASE_TAG_KIND),
+        kind: FieldKind::List(&PHASE_TAG_KIND),
     },
-    EntityFieldModel {
+    FieldModel {
         name: "label",
-        kind: EntityFieldKind::Text,
+        kind: FieldKind::Text,
     },
 ];
 static PHASE_FIELD_NAMES: [&str; 5] = ["id", "opt_rank", "rank", "tags", "label"];
-static PHASE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static PHASE_INDEXES: [&IndexModel; 0] = [];
 static PHASE_MODEL: EntityModel = entity_model_from_static(
     "executor_tests::PhaseEntity",
     "PhaseEntity",
@@ -542,7 +543,7 @@ static PHASE_MODEL: EntityModel = entity_model_from_static(
 impl EntitySchema for PhaseEntity {
     const MODEL: &'static EntityModel = &PHASE_MODEL;
     const FIELDS: &'static [&'static str] = &PHASE_FIELD_NAMES;
-    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &PHASE_INDEXES;
+    const INDEXES: &'static [&'static IndexModel] = &PHASE_INDEXES;
 }
 
 impl EntityPlacement for PhaseEntity {
@@ -634,31 +635,31 @@ static REL_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RelationTestCanister>] = &
     EntityRuntimeHooks::new(
         RelationTargetEntity::ENTITY_NAME,
         RelationTargetEntity::PATH,
-        crate::db::prepare_row_commit_for_entity::<RelationTargetEntity>,
+        prepare_row_commit_for_entity::<RelationTargetEntity>,
         validate_delete_strong_relations_for_source::<RelationTargetEntity>,
     ),
     EntityRuntimeHooks::new(
         RelationSourceEntity::ENTITY_NAME,
         RelationSourceEntity::PATH,
-        crate::db::prepare_row_commit_for_entity::<RelationSourceEntity>,
+        prepare_row_commit_for_entity::<RelationSourceEntity>,
         validate_delete_strong_relations_for_source::<RelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         WeakSingleRelationSourceEntity::ENTITY_NAME,
         WeakSingleRelationSourceEntity::PATH,
-        crate::db::prepare_row_commit_for_entity::<WeakSingleRelationSourceEntity>,
+        prepare_row_commit_for_entity::<WeakSingleRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakSingleRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         WeakOptionalRelationSourceEntity::ENTITY_NAME,
         WeakOptionalRelationSourceEntity::PATH,
-        crate::db::prepare_row_commit_for_entity::<WeakOptionalRelationSourceEntity>,
+        prepare_row_commit_for_entity::<WeakOptionalRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakOptionalRelationSourceEntity>,
     ),
     EntityRuntimeHooks::new(
         WeakListRelationSourceEntity::ENTITY_NAME,
         WeakListRelationSourceEntity::PATH,
-        crate::db::prepare_row_commit_for_entity::<WeakListRelationSourceEntity>,
+        prepare_row_commit_for_entity::<WeakListRelationSourceEntity>,
         validate_delete_strong_relations_for_source::<WeakListRelationSourceEntity>,
     ),
 ];
@@ -706,12 +707,12 @@ impl EntityIdentity for RelationTargetEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static REL_TARGET_FIELDS: [EntityFieldModel; 1] = [EntityFieldModel {
+static REL_TARGET_FIELDS: [FieldModel; 1] = [FieldModel {
     name: "id",
-    kind: EntityFieldKind::Ulid,
+    kind: FieldKind::Ulid,
 }];
 static REL_TARGET_FIELD_NAMES: [&str; 1] = ["id"];
-static REL_TARGET_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static REL_TARGET_INDEXES: [&IndexModel; 0] = [];
 static REL_TARGET_MODEL: EntityModel = entity_model_from_static(
     "executor_tests::RelationTargetEntity",
     "RelationTargetEntity",
@@ -723,7 +724,7 @@ static REL_TARGET_MODEL: EntityModel = entity_model_from_static(
 impl EntitySchema for RelationTargetEntity {
     const MODEL: &'static EntityModel = &REL_TARGET_MODEL;
     const FIELDS: &'static [&'static str] = &REL_TARGET_FIELD_NAMES;
-    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &REL_TARGET_INDEXES;
+    const INDEXES: &'static [&'static IndexModel] = &REL_TARGET_INDEXES;
 }
 
 impl EntityPlacement for RelationTargetEntity {
@@ -780,24 +781,24 @@ impl EntityIdentity for RelationSourceEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static REL_SOURCE_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static REL_SOURCE_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "target",
-        kind: EntityFieldKind::Relation {
+        kind: FieldKind::Relation {
             target_path: RelationTargetEntity::PATH,
             target_entity_name: RelationTargetEntity::ENTITY_NAME,
             target_store_path: RelationTargetStore::PATH,
-            key_kind: &EntityFieldKind::Ulid,
+            key_kind: &FieldKind::Ulid,
             strength: RelationStrength::Strong,
         },
     },
 ];
 static REL_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "target"];
-static REL_SOURCE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static REL_SOURCE_INDEXES: [&IndexModel; 0] = [];
 static REL_SOURCE_MODEL: EntityModel = entity_model_from_static(
     "executor_tests::RelationSourceEntity",
     "RelationSourceEntity",
@@ -809,7 +810,7 @@ static REL_SOURCE_MODEL: EntityModel = entity_model_from_static(
 impl EntitySchema for RelationSourceEntity {
     const MODEL: &'static EntityModel = &REL_SOURCE_MODEL;
     const FIELDS: &'static [&'static str] = &REL_SOURCE_FIELD_NAMES;
-    const INDEXES: &'static [&'static crate::model::index::IndexModel] = &REL_SOURCE_INDEXES;
+    const INDEXES: &'static [&'static IndexModel] = &REL_SOURCE_INDEXES;
 }
 
 impl EntityPlacement for RelationSourceEntity {
@@ -866,24 +867,24 @@ impl EntityIdentity for WeakSingleRelationSourceEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static REL_WEAK_SINGLE_SOURCE_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static REL_WEAK_SINGLE_SOURCE_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "target",
-        kind: EntityFieldKind::Relation {
+        kind: FieldKind::Relation {
             target_path: RelationTargetEntity::PATH,
             target_entity_name: RelationTargetEntity::ENTITY_NAME,
             target_store_path: RelationTargetStore::PATH,
-            key_kind: &EntityFieldKind::Ulid,
+            key_kind: &FieldKind::Ulid,
             strength: RelationStrength::Weak,
         },
     },
 ];
 static REL_WEAK_SINGLE_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "target"];
-static REL_WEAK_SINGLE_SOURCE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static REL_WEAK_SINGLE_SOURCE_INDEXES: [&IndexModel; 0] = [];
 static REL_WEAK_SINGLE_SOURCE_MODEL: EntityModel = entity_model_from_static(
     "executor_tests::WeakSingleRelationSourceEntity",
     "WeakSingleRelationSourceEntity",
@@ -895,8 +896,7 @@ static REL_WEAK_SINGLE_SOURCE_MODEL: EntityModel = entity_model_from_static(
 impl EntitySchema for WeakSingleRelationSourceEntity {
     const MODEL: &'static EntityModel = &REL_WEAK_SINGLE_SOURCE_MODEL;
     const FIELDS: &'static [&'static str] = &REL_WEAK_SINGLE_SOURCE_FIELD_NAMES;
-    const INDEXES: &'static [&'static crate::model::index::IndexModel] =
-        &REL_WEAK_SINGLE_SOURCE_INDEXES;
+    const INDEXES: &'static [&'static IndexModel] = &REL_WEAK_SINGLE_SOURCE_INDEXES;
 }
 
 impl EntityPlacement for WeakSingleRelationSourceEntity {
@@ -953,24 +953,24 @@ impl EntityIdentity for WeakOptionalRelationSourceEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static REL_WEAK_OPTIONAL_SOURCE_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static REL_WEAK_OPTIONAL_SOURCE_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "target",
-        kind: EntityFieldKind::Relation {
+        kind: FieldKind::Relation {
             target_path: RelationTargetEntity::PATH,
             target_entity_name: RelationTargetEntity::ENTITY_NAME,
             target_store_path: RelationTargetStore::PATH,
-            key_kind: &EntityFieldKind::Ulid,
+            key_kind: &FieldKind::Ulid,
             strength: RelationStrength::Weak,
         },
     },
 ];
 static REL_WEAK_OPTIONAL_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "target"];
-static REL_WEAK_OPTIONAL_SOURCE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static REL_WEAK_OPTIONAL_SOURCE_INDEXES: [&IndexModel; 0] = [];
 static REL_WEAK_OPTIONAL_SOURCE_MODEL: EntityModel = entity_model_from_static(
     "executor_tests::WeakOptionalRelationSourceEntity",
     "WeakOptionalRelationSourceEntity",
@@ -982,8 +982,7 @@ static REL_WEAK_OPTIONAL_SOURCE_MODEL: EntityModel = entity_model_from_static(
 impl EntitySchema for WeakOptionalRelationSourceEntity {
     const MODEL: &'static EntityModel = &REL_WEAK_OPTIONAL_SOURCE_MODEL;
     const FIELDS: &'static [&'static str] = &REL_WEAK_OPTIONAL_SOURCE_FIELD_NAMES;
-    const INDEXES: &'static [&'static crate::model::index::IndexModel] =
-        &REL_WEAK_OPTIONAL_SOURCE_INDEXES;
+    const INDEXES: &'static [&'static IndexModel] = &REL_WEAK_OPTIONAL_SOURCE_INDEXES;
 }
 
 impl EntityPlacement for WeakOptionalRelationSourceEntity {
@@ -1040,25 +1039,25 @@ impl EntityIdentity for WeakListRelationSourceEntity {
     const PRIMARY_KEY: &'static str = "id";
 }
 
-static REL_WEAK_LIST_TARGET_KIND: EntityFieldKind = EntityFieldKind::Relation {
+static REL_WEAK_LIST_TARGET_KIND: FieldKind = FieldKind::Relation {
     target_path: RelationTargetEntity::PATH,
     target_entity_name: RelationTargetEntity::ENTITY_NAME,
     target_store_path: RelationTargetStore::PATH,
-    key_kind: &EntityFieldKind::Ulid,
+    key_kind: &FieldKind::Ulid,
     strength: RelationStrength::Weak,
 };
-static REL_WEAK_LIST_SOURCE_FIELDS: [EntityFieldModel; 2] = [
-    EntityFieldModel {
+static REL_WEAK_LIST_SOURCE_FIELDS: [FieldModel; 2] = [
+    FieldModel {
         name: "id",
-        kind: EntityFieldKind::Ulid,
+        kind: FieldKind::Ulid,
     },
-    EntityFieldModel {
+    FieldModel {
         name: "targets",
-        kind: EntityFieldKind::List(&REL_WEAK_LIST_TARGET_KIND),
+        kind: FieldKind::List(&REL_WEAK_LIST_TARGET_KIND),
     },
 ];
 static REL_WEAK_LIST_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "targets"];
-static REL_WEAK_LIST_SOURCE_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+static REL_WEAK_LIST_SOURCE_INDEXES: [&IndexModel; 0] = [];
 static REL_WEAK_LIST_SOURCE_MODEL: EntityModel = entity_model_from_static(
     "executor_tests::WeakListRelationSourceEntity",
     "WeakListRelationSourceEntity",
@@ -1070,8 +1069,7 @@ static REL_WEAK_LIST_SOURCE_MODEL: EntityModel = entity_model_from_static(
 impl EntitySchema for WeakListRelationSourceEntity {
     const MODEL: &'static EntityModel = &REL_WEAK_LIST_SOURCE_MODEL;
     const FIELDS: &'static [&'static str] = &REL_WEAK_LIST_SOURCE_FIELD_NAMES;
-    const INDEXES: &'static [&'static crate::model::index::IndexModel] =
-        &REL_WEAK_LIST_SOURCE_INDEXES;
+    const INDEXES: &'static [&'static IndexModel] = &REL_WEAK_LIST_SOURCE_INDEXES;
 }
 
 impl EntityPlacement for WeakListRelationSourceEntity {

@@ -2,7 +2,8 @@ mod helpers;
 
 use crate::{
     db::{
-        CommitRowOp, Db, ensure_recovered_for_write,
+        Db,
+        commit::{CommitRowOp, ensure_recovered_for_write},
         executor::{
             debug::{access_summary, yes_no},
             mutation::{
@@ -36,7 +37,7 @@ use std::{collections::BTreeSet, marker::PhantomData};
 ///
 
 #[derive(Clone, Copy)]
-pub struct DeleteExecutor<E>
+pub(crate) struct DeleteExecutor<E>
 where
     E: EntityKind,
 {
@@ -53,7 +54,7 @@ where
     // Debug is session-scoped via DbSession and propagated into executors;
     // executors do not expose independent debug control.
     #[must_use]
-    pub const fn new(db: Db<E::Canister>, debug: bool) -> Self {
+    pub(crate) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
         Self {
             db,
             debug,
@@ -73,7 +74,7 @@ where
     // ─────────────────────────────────────────────
 
     #[expect(clippy::too_many_lines)]
-    pub fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
+    pub(crate) fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
         if !plan.mode().is_delete() {
             return Err(InternalError::new(
                 ErrorClass::Unsupported,

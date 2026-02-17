@@ -1,0 +1,11 @@
+error[E0603]: module `sanitize` is private
+ --> tests/ui/sanitize_module_private.rs:1:17
+  |
+1 | use icydb_core::sanitize::sanitize;
+  |                 ^^^^^^^^ private module
+  |
+note: the module `sanitize` is defined here
+ --> src/lib.rs
+  |
+  | mod sanitize;
+  | ^^^^^^^^^^^^

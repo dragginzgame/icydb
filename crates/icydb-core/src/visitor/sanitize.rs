@@ -9,11 +9,11 @@ use crate::{
 ///
 
 #[derive(Debug, Default)]
-pub struct SanitizeVisitor;
+pub(crate) struct SanitizeVisitor;
 
 impl SanitizeVisitor {
     #[must_use]
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self
     }
 }

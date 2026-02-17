@@ -7,12 +7,12 @@ mod plan;
 mod save;
 #[cfg(test)]
 mod tests;
-pub mod trace;
+pub(crate) mod trace;
 
-pub use context::*;
-pub use delete::DeleteExecutor;
-pub use load::LoadExecutor;
-pub use save::SaveExecutor;
+pub(super) use context::*;
+pub(super) use delete::DeleteExecutor;
+pub(super) use load::LoadExecutor;
+pub(super) use save::SaveExecutor;
 
 // Design notes:
 // - SchemaInfo is the planner-visible schema (relational attributes). Executors may see

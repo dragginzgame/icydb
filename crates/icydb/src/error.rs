@@ -1,12 +1,8 @@
 use candid::CandidType;
 use derive_more::Display;
 use icydb_core::{
-    db::{
-        query::{QueryError, plan::PlanError},
-        response::ResponseError,
-    },
-    error::{ErrorOrigin as CoreErrorOrigin, InternalError},
-    patch::MergePatchError as CoreMergePatchError,
+    ErrorOrigin as CoreErrorOrigin, InternalError, MergePatchError as CoreMergePatchError,
+    db::{PlanError, QueryError, ResponseError},
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
@@ -229,7 +225,7 @@ impl From<CoreErrorOrigin> for ErrorOrigin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use icydb_core::db::query::{IntentError, QueryError, predicate::ValidateError};
+    use icydb_core::db::{IntentError, ValidateError};
 
     #[test]
     fn query_validate_maps_to_validate_kind() {

@@ -3,7 +3,7 @@ mod load;
 mod unique;
 
 use crate::{
-    db::{CommitIndexOp, index::IndexStore},
+    db::{commit::CommitIndexOp, index::IndexStore},
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,
     traits::{EntityKind, EntityValue},
@@ -15,7 +15,7 @@ use std::{cell::RefCell, thread::LocalKey};
 ///
 
 #[derive(Debug)]
-pub struct IndexApplyPlan {
+pub(crate) struct IndexApplyPlan {
     pub index: &'static IndexModel,
     pub store: &'static LocalKey<RefCell<IndexStore>>,
 }
@@ -25,7 +25,7 @@ pub struct IndexApplyPlan {
 ///
 
 #[derive(Debug)]
-pub struct IndexMutationPlan {
+pub(crate) struct IndexMutationPlan {
     pub apply: Vec<IndexApplyPlan>,
     pub commit_ops: Vec<CommitIndexOp>,
 }
@@ -59,7 +59,7 @@ pub(super) fn index_violation_error(path: &str, index_fields: &[&str]) -> Intern
 ///
 /// All fallible work happens here. The returned plan is safe to apply
 /// infallibly after a commit marker is written.
-pub fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
+pub(crate) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
     db: &crate::db::Db<E::Canister>,
     old: Option<&E>,
     new: Option<&E>,

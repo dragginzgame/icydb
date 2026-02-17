@@ -5,7 +5,8 @@ use crate::{
     db::{
         index::fingerprint::hash_value,
         query::{
-            QueryMode, ReadConsistency,
+            ReadConsistency,
+            intent::QueryMode,
             plan::{
                 AccessPlanProjection, ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy,
                 ExplainPagination, ExplainPlan, ExplainPredicate, OrderDirection,
@@ -23,7 +24,7 @@ use std::ops::Bound;
 /// Hash explain access paths into the plan hash stream.
 ///
 
-pub fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
+pub(super) fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
     let mut projection = HashAccessProjection { hasher };
     project_explain_access_path(access, &mut projection);
 }
@@ -117,7 +118,7 @@ impl AccessPlanProjection<Value> for HashAccessProjection<'_> {
 /// Hash explain predicates into the plan hash stream.
 ///
 
-pub fn hash_predicate(hasher: &mut Sha256, predicate: &ExplainPredicate) {
+pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: &ExplainPredicate) {
     match predicate {
         ExplainPredicate::None => write_tag(hasher, 0x20),
         ExplainPredicate::True => write_tag(hasher, 0x21),
@@ -185,7 +186,7 @@ pub fn hash_predicate(hasher: &mut Sha256, predicate: &ExplainPredicate) {
 /// Hash explain order specs into the plan hash stream.
 ///
 
-pub fn hash_order(hasher: &mut Sha256, order: &ExplainOrderBy) {
+pub(super) fn hash_order(hasher: &mut Sha256, order: &ExplainOrderBy) {
     match order {
         ExplainOrderBy::None => write_tag(hasher, 0x30),
         ExplainOrderBy::Fields(fields) => {
@@ -203,7 +204,7 @@ pub fn hash_order(hasher: &mut Sha256, order: &ExplainOrderBy) {
 /// Hash query mode into the plan hash stream.
 ///
 
-pub fn hash_mode(hasher: &mut Sha256, mode: QueryMode) {
+pub(super) fn hash_mode(hasher: &mut Sha256, mode: QueryMode) {
     match mode {
         QueryMode::Load(_) => write_tag(hasher, 0x60),
         QueryMode::Delete(_) => write_tag(hasher, 0x61),
@@ -214,7 +215,7 @@ pub fn hash_mode(hasher: &mut Sha256, mode: QueryMode) {
 /// Hash coercion information into the plan hash stream.
 ///
 
-pub fn hash_coercion(
+pub(super) fn hash_coercion(
     hasher: &mut Sha256,
     id: CoercionId,
     params: &std::collections::BTreeMap<String, String>,
@@ -231,7 +232,7 @@ pub fn hash_coercion(
 /// Encode one value digest into the plan hash stream.
 ///
 
-pub fn write_value(hasher: &mut Sha256, value: &Value) {
+pub(super) fn write_value(hasher: &mut Sha256, value: &Value) {
     match hash_value(value) {
         Ok(digest) => hasher.update(digest),
         Err(err) => {
@@ -244,7 +245,7 @@ pub fn write_value(hasher: &mut Sha256, value: &Value) {
 ///
 /// Encode one value bound into the plan hash stream.
 ///
-pub fn write_value_bound(hasher: &mut Sha256, bound: &Bound<Value>) {
+pub(super) fn write_value_bound(hasher: &mut Sha256, bound: &Bound<Value>) {
     match bound {
         Bound::Unbounded => write_tag(hasher, 0x00),
         Bound::Included(value) => {
@@ -262,7 +263,7 @@ pub fn write_value_bound(hasher: &mut Sha256, bound: &Bound<Value>) {
 /// Encode one string with length prefix into the plan hash stream.
 ///
 
-pub fn write_str(hasher: &mut Sha256, value: &str) {
+pub(super) fn write_str(hasher: &mut Sha256, value: &str) {
     write_u32(hasher, value.len() as u32);
     hasher.update(value.as_bytes());
 }
@@ -271,7 +272,7 @@ pub fn write_str(hasher: &mut Sha256, value: &str) {
 /// Encode one u32 in network byte order into the plan hash stream.
 ///
 
-pub fn write_u32(hasher: &mut Sha256, value: u32) {
+pub(super) fn write_u32(hasher: &mut Sha256, value: u32) {
     hasher.update(value.to_be_bytes());
 }
 
@@ -279,7 +280,7 @@ pub fn write_u32(hasher: &mut Sha256, value: u32) {
 /// Encode one tag byte into the plan hash stream.
 ///
 
-pub fn write_tag(hasher: &mut Sha256, tag: u8) {
+pub(super) fn write_tag(hasher: &mut Sha256, tag: u8) {
     hasher.update([tag]);
 }
 
@@ -296,7 +297,7 @@ const fn order_direction_tag(direction: OrderDirection) -> u8 {
 /// Hashing profiles that select canonical explain-surface fields.
 ///
 
-pub enum ExplainHashProfile<'a> {
+pub(super) enum ExplainHashProfile<'a> {
     FingerprintV2,
     ContinuationV1 { entity_path: &'a str },
 }
@@ -421,7 +422,7 @@ fn hash_explain_field(
 }
 
 /// Hash an `ExplainPlan` using a profile-specific canonical field set.
-pub fn hash_explain_plan_profile(
+pub(super) fn hash_explain_plan_profile(
     hasher: &mut Sha256,
     plan: &ExplainPlan,
     profile: ExplainHashProfile<'_>,

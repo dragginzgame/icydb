@@ -1,5 +1,5 @@
 use crate::{
-    model::field::EntityFieldKind,
+    model::field::FieldKind,
     traits::FieldValueKind,
     value::{CoercionFamily, Value},
 };
@@ -17,7 +17,7 @@ use std::fmt;
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ScalarType {
+pub(crate) enum ScalarType {
     Account,
     Blob,
     Bool,
@@ -87,34 +87,34 @@ macro_rules! scalar_supports_ordering_from_registry {
 
 impl ScalarType {
     #[must_use]
-    pub const fn coercion_family(&self) -> CoercionFamily {
+    pub(crate) const fn coercion_family(&self) -> CoercionFamily {
         scalar_registry!(scalar_coercion_family_from_registry, self)
     }
 
     #[must_use]
-    pub const fn is_orderable(&self) -> bool {
+    pub(crate) const fn is_orderable(&self) -> bool {
         // Predicate-level ordering gate.
         // Delegates to registry-backed supports_ordering.
         self.supports_ordering()
     }
 
     #[must_use]
-    pub const fn matches_value(&self, value: &Value) -> bool {
+    pub(crate) const fn matches_value(&self, value: &Value) -> bool {
         scalar_registry!(scalar_matches_value_from_registry, self, value)
     }
 
     #[must_use]
-    pub const fn supports_numeric_coercion(&self) -> bool {
+    pub(crate) const fn supports_numeric_coercion(&self) -> bool {
         scalar_registry!(scalar_supports_numeric_coercion_from_registry, self)
     }
 
     #[must_use]
-    pub const fn is_keyable(&self) -> bool {
+    pub(crate) const fn is_keyable(&self) -> bool {
         scalar_registry!(scalar_is_keyable_from_registry, self)
     }
 
     #[must_use]
-    pub const fn supports_ordering(&self) -> bool {
+    pub(crate) const fn supports_ordering(&self) -> bool {
         scalar_registry!(scalar_supports_ordering_from_registry, self)
     }
 }
@@ -130,7 +130,7 @@ impl ScalarType {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum FieldType {
+pub(crate) enum FieldType {
     Scalar(ScalarType),
     List(Box<Self>),
     Set(Box<Self>),
@@ -140,7 +140,7 @@ pub enum FieldType {
 
 impl FieldType {
     #[must_use]
-    pub const fn value_kind(&self) -> FieldValueKind {
+    pub(crate) const fn value_kind(&self) -> FieldValueKind {
         match self {
             Self::Scalar(_) => FieldValueKind::Atomic,
             Self::List(_) | Self::Set(_) => FieldValueKind::Structured { queryable: true },
@@ -152,7 +152,7 @@ impl FieldType {
     }
 
     #[must_use]
-    pub const fn coercion_family(&self) -> Option<CoercionFamily> {
+    pub(crate) const fn coercion_family(&self) -> Option<CoercionFamily> {
         match self {
             Self::Scalar(inner) => Some(inner.coercion_family()),
             Self::List(_) | Self::Set(_) | Self::Map { .. } => Some(CoercionFamily::Collection),
@@ -161,22 +161,22 @@ impl FieldType {
     }
 
     #[must_use]
-    pub const fn is_text(&self) -> bool {
+    pub(crate) const fn is_text(&self) -> bool {
         matches!(self, Self::Scalar(ScalarType::Text))
     }
 
     #[must_use]
-    pub const fn is_collection(&self) -> bool {
+    pub(crate) const fn is_collection(&self) -> bool {
         matches!(self, Self::List(_) | Self::Set(_) | Self::Map { .. })
     }
 
     #[must_use]
-    pub const fn is_list_like(&self) -> bool {
+    pub(crate) const fn is_list_like(&self) -> bool {
         matches!(self, Self::List(_) | Self::Set(_))
     }
 
     #[must_use]
-    pub const fn is_orderable(&self) -> bool {
+    pub(crate) const fn is_orderable(&self) -> bool {
         match self {
             Self::Scalar(inner) => inner.is_orderable(),
             _ => false,
@@ -184,7 +184,7 @@ impl FieldType {
     }
 
     #[must_use]
-    pub const fn is_keyable(&self) -> bool {
+    pub(crate) const fn is_keyable(&self) -> bool {
         match self {
             Self::Scalar(inner) => inner.is_keyable(),
             _ => false,
@@ -192,7 +192,7 @@ impl FieldType {
     }
 
     #[must_use]
-    pub const fn supports_numeric_coercion(&self) -> bool {
+    pub(crate) const fn supports_numeric_coercion(&self) -> bool {
         match self {
             Self::Scalar(inner) => inner.supports_numeric_coercion(),
             _ => false,
@@ -200,7 +200,7 @@ impl FieldType {
     }
 }
 
-pub fn literal_matches_type(literal: &Value, field_type: &FieldType) -> bool {
+pub(crate) fn literal_matches_type(literal: &Value, field_type: &FieldType) -> bool {
     match field_type {
         FieldType::Scalar(inner) => inner.matches_value(literal),
         FieldType::List(element) | FieldType::Set(element) => match literal {
@@ -226,41 +226,39 @@ pub fn literal_matches_type(literal: &Value, field_type: &FieldType) -> bool {
     }
 }
 
-pub fn field_type_from_model_kind(kind: &EntityFieldKind) -> FieldType {
+pub(super) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
     match kind {
-        EntityFieldKind::Account => FieldType::Scalar(ScalarType::Account),
-        EntityFieldKind::Blob => FieldType::Scalar(ScalarType::Blob),
-        EntityFieldKind::Bool => FieldType::Scalar(ScalarType::Bool),
-        EntityFieldKind::Date => FieldType::Scalar(ScalarType::Date),
-        EntityFieldKind::Decimal => FieldType::Scalar(ScalarType::Decimal),
-        EntityFieldKind::Duration => FieldType::Scalar(ScalarType::Duration),
-        EntityFieldKind::Enum => FieldType::Scalar(ScalarType::Enum),
-        EntityFieldKind::E8s => FieldType::Scalar(ScalarType::E8s),
-        EntityFieldKind::E18s => FieldType::Scalar(ScalarType::E18s),
-        EntityFieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
-        EntityFieldKind::Float64 => FieldType::Scalar(ScalarType::Float64),
-        EntityFieldKind::Int => FieldType::Scalar(ScalarType::Int),
-        EntityFieldKind::Int128 => FieldType::Scalar(ScalarType::Int128),
-        EntityFieldKind::IntBig => FieldType::Scalar(ScalarType::IntBig),
-        EntityFieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
-        EntityFieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
-        EntityFieldKind::Text => FieldType::Scalar(ScalarType::Text),
-        EntityFieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
-        EntityFieldKind::Uint => FieldType::Scalar(ScalarType::Uint),
-        EntityFieldKind::Uint128 => FieldType::Scalar(ScalarType::Uint128),
-        EntityFieldKind::UintBig => FieldType::Scalar(ScalarType::UintBig),
-        EntityFieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
-        EntityFieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
-        EntityFieldKind::Relation { key_kind, .. } => field_type_from_model_kind(key_kind),
-        EntityFieldKind::List(inner) => {
-            FieldType::List(Box::new(field_type_from_model_kind(inner)))
-        }
-        EntityFieldKind::Set(inner) => FieldType::Set(Box::new(field_type_from_model_kind(inner))),
-        EntityFieldKind::Map { key, value } => FieldType::Map {
+        FieldKind::Account => FieldType::Scalar(ScalarType::Account),
+        FieldKind::Blob => FieldType::Scalar(ScalarType::Blob),
+        FieldKind::Bool => FieldType::Scalar(ScalarType::Bool),
+        FieldKind::Date => FieldType::Scalar(ScalarType::Date),
+        FieldKind::Decimal => FieldType::Scalar(ScalarType::Decimal),
+        FieldKind::Duration => FieldType::Scalar(ScalarType::Duration),
+        FieldKind::Enum => FieldType::Scalar(ScalarType::Enum),
+        FieldKind::E8s => FieldType::Scalar(ScalarType::E8s),
+        FieldKind::E18s => FieldType::Scalar(ScalarType::E18s),
+        FieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
+        FieldKind::Float64 => FieldType::Scalar(ScalarType::Float64),
+        FieldKind::Int => FieldType::Scalar(ScalarType::Int),
+        FieldKind::Int128 => FieldType::Scalar(ScalarType::Int128),
+        FieldKind::IntBig => FieldType::Scalar(ScalarType::IntBig),
+        FieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
+        FieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
+        FieldKind::Text => FieldType::Scalar(ScalarType::Text),
+        FieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
+        FieldKind::Uint => FieldType::Scalar(ScalarType::Uint),
+        FieldKind::Uint128 => FieldType::Scalar(ScalarType::Uint128),
+        FieldKind::UintBig => FieldType::Scalar(ScalarType::UintBig),
+        FieldKind::Ulid => FieldType::Scalar(ScalarType::Ulid),
+        FieldKind::Unit => FieldType::Scalar(ScalarType::Unit),
+        FieldKind::Relation { key_kind, .. } => field_type_from_model_kind(key_kind),
+        FieldKind::List(inner) => FieldType::List(Box::new(field_type_from_model_kind(inner))),
+        FieldKind::Set(inner) => FieldType::Set(Box::new(field_type_from_model_kind(inner))),
+        FieldKind::Map { key, value } => FieldType::Map {
             key: Box::new(field_type_from_model_kind(key)),
             value: Box::new(field_type_from_model_kind(value)),
         },
-        EntityFieldKind::Structured { queryable } => FieldType::Structured {
+        FieldKind::Structured { queryable } => FieldType::Structured {
             queryable: *queryable,
         },
     }
