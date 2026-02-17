@@ -59,7 +59,7 @@ pub(super) fn index_violation_error(path: &str, index_fields: &[&str]) -> Intern
 ///
 /// All fallible work happens here. The returned plan is safe to apply
 /// infallibly after a commit marker is written.
-pub(crate) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
+pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>(
     db: &crate::db::Db<E::Canister>,
     old: Option<&E>,
     new: Option<&E>,

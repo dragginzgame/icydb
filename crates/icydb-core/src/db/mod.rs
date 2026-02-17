@@ -18,10 +18,11 @@ pub(in crate::db) mod relation;
 pub use cursor::encode_cursor;
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
+pub use diagnostics::StorageReport;
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
 #[cfg(test)]
-pub(crate) use index::fingerprint::hash_value;
+pub(crate) use index::hash_value;
 pub use query::{
     ReadConsistency,
     builder::field::FieldRef,
@@ -47,7 +48,6 @@ use crate::{
             CommitRowOp, PreparedRowCommitOp, ensure_recovered, prepare_row_commit_for_entity,
         },
         data::RawDataKey,
-        diagnostics::snapshot::StorageReport,
         executor::{Context, DeleteExecutor, LoadExecutor, SaveExecutor},
         query::intent::QueryMode,
         relation::StrongRelationDeleteValidateFn,
@@ -121,7 +121,7 @@ impl<C: CanisterKind> Db<C> {
         &self,
         name_to_path: &[(&'static str, &'static str)],
     ) -> Result<StorageReport, InternalError> {
-        diagnostics::snapshot::storage_report(self, name_to_path)
+        diagnostics::storage_report(self, name_to_path)
     }
 
     pub(in crate::db) fn prepare_row_commit_op(
@@ -581,8 +581,8 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn clear_stores_for_tests(&self) {
         self.db.with_store_registry(|reg| {
             for (_, store) in reg.iter() {
-                store.with_data_mut(crate::db::data::DataStore::clear);
-                store.with_index_mut(crate::db::index::IndexStore::clear);
+                store.with_data_mut(DataStore::clear);
+                store.with_index_mut(IndexStore::clear);
             }
         });
     }

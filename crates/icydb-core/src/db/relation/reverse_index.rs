@@ -12,7 +12,7 @@ use crate::{
         identity::{EntityName, IndexName},
         index::{
             IndexEntry, IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
-            key::encode_canonical_index_component,
+            encode_canonical_index_component,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},

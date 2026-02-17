@@ -9,7 +9,7 @@ pub(crate) mod sink;
 use crate::{db::Db, error::InternalError, traits::CanisterKind};
 
 // re-exports
-pub use crate::db::diagnostics::snapshot::StorageReport;
+pub use crate::db::StorageReport;
 pub use metrics::EventReport;
 pub use sink::{MetricsSink, metrics_report, metrics_reset_all};
 
@@ -18,5 +18,5 @@ pub fn storage_report<C: CanisterKind>(
     db: &Db<C>,
     name_to_path: &[(&'static str, &'static str)],
 ) -> Result<StorageReport, InternalError> {
-    crate::db::diagnostics::snapshot::storage_report(db, name_to_path)
+    db.storage_report(name_to_path)
 }

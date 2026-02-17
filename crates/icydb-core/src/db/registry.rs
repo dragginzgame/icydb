@@ -1,5 +1,5 @@
 use crate::{
-    db::{data::DataStore, index::store::IndexStore},
+    db::{data::DataStore, index::IndexStore},
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
 use std::{cell::RefCell, collections::HashMap, thread::LocalKey};

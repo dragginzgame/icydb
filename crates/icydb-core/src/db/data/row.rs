@@ -20,19 +20,19 @@ pub(crate) type DataRow = (DataKey, RawRow);
 ///
 
 #[derive(Debug, ThisError)]
-pub enum RawRowError {
+pub(crate) enum RawRowError {
     #[error("row exceeds max size: {len} bytes (limit {MAX_ROW_BYTES})")]
     TooLarge { len: u32 },
 }
 
 impl RawRowError {
     #[must_use]
-    pub const fn class() -> ErrorClass {
+    pub(crate) const fn class() -> ErrorClass {
         ErrorClass::Unsupported
     }
 
     #[must_use]
-    pub const fn origin() -> ErrorOrigin {
+    pub(crate) const fn origin() -> ErrorOrigin {
         ErrorOrigin::Store
     }
 }
@@ -49,7 +49,7 @@ impl From<RawRowError> for InternalError {
 ///
 
 #[derive(Debug, ThisError)]
-pub enum RowDecodeError {
+pub(crate) enum RowDecodeError {
     #[error("row failed to deserialize: {source}")]
     Deserialize {
         #[source]
@@ -70,7 +70,7 @@ pub struct RawRow(Vec<u8>);
 impl RawRow {
     /// Construct a raw row from serialized bytes.
     #[expect(clippy::cast_possible_truncation)]
-    pub fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
+    pub(crate) fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
         let len = bytes.len() as u32;
         if len > MAX_ROW_BYTES {
             return Err(RawRowError::TooLarge { len });
@@ -79,13 +79,13 @@ impl RawRow {
     }
 
     #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
     /// Length in bytes (in-memory; bounded by construction).
     #[must_use]
-    pub const fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.0.len()
     }
 
@@ -95,7 +95,7 @@ impl RawRow {
     }
 
     /// Decode into an entity.
-    pub fn try_decode<E: EntityKind>(&self) -> Result<E, RowDecodeError> {
+    pub(crate) fn try_decode<E: EntityKind>(&self) -> Result<E, RowDecodeError> {
         deserialize_row::<E>(&self.0).map_err(|source| RowDecodeError::Deserialize { source })
     }
 }

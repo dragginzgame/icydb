@@ -3,7 +3,7 @@
 
 use crate::{
     db::{
-        index::fingerprint::hash_value,
+        index::hash_value,
         query::{
             ReadConsistency,
             intent::QueryMode,

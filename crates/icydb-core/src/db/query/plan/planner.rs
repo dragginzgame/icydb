@@ -6,7 +6,7 @@
 use super::{AccessPath, AccessPlan, PlanError, canonical};
 use crate::{
     db::{
-        index::key::encode_canonical_index_component,
+        index::encode_canonical_index_component,
         query::predicate::{
             CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo,
             coercion::canonical_cmp, normalize, validate::literal_matches_type,

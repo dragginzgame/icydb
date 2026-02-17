@@ -1,3 +1,3 @@
-use icydb_core::validate::validate;
+use icydb_core::visitor::validate::ValidateVisitor;
 
 fn main() {}

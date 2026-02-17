@@ -1,11 +1,11 @@
 error[E0603]: module `sanitize` is private
- --> tests/ui/sanitize_module_private.rs:1:17
+ --> tests/ui/sanitize_module_private.rs:1:26
   |
-1 | use icydb_core::sanitize::sanitize;
-  |                 ^^^^^^^^ private module
+1 | use icydb_core::visitor::sanitize::SanitizeVisitor;
+  |                          ^^^^^^^^ private module
   |
 note: the module `sanitize` is defined here
- --> src/lib.rs
+ --> src/visitor/mod.rs
   |
-  | mod sanitize;
-  | ^^^^^^^^^^^^
+  | pub(crate) mod sanitize;
+  | ^^^^^^^^^^^^^^^^^^^^^^^

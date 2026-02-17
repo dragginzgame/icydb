@@ -1,3 +1,3 @@
-use icydb_core::sanitize::sanitize;
+use icydb_core::visitor::sanitize::SanitizeVisitor;
 
 fn main() {}

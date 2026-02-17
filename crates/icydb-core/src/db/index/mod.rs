@@ -1,11 +1,14 @@
-pub(crate) mod entry;
-pub(crate) mod fingerprint;
-pub(crate) mod key;
-pub(crate) mod plan;
-pub(crate) mod store;
+mod entry;
+mod fingerprint;
+mod key;
+mod plan;
+mod store;
 
-pub(crate) use entry::{
+pub(in crate::db) use entry::{
     IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,
 };
-pub(crate) use key::{IndexId, IndexKey, IndexKeyKind, RawIndexKey};
+pub(crate) use fingerprint::hash_value;
+pub(in crate::db) use key::encode_canonical_index_component;
+pub(in crate::db) use key::{IndexId, IndexKey, IndexKeyKind, RawIndexKey};
+pub(in crate::db) use plan::plan_index_mutation_for_entity;
 pub use store::IndexStore;

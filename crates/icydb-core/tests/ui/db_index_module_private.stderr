@@ -7,5 +7,5 @@ error[E0603]: module `index` is private
 note: the module `index` is defined here
  --> src/db/mod.rs
   |
-  | pub(crate) mod index;
-  | ^^^^^^^^^^^^^^^^^^^^
+  | pub(in crate::db) mod index;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^

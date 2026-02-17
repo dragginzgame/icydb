@@ -1,11 +1,11 @@
 error[E0603]: module `validate` is private
- --> tests/ui/validate_module_private.rs:1:17
+ --> tests/ui/validate_module_private.rs:1:26
   |
-1 | use icydb_core::validate::validate;
-  |                 ^^^^^^^^ private module
+1 | use icydb_core::visitor::validate::ValidateVisitor;
+  |                          ^^^^^^^^ private module
   |
 note: the module `validate` is defined here
- --> src/lib.rs
+ --> src/visitor/mod.rs
   |
-  | mod validate;
-  | ^^^^^^^^^^^^
+  | pub(crate) mod validate;
+  | ^^^^^^^^^^^^^^^^^^^^^^^

@@ -20,7 +20,7 @@ use thiserror::Error as ThisError;
 ///
 
 #[derive(Debug, ThisError)]
-pub enum DataKeyEncodeError {
+pub(crate) enum DataKeyEncodeError {
     #[error("data key encoding failed for {key}: {source}")]
     KeyEncoding {
         key: DataKey,
@@ -44,7 +44,7 @@ impl From<DataKeyEncodeError> for InternalError {
 ///
 
 #[derive(Debug, ThisError)]
-pub enum KeyDecodeError {
+pub(crate) enum KeyDecodeError {
     #[error("invalid primary key encoding")]
     InvalidEncoding,
 }
@@ -61,7 +61,7 @@ impl From<&'static str> for KeyDecodeError {
 ///
 
 #[derive(Debug, ThisError)]
-pub enum DataKeyDecodeError {
+pub(crate) enum DataKeyDecodeError {
     #[error("invalid entity name")]
     Entity(#[from] IdentityDecodeError),
 
@@ -74,18 +74,18 @@ pub enum DataKeyDecodeError {
 ///
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct DataKey {
+pub(crate) struct DataKey {
     entity: EntityName,
     key: StorageKey,
 }
 
 impl DataKey {
     /// Fixed on-disk size in bytes (stable, protocol-level)
-    pub const STORED_SIZE_BYTES: u64 =
+    pub(crate) const STORED_SIZE_BYTES: u64 =
         EntityName::STORED_SIZE_BYTES + StorageKey::STORED_SIZE_BYTES;
 
     /// Fixed in-memory size (for buffers and arrays only)
-    pub const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
+    pub(crate) const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
 
     // ------------------------------------------------------------------
     // Constructors
@@ -94,7 +94,7 @@ impl DataKey {
     /// Construct using compile-time entity metadata.
     ///
     /// This requires that the entity key is persistable.
-    pub fn try_new<E>(key: E::Key) -> Result<Self, InternalError>
+    pub(crate) fn try_new<E>(key: E::Key) -> Result<Self, InternalError>
     where
         E: EntityKind,
     {
@@ -111,7 +111,7 @@ impl DataKey {
     ///
     /// This is a fallible boundary that validates entity identity and
     /// key compatibility against the target entity type.
-    pub fn try_key<E>(&self) -> Result<E::Key, InternalError>
+    pub(crate) fn try_key<E>(&self) -> Result<E::Key, InternalError>
     where
         E: EntityKind,
     {
@@ -139,7 +139,7 @@ impl DataKey {
 
     /// Construct a DataKey from a raw StorageKey using entity metadata.
     #[must_use]
-    pub fn from_key<E: EntityKind>(key: StorageKey) -> Self {
+    pub(crate) fn from_key<E: EntityKind>(key: StorageKey) -> Self {
         Self {
             entity: Self::entity_for::<E>(),
             key,
@@ -147,7 +147,7 @@ impl DataKey {
     }
 
     #[must_use]
-    pub fn lower_bound<E>() -> Self
+    pub(crate) fn lower_bound<E>() -> Self
     where
         E: EntityKind,
     {
@@ -158,7 +158,7 @@ impl DataKey {
     }
 
     #[must_use]
-    pub fn upper_bound<E>() -> Self
+    pub(crate) fn upper_bound<E>() -> Self
     where
         E: EntityKind,
     {
@@ -183,7 +183,7 @@ impl DataKey {
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub const fn entity_name(&self) -> &EntityName {
+    pub(crate) const fn entity_name(&self) -> &EntityName {
         &self.entity
     }
 
@@ -194,12 +194,13 @@ impl DataKey {
 
     /// Compute on-disk entry size from value length.
     #[must_use]
-    pub const fn entry_size_bytes(value_len: u64) -> u64 {
+    pub(crate) const fn entry_size_bytes(value_len: u64) -> u64 {
         Self::STORED_SIZE_BYTES + value_len
     }
 
     #[must_use]
-    pub fn max_storable() -> Self {
+    #[cfg(test)]
+    fn max_storable() -> Self {
         Self {
             entity: EntityName::max_storable(),
             key: StorageKey::max_storable(),
@@ -211,7 +212,7 @@ impl DataKey {
     // ------------------------------------------------------------------
 
     /// Encode into fixed-size on-disk representation.
-    pub fn to_raw(&self) -> Result<RawDataKey, InternalError> {
+    pub(crate) fn to_raw(&self) -> Result<RawDataKey, InternalError> {
         self.to_raw_storage_key_error().map_err(|err| {
             DataKeyEncodeError::KeyEncoding {
                 key: self.clone(),
@@ -244,7 +245,7 @@ impl DataKey {
         Self { entity, key }.to_raw_storage_key_error()
     }
 
-    pub fn try_from_raw(raw: &RawDataKey) -> Result<Self, DataKeyDecodeError> {
+    pub(crate) fn try_from_raw(raw: &RawDataKey) -> Result<Self, DataKeyDecodeError> {
         let bytes = &raw.0;
 
         let entity = EntityName::from_bytes(&bytes[..EntityName::STORED_SIZE_USIZE])?;

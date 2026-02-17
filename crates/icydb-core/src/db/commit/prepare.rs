@@ -7,7 +7,7 @@ use crate::{
         },
         data::{DataKey, RawRow},
         decode::decode_entity_with_expected_key,
-        index::{IndexKey, plan::plan_index_mutation_for_entity},
+        index::{IndexKey, plan_index_mutation_for_entity},
         relation::prepare_reverse_relation_index_mutations_for_source,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
