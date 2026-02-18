@@ -6,6 +6,7 @@ use crate::{
     model::{entity::EntityModel, index::IndexModel},
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 
 use crate::db::query::predicate::validate::model::{FieldType, field_type_from_model_kind};
 
@@ -193,4 +194,20 @@ pub enum ValidateError {
 
     #[error("invalid literal for field '{field}': {message}")]
     InvalidLiteral { field: String, message: String },
+}
+
+impl ValidateError {
+    pub(crate) fn invalid_operator(field: &str, op: impl fmt::Display) -> Self {
+        Self::InvalidOperator {
+            field: field.to_string(),
+            op: op.to_string(),
+        }
+    }
+
+    pub(crate) fn invalid_literal(field: &str, msg: &str) -> Self {
+        Self::InvalidLiteral {
+            field: field.to_string(),
+            message: msg.to_string(),
+        }
+    }
 }

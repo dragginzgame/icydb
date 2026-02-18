@@ -153,7 +153,7 @@ impl<K> LogicalPlan<K> {
         R: PlanRow<E>,
     {
         policy::validate_plan_shape(self)
-            .map_err(|err| query_invariant(err.invariant_message()))?;
+            .map_err(|err| InternalError::query_invariant(err.invariant_message()))?;
         self.validate_cursor_mode(cursor)?;
 
         // Phase 1: predicate filtering.
@@ -205,7 +205,7 @@ impl<K> LogicalPlan<K> {
     // Enforce load/delete cursor compatibility before execution phases.
     fn validate_cursor_mode(&self, cursor: Option<&CursorBoundary>) -> Result<(), InternalError> {
         if cursor.is_some() && !self.mode.is_load() {
-            return Err(query_invariant(
+            return Err(InternalError::query_invariant(
                 "invalid logical plan: delete plans must not carry cursor boundaries",
             ));
         }
@@ -245,7 +245,7 @@ impl<K> LogicalPlan<K> {
             && !order.fields.is_empty()
         {
             if self.predicate.is_some() && !filtered {
-                return Err(query_invariant(
+                return Err(InternalError::query_invariant(
                     "executor invariant violated: ordering must run after filtering",
                 ));
             }
@@ -283,13 +283,13 @@ impl<K> LogicalPlan<K> {
             && let Some(boundary) = cursor
         {
             let Some(order) = self.order.as_ref() else {
-                return Err(query_invariant(
+                return Err(InternalError::query_invariant(
                     "executor invariant violated: cursor boundary requires ordering",
                 ));
             };
 
             if !ordered {
-                return Err(query_invariant(
+                return Err(InternalError::query_invariant(
                     "executor invariant violated: cursor boundary must run after ordering",
                 ));
             }
@@ -313,7 +313,7 @@ impl<K> LogicalPlan<K> {
             && let Some(page) = &self.page
         {
             if self.order.is_some() && !ordered {
-                return Err(query_invariant(
+                return Err(InternalError::query_invariant(
                     "executor invariant violated: pagination must run after ordering",
                 ));
             }
@@ -336,7 +336,7 @@ impl<K> LogicalPlan<K> {
             && let Some(limit) = &self.delete_limit
         {
             if self.order.is_some() && !ordered {
-                return Err(query_invariant(
+                return Err(InternalError::query_invariant(
                     "executor invariant violated: delete limit must run after ordering",
                 ));
             }
@@ -379,7 +379,7 @@ impl<K> LogicalPlan<K> {
         E: EntityKind + EntityValue,
     {
         let Some(order) = self.order.as_ref() else {
-            return Err(query_invariant(
+            return Err(InternalError::query_invariant(
                 "executor invariant violated: cannot build cursor boundary without ordering",
             ));
         };
@@ -394,12 +394,14 @@ impl<K> LogicalPlan<K> {
     }
 }
 
-fn query_invariant(message: impl Into<String>) -> InternalError {
-    InternalError::new(
-        ErrorClass::InvariantViolation,
-        ErrorOrigin::Query,
-        message.into(),
-    )
+impl InternalError {
+    fn query_invariant(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Query,
+            message.into(),
+        )
+    }
 }
 
 // Sort rows by the configured order spec, using entity field values.

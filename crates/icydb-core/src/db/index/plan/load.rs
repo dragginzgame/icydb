@@ -1,5 +1,5 @@
 use crate::{
-    db::index::{IndexEntry, IndexKey, IndexStore, plan::corruption_error},
+    db::index::{IndexEntry, IndexKey, IndexStore},
     error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
     traits::{EntityKind, EntityValue},
@@ -23,7 +23,7 @@ pub(super) fn load_existing_entry<E: EntityKind + EntityValue>(
         .with_borrow(|index_store| index_store.get(&key.to_raw()))
         .map(|raw_entry| {
             raw_entry.try_decode().map_err(|err| {
-                corruption_error(
+                InternalError::index_plan_corruption(
                     ErrorOrigin::Index,
                     format!(
                         "index corrupted: {} ({}) -> {}",

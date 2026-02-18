@@ -293,6 +293,16 @@ Code is considered non-trivial if it:
 * `Corruption`: malformed or hostile persisted bytes.
 * `Internal`: logic bugs or invariant violations.
 
+## Error Construction Discipline
+
+* Any helper that constructs an error type MUST be implemented as an associated function on the owning error type.
+* Free-floating functions that return an error type (for example `fn some_error(...) -> MyError`) are prohibited.
+* Error construction logic is domain-owned. Constructors belong to the error type that defines the taxonomy.
+* Constructors must only populate fields or perform minimal normalization. Business logic does not belong in constructors.
+* Error taxonomy boundaries must remain explicit. Constructors must not collapse, blur, or hide domain separation.
+* Defensive and internal error construction must remain on internal error types.
+* User-facing error construction must remain on user-facing error types.
+
 ---
 
 ## Persistence Safety Invariants

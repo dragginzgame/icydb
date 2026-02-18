@@ -86,27 +86,22 @@ impl Entity {
     }
 
     /// Validate index declarations against entity fields and naming constraints.
-    #[expect(clippy::too_many_lines)]
     fn validate_indexes(&self, entity_name: &str, def_ident: &Ident) -> Result<(), DarlingError> {
         // Per-index local validation.
         for index in &self.indexes {
             if index.fields.is_empty() {
-                return Err(with_index_span(
-                    DarlingError::custom("index must reference at least one field"),
-                    index,
-                    def_ident,
-                ));
+                return Err(
+                    DarlingError::custom("index must reference at least one field")
+                        .with_index_or_def_span(index, def_ident),
+                );
             }
             if index.fields.len() > MAX_INDEX_FIELDS {
-                return Err(with_index_span(
-                    DarlingError::custom(format!(
-                        "index has {} fields; maximum is {}",
-                        index.fields.len(),
-                        MAX_INDEX_FIELDS
-                    )),
-                    index,
-                    def_ident,
-                ));
+                return Err(DarlingError::custom(format!(
+                    "index has {} fields; maximum is {}",
+                    index.fields.len(),
+                    MAX_INDEX_FIELDS
+                ))
+                .with_index_or_def_span(index, def_ident));
             }
 
             // Field references must be unique, present, and indexable.
@@ -142,22 +137,16 @@ impl Entity {
                     .skip(1)
                     .any(|segment| segment.starts_with('~'));
             if uses_reserved_namespace {
-                return Err(with_index_span(
-                    DarlingError::custom(format!(
-                        "index name '{index_name}' uses reserved '~' namespace"
-                    )),
-                    index,
-                    def_ident,
-                ));
+                return Err(DarlingError::custom(format!(
+                    "index name '{index_name}' uses reserved '~' namespace"
+                ))
+                .with_index_or_def_span(index, def_ident));
             }
             if index_name.len() > MAX_INDEX_NAME_LEN {
-                return Err(with_index_span(
-                    DarlingError::custom(format!(
-                        "index name '{index_name}' exceeds max length {MAX_INDEX_NAME_LEN}"
-                    )),
-                    index,
-                    def_ident,
-                ));
+                return Err(DarlingError::custom(format!(
+                    "index name '{index_name}' exceeds max length {MAX_INDEX_NAME_LEN}"
+                ))
+                .with_index_or_def_span(index, def_ident));
             }
         }
 
@@ -179,13 +168,10 @@ impl Entity {
                         .iter()
                         .map(ToString::to_string)
                         .collect::<Vec<_>>();
-                    return Err(with_index_span(
-                        DarlingError::custom(format!(
-                            "index {left_fields:?} is redundant (prefix of {right_fields:?})"
-                        )),
-                        left_index,
-                        def_ident,
-                    ));
+                    return Err(DarlingError::custom(format!(
+                        "index {left_fields:?} is redundant (prefix of {right_fields:?})"
+                    ))
+                    .with_index_or_def_span(left_index, def_ident));
                 }
 
                 if is_prefix_of(&right_index.fields, &left_index.fields) {
@@ -199,13 +185,10 @@ impl Entity {
                         .iter()
                         .map(ToString::to_string)
                         .collect::<Vec<_>>();
-                    return Err(with_index_span(
-                        DarlingError::custom(format!(
-                            "index {right_fields:?} is redundant (prefix of {left_fields:?})"
-                        )),
-                        right_index,
-                        def_ident,
-                    ));
+                    return Err(DarlingError::custom(format!(
+                        "index {right_fields:?} is redundant (prefix of {left_fields:?})"
+                    ))
+                    .with_index_or_def_span(right_index, def_ident));
                 }
             }
         }
@@ -214,11 +197,17 @@ impl Entity {
     }
 }
 
-fn with_index_span(error: DarlingError, index: &Index, def_ident: &Ident) -> DarlingError {
-    if let Some(first_field) = index.fields.first() {
-        error.with_span(first_field)
-    } else {
-        error.with_span(def_ident)
+trait DarlingErrorExt {
+    fn with_index_or_def_span(self, index: &Index, def_ident: &Ident) -> Self;
+}
+
+impl DarlingErrorExt for DarlingError {
+    fn with_index_or_def_span(self, index: &Index, def_ident: &Ident) -> Self {
+        if let Some(first_field) = index.fields.first() {
+            self.with_span(first_field)
+        } else {
+            self.with_span(def_ident)
+        }
     }
 }
 

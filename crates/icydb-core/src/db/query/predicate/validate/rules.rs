@@ -7,7 +7,6 @@ use crate::{
     },
     value::{CoercionFamilyExt, Value},
 };
-use std::fmt;
 
 use crate::db::query::predicate::validate::{
     model::{FieldType, literal_matches_type},
@@ -62,7 +61,7 @@ pub(crate) fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(),
             if field_type.is_text() || field_type.is_collection() {
                 Ok(())
             } else {
-                Err(invalid_operator(field, "is_empty"))
+                Err(ValidateError::invalid_operator(field, "is_empty"))
             }
         }
         Predicate::IsNotEmpty { field } => {
@@ -70,7 +69,7 @@ pub(crate) fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(),
             if field_type.is_text() || field_type.is_collection() {
                 Ok(())
             } else {
-                Err(invalid_operator(field, "is_not_empty"))
+                Err(ValidateError::invalid_operator(field, "is_not_empty"))
             }
         }
         Predicate::TextContains { field, value } => {
@@ -142,7 +141,7 @@ fn validate_ordering(
     }
 
     if !field_type.is_orderable() {
-        return Err(invalid_operator(field, format!("{op:?}")));
+        return Err(ValidateError::invalid_operator(field, format!("{op:?}")));
     }
 
     ensure_scalar_literal(field, value)?;
@@ -159,11 +158,14 @@ fn validate_in(
     op: CompareOp,
 ) -> Result<(), ValidateError> {
     if field_type.is_collection() {
-        return Err(invalid_operator(field, format!("{op:?}")));
+        return Err(ValidateError::invalid_operator(field, format!("{op:?}")));
     }
 
     let Value::List(items) = value else {
-        return Err(invalid_literal(field, "expected list literal"));
+        return Err(ValidateError::invalid_literal(
+            field,
+            "expected list literal",
+        ));
     };
 
     for item in items {
@@ -182,7 +184,7 @@ fn validate_contains(
 ) -> Result<(), ValidateError> {
     if field_type.is_text() {
         // CONTRACT: text substring matching uses TextContains/TextContainsCi only.
-        return Err(invalid_operator(
+        return Err(ValidateError::invalid_operator(
             field,
             format!("{:?}", CompareOp::Contains),
         ));
@@ -191,7 +193,7 @@ fn validate_contains(
     let element_type = match field_type {
         FieldType::List(inner) | FieldType::Set(inner) => inner.as_ref(),
         _ => {
-            return Err(invalid_operator(
+            return Err(ValidateError::invalid_operator(
                 field,
                 format!("{:?}", CompareOp::Contains),
             ));
@@ -218,7 +220,7 @@ fn validate_text_compare(
     op: CompareOp,
 ) -> Result<(), ValidateError> {
     if !field_type.is_text() {
-        return Err(invalid_operator(field, format!("{op:?}")));
+        return Err(ValidateError::invalid_operator(field, format!("{op:?}")));
     }
 
     ensure_text_literal(field, value)?;
@@ -235,7 +237,7 @@ fn validate_text_contains(
 ) -> Result<(), ValidateError> {
     let field_type = ensure_field(schema, field)?;
     if !field_type.is_text() {
-        return Err(invalid_operator(field, op));
+        return Err(ValidateError::invalid_operator(field, op));
     }
 
     ensure_text_literal(field, value)?;
@@ -266,24 +268,13 @@ fn ensure_field<'a>(schema: &'a SchemaInfo, field: &str) -> Result<&'a FieldType
     Ok(field_type)
 }
 
-fn invalid_operator(field: &str, op: impl fmt::Display) -> ValidateError {
-    ValidateError::InvalidOperator {
-        field: field.to_string(),
-        op: op.to_string(),
-    }
-}
-
-fn invalid_literal(field: &str, msg: &str) -> ValidateError {
-    ValidateError::InvalidLiteral {
-        field: field.to_string(),
-        message: msg.to_string(),
-    }
-}
-
 // Ensure the literal is text to match text-only operators.
 fn ensure_text_literal(field: &str, value: &Value) -> Result<(), ValidateError> {
     if !matches!(value, Value::Text(_)) {
-        return Err(invalid_literal(field, "expected text literal"));
+        return Err(ValidateError::invalid_literal(
+            field,
+            "expected text literal",
+        ));
     }
 
     Ok(())
@@ -292,7 +283,10 @@ fn ensure_text_literal(field: &str, value: &Value) -> Result<(), ValidateError> 
 // Reject list literals when scalar comparisons are required.
 fn ensure_scalar_literal(field: &str, value: &Value) -> Result<(), ValidateError> {
     if matches!(value, Value::List(_)) {
-        return Err(invalid_literal(field, "expected scalar literal"));
+        return Err(ValidateError::invalid_literal(
+            field,
+            "expected scalar literal",
+        ));
     }
 
     Ok(())
@@ -347,7 +341,7 @@ pub(super) fn ensure_coercion(
         CoercionId::Strict | CoercionId::CollectionElement
     ) && !literal_matches_type(literal, field_type)
     {
-        return Err(invalid_literal(
+        return Err(ValidateError::invalid_literal(
             field,
             "literal type does not match field type",
         ));
@@ -362,7 +356,7 @@ fn ensure_list_literal(
     field_type: &FieldType,
 ) -> Result<(), ValidateError> {
     if !literal_matches_type(literal, field_type) {
-        return Err(invalid_literal(
+        return Err(ValidateError::invalid_literal(
             field,
             "list literal does not match field element type",
         ));

@@ -68,7 +68,7 @@ where
     }
 
     let boundary = cursor.boundary().cloned().ok_or_else(|| {
-        invalid_continuation_cursor_payload("continuation cursor boundary is missing")
+        PlanError::invalid_continuation_cursor_payload("continuation cursor boundary is missing")
     })?;
     let index_range_anchor = cursor
         .index_range_anchor()
@@ -86,11 +86,13 @@ where
     )
 }
 
-/// Build the standard invalid-continuation payload error variant.
-fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> PlanError {
-    PlanError::from(CursorPlanError::InvalidContinuationCursorPayload {
-        reason: reason.into(),
-    })
+impl PlanError {
+    /// Build the standard invalid-continuation payload error variant.
+    fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> Self {
+        Self::from(CursorPlanError::InvalidContinuationCursorPayload {
+            reason: reason.into(),
+        })
+    }
 }
 
 /// Central continuation bound rewrite for cursor resume semantics.
@@ -129,7 +131,7 @@ fn decode_validated_cursor(
 ) -> Result<ContinuationToken, PlanError> {
     let token = ContinuationToken::decode(cursor).map_err(|err| match err {
         ContinuationTokenError::Encode(message) | ContinuationTokenError::Decode(message) => {
-            invalid_continuation_cursor_payload(message)
+            PlanError::invalid_continuation_cursor_payload(message)
         }
         ContinuationTokenError::UnsupportedVersion { version } => {
             PlanError::from(CursorPlanError::ContinuationCursorVersionMismatch { version })
@@ -146,7 +148,7 @@ fn decode_validated_cursor(
         ));
     }
     if token.direction() != expected_direction {
-        return Err(invalid_continuation_cursor_payload(
+        return Err(PlanError::invalid_continuation_cursor_payload(
             "continuation cursor direction does not match executable plan direction",
         ));
     }
@@ -266,7 +268,7 @@ fn validate_index_range_anchor<E: EntityKind>(
 ) -> Result<(), PlanError> {
     let Some(access) = access else {
         if anchor.is_some() {
-            return Err(invalid_continuation_cursor_payload(
+            return Err(PlanError::invalid_continuation_cursor_payload(
                 "unexpected index-range continuation anchor for composite access plan",
             ));
         }
@@ -277,7 +279,7 @@ fn validate_index_range_anchor<E: EntityKind>(
     if let Some((index, prefix, lower, upper)) = access.as_index_range() {
         let Some(anchor) = anchor else {
             if require_anchor {
-                return Err(invalid_continuation_cursor_payload(
+                return Err(PlanError::invalid_continuation_cursor_payload(
                     "index-range continuation cursor is missing a raw-key anchor",
                 ));
             }
@@ -286,24 +288,24 @@ fn validate_index_range_anchor<E: EntityKind>(
         };
 
         let decoded_key = IndexKey::try_from_raw(anchor.last_raw_key()).map_err(|err| {
-            invalid_continuation_cursor_payload(format!(
+            PlanError::invalid_continuation_cursor_payload(format!(
                 "index-range continuation anchor decode failed: {err}"
             ))
         })?;
         let expected_index_id = IndexId::new::<E>(index);
 
         if decoded_key.index_id() != &expected_index_id {
-            return Err(invalid_continuation_cursor_payload(
+            return Err(PlanError::invalid_continuation_cursor_payload(
                 "index-range continuation anchor index id mismatch",
             ));
         }
         if decoded_key.key_kind() != IndexKeyKind::User {
-            return Err(invalid_continuation_cursor_payload(
+            return Err(PlanError::invalid_continuation_cursor_payload(
                 "index-range continuation anchor key namespace mismatch",
             ));
         }
         if decoded_key.component_count() != index.fields.len() {
-            return Err(invalid_continuation_cursor_payload(
+            return Err(PlanError::invalid_continuation_cursor_payload(
                 "index-range continuation anchor component arity mismatch",
             ));
         }
@@ -322,7 +324,7 @@ fn validate_index_range_anchor<E: EntityKind>(
                     "index-range cursor upper continuation bound is not indexable".to_string()
                 }
             };
-            invalid_continuation_cursor_payload(reason)
+            PlanError::invalid_continuation_cursor_payload(reason)
         })?;
 
         if !cursor_anchor_within_envelope(
@@ -331,12 +333,12 @@ fn validate_index_range_anchor<E: EntityKind>(
             &range_start,
             &range_end,
         ) {
-            return Err(invalid_continuation_cursor_payload(
+            return Err(PlanError::invalid_continuation_cursor_payload(
                 "index-range continuation anchor is outside the original range envelope",
             ));
         }
     } else if anchor.is_some() {
-        return Err(invalid_continuation_cursor_payload(
+        return Err(PlanError::invalid_continuation_cursor_payload(
             "unexpected index-range continuation anchor for non-index-range access path",
         ));
     }
@@ -361,24 +363,24 @@ fn validate_index_range_boundary_anchor_consistency<K: FieldValue>(
     }
 
     let anchor_key = IndexKey::try_from_raw(anchor.last_raw_key()).map_err(|err| {
-        invalid_continuation_cursor_payload(format!(
+        PlanError::invalid_continuation_cursor_payload(format!(
             "index-range continuation anchor decode failed: {err}"
         ))
     })?;
     let anchor_storage_key = anchor_key.primary_storage_key().map_err(|err| {
-        invalid_continuation_cursor_payload(format!(
+        PlanError::invalid_continuation_cursor_payload(format!(
             "index-range continuation anchor primary key decode failed: {err}"
         ))
     })?;
     let boundary_storage_key =
         StorageKey::try_from_value(&boundary_pk_key.to_value()).map_err(|err| {
-            invalid_continuation_cursor_payload(format!(
+            PlanError::invalid_continuation_cursor_payload(format!(
                 "index-range continuation boundary primary key decode failed: {err}"
             ))
         })?;
 
     if anchor_storage_key != boundary_storage_key {
-        return Err(invalid_continuation_cursor_payload(
+        return Err(PlanError::invalid_continuation_cursor_payload(
             "index-range continuation boundary/anchor mismatch",
         ));
     }

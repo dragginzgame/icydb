@@ -2,11 +2,7 @@ use crate::{
     db::{
         Db,
         data::DataKey,
-        index::{
-            IndexEntry, IndexEntryCorruption,
-            key::encode_canonical_index_component,
-            plan::{corruption_error, index_violation_error},
-        },
+        index::{IndexEntry, IndexEntryCorruption, key::encode_canonical_index_component},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::index::IndexModel,
@@ -87,7 +83,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     }
 
     if matching_keys.len() > 1 {
-        return Err(corruption_error(
+        return Err(InternalError::index_plan_corruption(
             ErrorOrigin::Index,
             format!(
                 "index corrupted: {} ({}) -> {} keys",
@@ -103,7 +99,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     }
 
     let existing_key = matching_keys.iter().next().copied().ok_or_else(|| {
-        corruption_error(
+        InternalError::index_plan_corruption(
             ErrorOrigin::Index,
             format!(
                 "index corrupted: {} ({}) -> failed to resolve existing key",
@@ -118,7 +114,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         let data_key = DataKey::try_new::<E>(existing_key)?;
         let row = db.context::<E>().read_strict(&data_key)?;
         row.try_decode::<E>().map_err(|err| {
-            corruption_error(
+            InternalError::index_plan_corruption(
                 ErrorOrigin::Serialize,
                 format!("failed to deserialize row: {data_key} ({err})"),
             )
@@ -128,7 +124,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     let stored_key = stored.id().key();
     if stored_key != existing_key {
         // Stored row decoded successfully but key mismatch indicates index/data divergence; treat as corruption.
-        return Err(corruption_error(
+        return Err(InternalError::index_plan_corruption(
             ErrorOrigin::Store,
             format!(
                 "index corrupted: {} ({}) -> {}",
@@ -155,7 +151,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
             )
         })?;
         let actual = stored.get_value(field).ok_or_else(|| {
-            corruption_error(
+            InternalError::index_plan_corruption(
                 ErrorOrigin::Index,
                 format!(
                     "index corrupted: {} ({}) -> stored entity missing field",
@@ -166,7 +162,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         })?;
 
         if expected != actual {
-            return Err(corruption_error(
+            return Err(InternalError::index_plan_corruption(
                 ErrorOrigin::Index,
                 format!("index canonical collision: {} ({})", E::PATH, field),
             ));
@@ -177,5 +173,5 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         entity_path: E::PATH,
     });
 
-    Err(index_violation_error(E::PATH, index.fields))
+    Err(InternalError::index_violation(E::PATH, index.fields))
 }

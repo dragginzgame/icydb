@@ -3,8 +3,7 @@ use crate::{
         executor::save::SaveExecutor,
         relation::{
             StrongRelationTargetInfo, build_relation_target_raw_key,
-            for_each_relation_target_value, map_relation_target_raw_key_error,
-            strong_relation_target_from_kind,
+            for_each_relation_target_value, strong_relation_target_from_kind,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -49,7 +48,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         // Phase 1: normalize the key into a storage-compatible target raw key.
         let raw_key =
             build_relation_target_raw_key(relation.target_entity_name, value).map_err(|err| {
-                map_relation_target_raw_key_error(
+                InternalError::relation_target_raw_key_error(
                     err,
                     E::PATH,
                     field_name,

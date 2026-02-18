@@ -163,7 +163,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         }
 
         let order = policy::require_cursor_order(self.plan.order.as_ref())
-            .map_err(|err| map_cursor_plan_error(PlanError::from(err)))?;
+            .map_err(|err| InternalError::from_cursor_plan_error(PlanError::from(err)))?;
 
         validate_planned_cursor_state::<E>(
             cursor,
@@ -172,30 +172,33 @@ impl<E: EntityKind> ExecutablePlan<E> {
             order,
             self.direction,
         )
-        .map_err(map_cursor_plan_error)
+        .map_err(InternalError::from_cursor_plan_error)
     }
 }
 
-fn map_cursor_plan_error(err: PlanError) -> InternalError {
-    let message = match &err {
-        PlanError::Cursor(inner) => match inner.as_ref() {
-            CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected: 1, found } => {
-                format!(
-                    "executor invariant violated: pk-ordered continuation boundary must contain exactly 1 slot, found {found}"
-                )
-            }
-            CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch { value: None, .. } => {
-                "executor invariant violated: pk cursor slot must be present".to_string()
-            }
-            CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                value: Some(_), ..
-            } => "executor invariant violated: pk cursor slot type mismatch".to_string(),
+impl InternalError {
+    fn from_cursor_plan_error(err: PlanError) -> Self {
+        let message = match &err {
+            PlanError::Cursor(inner) => match inner.as_ref() {
+                CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected: 1, found } => {
+                    format!(
+                        "executor invariant violated: pk-ordered continuation boundary must contain exactly 1 slot, found {found}"
+                    )
+                }
+                CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+                    value: None, ..
+                } => "executor invariant violated: pk cursor slot must be present".to_string(),
+                CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+                    value: Some(_),
+                    ..
+                } => "executor invariant violated: pk cursor slot type mismatch".to_string(),
+                _ => err.to_string(),
+            },
             _ => err.to_string(),
-        },
-        _ => err.to_string(),
-    };
+        };
 
-    InternalError::new(ErrorClass::InvariantViolation, ErrorOrigin::Query, message)
+        Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Query, message)
+    }
 }
 
 ///

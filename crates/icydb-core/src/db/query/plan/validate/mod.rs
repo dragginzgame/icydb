@@ -322,7 +322,7 @@ pub(crate) fn validate_executor_plan<E: EntityKind>(
         order::validate_executor_order,
         |schema, model, plan| validate_access_plan(schema, model, &plan.access),
     )
-    .map_err(map_executor_plan_error)?;
+    .map_err(InternalError::from_executor_plan_error)?;
 
     Ok(())
 }
@@ -359,10 +359,12 @@ where
 }
 
 // Map shared `PlanError` validation failures into executor-boundary invariant errors.
-fn map_executor_plan_error(err: PlanError) -> InternalError {
-    InternalError::new(
-        ErrorClass::InvariantViolation,
-        ErrorOrigin::Query,
-        err.to_string(),
-    )
+impl InternalError {
+    fn from_executor_plan_error(err: PlanError) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Query,
+            err.to_string(),
+        )
+    }
 }

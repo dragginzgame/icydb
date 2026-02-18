@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Added a store traversal containment point (`index_range_stream(bounds, direction)`) and threaded direction through planner cursor validation, executor paging, and continuation token encoding.
 * Cursor tokens now include direction (`Asc` for now) to keep wire format ready for future DESC execution support without changing current behavior.
 * Reduced non-test `AccessPath`/`AccessPlan` branch fan-out by moving dispatch into enum impl methods for planner normalization, canonical ordering, projection, debug summaries, and executor access-plan execution.
+* Standardized error-construction discipline so constructor helpers live on owning error types (`impl` associated functions) instead of free-floating `fn ... -> *Error` helpers.
+* Moved plan, cursor, relation, index, and predicate error helper constructors into their owning error types while preserving variant payloads and classification semantics.
 
 ### 🩹 Fixed
 

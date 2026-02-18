@@ -34,24 +34,26 @@ pub(crate) struct IndexMutationPlan {
     pub commit_ops: Vec<CommitIndexOp>,
 }
 
-pub(super) fn corruption_error(origin: ErrorOrigin, message: impl Into<String>) -> InternalError {
-    let message = message.into();
-    InternalError::new(
-        ErrorClass::Corruption,
-        origin,
-        format!("corruption detected ({origin}): {message}"),
-    )
-}
+impl InternalError {
+    pub(super) fn index_plan_corruption(origin: ErrorOrigin, message: impl Into<String>) -> Self {
+        let message = message.into();
+        Self::new(
+            ErrorClass::Corruption,
+            origin,
+            format!("corruption detected ({origin}): {message}"),
+        )
+    }
 
-pub(super) fn index_violation_error(path: &str, index_fields: &[&str]) -> InternalError {
-    InternalError::new(
-        ErrorClass::Conflict,
-        ErrorOrigin::Index,
-        format!(
-            "index constraint violation: {path} ({})",
-            index_fields.join(", ")
-        ),
-    )
+    pub(super) fn index_violation(path: &str, index_fields: &[&str]) -> Self {
+        Self::new(
+            ErrorClass::Conflict,
+            ErrorOrigin::Index,
+            format!(
+                "index constraint violation: {path} ({})",
+                index_fields.join(", ")
+            ),
+        )
+    }
 }
 
 /// Plan all index mutations for a single entity transition.
@@ -101,7 +103,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             };
 
             let entry = old_entry.as_ref().ok_or_else(|| {
-                corruption_error(
+                InternalError::index_plan_corruption(
                     ErrorOrigin::Index,
                     format!(
                         "index corrupted: {} ({}) -> {}",
@@ -113,7 +115,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             })?;
 
             if index.unique && entry.len() > 1 {
-                return Err(corruption_error(
+                return Err(InternalError::index_plan_corruption(
                     ErrorOrigin::Index,
                     format!(
                         "index corrupted: {} ({}) -> {}",
@@ -125,7 +127,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             }
 
             if !entry.contains(old_entity_key) {
-                return Err(corruption_error(
+                return Err(InternalError::index_plan_corruption(
                     ErrorOrigin::Index,
                     format!(
                         "index corrupted: {} ({}) -> {}",
