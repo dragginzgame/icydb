@@ -23,10 +23,15 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Added explicit DESC `IndexRange` edge-case coverage for boundary resume behavior (upper-anchor continuation, lower-boundary exhaustion, and single-element range exhaustion).
 * Added explicit multi-page DESC continuation coverage (`E,D` -> `C,B` -> `A`) with no-duplicate and no-omission assertions.
 * Added full-result directional symmetry coverage asserting `reverse(ASC) == DESC` on a single-field `IndexRange` dataset.
+* Added full-result directional symmetry coverage for composite and unique `IndexRange` paths, asserting `reverse(ASC) == DESC` on deterministic datasets.
+* Added explicit DESC continuation coverage for duplicate tie-groups under mixed envelopes (`> lower`, `<= upper`) for both single-field and composite `IndexRange` paths.
+* Confirmed duplicate-group DESC ordering keeps canonical PK tie-break stability within equal order values, and validated this alongside DESC continuation edge cases.
+* Re-ran full workspace gate for the 0.14 branch (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo check --workspace`, `cargo test --workspace`) with all checks passing.
 
 ### 📚 Documentation
 
 * Added `docs/status/0.14-status.md` with milestone-alignment progress, current risk points, and next implementation checkpoints.
+* Clarified 0.14 design symmetry policy for duplicate groups: DESC preserves canonical PK tie-break order within equal-value groups, while strict `reverse(ASC) == DESC` assertions apply to deterministic non-duplicate datasets.
 
 ---
 

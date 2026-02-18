@@ -2062,6 +2062,124 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
 }
 
 #[test]
+fn load_composite_range_full_asc_reversed_equals_full_desc() {
+    setup_pagination_test();
+
+    // Phase 1: seed deterministic composite rows in one prefix group.
+    let rows = [
+        (20_201, 7, 10, "g7-r10"),
+        (20_202, 7, 20, "g7-r20"),
+        (20_203, 7, 30, "g7-r30"),
+        (20_204, 7, 40, "g7-r40"),
+        (20_205, 7, 50, "g7-r50"),
+        (20_206, 8, 30, "g8-r30"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let predicate = group_rank_range_predicate(7, 10, 60);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    // Phase 2: verify IndexRange planning for the composite prefix+range shape.
+    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .explain()
+        .expect("composite asc explain should build");
+    assert!(
+        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        "composite asc query should plan an IndexRange access path"
+    );
+
+    // Phase 3: assert full-result directional symmetry.
+    let asc = load
+        .execute(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("rank")
+                .plan()
+                .expect("composite asc plan should build"),
+        )
+        .expect("composite asc execution should succeed");
+    let desc = load
+        .execute(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate)
+                .order_by_desc("rank")
+                .plan()
+                .expect("composite desc plan should build"),
+        )
+        .expect("composite desc execution should succeed");
+
+    let mut asc_ids = ids_from_items(&asc.0);
+    asc_ids.reverse();
+
+    assert_eq!(
+        asc_ids,
+        ids_from_items(&desc.0),
+        "full DESC composite stream should match reversed full ASC stream"
+    );
+}
+
+#[test]
+fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
+    setup_pagination_test();
+
+    // Phase 1: seed deterministic unique-index rows.
+    let rows = [
+        (20_301, 10, "c10"),
+        (20_302, 20, "c20"),
+        (20_303, 30, "c30"),
+        (20_304, 40, "c40"),
+        (20_305, 50, "c50"),
+        (20_306, 70, "c70"),
+    ];
+    seed_unique_index_range_rows(&rows);
+
+    let predicate = unique_code_range_predicate(10, 60);
+    let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+
+    // Phase 2: verify IndexRange planning for the unique range shape.
+    let explain = Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("code")
+        .explain()
+        .expect("unique asc explain should build");
+    assert!(
+        explain_contains_index_range(&explain.access, UNIQUE_INDEX_RANGE_INDEX_MODELS[0].name, 0),
+        "unique asc query should plan an IndexRange access path"
+    );
+
+    // Phase 3: assert full-result directional symmetry.
+    let asc = load
+        .execute(
+            Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("code")
+                .plan()
+                .expect("unique asc plan should build"),
+        )
+        .expect("unique asc execution should succeed");
+    let desc = load
+        .execute(
+            Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate)
+                .order_by_desc("code")
+                .plan()
+                .expect("unique desc plan should build"),
+        )
+        .expect("unique desc execution should succeed");
+
+    let mut asc_ids = ids_from_items(&asc.0);
+    asc_ids.reverse();
+
+    assert_eq!(
+        asc_ids,
+        ids_from_items(&desc.0),
+        "full DESC unique stream should match reversed full ASC stream"
+    );
+}
+
+#[test]
 fn load_single_field_range_limit_matrix_matches_unbounded() {
     setup_pagination_test();
 
@@ -3252,6 +3370,198 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         unique_ids.len(),
         all_ids.len(),
         "descending pagination must not duplicate rows"
+    );
+}
+
+#[test]
+fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
+    setup_pagination_test();
+
+    let rows = [
+        (21_501, 10, "t10-a"),
+        (21_502, 10, "t10-b"),
+        (21_503, 20, "t20-a"),
+        (21_504, 20, "t20-b"),
+        (21_505, 30, "t30-a"),
+        (21_506, 30, "t30-b"),
+        (21_507, 40, "t40"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    // Mixed envelope: (10, 30] => includes 20 and 30 groups.
+    let predicate = Predicate::And(vec![
+        strict_compare_predicate("tag", CompareOp::Gt, Value::Uint(10)),
+        strict_compare_predicate("tag", CompareOp::Lte, Value::Uint(30)),
+    ]);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    let base_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("tag")
+        .limit(10)
+        .plan()
+        .expect("single-field mixed-edge desc base plan should build");
+    let base_page = load
+        .execute_paged_with_cursor(base_plan, None)
+        .expect("single-field mixed-edge desc base page should execute");
+    let all_ids = ids_from_items(&base_page.items.0);
+    assert_eq!(
+        all_ids,
+        vec![
+            Ulid::from_u128(21_505),
+            Ulid::from_u128(21_506),
+            Ulid::from_u128(21_503),
+            Ulid::from_u128(21_504),
+        ],
+        "descending mixed-edge range should preserve duplicate-group order with canonical PK tie-break",
+    );
+
+    // Boundary inside the upper duplicate group should resume strictly to the
+    // next duplicate row, then continue through lower groups.
+    let boundary_entity = &base_page.items.0[0].1;
+    assert_resume_after_entity(
+        || {
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by_desc("tag")
+                .limit(10)
+        },
+        boundary_entity,
+        all_ids[1..].to_vec(),
+    );
+
+    // Boundary at the terminal row should exhaust the descending range.
+    let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
+    let terminal_boundary_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("tag")
+        .limit(10)
+        .plan()
+        .expect("single-field mixed-edge desc terminal-boundary plan should build");
+    let terminal_boundary = terminal_boundary_plan
+        .into_inner()
+        .cursor_boundary_from_entity(terminal_entity)
+        .expect("single-field mixed-edge desc terminal boundary should build");
+    let past_end_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(Predicate::And(vec![
+            strict_compare_predicate("tag", CompareOp::Gt, Value::Uint(10)),
+            strict_compare_predicate("tag", CompareOp::Lte, Value::Uint(30)),
+        ]))
+        .order_by_desc("tag")
+        .limit(10)
+        .plan()
+        .expect("single-field mixed-edge desc past-end plan should build");
+    let past_end = load
+        .execute_paged_with_cursor(past_end_plan, Some(terminal_boundary))
+        .expect("single-field mixed-edge desc past-end page should execute");
+    assert!(
+        past_end.items.0.is_empty(),
+        "descending mixed-edge range should be exhausted after the lower-edge terminal boundary",
+    );
+    assert!(
+        past_end.next_cursor.is_none(),
+        "empty descending mixed-edge continuation page must not emit a cursor",
+    );
+}
+
+#[test]
+fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
+    setup_pagination_test();
+
+    let rows = [
+        (21_601, 7, 10, "g7-r10-a"),
+        (21_602, 7, 10, "g7-r10-b"),
+        (21_603, 7, 20, "g7-r20"),
+        (21_604, 7, 30, "g7-r30-a"),
+        (21_605, 7, 30, "g7-r30-b"),
+        (21_606, 7, 40, "g7-r40"),
+        (21_607, 8, 30, "g8-r30"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    // Mixed envelope for the ranged component: (10, 30] under one prefix.
+    let predicate = Predicate::And(vec![
+        strict_compare_predicate("group", CompareOp::Eq, Value::Uint(7)),
+        strict_compare_predicate("rank", CompareOp::Gt, Value::Uint(10)),
+        strict_compare_predicate("rank", CompareOp::Lte, Value::Uint(30)),
+    ]);
+    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("rank")
+        .limit(10)
+        .explain()
+        .expect("composite mixed-edge desc explain should build");
+    assert!(
+        explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
+        "composite mixed-edge desc should plan an IndexRange access path"
+    );
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let base_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("rank")
+        .limit(10)
+        .plan()
+        .expect("composite mixed-edge desc base plan should build");
+    let base_page = load
+        .execute_paged_with_cursor(base_plan, None)
+        .expect("composite mixed-edge desc base page should execute");
+    let all_ids = ids_from_items(&base_page.items.0);
+    assert_eq!(
+        all_ids,
+        vec![
+            Ulid::from_u128(21_604),
+            Ulid::from_u128(21_605),
+            Ulid::from_u128(21_603),
+        ],
+        "composite descending mixed-edge range should preserve duplicate-group order with canonical PK tie-break",
+    );
+
+    // Boundary inside duplicate upper group should continue from the sibling row.
+    let boundary_entity = &base_page.items.0[0].1;
+    assert_resume_after_entity(
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by_desc("rank")
+                .limit(10)
+        },
+        boundary_entity,
+        all_ids[1..].to_vec(),
+    );
+
+    // Boundary at terminal lower row should exhaust the range.
+    let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
+    let terminal_boundary_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("rank")
+        .limit(10)
+        .plan()
+        .expect("composite mixed-edge desc terminal-boundary plan should build");
+    let terminal_boundary = terminal_boundary_plan
+        .into_inner()
+        .cursor_boundary_from_entity(terminal_entity)
+        .expect("composite mixed-edge desc terminal boundary should build");
+    let past_end_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(Predicate::And(vec![
+            strict_compare_predicate("group", CompareOp::Eq, Value::Uint(7)),
+            strict_compare_predicate("rank", CompareOp::Gt, Value::Uint(10)),
+            strict_compare_predicate("rank", CompareOp::Lte, Value::Uint(30)),
+        ]))
+        .order_by_desc("rank")
+        .limit(10)
+        .plan()
+        .expect("composite mixed-edge desc past-end plan should build");
+    let past_end = load
+        .execute_paged_with_cursor(past_end_plan, Some(terminal_boundary))
+        .expect("composite mixed-edge desc past-end page should execute");
+    assert!(
+        past_end.items.0.is_empty(),
+        "composite descending mixed-edge range should be exhausted after the lower-edge terminal boundary",
+    );
+    assert!(
+        past_end.next_cursor.is_none(),
+        "composite empty descending mixed-edge continuation page must not emit a cursor",
     );
 }
 
