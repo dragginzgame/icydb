@@ -1,97 +1,271 @@
-Perform a Velocity Preservation Audit of icydb-core.
+# WEEKLY AUDIT — Velocity Preservation
 
-This is NOT a correctness audit.
-This is NOT a DRY audit.
-This is NOT a style audit.
+`icydb-core`
 
-Evaluate whether the architecture still supports rapid, safe feature iteration.
+## Purpose
+
+Evaluate whether the current architecture still supports:
+
+* Rapid feature iteration
+* Contained feature changes
+* Low cross-layer amplification
+* Predictable extension
+
+This is NOT:
+
+* A correctness audit
+* A DRY audit
+* A style audit
+* A redesign proposal exercise
+
+This audit measures structural feature agility.
 
 ---
 
-STEP 1 — Change Surface Mapping
+# Core Principle
 
-For the last major feature areas (e.g. range pushdown, cursor pagination, reverse relation index):
+Healthy velocity architecture has:
+
+* Contained change surfaces
+* Stable layer boundaries
+* Low cross-cutting amplification
+* Clear ownership per subsystem
+* Predictable growth vectors
+
+Velocity degrades when:
+
+* Features require multi-layer edits
+* Planner / executor / recovery are tightly coupled
+* Modules become gravity wells
+* A single enum addition multiplies branch count across layers
+
+---
+
+# STEP 1 — Change Surface Mapping (Empirical)
+
+Analyze the last 3–5 major feature areas:
+
+Examples:
+
+* Range pushdown
+* Cursor pagination
+* Reverse relation index
+* Unique enforcement changes
+* Commit marker evolution
 
 For each feature:
-- Count how many files were modified.
-- Count how many layers were touched.
-- Identify whether changes were localized or cross-cutting.
-
-Flag:
-- Any feature requiring planner + executor + recovery + index + cursor changes simultaneously.
-- Any feature that required touching more than 5 subsystems.
-
----
-
-STEP 2 — Layer Boundary Integrity
-
-Check whether:
-
-- Planner logic leaks into executor.
-- Executor logic leaks into planner.
-- Recovery reimplements planner logic.
-- Index logic depends on query semantics.
-- Cursor codec knows plan structure.
-
-List boundary violations (if any).
-
----
-
-STEP 3 — Growth Vectors
-
-Identify modules that:
-
-- Are growing faster than others.
-- Contain multiple conceptual responsibilities.
-- Are absorbing logic from other layers.
-- Are acting as “gravity wells”.
-
-Examples to examine:
-- plan/executable.rs
-- load executor
-- recovery.rs
-- index store
-- cursor continuation
-
-Flag modules that may become architectural bottlenecks.
-
----
-
-STEP 4 — Predictive Friction
-
-Answer:
-
-If you were to implement:
-- Composite pagination
-- DESC range pushdown
-- Secondary index ordering
-- Query caching
-- Multi-index intersection
-
-Would each require:
-- Localized change?
-- Or cross-system surgery?
-
-List likely friction points.
-
----
-
-STEP 5 — Velocity Risk Table
 
 Produce:
 
-| Risk Area | Why It Slows Future Work | Severity | Mitigation Strategy |
+| Feature | Files Modified | Subsystems Touched | Cross-Layer? | Localized? | Change Amplification Factor |
+
+Change Amplification Factor (CAF):
+
+= (# subsystems touched) × (# execution flows affected)
+
+Flag:
+
+* CAF > 6
+* Features touching >5 subsystems
+* Features requiring simultaneous edits in:
+
+  * planner
+  * executor
+  * recovery
+  * index
+  * cursor
+
+Identify patterns:
+
+* Does every query feature require touching recovery?
+* Does every index feature require planner changes?
+* Does every ordering change require touching cursor?
 
 ---
 
-OUTPUT
+# STEP 2 — Layer Boundary Integrity (Velocity-Oriented)
 
-1. Current Velocity Health Score (1–10)
+This is not correctness.
+This is extension friction.
+
+Check whether:
+
+* Planner depends on executor implementation details.
+* Executor matches on plan internals excessively.
+* Recovery reimplements planner validation.
+* Index layer depends on query-layer abstractions.
+* Cursor codec depends on executable plan internals.
+* Commit logic knows query semantics.
+
+Produce:
+
+| Boundary | Leakage Type | Velocity Impact | Severity |
+
+Leakage increases future feature cost.
+
+---
+
+# STEP 3 — Growth Vector & Gravity Well Detection
+
+Identify modules that:
+
+* Grow faster than average.
+* Absorb logic from other subsystems.
+* Contain >3 conceptual domains.
+* Branch on multiple unrelated enums.
+* Are imported by most other modules.
+
+Evaluate:
+
+* `plan/executable.rs`
+* `executor/load.rs`
+* `executor/save.rs`
+* `recovery.rs`
+* `index/store`
+* `cursor/*`
+
+Produce:
+
+| Module | Responsibilities | Import Fan-In | Import Fan-Out | Growth Rate | Bottleneck Risk |
+
+Flag gravity wells:
+
+* High fan-in + high fan-out
+* Multi-domain responsibility
+* Increasing branch density
+* Frequent modification history
+
+---
+
+# STEP 4 — Change Multiplier Analysis
+
+Evaluate how many places must change if you add:
+
+1. Composite pagination
+2. DESC support
+3. Secondary index ordering
+4. Query caching
+5. Multi-index intersection
+6. New commit phase
+7. New AccessPath variant
+
+For each:
+
+| Feature | Subsystems Likely Impacted | Change Surface Size | Friction Level |
+
+Friction Levels:
+
+* Localized (≤2 subsystems)
+* Moderate (3–4 subsystems)
+* High (5+ subsystems)
+* Surgical cross-system change required
+
+---
+
+# STEP 5 — Amplification Hotspots
+
+Identify patterns where:
+
+* Adding enum variant requires executor + planner + cursor + recovery changes.
+* Adding invariant requires edits in multiple layers.
+* Adding index behavior requires both planner and store changes.
+* Cursor logic is tightly bound to plan structure.
+
+Produce:
+
+| Amplification Source | Why It Multiplies Change | Risk |
+
+---
+
+# STEP 6 — Predictive Structural Stress Points
+
+Answer:
+
+Which subsystems are most likely to:
+
+* Slow future iteration?
+* Accumulate branching pressure?
+* Become coordination hubs?
+
+Produce:
+
+| Subsystem | Stress Vector | Risk Level |
+
+---
+
+# STEP 7 — Velocity Risk Table
+
+Produce:
+
+| Risk Area | Why It Slows Work | Amplification Factor | Severity | Containment Strategy (High-Level Only) |
+
+Containment Strategy must be high-level.
+No redesign proposals.
+No refactors unless structural drag is severe.
+
+---
+
+# STEP 8 — Drift Sensitivity Index
+
+Assess how sensitive velocity is to:
+
+* AccessPath growth
+* Error variant growth
+* Recovery evolution
+* Cursor complexity
+* Index type expansion
+
+Produce:
+
+| Growth Vector | Drift Sensitivity | Risk |
+
+---
+
+# Final Output
+
+1. Velocity Health Score (1–10)
+
+Scale:
+
+9–10 → Architecture strongly supports extension
+7–8 → Moderate friction but manageable
+5–6 → Growing cross-layer coupling
+3–4 → High amplification risk
+1–2 → Iteration becoming brittle
+
 2. Architectural Drag Sources
 3. Layer Leakage Findings
-4. Future Feature Friction Map
-5. Immediate Structural Hardening Suggestions (if any)
+4. Gravity Wells
+5. Feature Friction Map
+6. Change Amplification Summary
 
-No stylistic advice.
-No speculative redesign.
-Only structural velocity analysis.
+---
+
+# Anti-Shallow Rule
+
+Do NOT say:
+
+* “Seems modular”
+* “Looks maintainable”
+* “Separation is clear”
+
+Every claim must include:
+
+* Subsystems involved
+* Branch count or dependency count
+* Change multiplier estimate
+* Growth vector
+
+---
+
+# Why This Audit Matters
+
+Complexity audits measure entropy.
+Invariant audits measure safety.
+Recovery audits measure correctness symmetry.
+
+Velocity audits measure:
+
+> Whether the system still bends without breaking when features are added.
+
+That’s architectural longevity.

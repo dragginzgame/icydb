@@ -139,15 +139,18 @@ pub trait HasType: HasDef {
 
     /// Naming shortcuts for companion types.
     fn view_ident(&self) -> Ident {
-        format_ident!("View")
+        let base = self.def().ident();
+        format_ident!("{base}View")
     }
 
     fn create_ident(&self) -> Ident {
-        format_ident!("Create")
+        let base = self.def().ident();
+        format_ident!("{base}Create")
     }
 
     fn update_ident(&self) -> Ident {
-        format_ident!("Update")
+        let base = self.def().ident();
+        format_ident!("{base}Update")
     }
 
     /// Fully-qualified path to the generated `View` type.

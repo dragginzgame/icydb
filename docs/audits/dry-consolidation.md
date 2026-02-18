@@ -1,117 +1,277 @@
-Perform a DRY / redundancy / consolidation audit of icydb-core (and facade where relevant).
+# WEEKLY AUDIT — DRY / Redundancy / Consolidation
 
-This is NOT a style audit.
-This is NOT an invariant audit.
-Do not refactor anything yet.
+`icydb-core` (+ facade where relevant)
 
-Your job is to identify duplicated logic and structural repetition that increases maintenance risk.
+## Purpose
 
-## Consolidation Guardrails
+Identify duplicated logic and structural repetition that:
 
-- Do not consolidate across architectural layers.
-- Do not merge planner + executor logic.
-- Do not remove defensive duplication without verifying invariant preservation.
-- DRY must not reduce safety or clarit
+* Increases maintenance burden
+* Increases divergence risk
+* Multiplies invariant enforcement points
+* Amplifies change surface
+* Raises future refactor cost
 
----
+This is NOT:
 
-STEP 1 — Structural Duplication Scan
-
-Identify:
-
-- Repeated invariant checks
-- Repeated error construction blocks
-- Repeated format strings
-- Repeated index anchor validation logic
-- Repeated continuation-token envelope checks
-- Repeated reverse-relation index mutation patterns
-- Repeated deserialize + map error wrappers
-- Repeated commit marker mapping patterns
-- Repeated entity key match validation
-
-For each duplication:
-
-A. List file + line references.
-B. Explain whether the duplication is:
-   - Accidental duplication
-   - Intentional boundary duplication
-   - Defensive duplication
-   - Drift duplication
+* A style audit
+* A correctness audit
+* A redesign proposal
+* A layer-merging exercise
 
 ---
 
-STEP 2 — Pattern-Level Redundancy
+# Consolidation Guardrails (Strict)
 
-Look for:
+You MUST NOT recommend:
 
-- Multiple modules implementing similar encode/decode wrappers
-- Multiple places converting between PlanError and QueryError
-- Multiple index key validation entry points
-- Multiple cursor token to wire conversions
-- Multiple raw-key range envelope checks
+* Consolidation across architectural layers
+* Merging planner + executor logic
+* Collapsing validation into mutation layers
+* Removing defensive duplication without verifying invariant safety
+* Consolidation that widens visibility
+* Consolidation that weakens boundary enforcement
+
+DRY must never reduce safety or boundary clarity.
+
+If duplication increases safety, mark it as **intentional redundancy**.
+
+---
+
+# STEP 1 — Structural Duplication Scan
+
+Identify repeated blocks of logic such as:
+
+* Invariant checks
+* Key namespace validation
+* Index id mismatch checks
+* Component arity validation
+* Expected-key vs decoded-key validation
+* Raw index key envelope checks
+* Cursor anchor envelope validation
+* Bound conversion patterns
+* Reverse-relation index mutation blocks
+* Deserialize + map error wrappers
+* Commit marker phase mapping
+* Error construction blocks with similar payloads
+* Repeated format strings
+* Similar match trees across modules
+
+For each duplication instance:
+
+Produce:
+
+| Pattern | Files | Lines | Duplication Type | Safety Critical? | Drift Risk | Risk Level |
+
+Duplication Type must be classified as:
+
+* Accidental duplication
+* Intentional boundary duplication
+* Defensive duplication
+* Evolution drift duplication
+* Boilerplate duplication
+
+---
+
+# STEP 2 — Pattern-Level Redundancy
+
+Look for repeated conceptual patterns across modules:
+
+Examples:
+
+* Multiple encode/decode wrappers with identical error mapping
+* Multiple conversions between `PlanError` ↔ `QueryError`
+* Multiple raw-key envelope check entry points
+* Multiple cursor token parsing + validation blocks
+* Multiple index key validation paths
+* Multiple reverse index mutation implementations
+* Multiple commit marker phase transitions implemented separately
 
 For each pattern:
 
-- Describe the shared pattern.
-- Count occurrences.
-- Estimate consolidation difficulty (Low / Medium / High).
-- Identify which layer should own it.
+Produce:
+
+| Pattern | Occurrences | Layers Involved | Cross-Layer? | Consolidation Difficulty | Suggested Owner Layer | Risk |
+
+Consolidation Difficulty:
+
+* Low (pure helper extraction)
+* Medium (shared module refactor)
+* High (involves boundary redefinition)
 
 ---
 
-STEP 3 — Over-Splitting or Under-Splitting
+# STEP 3 — Over-Splitting / Under-Splitting Pressure
 
 Detect:
 
-- Files over ~600 lines doing more than one conceptual job.
-- Modules that could be split by execution phase (plan vs execute vs validate).
-- Modules that are artificially separated but tightly coupled.
-- Tests with repeated setup blocks that could share helpers.
+### Over-Splitting
 
-Do NOT recommend speculative splitting.
-Only flag clear structural pressure points.
+* Logic spread across 3+ files that conceptually belongs together.
+* Small modules that forward nearly identical logic.
+* Excess thin wrappers with repeated error mapping.
+
+### Under-Splitting
+
+* Files >600–800 lines mixing:
+
+  * validation
+  * mutation
+  * error mapping
+  * ordering logic
+  * commit logic
+* Single module implementing both plan interpretation and execution behavior.
+* Single module handling both cursor decode and plan shaping.
+
+Produce:
+
+| Module | Size | Responsibilities Count | Split Pressure | Risk |
+
+Do NOT recommend speculative splits.
+Only flag clear structural strain.
 
 ---
 
-STEP 4 — Invariant Repetition Risk
+# STEP 4 — Invariant Repetition Risk
 
-Specifically detect:
+Specifically detect invariant duplication across:
 
-- Invariant checks duplicated across planner and executor.
-- Index id mismatch checks in multiple layers.
-- Cursor payload validation repeated across modules.
-- Reverse-relation mutation checks repeated in save + recovery.
+* Planner and executor
+* Executor and recovery
+* Recovery and index layer
+* Cursor planning and execution
+* Facade and core
 
-Flag whether duplication:
-- Improves safety
-- Or creates divergence risk
+For each duplicated invariant check:
+
+Produce:
+
+| Invariant | Locations | Defensive? | Divergence Risk | Risk Level |
+
+Classify duplication as:
+
+* Safety-enhancing (good redundancy)
+* Safety-neutral
+* Divergence-prone
+
+Flag invariants that:
+
+* Exist in >3 enforcement sites
+* Have slightly different error classifications
+* Have slightly different message text
+* Use subtly different boundary semantics
 
 ---
 
-STEP 5 — Consolidation Candidates
+# STEP 5 — Error Construction Redundancy
 
-Produce a table:
+Identify:
+
+* Similar `Error::new(...)` patterns across files
+* Similar formatting strings across modules
+* Multiple manual mapping blocks converting lower-level errors
+* Similar match arms constructing identical variants
+
+Produce:
+
+| Error Pattern | Files | Consolidation Risk | Drift Risk |
+
+Flag cases where error mapping logic differs subtly.
+
+---
+
+# STEP 6 — Cursor & Index Duplication Focus
+
+Specifically inspect:
+
+* Anchor envelope checks
+* Bound conversions
+* Raw key ordering comparisons
+* Index entry construction logic
+* Reverse index mutation symmetry logic
+* Commit marker phase transitions
+
+Produce:
+
+| Area | Duplication Sites | Intentional? | Risk |
+
+---
+
+# STEP 7 — Consolidation Candidates Table
+
+Produce:
 
 | Area | Files | Duplication Type | Risk Level | Suggested Owner Layer |
 
-Do NOT provide actual refactors.
-Only provide consolidation strategy direction.
+Owner Layer must respect guardrails.
+
+Do NOT provide implementation details.
+Do NOT provide code sketches.
+Do NOT suggest collapsing layers.
 
 ---
 
-OUTPUT FORMAT
+# STEP 8 — Dangerous Consolidations (Do NOT Merge)
+
+Explicitly identify duplication that should NOT be consolidated because:
+
+* It reinforces boundary safety
+* It prevents cross-layer dependency
+* It protects recovery symmetry
+* It protects cursor isolation
+
+Produce:
+
+| Area | Why Duplication Is Protective | Risk If Merged |
+
+---
+
+# STEP 9 — Quantitative Summary
+
+Provide:
+
+* Total duplication patterns found
+* High-risk divergence duplications
+* Defensive duplications
+* Estimated LoC reduction range (conservative)
+
+---
+
+# OUTPUT STRUCTURE
 
 1. High-Impact Consolidation Opportunities
 2. Medium Opportunities
 3. Low / Cosmetic
-4. Dangerous Consolidations (should NOT be merged)
+4. Dangerous Consolidations (Keep Separate)
 5. Estimated LoC Reduction Range
 6. Architectural Risk Summary
+7. DRY Health Score (1–10)
 
-Avoid:
-- Naming opinions
-- Formatting suggestions
-- Macro evangelism
-- Public API reshaping
+Scale:
 
-Focus strictly on structural duplication and consolidation risk.
+9–10 → Minimal divergence risk
+7–8 → Moderate duplication but controlled
+5–6 → Growing drift duplication
+3–4 → High divergence risk
+1–2 → Duplication causing architectural fragility
+
+---
+
+# Anti-Shallow Requirement
+
+Do NOT:
+
+* Recommend merging layers
+* Recommend collapsing planner + executor
+* Recommend “just make a util module”
+* Comment on naming
+* Comment on formatting
+* Comment on macros
+* Suggest public API changes
+
+Every duplication must include:
+
+* Location
+* Pattern
+* Risk classification
+* Drift sensitivity

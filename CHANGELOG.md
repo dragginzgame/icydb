@@ -5,6 +5,22 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.13.2] – 2026-02-18
+
+### 🧹 Cleanup
+
+* Restored generated companion type names to stable entity-prefixed forms (`TypeView`, `TypeCreate`, `TypeUpdate`) while keeping them in `<type>_views` submodules, avoiding frontend-facing numeric disambiguation names.
+
+### 🥾 Governance
+
+* Expanded the audit framework with additional audit definitions and a runnable guide (`docs/audits/AUDIT-HOWTO.md`) to make review and release checks more repeatable.
+
+### 📚 Documentation
+
+* Reorganized long-form docs into clearer `docs/contracts`, `docs/meta`, and `docs/archive` sections to make it easier to find normative contracts vs reference material.
+
+---
+
 ## [0.13.1] – 2026-02-17
 
 ### 🧹 Cleanup
@@ -13,6 +29,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Simplified pagination test setup and repeated assertions with shared helpers (`setup_pagination_test`, ID extraction, cursor-boundary decode), which makes the file easier to extend for 0.14 DESC coverage.
 * Split entity integrity decode from storage codec policy by moving key-validation decode logic into `db::entity_decode` (`decode_and_validate_entity_key`).
 * Kept behavior and error classification stable while clarifying boundaries: `db::codec` now stays focused on storage decode policy, and executor/entity key checks live in a dedicated integrity layer.
+
+### 🥾 Governance
+
 * Added sample audit documents under `docs/` to make architecture and error-taxonomy review workflows easier to follow and repeat.
 
 ---
