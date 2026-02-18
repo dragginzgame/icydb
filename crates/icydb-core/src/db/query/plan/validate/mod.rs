@@ -17,10 +17,13 @@ mod semantics;
 mod tests;
 
 use crate::{
-    db::query::{
-        plan::LogicalPlan,
-        policy::{CursorOrderPolicyError, PlanPolicyError},
-        predicate::{self, SchemaInfo},
+    db::{
+        cursor::CursorDecodeError,
+        query::{
+            plan::LogicalPlan,
+            policy::{CursorOrderPolicyError, PlanPolicyError},
+            predicate::{self, SchemaInfo},
+        },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::{entity::EntityModel, index::IndexModel},
@@ -122,7 +125,11 @@ pub enum PlanError {
 
     /// Cursor token could not be decoded.
     #[error("invalid continuation cursor: {reason}")]
-    InvalidContinuationCursor { reason: String },
+    InvalidContinuationCursor { reason: CursorDecodeError },
+
+    /// Cursor token payload/semantics are invalid after token decode.
+    #[error("invalid continuation cursor: {reason}")]
+    InvalidContinuationCursorPayload { reason: String },
 
     /// Cursor token version is unsupported.
     #[error("unsupported continuation cursor version: {version}")]

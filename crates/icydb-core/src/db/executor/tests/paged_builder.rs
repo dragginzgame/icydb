@@ -70,7 +70,10 @@ fn paged_query_rejects_invalid_hex_cursor_token() {
         panic!("invalid cursor token should be classified as invalid continuation cursor");
     };
     assert!(
-        reason.contains("invalid hex character at position 1"),
+        matches!(
+            reason,
+            crate::db::cursor::CursorDecodeError::InvalidHex { position: 1 }
+        ),
         "unexpected cursor decode reason: {reason}"
     );
 }
@@ -96,7 +99,7 @@ fn paged_query_rejects_odd_length_hex_cursor_token() {
         panic!("odd-length cursor token should be classified as invalid continuation cursor");
     };
     assert!(
-        reason.contains("even number of hex characters"),
+        matches!(reason, crate::db::cursor::CursorDecodeError::OddLength),
         "unexpected cursor decode reason: {reason}"
     );
 }
@@ -122,7 +125,34 @@ fn paged_query_rejects_empty_cursor_token() {
         panic!("empty cursor token should be classified as invalid continuation cursor");
     };
     assert!(
-        reason.contains("cursor token is empty"),
+        matches!(reason, crate::db::cursor::CursorDecodeError::Empty),
         "unexpected cursor decode reason: {reason}"
+    );
+}
+
+#[test]
+fn paged_query_rejects_non_token_cursor_payload_as_payload_error() {
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(1)
+        .page()
+        .expect("paged builder should accept order+limit")
+        .cursor("00")
+        .execute()
+        .expect_err("non-token cursor payload should fail at API boundary");
+
+    let QueryError::Plan(plan_err) = err else {
+        panic!("non-token cursor payload should map to plan error");
+    };
+    let crate::db::query::plan::PlanError::InvalidContinuationCursorPayload { reason } = &*plan_err
+    else {
+        panic!("non-token payload should be classified as invalid continuation cursor payload");
+    };
+    assert!(
+        !reason.is_empty(),
+        "payload decode reason should provide context for debugging"
     );
 }

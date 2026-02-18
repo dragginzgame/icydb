@@ -5,6 +5,22 @@
 /// It intentionally contains only token encoding/decoding logic and no query semantics.
 ///
 
+///
+/// CursorDecodeError
+///
+
+#[derive(Debug, Eq, thiserror::Error, PartialEq)]
+pub enum CursorDecodeError {
+    #[error("cursor token is empty")]
+    Empty,
+
+    #[error("cursor token must have an even number of hex characters")]
+    OddLength,
+
+    #[error("invalid hex character at position {position}")]
+    InvalidHex { position: usize },
+}
+
 /// Encode raw cursor bytes as a lowercase hex token.
 #[must_use]
 pub fn encode_cursor(bytes: &[u8]) -> String {
@@ -19,23 +35,27 @@ pub fn encode_cursor(bytes: &[u8]) -> String {
 /// Decode a lowercase/uppercase hex cursor token into raw bytes.
 ///
 /// The token may include surrounding whitespace, which is trimmed.
-/// Returns a descriptive error string for invalid tokens.
-pub(crate) fn decode_cursor(token: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeError> {
     let token = token.trim();
+
     if token.is_empty() {
-        return Err("cursor token is empty".to_string());
+        return Err(CursorDecodeError::Empty);
     }
+
     if !token.len().is_multiple_of(2) {
-        return Err("cursor token must have an even number of hex characters".to_string());
+        return Err(CursorDecodeError::OddLength);
     }
 
     let mut out = Vec::with_capacity(token.len() / 2);
     let bytes = token.as_bytes();
+
     for idx in (0..bytes.len()).step_by(2) {
         let hi = decode_hex_nibble(bytes[idx])
-            .ok_or_else(|| format!("invalid hex character at position {}", idx + 1))?;
+            .ok_or(CursorDecodeError::InvalidHex { position: idx + 1 })?;
+
         let lo = decode_hex_nibble(bytes[idx + 1])
-            .ok_or_else(|| format!("invalid hex character at position {}", idx + 2))?;
+            .ok_or(CursorDecodeError::InvalidHex { position: idx + 2 })?;
+
         out.push((hi << 4) | lo);
     }
 
@@ -57,30 +77,27 @@ const fn decode_hex_nibble(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_cursor, encode_cursor};
+    use super::{CursorDecodeError, decode_cursor, encode_cursor};
 
     #[test]
     fn decode_cursor_rejects_empty_and_whitespace_tokens() {
         let err = decode_cursor("").expect_err("empty token should be rejected");
-        assert_eq!(err, "cursor token is empty");
+        assert_eq!(err, CursorDecodeError::Empty);
 
         let err = decode_cursor("   \n\t").expect_err("whitespace token should be rejected");
-        assert_eq!(err, "cursor token is empty");
+        assert_eq!(err, CursorDecodeError::Empty);
     }
 
     #[test]
     fn decode_cursor_rejects_odd_length_tokens() {
         let err = decode_cursor("abc").expect_err("odd-length token should be rejected");
-        assert_eq!(
-            err,
-            "cursor token must have an even number of hex characters"
-        );
+        assert_eq!(err, CursorDecodeError::OddLength);
     }
 
     #[test]
     fn decode_cursor_rejects_invalid_hex_with_position() {
         let err = decode_cursor("0x").expect_err("invalid hex nibble should be rejected");
-        assert_eq!(err, "invalid hex character at position 2");
+        assert_eq!(err, CursorDecodeError::InvalidHex { position: 2 });
     }
 
     #[test]

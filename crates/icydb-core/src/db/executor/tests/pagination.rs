@@ -753,13 +753,14 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
         .next_cursor
         .as_ref()
         .expect("non-fast page1 should emit continuation cursor");
-    let fast_cursor_page1_token =
-        ContinuationToken::decode(fast_cursor_page1.as_slice()).expect("fast cursor should decode");
-    let non_fast_cursor_page1_token = ContinuationToken::decode(non_fast_cursor_page1.as_slice())
-        .expect("non-fast cursor should decode");
+    let fast_cursor_page1_boundary =
+        decode_boundary(fast_cursor_page1.as_slice(), "fast cursor should decode");
+    let non_fast_cursor_page1_boundary = decode_boundary(
+        non_fast_cursor_page1.as_slice(),
+        "non-fast cursor should decode",
+    );
     assert_eq!(
-        fast_cursor_page1_token.boundary(),
-        non_fast_cursor_page1_token.boundary(),
+        &fast_cursor_page1_boundary, &non_fast_cursor_page1_boundary,
         "cursor boundaries should match even when signatures differ by access path"
     );
 
@@ -879,13 +880,14 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
         .next_cursor
         .as_ref()
         .expect("non-fast page2 should emit continuation cursor");
-    let fast_next_token =
-        ContinuationToken::decode(fast_next.as_slice()).expect("fast next cursor should decode");
-    let non_fast_next_token = ContinuationToken::decode(non_fast_next.as_slice())
-        .expect("non-fast next cursor should decode");
+    let fast_next_boundary =
+        decode_boundary(fast_next.as_slice(), "fast next cursor should decode");
+    let non_fast_next_boundary = decode_boundary(
+        non_fast_next.as_slice(),
+        "non-fast next cursor should decode",
+    );
     assert_eq!(
-        fast_next_token.boundary(),
-        non_fast_next_token.boundary(),
+        &fast_next_boundary, &non_fast_next_boundary,
         "fast and non-fast paths must emit the same continuation boundary"
     );
 }
@@ -1626,13 +1628,12 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .next_cursor
         .as_ref()
         .expect("fallback page should emit continuation cursor");
-    let pushdown_token = ContinuationToken::decode(pushdown_cursor.as_slice())
-        .expect("pushdown cursor should decode");
-    let fallback_token = ContinuationToken::decode(fallback_cursor.as_slice())
-        .expect("fallback cursor should decode");
+    let pushdown_boundary =
+        decode_boundary(pushdown_cursor.as_slice(), "pushdown cursor should decode");
+    let fallback_boundary =
+        decode_boundary(fallback_cursor.as_slice(), "fallback cursor should decode");
     assert_eq!(
-        pushdown_token.boundary(),
-        fallback_token.boundary(),
+        &pushdown_boundary, &fallback_boundary,
         "pushdown and fallback cursors should encode the same continuation boundary"
     );
 }
@@ -1698,13 +1699,12 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .next_cursor
         .as_ref()
         .expect("fallback page2 should emit continuation cursor");
-    let pushdown_next_token =
-        ContinuationToken::decode(pushdown_next.as_slice()).expect("pushdown next should decode");
-    let fallback_next_token =
-        ContinuationToken::decode(fallback_next.as_slice()).expect("fallback next should decode");
+    let pushdown_next_boundary =
+        decode_boundary(pushdown_next.as_slice(), "pushdown next should decode");
+    let fallback_next_boundary =
+        decode_boundary(fallback_next.as_slice(), "fallback next should decode");
     assert_eq!(
-        pushdown_next_token.boundary(),
-        fallback_next_token.boundary(),
+        &pushdown_next_boundary, &fallback_next_boundary,
         "pushdown and fallback page2 cursors should encode identical boundaries"
     );
 }

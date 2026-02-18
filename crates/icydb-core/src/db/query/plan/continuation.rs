@@ -361,7 +361,7 @@ pub(in crate::db) fn decode_validated_cursor(
 ) -> Result<DecodedContinuationCursor, PlanError> {
     let token = ContinuationToken::decode(cursor).map_err(|err| match err {
         ContinuationTokenError::Encode(message) | ContinuationTokenError::Decode(message) => {
-            PlanError::InvalidContinuationCursor { reason: message }
+            PlanError::InvalidContinuationCursorPayload { reason: message }
         }
         ContinuationTokenError::UnsupportedVersion { version } => {
             PlanError::ContinuationCursorVersionMismatch { version }

@@ -9,8 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🧹 Cleanup
 
-* Deduplicated tests that are going to get more complicated in 0.14
-* Started splitting up the LoadExecutor in preparation too
+* Reduced duplication in `db/executor/tests/pagination.rs` by introducing shared local helpers for pushdown parity, page collection, limit matrices, and boundary resume checks.
+* Simplified pagination test setup and repeated assertions with shared helpers (`setup_pagination_test`, ID extraction, cursor-boundary decode), which makes the file easier to extend for 0.14 DESC coverage.
+* Split entity integrity decode from storage codec policy by moving key-validation decode logic into `db::entity_decode` (`decode_and_validate_entity_key`).
+* Kept behavior and error classification stable while clarifying boundaries: `db::codec` now stays focused on storage decode policy, and executor/entity key checks live in a dedicated integrity layer.
+* Added sample audit documents under `docs/` to make architecture and error-taxonomy review workflows easier to follow and repeat.
 
 ---
 

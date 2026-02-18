@@ -157,7 +157,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     ) -> Result<(), PlanError> {
         let Some(access) = access else {
             if anchor.is_some() {
-                return Err(PlanError::InvalidContinuationCursor {
+                return Err(PlanError::InvalidContinuationCursorPayload {
                     reason: "unexpected index-range continuation anchor for composite access plan"
                         .to_string(),
                 });
@@ -174,31 +174,31 @@ impl<E: EntityKind> ExecutablePlan<E> {
         } = access
         {
             let Some(anchor) = anchor else {
-                return Err(PlanError::InvalidContinuationCursor {
+                return Err(PlanError::InvalidContinuationCursorPayload {
                     reason: "index-range continuation cursor is missing a raw-key anchor"
                         .to_string(),
                 });
             };
 
             let decoded_key = IndexKey::try_from_raw(anchor.last_raw_key()).map_err(|err| {
-                PlanError::InvalidContinuationCursor {
+                PlanError::InvalidContinuationCursorPayload {
                     reason: format!("index-range continuation anchor decode failed: {err}"),
                 }
             })?;
             let expected_index_id = IndexId::new::<E>(index);
 
             if decoded_key.index_id() != &expected_index_id {
-                return Err(PlanError::InvalidContinuationCursor {
+                return Err(PlanError::InvalidContinuationCursorPayload {
                     reason: "index-range continuation anchor index id mismatch".to_string(),
                 });
             }
             if decoded_key.key_kind() != IndexKeyKind::User {
-                return Err(PlanError::InvalidContinuationCursor {
+                return Err(PlanError::InvalidContinuationCursorPayload {
                     reason: "index-range continuation anchor key namespace mismatch".to_string(),
                 });
             }
             if decoded_key.component_count() != index.fields.len() {
-                return Err(PlanError::InvalidContinuationCursor {
+                return Err(PlanError::InvalidContinuationCursorPayload {
                     reason: "index-range continuation anchor component arity mismatch".to_string(),
                 });
             }
@@ -217,18 +217,18 @@ impl<E: EntityKind> ExecutablePlan<E> {
                         "index-range cursor upper continuation bound is not indexable".to_string()
                     }
                 };
-                PlanError::InvalidContinuationCursor { reason }
+                PlanError::InvalidContinuationCursorPayload { reason }
             })?;
 
             if !raw_key_within_bounds(anchor.last_raw_key(), &range_start, &range_end) {
-                return Err(PlanError::InvalidContinuationCursor {
+                return Err(PlanError::InvalidContinuationCursorPayload {
                     reason:
                         "index-range continuation anchor is outside the original range envelope"
                             .to_string(),
                 });
             }
         } else if anchor.is_some() {
-            return Err(PlanError::InvalidContinuationCursor {
+            return Err(PlanError::InvalidContinuationCursorPayload {
                 reason:
                     "unexpected index-range continuation anchor for non-index-range access path"
                         .to_string(),
@@ -454,10 +454,10 @@ mod tests {
             .validate_index_range_anchor(Some(&anchor), Some(&access))
             .expect_err("anchor from a different index id must fail");
         match err {
-            PlanError::InvalidContinuationCursor { reason } => {
+            PlanError::InvalidContinuationCursorPayload { reason } => {
                 assert!(reason.contains("index id mismatch"));
             }
-            _ => panic!("expected InvalidContinuationCursor"),
+            _ => panic!("expected InvalidContinuationCursorPayload"),
         }
     }
 
@@ -472,10 +472,10 @@ mod tests {
             .validate_index_range_anchor(Some(&anchor), Some(&access))
             .expect_err("anchor outside index-range envelope must fail");
         match err {
-            PlanError::InvalidContinuationCursor { reason } => {
+            PlanError::InvalidContinuationCursorPayload { reason } => {
                 assert!(reason.contains("outside the original range envelope"));
             }
-            _ => panic!("expected InvalidContinuationCursor"),
+            _ => panic!("expected InvalidContinuationCursorPayload"),
         }
     }
 }

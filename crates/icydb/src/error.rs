@@ -107,6 +107,7 @@ const fn is_invalid_continuation_cursor_plan_error(err: &PlanError) -> bool {
     matches!(
         err,
         PlanError::InvalidContinuationCursor { .. }
+            | PlanError::InvalidContinuationCursorPayload { .. }
             | PlanError::ContinuationCursorVersionMismatch { .. }
             | PlanError::ContinuationCursorSignatureMismatch { .. }
             | PlanError::ContinuationCursorBoundaryArityMismatch { .. }
@@ -266,7 +267,7 @@ mod tests {
 
     #[test]
     fn plan_invalid_continuation_cursor_maps_to_dedicated_kind() {
-        let err = QueryError::Plan(Box::new(PlanError::InvalidContinuationCursor {
+        let err = QueryError::Plan(Box::new(PlanError::InvalidContinuationCursorPayload {
             reason: "cursor token is empty".to_string(),
         }));
         let facade = Error::from(err);

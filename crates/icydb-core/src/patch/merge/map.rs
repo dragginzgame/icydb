@@ -8,7 +8,11 @@ use std::{
     marker::PhantomData,
 };
 
+///
+/// MapPatchOp
 /// Internal representation used to normalize map patches before application.
+///
+
 enum MapPatchOp<K, V> {
     Insert { key: K, value: V },
     Remove { key: K },
@@ -16,7 +20,11 @@ enum MapPatchOp<K, V> {
     Clear,
 }
 
+///
+/// MapAdapter
 /// Storage adapter for map merge operations.
+///
+
 trait MapAdapter<K, V> {
     type Map;
 
@@ -27,7 +35,11 @@ trait MapAdapter<K, V> {
     fn contains_key(map: &Self::Map, key: &K) -> bool;
 }
 
+///
+/// HashMapAdapter
 /// HashMap-backed map adapter.
+///
+
 struct HashMapAdapter<S>(PhantomData<S>);
 
 impl<K, V, S> MapAdapter<K, V> for HashMapAdapter<S>
@@ -58,7 +70,11 @@ where
     }
 }
 
+///
+/// BTreeMapAdapter
 /// BTreeMap-backed map adapter.
+///
+
 struct BTreeMapAdapter;
 
 impl<K, V> MapAdapter<K, V> for BTreeMapAdapter
