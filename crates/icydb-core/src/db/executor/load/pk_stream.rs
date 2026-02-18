@@ -96,10 +96,10 @@ where
 
         // Keep malformed boundary classification stable on PK fast-path execution.
         let _cursor_key = decode_pk_cursor_boundary::<E>(cursor_boundary)?;
-        let (range_start_key, range_end_key) = match plan.access.as_path() {
-            Some(AccessPath::FullScan) => (None, None),
-            Some(AccessPath::KeyRange { start, end }) => (Some(*start), Some(*end)),
-            _ => return Ok(None),
+        let Some((range_start_key, range_end_key)) =
+            plan.access.as_path().and_then(AccessPath::pk_stream_bounds)
+        else {
+            return Ok(None);
         };
 
         Ok(Some(PkStreamScanConfig {
@@ -171,10 +171,10 @@ where
             return false;
         }
 
-        let supports_pk_stream_access = matches!(
-            plan.access.as_path(),
-            Some(AccessPath::FullScan | AccessPath::KeyRange { .. })
-        );
+        let supports_pk_stream_access = plan
+            .access
+            .as_path()
+            .is_some_and(AccessPath::is_full_scan_or_key_range);
         if !supports_pk_stream_access {
             return false;
         }

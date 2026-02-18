@@ -71,6 +71,7 @@ fn raw_relation_target_key_from_parts(
 }
 
 /// Map a relation-target key normalization failure into a typed `InternalError`.
+#[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn map_relation_target_raw_key_error(
     err: RelationTargetRawKeyError,
     source_path: &'static str,

@@ -9,7 +9,7 @@ use crate::{
 };
 use std::ops::Bound;
 
-use crate::db::query::plan::validate::PlanError;
+use crate::db::query::plan::validate::{AccessPlanError, PlanError};
 
 ///
 /// AccessPlanKeyAdapter
@@ -65,7 +65,7 @@ where
         validate_pk_key(schema, model, start)?;
         validate_pk_key(schema, model, end)?;
         if start > end {
-            return Err(PlanError::InvalidKeyRange);
+            return Err(PlanError::from(AccessPlanError::InvalidKeyRange));
         }
 
         Ok(())
@@ -100,7 +100,7 @@ impl AccessPlanKeyAdapter<Value> for ValueKeyAdapter {
         validate_pk_value(schema, model, end)?;
         let ordering = canonical_cmp(start, end);
         if ordering == std::cmp::Ordering::Greater {
-            return Err(PlanError::InvalidKeyRange);
+            return Err(PlanError::from(AccessPlanError::InvalidKeyRange));
         }
 
         Ok(())
@@ -114,52 +114,7 @@ fn validate_access_plan_with<K>(
     access: &AccessPlan<K>,
     adapter: &impl AccessPlanKeyAdapter<K>,
 ) -> Result<(), PlanError> {
-    match access {
-        AccessPlan::Path(path) => validate_access_path_with(schema, model, path, adapter),
-        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
-            for child in children {
-                validate_access_plan_with(schema, model, child, adapter)?;
-            }
-
-            Ok(())
-        }
-    }
-}
-
-// Validate access paths using representation-specific key semantics.
-fn validate_access_path_with<K>(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    access: &AccessPath<K>,
-    adapter: &impl AccessPlanKeyAdapter<K>,
-) -> Result<(), PlanError> {
-    match access {
-        AccessPath::ByKey(key) => adapter.validate_pk_key(schema, model, key),
-        AccessPath::ByKeys(keys) => {
-            // Empty key lists are a valid no-op.
-            if keys.is_empty() {
-                return Ok(());
-            }
-            for key in keys {
-                adapter.validate_pk_key(schema, model, key)?;
-            }
-
-            Ok(())
-        }
-        AccessPath::KeyRange { start, end } => {
-            adapter.validate_key_range(schema, model, start, end)
-        }
-        AccessPath::IndexPrefix { index, values } => {
-            validate_index_prefix(schema, model, index, values)
-        }
-        AccessPath::IndexRange {
-            index,
-            prefix,
-            lower,
-            upper,
-        } => validate_index_range(schema, model, index, prefix, lower, upper),
-        AccessPath::FullScan => Ok(()),
-    }
+    access.validate(schema, model, adapter)
 }
 
 /// Validate executor-visible access paths.
@@ -213,21 +168,22 @@ fn validate_pk_literal(
 
     let field_type = schema
         .field(field)
-        .ok_or_else(|| PlanError::PrimaryKeyNotKeyable {
+        .ok_or_else(|| AccessPlanError::PrimaryKeyNotKeyable {
             field: field.to_string(),
-        })?;
+        })
+        .map_err(PlanError::from)?;
 
     if !field_type.is_keyable() {
-        return Err(PlanError::PrimaryKeyNotKeyable {
+        return Err(PlanError::from(AccessPlanError::PrimaryKeyNotKeyable {
             field: field.to_string(),
-        });
+        }));
     }
 
     if !predicate::validate::literal_matches_type(key, field_type) {
-        return Err(PlanError::PrimaryKeyMismatch {
+        return Err(PlanError::from(AccessPlanError::PrimaryKeyMismatch {
             field: field.to_string(),
             key: key.clone(),
-        });
+        }));
     }
 
     Ok(())
@@ -241,32 +197,34 @@ fn validate_index_prefix(
     values: &[Value],
 ) -> Result<(), PlanError> {
     if !model.indexes.contains(&index) {
-        return Err(PlanError::IndexNotFound { index: *index });
+        return Err(PlanError::from(AccessPlanError::IndexNotFound {
+            index: *index,
+        }));
     }
 
     if values.is_empty() {
-        return Err(PlanError::IndexPrefixEmpty);
+        return Err(PlanError::from(AccessPlanError::IndexPrefixEmpty));
     }
 
     if values.len() > index.fields.len() {
-        return Err(PlanError::IndexPrefixTooLong {
+        return Err(PlanError::from(AccessPlanError::IndexPrefixTooLong {
             prefix_len: values.len(),
             field_len: index.fields.len(),
-        });
+        }));
     }
 
     for (field, value) in index.fields.iter().zip(values.iter()) {
-        let field_type =
-            schema
-                .field(field)
-                .ok_or_else(|| PlanError::IndexPrefixValueMismatch {
-                    field: field.to_string(),
-                })?;
+        let field_type = schema
+            .field(field)
+            .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
+                field: field.to_string(),
+            })
+            .map_err(PlanError::from)?;
 
         if !predicate::validate::literal_matches_type(value, field_type) {
-            return Err(PlanError::IndexPrefixValueMismatch {
+            return Err(PlanError::from(AccessPlanError::IndexPrefixValueMismatch {
                 field: field.to_string(),
-            });
+            }));
         }
     }
 
@@ -283,28 +241,30 @@ fn validate_index_range(
     upper: &Bound<Value>,
 ) -> Result<(), PlanError> {
     if !model.indexes.contains(&index) {
-        return Err(PlanError::IndexNotFound { index: *index });
+        return Err(PlanError::from(AccessPlanError::IndexNotFound {
+            index: *index,
+        }));
     }
 
     if prefix.len() >= index.fields.len() {
-        return Err(PlanError::IndexPrefixTooLong {
+        return Err(PlanError::from(AccessPlanError::IndexPrefixTooLong {
             prefix_len: prefix.len(),
             field_len: index.fields.len().saturating_sub(1),
-        });
+        }));
     }
 
     for (field, value) in index.fields.iter().zip(prefix.iter()) {
-        let field_type =
-            schema
-                .field(field)
-                .ok_or_else(|| PlanError::IndexPrefixValueMismatch {
-                    field: field.to_string(),
-                })?;
+        let field_type = schema
+            .field(field)
+            .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
+                field: field.to_string(),
+            })
+            .map_err(PlanError::from)?;
 
         if !predicate::validate::literal_matches_type(value, field_type) {
-            return Err(PlanError::IndexPrefixValueMismatch {
+            return Err(PlanError::from(AccessPlanError::IndexPrefixValueMismatch {
                 field: field.to_string(),
-            });
+            }));
         }
     }
 
@@ -321,7 +281,7 @@ fn validate_index_range(
     };
 
     if canonical_cmp(lower_value, upper_value) == std::cmp::Ordering::Greater {
-        return Err(PlanError::InvalidKeyRange);
+        return Err(PlanError::from(AccessPlanError::InvalidKeyRange));
     }
 
     Ok(())
@@ -339,15 +299,73 @@ fn validate_index_range_bound_value(
 
     let field_type = schema
         .field(field)
-        .ok_or_else(|| PlanError::IndexPrefixValueMismatch {
+        .ok_or_else(|| AccessPlanError::IndexPrefixValueMismatch {
             field: field.to_string(),
-        })?;
+        })
+        .map_err(PlanError::from)?;
 
     if predicate::validate::literal_matches_type(value, field_type) {
         return Ok(());
     }
 
-    Err(PlanError::IndexPrefixValueMismatch {
+    Err(PlanError::from(AccessPlanError::IndexPrefixValueMismatch {
         field: field.to_string(),
-    })
+    }))
+}
+
+impl<K> AccessPlan<K> {
+    /// Validate this access plan using adapter-specific key semantics.
+    fn validate(
+        &self,
+        schema: &SchemaInfo,
+        model: &EntityModel,
+        adapter: &impl AccessPlanKeyAdapter<K>,
+    ) -> Result<(), PlanError> {
+        match self {
+            Self::Path(path) => path.validate(schema, model, adapter),
+            Self::Union(children) | Self::Intersection(children) => {
+                for child in children {
+                    child.validate(schema, model, adapter)?;
+                }
+
+                Ok(())
+            }
+        }
+    }
+}
+
+impl<K> AccessPath<K> {
+    /// Validate this concrete access path using adapter-specific key semantics.
+    fn validate(
+        &self,
+        schema: &SchemaInfo,
+        model: &EntityModel,
+        adapter: &impl AccessPlanKeyAdapter<K>,
+    ) -> Result<(), PlanError> {
+        match self {
+            Self::ByKey(key) => adapter.validate_pk_key(schema, model, key),
+            Self::ByKeys(keys) => {
+                // Empty key lists are a valid no-op.
+                if keys.is_empty() {
+                    return Ok(());
+                }
+                for key in keys {
+                    adapter.validate_pk_key(schema, model, key)?;
+                }
+
+                Ok(())
+            }
+            Self::KeyRange { start, end } => adapter.validate_key_range(schema, model, start, end),
+            Self::IndexPrefix { index, values } => {
+                validate_index_prefix(schema, model, index, values)
+            }
+            Self::IndexRange {
+                index,
+                prefix,
+                lower,
+                upper,
+            } => validate_index_range(schema, model, index, prefix, lower, upper),
+            Self::FullScan => Ok(()),
+        }
+    }
 }

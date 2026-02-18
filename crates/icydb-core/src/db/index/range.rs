@@ -1,5 +1,8 @@
 use crate::{
-    db::index::{IndexId, IndexKey, RawIndexKey, encode_canonical_index_component},
+    db::{
+        index::{IndexId, IndexKey, RawIndexKey, encode_canonical_index_component},
+        query::plan::{cursor_anchor_within_envelope, cursor_resume_bounds},
+    },
     model::index::IndexModel,
     traits::EntityKind,
     value::Value,
@@ -84,11 +87,7 @@ pub(in crate::db) fn resume_bounds(
     upper: Bound<RawIndexKey>,
     anchor: &RawIndexKey,
 ) -> (Bound<RawIndexKey>, Bound<RawIndexKey>) {
-    match direction {
-        Direction::Asc => (Bound::Excluded(anchor.clone()), upper),
-        // Structural containment for DESC is in place; traversal remains ASC for now.
-        Direction::Desc => (lower, Bound::Excluded(anchor.clone())),
-    }
+    cursor_resume_bounds(direction, lower, upper, anchor)
 }
 
 ///
@@ -99,14 +98,14 @@ pub(in crate::db) fn resume_bounds(
 ///
 
 #[must_use]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) fn anchor_within_envelope(
     direction: Direction,
     anchor: &RawIndexKey,
     lower: &Bound<RawIndexKey>,
     upper: &Bound<RawIndexKey>,
 ) -> bool {
-    let _ = direction;
-    key_within_bounds(anchor, lower, upper)
+    cursor_anchor_within_envelope(direction, anchor, lower, upper)
 }
 
 ///
@@ -149,36 +148,16 @@ fn raw_index_key_bound(bound: Bound<IndexKey>) -> Bound<RawIndexKey> {
     }
 }
 
-fn key_within_bounds(
-    key: &RawIndexKey,
-    lower: &Bound<RawIndexKey>,
-    upper: &Bound<RawIndexKey>,
-) -> bool {
-    let lower_ok = match lower {
-        Bound::Unbounded => true,
-        Bound::Included(boundary) => key >= boundary,
-        Bound::Excluded(boundary) => key > boundary,
-    };
-    let upper_ok = match upper {
-        Bound::Unbounded => true,
-        Bound::Included(boundary) => key <= boundary,
-        Bound::Excluded(boundary) => key < boundary,
-    };
-
-    lower_ok && upper_ok
-}
-
 ///
 /// TESTS
 ///
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        db::index::{Direction, RawIndexKey, anchor_within_envelope, resume_bounds},
-        traits::Storable,
-    };
+    use crate::{db::index::RawIndexKey, traits::Storable};
     use std::{borrow::Cow, ops::Bound};
+
+    use super::{Direction, anchor_within_envelope, resume_bounds};
 
     fn raw_key(byte: u8) -> RawIndexKey {
         <RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![byte]))

@@ -3,7 +3,7 @@ use crate::{
         Context,
         executor::load::{FastLoadResult, LoadExecutor},
         query::plan::{
-            AccessPath, ContinuationSignature, CursorBoundary, Direction, LogicalPlan,
+            ContinuationSignature, CursorBoundary, Direction, LogicalPlan,
             validate::PushdownApplicability,
         },
     },
@@ -29,16 +29,14 @@ where
             return Ok(None);
         }
 
-        let Some(AccessPath::IndexPrefix { index, values }) = plan.access.as_path() else {
+        let Some((index, values)) = plan.access.as_index_prefix_path() else {
             return Ok(None);
         };
 
         // Phase 1: resolve candidate keys using canonical index traversal order.
         let ordered_keys = ctx.db.with_store_registry(|reg| {
             reg.try_get_store(index.store).and_then(|store| {
-                store.with_index(|index_store| {
-                    index_store.resolve_data_values::<E>(index, values.as_slice())
-                })
+                store.with_index(|index_store| index_store.resolve_data_values::<E>(index, values))
             })
         })?;
         let rows_scanned = ordered_keys.len();

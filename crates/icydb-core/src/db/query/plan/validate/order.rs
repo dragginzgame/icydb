@@ -1,6 +1,9 @@
 use crate::{
     db::query::{
-        plan::{OrderSpec, validate::PlanError},
+        plan::{
+            OrderSpec,
+            validate::{OrderPlanError, PlanError},
+        },
         predicate::SchemaInfo,
     },
     model::entity::EntityModel,
@@ -11,15 +14,16 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
     for (field, _) in &order.fields {
         let field_type = schema
             .field(field)
-            .ok_or_else(|| PlanError::UnknownOrderField {
+            .ok_or_else(|| OrderPlanError::UnknownField {
                 field: field.clone(),
-            })?;
+            })
+            .map_err(PlanError::from)?;
 
         if !field_type.is_orderable() {
             // CONTRACT: ORDER BY rejects non-queryable or unordered fields.
-            return Err(PlanError::UnorderableField {
+            return Err(PlanError::from(OrderPlanError::UnorderableField {
                 field: field.clone(),
-            });
+            }));
         }
     }
 
@@ -60,8 +64,8 @@ pub(crate) fn validate_primary_key_tie_break(
     if pk_count == 1 && trailing_pk {
         Ok(())
     } else {
-        Err(PlanError::MissingPrimaryKeyTieBreak {
+        Err(PlanError::from(OrderPlanError::MissingPrimaryKeyTieBreak {
             field: pk_field.to_string(),
-        })
+        }))
     }
 }

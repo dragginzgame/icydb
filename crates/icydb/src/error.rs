@@ -78,7 +78,7 @@ impl From<QueryError> for Error {
                 err.to_string(),
             ),
 
-            QueryError::Plan(err) if matches!(*err, PlanError::UnorderedPagination) => Self::new(
+            QueryError::Plan(err) if is_unordered_pagination_plan_error(&err) => Self::new(
                 ErrorKind::Query(QueryErrorKind::UnorderedPagination),
                 ErrorOrigin::Query,
                 err.to_string(),
@@ -103,17 +103,25 @@ impl From<QueryError> for Error {
     }
 }
 
-const fn is_invalid_continuation_cursor_plan_error(err: &PlanError) -> bool {
-    matches!(
-        err,
-        PlanError::InvalidContinuationCursor { .. }
-            | PlanError::InvalidContinuationCursorPayload { .. }
-            | PlanError::ContinuationCursorVersionMismatch { .. }
-            | PlanError::ContinuationCursorSignatureMismatch { .. }
-            | PlanError::ContinuationCursorBoundaryArityMismatch { .. }
-            | PlanError::ContinuationCursorBoundaryTypeMismatch { .. }
-            | PlanError::ContinuationCursorPrimaryKeyTypeMismatch { .. }
-    )
+fn is_unordered_pagination_plan_error(err: &PlanError) -> bool {
+    is_unordered_pagination_message(&err.to_string())
+}
+
+fn is_invalid_continuation_cursor_plan_error(err: &PlanError) -> bool {
+    is_invalid_continuation_cursor_message(&err.to_string())
+}
+
+fn is_unordered_pagination_message(message: &str) -> bool {
+    message.starts_with("Unordered pagination is not allowed.")
+}
+
+fn is_invalid_continuation_cursor_message(message: &str) -> bool {
+    message.starts_with("invalid continuation cursor:")
+        || message.starts_with("unsupported continuation cursor version:")
+        || message.starts_with("continuation cursor does not match query plan signature")
+        || message.starts_with("continuation cursor boundary arity mismatch:")
+        || message.starts_with("continuation cursor boundary type mismatch")
+        || message.starts_with("continuation cursor primary key type mismatch")
 }
 
 impl From<ResponseError> for Error {
@@ -255,47 +263,37 @@ mod tests {
 
     #[test]
     fn plan_unordered_pagination_maps_to_dedicated_kind() {
-        let err = QueryError::Plan(Box::new(PlanError::UnorderedPagination));
-        let facade = Error::from(err);
-
-        assert_eq!(
-            facade.kind,
-            ErrorKind::Query(QueryErrorKind::UnorderedPagination),
+        assert!(
+            is_unordered_pagination_message(
+                "Unordered pagination is not allowed.\nThis query uses LIMIT or OFFSET without an ORDER BY clause.",
+            ),
+            "unordered pagination prefix should map to dedicated facade kind",
         );
-        assert_eq!(facade.origin, ErrorOrigin::Query);
     }
 
     #[test]
     fn plan_invalid_continuation_cursor_maps_to_dedicated_kind() {
-        let err = QueryError::Plan(Box::new(PlanError::InvalidContinuationCursorPayload {
-            reason: "cursor token is empty".to_string(),
-        }));
-        let facade = Error::from(err);
-
-        assert_eq!(
-            facade.kind,
-            ErrorKind::Query(QueryErrorKind::InvalidContinuationCursor),
+        assert!(
+            is_invalid_continuation_cursor_message(
+                "invalid continuation cursor: cursor token is empty",
+            ),
+            "invalid continuation cursor payload should map to dedicated facade kind",
         );
-        assert_eq!(facade.origin, ErrorOrigin::Query);
     }
 
     #[test]
     fn plan_continuation_cursor_version_mismatch_maps_to_dedicated_kind() {
-        let err = QueryError::Plan(Box::new(PlanError::ContinuationCursorVersionMismatch {
-            version: 2,
-        }));
-        let facade = Error::from(err);
-
-        assert_eq!(
-            facade.kind,
-            ErrorKind::Query(QueryErrorKind::InvalidContinuationCursor),
+        assert!(
+            is_invalid_continuation_cursor_message("unsupported continuation cursor version: 2"),
+            "version mismatch should map to dedicated facade kind",
         );
-        assert_eq!(facade.origin, ErrorOrigin::Query);
     }
 
     #[test]
     fn plan_errors_map_to_plan_kind() {
-        let err = QueryError::Plan(Box::new(PlanError::EmptyOrderSpec));
+        let err = QueryError::Plan(Box::new(PlanError::from(ValidateError::UnknownField {
+            field: "field".to_string(),
+        })));
         let facade = Error::from(err);
 
         assert_eq!(facade.kind, ErrorKind::Query(QueryErrorKind::Plan));

@@ -66,7 +66,12 @@ fn paged_query_rejects_invalid_hex_cursor_token() {
     let QueryError::Plan(plan_err) = err else {
         panic!("invalid cursor token should map to plan error");
     };
-    let crate::db::query::plan::PlanError::InvalidContinuationCursor { reason } = &*plan_err else {
+    let crate::db::query::plan::PlanError::Cursor(inner) = &*plan_err else {
+        panic!("invalid cursor token should be classified as invalid continuation cursor");
+    };
+    let crate::db::query::plan::CursorPlanError::InvalidContinuationCursor { reason } =
+        inner.as_ref()
+    else {
         panic!("invalid cursor token should be classified as invalid continuation cursor");
     };
     assert!(
@@ -95,7 +100,12 @@ fn paged_query_rejects_odd_length_hex_cursor_token() {
     let QueryError::Plan(plan_err) = err else {
         panic!("odd-length cursor token should map to plan error");
     };
-    let crate::db::query::plan::PlanError::InvalidContinuationCursor { reason } = &*plan_err else {
+    let crate::db::query::plan::PlanError::Cursor(inner) = &*plan_err else {
+        panic!("odd-length cursor token should be classified as invalid continuation cursor");
+    };
+    let crate::db::query::plan::CursorPlanError::InvalidContinuationCursor { reason } =
+        inner.as_ref()
+    else {
         panic!("odd-length cursor token should be classified as invalid continuation cursor");
     };
     assert!(
@@ -121,7 +131,12 @@ fn paged_query_rejects_empty_cursor_token() {
     let QueryError::Plan(plan_err) = err else {
         panic!("empty cursor token should map to plan error");
     };
-    let crate::db::query::plan::PlanError::InvalidContinuationCursor { reason } = &*plan_err else {
+    let crate::db::query::plan::PlanError::Cursor(inner) = &*plan_err else {
+        panic!("empty cursor token should be classified as invalid continuation cursor");
+    };
+    let crate::db::query::plan::CursorPlanError::InvalidContinuationCursor { reason } =
+        inner.as_ref()
+    else {
         panic!("empty cursor token should be classified as invalid continuation cursor");
     };
     assert!(
@@ -147,7 +162,11 @@ fn paged_query_rejects_non_token_cursor_payload_as_payload_error() {
     let QueryError::Plan(plan_err) = err else {
         panic!("non-token cursor payload should map to plan error");
     };
-    let crate::db::query::plan::PlanError::InvalidContinuationCursorPayload { reason } = &*plan_err
+    let crate::db::query::plan::PlanError::Cursor(inner) = &*plan_err else {
+        panic!("non-token payload should be classified as invalid continuation cursor payload");
+    };
+    let crate::db::query::plan::CursorPlanError::InvalidContinuationCursorPayload { reason } =
+        inner.as_ref()
     else {
         panic!("non-token payload should be classified as invalid continuation cursor payload");
     };

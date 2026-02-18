@@ -96,76 +96,7 @@ where
         E: EntityKind,
     {
         Self::ensure_anchor_matches_access_path(access, index_range_anchor)?;
-
-        let is_index_path = matches!(
-            access,
-            AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. }
-        );
-
-        let mut candidates = match access {
-            AccessPath::ByKey(key) => vec![Self::data_key_from_key(*key)?],
-
-            AccessPath::ByKeys(keys) => keys
-                .iter()
-                .copied()
-                .map(Self::data_key_from_key)
-                .collect::<Result<Vec<_>, _>>()?,
-
-            AccessPath::KeyRange { start, end } => self.with_store(|s| {
-                let start = Self::data_key_from_key(*start)?;
-                let end = Self::data_key_from_key(*end)?;
-                let start_raw = start.to_raw()?;
-                let end_raw = end.to_raw()?;
-
-                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                    .map(|e| Self::decode_data_key(e.key()))
-                    .collect::<Result<Vec<_>, _>>()
-            })??,
-
-            AccessPath::FullScan => self.with_store(|s| {
-                let start = DataKey::lower_bound::<E>();
-                let end = DataKey::upper_bound::<E>();
-                let start_raw = start.to_raw()?;
-                let end_raw = end.to_raw()?;
-
-                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                    .map(|e| Self::decode_data_key(e.key()))
-                    .collect::<Result<Vec<_>, _>>()
-            })??,
-
-            AccessPath::IndexPrefix { index, values } => {
-                let store = self
-                    .db
-                    .with_store_registry(|reg| reg.try_get_store(index.store))?;
-                store.with_index(|s| s.resolve_data_values::<E>(index, values))?
-            }
-            AccessPath::IndexRange {
-                index,
-                prefix,
-                lower,
-                upper,
-            } => {
-                let store = self
-                    .db
-                    .with_store_registry(|reg| reg.try_get_store(index.store))?;
-                store.with_index(|s| {
-                    s.resolve_data_values_in_range_from_start_exclusive::<E>(
-                        index,
-                        prefix,
-                        lower,
-                        upper,
-                        index_range_anchor,
-                        direction,
-                    )
-                })?
-            }
-        };
-
-        if is_index_path {
-            candidates.sort_unstable();
-        }
-
-        Ok(candidates)
+        access.execute_candidate_keys(self, index_range_anchor, direction)
     }
 
     pub(crate) fn rows_from_access_with_index_range_anchor(
@@ -179,50 +110,7 @@ where
         E: EntityKind,
     {
         Self::ensure_anchor_matches_access_path(access, index_range_anchor)?;
-
-        match access {
-            AccessPath::ByKey(key) => {
-                let keys = vec![Self::data_key_from_key(*key)?];
-                self.load_many_with_consistency(&keys, consistency)
-            }
-
-            AccessPath::ByKeys(keys) => {
-                let keys = Self::dedup_keys(keys.clone())
-                    .into_iter()
-                    .map(Self::data_key_from_key)
-                    .collect::<Result<Vec<_>, _>>()?;
-                self.load_many_with_consistency(&keys, consistency)
-            }
-
-            AccessPath::KeyRange { start, end } => {
-                let start = Self::data_key_from_key(*start)?;
-                let end = Self::data_key_from_key(*end)?;
-                self.load_range(start, end)
-            }
-
-            AccessPath::FullScan => self.with_store(|s| {
-                let start = DataKey::lower_bound::<E>();
-                let end = DataKey::upper_bound::<E>();
-                let start_raw = start.to_raw()?;
-                let end_raw = end.to_raw()?;
-
-                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                    .map(|e| {
-                        let dk = Self::decode_data_key(e.key())?;
-                        Ok((dk, e.value()))
-                    })
-                    .collect::<Result<Vec<_>, InternalError>>()
-            })?,
-
-            AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. } => {
-                let keys = self.candidates_from_access_with_index_range_anchor(
-                    access,
-                    index_range_anchor,
-                    direction,
-                )?;
-                self.load_many_with_consistency(&keys, consistency)
-            }
-        }
+        access.execute(self, consistency, index_range_anchor, direction)
     }
 
     pub(crate) fn rows_from_access_plan(
@@ -252,20 +140,7 @@ where
         E: EntityKind,
     {
         Self::ensure_anchor_matches_access_plan(access, index_range_anchor)?;
-
-        match access {
-            AccessPlan::Path(path) => self.rows_from_access_with_index_range_anchor(
-                path,
-                consistency,
-                index_range_anchor,
-                direction,
-            ),
-
-            AccessPlan::Union(_) | AccessPlan::Intersection(_) => {
-                let keys = self.candidate_keys_for_plan(access)?;
-                self.load_many_with_consistency(&keys.into_iter().collect::<Vec<_>>(), consistency)
-            }
-        }
+        access.execute_rows(self, consistency, index_range_anchor, direction)
     }
 
     // Load rows for a pre-ordered key list while preserving input order.
@@ -293,7 +168,7 @@ where
         index_range_anchor: Option<&RawIndexKey>,
     ) -> Result<(), InternalError> {
         Self::ensure_anchor_supported(
-            matches!(access, AccessPath::IndexRange { .. }),
+            access.cursor_support().supports_index_range_anchor(),
             index_range_anchor,
             "executor invariant violated: unexpected index-range anchor for non-index-range access path",
         )
@@ -304,10 +179,7 @@ where
         index_range_anchor: Option<&RawIndexKey>,
     ) -> Result<(), InternalError> {
         Self::ensure_anchor_supported(
-            matches!(
-                access,
-                AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::IndexRange { .. })
-            ),
+            access.cursor_support().supports_index_range_anchor(),
             index_range_anchor,
             "executor invariant violated: unexpected index-range anchor for composite or non-index-range access plan",
         )
@@ -369,45 +241,6 @@ where
         })?
     }
 
-    fn candidate_keys_for_plan(
-        &self,
-        plan: &AccessPlan<E::Key>,
-    ) -> Result<BTreeSet<DataKey>, InternalError>
-    where
-        E: EntityKind,
-    {
-        match plan {
-            AccessPlan::Path(path) => {
-                let keys = self.candidates_from_access(path)?;
-                Ok(keys.into_iter().collect())
-            }
-            AccessPlan::Union(children) => {
-                let mut keys = BTreeSet::new();
-                for child in children {
-                    keys.extend(self.candidate_keys_for_plan(child)?);
-                }
-                Ok(keys)
-            }
-            AccessPlan::Intersection(children) => {
-                let mut iter = children.iter();
-                let Some(first) = iter.next() else {
-                    return Ok(BTreeSet::new());
-                };
-
-                let mut keys = self.candidate_keys_for_plan(first)?;
-                for child in iter {
-                    let child_keys = self.candidate_keys_for_plan(child)?;
-                    keys.retain(|k| child_keys.contains(k));
-                    if keys.is_empty() {
-                        break;
-                    }
-                }
-
-                Ok(keys)
-            }
-        }
-    }
-
     fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
         DataKey::try_from_raw(raw)
             .map_err(|err| ExecutorError::corruption(ErrorOrigin::Store, err.to_string()).into())
@@ -445,5 +278,198 @@ where
                 Ok((Id::from_key(expected_key), entity))
             })
             .collect()
+    }
+}
+
+impl<K> AccessPlan<K> {
+    // Execute this plan into materialized rows for the bound entity context.
+    fn execute_rows<E>(
+        &self,
+        ctx: &Context<'_, E>,
+        consistency: ReadConsistency,
+        index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
+    ) -> Result<Vec<DataRow>, InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+        K: Copy + Ord,
+    {
+        match self {
+            Self::Path(path) => ctx.rows_from_access_with_index_range_anchor(
+                path,
+                consistency,
+                index_range_anchor,
+                direction,
+            ),
+            Self::Union(_) | Self::Intersection(_) => {
+                let keys = self.collect_candidate_keys(ctx)?;
+                ctx.load_many_with_consistency(&keys.into_iter().collect::<Vec<_>>(), consistency)
+            }
+        }
+    }
+
+    // Resolve the candidate key set for this composite access plan.
+    fn collect_candidate_keys<E>(
+        &self,
+        ctx: &Context<'_, E>,
+    ) -> Result<BTreeSet<DataKey>, InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+        K: Copy,
+    {
+        match self {
+            Self::Path(path) => {
+                let keys = ctx.candidates_from_access(path)?;
+                Ok(keys.into_iter().collect())
+            }
+            Self::Union(children) => {
+                let mut keys = BTreeSet::new();
+                for child in children {
+                    keys.extend(child.collect_candidate_keys(ctx)?);
+                }
+                Ok(keys)
+            }
+            Self::Intersection(children) => {
+                let mut iter = children.iter();
+                let Some(first) = iter.next() else {
+                    return Ok(BTreeSet::new());
+                };
+
+                let mut keys = first.collect_candidate_keys(ctx)?;
+                for child in iter {
+                    let child_keys = child.collect_candidate_keys(ctx)?;
+                    keys.retain(|key| child_keys.contains(key));
+                    if keys.is_empty() {
+                        break;
+                    }
+                }
+
+                Ok(keys)
+            }
+        }
+    }
+}
+
+impl<K> AccessPath<K> {
+    /// Execute this path as a candidate-key lookup for the bound entity context.
+    fn execute_candidate_keys<E>(
+        &self,
+        ctx: &Context<'_, E>,
+        index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
+    ) -> Result<Vec<DataKey>, InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+        K: Copy,
+    {
+        let mut candidates = match self {
+            Self::ByKey(key) => vec![Context::<E>::data_key_from_key(*key)?],
+            Self::ByKeys(keys) => keys
+                .iter()
+                .copied()
+                .map(Context::<E>::data_key_from_key)
+                .collect::<Result<Vec<_>, _>>()?,
+            Self::KeyRange { start, end } => ctx.with_store(|s| {
+                let start = Context::<E>::data_key_from_key(*start)?;
+                let end = Context::<E>::data_key_from_key(*end)?;
+                let start_raw = start.to_raw()?;
+                let end_raw = end.to_raw()?;
+
+                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                    .map(|e| Context::<E>::decode_data_key(e.key()))
+                    .collect::<Result<Vec<_>, _>>()
+            })??,
+            Self::FullScan => ctx.with_store(|s| {
+                let start = DataKey::lower_bound::<E>();
+                let end = DataKey::upper_bound::<E>();
+                let start_raw = start.to_raw()?;
+                let end_raw = end.to_raw()?;
+
+                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                    .map(|e| Context::<E>::decode_data_key(e.key()))
+                    .collect::<Result<Vec<_>, _>>()
+            })??,
+            Self::IndexPrefix { index, values } => {
+                let store = ctx
+                    .db
+                    .with_store_registry(|reg| reg.try_get_store(index.store))?;
+                store.with_index(|s| s.resolve_data_values::<E>(index, values))?
+            }
+            Self::IndexRange {
+                index,
+                prefix,
+                lower,
+                upper,
+            } => {
+                let store = ctx
+                    .db
+                    .with_store_registry(|reg| reg.try_get_store(index.store))?;
+                store.with_index(|s| {
+                    s.resolve_data_values_in_range_from_start_exclusive::<E>(
+                        index,
+                        prefix,
+                        lower,
+                        upper,
+                        index_range_anchor,
+                        direction,
+                    )
+                })?
+            }
+        };
+
+        if self.is_index_path() {
+            candidates.sort_unstable();
+        }
+
+        Ok(candidates)
+    }
+
+    /// Execute this path into materialized rows for the bound entity context.
+    fn execute<E>(
+        &self,
+        ctx: &Context<'_, E>,
+        consistency: ReadConsistency,
+        index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
+    ) -> Result<Vec<DataRow>, InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+        K: Copy + Ord,
+    {
+        match self {
+            Self::ByKey(key) => {
+                let keys = vec![Context::<E>::data_key_from_key(*key)?];
+                ctx.load_many_with_consistency(&keys, consistency)
+            }
+            Self::ByKeys(keys) => {
+                let keys = Context::<E>::dedup_keys(keys.clone())
+                    .into_iter()
+                    .map(Context::<E>::data_key_from_key)
+                    .collect::<Result<Vec<_>, _>>()?;
+                ctx.load_many_with_consistency(&keys, consistency)
+            }
+            Self::KeyRange { start, end } => {
+                let start = Context::<E>::data_key_from_key(*start)?;
+                let end = Context::<E>::data_key_from_key(*end)?;
+                ctx.load_range(start, end)
+            }
+            Self::FullScan => ctx.with_store(|s| {
+                let start = DataKey::lower_bound::<E>();
+                let end = DataKey::upper_bound::<E>();
+                let start_raw = start.to_raw()?;
+                let end_raw = end.to_raw()?;
+
+                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
+                    .map(|e| {
+                        let dk = Context::<E>::decode_data_key(e.key())?;
+                        Ok((dk, e.value()))
+                    })
+                    .collect::<Result<Vec<_>, InternalError>>()
+            })?,
+            Self::IndexPrefix { .. } | Self::IndexRange { .. } => {
+                let keys = self.execute_candidate_keys(ctx, index_range_anchor, direction)?;
+                ctx.load_many_with_consistency(&keys, consistency)
+            }
+        }
     }
 }

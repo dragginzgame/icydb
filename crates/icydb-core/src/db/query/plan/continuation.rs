@@ -1,15 +1,12 @@
 //! Continuation signature for cursor pagination compatibility checks.
 use super::{
-    CursorBoundary, CursorBoundarySlot, Direction, ExplainPlan, OrderSpec, PlanError,
-    encode_plan_hex,
+    CursorBoundary, CursorBoundarySlot, CursorPlanError, Direction, ExplainPlan, OrderPlanError,
+    OrderSpec, PlanError, encode_plan_hex,
 };
 use crate::{
     db::{
         index::RawIndexKey,
-        query::{
-            plan::hash_parts,
-            predicate::{SchemaInfo, validate::literal_matches_type},
-        },
+        query::{plan::hash_parts, predicate::SchemaInfo},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     model::entity::EntityModel,
@@ -99,11 +96,13 @@ pub(crate) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
         .fields
         .iter()
         .position(|(field, _)| field == pk_field)
-        .ok_or_else(|| PlanError::MissingPrimaryKeyTieBreak {
-            field: pk_field.to_string(),
+        .ok_or_else(|| {
+            PlanError::from(OrderPlanError::MissingPrimaryKeyTieBreak {
+                field: pk_field.to_string(),
+            })
         })?;
 
-    let schema = SchemaInfo::from_entity_model(model).map_err(PlanError::PredicateInvalid)?;
+    let schema = SchemaInfo::from_entity_model(model).map_err(PlanError::from)?;
     let expected = schema
         .field(pk_field)
         .expect("primary key exists by model contract")
@@ -111,11 +110,11 @@ pub(crate) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
     let pk_slot = &boundary.slots[pk_index];
 
     decode_primary_key_cursor_slot::<K>(pk_slot).map_err(|err| {
-        PlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+        PlanError::from(CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
             field: pk_field.to_string(),
             expected,
             value: err.into_mismatch_value(),
-        }
+        })
     })
 }
 
@@ -348,137 +347,6 @@ impl IndexRangeCursorAnchorWire {
             self.last_raw_key,
         )))
     }
-}
-
-///
-/// DecodedContinuationCursor
-/// Validated continuation payload exposed to planning/execution boundaries.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct DecodedContinuationCursor {
-    boundary: CursorBoundary,
-    index_range_anchor: Option<IndexRangeCursorAnchor>,
-}
-
-impl DecodedContinuationCursor {
-    pub(in crate::db) const fn boundary(&self) -> &CursorBoundary {
-        &self.boundary
-    }
-
-    pub(in crate::db) const fn index_range_anchor(&self) -> Option<&IndexRangeCursorAnchor> {
-        self.index_range_anchor.as_ref()
-    }
-}
-
-/// Build the standard invalid-continuation payload error variant.
-pub(in crate::db) fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> PlanError {
-    PlanError::InvalidContinuationCursorPayload {
-        reason: reason.into(),
-    }
-}
-
-// Decode and validate one continuation cursor against a canonical plan surface.
-pub(in crate::db) fn decode_validated_cursor(
-    cursor: &[u8],
-    entity_path: &'static str,
-    model: &EntityModel,
-    order: &OrderSpec,
-    expected_signature: ContinuationSignature,
-    expected_direction: Direction,
-) -> Result<DecodedContinuationCursor, PlanError> {
-    let token = ContinuationToken::decode(cursor).map_err(|err| match err {
-        ContinuationTokenError::Encode(message) | ContinuationTokenError::Decode(message) => {
-            invalid_continuation_cursor_payload(message)
-        }
-        ContinuationTokenError::UnsupportedVersion { version } => {
-            PlanError::ContinuationCursorVersionMismatch { version }
-        }
-    })?;
-
-    if token.signature() != expected_signature {
-        return Err(PlanError::ContinuationCursorSignatureMismatch {
-            entity_path,
-            expected: expected_signature.to_string(),
-            actual: token.signature().to_string(),
-        });
-    }
-    if token.direction() != expected_direction {
-        return Err(invalid_continuation_cursor_payload(
-            "continuation cursor direction does not match executable plan direction",
-        ));
-    }
-
-    if token.boundary().slots.len() != order.fields.len() {
-        return Err(PlanError::ContinuationCursorBoundaryArityMismatch {
-            expected: order.fields.len(),
-            found: token.boundary().slots.len(),
-        });
-    }
-
-    validate_cursor_boundary_types(model, order, token.boundary())?;
-
-    Ok(DecodedContinuationCursor {
-        boundary: token.boundary().clone(),
-        index_range_anchor: token.index_range_anchor().cloned(),
-    })
-}
-
-// Validate decoded cursor boundary slot types against canonical order fields.
-fn validate_cursor_boundary_types(
-    model: &EntityModel,
-    order: &OrderSpec,
-    boundary: &CursorBoundary,
-) -> Result<(), PlanError> {
-    let schema = SchemaInfo::from_entity_model(model).map_err(PlanError::PredicateInvalid)?;
-
-    for ((field, _), slot) in order.fields.iter().zip(boundary.slots.iter()) {
-        let field_type = schema
-            .field(field)
-            .ok_or_else(|| PlanError::UnknownOrderField {
-                field: field.clone(),
-            })?;
-
-        match slot {
-            CursorBoundarySlot::Missing => {
-                if field == model.primary_key.name {
-                    return Err(PlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                        field: field.clone(),
-                        expected: field_type.to_string(),
-                        value: None,
-                    });
-                }
-            }
-            CursorBoundarySlot::Present(value) => {
-                if !literal_matches_type(value, field_type) {
-                    if field == model.primary_key.name {
-                        return Err(PlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                            field: field.clone(),
-                            expected: field_type.to_string(),
-                            value: Some(value.clone()),
-                        });
-                    }
-
-                    return Err(PlanError::ContinuationCursorBoundaryTypeMismatch {
-                        field: field.clone(),
-                        expected: field_type.to_string(),
-                        value: value.clone(),
-                    });
-                }
-
-                // Primary-key slots must also satisfy key decoding semantics.
-                if field == model.primary_key.name && Value::as_storage_key(value).is_none() {
-                    return Err(PlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                        field: field.clone(),
-                        expected: field_type.to_string(),
-                        value: Some(value.clone()),
-                    });
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 ///

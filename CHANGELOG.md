@@ -7,12 +7,38 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.13.3] – 2026-02-18 - Audits & Desc Prep
 
+### 📝 Summary
+
+* Prepared the query/execution stack for future DESC support without enabling DESC behavior, while preserving current ASC semantics.
+* Completed an initial audit baseline pass and documented outcomes under `docs/audits` and `docs/audit-results`.
+
 ### 🔧 Changed
 
 * Added execution-layer `Direction` plumbing (currently `Asc` only) so ordering direction is carried as data without expanding `AccessPath` variants.
 * Centralized cursor continuation range rewrites into one helper (`resume_bounds`) and centralized raw-anchor envelope validation into one helper (`anchor_within_envelope`).
 * Added a store traversal containment point (`index_range_stream(bounds, direction)`) and threaded direction through planner cursor validation, executor paging, and continuation token encoding.
 * Cursor tokens now include direction (`Asc` for now) to keep wire format ready for future DESC execution support without changing current behavior.
+* Reduced non-test `AccessPath`/`AccessPlan` branch fan-out by moving dispatch into enum impl methods for planner normalization, canonical ordering, projection, debug summaries, and executor access-plan execution.
+
+### 🩹 Fixed
+
+* Kept encoded cursor-token validation strict for `IndexRange` resumes, but restored boundary-only resume support for executor-internal planned cursors so manual continuation boundaries continue to work.
+* Restored stable executor invariant messages for PK cursor boundary failures (missing slot, type mismatch, and arity mismatch) after cursor-spine revalidation.
+* Resolved the pagination regressions introduced by cursor-spine consolidation; `cargo test -p icydb-core --lib` now passes again.
+
+### 🧪 Testing
+
+* Re-ran targeted pagination regressions plus full library tests after cursor and dispatch containment changes.
+* Baseline audit sweep completed across the current tracks:
+
+```text
+cursor ordering / boundary semantics
+complexity
+error taxonomy
+invariant preservation
+complexity accretion
+dry consolidation
+```
 
 ---
 

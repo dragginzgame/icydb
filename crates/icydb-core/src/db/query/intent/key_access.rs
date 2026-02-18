@@ -1,5 +1,5 @@
 use crate::{
-    db::query::plan::{AccessPath, AccessPlan, PlanError, canonical},
+    db::query::plan::{AccessPath, AccessPlan, AccessPlanError, PlanError, canonical},
     model::entity::EntityModel,
     traits::{EntityKind, FieldValue},
     value::Value,
@@ -65,61 +65,7 @@ pub(crate) fn access_plan_to_entity_keys<E: EntityKind>(
     model: &EntityModel,
     access: AccessPlan<Value>,
 ) -> Result<AccessPlan<E::Key>, PlanError> {
-    let plan = match access {
-        AccessPlan::Path(path) => AccessPlan::path(access_path_to_entity_keys::<E>(model, *path)?),
-        AccessPlan::Union(children) => {
-            let mut out = Vec::with_capacity(children.len());
-            for child in children {
-                out.push(access_plan_to_entity_keys::<E>(model, child)?);
-            }
-            AccessPlan::Union(out)
-        }
-        AccessPlan::Intersection(children) => {
-            let mut out = Vec::with_capacity(children.len());
-            for child in children {
-                out.push(access_plan_to_entity_keys::<E>(model, child)?);
-            }
-            AccessPlan::Intersection(out)
-        }
-    };
-
-    Ok(plan)
-}
-
-// Convert model-level access paths into entity-keyed access paths.
-pub(crate) fn access_path_to_entity_keys<E: EntityKind>(
-    model: &EntityModel,
-    path: AccessPath<Value>,
-) -> Result<AccessPath<E::Key>, PlanError> {
-    let path = match path {
-        AccessPath::ByKey(key) => AccessPath::ByKey(coerce_entity_key::<E>(model, &key)?),
-        AccessPath::ByKeys(keys) => {
-            let mut out = Vec::with_capacity(keys.len());
-            for key in keys {
-                out.push(coerce_entity_key::<E>(model, &key)?);
-            }
-            AccessPath::ByKeys(out)
-        }
-        AccessPath::KeyRange { start, end } => AccessPath::KeyRange {
-            start: coerce_entity_key::<E>(model, &start)?,
-            end: coerce_entity_key::<E>(model, &end)?,
-        },
-        AccessPath::IndexPrefix { index, values } => AccessPath::IndexPrefix { index, values },
-        AccessPath::IndexRange {
-            index,
-            prefix,
-            lower,
-            upper,
-        } => AccessPath::IndexRange {
-            index,
-            prefix,
-            lower,
-            upper,
-        },
-        AccessPath::FullScan => AccessPath::FullScan,
-    };
-
-    Ok(path)
+    access.into_executable::<E>(model)
 }
 
 // Convert model-level key values into typed entity keys.
@@ -127,8 +73,75 @@ pub(crate) fn coerce_entity_key<E: EntityKind>(
     model: &EntityModel,
     key: &Value,
 ) -> Result<E::Key, PlanError> {
-    E::Key::from_value(key).ok_or_else(|| PlanError::PrimaryKeyMismatch {
-        field: model.primary_key.name.to_string(),
-        key: key.clone(),
+    E::Key::from_value(key).ok_or_else(|| {
+        PlanError::from(AccessPlanError::PrimaryKeyMismatch {
+            field: model.primary_key.name.to_string(),
+            key: key.clone(),
+        })
     })
+}
+
+impl AccessPlan<Value> {
+    /// Convert model-level access plans into typed executable access plans.
+    pub(crate) fn into_executable<E: EntityKind>(
+        self,
+        model: &EntityModel,
+    ) -> Result<AccessPlan<E::Key>, PlanError> {
+        match self {
+            Self::Path(path) => Ok(AccessPlan::path(path.into_executable::<E>(model)?)),
+            Self::Union(children) => {
+                let mut out = Vec::with_capacity(children.len());
+                for child in children {
+                    out.push(child.into_executable::<E>(model)?);
+                }
+
+                Ok(AccessPlan::Union(out))
+            }
+            Self::Intersection(children) => {
+                let mut out = Vec::with_capacity(children.len());
+                for child in children {
+                    out.push(child.into_executable::<E>(model)?);
+                }
+
+                Ok(AccessPlan::Intersection(out))
+            }
+        }
+    }
+}
+
+impl AccessPath<Value> {
+    /// Convert one model-level access path into a typed executable access path.
+    pub(crate) fn into_executable<E: EntityKind>(
+        self,
+        model: &EntityModel,
+    ) -> Result<AccessPath<E::Key>, PlanError> {
+        match self {
+            Self::ByKey(key) => Ok(AccessPath::ByKey(coerce_entity_key::<E>(model, &key)?)),
+            Self::ByKeys(keys) => {
+                let mut out = Vec::with_capacity(keys.len());
+                for key in keys {
+                    out.push(coerce_entity_key::<E>(model, &key)?);
+                }
+
+                Ok(AccessPath::ByKeys(out))
+            }
+            Self::KeyRange { start, end } => Ok(AccessPath::KeyRange {
+                start: coerce_entity_key::<E>(model, &start)?,
+                end: coerce_entity_key::<E>(model, &end)?,
+            }),
+            Self::IndexPrefix { index, values } => Ok(AccessPath::IndexPrefix { index, values }),
+            Self::IndexRange {
+                index,
+                prefix,
+                lower,
+                upper,
+            } => Ok(AccessPath::IndexRange {
+                index,
+                prefix,
+                lower,
+                upper,
+            }),
+            Self::FullScan => Ok(AccessPath::FullScan),
+        }
+    }
 }

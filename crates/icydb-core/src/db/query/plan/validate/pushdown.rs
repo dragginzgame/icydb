@@ -1,5 +1,5 @@
 use crate::{
-    db::query::plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection},
+    db::query::plan::{LogicalPlan, OrderDirection},
     model::entity::EntityModel,
 };
 
@@ -145,7 +145,7 @@ pub(crate) fn assess_secondary_order_pushdown<K>(
     }
 
     let Some(access) = plan.access.as_path() else {
-        if let Some((index, prefix_len)) = first_index_range_details(&plan.access) {
+        if let Some((index, prefix_len)) = plan.access.first_index_range_details() {
             return SecondaryOrderPushdownEligibility::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
                     index,
@@ -159,36 +159,31 @@ pub(crate) fn assess_secondary_order_pushdown<K>(
         );
     };
 
-    match access {
-        AccessPath::IndexPrefix { index, values } => {
-            if values.len() > index.fields.len() {
-                return SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
-                        prefix_len: values.len(),
-                        index_field_len: index.fields.len(),
-                    },
-                );
-            }
-
-            assess_secondary_order_pushdown_for_applicable_shape(
-                model,
-                &order.fields,
-                index.name,
-                index.fields,
-                values.len(),
-            )
-        }
-        AccessPath::IndexRange { index, prefix, .. } => {
-            SecondaryOrderPushdownEligibility::Rejected(
-                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                    index: index.name,
-                    prefix_len: prefix.len(),
+    if let Some((index, values)) = access.as_index_prefix() {
+        if values.len() > index.fields.len() {
+            return SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+                    prefix_len: values.len(),
+                    index_field_len: index.fields.len(),
                 },
-            )
+            );
         }
-        _ => SecondaryOrderPushdownEligibility::Rejected(
+
+        assess_secondary_order_pushdown_for_applicable_shape(
+            model,
+            &order.fields,
+            index.name,
+            index.fields,
+            values.len(),
+        )
+    } else if let Some((index, prefix_len)) = access.index_range_details() {
+        SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported { index, prefix_len },
+        )
+    } else {
+        SecondaryOrderPushdownEligibility::Rejected(
             SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
-        ),
+        )
     }
 }
 
@@ -288,19 +283,6 @@ fn assess_secondary_order_pushdown_for_applicable_shape(
     )
 }
 
-// Walk an access-plan tree and return the first index-range child, if any.
-fn first_index_range_details<K>(access: &AccessPlan<K>) -> Option<(&'static str, usize)> {
-    match access {
-        AccessPlan::Path(path) => match path.as_ref() {
-            AccessPath::IndexRange { index, prefix, .. } => Some((index.name, prefix.len())),
-            _ => None,
-        },
-        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
-            children.iter().find_map(first_index_range_details)
-        }
-    }
-}
-
 fn applicability_from_eligibility(
     eligibility: SecondaryOrderPushdownEligibility,
 ) -> PushdownApplicability {
@@ -343,20 +325,17 @@ pub(crate) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
     }
 
     if let Some(access) = plan.access.as_path() {
-        match access {
-            AccessPath::IndexPrefix { index, values } => {
-                debug_assert!(
-                    values.len() <= index.fields.len(),
-                    "validated plan must keep index-prefix bounds within declared index fields"
-                );
-            }
-            AccessPath::IndexRange { index, prefix, .. } => {
-                debug_assert!(
-                    prefix.len() < index.fields.len(),
-                    "validated plan must keep index-range prefix within declared index fields"
-                );
-            }
-            _ => {}
+        if let Some((index, values)) = access.as_index_prefix() {
+            debug_assert!(
+                values.len() <= index.fields.len(),
+                "validated plan must keep index-prefix bounds within declared index fields"
+            );
+        }
+        if let Some((index, prefix, _, _)) = access.as_index_range() {
+            debug_assert!(
+                prefix.len() < index.fields.len(),
+                "validated plan must keep index-range prefix within declared index fields"
+            );
         }
     }
 

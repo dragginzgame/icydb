@@ -432,7 +432,9 @@ impl<C: CanisterKind> DbSession<C> {
         let plan = query.plan()?;
         let cursor_bytes = match cursor_token {
             Some(token) => Some(cursor::decode_cursor(token).map_err(|reason| {
-                QueryError::from(PlanError::InvalidContinuationCursor { reason })
+                QueryError::from(PlanError::from(
+                    crate::db::query::plan::CursorPlanError::InvalidContinuationCursor { reason },
+                ))
             })?),
             None => None,
         };

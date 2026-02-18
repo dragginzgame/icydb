@@ -1,9 +1,9 @@
 // NOTE: Invalid helpers remain only for intentionally invalid schemas.
 #![expect(clippy::too_many_lines)]
 use super::{
-    PlanError, PushdownApplicability, SecondaryOrderPushdownEligibility,
-    SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
-    assess_secondary_order_pushdown_if_applicable,
+    AccessPlanError, CursorPlanError, OrderPlanError, PlanError, PolicyPlanError,
+    PushdownApplicability, SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
+    assess_secondary_order_pushdown, assess_secondary_order_pushdown_if_applicable,
     assess_secondary_order_pushdown_if_applicable_validated, validate_logical_plan_model,
 };
 use crate::{
@@ -327,7 +327,10 @@ fn plan_rejects_unorderable_field() {
     };
 
     let err = validate_logical_plan_model(&schema, model, &plan).expect_err("unorderable field");
-    assert!(matches!(err, PlanError::UnorderableField { .. }));
+    assert!(matches!(err, PlanError::Order(inner) if matches!(
+        inner.as_ref(),
+        OrderPlanError::UnorderableField { .. }
+    )));
 }
 
 #[test]
@@ -349,7 +352,10 @@ fn plan_rejects_index_prefix_too_long() {
 
     let err =
         validate_logical_plan_model(&schema, model, &plan).expect_err("index prefix too long");
-    assert!(matches!(err, PlanError::IndexPrefixTooLong { .. }));
+    assert!(matches!(err, PlanError::Access(inner) if matches!(
+        inner.as_ref(),
+        AccessPlanError::IndexPrefixTooLong { .. }
+    )));
 }
 
 #[test]
@@ -370,7 +376,10 @@ fn plan_rejects_empty_index_prefix() {
     };
 
     let err = validate_logical_plan_model(&schema, model, &plan).expect_err("index prefix empty");
-    assert!(matches!(err, PlanError::IndexPrefixEmpty));
+    assert!(matches!(err, PlanError::Access(inner) if matches!(
+        inner.as_ref(),
+        AccessPlanError::IndexPrefixEmpty
+    )));
 }
 
 #[test]
@@ -409,7 +418,10 @@ fn plan_rejects_unordered_pagination() {
 
     let err = validate_logical_plan_model(&schema, model, &plan)
         .expect_err("pagination without ordering must be rejected");
-    assert!(matches!(err, PlanError::UnorderedPagination));
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+        inner.as_ref(),
+        PolicyPlanError::UnorderedPagination
+    )));
 }
 
 #[test]
@@ -451,7 +463,10 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
     };
 
     let err = validate_logical_plan_model(&schema, model, &plan).expect_err("missing PK tie-break");
-    assert!(matches!(err, PlanError::MissingPrimaryKeyTieBreak { .. }));
+    assert!(matches!(err, PlanError::Order(inner) if matches!(
+        inner.as_ref(),
+        OrderPlanError::MissingPrimaryKeyTieBreak { .. }
+    )));
 }
 
 #[test]
@@ -883,4 +898,60 @@ fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor()
         assess_secondary_order_pushdown_if_applicable_validated(model, &composite_index_range_plan),
         assess_secondary_order_pushdown_if_applicable(model, &composite_index_range_plan),
     );
+}
+
+#[test]
+fn plan_error_from_order_maps_to_order_domain_variant() {
+    let err = PlanError::from(OrderPlanError::UnorderableField {
+        field: "rank".to_string(),
+    });
+
+    assert!(matches!(
+        err,
+        PlanError::Order(inner)
+            if matches!(
+                inner.as_ref(),
+                OrderPlanError::UnorderableField { field } if field == "rank"
+            )
+    ));
+}
+
+#[test]
+fn plan_error_from_access_maps_to_access_domain_variant() {
+    let err = PlanError::from(AccessPlanError::InvalidKeyRange);
+
+    assert!(matches!(err, PlanError::Access(inner) if matches!(
+        inner.as_ref(),
+        AccessPlanError::InvalidKeyRange
+    )));
+}
+
+#[test]
+fn plan_error_from_policy_maps_to_policy_domain_variant() {
+    let err = PlanError::from(PolicyPlanError::UnorderedPagination);
+
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+        inner.as_ref(),
+        PolicyPlanError::UnorderedPagination
+    )));
+}
+
+#[test]
+fn plan_error_from_cursor_maps_to_cursor_domain_variant() {
+    let err = PlanError::from(CursorPlanError::ContinuationCursorBoundaryArityMismatch {
+        expected: 2,
+        found: 1,
+    });
+
+    assert!(matches!(
+        err,
+        PlanError::Cursor(inner)
+            if matches!(
+                inner.as_ref(),
+                CursorPlanError::ContinuationCursorBoundaryArityMismatch {
+                    expected: 2,
+                    found: 1
+                }
+            )
+    ));
 }

@@ -4,8 +4,7 @@ use crate::{
         executor::load::{FastLoadResult, LoadExecutor},
         index::RawIndexKey,
         query::plan::{
-            AccessPath, ContinuationSignature, CursorBoundary, Direction, LogicalPlan,
-            OrderDirection,
+            ContinuationSignature, CursorBoundary, Direction, LogicalPlan, OrderDirection,
         },
     },
     error::InternalError,
@@ -43,13 +42,7 @@ where
         }
         debug_assert!(!limit_spec.needs_extra_row || limit_spec.effective_fetch > 0);
 
-        let Some(AccessPath::IndexRange {
-            index,
-            prefix,
-            lower,
-            upper,
-        }) = plan.access.as_path()
-        else {
+        let Some((index, prefix, lower, upper)) = plan.access.as_index_range_path() else {
             return Ok(None);
         };
 
@@ -94,10 +87,10 @@ where
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> Option<IndexRangeLimitSpec> {
-        let (index_fields, prefix_len) = match plan.access.as_path() {
-            Some(AccessPath::IndexRange { index, prefix, .. }) => (index.fields, prefix.len()),
-            _ => return None,
-        };
+        let (index_fields, prefix_len) = plan
+            .access
+            .as_index_range_path()
+            .map(|(index, prefix, _, _)| (index.fields, prefix.len()))?;
         if plan.predicate.is_some() {
             return None;
         }

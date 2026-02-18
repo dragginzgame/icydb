@@ -270,7 +270,14 @@ fn load_limit_without_order_rejects_unordered_pagination() {
     assert!(matches!(
         err,
         QueryError::Plan(ref plan_err)
-            if matches!(**plan_err, crate::db::query::plan::PlanError::UnorderedPagination)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Policy(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
+                    )
+            )
     ));
 }
 
@@ -284,7 +291,14 @@ fn load_offset_without_order_rejects_unordered_pagination() {
     assert!(matches!(
         err,
         QueryError::Plan(ref plan_err)
-            if matches!(**plan_err, crate::db::query::plan::PlanError::UnorderedPagination)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Policy(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
+                    )
+            )
     ));
 }
 
@@ -299,7 +313,14 @@ fn load_limit_and_offset_without_order_rejects_unordered_pagination() {
     assert!(matches!(
         err,
         QueryError::Plan(ref plan_err)
-            if matches!(**plan_err, crate::db::query::plan::PlanError::UnorderedPagination)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Policy(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::PolicyPlanError::UnorderedPagination
+                    )
+            )
     ));
 }
 
@@ -487,13 +508,15 @@ fn build_plan_model_rejects_map_field_predicates_before_planning() {
         QueryError::Plan(ref plan_err)
             if matches!(
                 **plan_err,
-                crate::db::query::plan::PlanError::PredicateInvalid(
-                    crate::db::query::predicate::ValidateError::UnsupportedQueryFeature(
-                        crate::db::query::predicate::UnsupportedQueryFeature::MapPredicate {
-                            ref field
-                        }
+                crate::db::query::plan::PlanError::PredicateInvalid(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::predicate::ValidateError::UnsupportedQueryFeature(
+                            crate::db::query::predicate::UnsupportedQueryFeature::MapPredicate {
+                                field
+                            }
+                        ) if field == "attributes"
                     )
-                ) if field == "attributes"
             )
     ));
 }

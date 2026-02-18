@@ -1541,7 +1541,14 @@ fn load_cursor_rejects_signature_mismatch() {
         .plan_cursor(Some(cursor.as_slice()))
         .expect_err("cursor from different canonical plan should be rejected");
     assert!(
-        matches!(err, PlanError::ContinuationCursorSignatureMismatch { .. }),
+        matches!(
+            err,
+            PlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
         "planning should reject plan-signature mismatch"
     );
 }

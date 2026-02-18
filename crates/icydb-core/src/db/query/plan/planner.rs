@@ -607,90 +607,96 @@ fn numeric_variants_compatible(left: &Value, right: &Value) -> bool {
 
 // Normalize composite access plans into canonical, flattened forms.
 fn normalize_access_plan(plan: AccessPlan<Value>) -> AccessPlan<Value> {
-    match plan {
-        AccessPlan::Path(path) => AccessPlan::path(normalize_access_path(*path)),
-        AccessPlan::Union(children) => normalize_union(children),
-        AccessPlan::Intersection(children) => normalize_intersection(children),
-    }
+    plan.normalize_for_planner()
 }
 
-// Normalize ByKeys paths to set semantics for deterministic planning.
-fn normalize_access_path(path: AccessPath<Value>) -> AccessPath<Value> {
-    match path {
-        AccessPath::ByKeys(mut keys) => {
-            canonical::canonicalize_key_values(&mut keys);
-            AccessPath::ByKeys(keys)
+impl AccessPlan<Value> {
+    // Normalize this access plan into a canonical deterministic form.
+    fn normalize_for_planner(self) -> Self {
+        match self {
+            Self::Path(path) => Self::path(path.normalize_for_planner()),
+            Self::Union(children) => Self::normalize_union(children),
+            Self::Intersection(children) => Self::normalize_intersection(children),
         }
-        other => other,
     }
-}
 
-fn normalize_union(children: Vec<AccessPlan<Value>>) -> AccessPlan<Value> {
-    let mut out = Vec::new();
+    fn normalize_union(children: Vec<Self>) -> Self {
+        let mut out = Vec::new();
 
-    for child in children {
-        let child = normalize_access_plan(child);
-        if is_full_scan(&child) {
-            return AccessPlan::full_scan();
+        for child in children {
+            let child = child.normalize_for_planner();
+            if child.is_single_full_scan() {
+                return Self::full_scan();
+            }
+
+            Self::append_union_child(&mut out, child);
         }
 
+        Self::collapse_composite(out, true)
+    }
+
+    fn normalize_intersection(children: Vec<Self>) -> Self {
+        let mut out = Vec::new();
+
+        for child in children {
+            let child = child.normalize_for_planner();
+            if child.is_single_full_scan() {
+                continue;
+            }
+
+            Self::append_intersection_child(&mut out, child);
+        }
+
+        Self::collapse_composite(out, false)
+    }
+
+    fn collapse_composite(mut out: Vec<Self>, is_union: bool) -> Self {
+        if out.is_empty() {
+            return Self::full_scan();
+        }
+        if out.len() == 1 {
+            return out.pop().expect("single composite child");
+        }
+
+        canonical::canonicalize_access_plans_value(&mut out);
+        out.dedup();
+        if out.len() == 1 {
+            return out.pop().expect("single composite child");
+        }
+
+        if is_union {
+            Self::Union(out)
+        } else {
+            Self::Intersection(out)
+        }
+    }
+
+    fn append_union_child(out: &mut Vec<Self>, child: Self) {
         match child {
-            AccessPlan::Union(grand) => out.extend(grand),
-            _ => out.push(child),
+            Self::Union(children) => out.extend(children),
+            other => out.push(other),
         }
     }
 
-    // Collapse degenerate unions.
-    if out.is_empty() {
-        return AccessPlan::full_scan();
-    }
-    if out.len() == 1 {
-        return out.pop().expect("single union child");
-    }
-
-    // Canonicalize and deduplicate for deterministic planning.
-    canonical::canonicalize_access_plans_value(&mut out);
-    out.dedup();
-    if out.len() == 1 {
-        return out.pop().expect("single union child");
-    }
-    AccessPlan::Union(out)
-}
-
-fn normalize_intersection(children: Vec<AccessPlan<Value>>) -> AccessPlan<Value> {
-    let mut out = Vec::new();
-
-    for child in children {
-        let child = normalize_access_plan(child);
-        if is_full_scan(&child) {
-            continue;
-        }
-
+    fn append_intersection_child(out: &mut Vec<Self>, child: Self) {
         match child {
-            AccessPlan::Intersection(grand) => out.extend(grand),
-            _ => out.push(child),
+            Self::Intersection(children) => out.extend(children),
+            other => out.push(other),
         }
     }
-
-    // Collapse degenerate intersections.
-    if out.is_empty() {
-        return AccessPlan::full_scan();
-    }
-    if out.len() == 1 {
-        return out.pop().expect("single intersection child");
-    }
-
-    // Canonicalize and deduplicate for deterministic planning.
-    canonical::canonicalize_access_plans_value(&mut out);
-    out.dedup();
-    if out.len() == 1 {
-        return out.pop().expect("single intersection child");
-    }
-    AccessPlan::Intersection(out)
 }
 
-fn is_full_scan<K>(plan: &AccessPlan<K>) -> bool {
-    matches!(plan, AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::FullScan))
+impl AccessPath<Value> {
+    // Normalize one concrete access path for deterministic planning.
+    fn normalize_for_planner(self) -> Self {
+        match self {
+            Self::ByKeys(mut keys) => {
+                canonical::canonicalize_key_values(&mut keys);
+                Self::ByKeys(keys)
+            }
+            other => other,
+        }
+    }
 }
 
 fn is_primary_key_model(schema: &SchemaInfo, model: &EntityModel, field: &str) -> bool {

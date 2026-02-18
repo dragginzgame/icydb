@@ -42,48 +42,61 @@ pub(crate) fn project_access_plan<K, P>(plan: &AccessPlan<K>, projection: &mut P
 where
     P: AccessPlanProjection<K>,
 {
-    match plan {
-        AccessPlan::Path(path) => project_access_path(path, projection),
-        AccessPlan::Union(children) => {
-            let children = children
-                .iter()
-                .map(|child| project_access_plan(child, projection))
-                .collect();
-            projection.union(children)
-        }
-        AccessPlan::Intersection(children) => {
-            let children = children
-                .iter()
-                .map(|child| project_access_plan(child, projection))
-                .collect();
-            projection.intersection(children)
+    plan.project(projection)
+}
+
+impl<K> AccessPlan<K> {
+    // Project this plan by recursively visiting all access nodes.
+    fn project<P>(&self, projection: &mut P) -> P::Output
+    where
+        P: AccessPlanProjection<K>,
+    {
+        match self {
+            Self::Path(path) => path.project(projection),
+            Self::Union(children) => {
+                let children = children
+                    .iter()
+                    .map(|child| child.project(projection))
+                    .collect();
+                projection.union(children)
+            }
+            Self::Intersection(children) => {
+                let children = children
+                    .iter()
+                    .map(|child| child.project(projection))
+                    .collect();
+                projection.intersection(children)
+            }
         }
     }
 }
 
-// Project one concrete path variant via the shared projection surface.
-fn project_access_path<K, P>(path: &AccessPath<K>, projection: &mut P) -> P::Output
-where
-    P: AccessPlanProjection<K>,
-{
-    match path {
-        AccessPath::ByKey(key) => projection.by_key(key),
-        AccessPath::ByKeys(keys) => projection.by_keys(keys),
-        AccessPath::KeyRange { start, end } => projection.key_range(start, end),
-        AccessPath::IndexPrefix { index, values } => {
-            projection.index_prefix(index.name, index.fields, values.len(), values)
+impl<K> AccessPath<K> {
+    // Project one concrete path variant via the shared projection surface.
+    fn project<P>(&self, projection: &mut P) -> P::Output
+    where
+        P: AccessPlanProjection<K>,
+    {
+        match self {
+            Self::ByKey(key) => projection.by_key(key),
+            Self::ByKeys(keys) => projection.by_keys(keys),
+            Self::KeyRange { start, end } => projection.key_range(start, end),
+            Self::IndexPrefix { index, values } => {
+                projection.index_prefix(index.name, index.fields, values.len(), values)
+            }
+            Self::IndexRange {
+                index,
+                prefix,
+                lower,
+                upper,
+            } => {
+                projection.index_range(index.name, index.fields, prefix.len(), prefix, lower, upper)
+            }
+            Self::FullScan => projection.full_scan(),
         }
-        AccessPath::IndexRange {
-            index,
-            prefix,
-            lower,
-            upper,
-        } => projection.index_range(index.name, index.fields, prefix.len(), prefix, lower, upper),
-        AccessPath::FullScan => projection.full_scan(),
     }
 }
 
-/// Project an explain access path using the same shared access-shape visitor.
 pub(crate) fn project_explain_access_path<P>(
     access: &ExplainAccessPath,
     projection: &mut P,

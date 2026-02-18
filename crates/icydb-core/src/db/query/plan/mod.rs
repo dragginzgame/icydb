@@ -3,6 +3,7 @@
 mod access_projection;
 pub(crate) mod canonical;
 pub(crate) mod continuation;
+mod cursor_spine;
 pub(crate) mod executable;
 pub(crate) mod explain;
 pub(crate) mod fingerprint;
@@ -20,6 +21,10 @@ pub(crate) use access_projection::{
 };
 pub(in crate::db) use continuation::{
     ContinuationSignature, ContinuationToken, IndexRangeCursorAnchor, decode_pk_cursor_boundary,
+};
+pub(in crate::db) use cursor_spine::{
+    cursor_anchor_within_envelope, cursor_resume_bounds, validate_planned_cursor,
+    validate_planned_cursor_state,
 };
 ///
 /// Re-Exports
@@ -39,6 +44,7 @@ pub(crate) use types::{
     PageSpec,
 };
 pub use validate::PlanError;
+pub(crate) use validate::{AccessPlanError, CursorPlanError, OrderPlanError};
 
 pub(super) fn encode_plan_hex(bytes: &[u8]) -> String {
     crate::db::cursor::encode_cursor(bytes)

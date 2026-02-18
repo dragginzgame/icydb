@@ -55,16 +55,48 @@ pub(crate) use pushdown::{
 #[derive(Debug, ThisError)]
 pub enum PlanError {
     #[error("predicate validation failed: {0}")]
-    PredicateInvalid(#[from] predicate::ValidateError),
+    PredicateInvalid(Box<predicate::ValidateError>),
 
+    #[error("{0}")]
+    Order(Box<OrderPlanError>),
+
+    #[error("{0}")]
+    Access(Box<AccessPlanError>),
+
+    #[error("{0}")]
+    Policy(Box<PolicyPlanError>),
+
+    #[error("{0}")]
+    Cursor(Box<CursorPlanError>),
+}
+
+///
+/// OrderPlanError
+///
+/// ORDER BY-specific validation failures.
+///
+#[derive(Debug, ThisError)]
+pub enum OrderPlanError {
     /// ORDER BY references an unknown field.
     #[error("unknown order field '{field}'")]
-    UnknownOrderField { field: String },
+    UnknownField { field: String },
 
     /// ORDER BY references a field that cannot be ordered.
     #[error("order field '{field}' is not orderable")]
     UnorderableField { field: String },
 
+    /// Ordered plans must terminate with the primary-key tie-break.
+    #[error("order specification must end with primary key '{field}' as deterministic tie-break")]
+    MissingPrimaryKeyTieBreak { field: String },
+}
+
+///
+/// AccessPlanError
+///
+/// Access-path and key-shape validation failures.
+///
+#[derive(Debug, ThisError)]
+pub enum AccessPlanError {
     /// Access plan references an index not declared on the entity.
     #[error("index '{index}' not found on entity")]
     IndexNotFound { index: IndexModel },
@@ -92,14 +124,18 @@ pub enum PlanError {
     /// Key range has invalid ordering.
     #[error("key range start is greater than end")]
     InvalidKeyRange,
+}
 
+///
+/// PolicyPlanError
+///
+/// Plan-shape policy failures.
+///
+#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+pub enum PolicyPlanError {
     /// ORDER BY must specify at least one field.
     #[error("order specification must include at least one field")]
     EmptyOrderSpec,
-
-    /// Ordered plans must terminate with the primary-key tie-break.
-    #[error("order specification must end with primary key '{field}' as deterministic tie-break")]
-    MissingPrimaryKeyTieBreak { field: String },
 
     /// Delete plans must not carry pagination.
     #[error("delete plans must not include pagination")]
@@ -118,7 +154,15 @@ pub enum PlanError {
         "Unordered pagination is not allowed.\nThis query uses LIMIT or OFFSET without an ORDER BY clause.\nPagination without a total ordering is non-deterministic.\nAdd an explicit order_by(...) to make the query stable."
     )]
     UnorderedPagination,
+}
 
+///
+/// CursorPlanError
+///
+/// Cursor token and continuation boundary validation failures.
+///
+#[derive(Debug, ThisError)]
+pub enum CursorPlanError {
     /// Cursor continuation requires an explicit ordering.
     #[error("cursor pagination requires an explicit ordering")]
     CursorRequiresOrder,
@@ -170,7 +214,7 @@ pub enum PlanError {
     },
 }
 
-impl From<PlanPolicyError> for PlanError {
+impl From<PlanPolicyError> for PolicyPlanError {
     fn from(err: PlanPolicyError) -> Self {
         match err {
             PlanPolicyError::EmptyOrderSpec => Self::EmptyOrderSpec,
@@ -182,10 +226,48 @@ impl From<PlanPolicyError> for PlanError {
     }
 }
 
+impl From<predicate::ValidateError> for PlanError {
+    fn from(err: predicate::ValidateError) -> Self {
+        Self::PredicateInvalid(Box::new(err))
+    }
+}
+
+impl From<OrderPlanError> for PlanError {
+    fn from(err: OrderPlanError) -> Self {
+        Self::Order(Box::new(err))
+    }
+}
+
+impl From<AccessPlanError> for PlanError {
+    fn from(err: AccessPlanError) -> Self {
+        Self::Access(Box::new(err))
+    }
+}
+
+impl From<PolicyPlanError> for PlanError {
+    fn from(err: PolicyPlanError) -> Self {
+        Self::Policy(Box::new(err))
+    }
+}
+
+impl From<CursorPlanError> for PlanError {
+    fn from(err: CursorPlanError) -> Self {
+        Self::Cursor(Box::new(err))
+    }
+}
+
+impl From<PlanPolicyError> for PlanError {
+    fn from(err: PlanPolicyError) -> Self {
+        Self::from(PolicyPlanError::from(err))
+    }
+}
+
 impl From<CursorOrderPolicyError> for PlanError {
     fn from(err: CursorOrderPolicyError) -> Self {
         match err {
-            CursorOrderPolicyError::CursorRequiresOrder => Self::CursorRequiresOrder,
+            CursorOrderPolicyError::CursorRequiresOrder => {
+                Self::from(CursorPlanError::CursorRequiresOrder)
+            }
         }
     }
 }
@@ -203,17 +285,13 @@ pub(crate) fn validate_logical_plan_model(
     model: &EntityModel,
     plan: &LogicalPlan<Value>,
 ) -> Result<(), PlanError> {
-    if let Some(predicate) = &plan.predicate {
-        predicate::validate(schema, predicate)?;
-    }
-
-    if let Some(order) = &plan.order {
-        validate_order(schema, order)?;
-        validate_primary_key_tie_break(model, order)?;
-    }
-
-    validate_access_plan_model(schema, model, &plan.access)?;
-    semantics::validate_plan_semantics(plan)?;
+    validate_plan_core(
+        schema,
+        model,
+        plan,
+        validate_order,
+        |schema, model, plan| validate_access_plan_model(schema, model, &plan.access),
+    )?;
 
     Ok(())
 }
@@ -237,48 +315,54 @@ pub(crate) fn validate_executor_plan<E: EntityKind>(
         )
     })?;
 
+    validate_plan_core(
+        &schema,
+        E::MODEL,
+        plan,
+        order::validate_executor_order,
+        |schema, model, plan| validate_access_plan(schema, model, &plan.access),
+    )
+    .map_err(map_executor_plan_error)?;
+
+    Ok(())
+}
+
+// Shared logical/structural plan validation core used by planner and executor.
+//
+// Boundary-specific behavior is injected via:
+// - `validate_order_fn` (planner vs executor order surface)
+// - `validate_access_fn` (model-key vs typed-key access validation)
+fn validate_plan_core<K, FOrder, FAccess>(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    plan: &LogicalPlan<K>,
+    validate_order_fn: FOrder,
+    validate_access_fn: FAccess,
+) -> Result<(), PlanError>
+where
+    FOrder: Fn(&SchemaInfo, &crate::db::query::plan::OrderSpec) -> Result<(), PlanError>,
+    FAccess: Fn(&SchemaInfo, &EntityModel, &LogicalPlan<K>) -> Result<(), PlanError>,
+{
     if let Some(predicate) = &plan.predicate {
-        predicate::validate(&schema, predicate).map_err(|err| {
-            InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
-                err.to_string(),
-            )
-        })?;
+        predicate::validate(schema, predicate)?;
     }
 
     if let Some(order) = &plan.order {
-        order::validate_executor_order(&schema, order).map_err(|err| {
-            InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
-                err.to_string(),
-            )
-        })?;
-        validate_primary_key_tie_break(E::MODEL, order).map_err(|err| {
-            InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
-                err.to_string(),
-            )
-        })?;
+        validate_order_fn(schema, order)?;
+        validate_primary_key_tie_break(model, order)?;
     }
 
-    validate_access_plan(&schema, E::MODEL, &plan.access).map_err(|err| {
-        InternalError::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Query,
-            err.to_string(),
-        )
-    })?;
-
-    semantics::validate_plan_semantics(plan).map_err(|err| {
-        InternalError::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Query,
-            err.to_string(),
-        )
-    })?;
+    validate_access_fn(schema, model, plan)?;
+    semantics::validate_plan_semantics(plan)?;
 
     Ok(())
+}
+
+// Map shared `PlanError` validation failures into executor-boundary invariant errors.
+fn map_executor_plan_error(err: PlanError) -> InternalError {
+    InternalError::new(
+        ErrorClass::InvariantViolation,
+        ErrorOrigin::Query,
+        err.to_string(),
+    )
 }

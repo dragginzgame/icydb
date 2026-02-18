@@ -29,7 +29,13 @@ fn load_cursor_rejects_version_mismatch_at_plan_time() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::ContinuationCursorVersionMismatch { version: 99 }
+            crate::db::query::plan::PlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::CursorPlanError::ContinuationCursorVersionMismatch {
+                    version: 99
+                    }
+                )
         ),
         "planning should reject unsupported cursor versions"
     );
@@ -62,8 +68,14 @@ fn load_cursor_rejects_boundary_value_type_mismatch_at_plan_time() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::ContinuationCursorBoundaryTypeMismatch { field, .. }
-            if field == "rank"
+            crate::db::query::plan::PlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::CursorPlanError::ContinuationCursorBoundaryTypeMismatch {
+                    field,
+                    ..
+                    } if field == "rank"
+                )
         ),
         "planning should reject non-PK boundary type mismatches"
     );
@@ -96,8 +108,14 @@ fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::ContinuationCursorPrimaryKeyTypeMismatch { field, .. }
-            if field == "id"
+            crate::db::query::plan::PlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+                    field,
+                    ..
+                    } if field == "id"
+                )
         ),
         "planning should reject primary-key boundary type mismatches"
     );
@@ -133,7 +151,11 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
     assert!(
         matches!(
             err,
-            crate::db::query::plan::PlanError::ContinuationCursorSignatureMismatch { .. }
+            crate::db::query::plan::PlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
         ),
         "planning should reject wrong-entity cursors via plan-signature mismatch"
     );

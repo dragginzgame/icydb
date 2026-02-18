@@ -15,8 +15,8 @@ use crate::{
         },
         index::IndexKey,
         query::plan::{
-            AccessPath, ContinuationSignature, ContinuationToken, CursorBoundary, Direction,
-            ExecutablePlan, IndexRangeCursorAnchor, LogicalPlan, PlannedCursor,
+            ContinuationSignature, ContinuationToken, CursorBoundary, Direction, ExecutablePlan,
+            IndexRangeCursorAnchor, LogicalPlan, PlannedCursor,
             logical::PostAccessStats,
             validate::{
                 PushdownApplicability, assess_secondary_order_pushdown_if_applicable_validated,
@@ -110,7 +110,7 @@ where
         plan: ExecutablePlan<E>,
         cursor: impl Into<PlannedCursor>,
     ) -> Result<CursorPage<E>, InternalError> {
-        let cursor: PlannedCursor = cursor.into();
+        let cursor: PlannedCursor = plan.revalidate_planned_cursor(cursor.into())?;
         let cursor_boundary = cursor.boundary().cloned();
         let index_range_anchor = cursor.index_range_anchor().cloned();
 
@@ -333,24 +333,31 @@ where
         signature: ContinuationSignature,
     ) -> Result<Vec<u8>, InternalError> {
         let boundary = plan.cursor_boundary_from_entity(last_entity)?;
-        let token = match plan.access.as_path() {
-            Some(AccessPath::IndexRange { index, .. }) => {
-                let index_key =
-                    IndexKey::new(last_entity, index)?.ok_or_else(|| {
-                        InternalError::new(
-                            ErrorClass::InvariantViolation,
-                            ErrorOrigin::Query,
-                            "executor invariant violated: cursor row is not indexable for planned index-range access",
-                        )
-                    })?;
-                ContinuationToken::new_index_range_with_direction(
-                    signature,
-                    boundary,
-                    IndexRangeCursorAnchor::new(index_key.to_raw()),
-                    direction,
+        let token = if plan.access.cursor_support().supports_index_range_anchor() {
+            let (index, _, _, _) =
+                plan.access.as_index_range_path().ok_or_else(|| {
+                    InternalError::new(
+                        ErrorClass::InvariantViolation,
+                        ErrorOrigin::Query,
+                        "executor invariant violated: index-range cursor support missing concrete index-range path",
+                    )
+                })?;
+            let index_key = IndexKey::new(last_entity, index)?.ok_or_else(|| {
+                InternalError::new(
+                    ErrorClass::InvariantViolation,
+                    ErrorOrigin::Query,
+                    "executor invariant violated: cursor row is not indexable for planned index-range access",
                 )
-            }
-            _ => ContinuationToken::new_with_direction(signature, boundary, direction),
+            })?;
+
+            ContinuationToken::new_index_range_with_direction(
+                signature,
+                boundary,
+                IndexRangeCursorAnchor::new(index_key.to_raw()),
+                direction,
+            )
+        } else {
+            ContinuationToken::new_with_direction(signature, boundary, direction)
         };
         token.encode().map_err(|err| {
             InternalError::new(
