@@ -5,6 +5,23 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.14.0] – 2026-02-18 - DESC Support Kickoff
+
+### 📝 Summary
+
+* Started the `0.14` cycle for single-path `IndexRange` DESC support, using `docs/design/0.14-desc-support.md` as the implementation contract.
+* Added a baseline implementation status document at `docs/status/0.14-status.md` to track completed containment work versus remaining DESC execution work.
+
+### 🔧 Changed
+
+* Wired executable direction selection for single-path `IndexRange` plans: the executable now derives `Direction::Desc` when the first `ORDER BY` field is descending, and keeps `Direction::Asc` for non-`IndexRange` access paths.
+
+### 📚 Documentation
+
+* Added `docs/status/0.14-status.md` with milestone-alignment progress, current risk points, and next implementation checkpoints.
+
+---
+
 ## [0.13.3] – 2026-02-18 - Audits & DESC Preparation
 
 ### 📝 Summary

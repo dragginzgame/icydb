@@ -5,7 +5,7 @@ use crate::{
             intent::QueryMode,
             plan::{
                 AccessPlan, ContinuationSignature, CursorBoundary, CursorPlanError, ExplainPlan,
-                LogicalPlan, PlanError, PlanFingerprint, validate_planned_cursor,
+                LogicalPlan, OrderDirection, PlanError, PlanFingerprint, validate_planned_cursor,
                 validate_planned_cursor_state,
             },
             policy,
@@ -81,11 +81,27 @@ pub struct ExecutablePlan<E: EntityKind> {
 }
 
 impl<E: EntityKind> ExecutablePlan<E> {
-    pub(crate) const fn new(plan: LogicalPlan<E::Key>) -> Self {
+    pub(crate) fn new(plan: LogicalPlan<E::Key>) -> Self {
+        let direction = Self::derive_direction(&plan);
         Self {
             plan,
-            direction: Direction::Asc,
+            direction,
             _marker: PhantomData,
+        }
+    }
+
+    fn derive_direction(plan: &LogicalPlan<E::Key>) -> Direction {
+        if plan.access.as_index_range_path().is_none() {
+            return Direction::Asc;
+        }
+
+        let Some(order) = plan.order.as_ref() else {
+            return Direction::Asc;
+        };
+
+        match order.fields.first().map(|(_, direction)| direction) {
+            Some(OrderDirection::Desc) => Direction::Desc,
+            _ => Direction::Asc,
         }
     }
 
@@ -496,5 +512,31 @@ mod tests {
             }
             _ => panic!("expected InvalidContinuationCursorPayload"),
         }
+    }
+
+    #[test]
+    fn executable_direction_uses_desc_for_single_index_range_desc_order() {
+        let mut plan: LogicalPlan<Ulid> =
+            LogicalPlan::new(index_range_access(), ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        });
+
+        let executable = ExecutablePlan::<ExecutableAnchorEntity>::new(plan);
+
+        assert_eq!(executable.direction(), Direction::Desc);
+    }
+
+    #[test]
+    fn executable_direction_remains_asc_for_non_index_range_desc_order() {
+        let mut plan: LogicalPlan<Ulid> =
+            LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        });
+
+        let executable = ExecutablePlan::<ExecutableAnchorEntity>::new(plan);
+
+        assert_eq!(executable.direction(), Direction::Asc);
     }
 }
