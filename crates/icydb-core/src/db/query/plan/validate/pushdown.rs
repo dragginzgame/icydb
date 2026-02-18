@@ -213,16 +213,9 @@ fn assess_secondary_order_pushdown_for_applicable_shape(
         );
     }
 
-    if *last_direction != OrderDirection::Asc {
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
-                field: last_field.clone(),
-            },
-        );
-    }
-
+    let expected_direction = *last_direction;
     for (field, direction) in order_fields {
-        if *direction != OrderDirection::Asc {
+        if *direction != expected_direction {
             return SecondaryOrderPushdownEligibility::Rejected(
                 SecondaryOrderPushdownRejection::NonAscendingDirection {
                     field: field.clone(),

@@ -5,18 +5,38 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.14.0] – 2026-02-18 - DESC Support Kickoff
+## [0.14.0] – 2026-02-18 - DESC Support Complete
 
 ### 📝 Summary
 
-* Started the `0.14` cycle for single-path `IndexRange` DESC support, using `docs/design/0.14-desc-support.md` as the implementation contract.
-* Added a baseline implementation status document at `docs/status/0.14-status.md` to track completed containment work versus remaining DESC execution work.
+* Completed the `0.14` single-path `IndexRange` DESC milestone end-to-end, including planner direction derivation, reverse index-range traversal, directional continuation advancement, and cursor direction validation.
+* Closed the `0.14` completion audit with passing workspace gate checks and a fully completed status matrix in `docs/status/0.14-status.md`.
+
+```rust
+let page1 = session
+    .load::<PhaseEntity>()
+    .order_by_desc("rank")
+    .limit(20)
+    .execute_paged()?;
+
+if let Some(cursor) = page1.next_cursor.clone() {
+    let page2 = session
+        .load::<PhaseEntity>()
+        .order_by_desc("rank")
+        .limit(20)
+        .cursor(cursor)
+        .execute_paged()?;
+}
+```
 
 ### 🔧 Changed
 
-* Wired executable direction selection for single-path `IndexRange` plans: the executable now derives `Direction::Desc` when the first `ORDER BY` field is descending, and keeps `Direction::Asc` for non-`IndexRange` access paths.
+* Wired executable direction selection from canonical `ORDER BY` direction across plan shapes, so execution now carries `Direction::Desc` whenever the leading ordered field is descending.
 * Activated reverse store traversal for single-path `IndexRange` DESC execution by iterating raw-key ranges in reverse while preserving the same canonical bound envelope.
 * Made continuation advancement checks direction-aware in index range scans (`candidate > anchor` for ASC, `candidate < anchor` for DESC).
+* Removed ASC-only gating from secondary-order pushdown eligibility by accepting direction-uniform order specs (`Asc`-uniform or `Desc`-uniform) instead of only ascending specs.
+* Enabled descending PK fast-path scans for PK-ordered load plans (`ORDER BY id DESC`) while preserving the same cursor-boundary semantics and fallback parity.
+* Enabled descending `IndexRange` limit pushdown for direction-uniform DESC order specs (for example `ORDER BY tag DESC, id DESC`) while keeping mixed-direction shapes on safe fallback paths.
 
 ### 🧪 Testing
 
@@ -26,7 +46,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Added full-result directional symmetry coverage for composite and unique `IndexRange` paths, asserting `reverse(ASC) == DESC` on deterministic datasets.
 * Added explicit DESC continuation coverage for duplicate tie-groups under mixed envelopes (`> lower`, `<= upper`) for both single-field and composite `IndexRange` paths.
 * Confirmed duplicate-group DESC ordering keeps canonical PK tie-break stability within equal order values, and validated this alongside DESC continuation edge cases.
-* Re-ran full workspace gate for the 0.14 branch (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo check --workspace`, `cargo test --workspace`) with all checks passing.
+* Added descending secondary-order pushdown eligibility coverage for explicit PK-desc tie-break ordering.
+* Added descending PK fast-path parity coverage against non-fast execution paths.
+* Added descending `IndexRange` limit-pushdown trace coverage for direction-uniform DESC plans.
 
 ### 📚 Documentation
 

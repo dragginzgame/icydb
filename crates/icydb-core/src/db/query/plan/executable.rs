@@ -91,10 +91,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
     }
 
     fn derive_direction(plan: &LogicalPlan<E::Key>) -> Direction {
-        if plan.access.as_index_range_path().is_none() {
-            return Direction::Asc;
-        }
-
         let Some(order) = plan.order.as_ref() else {
             return Direction::Asc;
         };
@@ -528,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_direction_remains_asc_for_non_index_range_desc_order() {
+    fn executable_direction_uses_desc_for_non_index_range_desc_order() {
         let mut plan: LogicalPlan<Ulid> =
             LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
         plan.order = Some(OrderSpec {
@@ -537,6 +533,6 @@ mod tests {
 
         let executable = ExecutablePlan::<ExecutableAnchorEntity>::new(plan);
 
-        assert_eq!(executable.direction(), Direction::Asc);
+        assert_eq!(executable.direction(), Direction::Desc);
     }
 }

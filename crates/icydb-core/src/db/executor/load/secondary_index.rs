@@ -3,7 +3,7 @@ use crate::{
         Context,
         executor::load::{FastLoadResult, LoadExecutor},
         query::plan::{
-            ContinuationSignature, CursorBoundary, Direction, LogicalPlan,
+            ContinuationSignature, CursorBoundary, Direction, LogicalPlan, OrderDirection,
             validate::PushdownApplicability,
         },
     },
@@ -34,11 +34,17 @@ where
         };
 
         // Phase 1: resolve candidate keys using canonical index traversal order.
-        let ordered_keys = ctx.db.with_store_registry(|reg| {
+        let mut ordered_keys = ctx.db.with_store_registry(|reg| {
             reg.try_get_store(index.store).and_then(|store| {
                 store.with_index(|index_store| index_store.resolve_data_values::<E>(index, values))
             })
         })?;
+        if matches!(
+            Self::secondary_index_stream_direction(plan),
+            Direction::Desc
+        ) {
+            ordered_keys.reverse();
+        }
         let rows_scanned = ordered_keys.len();
 
         // Phase 2: load rows while preserving traversal order.
@@ -59,5 +65,16 @@ where
             page,
             rows_scanned,
         }))
+    }
+
+    fn secondary_index_stream_direction(plan: &LogicalPlan<E::Key>) -> Direction {
+        let Some(order) = plan.order.as_ref() else {
+            return Direction::Asc;
+        };
+
+        match order.fields.last().map(|(_, direction)| direction) {
+            Some(OrderDirection::Desc) => Direction::Desc,
+            _ => Direction::Asc,
+        }
     }
 }

@@ -583,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    fn explain_with_model_reports_pushdown_rejection_reason() {
+    fn explain_with_model_reports_descending_pushdown_eligibility() {
         let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
         let mut plan: LogicalPlan<Value> = LogicalPlan::new(
             AccessPath::IndexPrefix {
@@ -598,11 +598,10 @@ mod tests {
 
         assert_eq!(
             plan.explain_with_model(model).order_pushdown,
-            ExplainOrderPushdown::Matrix(
-                SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
-                    field: "id".to_string(),
-                }
-            )
+            ExplainOrderPushdown::EligibleSecondaryIndex {
+                index: PUSHDOWN_INDEX.name,
+                prefix_len: 1,
+            }
         );
     }
 

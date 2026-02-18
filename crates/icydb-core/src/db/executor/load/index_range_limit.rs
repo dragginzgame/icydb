@@ -3,9 +3,7 @@ use crate::{
         Context,
         executor::load::{FastLoadResult, LoadExecutor},
         index::RawIndexKey,
-        query::plan::{
-            ContinuationSignature, CursorBoundary, Direction, LogicalPlan, OrderDirection,
-        },
+        query::plan::{ContinuationSignature, CursorBoundary, Direction, LogicalPlan},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -98,10 +96,11 @@ where
         if let Some(order) = plan.order.as_ref()
             && !order.fields.is_empty()
         {
+            let expected_direction = order.fields.last().map(|(_, direction)| *direction)?;
             if order
                 .fields
                 .iter()
-                .any(|(_, direction)| !matches!(direction, OrderDirection::Asc))
+                .any(|(_, direction)| *direction != expected_direction)
             {
                 return None;
             }

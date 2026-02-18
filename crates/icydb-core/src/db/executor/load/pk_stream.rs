@@ -56,6 +56,7 @@ where
         let Some(config) = Self::build_pk_stream_scan_config(plan, cursor_boundary)? else {
             return Ok(None);
         };
+        let stream_direction = Self::pk_stream_direction(plan);
         if Self::pk_scan_range_is_empty(config.range_start_key, config.range_end_key) {
             return Ok(Some(FastLoadResult {
                 page: CursorPage {
@@ -68,7 +69,7 @@ where
         }
 
         // Phase 2: stream rows directly from the store in primary-key order.
-        let mut scan = Self::scan_pk_stream_rows(ctx, &config)?;
+        let mut scan = Self::scan_pk_stream_rows(ctx, &config, stream_direction)?;
 
         // Phase 3: apply canonical post-access semantics and derive continuation.
         let page = Self::finalize_rows_into_page(
@@ -112,6 +113,7 @@ where
     fn scan_pk_stream_rows(
         ctx: &Context<'_, E>,
         config: &PkStreamScanConfig<E::Key>,
+        direction: Direction,
     ) -> Result<PkStreamScanResult<E>, InternalError> {
         ctx.with_store(|store| {
             let lower_raw = match config.range_start_key {
@@ -126,40 +128,79 @@ where
 
             let mut rows_scanned = 0usize;
             let mut rows = Vec::new();
-
-            for entry in store.range((lower_bound, Bound::Included(upper_raw))) {
-                rows_scanned = rows_scanned.saturating_add(1);
-
-                let data_key = DataKey::try_from_raw(entry.key()).map_err(|err| {
-                    InternalError::new(
-                        ErrorClass::Corruption,
-                        ErrorOrigin::Store,
-                        format!("ordered scan encountered corrupted data key: {err}"),
-                    )
-                })?;
-                let expected_key = data_key.try_key::<E>()?;
-                let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
-                    expected_key,
-                    || entry.value().try_decode::<E>(),
-                    |err| {
-                        InternalError::new(
-                            ErrorClass::Corruption,
-                            ErrorOrigin::Serialize,
-                            format!("ordered scan failed to decode row for {data_key}: {err}"),
-                        )
-                    },
-                    |expected_key, actual_key| {
-                        let expected = format_entity_key_for_mismatch::<E>(expected_key);
-                        let found = format_entity_key_for_mismatch::<E>(actual_key);
-                        InternalError::new(
-                            ErrorClass::Corruption,
-                            ErrorOrigin::Store,
-                            format!("row key mismatch: expected {expected}, found {found}"),
-                        )
-                    },
-                )?;
-
-                rows.push((Id::from_key(expected_key), entity));
+            match direction {
+                Direction::Asc => {
+                    for entry in store.range((lower_bound, Bound::Included(upper_raw))) {
+                        rows_scanned = rows_scanned.saturating_add(1);
+                        let data_key = DataKey::try_from_raw(entry.key()).map_err(|err| {
+                            InternalError::new(
+                                ErrorClass::Corruption,
+                                ErrorOrigin::Store,
+                                format!("ordered scan encountered corrupted data key: {err}"),
+                            )
+                        })?;
+                        let expected_key = data_key.try_key::<E>()?;
+                        let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
+                            expected_key,
+                            || entry.value().try_decode::<E>(),
+                            |err| {
+                                InternalError::new(
+                                    ErrorClass::Corruption,
+                                    ErrorOrigin::Serialize,
+                                    format!(
+                                        "ordered scan failed to decode row for {data_key}: {err}"
+                                    ),
+                                )
+                            },
+                            |expected_key, actual_key| {
+                                let expected = format_entity_key_for_mismatch::<E>(expected_key);
+                                let found = format_entity_key_for_mismatch::<E>(actual_key);
+                                InternalError::new(
+                                    ErrorClass::Corruption,
+                                    ErrorOrigin::Store,
+                                    format!("row key mismatch: expected {expected}, found {found}"),
+                                )
+                            },
+                        )?;
+                        rows.push((Id::from_key(expected_key), entity));
+                    }
+                }
+                Direction::Desc => {
+                    for entry in store.range((lower_bound, Bound::Included(upper_raw))).rev() {
+                        rows_scanned = rows_scanned.saturating_add(1);
+                        let data_key = DataKey::try_from_raw(entry.key()).map_err(|err| {
+                            InternalError::new(
+                                ErrorClass::Corruption,
+                                ErrorOrigin::Store,
+                                format!("ordered scan encountered corrupted data key: {err}"),
+                            )
+                        })?;
+                        let expected_key = data_key.try_key::<E>()?;
+                        let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
+                            expected_key,
+                            || entry.value().try_decode::<E>(),
+                            |err| {
+                                InternalError::new(
+                                    ErrorClass::Corruption,
+                                    ErrorOrigin::Serialize,
+                                    format!(
+                                        "ordered scan failed to decode row for {data_key}: {err}"
+                                    ),
+                                )
+                            },
+                            |expected_key, actual_key| {
+                                let expected = format_entity_key_for_mismatch::<E>(expected_key);
+                                let found = format_entity_key_for_mismatch::<E>(actual_key);
+                                InternalError::new(
+                                    ErrorClass::Corruption,
+                                    ErrorOrigin::Store,
+                                    format!("row key mismatch: expected {expected}, found {found}"),
+                                )
+                            },
+                        )?;
+                        rows.push((Id::from_key(expected_key), entity));
+                    }
+                }
             }
 
             Ok(PkStreamScanResult { rows, rows_scanned })
@@ -183,9 +224,7 @@ where
             return false;
         };
 
-        order.fields.len() == 1
-            && order.fields[0].0 == E::MODEL.primary_key.name
-            && matches!(order.fields[0].1, OrderDirection::Asc)
+        order.fields.len() == 1 && order.fields[0].0 == E::MODEL.primary_key.name
     }
 
     fn pk_scan_range_is_empty(
@@ -200,5 +239,16 @@ where
         };
 
         start > end
+    }
+
+    fn pk_stream_direction(plan: &LogicalPlan<E::Key>) -> Direction {
+        let Some(order) = plan.order.as_ref() else {
+            return Direction::Asc;
+        };
+
+        match order.fields.first().map(|(_, direction)| direction) {
+            Some(OrderDirection::Desc) => Direction::Desc,
+            _ => Direction::Asc,
+        }
     }
 }

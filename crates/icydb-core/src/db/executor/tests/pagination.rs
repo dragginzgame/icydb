@@ -805,6 +805,123 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_post_access_semantics() 
 }
 
 #[test]
+fn load_cursor_pagination_pk_fast_path_desc_matches_non_fast_post_access_semantics() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    let keys = [5_u128, 1_u128, 4_u128, 2_u128, 3_u128];
+    for id in keys {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    // Path A: full scan + PK DESC should use the PK stream fast path.
+    let fast_page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by_desc("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("fast descending page1 plan should build");
+    let fast_page1_boundary = fast_page1_plan
+        .plan_cursor(None)
+        .expect("fast descending page1 boundary should plan");
+    let fast_page1 = load
+        .execute_paged_with_cursor(fast_page1_plan, fast_page1_boundary)
+        .expect("fast descending page1 should execute");
+
+    // Path B: key-batch access forces non-fast path, but post-access semantics are identical.
+    let non_fast_page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .by_ids(keys.into_iter().map(Ulid::from_u128))
+        .order_by_desc("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("non-fast descending page1 plan should build");
+    let non_fast_page1_boundary = non_fast_page1_plan
+        .plan_cursor(None)
+        .expect("non-fast descending page1 boundary should plan");
+    let non_fast_page1 = load
+        .execute_paged_with_cursor(non_fast_page1_plan, non_fast_page1_boundary)
+        .expect("non-fast descending page1 should execute");
+
+    let fast_page1_ids: Vec<Ulid> = ids_from_items(&fast_page1.items.0);
+    let non_fast_page1_ids: Vec<Ulid> = ids_from_items(&non_fast_page1.items.0);
+    assert_eq!(
+        fast_page1_ids, non_fast_page1_ids,
+        "descending page1 rows should match between fast and non-fast access paths"
+    );
+    assert_eq!(
+        fast_page1.next_cursor.is_some(),
+        non_fast_page1.next_cursor.is_some(),
+        "descending page1 cursor presence should match between paths"
+    );
+
+    let fast_cursor_page1 = fast_page1
+        .next_cursor
+        .as_ref()
+        .expect("fast descending page1 should emit continuation cursor");
+    let non_fast_cursor_page1 = non_fast_page1
+        .next_cursor
+        .as_ref()
+        .expect("non-fast descending page1 should emit continuation cursor");
+    let fast_cursor_page1_boundary = decode_boundary(
+        fast_cursor_page1.as_slice(),
+        "fast descending cursor should decode",
+    );
+    let non_fast_cursor_page1_boundary = decode_boundary(
+        non_fast_cursor_page1.as_slice(),
+        "non-fast descending cursor should decode",
+    );
+    assert_eq!(
+        &fast_cursor_page1_boundary, &non_fast_cursor_page1_boundary,
+        "descending cursor boundaries should match even when signatures differ by access path"
+    );
+
+    let fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by_desc("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("fast descending page2 plan should build");
+    let fast_page2_boundary = fast_page2_plan
+        .plan_cursor(Some(fast_cursor_page1.as_slice()))
+        .expect("fast descending page2 boundary should plan");
+    let fast_page2 = load
+        .execute_paged_with_cursor(fast_page2_plan, fast_page2_boundary)
+        .expect("fast descending page2 should execute");
+
+    let non_fast_page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .by_ids(keys.into_iter().map(Ulid::from_u128))
+        .order_by_desc("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("non-fast descending page2 plan should build");
+    let non_fast_page2_boundary = non_fast_page2_plan
+        .plan_cursor(Some(non_fast_cursor_page1.as_slice()))
+        .expect("non-fast descending page2 boundary should plan");
+    let non_fast_page2 = load
+        .execute_paged_with_cursor(non_fast_page2_plan, non_fast_page2_boundary)
+        .expect("non-fast descending page2 should execute");
+
+    let fast_page2_ids: Vec<Ulid> = ids_from_items(&fast_page2.items.0);
+    let non_fast_page2_ids: Vec<Ulid> = ids_from_items(&non_fast_page2.items.0);
+    assert_eq!(
+        fast_page2_ids, non_fast_page2_ids,
+        "descending page2 rows should match between fast and non-fast access paths"
+    );
+    assert_eq!(
+        fast_page2.next_cursor.is_some(),
+        non_fast_page2.next_cursor.is_some(),
+        "descending page2 cursor presence should match between paths"
+    );
+}
+
+#[test]
 fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundary() {
     setup_pagination_test();
 
@@ -1590,6 +1707,51 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
     assert_eq!(
         actual_ids, expected_ids,
         "fallback post-access ordering must match canonical index traversal order for eligible plans"
+    );
+}
+
+#[test]
+fn load_index_pushdown_desc_with_explicit_pk_desc_is_eligible_and_ordered() {
+    setup_pagination_test();
+
+    let rows = pushdown_rows_with_group8(10_500);
+    seed_pushdown_rows(&rows);
+
+    let predicate = pushdown_group_predicate(7);
+    let explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("rank")
+        .order_by_desc("id")
+        .explain()
+        .expect("descending parity explain should build");
+    assert!(
+        matches!(
+            explain.order_pushdown,
+            ExplainOrderPushdown::EligibleSecondaryIndex {
+                index,
+                prefix_len
+            } if index == PUSHDOWN_PARITY_INDEX_MODELS[0].name && prefix_len == 1
+        ),
+        "descending uniform order should be pushdown-eligible for group+rank index traversal"
+    );
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("rank")
+        .order_by_desc("id")
+        .plan()
+        .expect("descending parity load plan should build");
+    let response = load
+        .execute(plan)
+        .expect("descending parity load should execute");
+    let actual_ids: Vec<Ulid> = ids_from_items(&response.0);
+
+    let mut expected_ids = ordered_ids_from_group_rank_index(7);
+    expected_ids.reverse();
+    assert_eq!(
+        actual_ids, expected_ids,
+        "descending pushdown order should match reversed canonical index traversal"
     );
 }
 
@@ -2398,6 +2560,57 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligibl
         access_rows,
         Some(3),
         "limit=2 index-range pushdown should scan only offset+limit+1 rows in access phase"
+    );
+}
+
+#[test]
+fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_eligible_plan() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_051, 10, "t10-a"),
+        (35_052, 10, "t10-b"),
+        (35_053, 20, "t20"),
+        (35_054, 25, "t25"),
+        (35_055, 28, "t28"),
+        (35_056, 40, "t40"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let mut logical = LogicalPlan::new(
+        AccessPath::IndexRange {
+            index: INDEXED_METRICS_INDEX_MODELS[0],
+            prefix: Vec::new(),
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(30)),
+        },
+        ReadConsistency::MissingOk,
+    );
+    logical.order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    logical.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
+
+    let _ = take_trace_events();
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
+    let _page = load
+        .execute_paged_with_cursor(page_plan, None)
+        .expect("trace descending limit-pushdown execution should succeed");
+    let events = take_trace_events();
+
+    let access_rows = extract_access_rows(&events);
+
+    assert_eq!(
+        access_rows,
+        Some(3),
+        "descending limit=2 index-range pushdown should scan only offset+limit+1 rows in access phase"
     );
 }
 
@@ -3941,7 +4154,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
     struct Case {
         name: &'static str,
         prefix: u128,
-        descending: bool,
+        order: [(&'static str, OrderDirection); 2],
         expected: ExpectedDecision,
     }
 
@@ -3949,14 +4162,20 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         Case {
             name: "accepted_ascending",
             prefix: 16_000,
-            descending: false,
+            order: [("rank", OrderDirection::Asc), ("id", OrderDirection::Asc)],
             expected: ExpectedDecision::Accepted,
         },
         Case {
             name: "rejected_descending",
             prefix: 17_000,
-            descending: true,
+            order: [("rank", OrderDirection::Desc), ("id", OrderDirection::Asc)],
             expected: ExpectedDecision::RejectedNonAscending,
+        },
+        Case {
+            name: "accepted_descending_with_explicit_pk_desc",
+            prefix: 18_000,
+            order: [("rank", OrderDirection::Desc), ("id", OrderDirection::Desc)],
+            expected: ExpectedDecision::Accepted,
         },
     ];
 
@@ -3970,11 +4189,12 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         let mut query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
             .filter(predicate)
             .limit(1);
-        query = if case.descending {
-            query.order_by_desc("rank")
-        } else {
-            query.order_by("rank")
-        };
+        for (field, direction) in case.order {
+            query = match direction {
+                OrderDirection::Asc => query.order_by(field),
+                OrderDirection::Desc => query.order_by_desc(field),
+            };
+        }
 
         let plan = query
             .plan()

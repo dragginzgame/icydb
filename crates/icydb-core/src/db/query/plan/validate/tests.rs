@@ -555,16 +555,15 @@ fn secondary_order_pushdown_core_cases() {
             ),
         },
         Case {
-            name: "reject_descending_primary_key",
+            name: "accept_descending_primary_key",
             plan: load_index_prefix_plan(
                 vec![Value::Text("a".to_string())],
                 Some(order_spec(&[("id", OrderDirection::Desc)])),
             ),
-            expected: SecondaryOrderPushdownEligibility::Rejected(
-                SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
-                    field: "id".to_string(),
-                },
-            ),
+            expected: SecondaryOrderPushdownEligibility::Eligible {
+                index: INDEX_MODEL.name,
+                prefix_len: 1,
+            },
         },
     ];
 
@@ -689,21 +688,6 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
             },
         },
         RejectionCase {
-            name: "primary_key_direction_not_ascending",
-            plan: load_plan(
-                AccessPlan::path(AccessPath::IndexPrefix {
-                    index: INDEX_MODEL,
-                    values: vec![Value::Text("a".to_string())],
-                }),
-                Some(OrderSpec {
-                    fields: vec![("id".to_string(), OrderDirection::Desc)],
-                }),
-            ),
-            expected: SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
-                field: "id".to_string(),
-            },
-        },
-        RejectionCase {
             name: "non_ascending_direction",
             plan: load_plan(
                 AccessPlan::path(AccessPath::IndexPrefix {
@@ -780,17 +764,16 @@ fn secondary_order_pushdown_if_applicable_cases() {
             expected: PushdownApplicability::NotApplicable,
         },
         Case {
-            name: "applicable_rejected_matrix_decision",
+            name: "applicable_descending_direction_is_eligible",
             plan: load_index_prefix_plan(
                 vec![Value::Text("a".to_string())],
                 Some(order_spec(&[("id", OrderDirection::Desc)])),
             ),
             expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
-                        field: "id".to_string(),
-                    },
-                ),
+                SecondaryOrderPushdownEligibility::Eligible {
+                    index: INDEX_MODEL.name,
+                    prefix_len: 1,
+                },
             ),
         },
         Case {
