@@ -261,11 +261,11 @@ Produce:
 
 ---
 
-# STEP 6 — Encapsulation Score
+# STEP 6 — Encapsulation Risk Index
 
 Evaluate:
 
-| Category                  | Rating (1–10) |
+| Category                  | Risk Index (1–10, lower is better) |
 | ------------------------- | ------------- |
 | Public Surface Discipline |               |
 | Layer Directionality      |               |
@@ -275,15 +275,13 @@ Evaluate:
 
 Then provide:
 
-### Overall Structural Integrity Score (1–10)
+### Overall Structural Risk Index (1–10, lower is better)
 
-Scale:
-
-9–10 → Strong containment, clear directional layering
-7–8 → Minor surface creep
-5–6 → Moderate cross-layer coupling
-3–4 → Architectural erosion emerging
-1–2 → Structural fragility
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
 
 ---
 
@@ -311,7 +309,7 @@ Produce:
 5. Layering Violations
 6. Structural Pressure Areas
 7. Drift Sensitivity Summary
-8. Structural Integrity Score
+8. Structural Risk Index
 
 ---
 

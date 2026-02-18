@@ -244,15 +244,13 @@ Produce:
 5. Error Classification Equivalence Table
 6. Divergence Risks
 7. Idempotence Verification
-8. Overall Recovery Integrity Score (1–10)
+8. Overall Recovery Risk Index (1–10, lower is better)
 
-Scale:
-
-9–10 → Strong replay equivalence
-7–8 → Minor asymmetry risk
-5–6 → Moderate divergence risk
-3–4 → High structural fragility
-1–2 → Recovery unsound
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
 
 ---
 

@@ -197,8 +197,10 @@ Identify:
 
 ---
 
-## Overall Risk Rating
+## Overall State-Machine Risk Index (1–10, lower is better)
 
-* Critical
-* Medium
-* Low
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability

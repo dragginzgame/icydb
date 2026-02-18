@@ -104,11 +104,21 @@ For each audit:
 4. Do not mix multiple audits into one output.
 5. Do not summarize findings prematurely.
 
+For each audit date folder (once per day):
+
+6. Run a codebase size snapshot from the workspace `crates/` directory:
+
+```
+cd crates && cloc .
+```
+
+7. Save the resulting counts in that date folder's `summary.md`.
+
 Each audit must produce:
 
 * Structured tables
 * Risk levels
-* A numeric score (if applicable)
+* A numeric risk index (if applicable)
 * Drift-sensitive findings
 
 ---
@@ -157,13 +167,21 @@ Format:
 ```
 # Audit Summary — YYYY-MM-DD
 
-Invariant Integrity Score: X/10
-Recovery Integrity Score: X/10
-Cursor/Ordering Safety Score: X/10
-Structure Integrity Score: X/10
-Complexity Score: X/10
-Velocity Score: X/10
-DRY Score: X/10
+Invariant Integrity Risk Index: X/10
+Recovery Integrity Risk Index: X/10
+Cursor/Ordering Risk Index: X/10
+Structure Integrity Risk Index: X/10
+Complexity Risk Index: X/10
+Velocity Risk Index: X/10
+DRY Risk Index: X/10
+
+Codebase Size Snapshot (`cd crates && cloc .`):
+- Rust: files=..., blank=..., comment=..., code=...
+- SUM: files=..., blank=..., comment=..., code=...
+
+Structural Stress Metrics:
+- AccessPath fan-out count (non-test db files): ...
+- PlanError variants: ...
 
 Notable Changes Since Previous Audit:
 - +1 AccessPath variant
@@ -184,29 +202,45 @@ Drift Signals:
 
 ---
 
-# 7. Rating Guidelines
+# 7. Risk Index Guidelines
 
-Scores must follow these scales unless the audit defines its own:
+## Scoring Model
 
-### 9–10
+All audits use a Risk Index (1-10 scale).
 
-Strong structural health. No material drift.
+Lower scores indicate stronger structural health.
+Higher scores indicate greater architectural pressure.
+
+This project does not use "health scores."
+All ratings are risk-oriented for governance clarity.
+
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
+
+Threshold guidance:
+- 8+ requires architectural attention.
+- 9–10 indicates structural instability.
+
+Risk indices must follow this model unless the audit defines a stricter variant:
+
+### 1–3
+
+Low risk / structurally healthy.
+
+### 4–6
+
+Moderate risk / manageable pressure.
 
 ### 7–8
 
-Minor friction or mild drift signals.
+High risk / requires monitoring.
 
-### 5–6
+### 9–10
 
-Growing complexity or coupling pressure.
-
-### 3–4
-
-High structural fragility risk emerging.
-
-### 1–2
-
-Critical architectural instability.
+Critical risk / structural instability.
 
 Do not inflate scores.
 
@@ -250,6 +284,15 @@ Findings should be categorized:
 * Defensive Duplication (keep)
 * Drift-Sensitive
 
+Governance trigger for planning-surface entropy:
+
+* Track `PlanError` variants weekly.
+* For the 0.14 cycle, split `PlanError` into sub-domain enums (for example
+  `OrderPlanError`, `AccessPlanError`, `CursorPlanError`) while preserving
+  typed variants.
+* Do not replace typed variants with string-only catch-alls such as
+  `InvalidPlan(String)`.
+
 Only after categorization should refactors be considered.
 
 Never refactor during an audit run.
@@ -275,7 +318,7 @@ Always:
 * Date-stamp.
 * Store results.
 * Compare to previous run.
-* Maintain consistent scoring scale.
+* Maintain consistent risk-index polarity (lower is better).
 
 ---
 
@@ -290,7 +333,7 @@ After several months, you should be able to observe:
 * Recovery symmetry stability
 * Velocity degradation (if any)
 
-Audits turn architectural health into measurable telemetry.
+Audits turn architectural risk into measurable telemetry.
 
 Without telemetry, drift is invisible.
 

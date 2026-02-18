@@ -3,7 +3,7 @@ use crate::{
         Context,
         executor::load::{FastLoadResult, LoadExecutor},
         query::plan::{
-            AccessPath, ContinuationSignature, CursorBoundary, LogicalPlan,
+            AccessPath, ContinuationSignature, CursorBoundary, Direction, LogicalPlan,
             validate::PushdownApplicability,
         },
     },
@@ -22,6 +22,7 @@ where
         plan: &LogicalPlan<E::Key>,
         secondary_pushdown_applicability: &PushdownApplicability,
         cursor_boundary: Option<&CursorBoundary>,
+        direction: Direction,
         continuation_signature: ContinuationSignature,
     ) -> Result<Option<FastLoadResult<E>>, InternalError> {
         if !secondary_pushdown_applicability.is_eligible() {
@@ -51,6 +52,7 @@ where
             plan,
             &mut rows,
             cursor_boundary,
+            direction,
             continuation_signature,
         )?;
 

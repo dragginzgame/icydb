@@ -1,22 +1,26 @@
 use crate::{
     db::{
+        data::StorageKey,
         index::{
-            IndexId, IndexKey, IndexKeyKind, IndexRangeBoundEncodeError, RawIndexKey,
-            raw_bounds_for_index_component_range,
+            Direction, IndexId, IndexKey, IndexKeyKind, IndexRangeBoundEncodeError, RawIndexKey,
+            anchor_within_envelope, raw_bounds_for_index_component_range,
         },
         query::{
             intent::QueryMode,
             plan::{
                 AccessPath, AccessPlan, ContinuationSignature, CursorBoundary, ExplainPlan,
                 IndexRangeCursorAnchor, LogicalPlan, PlanError, PlanFingerprint,
-                continuation::{decode_typed_primary_key_cursor_slot, decode_validated_cursor},
+                continuation::{
+                    decode_typed_primary_key_cursor_slot, decode_validated_cursor,
+                    invalid_continuation_cursor_payload,
+                },
             },
             policy,
         },
     },
     traits::{EntityKind, FieldValue},
 };
-use std::{marker::PhantomData, ops::Bound};
+use std::marker::PhantomData;
 
 ///
 /// ExecutablePlan
@@ -70,6 +74,7 @@ impl From<Option<CursorBoundary>> for PlannedCursor {
 #[derive(Debug)]
 pub struct ExecutablePlan<E: EntityKind> {
     plan: LogicalPlan<E::Key>,
+    direction: Direction,
     _marker: PhantomData<E>,
 }
 
@@ -77,6 +82,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
     pub(crate) const fn new(plan: LogicalPlan<E::Key>) -> Self {
         Self {
             plan,
+            direction: Direction::Asc,
             _marker: PhantomData,
         }
     }
@@ -121,12 +127,22 @@ impl<E: EntityKind> ExecutablePlan<E> {
             E::MODEL,
             order,
             self.continuation_signature(),
+            self.direction,
         )?;
-        self.validate_index_range_anchor(decoded.index_range_anchor(), self.plan.access.as_path())?;
+        self.validate_index_range_anchor(
+            decoded.index_range_anchor(),
+            self.plan.access.as_path(),
+            self.direction,
+        )?;
         let boundary = decoded.boundary().clone();
 
         // Typed key decode is the final authority for PK cursor slots.
-        let _pk_key = decode_typed_primary_key_cursor_slot::<E::Key>(E::MODEL, order, &boundary)?;
+        let pk_key = decode_typed_primary_key_cursor_slot::<E::Key>(E::MODEL, order, &boundary)?;
+        self.validate_index_range_boundary_anchor_consistency(
+            decoded.index_range_anchor(),
+            self.plan.access.as_path(),
+            pk_key,
+        )?;
 
         let index_range_anchor = decoded
             .index_range_anchor()
@@ -145,6 +161,11 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self.plan.access
     }
 
+    #[must_use]
+    pub(in crate::db) const fn direction(&self) -> Direction {
+        self.direction
+    }
+
     pub(in crate::db) fn into_inner(self) -> LogicalPlan<E::Key> {
         self.plan
     }
@@ -154,13 +175,13 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self,
         anchor: Option<&IndexRangeCursorAnchor>,
         access: Option<&AccessPath<E::Key>>,
+        direction: Direction,
     ) -> Result<(), PlanError> {
         let Some(access) = access else {
             if anchor.is_some() {
-                return Err(PlanError::InvalidContinuationCursorPayload {
-                    reason: "unexpected index-range continuation anchor for composite access plan"
-                        .to_string(),
-                });
+                return Err(invalid_continuation_cursor_payload(
+                    "unexpected index-range continuation anchor for composite access plan",
+                ));
             }
 
             return Ok(());
@@ -174,33 +195,32 @@ impl<E: EntityKind> ExecutablePlan<E> {
         } = access
         {
             let Some(anchor) = anchor else {
-                return Err(PlanError::InvalidContinuationCursorPayload {
-                    reason: "index-range continuation cursor is missing a raw-key anchor"
-                        .to_string(),
-                });
+                return Err(invalid_continuation_cursor_payload(
+                    "index-range continuation cursor is missing a raw-key anchor",
+                ));
             };
 
             let decoded_key = IndexKey::try_from_raw(anchor.last_raw_key()).map_err(|err| {
-                PlanError::InvalidContinuationCursorPayload {
-                    reason: format!("index-range continuation anchor decode failed: {err}"),
-                }
+                invalid_continuation_cursor_payload(format!(
+                    "index-range continuation anchor decode failed: {err}"
+                ))
             })?;
             let expected_index_id = IndexId::new::<E>(index);
 
             if decoded_key.index_id() != &expected_index_id {
-                return Err(PlanError::InvalidContinuationCursorPayload {
-                    reason: "index-range continuation anchor index id mismatch".to_string(),
-                });
+                return Err(invalid_continuation_cursor_payload(
+                    "index-range continuation anchor index id mismatch",
+                ));
             }
             if decoded_key.key_kind() != IndexKeyKind::User {
-                return Err(PlanError::InvalidContinuationCursorPayload {
-                    reason: "index-range continuation anchor key namespace mismatch".to_string(),
-                });
+                return Err(invalid_continuation_cursor_payload(
+                    "index-range continuation anchor key namespace mismatch",
+                ));
             }
             if decoded_key.component_count() != index.fields.len() {
-                return Err(PlanError::InvalidContinuationCursorPayload {
-                    reason: "index-range continuation anchor component arity mismatch".to_string(),
-                });
+                return Err(invalid_continuation_cursor_payload(
+                    "index-range continuation anchor component arity mismatch",
+                ));
             }
             let (range_start, range_end) = raw_bounds_for_index_component_range::<E>(
                 index, prefix, lower, upper,
@@ -217,45 +237,62 @@ impl<E: EntityKind> ExecutablePlan<E> {
                         "index-range cursor upper continuation bound is not indexable".to_string()
                     }
                 };
-                PlanError::InvalidContinuationCursorPayload { reason }
+                invalid_continuation_cursor_payload(reason)
             })?;
 
-            if !raw_key_within_bounds(anchor.last_raw_key(), &range_start, &range_end) {
-                return Err(PlanError::InvalidContinuationCursorPayload {
-                    reason:
-                        "index-range continuation anchor is outside the original range envelope"
-                            .to_string(),
-                });
+            if !anchor_within_envelope(direction, anchor.last_raw_key(), &range_start, &range_end) {
+                return Err(invalid_continuation_cursor_payload(
+                    "index-range continuation anchor is outside the original range envelope",
+                ));
             }
         } else if anchor.is_some() {
-            return Err(PlanError::InvalidContinuationCursorPayload {
-                reason:
-                    "unexpected index-range continuation anchor for non-index-range access path"
-                        .to_string(),
-            });
+            return Err(invalid_continuation_cursor_payload(
+                "unexpected index-range continuation anchor for non-index-range access path",
+            ));
         }
 
         Ok(())
     }
-}
 
-fn raw_key_within_bounds(
-    key: &RawIndexKey,
-    lower: &Bound<RawIndexKey>,
-    upper: &Bound<RawIndexKey>,
-) -> bool {
-    let lower_ok = match lower {
-        Bound::Unbounded => true,
-        Bound::Included(boundary) => key >= boundary,
-        Bound::Excluded(boundary) => key > boundary,
-    };
-    let upper_ok = match upper {
-        Bound::Unbounded => true,
-        Bound::Included(boundary) => key <= boundary,
-        Bound::Excluded(boundary) => key < boundary,
-    };
+    #[expect(clippy::unused_self)]
+    fn validate_index_range_boundary_anchor_consistency(
+        &self,
+        anchor: Option<&IndexRangeCursorAnchor>,
+        access: Option<&AccessPath<E::Key>>,
+        boundary_pk_key: E::Key,
+    ) -> Result<(), PlanError> {
+        let Some(anchor) = anchor else {
+            return Ok(());
+        };
+        let Some(AccessPath::IndexRange { .. }) = access else {
+            return Ok(());
+        };
 
-    lower_ok && upper_ok
+        let anchor_key = IndexKey::try_from_raw(anchor.last_raw_key()).map_err(|err| {
+            invalid_continuation_cursor_payload(format!(
+                "index-range continuation anchor decode failed: {err}"
+            ))
+        })?;
+        let anchor_storage_key = anchor_key.primary_storage_key().map_err(|err| {
+            invalid_continuation_cursor_payload(format!(
+                "index-range continuation anchor primary key decode failed: {err}"
+            ))
+        })?;
+        let boundary_storage_key = StorageKey::try_from_value(&boundary_pk_key.to_value())
+            .map_err(|err| {
+                invalid_continuation_cursor_payload(format!(
+                    "index-range continuation boundary primary key decode failed: {err}"
+                ))
+            })?;
+
+        if anchor_storage_key != boundary_storage_key {
+            return Err(invalid_continuation_cursor_payload(
+                "index-range continuation boundary/anchor mismatch",
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 ///
@@ -267,8 +304,15 @@ mod tests {
     use crate::{
         db::{
             ReadConsistency,
-            index::{IndexId, IndexKey, encode_canonical_index_component},
-            query::plan::{AccessPath, IndexRangeCursorAnchor, LogicalPlan, PlanError},
+            data::StorageKey,
+            index::{
+                Direction, IndexId, IndexKey, IndexKeyKind, RawIndexKey,
+                encode_canonical_index_component,
+            },
+            query::plan::{
+                AccessPath, ContinuationToken, CursorBoundary, CursorBoundarySlot,
+                IndexRangeCursorAnchor, LogicalPlan, OrderDirection, OrderSpec, PlanError,
+            },
         },
         model::{
             entity::EntityModel,
@@ -278,13 +322,14 @@ mod tests {
         test_fixtures::entity_model_from_static,
         traits::{
             AsView, CanisterKind, EntityIdentity, EntityKey, EntityKind, EntityPlacement,
-            EntitySchema, Path, SanitizeAuto, SanitizeCustom, StoreKind, ValidateAuto,
+            EntitySchema, Path, SanitizeAuto, SanitizeCustom, Storable, StoreKind, ValidateAuto,
             ValidateCustom, Visitable,
         },
         types::Ulid,
         value::Value,
     };
     use serde::{Deserialize, Serialize};
+    use std::borrow::Cow;
     use std::ops::Bound;
 
     use super::ExecutablePlan;
@@ -402,6 +447,15 @@ mod tests {
         ExecutablePlan::new(plan)
     }
 
+    fn build_index_range_cursor_executable() -> ExecutablePlan<ExecutableAnchorEntity> {
+        let mut plan: LogicalPlan<Ulid> =
+            LogicalPlan::new(index_range_access(), ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+        ExecutablePlan::new(plan)
+    }
+
     fn index_range_access() -> AccessPath<Ulid> {
         AccessPath::IndexRange {
             index: RANGE_INDEX_AB,
@@ -431,6 +485,39 @@ mod tests {
         IndexRangeCursorAnchor::new(raw_key)
     }
 
+    fn anchor_for_value_with_pk(
+        index_id: &IndexId,
+        second_component: u64,
+        pk: Ulid,
+    ) -> IndexRangeCursorAnchor {
+        let mut bytes = Vec::new();
+        bytes.push(IndexKeyKind::User as u8);
+        bytes.extend_from_slice(&index_id.0.to_bytes());
+        bytes.push(2u8);
+
+        let prefix_component =
+            encode_canonical_index_component(&Value::Uint(42)).expect("prefix must encode");
+        push_segment(&mut bytes, &prefix_component);
+
+        let range_component = encode_canonical_index_component(&Value::Uint(second_component))
+            .expect("range component must encode");
+        push_segment(&mut bytes, &range_component);
+
+        let storage_key = StorageKey::try_from_value(&Value::Ulid(pk)).expect("pk must encode");
+        let storage_key_bytes = storage_key
+            .to_bytes()
+            .expect("storage key bytes must encode");
+        push_segment(&mut bytes, &storage_key_bytes);
+
+        IndexRangeCursorAnchor::new(<RawIndexKey as Storable>::from_bytes(Cow::Owned(bytes)))
+    }
+
+    fn push_segment(bytes: &mut Vec<u8>, segment: &[u8]) {
+        let len_u16 = u16::try_from(segment.len()).expect("segment length must fit u16");
+        bytes.extend_from_slice(&len_u16.to_be_bytes());
+        bytes.extend_from_slice(segment);
+    }
+
     #[test]
     fn index_range_anchor_validation_accepts_anchor_in_range() {
         let executable = build_executable();
@@ -439,7 +526,7 @@ mod tests {
         let anchor = anchor_for_value(&expected_id, 15);
 
         executable
-            .validate_index_range_anchor(Some(&anchor), Some(&access))
+            .validate_index_range_anchor(Some(&anchor), Some(&access), Direction::Asc)
             .expect("anchor inside index-range envelope should validate");
     }
 
@@ -451,7 +538,7 @@ mod tests {
         let anchor = anchor_for_value(&other_id, 15);
 
         let err = executable
-            .validate_index_range_anchor(Some(&anchor), Some(&access))
+            .validate_index_range_anchor(Some(&anchor), Some(&access), Direction::Asc)
             .expect_err("anchor from a different index id must fail");
         match err {
             PlanError::InvalidContinuationCursorPayload { reason } => {
@@ -469,11 +556,41 @@ mod tests {
         let anchor = anchor_for_value(&expected_id, 99);
 
         let err = executable
-            .validate_index_range_anchor(Some(&anchor), Some(&access))
+            .validate_index_range_anchor(Some(&anchor), Some(&access), Direction::Asc)
             .expect_err("anchor outside index-range envelope must fail");
         match err {
             PlanError::InvalidContinuationCursorPayload { reason } => {
                 assert!(reason.contains("outside the original range envelope"));
+            }
+            _ => panic!("expected InvalidContinuationCursorPayload"),
+        }
+    }
+
+    #[test]
+    fn plan_cursor_rejects_index_range_boundary_anchor_mismatch() {
+        let executable = build_index_range_cursor_executable();
+        let expected_id = IndexId::new::<ExecutableAnchorEntity>(&RANGE_INDEX_AB);
+        let boundary_pk = Ulid::from_u128(10_001);
+        let anchor_pk = Ulid::from_u128(10_002);
+        let anchor = anchor_for_value_with_pk(&expected_id, 15, anchor_pk);
+        let boundary = CursorBoundary {
+            slots: vec![CursorBoundarySlot::Present(Value::Ulid(boundary_pk))],
+        };
+        let token = ContinuationToken::new_index_range_with_direction(
+            executable.continuation_signature(),
+            boundary,
+            anchor,
+            Direction::Asc,
+        )
+        .encode()
+        .expect("cursor token should encode");
+
+        let err = executable
+            .plan_cursor(Some(token.as_slice()))
+            .expect_err("boundary/anchor mismatch must fail");
+        match err {
+            PlanError::InvalidContinuationCursorPayload { reason } => {
+                assert!(reason.contains("boundary/anchor mismatch"));
             }
             _ => panic!("expected InvalidContinuationCursorPayload"),
         }

@@ -1,187 +1,259 @@
-# audits/boundary-semantics.md
+# WEEKLY AUDIT — Boundary & Envelope Semantics
 
-# Weekly Audit: Boundary & Envelope Semantics
+`icydb-core`
 
-## Scope
+## Purpose
 
-This audit verifies correctness of:
+Verify strict preservation of:
 
-* Bound transformations (inclusive/exclusive)
-* Range envelope preservation
+* Range envelope containment
+* Inclusive/exclusive semantics
+* Strict continuation rules
 * Raw vs logical ordering alignment
-* Anchor → bound conversion
-* Envelope containment across pagination
+* AccessPath immutability under cursor continuation
+
+This audit evaluates correctness only.
 
 Do NOT discuss:
 
 * Performance
 * Refactoring
-* API improvements
-* Feature work
-
-Only correctness and invariant preservation.
+* Feature additions
+* Style
 
 ---
 
-# Ground Truth Specification
+# STEP 0 — Invariant Registry (Mandatory First Step)
 
-## A. Bound Model
+Before analyzing code, enumerate and freeze the invariants.
 
-All range execution must reduce to:
+At minimum:
 
-* `Bound::Included(key)`
-* `Bound::Excluded(key)`
-* `Unbounded`
+### A. Resume Invariant
 
-All execution must operate on **raw index keys**.
+* Continuation must always rewrite lower bound as:
 
-Logical ordering must map 1:1 to raw lexicographic ordering.
+  ```
+  Bound::Excluded(anchor)
+  ```
+* Resume must be strictly monotonic.
+* Resume must never include the anchor.
 
----
+### B. Envelope Containment Invariant
 
-## B. Envelope Definition
+* Anchor must lie within original `[lower, upper]` envelope.
+* Continuation must not widen the envelope.
+* Upper bound must remain immutable.
 
-Given:
+### C. Inclusivity/Exclusivity Invariant
 
-```
-IndexRange {
-    lower: Bound<RawIndexKey>,
-    upper: Bound<RawIndexKey>,
-}
-```
+* Logical `> >= < <=` semantics must map 1:1 to raw bounds.
+* No inversion of inclusive/exclusive flags.
+* Equal-bound tightening must only make range stricter, never looser.
 
-The envelope is defined as:
+### D. Ordering Alignment Invariant
 
-```
-lower <= key < upper
-```
+* Raw index key lexicographic ordering defines canonical order.
+* Logical comparator must not diverge from raw ordering.
+* No secondary ordering path may exist.
 
-respecting inclusive/exclusive semantics.
+### E. AccessPath Immutability Invariant
 
-The envelope must:
+* Cursor continuation must not:
 
-1. Never widen during planning.
-2. Never widen during cursor continuation.
-3. Never silently invert inclusivity.
-4. Never convert Included → Excluded unless explicitly required by resume semantics.
-5. Never convert Excluded → Included.
+  * Change index id
+  * Change access path variant
+  * Widen predicate
+  * Modify upper bound
+  * Introduce composite path
 
----
+Produce:
 
-## C. Cursor Resume Rule
-
-Continuation must always be:
-
-```
-new_lower = Bound::Excluded(last_emitted_raw_key)
-```
-
-This must:
-
-* Preserve monotonicity.
-* Never duplicate.
-* Never omit.
-* Never escape envelope.
+| Invariant | Enforced Where | Structural or Implicit? |
 
 ---
 
-# Audit Targets
+# STEP 1 — Bound Transformation Proof Table
 
-Inspect:
+For each transformation:
 
-* Planner bound construction
-* Predicate → IndexRange lowering
-* `plan_cursor`
-* `execute_paged_with_cursor`
-* Anchor-to-bound conversion logic
-* Store-level traversal bound usage
-* Any logical → raw ordering transformations
+* Identify the invariant it must preserve.
+* Explain *why* it preserves that invariant.
+* Identify whether protection is:
+
+  * Structural (enforced by type or logic)
+  * Guarded (runtime check)
+  * Implicit (assumed by construction)
+
+Produce:
+
+| Location | Transformation | Invariant Preserved | Enforcement Type | Risk |
+
+Do NOT use “Correct? Yes”.
 
 ---
 
-# Required Analysis Per Target
+# STEP 2 — Envelope Containment Attack Matrix
+
+Simulate explicitly:
+
+1. Anchor == lower (Included)
+2. Anchor == lower (Excluded)
+3. Anchor == upper (Included)
+4. Anchor == upper (Excluded)
+5. Anchor just below lower
+6. Anchor just above upper
+7. Empty range
+8. Single-element range
+9. Unbounded range
+10. Composite or mutated AccessPath
 
 For each:
 
-1. List all inclusivity/exclusivity transitions.
-2. Identify all conversions between logical and raw keys.
-3. Confirm envelope preservation.
-4. Confirm no implicit widening.
-5. Confirm no bound inversion.
-6. Confirm resume always uses Excluded.
-7. Confirm upper bound is never modified by cursor.
+* Is escape structurally impossible?
+* Is escape prevented by runtime check?
+* Is it only prevented by tests?
+* Is it drift-sensitive?
+
+Produce:
+
+| Scenario | Structural Prevention? | Runtime Guard? | Test Only? | Risk |
 
 ---
 
-# Explicit Attack Scenarios
+# STEP 3 — Upper Bound Immutability Verification
 
-You must reason through:
+Explicitly verify:
 
-1. Lower = Included(x), anchor = x
-2. Lower = Excluded(x), anchor = x
-3. Upper = Included(x), anchor = x
-4. Upper = Excluded(x), anchor = x
-5. Anchor exactly equal to upper bound
-6. Anchor exactly equal to lower bound
-7. Anchor just below lower
-8. Anchor just above upper
-9. Empty range (lower == upper)
-10. Single-element range
-11. Full unbounded range
+* Cursor continuation does not modify upper bound.
+* No code path rewrites upper bound.
+* No tightening or widening of upper occurs during continuation.
+* Upper bound is passed through unchanged to store traversal.
 
-For each, state:
+Produce:
 
-* Can envelope be escaped?
-* Can duplication occur?
-* Can omission occur?
-* Is behavior deterministic?
+| Code Path | Upper Modified? | Proven Immutable? | Risk |
 
 ---
 
-# Required Output Format
+# STEP 4 — Raw vs Logical Ordering Alignment
 
-## 1. Bound Transformation Table
+Explicitly verify:
 
-| Location | Original Bound | Transformed Bound | Correct? | Risk |
-| -------- | -------------- | ----------------- | -------- | ---- |
+* Canonical encode preserves lexicographic ordering.
+* Logical comparator is identical to raw ordering comparator.
+* No alternate comparator path exists.
+* No fallback scan reorders entities.
 
----
+Produce:
 
-## 2. Envelope Containment Table
-
-| Scenario | Can Escape Envelope? | Why / Why Not | Risk |
-| -------- | -------------------- | ------------- | ---- |
-
----
-
-## 3. Duplication/Omission Table
-
-| Case | Duplication Risk | Omission Risk | Explanation | Risk |
-| ---- | ---------------- | ------------- | ----------- | ---- |
+| Layer | Ordering Source | Divergence Possible? | Risk |
 
 ---
 
-## 4. Raw vs Logical Ordering Alignment
+# STEP 5 — Anchor/Boundary Consistency Check
 
-| Area | Raw Ordering Used? | Logical Conversion? | Drift Risk |
-| ---- | ------------------ | ------------------- | ---------- |
+Explicitly evaluate:
+
+* Anchor validity check
+* Boundary validity check
+* Mutual consistency between anchor and boundary
+
+Determine:
+
+* Is inconsistency structurally impossible?
+* Is it guarded?
+* Is it drift-sensitive?
+* Is it a correctness hole or only test gap?
+
+Produce:
+
+| Issue | Structural? | Guarded? | Drift-Sensitive? | Risk Level |
 
 ---
 
-## 5. Drift Sensitivity
+# STEP 6 — Composite AccessPath Containment
+
+Verify explicitly:
+
+* Cursor cannot convert IndexRange to composite path.
+* Cursor cannot introduce new path type.
+* Cursor cannot change index id.
+* Planner revalidation prevents mutation of plan shape.
+
+Produce:
+
+| Property | Mutable? | Prevention Mechanism | Risk |
+
+---
+
+# STEP 7 — Duplication / Omission Guarantee
+
+Explicitly verify:
+
+* Strict monotonicity proof.
+* No equal-bound duplication.
+* No off-by-one omission.
+* Store traversal respects bounds strictly.
+* Logical post-filtering does not reintroduce duplicates.
+
+Produce:
+
+| Mechanism | Duplication Possible? | Omission Possible? | Risk |
+
+---
+
+# STEP 8 — Drift Sensitivity Analysis
 
 Identify:
 
-* Areas relying on implicit ordering assumptions.
-* Areas lacking explicit envelope checks.
-* Areas lacking boundary tests.
+* Assumptions not enforced structurally.
+* Areas relying on canonical ordering alignment.
+* Areas lacking adversarial tests.
+* Areas where adding DESC would multiply risk.
+* Areas where composite support would introduce envelope ambiguity.
+
+Produce:
+
+| Drift Vector | Impacted Invariant | Risk |
 
 ---
 
-## Overall Risk Rating
+# Required Output Sections
 
-* Critical
-* Medium
-* Low
+1. Invariant Registry
+2. Bound Transformation Proof Table
+3. Envelope Attack Matrix
+4. Upper Bound Immutability
+5. Ordering Alignment
+6. Anchor/Boundary Consistency
+7. Composite Containment
+8. Duplication/Omission Proof
+9. Drift Sensitivity
+10. Overall Envelope Risk Index (1–10, lower is better)
 
 ---
+
+# Scoring Model
+
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
+
+---
+
+# Why This Is Stronger
+
+This version:
+
+* Eliminates shallow “Correct? Yes” answers
+* Forces invariant restatement
+* Forces immutability verification
+* Separates structural vs test-based safety
+* Forces composite-path containment validation
+* Forces drift analysis
+* Forces monotonicity proof
+
+It converts the audit from evaluation into formal reasoning.

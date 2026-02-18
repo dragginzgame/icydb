@@ -189,6 +189,10 @@ impl IndexKey {
         self.component_count as usize
     }
 
+    pub(in crate::db) fn primary_storage_key(&self) -> Result<StorageKey, &'static str> {
+        StorageKey::try_from_bytes(&self.primary_key)
+    }
+
     #[must_use]
     pub(crate) fn wildcard_low_component() -> Vec<u8> {
         vec![0]

@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::index::Direction;
 
 #[test]
 fn load_cursor_rejects_version_mismatch_at_plan_time() {
@@ -13,7 +14,11 @@ fn load_cursor_rejects_version_mismatch_at_plan_time() {
             CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(2001))),
         ],
     };
-    let token = ContinuationToken::new(plan.continuation_signature(), boundary);
+    let token = ContinuationToken::new_with_direction(
+        plan.continuation_signature(),
+        boundary,
+        Direction::Asc,
+    );
     let version_mismatch_cursor = token
         .encode_with_version_for_test(99)
         .expect("version-mismatch cursor should encode");
@@ -43,9 +48,13 @@ fn load_cursor_rejects_boundary_value_type_mismatch_at_plan_time() {
             CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(2002))),
         ],
     };
-    let cursor = ContinuationToken::new(plan.continuation_signature(), boundary)
-        .encode()
-        .expect("boundary-type cursor should encode");
+    let cursor = ContinuationToken::new_with_direction(
+        plan.continuation_signature(),
+        boundary,
+        Direction::Asc,
+    )
+    .encode()
+    .expect("boundary-type cursor should encode");
 
     let err = plan
         .plan_cursor(Some(cursor.as_slice()))
@@ -73,9 +82,13 @@ fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
             CursorBoundarySlot::Present(Value::Text("not-a-ulid".to_string())),
         ],
     };
-    let cursor = ContinuationToken::new(plan.continuation_signature(), boundary)
-        .encode()
-        .expect("pk-type cursor should encode");
+    let cursor = ContinuationToken::new_with_direction(
+        plan.continuation_signature(),
+        boundary,
+        Direction::Asc,
+    )
+    .encode()
+    .expect("pk-type cursor should encode");
 
     let err = plan
         .plan_cursor(Some(cursor.as_slice()))
@@ -97,13 +110,14 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
         .limit(1)
         .plan()
         .expect("foreign entity plan should build");
-    let foreign_cursor = ContinuationToken::new(
+    let foreign_cursor = ContinuationToken::new_with_direction(
         foreign_plan.continuation_signature(),
         CursorBoundary {
             slots: vec![CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(
                 3001,
             )))],
         },
+        Direction::Asc,
     )
     .encode()
     .expect("foreign entity cursor should encode");

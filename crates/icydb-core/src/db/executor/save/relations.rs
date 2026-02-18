@@ -2,8 +2,9 @@ use crate::{
     db::{
         executor::save::SaveExecutor,
         relation::{
-            RelationTargetRawKeyError, StrongRelationTargetInfo, build_relation_target_raw_key,
-            for_each_relation_target_value, strong_relation_target_from_kind,
+            StrongRelationTargetInfo, build_relation_target_raw_key,
+            for_each_relation_target_value, map_relation_target_raw_key_error,
+            strong_relation_target_from_kind,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -48,29 +49,16 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         // Phase 1: normalize the key into a storage-compatible target raw key.
         let raw_key =
             build_relation_target_raw_key(relation.target_entity_name, value).map_err(|err| {
-                match err {
-                    RelationTargetRawKeyError::StorageKeyEncode(err) => InternalError::new(
-                        ErrorClass::Unsupported,
-                        ErrorOrigin::Executor,
-                        format!(
-                            "strong relation key not storage-compatible: source={} field={} target={} value={value:?} ({err})",
-                            E::PATH,
-                            field_name,
-                            relation.target_path
-                        ),
-                    ),
-                    RelationTargetRawKeyError::TargetEntityName(err) => InternalError::new(
-                        ErrorClass::Internal,
-                        ErrorOrigin::Executor,
-                        format!(
-                            "strong relation target name invalid: source={} field={} target={} name={} ({err})",
-                            E::PATH,
-                            field_name,
-                            relation.target_path,
-                            relation.target_entity_name
-                        ),
-                    ),
-                }
+                map_relation_target_raw_key_error(
+                    err,
+                    E::PATH,
+                    field_name,
+                    relation.target_path,
+                    relation.target_entity_name,
+                    value,
+                    "strong relation key not storage-compatible",
+                    "strong relation target name invalid",
+                )
             })?;
 
         // Phase 2: resolve the target store and confirm existence.

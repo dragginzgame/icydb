@@ -1,5 +1,5 @@
 use crate::{
-    db::commit::CommitMarker,
+    db::commit::{CommitMarker, commit_corruption_message},
     error::{ErrorClass, ErrorOrigin, InternalError},
 };
 
@@ -18,7 +18,7 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
             return Err(InternalError::new(
                 ErrorClass::Corruption,
                 ErrorOrigin::Store,
-                "commit marker corrupted: row op has neither before nor after payload",
+                commit_corruption_message("row op has neither before nor after payload"),
             ));
         }
     }

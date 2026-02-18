@@ -200,6 +200,14 @@ Provide:
 
 Be strict. If something is not explicitly guarded, mark as risk.
 
+## 7. Overall Cursor/Ordering Risk Index (1–10, lower is better)
+
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
+
 ---
 
 # Drift Detection Requirement

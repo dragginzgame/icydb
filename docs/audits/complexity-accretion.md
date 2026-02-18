@@ -205,7 +205,7 @@ For each:
 
 ---
 
-# STEP 7 — Complexity Risk Score
+# STEP 7 — Complexity Risk Index
 
 Provide:
 
@@ -214,20 +214,19 @@ Provide:
 
 Then compute:
 
-### Overall Complexity Score (1–10)
+### Overall Complexity Risk Index (1–10, lower is better)
 
-Scale:
-
-1–3  → Minimal structural pressure
-4–6  → Manageable but growing
-7–8  → High branching pressure emerging
-9–10 → Structural fragility risk
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
 
 ---
 
 # Required Summary
 
-1. Overall Complexity Score
+1. Overall Complexity Risk Index
 2. Fastest Growing Concept Families
 3. Variant Explosion Risks
 4. Branching Hotspots

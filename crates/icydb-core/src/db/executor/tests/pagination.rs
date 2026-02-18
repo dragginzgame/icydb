@@ -1432,6 +1432,67 @@ fn load_cursor_pagination_desc_order_resumes_strictly_after_boundary() {
 }
 
 #[test]
+fn load_desc_order_uses_primary_key_tie_break_for_equal_rank_rows() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for row in [
+        PhaseEntity {
+            id: Ulid::from_u128(14_500),
+            opt_rank: Some(30),
+            rank: 30,
+            tags: vec![1],
+            label: "r30".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(14_503),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![2],
+            label: "r20-c".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(14_501),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![3],
+            label: "r20-a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(14_502),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![4],
+            label: "r20-b".to_string(),
+        },
+    ] {
+        save.insert(row).expect("seed row save should succeed");
+    }
+
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by_desc("rank")
+        .limit(4)
+        .plan()
+        .expect("descending tie-break plan should build");
+    let page = load
+        .execute_paged_with_cursor(plan, None)
+        .expect("descending tie-break page should execute");
+    let page_ids: Vec<Ulid> = ids_from_items(&page.items.0);
+
+    assert_eq!(
+        page_ids,
+        vec![
+            Ulid::from_u128(14_500),
+            Ulid::from_u128(14_501),
+            Ulid::from_u128(14_502),
+            Ulid::from_u128(14_503),
+        ],
+        "descending primary comparator must preserve canonical PK tie-break ordering",
+    );
+}
+
+#[test]
 fn load_cursor_rejects_signature_mismatch() {
     setup_pagination_test();
 

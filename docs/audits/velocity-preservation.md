@@ -24,7 +24,7 @@ This audit measures structural feature agility.
 
 # Core Principle
 
-Healthy velocity architecture has:
+Low-risk velocity architecture has:
 
 * Contained change surfaces
 * Stable layer boundaries
@@ -223,15 +223,13 @@ Produce:
 
 # Final Output
 
-1. Velocity Health Score (1–10)
+1. Velocity Risk Index (1–10, lower is better)
 
-Scale:
-
-9–10 → Architecture strongly supports extension
-7–8 → Moderate friction but manageable
-5–6 → Growing cross-layer coupling
-3–4 → High amplification risk
-1–2 → Iteration becoming brittle
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
 
 2. Architectural Drag Sources
 3. Layer Leakage Findings

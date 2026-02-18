@@ -3,8 +3,8 @@ use crate::{
     db::{
         data::DataKey,
         index::{
-            IndexId, IndexKey, IndexRangeBoundEncodeError, encode_canonical_index_component,
-            raw_bounds_for_index_component_range,
+            Direction, IndexId, IndexKey, IndexRangeBoundEncodeError, continuation_advanced,
+            encode_canonical_index_component, raw_bounds_for_index_component_range, resume_bounds,
             store::{IndexStore, RawIndexKey},
         },
     },
@@ -14,6 +14,13 @@ use crate::{
     value::Value,
 };
 use std::ops::Bound;
+
+type IndexRangeEntryMap = canic_cdk::structures::BTreeMap<
+    RawIndexKey,
+    InlineIndexValue,
+    canic_cdk::structures::memory::VirtualMemory<canic_cdk::structures::DefaultMemoryImpl>,
+>;
+type IndexRangeStream = (IndexRangeEntryMap, (Bound<RawIndexKey>, Bound<RawIndexKey>));
 
 impl IndexStore {
     pub(crate) fn resolve_data_values<E: EntityKind>(
@@ -74,13 +81,14 @@ impl IndexStore {
         lower: &Bound<Value>,
         upper: &Bound<Value>,
         continuation_start_exclusive: Option<&RawIndexKey>,
+        direction: Direction,
     ) -> Result<Vec<DataKey>, InternalError> {
         self.resolve_data_values_in_range_limited::<E>(
             index,
             prefix,
-            lower,
-            upper,
+            (lower, upper),
             continuation_start_exclusive,
+            direction,
             usize::MAX,
         )
     }
@@ -89,9 +97,9 @@ impl IndexStore {
         &self,
         index: &IndexModel,
         prefix: &[Value],
-        lower: &Bound<Value>,
-        upper: &Bound<Value>,
+        bounds: (&Bound<Value>, &Bound<Value>),
         continuation_start_exclusive: Option<&RawIndexKey>,
+        direction: Direction,
         limit: usize,
     ) -> Result<Vec<DataKey>, InternalError> {
         if prefix.len() >= index.fields.len() {
@@ -110,7 +118,8 @@ impl IndexStore {
             return Ok(Vec::new());
         }
 
-        let (mut start_raw, end_raw) = raw_bounds_for_index_component_range::<E>(
+        let (lower, upper) = bounds;
+        let (start_raw, end_raw) = raw_bounds_for_index_component_range::<E>(
             index, prefix, lower, upper,
         )
         .map_err(|err| {
@@ -127,22 +136,22 @@ impl IndexStore {
             };
             InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Index, message)
         })?;
-        if let Some(raw_key) = continuation_start_exclusive {
-            // 0.12 continuation contract: preserve upper bound and rewrite only
-            // the lower bound to strict continuation in raw key space.
-            start_raw = Bound::Excluded(raw_key.clone());
-        }
+        let (start_raw, end_raw) = match continuation_start_exclusive {
+            Some(anchor) => resume_bounds(direction, start_raw, end_raw, anchor),
+            None => (start_raw, end_raw),
+        };
         if range_is_empty(&start_raw, &end_raw) {
             return Ok(Vec::new());
         }
 
         let mut out = Vec::new();
-        for entry in self.entry_map().range((start_raw, end_raw)) {
+        let (entry_map, bounds) = self.index_range_stream((start_raw, end_raw), direction);
+        for entry in entry_map.range(bounds) {
             let raw_key = entry.key();
             let value = entry.value();
 
             if let Some(anchor) = continuation_start_exclusive
-                && raw_key <= anchor
+                && !continuation_advanced(direction, raw_key, anchor)
             {
                 return Err(InternalError::new(
                     ErrorClass::InvariantViolation,
@@ -163,6 +172,15 @@ impl IndexStore {
         }
 
         Ok(out)
+    }
+
+    fn index_range_stream(
+        &self,
+        bounds: (Bound<RawIndexKey>, Bound<RawIndexKey>),
+        direction: Direction,
+    ) -> IndexRangeStream {
+        let _ = direction;
+        (self.entry_map(), bounds)
     }
 
     fn decode_index_entry_and_push<E: EntityKind>(

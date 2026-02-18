@@ -1,6 +1,7 @@
 //! Continuation signature for cursor pagination compatibility checks.
 use super::{
-    CursorBoundary, CursorBoundarySlot, ExplainPlan, OrderSpec, PlanError, encode_plan_hex,
+    CursorBoundary, CursorBoundarySlot, Direction, ExplainPlan, OrderSpec, PlanError,
+    encode_plan_hex,
 };
 use crate::{
     db::{
@@ -165,26 +166,34 @@ where
 pub(crate) struct ContinuationToken {
     signature: ContinuationSignature,
     boundary: CursorBoundary,
+    direction: Direction,
     index_range_anchor: Option<IndexRangeCursorAnchor>,
 }
 
 impl ContinuationToken {
-    pub(crate) const fn new(signature: ContinuationSignature, boundary: CursorBoundary) -> Self {
-        Self {
-            signature,
-            boundary,
-            index_range_anchor: None,
-        }
-    }
-
-    pub(in crate::db) const fn new_index_range(
+    pub(in crate::db) const fn new_with_direction(
         signature: ContinuationSignature,
         boundary: CursorBoundary,
-        index_range_anchor: IndexRangeCursorAnchor,
+        direction: Direction,
     ) -> Self {
         Self {
             signature,
             boundary,
+            direction,
+            index_range_anchor: None,
+        }
+    }
+
+    pub(in crate::db) const fn new_index_range_with_direction(
+        signature: ContinuationSignature,
+        boundary: CursorBoundary,
+        index_range_anchor: IndexRangeCursorAnchor,
+        direction: Direction,
+    ) -> Self {
+        Self {
+            signature,
+            boundary,
+            direction,
             index_range_anchor: Some(index_range_anchor),
         }
     }
@@ -195,6 +204,10 @@ impl ContinuationToken {
 
     pub(crate) const fn boundary(&self) -> &CursorBoundary {
         &self.boundary
+    }
+
+    pub(in crate::db) const fn direction(&self) -> Direction {
+        self.direction
     }
 
     pub(in crate::db) const fn index_range_anchor(&self) -> Option<&IndexRangeCursorAnchor> {
@@ -209,6 +222,7 @@ impl ContinuationToken {
             version: CONTINUATION_TOKEN_VERSION_V1,
             signature: self.signature.into_bytes(),
             boundary: self.boundary.clone(),
+            direction: self.direction,
             index_range_anchor,
         };
 
@@ -227,13 +241,16 @@ impl ContinuationToken {
 
         let signature = ContinuationSignature::from_bytes(wire.signature);
         let boundary = wire.boundary;
+        let direction = wire.direction;
 
         match wire
             .index_range_anchor
             .map(IndexRangeCursorAnchorWire::into_anchor)
         {
-            Some(anchor) => Ok(Self::new_index_range(signature, boundary, anchor)),
-            None => Ok(Self::new(signature, boundary)),
+            Some(anchor) => Ok(Self::new_index_range_with_direction(
+                signature, boundary, anchor, direction,
+            )),
+            None => Ok(Self::new_with_direction(signature, boundary, direction)),
         }
     }
 
@@ -249,6 +266,7 @@ impl ContinuationToken {
             version,
             signature: self.signature.into_bytes(),
             boundary: self.boundary.clone(),
+            direction: self.direction,
             index_range_anchor,
         };
 
@@ -282,6 +300,8 @@ struct ContinuationTokenWire {
     version: u8,
     signature: [u8; 32],
     boundary: CursorBoundary,
+    #[serde(default)]
+    direction: Direction,
     #[serde(default)]
     index_range_anchor: Option<IndexRangeCursorAnchorWire>,
 }
@@ -351,6 +371,13 @@ impl DecodedContinuationCursor {
     }
 }
 
+/// Build the standard invalid-continuation payload error variant.
+pub(in crate::db) fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> PlanError {
+    PlanError::InvalidContinuationCursorPayload {
+        reason: reason.into(),
+    }
+}
+
 // Decode and validate one continuation cursor against a canonical plan surface.
 pub(in crate::db) fn decode_validated_cursor(
     cursor: &[u8],
@@ -358,10 +385,11 @@ pub(in crate::db) fn decode_validated_cursor(
     model: &EntityModel,
     order: &OrderSpec,
     expected_signature: ContinuationSignature,
+    expected_direction: Direction,
 ) -> Result<DecodedContinuationCursor, PlanError> {
     let token = ContinuationToken::decode(cursor).map_err(|err| match err {
         ContinuationTokenError::Encode(message) | ContinuationTokenError::Decode(message) => {
-            PlanError::InvalidContinuationCursorPayload { reason: message }
+            invalid_continuation_cursor_payload(message)
         }
         ContinuationTokenError::UnsupportedVersion { version } => {
             PlanError::ContinuationCursorVersionMismatch { version }
@@ -374,6 +402,11 @@ pub(in crate::db) fn decode_validated_cursor(
             expected: expected_signature.to_string(),
             actual: token.signature().to_string(),
         });
+    }
+    if token.direction() != expected_direction {
+        return Err(invalid_continuation_cursor_payload(
+            "continuation cursor direction does not match executable plan direction",
+        ));
     }
 
     if token.boundary().slots.len() != order.fields.len() {
@@ -510,8 +543,8 @@ mod tests {
     use super::{ContinuationSignature, ContinuationToken, IndexRangeCursorAnchor};
     use crate::db::query::intent::{KeyAccess, LoadSpec, access_plan_from_keys_value};
     use crate::db::query::plan::{
-        AccessPath, CursorBoundary, CursorBoundarySlot, LogicalPlan, OrderDirection, OrderSpec,
-        PageSpec,
+        AccessPath, CursorBoundary, CursorBoundarySlot, Direction, LogicalPlan, OrderDirection,
+        OrderSpec, PageSpec,
     };
     use crate::db::query::predicate::Predicate;
     use crate::db::query::{ReadConsistency, builder::field::FieldRef, intent::QueryMode};
@@ -641,10 +674,11 @@ mod tests {
         };
         let signature = ContinuationSignature::from_bytes([7u8; 32]);
 
-        let token = ContinuationToken::new_index_range(
+        let token = ContinuationToken::new_index_range_with_direction(
             signature,
             boundary.clone(),
             IndexRangeCursorAnchor::new(raw_key.clone()),
+            Direction::Asc,
         );
 
         let encoded = token

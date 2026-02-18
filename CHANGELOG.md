@@ -5,7 +5,22 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.13.2] – 2026-02-18
+## [0.13.3] – 2026-02-18 - Audits & Desc Prep
+
+### 🔧 Changed
+
+* Added execution-layer `Direction` plumbing (currently `Asc` only) so ordering direction is carried as data without expanding `AccessPath` variants.
+* Centralized cursor continuation range rewrites into one helper (`resume_bounds`) and centralized raw-anchor envelope validation into one helper (`anchor_within_envelope`).
+* Added a store traversal containment point (`index_range_stream(bounds, direction)`) and threaded direction through planner cursor validation, executor paging, and continuation token encoding.
+* Cursor tokens now include direction (`Asc` for now) to keep wire format ready for future DESC execution support without changing current behavior.
+
+---
+
+## [0.13.2] – 2026-02-18 - docs/audits
+
+### 📝 Summary
+
+* This release starts a first-pass audit sweep across each defined audit track to establish a consistent baseline before deeper follow-up passes.
 
 ### 🧹 Cleanup
 

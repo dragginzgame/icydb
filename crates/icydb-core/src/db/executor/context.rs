@@ -7,7 +7,7 @@ use crate::{
         index::RawIndexKey,
         query::{
             ReadConsistency,
-            plan::{AccessPath, AccessPlan},
+            plan::{AccessPath, AccessPlan, Direction},
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -83,13 +83,14 @@ where
     where
         E: EntityKind,
     {
-        self.candidates_from_access_with_index_range_anchor(access, None)
+        self.candidates_from_access_with_index_range_anchor(access, None, Direction::Asc)
     }
 
     pub(crate) fn candidates_from_access_with_index_range_anchor(
         &self,
         access: &AccessPath<E::Key>,
         index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
     ) -> Result<Vec<DataKey>, InternalError>
     where
         E: EntityKind,
@@ -154,6 +155,7 @@ where
                         lower,
                         upper,
                         index_range_anchor,
+                        direction,
                     )
                 })?
             }
@@ -171,6 +173,7 @@ where
         access: &AccessPath<E::Key>,
         consistency: ReadConsistency,
         index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
     ) -> Result<Vec<DataRow>, InternalError>
     where
         E: EntityKind,
@@ -212,8 +215,11 @@ where
             })?,
 
             AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. } => {
-                let keys = self
-                    .candidates_from_access_with_index_range_anchor(access, index_range_anchor)?;
+                let keys = self.candidates_from_access_with_index_range_anchor(
+                    access,
+                    index_range_anchor,
+                    direction,
+                )?;
                 self.load_many_with_consistency(&keys, consistency)
             }
         }
@@ -227,7 +233,12 @@ where
     where
         E: EntityKind,
     {
-        self.rows_from_access_plan_with_index_range_anchor(access, consistency, None)
+        self.rows_from_access_plan_with_index_range_anchor(
+            access,
+            consistency,
+            None,
+            Direction::Asc,
+        )
     }
 
     pub(crate) fn rows_from_access_plan_with_index_range_anchor(
@@ -235,6 +246,7 @@ where
         access: &AccessPlan<E::Key>,
         consistency: ReadConsistency,
         index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
     ) -> Result<Vec<DataRow>, InternalError>
     where
         E: EntityKind,
@@ -242,9 +254,12 @@ where
         Self::ensure_anchor_matches_access_plan(access, index_range_anchor)?;
 
         match access {
-            AccessPlan::Path(path) => {
-                self.rows_from_access_with_index_range_anchor(path, consistency, index_range_anchor)
-            }
+            AccessPlan::Path(path) => self.rows_from_access_with_index_range_anchor(
+                path,
+                consistency,
+                index_range_anchor,
+                direction,
+            ),
 
             AccessPlan::Union(_) | AccessPlan::Intersection(_) => {
                 let keys = self.candidate_keys_for_plan(access)?;

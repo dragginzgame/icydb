@@ -264,15 +264,13 @@ This anticipates silent invariant erosion.
 6. Redundant Enforcement
 7. Missing Enforcement
 8. Drift Sensitivity Summary
-9. Overall Invariant Integrity Rating (1–10)
+9. Overall Invariant Risk Index (1–10, lower is better)
 
-Scale:
-
-9–10 → Invariants structurally hardened
-7–8 → Mostly hardened, minor drift risk
-5–6 → Moderate enforcement scattering
-3–4 → High structural fragility
-1–2 → Invariants inconsistently enforced
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
 
 ---
 

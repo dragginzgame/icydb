@@ -2,7 +2,8 @@
 
 use crate::{
     db::commit::{
-        CommitMarker, MAX_COMMIT_BYTES, memory::commit_memory_id, validate_commit_marker_shape,
+        CommitMarker, MAX_COMMIT_BYTES, commit_corruption_message, memory::commit_memory_id,
+        validate_commit_marker_shape,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     serialize::{deserialize_bounded, serialize},
@@ -55,7 +56,7 @@ impl RawCommitMarker {
         }
         if self.0.len() > MAX_COMMIT_BYTES as usize {
             return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
+                ErrorClass::Corruption,
                 ErrorOrigin::Store,
                 format!(
                     "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
@@ -69,7 +70,7 @@ impl RawCommitMarker {
                 InternalError::new(
                     ErrorClass::Corruption,
                     ErrorOrigin::Store,
-                    format!("commit marker corrupted: {err}"),
+                    commit_corruption_message(err),
                 )
             })?;
         validate_commit_marker_shape(&marker)?;
@@ -232,6 +233,21 @@ mod tests {
             ),
             SerializeError::Serialize(_) => panic!("unexpected serialize error"),
         }
+    }
+
+    #[test]
+    fn commit_marker_rejects_oversized_stored_payload_as_corruption() {
+        let len = (MAX_COMMIT_BYTES as usize).saturating_add(1);
+        let err = RawCommitMarker(vec![0; len])
+            .try_decode()
+            .expect_err("oversized persisted marker should be rejected");
+
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message.contains("commit marker exceeds max size"),
+            "unexpected error: {err:?}"
+        );
     }
 
     #[test]

@@ -34,6 +34,7 @@ use canic_memory::{
 };
 #[cfg(test)]
 use std::collections::BTreeSet;
+use std::fmt::Display;
 
 ///
 /// Re-exports
@@ -46,6 +47,19 @@ pub(in crate::db) use prepare::prepare_row_commit_for_entity;
 pub(in crate::db) use recovery::{ensure_recovered, ensure_recovered_for_write};
 pub(in crate::db) use rollback::{rollback_prepared_row_ops_reverse, snapshot_row_rollback};
 pub(in crate::db) use validate::validate_commit_marker_shape;
+
+/// Build a standard commit-marker corruption message.
+pub(in crate::db) fn commit_corruption_message(detail: impl Display) -> String {
+    format!("commit marker corrupted: {detail}")
+}
+
+/// Build a standard commit-marker component corruption message.
+pub(in crate::db) fn commit_component_corruption_message(
+    component: &str,
+    detail: impl Display,
+) -> String {
+    format!("commit marker {component} corrupted: {detail}")
+}
 
 #[cfg(test)]
 /// Return true if a commit marker is currently persisted.

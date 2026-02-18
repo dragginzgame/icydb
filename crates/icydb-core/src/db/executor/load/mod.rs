@@ -15,8 +15,8 @@ use crate::{
         },
         index::IndexKey,
         query::plan::{
-            AccessPath, ContinuationSignature, ContinuationToken, CursorBoundary, ExecutablePlan,
-            IndexRangeCursorAnchor, LogicalPlan, PlannedCursor,
+            AccessPath, ContinuationSignature, ContinuationToken, CursorBoundary, Direction,
+            ExecutablePlan, IndexRangeCursorAnchor, LogicalPlan, PlannedCursor,
             logical::PostAccessStats,
             validate::{
                 PushdownApplicability, assess_secondary_order_pushdown_if_applicable_validated,
@@ -122,6 +122,7 @@ where
             ));
         }
 
+        let direction = plan.direction();
         let continuation_signature = plan.continuation_signature();
         let trace = start_plan_trace(self.trace, TraceExecutorKind::Load, &plan);
 
@@ -147,6 +148,7 @@ where
                 &ctx,
                 &plan,
                 cursor_boundary.as_ref(),
+                direction,
                 continuation_signature,
             )? {
                 return Ok(Self::finish_fast_path(&mut span, trace.as_ref(), fast));
@@ -157,6 +159,7 @@ where
                 &plan,
                 &secondary_pushdown_applicability,
                 cursor_boundary.as_ref(),
+                direction,
                 continuation_signature,
             )? {
                 return Ok(Self::finish_fast_path(&mut span, trace.as_ref(), fast));
@@ -167,6 +170,7 @@ where
                 &plan,
                 cursor_boundary.as_ref(),
                 index_range_anchor.as_ref(),
+                direction,
                 continuation_signature,
             )? {
                 return Ok(Self::finish_fast_path(&mut span, trace.as_ref(), fast));
@@ -176,6 +180,7 @@ where
                 &plan.access,
                 plan.consistency,
                 index_range_anchor.as_ref(),
+                direction,
             )?;
             record_rows_scanned::<E>(data_rows.len());
 
@@ -185,6 +190,7 @@ where
                 &plan,
                 &mut rows,
                 cursor_boundary.as_ref(),
+                direction,
                 continuation_signature,
             )?;
             let post_access_rows = page.items.0.len();
@@ -271,10 +277,12 @@ where
         plan: &LogicalPlan<E::Key>,
         rows: &mut Vec<(Id<E>, E)>,
         cursor_boundary: Option<&CursorBoundary>,
+        direction: Direction,
         continuation_signature: ContinuationSignature,
     ) -> Result<CursorPage<E>, InternalError> {
         let stats = plan.apply_post_access_with_cursor::<E, _>(rows, cursor_boundary)?;
-        let next_cursor = Self::build_next_cursor(plan, rows, &stats, continuation_signature)?;
+        let next_cursor =
+            Self::build_next_cursor(plan, rows, &stats, direction, continuation_signature)?;
         let items = Response(std::mem::take(rows));
 
         Ok(CursorPage { items, next_cursor })
@@ -292,6 +300,7 @@ where
         plan: &LogicalPlan<E::Key>,
         rows: &[(Id<E>, E)],
         stats: &PostAccessStats,
+        direction: Direction,
         signature: ContinuationSignature,
     ) -> Result<Option<Vec<u8>>, InternalError> {
         let Some(page) = plan.page.as_ref() else {
@@ -313,13 +322,14 @@ where
         let Some((_, last_entity)) = rows.last() else {
             return Ok(None);
         };
-        Self::encode_next_cursor_for_last_entity(plan, last_entity, signature).map(Some)
+        Self::encode_next_cursor_for_last_entity(plan, last_entity, direction, signature).map(Some)
     }
 
     // Encode the continuation token from the last returned entity.
     fn encode_next_cursor_for_last_entity(
         plan: &LogicalPlan<E::Key>,
         last_entity: &E,
+        direction: Direction,
         signature: ContinuationSignature,
     ) -> Result<Vec<u8>, InternalError> {
         let boundary = plan.cursor_boundary_from_entity(last_entity)?;
@@ -333,13 +343,14 @@ where
                             "executor invariant violated: cursor row is not indexable for planned index-range access",
                         )
                     })?;
-                ContinuationToken::new_index_range(
+                ContinuationToken::new_index_range_with_direction(
                     signature,
                     boundary,
                     IndexRangeCursorAnchor::new(index_key.to_raw()),
+                    direction,
                 )
             }
-            _ => ContinuationToken::new(signature, boundary),
+            _ => ContinuationToken::new_with_direction(signature, boundary, direction),
         };
         token.encode().map_err(|err| {
             InternalError::new(

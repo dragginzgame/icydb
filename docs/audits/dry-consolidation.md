@@ -245,15 +245,13 @@ Provide:
 4. Dangerous Consolidations (Keep Separate)
 5. Estimated LoC Reduction Range
 6. Architectural Risk Summary
-7. DRY Health Score (1–10)
+7. DRY Risk Index (1–10, lower is better)
 
-Scale:
-
-9–10 → Minimal divergence risk
-7–8 → Moderate duplication but controlled
-5–6 → Growing drift duplication
-3–4 → High divergence risk
-1–2 → Duplication causing architectural fragility
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
 
 ---
 

@@ -2,6 +2,8 @@
 
 `icydb-core` (+ facade)
 
+---
+
 ## Purpose
 
 Verify that all error types:
@@ -31,41 +33,89 @@ Only verify classification correctness.
 
 Use only these domains:
 
-1. **Corruption**
+---
 
-   * Persistent state invalid
-   * Structural invariant broken
-   * Decode failure of trusted storage
-   * Commit marker inconsistency
+## 1. **Corruption**
 
-2. **Unsupported**
+Applies when:
 
-   * Feature not supported
-   * Value intentionally not indexable
-   * Explicitly blocked operation
+* Persistent state is invalid
+* Structural invariant of stored bytes is broken
+* Decode failure occurs on trusted storage
+* Commit marker inconsistency is detected
+* Index or row bytes cannot be decoded correctly
 
-3. **Invalid Input**
+Rule:
 
-   * Malformed cursor
-   * Invalid query shape
-   * Invalid user-provided value
-   * Identity decode from untrusted input
+> If the violation originates from persisted bytes being structurally invalid, classify as **Corruption**.
 
-4. **Invariant Violation**
+Corruption must never originate from user input parsing.
 
-   * Logical internal assumption broken
-   * Unexpected execution state
-   * Index/row mismatch
-   * Reverse relation inconsistency
+---
 
-5. **System Failure**
+## 2. **Unsupported**
 
-   * Out-of-memory
-   * Stable memory failure
-   * Trap-level error
-   * Unexpected runtime failure
+Applies when:
 
-No other semantic domains allowed.
+* Feature is intentionally unsupported
+* Value is intentionally not indexable
+* Explicitly blocked operation
+* Storage encoding policy rejects a representable value
+
+Unsupported is a policy fence, not a failure of integrity.
+
+---
+
+## 3. **Invalid Input**
+
+Applies when:
+
+* Malformed cursor
+* Invalid query shape
+* Invalid user-provided value
+* Identity decode from untrusted input
+* Operation-level expectation failures (e.g. NotFound, NotUnique, Conflict)
+
+Clarification:
+
+> Operation-level semantic expectation failures (NotFound, Conflict, NotUnique) are classified under **Invalid Input** for taxonomy purposes, because they result from caller intent conflicting with current state — not from corruption or invariant breakage.
+
+Invalid Input must never be escalated to Corruption.
+
+---
+
+## 4. **Invariant Violation**
+
+Applies when:
+
+* Logical internal assumption is broken
+* Unexpected execution state occurs
+* Index/row mismatch detected during runtime checks
+* Reverse relation inconsistency discovered
+* Planner/executor disagreement detected
+
+Rule:
+
+> If state is well-formed at the byte level but logically inconsistent during execution, classify as **Invariant Violation**.
+
+Invariant violations must not be downgraded to Invalid Input.
+
+---
+
+## 5. **System Failure**
+
+Applies when:
+
+* Out-of-memory
+* Stable memory failure
+* Trap-level runtime error
+* Unexpected runtime failure not attributable to input or corruption
+
+System Failure must never be disguised as Invalid Input.
+
+---
+
+No other semantic domains are allowed.
 
 ---
 
@@ -115,23 +165,21 @@ Flag:
 
 # STEP 3 — Upward Mapping Verification
 
-Trace how each error variant propagates upward:
+Trace how each error variant propagates upward.
 
-Example flow:
+Example:
 
 ```
 StoreError → InternalError → QueryError → public Error
 ```
 
-For each mapping layer:
-
-Verify:
+At each mapping layer verify:
 
 * No reclassification unless domain-compatible
 * Corruption is never downgraded
-* Invalid input never escalated to corruption
-* Unsupported never classified as invariant violation
-* System failure never disguised as invalid input
+* Invalid Input never escalated to Corruption
+* Unsupported never classified as Invariant Violation
+* System Failure never disguised as Invalid Input
 
 Produce:
 
@@ -143,9 +191,9 @@ Produce:
 
 Explicitly verify:
 
-* All corruption-class errors are marked as corruption in public surface
-* No corruption is exposed as invalid input
-* Corruption always sets correct `ErrorOrigin`
+* All corruption-class errors remain Corruption at public boundary
+* No corruption is exposed as Invalid Input
+* Corruption sets correct `ErrorOrigin`
 * Corruption never originates from user input parsing
 
 Produce:
@@ -158,10 +206,10 @@ Produce:
 
 Verify:
 
-* CursorDecodeError is always classified as Invalid Input
-* IdentityDecodeError from untrusted source is Invalid Input
+* `CursorDecodeError` is always Invalid Input
+* Identity decode from untrusted input is Invalid Input
 * PlanError for malformed query is Invalid Input
-* No Invalid Input becomes InternalError
+* No Invalid Input becomes InternalError(Corruption)
 * No Invalid Input sets Corruption origin
 
 Produce:
@@ -176,8 +224,8 @@ Verify:
 
 * InvariantViolation variants are never downgraded
 * Internal invariants do not leak as Invalid Input
-* Executor invariants do not get reclassified as Unsupported
-* Recovery invariant violations remain invariant violations
+* Executor invariants are not reclassified as Unsupported
+* Recovery invariant violations remain Invariant Violations
 
 Produce:
 
@@ -187,11 +235,9 @@ Produce:
 
 # STEP 7 — Origin Fidelity Audit
 
-For each error:
+For each error, verify correct `ErrorOrigin`.
 
-Verify correct `ErrorOrigin`:
-
-Expected origins might include:
+Expected origins may include:
 
 * Planner
 * Executor
@@ -200,13 +246,14 @@ Expected origins might include:
 * Cursor
 * Identity
 * Serialization
+* Interface
 
 Check:
 
-* Store-origin errors not reported as Planner origin
-* Planner errors not reported as Executor origin
+* Store-origin errors not reported as Planner
+* Planner errors not reported as Executor
 * Recovery errors clearly marked
-* Cursor errors not misattributed to executor
+* Cursor errors not misattributed to Executor
 * No origin dropped during mapping
 
 Produce:
@@ -220,10 +267,10 @@ Produce:
 Detect:
 
 * Lower-layer errors inspecting higher-layer types
-* Planner wrapping executor errors
+* Planner wrapping executor errors improperly
 * Executor reclassifying planner errors
 * Recovery reinterpreting planner errors
-* Serialize errors misclassified as corruption without justification
+* Serialize errors misclassified as Corruption without justification
 
 Produce:
 
@@ -241,7 +288,7 @@ Verify classification consistency between:
 * Save vs Replace
 * Delete vs Replay Delete
 
-If same failure yields different classification in different paths, flag.
+If the same failure yields different classification in different paths, flag.
 
 Produce:
 
@@ -269,11 +316,11 @@ Produce:
 
 List:
 
-* Any domain misclassifications
-* Any downgrade risks
-* Any escalation risks
-* Any origin mismatches
-* Any mixed-domain structural problems
+* Domain misclassifications
+* Downgrade risks
+* Escalation risks
+* Origin mismatches
+* Mixed-domain structural problems
 
 ---
 
@@ -285,15 +332,14 @@ Produce master matrix:
 
 ---
 
-# STEP 13 — Overall Taxonomy Integrity Score
+# STEP 13 — Overall Taxonomy Risk Index
 
-Score:
+Taxonomy Risk Index (1–10, lower is better):
 
-9–10 → Strict domain containment
-7–8 → Minor mapping asymmetries
-5–6 → Mixed-domain or escalation risks
-3–4 → Frequent reclassification drift
-1–2 → Corruption or invalid-input misclassification risk
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
 
 ---
 
@@ -308,23 +354,4 @@ Do NOT:
 * Suggest architectural changes
 
 Only classify and identify violations.
-
----
-
-# Why This Version Is Stronger
-
-It forces:
-
-* Full variant enumeration
-* Domain assignment per variant
-* Upward propagation tracing
-* Origin integrity validation
-* Replay vs normal classification comparison
-* Corruption containment proof
-* Mixed-domain detection
-* Escalation/downgrade proof
-
-Error taxonomy is the semantic firewall of the engine.
-
-If classification drifts, the system becomes misleading under failure.
 

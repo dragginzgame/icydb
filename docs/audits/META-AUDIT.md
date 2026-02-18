@@ -51,17 +51,15 @@ Evaluate:
    * Feature proposals
    * Performance discussion
 
-Score:
+Risk Index (1–10, lower is better):
 
-| Audit | Scope Clarity (1–10) | Drift Risk | Notes |
+| Audit | Scope Clarity Risk Index (1–10, lower is better) | Drift Risk | Notes |
 
-Scoring rubric:
-
-9–10 → Strict boundaries, explicit guardrails
-7–8 → Mostly constrained, minor narrative drift
-5–6 → Mixed scope, occasional bleed
-3–4 → Significant scope creep
-1–2 → Unbounded or vague
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
 
 ---
 
@@ -78,9 +76,9 @@ Check:
 * Are symmetry checks required (normal vs recovery)?
 * Is envelope containment explicitly tested?
 
-Score:
+Risk Index (1–10, lower is better):
 
-| Audit | Invariant Precision (1–10) | Boundary Enumeration | Risk |
+| Audit | Invariant Precision Risk Index (1–10, lower is better) | Boundary Enumeration | Risk |
 
 ---
 
@@ -98,9 +96,9 @@ Check whether it:
 * Detects amplification risk
 * Detects drift sensitivity
 
-Score:
+Risk Index (1–10, lower is better):
 
-| Audit | Structural Depth (1–10) | Missing Dimensions | Risk |
+| Audit | Structural Depth Risk Index (1–10, lower is better) | Missing Dimensions | Risk |
 
 ---
 
@@ -113,9 +111,9 @@ Identify audits that:
 * Do not enforce quantitative measures
 * Allow unstructured conclusions
 
-Score:
+Risk Index (1–10, lower is better):
 
-| Audit | Signal Density (1–10) | Narrative Drift Risk |
+| Audit | Signal Density Risk Index (1–10, lower is better) | Narrative Drift Risk |
 
 ---
 
@@ -131,9 +129,9 @@ Check whether it:
 * Labels hypothetical vs observed risks
 * Defines scoring scale
 
-Score:
+Risk Index (1–10, lower is better):
 
-| Audit | Risk Discipline (1–10) | Missing Scoring | Risk |
+| Audit | Risk Discipline Risk Index (1–10, lower is better) | Missing Scoring | Risk |
 
 ---
 
@@ -231,40 +229,38 @@ Only identify governance-level consolidation.
 
 ---
 
-# STEP 12 — Governance Health Score
+# STEP 12 — Governance Risk Index
 
-Score the audit framework overall:
+Rate the audit framework overall with a Risk Index (1–10, lower is better):
 
-| Dimension           | Score (1–10) |
-| ------------------- | ------------ |
-| Scope Discipline    |              |
-| Invariant Precision |              |
-| Structural Depth    |              |
-| Redundancy Control  |              |
-| Drift Detection     |              |
-| Risk Clarity        |              |
+| Dimension           | Risk Index (1–10, lower is better) |
+| ------------------- | ----------------------------------- |
+| Scope Discipline    |                                     |
+| Invariant Precision |                                     |
+| Structural Depth    |                                     |
+| Redundancy Control  |                                     |
+| Drift Detection     |                                     |
+| Risk Clarity        |                                     |
 
-Overall Audit Governance Score (1–10)
+Overall Audit Governance Risk Index (1–10, lower is better)
 
-Scale:
-
-9–10 → Strong audit discipline, low meta-drift
-7–8 → Minor overlap, manageable
-5–6 → Growing audit sprawl
-3–4 → Significant duplication or scope bleed
-1–2 → Audit framework unstable
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
 
 ---
 
 # Required Output Sections
 
-1. Audit Quality Score per Document
+1. Audit Quality Risk Index per Document
 2. Structural Weaknesses per Document
 3. Overlap Matrix
 4. Drift Warnings
 5. Missing Dimensions
 6. Consolidation Opportunities
-7. Governance Health Score
+7. Governance Risk Index
 
 ---
 
@@ -307,4 +303,3 @@ It:
 * Tracks audit growth over time
 
 This keeps the audit framework from becoming what it was meant to prevent.
-

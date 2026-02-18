@@ -4,7 +4,8 @@ use crate::{
         executor::load::{FastLoadResult, LoadExecutor},
         index::RawIndexKey,
         query::plan::{
-            AccessPath, ContinuationSignature, CursorBoundary, LogicalPlan, OrderDirection,
+            AccessPath, ContinuationSignature, CursorBoundary, Direction, LogicalPlan,
+            OrderDirection,
         },
     },
     error::InternalError,
@@ -30,6 +31,7 @@ where
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
         index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
         continuation_signature: ContinuationSignature,
     ) -> Result<Option<FastLoadResult<E>>, InternalError> {
         let Some(limit_spec) = Self::assess_index_range_limit_pushdown(plan, cursor_boundary)
@@ -58,9 +60,9 @@ where
                     index_store.resolve_data_values_in_range_limited::<E>(
                         index,
                         prefix,
-                        lower,
-                        upper,
+                        (lower, upper),
                         index_range_anchor,
+                        direction,
                         limit_spec.effective_fetch,
                     )
                 })
@@ -77,6 +79,7 @@ where
             plan,
             &mut rows,
             cursor_boundary,
+            direction,
             continuation_signature,
         )?;
 

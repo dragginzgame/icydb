@@ -70,6 +70,35 @@ fn raw_relation_target_key_from_parts(
     DataKey::raw_from_parts(entity_name, storage_key)
 }
 
+/// Map a relation-target key normalization failure into a typed `InternalError`.
+pub(in crate::db) fn map_relation_target_raw_key_error(
+    err: RelationTargetRawKeyError,
+    source_path: &'static str,
+    field_name: &str,
+    target_path: &str,
+    target_entity_name: &str,
+    value: &Value,
+    storage_compat_message: &'static str,
+    invalid_target_message: &'static str,
+) -> InternalError {
+    match err {
+        RelationTargetRawKeyError::StorageKeyEncode(err) => InternalError::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Executor,
+            format!(
+                "{storage_compat_message}: source={source_path} field={field_name} target={target_path} value={value:?} ({err})",
+            ),
+        ),
+        RelationTargetRawKeyError::TargetEntityName(err) => InternalError::new(
+            ErrorClass::Internal,
+            ErrorOrigin::Executor,
+            format!(
+                "{invalid_target_message}: source={source_path} field={field_name} target={target_path} name={target_entity_name} ({err})",
+            ),
+        ),
+    }
+}
+
 /// Convert a relation target `Value` into its canonical `RawDataKey` representation.
 pub(super) fn build_relation_target_raw_key(
     target_entity_name: &str,
@@ -116,28 +145,17 @@ fn raw_relation_target_key<S>(
 where
     S: EntityKind + EntityValue,
 {
-    build_relation_target_raw_key(relation.target_entity_name, value).map_err(|err| match err {
-        RelationTargetRawKeyError::StorageKeyEncode(err) => InternalError::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Executor,
-            format!(
-                "strong relation key not storage-compatible during relation processing: source={} field={} target={} value={value:?} ({err})",
-                S::PATH,
-                field_name,
-                relation.target_path,
-            ),
-        ),
-        RelationTargetRawKeyError::TargetEntityName(err) => InternalError::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Executor,
-            format!(
-                "strong relation target entity invalid during relation processing: source={} field={} target={} name={} ({err})",
-                S::PATH,
-                field_name,
-                relation.target_path,
-                relation.target_entity_name,
-            ),
-        ),
+    build_relation_target_raw_key(relation.target_entity_name, value).map_err(|err| {
+        map_relation_target_raw_key_error(
+            err,
+            S::PATH,
+            field_name,
+            relation.target_path,
+            relation.target_entity_name,
+            value,
+            "strong relation key not storage-compatible during relation processing",
+            "strong relation target entity invalid during relation processing",
+        )
     })
 }
 

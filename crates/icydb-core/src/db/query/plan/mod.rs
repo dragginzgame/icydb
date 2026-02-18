@@ -14,6 +14,7 @@ mod tests;
 mod types;
 pub(crate) mod validate;
 
+pub(crate) use crate::db::index::Direction;
 pub(crate) use access_projection::{
     AccessPlanProjection, project_access_plan, project_explain_access_path,
 };

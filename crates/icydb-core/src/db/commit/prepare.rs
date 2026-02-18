@@ -3,6 +3,7 @@ use crate::{
         Db,
         commit::{
             CommitRowOp, PreparedIndexMutation, PreparedRowCommitOp,
+            commit_component_corruption_message,
             decode::{decode_data_key, decode_index_entry, decode_index_key},
         },
         data::{DataKey, RawRow},
@@ -41,7 +42,7 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
         InternalError::new(
             ErrorClass::Corruption,
             ErrorOrigin::Store,
-            format!("commit marker data key corrupted: {err}"),
+            commit_component_corruption_message("data key", err),
         )
     })?;
     let expected_key = data_key.try_key::<E>()?;

@@ -5,8 +5,8 @@ use crate::{
         entity_decode::{decode_and_validate_entity_key, format_entity_key_for_mismatch},
         executor::load::{CursorPage, FastLoadResult, LoadExecutor},
         query::plan::{
-            AccessPath, ContinuationSignature, CursorBoundary, LogicalPlan, OrderDirection,
-            decode_pk_cursor_boundary,
+            AccessPath, ContinuationSignature, CursorBoundary, Direction, LogicalPlan,
+            OrderDirection, decode_pk_cursor_boundary,
         },
         response::Response,
     },
@@ -49,6 +49,7 @@ where
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
+        direction: Direction,
         continuation_signature: ContinuationSignature,
     ) -> Result<Option<FastLoadResult<E>>, InternalError> {
         // Phase 1: derive a fast-path scan config from the canonical plan + cursor.
@@ -74,6 +75,7 @@ where
             plan,
             &mut scan.rows,
             cursor_boundary,
+            direction,
             continuation_signature,
         )?;
         Ok(Some(FastLoadResult {

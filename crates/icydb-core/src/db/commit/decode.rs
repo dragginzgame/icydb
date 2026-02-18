@@ -2,6 +2,7 @@
 
 use crate::{
     db::{
+        commit::commit_component_corruption_message,
         data::{DataKey, RawDataKey},
         index::{IndexKey, MAX_INDEX_ENTRY_BYTES, RawIndexEntry, RawIndexKey},
     },
@@ -25,7 +26,7 @@ pub(super) fn decode_index_key(bytes: &[u8]) -> Result<RawIndexKey, InternalErro
         InternalError::new(
             ErrorClass::Corruption,
             ErrorOrigin::Index,
-            format!("commit marker index key corrupted: {err}"),
+            commit_component_corruption_message("index key", err),
         )
     })?;
 
@@ -47,7 +48,7 @@ pub(super) fn decode_index_entry(bytes: &[u8]) -> Result<RawIndexEntry, Internal
         InternalError::new(
             ErrorClass::Corruption,
             ErrorOrigin::Index,
-            format!("commit marker index entry corrupted: {err}"),
+            commit_component_corruption_message("index entry", err),
         )
     })?;
 
@@ -69,7 +70,7 @@ pub(super) fn decode_data_key(bytes: &[u8]) -> Result<RawDataKey, InternalError>
         InternalError::new(
             ErrorClass::Corruption,
             ErrorOrigin::Store,
-            format!("commit marker data key corrupted: {err}"),
+            commit_component_corruption_message("data key", err),
         )
     })?;
 

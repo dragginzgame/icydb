@@ -329,17 +329,17 @@ Produce:
 9. Replay Equivalence Table
 10. High Risk Mutation Paths
 11. Storage-Layer Assumptions
-12. Overall Index Integrity Score (1–10)
+12. Overall Index Risk Index (1–10, lower is better)
 
 ---
 
-# Scoring Scale
+# Scoring Model
 
-9–10 → Structurally hardened, low mutation divergence
-7–8 → Minor symmetry risks
-5–6 → Moderate replay/mutation coupling pressure
-3–4 → High divergence risk
-1–2 → Index/row inconsistency possible
+Interpretation:
+1–3  = Low risk / structurally healthy
+4–6  = Moderate risk / manageable pressure
+7–8  = High risk / requires monitoring
+9–10 = Critical risk / structural instability
 
 ---
 
