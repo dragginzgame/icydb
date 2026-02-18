@@ -129,18 +129,17 @@ where
         return Ok(None);
     };
 
-    if boundary.slots.len() != 1 {
-        return Err(InternalError::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Query,
-            format!(
-                "executor invariant violated: pk-ordered continuation boundary must contain exactly 1 slot, found {}",
-                boundary.slots.len()
-            ),
-        ));
-    }
+    debug_assert_eq!(
+        boundary.slots.len(),
+        1,
+        "pk-ordered continuation boundaries are validated by the cursor spine",
+    );
+    let slot = boundary
+        .slots
+        .first()
+        .unwrap_or(&CursorBoundarySlot::Missing);
 
-    decode_primary_key_cursor_slot::<E::Key>(&boundary.slots[0])
+    decode_primary_key_cursor_slot::<E::Key>(slot)
         .map(Some)
         .map_err(|err| match err {
             PrimaryKeyCursorSlotDecodeError::Missing => InternalError::new(

@@ -5,6 +5,18 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.14.1] – 2026-02-18 - Validation Unification I
+
+### 🧹 Cleanup
+
+* Cleaned up cursor checks so the same validation rules are applied in one place, with runtime failures treated as internal invariant issues.
+* Kept plan-shape checks at planning time and reduced duplicate runtime re-checks to lightweight safety guards.
+* Simplified store-side lookup checks so store code focuses on safe reads and decode integrity instead of user input rules.
+* Simplified pushdown checks so they only decide optimization eligibility, not query validity.
+* Standardized boundary-arity runtime failures as `InvariantViolation` instead of `Unsupported`.
+
+---
+
 ## [0.14.0] – 2026-02-18 - DESC Support Complete
 
 ### 📝 Summary

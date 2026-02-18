@@ -28,27 +28,15 @@ impl IndexStore {
         index: &IndexModel,
         prefix: &[Value],
     ) -> Result<Vec<DataKey>, InternalError> {
-        if prefix.len() > index.fields.len() {
-            return Err(InternalError::new(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Index,
-                format!(
-                    "index prefix length {} exceeds field count {}",
-                    prefix.len(),
-                    index.fields.len()
-                ),
-            ));
-        }
-
         let index_id = IndexId::new::<E>(index);
 
         let mut components = Vec::with_capacity(prefix.len());
         for value in prefix {
             let component = encode_canonical_index_component(value).map_err(|_| {
                 InternalError::new(
-                    ErrorClass::Unsupported,
+                    ErrorClass::InvariantViolation,
                     ErrorOrigin::Index,
-                    "index prefix value is not indexable",
+                    "executor invariant violated: index prefix value is not indexable",
                 )
             })?;
             components.push(component);
@@ -102,18 +90,6 @@ impl IndexStore {
         direction: Direction,
         limit: usize,
     ) -> Result<Vec<DataKey>, InternalError> {
-        if prefix.len() >= index.fields.len() {
-            return Err(InternalError::new(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Index,
-                format!(
-                    "index range prefix length {} must be less than field count {}",
-                    prefix.len(),
-                    index.fields.len()
-                ),
-            ));
-        }
-
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -125,16 +101,19 @@ impl IndexStore {
         .map_err(|err| {
             let message = match err {
                 IndexRangeBoundEncodeError::Prefix => {
-                    "index range prefix value is not indexable".to_string()
+                    "executor invariant violated: index range prefix value is not indexable"
+                        .to_string()
                 }
                 IndexRangeBoundEncodeError::Lower => {
-                    "index range lower bound value is not indexable".to_string()
+                    "executor invariant violated: index range lower bound value is not indexable"
+                        .to_string()
                 }
                 IndexRangeBoundEncodeError::Upper => {
-                    "index range upper bound value is not indexable".to_string()
+                    "executor invariant violated: index range upper bound value is not indexable"
+                        .to_string()
                 }
             };
-            InternalError::new(ErrorClass::Unsupported, ErrorOrigin::Index, message)
+            InternalError::new(ErrorClass::InvariantViolation, ErrorOrigin::Index, message)
         })?;
         let (start_raw, end_raw) = match continuation_start_exclusive {
             Some(anchor) => resume_bounds(direction, start_raw, end_raw, anchor),

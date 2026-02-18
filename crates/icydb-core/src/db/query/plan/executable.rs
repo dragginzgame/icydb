@@ -5,10 +5,9 @@ use crate::{
             intent::QueryMode,
             plan::{
                 AccessPlan, ContinuationSignature, CursorBoundary, CursorPlanError, ExplainPlan,
-                LogicalPlan, OrderDirection, PlanError, PlanFingerprint, validate_planned_cursor,
-                validate_planned_cursor_state,
+                LogicalPlan, OrderDirection, OrderSpec, PlanError, PlanFingerprint,
+                validate_planned_cursor, validate_planned_cursor_state,
             },
-            policy,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -129,8 +128,9 @@ impl<E: EntityKind> ExecutablePlan<E> {
     where
         E::Key: FieldValue,
     {
-        let order =
-            policy::require_cursor_order(self.plan.order.as_ref()).map_err(PlanError::from)?;
+        let order = self
+            .validated_cursor_order_plan()
+            .map_err(PlanError::from)?;
 
         validate_planned_cursor::<E>(
             cursor,
@@ -174,8 +174,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             return Ok(PlannedCursor::none());
         }
 
-        let order = policy::require_cursor_order(self.plan.order.as_ref())
-            .map_err(|err| InternalError::from_cursor_plan_error(PlanError::from(err)))?;
+        let order = self.validated_cursor_order_internal()?;
 
         validate_planned_cursor_state::<E>(
             cursor,
@@ -185,6 +184,47 @@ impl<E: EntityKind> ExecutablePlan<E> {
             self.direction,
         )
         .map_err(InternalError::from_cursor_plan_error)
+    }
+
+    // Resolve cursor ordering for plan-surface cursor decoding.
+    // Cursor readiness is owned by policy/intent validation.
+    fn validated_cursor_order_plan(&self) -> Result<&OrderSpec, CursorPlanError> {
+        let Some(order) = self.plan.order.as_ref() else {
+            return Err(CursorPlanError::InvalidContinuationCursorPayload {
+                reason: "executor invariant violated: cursor pagination requires explicit ordering"
+                    .to_string(),
+            });
+        };
+        if order.fields.is_empty() {
+            return Err(CursorPlanError::InvalidContinuationCursorPayload {
+                reason:
+                    "executor invariant violated: cursor pagination requires non-empty ordering"
+                        .to_string(),
+            });
+        }
+
+        Ok(order)
+    }
+
+    // Resolve cursor ordering for executor-provided cursor-state revalidation.
+    // Missing or empty ordering at this boundary is an execution invariant violation.
+    fn validated_cursor_order_internal(&self) -> Result<&OrderSpec, InternalError> {
+        let Some(order) = self.plan.order.as_ref() else {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                "executor invariant violated: cursor pagination requires explicit ordering",
+            ));
+        };
+        if order.fields.is_empty() {
+            return Err(InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                "executor invariant violated: cursor pagination requires non-empty ordering",
+            ));
+        }
+
+        Ok(order)
     }
 }
 

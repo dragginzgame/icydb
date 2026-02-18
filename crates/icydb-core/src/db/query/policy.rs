@@ -69,16 +69,6 @@ pub enum CursorPagingPolicyError {
     CursorWithOffsetUnsupported,
 }
 
-///
-/// CursorOrderPolicyError
-/// Canonical policy failures for cursor order preconditions.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CursorOrderPolicyError {
-    CursorRequiresOrder,
-}
-
 /// Return true when an ORDER BY exists and contains at least one field.
 #[must_use]
 pub(crate) fn has_explicit_order(order: Option<&OrderSpec>) -> bool {
@@ -89,16 +79,6 @@ pub(crate) fn has_explicit_order(order: Option<&OrderSpec>) -> bool {
 #[must_use]
 pub(crate) fn has_empty_order(order: Option<&OrderSpec>) -> bool {
     order.is_some_and(|order| order.fields.is_empty())
-}
-
-/// Require a non-empty ORDER BY and return the order spec.
-pub(crate) const fn require_cursor_order(
-    order: Option<&OrderSpec>,
-) -> Result<&OrderSpec, CursorOrderPolicyError> {
-    match order {
-        Some(order) if !order.fields.is_empty() => Ok(order),
-        _ => Err(CursorOrderPolicyError::CursorRequiresOrder),
-    }
 }
 
 /// Validate cursor-pagination readiness for a load-spec + ordering pair.

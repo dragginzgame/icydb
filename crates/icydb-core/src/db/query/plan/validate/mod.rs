@@ -21,7 +21,7 @@ use crate::{
         cursor::CursorDecodeError,
         query::{
             plan::LogicalPlan,
-            policy::{CursorOrderPolicyError, PlanPolicyError},
+            policy::PlanPolicyError,
             predicate::{self, SchemaInfo},
         },
     },
@@ -259,16 +259,6 @@ impl From<CursorPlanError> for PlanError {
 impl From<PlanPolicyError> for PlanError {
     fn from(err: PlanPolicyError) -> Self {
         Self::from(PolicyPlanError::from(err))
-    }
-}
-
-impl From<CursorOrderPolicyError> for PlanError {
-    fn from(err: CursorOrderPolicyError) -> Self {
-        match err {
-            CursorOrderPolicyError::CursorRequiresOrder => {
-                Self::from(CursorPlanError::CursorRequiresOrder)
-            }
-        }
     }
 }
 

@@ -7,7 +7,6 @@ use crate::{
             AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec, OrderDirection,
             OrderSpec, PageSpec,
         },
-        policy,
         predicate::{Predicate, coercion::canonical_cmp, eval as eval_predicate},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -152,8 +151,7 @@ impl<K> LogicalPlan<K> {
         E: EntityKind + EntityValue,
         R: PlanRow<E>,
     {
-        policy::validate_plan_shape(self)
-            .map_err(|err| InternalError::query_invariant(err.invariant_message()))?;
+        self.validate_post_access_invariants()?;
         self.validate_cursor_mode(cursor)?;
 
         // Phase 1: predicate filtering.
@@ -200,6 +198,40 @@ impl<K> LogicalPlan<K> {
             #[cfg(test)]
             rows_after_delete_limit,
         })
+    }
+
+    // Guard post-access execution with internal plan-shape invariants.
+    // Planner owns user-facing validation; this only catches internal misuse.
+    fn validate_post_access_invariants(&self) -> Result<(), InternalError> {
+        if self.mode.is_load() && self.delete_limit.is_some() {
+            return Err(InternalError::query_invariant(
+                "executor invariant violated: load plans must not carry delete limits",
+            ));
+        }
+
+        if self.mode.is_delete() && self.page.is_some() {
+            return Err(InternalError::query_invariant(
+                "executor invariant violated: delete plans must not carry pagination",
+            ));
+        }
+
+        let has_explicit_order = self
+            .order
+            .as_ref()
+            .is_some_and(|order| !order.fields.is_empty());
+        if self.page.is_some() && !has_explicit_order {
+            return Err(InternalError::query_invariant(
+                "executor invariant violated: pagination requires explicit ordering",
+            ));
+        }
+
+        if self.delete_limit.is_some() && !has_explicit_order {
+            return Err(InternalError::query_invariant(
+                "executor invariant violated: delete limit requires explicit ordering",
+            ));
+        }
+
+        Ok(())
     }
 
     // Enforce load/delete cursor compatibility before execution phases.
@@ -294,7 +326,7 @@ impl<K> LogicalPlan<K> {
                 ));
             }
 
-            apply_cursor_boundary::<E, R>(rows, order, boundary)?;
+            apply_cursor_boundary::<E, R>(rows, order, boundary);
             return Ok((true, rows.len()));
         }
 
@@ -489,31 +521,19 @@ fn compare_order_slots(left: &CursorBoundarySlot, right: &CursorBoundarySlot) ->
 }
 
 // Apply a strict continuation boundary using the canonical order comparator.
-fn apply_cursor_boundary<E, R>(
-    rows: &mut Vec<R>,
-    order: &OrderSpec,
-    boundary: &CursorBoundary,
-) -> Result<(), InternalError>
+fn apply_cursor_boundary<E, R>(rows: &mut Vec<R>, order: &OrderSpec, boundary: &CursorBoundary)
 where
     E: EntityKind + EntityValue,
     R: PlanRow<E>,
 {
-    if boundary.slots.len() != order.fields.len() {
-        return Err(InternalError::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Query,
-            format!(
-                "invalid continuation boundary arity: expected {}, found {}",
-                order.fields.len(),
-                boundary.slots.len()
-            ),
-        ));
-    }
+    debug_assert_eq!(
+        boundary.slots.len(),
+        order.fields.len(),
+        "continuation boundary arity is validated by the cursor spine",
+    );
 
     // Strict continuation: keep only rows greater than the boundary under canonical order.
     rows.retain(|row| compare_entity_with_boundary::<E>(row.entity(), order, boundary).is_gt());
-
-    Ok(())
 }
 
 // Compare an entity with a continuation boundary using the exact canonical ordering semantics.

@@ -10,7 +10,7 @@ use crate::{
             plan::{AccessPath, AccessPlan, Direction},
         },
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::{ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue, Path},
     types::Id,
 };
@@ -95,7 +95,6 @@ where
     where
         E: EntityKind,
     {
-        Self::ensure_anchor_matches_access_path(access, index_range_anchor)?;
         access.execute_candidate_keys(self, index_range_anchor, direction)
     }
 
@@ -109,7 +108,6 @@ where
     where
         E: EntityKind,
     {
-        Self::ensure_anchor_matches_access_path(access, index_range_anchor)?;
         access.execute(self, consistency, index_range_anchor, direction)
     }
 
@@ -139,7 +137,6 @@ where
     where
         E: EntityKind,
     {
-        Self::ensure_anchor_matches_access_plan(access, index_range_anchor)?;
         access.execute_rows(self, consistency, index_range_anchor, direction)
     }
 
@@ -161,44 +158,6 @@ where
         E: EntityKind,
     {
         DataKey::try_new::<E>(key)
-    }
-
-    fn ensure_anchor_matches_access_path(
-        access: &AccessPath<E::Key>,
-        index_range_anchor: Option<&RawIndexKey>,
-    ) -> Result<(), InternalError> {
-        Self::ensure_anchor_supported(
-            access.cursor_support().supports_index_range_anchor(),
-            index_range_anchor,
-            "executor invariant violated: unexpected index-range anchor for non-index-range access path",
-        )
-    }
-
-    fn ensure_anchor_matches_access_plan(
-        access: &AccessPlan<E::Key>,
-        index_range_anchor: Option<&RawIndexKey>,
-    ) -> Result<(), InternalError> {
-        Self::ensure_anchor_supported(
-            access.cursor_support().supports_index_range_anchor(),
-            index_range_anchor,
-            "executor invariant violated: unexpected index-range anchor for composite or non-index-range access plan",
-        )
-    }
-
-    fn ensure_anchor_supported(
-        supports_anchor: bool,
-        index_range_anchor: Option<&RawIndexKey>,
-        message: &'static str,
-    ) -> Result<(), InternalError> {
-        if index_range_anchor.is_some() && !supports_anchor {
-            return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
-                message,
-            ));
-        }
-
-        Ok(())
     }
 
     fn dedup_keys(keys: Vec<E::Key>) -> Vec<E::Key> {

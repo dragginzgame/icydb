@@ -276,6 +276,7 @@ fn assess_secondary_order_pushdown_for_applicable_shape(
     )
 }
 
+#[cfg(test)]
 fn applicability_from_eligibility(
     eligibility: SecondaryOrderPushdownEligibility,
 ) -> PushdownApplicability {
@@ -310,27 +311,131 @@ pub(crate) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
     model: &EntityModel,
     plan: &LogicalPlan<K>,
 ) -> PushdownApplicability {
-    if let Some(order) = plan.order.as_ref() {
+    let Some(order) = plan.order.as_ref() else {
+        return PushdownApplicability::NotApplicable;
+    };
+    debug_assert!(
+        !order.fields.is_empty(),
+        "validated plan must not contain an empty ORDER BY specification"
+    );
+
+    let Some(access) = plan.access.as_path() else {
+        if let Some((index, prefix_len)) = plan.access.first_index_range_details() {
+            return PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index,
+                    prefix_len,
+                },
+            ));
+        }
+
+        return PushdownApplicability::NotApplicable;
+    };
+
+    if let Some((index, values)) = access.as_index_prefix() {
         debug_assert!(
-            !order.fields.is_empty(),
-            "validated plan must not contain an empty ORDER BY specification"
+            values.len() <= index.fields.len(),
+            "validated plan must keep index-prefix bounds within declared index fields"
+        );
+
+        return PushdownApplicability::Applicable(
+            assess_secondary_order_pushdown_for_validated_shape(
+                model,
+                &order.fields,
+                index.name,
+                index.fields,
+                values.len(),
+            ),
         );
     }
 
-    if let Some(access) = plan.access.as_path() {
-        if let Some((index, values)) = access.as_index_prefix() {
-            debug_assert!(
-                values.len() <= index.fields.len(),
-                "validated plan must keep index-prefix bounds within declared index fields"
-            );
-        }
-        if let Some((index, prefix, _, _)) = access.as_index_range() {
-            debug_assert!(
-                prefix.len() < index.fields.len(),
-                "validated plan must keep index-range prefix within declared index fields"
+    if let Some((index, prefix_len)) = access.index_range_details() {
+        return PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported { index, prefix_len },
+        ));
+    }
+
+    PushdownApplicability::NotApplicable
+}
+
+// Evaluate pushdown eligibility for validated plans without re-checking
+// planner-owned ORDER/access-shape invariants.
+fn assess_secondary_order_pushdown_for_validated_shape(
+    model: &EntityModel,
+    order_fields: &[(String, OrderDirection)],
+    index_name: &'static str,
+    index_fields: &[&'static str],
+    prefix_len: usize,
+) -> SecondaryOrderPushdownEligibility {
+    let Some((last_field, last_direction)) = order_fields.last() else {
+        return SecondaryOrderPushdownEligibility::Rejected(
+            SecondaryOrderPushdownRejection::NoOrderBy,
+        );
+    };
+    debug_assert_eq!(
+        last_field, model.primary_key.name,
+        "validated plan must include a PK tie-break as the terminal ORDER field"
+    );
+
+    let expected_direction = *last_direction;
+    for (field, direction) in order_fields {
+        if *direction != expected_direction {
+            return SecondaryOrderPushdownEligibility::Rejected(
+                SecondaryOrderPushdownRejection::NonAscendingDirection {
+                    field: field.clone(),
+                },
             );
         }
     }
 
-    applicability_from_eligibility(assess_secondary_order_pushdown(model, plan))
+    let actual_non_pk_len = order_fields.len().saturating_sub(1);
+    let actual_non_pk = || {
+        order_fields
+            .iter()
+            .take(actual_non_pk_len)
+            .map(|(field, _)| field.as_str())
+    };
+
+    let matches_expected_suffix = actual_non_pk_len
+        == index_fields.len().saturating_sub(prefix_len)
+        && actual_non_pk()
+            .zip(index_fields.iter().skip(prefix_len).copied())
+            .all(|(actual, expected)| actual == expected);
+
+    let matches_expected_full = actual_non_pk_len == index_fields.len()
+        && actual_non_pk()
+            .zip(index_fields.iter().copied())
+            .all(|(actual, expected)| actual == expected);
+
+    if matches_expected_suffix || matches_expected_full {
+        return SecondaryOrderPushdownEligibility::Eligible {
+            index: index_name,
+            prefix_len,
+        };
+    }
+
+    let actual_non_pk = order_fields
+        .iter()
+        .take(actual_non_pk_len)
+        .map(|(field, _)| field.clone())
+        .collect::<Vec<_>>();
+    let expected_full = index_fields
+        .iter()
+        .map(|field| (*field).to_string())
+        .collect::<Vec<_>>();
+    let expected_suffix = index_fields
+        .iter()
+        .skip(prefix_len)
+        .map(|field| (*field).to_string())
+        .collect::<Vec<_>>();
+
+    SecondaryOrderPushdownEligibility::Rejected(
+        SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+            index: index_name,
+            prefix_len,
+            expected_suffix,
+            expected_full,
+            actual: actual_non_pk,
+        },
+    )
 }
