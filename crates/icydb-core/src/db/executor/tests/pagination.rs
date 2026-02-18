@@ -2004,6 +2004,64 @@ fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
 }
 
 #[test]
+fn load_single_field_range_full_asc_reversed_equals_full_desc() {
+    setup_pagination_test();
+
+    // Phase 1: seed unique range values so ASC and DESC are strict inverses.
+    let rows = [
+        (20_101, 10, "t10"),
+        (20_102, 20, "t20"),
+        (20_103, 30, "t30"),
+        (20_104, 40, "t40"),
+        (20_105, 50, "t50"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_range_predicate(10, 50);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    // Phase 2: verify the surface still plans as IndexRange.
+    let explain = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("tag")
+        .explain()
+        .expect("single-field asc explain should build");
+    assert!(
+        explain_contains_index_range(&explain.access, INDEXED_METRICS_INDEX_MODELS[0].name, 0),
+        "single-field asc query should plan an IndexRange access path"
+    );
+
+    // Phase 3: assert full-result directional symmetry.
+    let asc = load
+        .execute(
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .order_by("tag")
+                .plan()
+                .expect("single-field asc plan should build"),
+        )
+        .expect("single-field asc execution should succeed");
+    let desc = load
+        .execute(
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate)
+                .order_by_desc("tag")
+                .plan()
+                .expect("single-field desc plan should build"),
+        )
+        .expect("single-field desc execution should succeed");
+
+    let mut asc_ids = ids_from_items(&asc.0);
+    asc_ids.reverse();
+
+    assert_eq!(
+        asc_ids,
+        ids_from_items(&desc.0),
+        "full DESC result stream should match reversed full ASC result stream"
+    );
+}
+
+#[test]
 fn load_single_field_range_limit_matrix_matches_unbounded() {
     setup_pagination_test();
 
@@ -2909,6 +2967,291 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
     assert!(
         past_end.next_cursor.is_none(),
         "single-field empty continuation page should not emit a cursor"
+    );
+}
+
+#[test]
+fn load_single_field_desc_range_resume_from_upper_anchor_returns_remaining_rows() {
+    setup_pagination_test();
+
+    let rows = [
+        (21_101, 10, "t10"),
+        (21_102, 20, "t20"),
+        (21_103, 30, "t30"),
+        (21_104, 40, "t40"),
+        (21_105, 50, "t50"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_between_equivalent_predicate(10, 50);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    let page1_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("tag")
+        .limit(1)
+        .plan()
+        .expect("single-field desc upper-anchor page1 plan should build");
+    let page1_boundary = page1_plan
+        .plan_cursor(None)
+        .expect("single-field desc upper-anchor page1 boundary should plan");
+    let page1 = load
+        .execute_paged_with_cursor(page1_plan, page1_boundary)
+        .expect("single-field desc upper-anchor page1 should execute");
+    assert_eq!(
+        ids_from_items(&page1.items.0),
+        vec![Ulid::from_u128(21_105)],
+        "descending first page should start at the upper envelope row"
+    );
+
+    let cursor = page1
+        .next_cursor
+        .as_ref()
+        .expect("single-field desc upper-anchor page1 should emit continuation cursor");
+    let resume_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("tag")
+        .limit(10)
+        .plan()
+        .expect("single-field desc upper-anchor resume plan should build");
+    let resume_boundary = resume_plan
+        .plan_cursor(Some(cursor.as_slice()))
+        .expect("single-field desc upper-anchor resume boundary should plan");
+    let resume = load
+        .execute_paged_with_cursor(resume_plan, resume_boundary)
+        .expect("single-field desc upper-anchor resume should execute");
+
+    assert_eq!(
+        ids_from_items(&resume.items.0),
+        vec![
+            Ulid::from_u128(21_104),
+            Ulid::from_u128(21_103),
+            Ulid::from_u128(21_102),
+            Ulid::from_u128(21_101),
+        ],
+        "descending resume from the upper anchor must continue with the remaining lower rows",
+    );
+}
+
+#[test]
+fn load_single_field_desc_range_resume_from_lower_boundary_returns_empty() {
+    setup_pagination_test();
+
+    let rows = [
+        (21_201, 10, "t10"),
+        (21_202, 20, "t20"),
+        (21_203, 30, "t30"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_between_equivalent_predicate(10, 30);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let base_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("tag")
+        .limit(10)
+        .plan()
+        .expect("single-field desc lower-boundary base plan should build");
+    let base_page = load
+        .execute_paged_with_cursor(base_plan, None)
+        .expect("single-field desc lower-boundary base page should execute");
+
+    let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
+    let terminal_boundary_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("tag")
+        .limit(10)
+        .plan()
+        .expect("single-field desc lower-boundary plan should build");
+    let terminal_boundary = terminal_boundary_plan
+        .into_inner()
+        .cursor_boundary_from_entity(terminal_entity)
+        .expect("single-field desc lower-boundary should build");
+
+    let resume_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(tag_between_equivalent_predicate(10, 30))
+        .order_by_desc("tag")
+        .limit(10)
+        .plan()
+        .expect("single-field desc lower-boundary resume plan should build");
+    let resume = load
+        .execute_paged_with_cursor(resume_plan, Some(terminal_boundary))
+        .expect("single-field desc lower-boundary resume should execute");
+
+    assert!(
+        resume.items.0.is_empty(),
+        "descending resume from the lower boundary row must return an empty page"
+    );
+    assert!(
+        resume.next_cursor.is_none(),
+        "empty descending continuation page must not emit a cursor"
+    );
+}
+
+#[test]
+fn load_single_field_desc_range_single_element_resume_returns_empty() {
+    setup_pagination_test();
+
+    let rows = [
+        (21_301, 20, "t20"),
+        (21_302, 30, "t30"),
+        (21_303, 40, "t40"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_between_equivalent_predicate(30, 30);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let page1_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("tag")
+        .limit(1)
+        .plan()
+        .expect("single-element desc page1 plan should build");
+    let page1 = load
+        .execute_paged_with_cursor(page1_plan, None)
+        .expect("single-element desc page1 should execute");
+    assert_eq!(
+        ids_from_items(&page1.items.0),
+        vec![Ulid::from_u128(21_302)],
+        "single-element descending range should return the only row"
+    );
+    assert!(
+        page1.next_cursor.is_none(),
+        "single-element descending first page should not emit a cursor"
+    );
+
+    let boundary_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("tag")
+        .limit(1)
+        .plan()
+        .expect("single-element desc boundary plan should build");
+    let boundary = boundary_plan
+        .into_inner()
+        .cursor_boundary_from_entity(&page1.items.0[0].1)
+        .expect("single-element desc boundary should build");
+    let resume_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(tag_between_equivalent_predicate(30, 30))
+        .order_by_desc("tag")
+        .limit(1)
+        .plan()
+        .expect("single-element desc resume plan should build");
+    let resume = load
+        .execute_paged_with_cursor(resume_plan, Some(boundary))
+        .expect("single-element desc resume should execute");
+
+    assert!(
+        resume.items.0.is_empty(),
+        "resuming a single-element descending range must return an empty page"
+    );
+    assert!(
+        resume.next_cursor.is_none(),
+        "single-element empty resume must not emit a cursor"
+    );
+}
+
+#[test]
+fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
+    setup_pagination_test();
+
+    let rows = [
+        (21_401, 10, "A"),
+        (21_402, 20, "B"),
+        (21_403, 30, "C"),
+        (21_404, 40, "D"),
+        (21_405, 50, "E"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let predicate = tag_between_equivalent_predicate(10, 50);
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+
+    let page1_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("tag")
+        .limit(2)
+        .plan()
+        .expect("multi-page desc page1 plan should build");
+    let page1_boundary = page1_plan
+        .plan_cursor(None)
+        .expect("multi-page desc page1 boundary should plan");
+    let page1 = load
+        .execute_paged_with_cursor(page1_plan, page1_boundary)
+        .expect("multi-page desc page1 should execute");
+    assert_eq!(
+        ids_from_items(&page1.items.0),
+        vec![Ulid::from_u128(21_405), Ulid::from_u128(21_404)],
+        "descending page1 should return E, D"
+    );
+
+    let page1_cursor = page1
+        .next_cursor
+        .as_ref()
+        .expect("multi-page desc page1 should emit continuation cursor");
+    let page2_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("tag")
+        .limit(2)
+        .plan()
+        .expect("multi-page desc page2 plan should build");
+    let page2_boundary = page2_plan
+        .plan_cursor(Some(page1_cursor.as_slice()))
+        .expect("multi-page desc page2 boundary should plan");
+    let page2 = load
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
+        .expect("multi-page desc page2 should execute");
+    assert_eq!(
+        ids_from_items(&page2.items.0),
+        vec![Ulid::from_u128(21_403), Ulid::from_u128(21_402)],
+        "descending page2 should return C, B"
+    );
+
+    let page2_cursor = page2
+        .next_cursor
+        .as_ref()
+        .expect("multi-page desc page2 should emit continuation cursor");
+    let page3_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("tag")
+        .limit(2)
+        .plan()
+        .expect("multi-page desc page3 plan should build");
+    let page3_boundary = page3_plan
+        .plan_cursor(Some(page2_cursor.as_slice()))
+        .expect("multi-page desc page3 boundary should plan");
+    let page3 = load
+        .execute_paged_with_cursor(page3_plan, page3_boundary)
+        .expect("multi-page desc page3 should execute");
+    assert_eq!(
+        ids_from_items(&page3.items.0),
+        vec![Ulid::from_u128(21_401)],
+        "descending page3 should return A"
+    );
+    assert!(
+        page3.next_cursor.is_none(),
+        "final descending page should not emit a continuation cursor"
+    );
+
+    let mut all_ids = ids_from_items(&page1.items.0);
+    all_ids.extend(ids_from_items(&page2.items.0));
+    all_ids.extend(ids_from_items(&page3.items.0));
+
+    assert_eq!(
+        all_ids,
+        vec![
+            Ulid::from_u128(21_405),
+            Ulid::from_u128(21_404),
+            Ulid::from_u128(21_403),
+            Ulid::from_u128(21_402),
+            Ulid::from_u128(21_401),
+        ],
+        "descending pagination must not omit rows and must preserve strict order",
+    );
+    let unique_ids: BTreeSet<Ulid> = all_ids.iter().copied().collect();
+    assert_eq!(
+        unique_ids.len(),
+        all_ids.len(),
+        "descending pagination must not duplicate rows"
     );
 }
 

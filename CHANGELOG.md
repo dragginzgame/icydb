@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🔧 Changed
 
 * Wired executable direction selection for single-path `IndexRange` plans: the executable now derives `Direction::Desc` when the first `ORDER BY` field is descending, and keeps `Direction::Asc` for non-`IndexRange` access paths.
+* Activated reverse store traversal for single-path `IndexRange` DESC execution by iterating raw-key ranges in reverse while preserving the same canonical bound envelope.
+* Made continuation advancement checks direction-aware in index range scans (`candidate > anchor` for ASC, `candidate < anchor` for DESC).
+
+### 🧪 Testing
+
+* Added explicit DESC `IndexRange` edge-case coverage for boundary resume behavior (upper-anchor continuation, lower-boundary exhaustion, and single-element range exhaustion).
+* Added explicit multi-page DESC continuation coverage (`E,D` -> `C,B` -> `A`) with no-duplicate and no-omission assertions.
+* Added full-result directional symmetry coverage asserting `reverse(ASC) == DESC` on a single-field `IndexRange` dataset.
 
 ### 📚 Documentation
 

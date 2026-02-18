@@ -146,28 +146,58 @@ impl IndexStore {
 
         let mut out = Vec::new();
         let (entry_map, bounds) = self.index_range_stream((start_raw, end_raw), direction);
-        for entry in entry_map.range(bounds) {
-            let raw_key = entry.key();
-            let value = entry.value();
+        match direction {
+            Direction::Asc => {
+                for entry in entry_map.range(bounds) {
+                    let raw_key = entry.key();
+                    let value = entry.value();
 
-            if let Some(anchor) = continuation_start_exclusive
-                && !continuation_advanced(direction, raw_key, anchor)
-            {
-                return Err(InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Index,
-                    "index-range continuation scan did not advance beyond the anchor",
-                ));
+                    if let Some(anchor) = continuation_start_exclusive
+                        && !continuation_advanced(direction, raw_key, anchor)
+                    {
+                        return Err(InternalError::new(
+                            ErrorClass::InvariantViolation,
+                            ErrorOrigin::Index,
+                            "index-range continuation scan did not advance beyond the anchor",
+                        ));
+                    }
+                    if Self::decode_index_entry_and_push::<E>(
+                        index,
+                        raw_key,
+                        &value,
+                        &mut out,
+                        Some(limit),
+                        "range resolve",
+                    )? {
+                        return Ok(out);
+                    }
+                }
             }
-            if Self::decode_index_entry_and_push::<E>(
-                index,
-                raw_key,
-                &value,
-                &mut out,
-                Some(limit),
-                "range resolve",
-            )? {
-                return Ok(out);
+            Direction::Desc => {
+                for entry in entry_map.range(bounds).rev() {
+                    let raw_key = entry.key();
+                    let value = entry.value();
+
+                    if let Some(anchor) = continuation_start_exclusive
+                        && !continuation_advanced(direction, raw_key, anchor)
+                    {
+                        return Err(InternalError::new(
+                            ErrorClass::InvariantViolation,
+                            ErrorOrigin::Index,
+                            "index-range continuation scan did not advance beyond the anchor",
+                        ));
+                    }
+                    if Self::decode_index_entry_and_push::<E>(
+                        index,
+                        raw_key,
+                        &value,
+                        &mut out,
+                        Some(limit),
+                        "range resolve",
+                    )? {
+                        return Ok(out);
+                    }
+                }
             }
         }
 

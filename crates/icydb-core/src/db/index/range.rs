@@ -14,7 +14,6 @@ use std::ops::Bound;
 /// Direction
 ///
 /// Execution-time traversal direction for range continuation behavior.
-/// DESC is structurally represented but currently follows ASC traversal semantics.
 ///
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -94,7 +93,7 @@ pub(in crate::db) fn resume_bounds(
 /// anchor_within_envelope
 ///
 /// Validate that a continuation anchor stays within the original raw-key envelope.
-/// DESC currently reuses ASC envelope semantics until reverse traversal is enabled.
+/// Envelope containment remains direction-agnostic over the same raw bounds.
 ///
 
 #[must_use]
@@ -112,7 +111,6 @@ pub(in crate::db) fn anchor_within_envelope(
 /// continuation_advanced
 ///
 /// Validate strict monotonic advancement relative to the continuation anchor.
-/// DESC currently follows ASC monotonic checks until reverse traversal is enabled.
 ///
 
 #[must_use]
@@ -121,8 +119,10 @@ pub(in crate::db) fn continuation_advanced(
     candidate: &RawIndexKey,
     anchor: &RawIndexKey,
 ) -> bool {
-    let _ = direction;
-    candidate > anchor
+    match direction {
+        Direction::Asc => candidate > anchor,
+        Direction::Desc => candidate < anchor,
+    }
 }
 
 fn encode_index_component_bound(
@@ -157,7 +157,7 @@ mod tests {
     use crate::{db::index::RawIndexKey, traits::Storable};
     use std::{borrow::Cow, ops::Bound};
 
-    use super::{Direction, anchor_within_envelope, resume_bounds};
+    use super::{Direction, anchor_within_envelope, continuation_advanced, resume_bounds};
 
     fn raw_key(byte: u8) -> RawIndexKey {
         <RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
@@ -203,7 +203,7 @@ mod tests {
         assert_eq!(
             anchor_within_envelope(Direction::Asc, &inside, &lower, &upper),
             anchor_within_envelope(Direction::Desc, &inside, &lower, &upper),
-            "ASC and DESC envelope containment must match before DESC traversal is enabled",
+            "ASC and DESC envelope containment must match for equivalent bounds",
         );
         assert_eq!(
             anchor_within_envelope(Direction::Asc, &below, &lower, &upper),
@@ -215,5 +215,34 @@ mod tests {
             anchor_within_envelope(Direction::Desc, &at_excluded_upper, &lower, &upper),
             "ASC and DESC envelope containment must match for upper-boundary anchors",
         );
+    }
+
+    #[test]
+    fn continuation_advanced_is_directional() {
+        let anchor = raw_key(0x10);
+        let asc_candidate = raw_key(0x11);
+        let desc_candidate = raw_key(0x0F);
+
+        assert!(continuation_advanced(
+            Direction::Asc,
+            &asc_candidate,
+            &anchor
+        ));
+        assert!(!continuation_advanced(
+            Direction::Asc,
+            &desc_candidate,
+            &anchor
+        ));
+
+        assert!(continuation_advanced(
+            Direction::Desc,
+            &desc_candidate,
+            &anchor
+        ));
+        assert!(!continuation_advanced(
+            Direction::Desc,
+            &asc_candidate,
+            &anchor
+        ));
     }
 }

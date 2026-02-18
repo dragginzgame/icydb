@@ -105,7 +105,6 @@ pub(in crate::db) fn cursor_resume_bounds(
 ) -> (Bound<RawIndexKey>, Bound<RawIndexKey>) {
     match direction {
         Direction::Asc => (Bound::Excluded(anchor.clone()), upper),
-        // Structural containment for DESC is in place; traversal remains ASC for now.
         Direction::Desc => (lower, Bound::Excluded(anchor.clone())),
     }
 }
