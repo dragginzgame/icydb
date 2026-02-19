@@ -105,6 +105,81 @@ See `docs/design/data-integrity-v1.md` for the detailed deferred plan.
 
 ---
 
+## v0.20–0.25 — icydb-cli & Operational Surface
+
+This milestone exposes IcyDB's deterministic engine, index model, and
+integrity system through a first-class CLI interface.
+
+It is not UI tooling. It is an operational surface over a stable engine.
+
+This work is a direct evolution of shipped and planned engine contracts:
+
+- `0.10.x` established canonical ordered index keys (`IndexKey v2`).
+- `0.11.x` and post-`0.11` integrity work harden deterministic execution and
+  fail-closed recovery boundaries.
+
+### Core CLI Objectives
+
+- Schema definition and inspection.
+- Collection creation and management.
+- Row insert, update, and delete operations.
+- Deterministic query execution.
+- Ordered index prefix scans.
+- Index inspection and debugging.
+- Integrity check and rebuild commands.
+- Canonical export and import.
+- Query explain mode.
+
+### Engine Prerequisites (Pre-CLI Hardening)
+
+Before CLI delivery, these engine surfaces must be stabilized:
+
+- `IndexKey v2` canonical framing (already started).
+- Stable query AST.
+- `EngineCommand` abstraction.
+- Classified error model.
+- Deterministic row encoding.
+- Rebuild and fail-closed recovery surface.
+- Canonical import/export format.
+
+The CLI is a thin layer over a hardened engine command surface.
+
+### Design Principles
+
+- Deterministic output.
+- Explainable execution.
+- Byte-level introspection.
+- No hidden nondeterminism.
+- Fail-closed behavior.
+- Stable wire formats.
+
+### Example CLI Command Surface (Conceptual)
+
+The command set below is conceptual; concrete syntax may evolve.
+
+```bash
+icydb schema create
+icydb collection create
+icydb insert
+icydb query
+icydb query --explain
+icydb index list
+icydb index inspect
+icydb rebuild
+icydb check
+icydb export
+icydb import
+```
+
+### Strategic Framing
+
+- Makes IcyDB usable outside Toko.
+- Provides a developer-facing operational surface.
+- Validates the deterministic index architecture under a direct command model.
+- Forces integrity guarantees to be production-ready for operator workflows.
+
+---
+
 ## Future Architectural Cleanup (Post-0.11)
 
 ### Structural Identity Projection for Plan DRYness

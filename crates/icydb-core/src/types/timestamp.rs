@@ -9,8 +9,14 @@ use crate::{
 use candid::CandidType;
 use canic_cdk::utils::time::now_millis;
 use chrono::DateTime;
-use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
+use derive_more::{Display, FromStr};
 use serde::{Deserialize, Serialize};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
+
+// Invariant:
+// Timestamp and Duration are both millisecond-native.
+// All arithmetic is millisecond-consistent.
+// Wire format remains transparent u64.
 
 ///
 /// Timestamp
@@ -20,8 +26,6 @@ use serde::{Deserialize, Serialize};
 ///
 
 #[derive(
-    Add,
-    AddAssign,
     CandidType,
     Clone,
     Copy,
@@ -36,8 +40,6 @@ use serde::{Deserialize, Serialize};
     PartialOrd,
     Serialize,
     Deserialize,
-    Sub,
-    SubAssign,
 )]
 #[serde(transparent)]
 #[repr(transparent)]
@@ -47,14 +49,11 @@ impl Timestamp {
     pub const EPOCH: Self = Self(u64::MIN);
     pub const MIN: Self = Self(u64::MIN);
     pub const MAX: Self = Self(u64::MAX);
-    const MILLIS_PER_SECOND: u64 = 1_000;
-    const MICROS_PER_MILLI: u64 = 1_000;
-    const NANOS_PER_MILLI: u64 = 1_000_000;
 
     /// Construct from seconds (`u64`).
     #[must_use]
     pub const fn from_secs(secs: u64) -> Self {
-        Self(secs.saturating_mul(Self::MILLIS_PER_SECOND))
+        Self(Duration::from_secs(secs).as_millis())
     }
 
     /// Construct from milliseconds (`u64`).
@@ -66,13 +65,13 @@ impl Timestamp {
     /// Construct from microseconds (`u64`), truncating to whole milliseconds.
     #[must_use]
     pub const fn from_micros(us: u64) -> Self {
-        Self(us / Self::MICROS_PER_MILLI)
+        Self(Duration::from_micros_truncating(us).as_millis())
     }
 
     /// Construct from nanoseconds (`u64`), truncating to whole milliseconds.
     #[must_use]
     pub const fn from_nanos(ns: u64) -> Self {
-        Self(ns / Self::NANOS_PER_MILLI)
+        Self(Duration::from_nanos_truncating(ns).as_millis())
     }
 
     #[expect(clippy::cast_sign_loss)]
@@ -88,9 +87,9 @@ impl Timestamp {
     }
 
     pub fn parse_flexible(s: &str) -> Result<Self, String> {
-        // Try integer seconds
+        // Try integer milliseconds.
         if let Ok(n) = s.parse::<u64>() {
-            return Ok(Self::from_secs(n));
+            return Ok(Self::from_millis(n));
         }
 
         // Try RFC3339
@@ -112,19 +111,43 @@ impl Timestamp {
     /// Return Unix seconds as `u64`.
     #[must_use]
     pub const fn as_secs(self) -> u64 {
-        self.0 / Self::MILLIS_PER_SECOND
+        Duration::from_millis(self.0).as_secs()
     }
+}
 
-    /// Add a millisecond-backed duration.
-    #[must_use]
-    pub const fn saturating_add_duration_truncating(self, rhs: Duration) -> Self {
-        Self(self.0.saturating_add(rhs.as_millis()))
+impl Add<Duration> for Timestamp {
+    type Output = Self;
+
+    fn add(self, rhs: Duration) -> Self::Output {
+        Self(self.0.saturating_add(rhs.repr()))
     }
+}
 
-    /// Subtract a millisecond-backed duration.
-    #[must_use]
-    pub const fn saturating_sub_duration_truncating(self, rhs: Duration) -> Self {
-        Self(self.0.saturating_sub(rhs.as_millis()))
+impl AddAssign<Duration> for Timestamp {
+    fn add_assign(&mut self, rhs: Duration) {
+        self.0 = self.0.saturating_add(rhs.repr());
+    }
+}
+
+impl Sub<Duration> for Timestamp {
+    type Output = Self;
+
+    fn sub(self, rhs: Duration) -> Self::Output {
+        Self(self.0.saturating_sub(rhs.repr()))
+    }
+}
+
+impl SubAssign<Duration> for Timestamp {
+    fn sub_assign(&mut self, rhs: Duration) {
+        self.0 = self.0.saturating_sub(rhs.repr());
+    }
+}
+
+impl Sub for Timestamp {
+    type Output = Duration;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Duration::from_millis(self.0.saturating_sub(rhs.0))
     }
 }
 
@@ -295,8 +318,7 @@ mod tests {
     #[test]
     fn test_parse_flexible_integer() {
         let t = Timestamp::parse_flexible("12345").unwrap();
-        assert_eq!(t.as_secs(), 12345);
-        assert_eq!(t.as_millis(), 12_345_000);
+        assert_eq!(t.as_millis(), 12_345);
     }
 
     #[test]
@@ -312,14 +334,36 @@ mod tests {
     }
 
     #[test]
-    fn test_add_and_sub() {
-        let a = Timestamp::from_secs(10);
-        let b = Timestamp::from_secs(3);
+    fn test_add_and_sub_with_duration_and_timestamp_difference() {
+        let a = Timestamp::from_millis(5_000);
+        let b = Timestamp::from_millis(2_000);
+        let d = Duration::from_millis(999);
 
-        assert_eq!((a + b).as_secs(), 13);
-        assert_eq!((a - b).as_secs(), 7);
-        assert_eq!((a + b).as_millis(), 13_000);
-        assert_eq!((a - b).as_millis(), 7_000);
+        assert_eq!(a + d, Timestamp::from_millis(5_999));
+        assert_eq!(a - d, Timestamp::from_millis(4_001));
+        assert_eq!(a - b, Duration::from_millis(3_000));
+    }
+
+    #[test]
+    fn test_millisecond_precision_in_arithmetic() {
+        let t = Timestamp::from_millis(1_500);
+        let d = Duration::from_millis(1);
+        assert_eq!(t + d, Timestamp::from_millis(1_501));
+    }
+
+    #[test]
+    fn test_no_truncation_in_timestamp_duration_addition() {
+        let t = Timestamp::from_millis(1_000);
+        let d = Duration::from_millis(999);
+        assert_eq!(t + d, Timestamp::from_millis(1_999));
+    }
+
+    #[test]
+    fn test_cross_type_timestamp_difference_returns_millisecond_duration() {
+        let t1 = Timestamp::from_millis(1_500);
+        let t2 = Timestamp::from_millis(1_000);
+
+        assert_eq!(t1 - t2, Duration::from_millis(500));
     }
 
     #[test]
@@ -348,5 +392,12 @@ mod tests {
 
         let decoded: Timestamp = serde_json::from_str("42000").expect("timestamp JSON deserialize");
         assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn test_wire_format_from_millis_42_is_bare_number() {
+        let json =
+            serde_json::to_string(&Timestamp::from_millis(42)).expect("timestamp JSON serialize");
+        assert_eq!(json, "42");
     }
 }

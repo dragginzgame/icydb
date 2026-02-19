@@ -9,6 +9,12 @@ use crate::{
 use candid::CandidType;
 use derive_more::{Display, FromStr};
 use serde::{Deserialize, Serialize};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
+
+// Invariant:
+// Timestamp and Duration are both millisecond-native.
+// All arithmetic is millisecond-consistent.
+// Wire format remains transparent u64.
 
 ///
 /// Duration
@@ -54,6 +60,16 @@ impl Duration {
     #[must_use]
     pub const fn from_millis(ms: u64) -> Self {
         Self(ms)
+    }
+
+    #[must_use]
+    pub(crate) const fn from_micros_truncating(us: u64) -> Self {
+        Self(us / Self::MS_PER_SEC)
+    }
+
+    #[must_use]
+    pub(crate) const fn from_nanos_truncating(ns: u64) -> Self {
+        Self(ns / 1_000_000)
     }
 
     #[must_use]
@@ -136,6 +152,34 @@ impl Duration {
                 * Self::MINS_PER_HOUR
                 * Self::SECS_PER_MIN
                 * Self::MS_PER_SEC)
+    }
+}
+
+impl Add for Duration {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0.saturating_add(rhs.0))
+    }
+}
+
+impl AddAssign for Duration {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 = self.0.saturating_add(rhs.0);
+    }
+}
+
+impl Sub for Duration {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0.saturating_sub(rhs.0))
+    }
+}
+
+impl SubAssign for Duration {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 = self.0.saturating_sub(rhs.0);
     }
 }
 
@@ -258,5 +302,21 @@ mod tests {
     fn test_from_i64_rejects_negative() {
         let t = <Duration as NumFromPrimitive>::from_i64(-1);
         assert!(t.is_none());
+    }
+
+    #[test]
+    fn test_duration_arithmetic_is_millisecond_saturating() {
+        let a = Duration::from_millis(2_000);
+        let b = Duration::from_millis(750);
+        assert_eq!(a + b, Duration::from_millis(2_750));
+        assert_eq!(a - b, Duration::from_millis(1_250));
+        assert_eq!(b - a, Duration::ZERO);
+    }
+
+    #[test]
+    fn test_wire_format_from_millis_42_is_bare_number() {
+        let json =
+            serde_json::to_string(&Duration::from_millis(42)).expect("duration JSON serialize");
+        assert_eq!(json, "42");
     }
 }

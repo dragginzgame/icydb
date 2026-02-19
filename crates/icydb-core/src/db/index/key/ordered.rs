@@ -680,6 +680,17 @@ mod tests {
         assert_eq!(by_value, by_bytes);
     }
 
+    #[test]
+    fn timestamp_ordered_encoding_is_monotonic_for_millisecond_values() {
+        let t1000 = Value::Timestamp(Timestamp::from_millis(1_000));
+        let t1001 = Value::Timestamp(Timestamp::from_millis(1_001));
+
+        let b1000 = encode_canonical_index_component(&t1000).expect("timestamp 1000 should encode");
+        let b1001 = encode_canonical_index_component(&t1001).expect("timestamp 1001 should encode");
+
+        assert!(b1001 > b1000);
+    }
+
     // Deterministic property-style check: for each primitive family fixture,
     // canonical value ordering must match canonical encoded-byte ordering.
     #[test]
