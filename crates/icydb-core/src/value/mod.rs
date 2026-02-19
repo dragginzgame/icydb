@@ -473,7 +473,7 @@ impl Value {
             Self::Int(i) => Decimal::from_i64(*i),
             Self::Int128(i) => Decimal::from_i128(i.get()),
             Self::IntBig(i) => i.to_i128().and_then(Decimal::from_i128),
-            Self::Timestamp(t) => Decimal::from_u64(t.as_secs()),
+            Self::Timestamp(t) => Decimal::from_u64(t.repr()),
             Self::Uint(u) => Decimal::from_u64(*u),
             Self::Uint128(u) => Decimal::from_u128(u.get()),
             Self::UintBig(u) => u.to_u128().and_then(Decimal::from_u128),

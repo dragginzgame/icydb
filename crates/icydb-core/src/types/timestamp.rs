@@ -7,7 +7,7 @@ use crate::{
     value::Value,
 };
 use candid::CandidType;
-use canic_cdk::utils::time::now_secs;
+use canic_cdk::utils::time::now_millis;
 use chrono::DateTime;
 use derive_more::{Add, AddAssign, Display, FromStr, Sub, SubAssign};
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Timestamp
 ///
-/// Stored as Unix seconds.
+/// Stored as Unix milliseconds.
 /// Wire format remains a bare `u64` for backward compatibility.
 ///
 
@@ -48,49 +48,49 @@ impl Timestamp {
     pub const MIN: Self = Self(u64::MIN);
     pub const MAX: Self = Self(u64::MAX);
     const MILLIS_PER_SECOND: u64 = 1_000;
-    const MICROS_PER_SECOND: u64 = 1_000_000;
-    const NANOS_PER_SECOND: u64 = 1_000_000_000;
+    const MICROS_PER_MILLI: u64 = 1_000;
+    const NANOS_PER_MILLI: u64 = 1_000_000;
 
     /// Construct from seconds (`u64`).
     #[must_use]
     pub const fn from_secs(secs: u64) -> Self {
-        Self(secs)
+        Self(secs.saturating_mul(Self::MILLIS_PER_SECOND))
     }
 
-    /// Construct from milliseconds (`u64`), truncating to whole seconds.
+    /// Construct from milliseconds (`u64`).
     #[must_use]
     pub const fn from_millis(ms: u64) -> Self {
-        Self(ms / Self::MILLIS_PER_SECOND)
+        Self(ms)
     }
 
-    /// Construct from microseconds (`u64`), truncating to whole seconds.
+    /// Construct from microseconds (`u64`), truncating to whole milliseconds.
     #[must_use]
     pub const fn from_micros(us: u64) -> Self {
-        Self(us / Self::MICROS_PER_SECOND)
+        Self(us / Self::MICROS_PER_MILLI)
     }
 
-    /// Construct from nanoseconds (`u64`), truncating to whole seconds.
+    /// Construct from nanoseconds (`u64`), truncating to whole milliseconds.
     #[must_use]
     pub const fn from_nanos(ns: u64) -> Self {
-        Self(ns / Self::NANOS_PER_SECOND)
+        Self(ns / Self::NANOS_PER_MILLI)
     }
 
     #[expect(clippy::cast_sign_loss)]
     pub fn parse_rfc3339(s: &str) -> Result<Self, String> {
         let dt =
             DateTime::parse_from_rfc3339(s).map_err(|e| format!("timestamp parse error: {e}"))?;
-        let ts = dt.timestamp();
-        if ts < 0 {
+        let ts_millis = dt.timestamp_millis();
+        if ts_millis < 0 {
             return Err("timestamp before epoch".to_string());
         }
 
-        Ok(Self(ts as u64))
+        Ok(Self::from_millis(ts_millis as u64))
     }
 
     pub fn parse_flexible(s: &str) -> Result<Self, String> {
         // Try integer seconds
         if let Ok(n) = s.parse::<u64>() {
-            return Ok(Self(n));
+            return Ok(Self::from_secs(n));
         }
 
         // Try RFC3339
@@ -98,27 +98,33 @@ impl Timestamp {
     }
 
     #[must_use]
-    /// Current wall-clock timestamp in seconds.
+    /// Current wall-clock timestamp in milliseconds.
     pub fn now() -> Self {
-        Self(now_secs())
+        Self(now_millis())
+    }
+
+    /// Return Unix milliseconds as `u64`.
+    #[must_use]
+    pub const fn as_millis(self) -> u64 {
+        self.0
     }
 
     /// Return Unix seconds as `u64`.
     #[must_use]
     pub const fn as_secs(self) -> u64 {
-        self.0
+        self.0 / Self::MILLIS_PER_SECOND
     }
 
-    /// Add a millisecond-backed duration, truncating sub-second precision.
+    /// Add a millisecond-backed duration.
     #[must_use]
     pub const fn saturating_add_duration_truncating(self, rhs: Duration) -> Self {
-        Self(self.0.saturating_add(rhs.as_secs()))
+        Self(self.0.saturating_add(rhs.as_millis()))
     }
 
-    /// Subtract a millisecond-backed duration, truncating sub-second precision.
+    /// Subtract a millisecond-backed duration.
     #[must_use]
     pub const fn saturating_sub_duration_truncating(self, rhs: Duration) -> Self {
-        Self(self.0.saturating_sub(rhs.as_secs()))
+        Self(self.0.saturating_sub(rhs.as_millis()))
     }
 }
 
@@ -153,7 +159,7 @@ impl EntityKeyBytes for Timestamp {
 
     fn write_bytes(&self, out: &mut [u8]) {
         assert_eq!(out.len(), Self::BYTE_LEN);
-        out.copy_from_slice(&self.as_secs().to_be_bytes());
+        out.copy_from_slice(&self.as_millis().to_be_bytes());
     }
 }
 
@@ -191,6 +197,12 @@ impl NumFromPrimitive for Timestamp {
     }
 }
 
+impl From<u64> for Timestamp {
+    fn from(n: u64) -> Self {
+        Self(n)
+    }
+}
+
 impl NumToPrimitive for Timestamp {
     fn to_i64(&self) -> Option<i64> {
         self.0.to_i64()
@@ -223,14 +235,15 @@ mod tests {
     fn test_from_secs() {
         let t = Timestamp::from_secs(42);
         assert_eq!(t.as_secs(), 42);
+        assert_eq!(t.as_millis(), 42_000);
     }
 
     #[test]
     fn test_explicit_unit_suffix_constructors() {
         assert_eq!(Timestamp::from_secs(42).as_secs(), 42);
-        assert_eq!(Timestamp::from_millis(1_234).as_secs(), 1);
-        assert_eq!(Timestamp::from_micros(5_000_000).as_secs(), 5);
-        assert_eq!(Timestamp::from_nanos(3_000_000_000).as_secs(), 3);
+        assert_eq!(Timestamp::from_millis(1_234).as_millis(), 1_234);
+        assert_eq!(Timestamp::from_micros(5_000_000).as_millis(), 5_000);
+        assert_eq!(Timestamp::from_nanos(3_000_000_000).as_millis(), 3_000);
     }
 
     #[test]
@@ -240,10 +253,10 @@ mod tests {
 
         let parsed = Timestamp::parse_rfc3339(input).unwrap();
 
-        // Verified UNIX time for that timestamp.
-        let expected = 1_710_013_530u64;
+        // Verified UNIX time for that timestamp in milliseconds.
+        let expected = 1_710_013_530_000u64;
 
-        assert_eq!(parsed.as_secs(), expected);
+        assert_eq!(parsed.as_millis(), expected);
     }
 
     #[test]
@@ -261,18 +274,21 @@ mod tests {
     #[test]
     fn test_from_millis() {
         let t = Timestamp::from_millis(1234);
-        assert_eq!(t.as_secs(), 1); // truncates
+        assert_eq!(t.as_millis(), 1_234);
+        assert_eq!(t.as_secs(), 1);
     }
 
     #[test]
     fn test_from_micros() {
         let t = Timestamp::from_micros(5_000_000);
+        assert_eq!(t.as_millis(), 5_000);
         assert_eq!(t.as_secs(), 5);
     }
 
     #[test]
     fn test_from_nanos() {
         let t = Timestamp::from_nanos(3_000_000_000);
+        assert_eq!(t.as_millis(), 3_000);
         assert_eq!(t.as_secs(), 3);
     }
 
@@ -280,6 +296,7 @@ mod tests {
     fn test_parse_flexible_integer() {
         let t = Timestamp::parse_flexible("12345").unwrap();
         assert_eq!(t.as_secs(), 12345);
+        assert_eq!(t.as_millis(), 12_345_000);
     }
 
     #[test]
@@ -291,7 +308,7 @@ mod tests {
     #[test]
     fn test_now_is_nonzero() {
         let t = Timestamp::now();
-        assert!(t.as_secs() > 0);
+        assert!(t.as_millis() > 0);
     }
 
     #[test]
@@ -301,15 +318,17 @@ mod tests {
 
         assert_eq!((a + b).as_secs(), 13);
         assert_eq!((a - b).as_secs(), 7);
+        assert_eq!((a + b).as_millis(), 13_000);
+        assert_eq!((a - b).as_millis(), 7_000);
     }
 
     #[test]
     fn test_num_cast_roundtrip() {
         let t = Timestamp::from_secs(999);
         let i = t.to_u64().unwrap();
-        assert_eq!(i, 999);
+        assert_eq!(i, 999_000);
 
-        let t2 = Timestamp::from_secs(i);
+        let t2: Timestamp = i.into();
         assert_eq!(t2, t);
     }
 
@@ -325,9 +344,9 @@ mod tests {
         let original = Timestamp::from_secs(42);
 
         let json = serde_json::to_string(&original).expect("timestamp JSON serialize");
-        assert_eq!(json, "42");
+        assert_eq!(json, "42000");
 
-        let decoded: Timestamp = serde_json::from_str("42").expect("timestamp JSON deserialize");
+        let decoded: Timestamp = serde_json::from_str("42000").expect("timestamp JSON deserialize");
         assert_eq!(decoded, original);
     }
 }
