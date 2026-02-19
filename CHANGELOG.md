@@ -5,24 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.18.0] – 2026-02-19 - Execution Scan Budgeting + Composite Pagination Contract
+## [0.18.1] – 2026-02-19 - Composite Pagination Closure + Test Macro Helpers
 
 ### 📝 Summary
 
-* Added a safe internal scan cap so eligible composite queries can stop reading keys earlier while returning the same rows and the same continuation cursor behavior.
-* This is an internal optimization only. If a query shape is not proven safe, icyDB keeps the previous full-scan behavior.
-* Folded composite pagination correctness tracking into `0.18` so budgeting and continuation invariants now live under one milestone.
-
-```rust
-let budget = offset.saturating_add(limit).saturating_add(1);
-```
+* Folded composite pagination correctness tracking into `0.18` so budgeting and continuation invariants live under one milestone record.
 
 ### 🔧 Changed
 
-* Added `BudgetedOrderedKeyStream` to cap key polling when a plan is known to be safe.
-* Added guarded scan budget derivation (`offset + limit + 1`) for eligible load plans.
-* Added explicit budget-safety checks on `LogicalPlan` so the executor can make one clear yes/no decision before applying the optimization.
-* Kept budget wrapping at one boundary (`LoadExecutor::materialize_key_stream_into_page`) to avoid semantic drift.
 * Added a suite of macro test helpers to reduce repeated test boilerplate and keep test schemas consistent:
 
 ```rust
@@ -34,12 +24,34 @@ test_entity_schema!(ident = RecoveryTestEntity, id = Ulid, id_field = id, ...);
 
 ### 🧪 Testing
 
+* Added explicit composite child-order permutation tests for both `Union` and `Intersection` to lock row-sequence and decoded continuation-boundary invariance.
+
+---
+
+## [0.18.0] – 2026-02-19 - Execution Scan Budgeting
+
+### 📝 Summary
+
+* Added a safe internal scan cap so eligible composite queries can stop reading keys earlier while returning the same rows and the same continuation cursor behavior.
+* This is an internal optimization only. If a query shape is not proven safe, icyDB keeps the previous full-scan behavior.
+
+```rust
+let budget = offset.saturating_add(limit).saturating_add(1);
+```
+
+### 🔧 Changed
+
+* Added `BudgetedOrderedKeyStream` to cap key polling when a plan is known to be safe.
+* Added guarded scan budget derivation (`offset + limit + 1`) for eligible load plans.
+* Added explicit budget-safety checks on `LogicalPlan` so the executor can make one clear yes/no decision before applying the optimization.
+* Kept budget wrapping at one boundary (`LoadExecutor::materialize_key_stream_into_page`) to avoid semantic drift.
+
+### 🧪 Testing
+
 * Added tests that confirm budgeted streams stop correctly and never over-poll.
 * Added ASC/DESC composite coverage for safe budgeted paths.
 * Added guard tests for cursor-present, residual-filter, and post-sort cases to confirm fallback behavior stays unchanged.
 * Added parity tests to confirm budgeted and non-budgeted paths produce the same page rows and continuation boundaries.
-* Kept composite cursor continuation correctness coverage active (DESC no-dup/no-omission and anchor monotonicity paths) while milestone tracking was merged.
-* Added explicit composite child-order permutation tests for both `Union` and `Intersection` to lock row-sequence and decoded continuation-boundary invariance.
 
 ---
 
