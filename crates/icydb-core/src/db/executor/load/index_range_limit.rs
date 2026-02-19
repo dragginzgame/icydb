@@ -2,9 +2,7 @@ use crate::{
     db::{
         Context,
         executor::VecOrderedKeyStream,
-        executor::load::{
-            ExecutionFastPath, ExecutionPushdownType, FastPathKeyResult, LoadExecutor,
-        },
+        executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         index::RawIndexKey,
         query::plan::{Direction, LogicalPlan},
     },
@@ -22,12 +20,8 @@ where
         plan: &LogicalPlan<E::Key>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
-        effective_fetch: Option<usize>,
+        effective_fetch: usize,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        let Some(effective_fetch) = effective_fetch else {
-            return Ok(None);
-        };
-
         let Some((index, prefix, lower, upper)) = plan.access.as_index_range_path() else {
             return Ok(None);
         };
@@ -52,8 +46,7 @@ where
         Ok(Some(FastPathKeyResult {
             ordered_key_stream: Box::new(VecOrderedKeyStream::new(ordered_keys)),
             rows_scanned,
-            fast_path_used: ExecutionFastPath::IndexRange,
-            pushdown_type: Some(ExecutionPushdownType::IndexRangeLimit),
+            optimization: ExecutionOptimization::IndexRangeLimitPushdown,
         }))
     }
 

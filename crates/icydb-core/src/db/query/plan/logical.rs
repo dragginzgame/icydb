@@ -4,19 +4,19 @@ use crate::{
         ReadConsistency,
         intent::QueryMode,
         plan::{
-            AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec, OrderDirection,
-            OrderSpec, PageSpec,
+            AccessPath, AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec,
+            OrderDirection, OrderSpec, PageSpec,
         },
         predicate::{Predicate, coercion::canonical_cmp, eval as eval_predicate},
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue},
+    traits::{EntityKind, EntitySchema, EntityValue},
     types::Id,
 };
 use std::cmp::Ordering;
 
 #[cfg(test)]
-use crate::db::query::{intent::LoadSpec, plan::AccessPath};
+use crate::db::query::intent::LoadSpec;
 
 ///
 /// LogicalPlan
@@ -111,6 +111,20 @@ pub(crate) struct PostAccessStats {
     pub(crate) rows_after_page: usize,
     #[cfg(test)]
     pub(crate) rows_after_delete_limit: usize,
+}
+
+///
+/// BudgetSafetyMetadata
+///
+/// Executor-facing plan metadata for guarded scan-budget eligibility checks.
+/// This metadata keeps budget-safety predicates explicit at the plan boundary.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct BudgetSafetyMetadata {
+    pub(crate) has_residual_filter: bool,
+    pub(crate) access_order_satisfied_by_path: bool,
+    pub(crate) requires_post_access_sort: bool,
 }
 
 impl<K> LogicalPlan<K> {
@@ -425,6 +439,70 @@ impl<K> LogicalPlan<K> {
                 .collect(),
         })
     }
+
+    /// Build budget-safety metadata used by guarded execution scan budgeting.
+    #[must_use]
+    pub(crate) fn budget_safety_metadata<E>(&self) -> BudgetSafetyMetadata
+    where
+        E: EntitySchema<Key = K>,
+    {
+        let has_residual_filter = self.predicate.is_some();
+        let access_order_satisfied_by_path = self.is_access_order_satisfied_by_path::<E>();
+        let has_order = self
+            .order
+            .as_ref()
+            .is_some_and(|order| !order.fields.is_empty());
+        let requires_post_access_sort = has_order && !access_order_satisfied_by_path;
+
+        BudgetSafetyMetadata {
+            has_residual_filter,
+            access_order_satisfied_by_path,
+            requires_post_access_sort,
+        }
+    }
+
+    // Return true when access-phase key ordering already matches canonical
+    // executor ordering for the current plan order spec.
+    fn is_access_order_satisfied_by_path<E>(&self) -> bool
+    where
+        E: EntitySchema<Key = K>,
+    {
+        let Some(order) = self.order.as_ref() else {
+            return false;
+        };
+        if order.fields.len() != 1 {
+            return false;
+        }
+        if order.fields[0].0 != E::MODEL.primary_key.name {
+            return false;
+        }
+
+        Self::access_stream_is_pk_ordered(&self.access)
+    }
+
+    // Composite access order is valid only when every child preserves canonical
+    // primary-key ordering.
+    fn access_stream_is_pk_ordered(access: &AccessPlan<K>) -> bool {
+        match access {
+            AccessPlan::Path(path) => Self::access_path_is_pk_ordered(path),
+            AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
+                children.iter().all(Self::access_stream_is_pk_ordered)
+            }
+        }
+    }
+
+    // Current access-path producers normalize emitted `DataKey` values into
+    // canonical order before stream composition.
+    const fn access_path_is_pk_ordered(path: &AccessPath<K>) -> bool {
+        match path {
+            AccessPath::ByKey(_)
+            | AccessPath::ByKeys(_)
+            | AccessPath::KeyRange { .. }
+            | AccessPath::IndexPrefix { .. }
+            | AccessPath::IndexRange { .. }
+            | AccessPath::FullScan => true,
+        }
+    }
 }
 
 // Sort rows by the configured order spec, using entity field values.
@@ -591,6 +669,20 @@ fn apply_delete_limit<T>(rows: &mut Vec<T>, max_rows: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{model::field::FieldKind, types::Ulid};
+
+    crate::test_entity! {
+    ident = BudgetMetadataEntity,
+        id = Ulid,
+        entity_name = "BudgetMetadataEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", FieldKind::Ulid),
+            ("rank", FieldKind::Uint),
+        ],
+        indexes = [],
+    }
 
     #[test]
     fn bounded_order_keep_count_includes_offset_for_non_cursor_page() {
@@ -620,6 +712,51 @@ mod tests {
             plan.bounded_order_keep_count(Some(&cursor)),
             None,
             "bounded ordering should be disabled for continuation requests"
+        );
+    }
+
+    #[test]
+    fn budget_safety_metadata_marks_pk_order_plan_as_access_order_satisfied() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+
+        let metadata = plan.budget_safety_metadata::<BudgetMetadataEntity>();
+        assert!(
+            metadata.access_order_satisfied_by_path,
+            "single-field PK ordering should be marked access-order-satisfied"
+        );
+        assert!(
+            !metadata.has_residual_filter,
+            "plan without predicate should not report residual filtering"
+        );
+        assert!(
+            !metadata.requires_post_access_sort,
+            "access-order-satisfied plan should not require post-access sorting"
+        );
+    }
+
+    #[test]
+    fn budget_safety_metadata_marks_residual_filter_plan_as_unsafe() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+        plan.predicate = Some(Predicate::True);
+
+        let metadata = plan.budget_safety_metadata::<BudgetMetadataEntity>();
+        assert!(
+            metadata.has_residual_filter,
+            "predicate-bearing plan must report residual filtering"
+        );
+        assert!(
+            metadata.access_order_satisfied_by_path,
+            "residual filter should not hide access-order satisfaction result"
+        );
+        assert!(
+            !metadata.requires_post_access_sort,
+            "residual filtering alone should not imply post-access sorting"
         );
     }
 }

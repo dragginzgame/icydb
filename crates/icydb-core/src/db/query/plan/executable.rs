@@ -267,17 +267,8 @@ mod tests {
                 IndexRangeCursorAnchor, LogicalPlan, OrderDirection, OrderSpec, PlanError,
             },
         },
-        model::{
-            entity::EntityModel,
-            field::{FieldKind, FieldModel},
-            index::IndexModel,
-        },
-        test_fixtures::entity_model_from_static,
-        traits::{
-            AsView, CanisterKind, EntityIdentity, EntityKey, EntityKind, EntityPlacement,
-            EntitySchema, Path, SanitizeAuto, SanitizeCustom, Storable, StoreKind, ValidateAuto,
-            ValidateCustom, Visitable,
-        },
+        model::{field::FieldKind, index::IndexModel},
+        traits::Storable,
         types::Ulid,
         value::Value,
     };
@@ -305,94 +296,31 @@ mod tests {
     #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
     struct ExecutableAnchorEntity;
 
-    impl AsView for ExecutableAnchorEntity {
-        type ViewType = Self;
-
-        fn as_view(&self) -> Self::ViewType {
-            self.clone()
-        }
-
-        fn from_view(view: Self::ViewType) -> Self {
-            view
-        }
+    crate::test_canister! {
+        ident = ExecutableAnchorCanister,
     }
 
-    impl SanitizeAuto for ExecutableAnchorEntity {}
-    impl SanitizeCustom for ExecutableAnchorEntity {}
-    impl ValidateAuto for ExecutableAnchorEntity {}
-    impl ValidateCustom for ExecutableAnchorEntity {}
-    impl Visitable for ExecutableAnchorEntity {}
-
-    impl Path for ExecutableAnchorEntity {
-        const PATH: &'static str = "executable::AnchorEntity";
+    crate::test_store! {
+        ident = ExecutableAnchorStore,
+        canister = ExecutableAnchorCanister,
     }
 
-    impl EntityKey for ExecutableAnchorEntity {
-        type Key = Ulid;
+    crate::test_entity_schema! {
+        ident = ExecutableAnchorEntity,
+        id = Ulid,
+        entity_name = "ExecutableAnchorEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", FieldKind::Ulid),
+            ("a", FieldKind::Uint),
+            ("b", FieldKind::Uint),
+            ("c", FieldKind::Uint),
+        ],
+        indexes = [&RANGE_INDEX_AB, &RANGE_INDEX_AC],
+        store = ExecutableAnchorStore,
+        canister = ExecutableAnchorCanister,
     }
-
-    impl EntityIdentity for ExecutableAnchorEntity {
-        const ENTITY_NAME: &'static str = "ExecutableAnchorEntity";
-        const PRIMARY_KEY: &'static str = "id";
-    }
-
-    static EXECUTABLE_ANCHOR_FIELDS: [FieldModel; 4] = [
-        FieldModel {
-            name: "id",
-            kind: FieldKind::Ulid,
-        },
-        FieldModel {
-            name: "a",
-            kind: FieldKind::Uint,
-        },
-        FieldModel {
-            name: "b",
-            kind: FieldKind::Uint,
-        },
-        FieldModel {
-            name: "c",
-            kind: FieldKind::Uint,
-        },
-    ];
-    static EXECUTABLE_ANCHOR_FIELD_NAMES: [&str; 4] = ["id", "a", "b", "c"];
-    static EXECUTABLE_ANCHOR_INDEXES: [&IndexModel; 2] = [&RANGE_INDEX_AB, &RANGE_INDEX_AC];
-    static EXECUTABLE_ANCHOR_MODEL: EntityModel = entity_model_from_static(
-        "executable::AnchorEntity",
-        "ExecutableAnchorEntity",
-        &EXECUTABLE_ANCHOR_FIELDS[0],
-        &EXECUTABLE_ANCHOR_FIELDS,
-        &EXECUTABLE_ANCHOR_INDEXES,
-    );
-
-    impl EntitySchema for ExecutableAnchorEntity {
-        const MODEL: &'static EntityModel = &EXECUTABLE_ANCHOR_MODEL;
-        const FIELDS: &'static [&'static str] = &EXECUTABLE_ANCHOR_FIELD_NAMES;
-        const INDEXES: &'static [&'static IndexModel] = &EXECUTABLE_ANCHOR_INDEXES;
-    }
-
-    struct ExecutableAnchorCanister;
-    struct ExecutableAnchorStore;
-
-    impl Path for ExecutableAnchorCanister {
-        const PATH: &'static str = "executable::AnchorCanister";
-    }
-
-    impl CanisterKind for ExecutableAnchorCanister {}
-
-    impl Path for ExecutableAnchorStore {
-        const PATH: &'static str = "executable::AnchorStore";
-    }
-
-    impl StoreKind for ExecutableAnchorStore {
-        type Canister = ExecutableAnchorCanister;
-    }
-
-    impl EntityPlacement for ExecutableAnchorEntity {
-        type Store = ExecutableAnchorStore;
-        type Canister = ExecutableAnchorCanister;
-    }
-
-    impl EntityKind for ExecutableAnchorEntity {}
 
     fn build_index_range_cursor_executable() -> ExecutablePlan<ExecutableAnchorEntity> {
         let mut plan: LogicalPlan<Ulid> =

@@ -26,10 +26,9 @@ const RANGE_INDEX_MODEL: IndexModel = IndexModel::new(
     false,
 );
 
-crate::test_entity_schema! {
-    PlanModelEntity,
+crate::test_entity! {
+    ident = PlanModelEntity,
     id = Ulid,
-    path = "plan_tests::Entity",
     entity_name = "PlanEntity",
     primary_key = "id",
     pk_index = 0,
@@ -40,10 +39,9 @@ crate::test_entity_schema! {
     indexes = [&INDEX_MODEL],
 }
 
-crate::test_entity_schema! {
-    PlanRangeEntity,
+crate::test_entity! {
+    ident = PlanRangeEntity,
     id = Ulid,
-    path = "plan_tests::RangeEntity",
     entity_name = "PlanRangeEntity",
     primary_key = "id",
     pk_index = 0,

@@ -11,7 +11,7 @@ use crate::{
         predicate::{CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate},
     },
     model::field::{FieldKind, FieldModel},
-    test_fixtures::InvalidEntityModelBuilder,
+    test_support::InvalidEntityModelBuilder,
     traits::{EntitySchema, FieldValue},
     types::{
         Account, Date, Decimal, Duration, E8s, E18s, Float32, Float64, Int, Int128, Nat, Nat128,
@@ -138,10 +138,9 @@ fn field(name: &'static str, kind: FieldKind) -> FieldModel {
     FieldModel { name, kind }
 }
 
-crate::test_entity_schema! {
-    ScalarPredicateEntity,
+crate::test_entity! {
+    ident = ScalarPredicateEntity,
     id = Ulid,
-    path = "predicate_validate::ScalarEntity",
     entity_name = "ScalarEntity",
     primary_key = "id",
     pk_index = 0,
@@ -155,10 +154,9 @@ crate::test_entity_schema! {
     indexes = [],
 }
 
-crate::test_entity_schema! {
-    CollectionPredicateEntity,
+crate::test_entity! {
+    ident = CollectionPredicateEntity,
     id = Ulid,
-    path = "predicate_validate::CollectionEntity",
     entity_name = "CollectionEntity",
     primary_key = "id",
     pk_index = 0,
@@ -177,10 +175,9 @@ crate::test_entity_schema! {
     indexes = [],
 }
 
-crate::test_entity_schema! {
-    NumericCoercionPredicateEntity,
+crate::test_entity! {
+    ident = NumericCoercionPredicateEntity,
     id = Ulid,
-    path = "predicate_validate::NumericCoercionEntity",
     entity_name = "NumericCoercionEntity",
     primary_key = "id",
     pk_index = 0,

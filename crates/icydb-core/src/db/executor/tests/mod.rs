@@ -14,7 +14,7 @@ use crate::{
             init_commit_store_for_tests, prepare_row_commit_for_entity,
         },
         data::DataStore,
-        executor::{DeleteExecutor, ExecutionPushdownType, LoadExecutor, SaveExecutor},
+        executor::{DeleteExecutor, ExecutionOptimization, LoadExecutor, SaveExecutor},
         index::IndexStore,
         query::{
             ReadConsistency,
@@ -26,48 +26,29 @@ use crate::{
         relation::validate_delete_strong_relations_for_source,
     },
     model::{
-        entity::EntityModel,
-        field::{FieldKind, FieldModel, RelationStrength},
+        field::{FieldKind, RelationStrength},
         index::IndexModel,
     },
-    test_fixtures::entity_model_from_static,
     test_support::test_memory,
-    traits::{
-        AsView, CanisterKind, EntityIdentity, EntityKey, EntityKind, EntityPlacement, EntitySchema,
-        EntityValue, Path, SanitizeAuto, SanitizeCustom, SingletonEntity, StoreKind, ValidateAuto,
-        ValidateCustom, Visitable,
-    },
-    types::{Id, Ulid},
+    traits::{EntityIdentity, EntityKind, EntityValue, Path},
+    types::Ulid,
     value::Value,
 };
 use icydb_derive::FieldValues;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 
-///
-/// TestCanister
-///
+// TestCanister
 
-struct TestCanister;
-
-impl Path for TestCanister {
-    const PATH: &'static str = "executor_tests::TestCanister";
+crate::test_canister! {
+    ident = TestCanister,
 }
 
-impl CanisterKind for TestCanister {}
+// TestDataStore
 
-///
-/// TestDataStore
-///
-
-struct TestDataStore;
-
-impl Path for TestDataStore {
-    const PATH: &'static str = "executor_tests::TestDataStore";
-}
-
-impl StoreKind for TestDataStore {
-    type Canister = TestCanister;
+crate::test_store! {
+    ident = TestDataStore,
+    canister = TestCanister,
 }
 
 thread_local! {
@@ -92,69 +73,17 @@ struct SimpleEntity {
     id: Ulid,
 }
 
-impl AsView for SimpleEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for SimpleEntity {}
-impl SanitizeCustom for SimpleEntity {}
-impl ValidateAuto for SimpleEntity {}
-impl ValidateCustom for SimpleEntity {}
-impl Visitable for SimpleEntity {}
-
-impl Path for SimpleEntity {
-    const PATH: &'static str = "executor_tests::SimpleEntity";
-}
-
-impl EntityKey for SimpleEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for SimpleEntity {
-    const ENTITY_NAME: &'static str = "SimpleEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static SIMPLE_FIELDS: [FieldModel; 1] = [FieldModel {
-    name: "id",
-    kind: FieldKind::Ulid,
-}];
-static SIMPLE_FIELD_NAMES: [&str; 1] = ["id"];
-static SIMPLE_INDEXES: [&IndexModel; 0] = [];
-// NOTE: Executor tests use manual models to avoid schema macros.
-static SIMPLE_MODEL: EntityModel = entity_model_from_static(
-    "executor_tests::SimpleEntity",
-    "SimpleEntity",
-    &SIMPLE_FIELDS[0],
-    &SIMPLE_FIELDS,
-    &SIMPLE_INDEXES,
-);
-
-impl EntitySchema for SimpleEntity {
-    const MODEL: &'static EntityModel = &SIMPLE_MODEL;
-    const FIELDS: &'static [&'static str] = &SIMPLE_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &SIMPLE_INDEXES;
-}
-
-impl EntityPlacement for SimpleEntity {
-    type Store = TestDataStore;
-    type Canister = TestCanister;
-}
-
-impl EntityKind for SimpleEntity {}
-
-impl EntityValue for SimpleEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = SimpleEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SimpleEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [("id", FieldKind::Ulid)],
+    indexes = [],
+    store = TestDataStore,
+    canister = TestCanister,
 }
 
 ///
@@ -168,52 +97,6 @@ struct IndexedMetricsEntity {
     label: String,
 }
 
-impl AsView for IndexedMetricsEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for IndexedMetricsEntity {}
-impl SanitizeCustom for IndexedMetricsEntity {}
-impl ValidateAuto for IndexedMetricsEntity {}
-impl ValidateCustom for IndexedMetricsEntity {}
-impl Visitable for IndexedMetricsEntity {}
-
-impl Path for IndexedMetricsEntity {
-    const PATH: &'static str = "executor_tests::IndexedMetricsEntity";
-}
-
-impl EntityKey for IndexedMetricsEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for IndexedMetricsEntity {
-    const ENTITY_NAME: &'static str = "IndexedMetricsEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static INDEXED_METRICS_FIELDS: [FieldModel; 3] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "tag",
-        kind: FieldKind::Uint,
-    },
-    FieldModel {
-        name: "label",
-        kind: FieldKind::Text,
-    },
-];
-static INDEXED_METRICS_FIELD_NAMES: [&str; 3] = ["id", "tag", "label"];
 static INDEXED_METRICS_INDEX_FIELDS: [&str; 1] = ["tag"];
 static INDEXED_METRICS_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     "tag",
@@ -221,32 +104,22 @@ static INDEXED_METRICS_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     &INDEXED_METRICS_INDEX_FIELDS,
     false,
 )];
-static INDEXED_METRICS_INDEXES: [&IndexModel; 1] = [&INDEXED_METRICS_INDEX_MODELS[0]];
-static INDEXED_METRICS_MODEL: EntityModel = entity_model_from_static(
-    "executor_tests::IndexedMetricsEntity",
-    "IndexedMetricsEntity",
-    &INDEXED_METRICS_FIELDS[0],
-    &INDEXED_METRICS_FIELDS,
-    &INDEXED_METRICS_INDEXES,
-);
 
-impl EntitySchema for IndexedMetricsEntity {
-    const MODEL: &'static EntityModel = &INDEXED_METRICS_MODEL;
-    const FIELDS: &'static [&'static str] = &INDEXED_METRICS_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &INDEXED_METRICS_INDEXES;
-}
-
-impl EntityPlacement for IndexedMetricsEntity {
-    type Store = TestDataStore;
-    type Canister = TestCanister;
-}
-
-impl EntityKind for IndexedMetricsEntity {}
-
-impl EntityValue for IndexedMetricsEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = IndexedMetricsEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "IndexedMetricsEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("tag", FieldKind::Uint),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [&INDEXED_METRICS_INDEX_MODELS[0]],
+    store = TestDataStore,
+    canister = TestCanister,
 }
 
 ///
@@ -260,52 +133,6 @@ struct UniqueIndexRangeEntity {
     label: String,
 }
 
-impl AsView for UniqueIndexRangeEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for UniqueIndexRangeEntity {}
-impl SanitizeCustom for UniqueIndexRangeEntity {}
-impl ValidateAuto for UniqueIndexRangeEntity {}
-impl ValidateCustom for UniqueIndexRangeEntity {}
-impl Visitable for UniqueIndexRangeEntity {}
-
-impl Path for UniqueIndexRangeEntity {
-    const PATH: &'static str = "executor_tests::UniqueIndexRangeEntity";
-}
-
-impl EntityKey for UniqueIndexRangeEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for UniqueIndexRangeEntity {
-    const ENTITY_NAME: &'static str = "UniqueIndexRangeEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static UNIQUE_INDEX_RANGE_FIELDS: [FieldModel; 3] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "code",
-        kind: FieldKind::Uint,
-    },
-    FieldModel {
-        name: "label",
-        kind: FieldKind::Text,
-    },
-];
-static UNIQUE_INDEX_RANGE_FIELD_NAMES: [&str; 3] = ["id", "code", "label"];
 static UNIQUE_INDEX_RANGE_INDEX_FIELDS: [&str; 1] = ["code"];
 static UNIQUE_INDEX_RANGE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     "code_unique",
@@ -313,32 +140,22 @@ static UNIQUE_INDEX_RANGE_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     &UNIQUE_INDEX_RANGE_INDEX_FIELDS,
     true,
 )];
-static UNIQUE_INDEX_RANGE_INDEXES: [&IndexModel; 1] = [&UNIQUE_INDEX_RANGE_INDEX_MODELS[0]];
-static UNIQUE_INDEX_RANGE_MODEL: EntityModel = entity_model_from_static(
-    "executor_tests::UniqueIndexRangeEntity",
-    "UniqueIndexRangeEntity",
-    &UNIQUE_INDEX_RANGE_FIELDS[0],
-    &UNIQUE_INDEX_RANGE_FIELDS,
-    &UNIQUE_INDEX_RANGE_INDEXES,
-);
 
-impl EntitySchema for UniqueIndexRangeEntity {
-    const MODEL: &'static EntityModel = &UNIQUE_INDEX_RANGE_MODEL;
-    const FIELDS: &'static [&'static str] = &UNIQUE_INDEX_RANGE_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &UNIQUE_INDEX_RANGE_INDEXES;
-}
-
-impl EntityPlacement for UniqueIndexRangeEntity {
-    type Store = TestDataStore;
-    type Canister = TestCanister;
-}
-
-impl EntityKind for UniqueIndexRangeEntity {}
-
-impl EntityValue for UniqueIndexRangeEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = UniqueIndexRangeEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "UniqueIndexRangeEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("code", FieldKind::Uint),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [&UNIQUE_INDEX_RANGE_INDEX_MODELS[0]],
+    store = TestDataStore,
+    canister = TestCanister,
 }
 
 ///
@@ -353,56 +170,6 @@ struct PushdownParityEntity {
     label: String,
 }
 
-impl AsView for PushdownParityEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for PushdownParityEntity {}
-impl SanitizeCustom for PushdownParityEntity {}
-impl ValidateAuto for PushdownParityEntity {}
-impl ValidateCustom for PushdownParityEntity {}
-impl Visitable for PushdownParityEntity {}
-
-impl Path for PushdownParityEntity {
-    const PATH: &'static str = "executor_tests::PushdownParityEntity";
-}
-
-impl EntityKey for PushdownParityEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for PushdownParityEntity {
-    const ENTITY_NAME: &'static str = "PushdownParityEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static PUSHDOWN_PARITY_FIELDS: [FieldModel; 4] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "group",
-        kind: FieldKind::Uint,
-    },
-    FieldModel {
-        name: "rank",
-        kind: FieldKind::Uint,
-    },
-    FieldModel {
-        name: "label",
-        kind: FieldKind::Text,
-    },
-];
-static PUSHDOWN_PARITY_FIELD_NAMES: [&str; 4] = ["id", "group", "rank", "label"];
 static PUSHDOWN_PARITY_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
 static PUSHDOWN_PARITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     "group_rank",
@@ -410,32 +177,23 @@ static PUSHDOWN_PARITY_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     &PUSHDOWN_PARITY_INDEX_FIELDS,
     false,
 )];
-static PUSHDOWN_PARITY_INDEXES: [&IndexModel; 1] = [&PUSHDOWN_PARITY_INDEX_MODELS[0]];
-static PUSHDOWN_PARITY_MODEL: EntityModel = entity_model_from_static(
-    "executor_tests::PushdownParityEntity",
-    "PushdownParityEntity",
-    &PUSHDOWN_PARITY_FIELDS[0],
-    &PUSHDOWN_PARITY_FIELDS,
-    &PUSHDOWN_PARITY_INDEXES,
-);
 
-impl EntitySchema for PushdownParityEntity {
-    const MODEL: &'static EntityModel = &PUSHDOWN_PARITY_MODEL;
-    const FIELDS: &'static [&'static str] = &PUSHDOWN_PARITY_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &PUSHDOWN_PARITY_INDEXES;
-}
-
-impl EntityPlacement for PushdownParityEntity {
-    type Store = TestDataStore;
-    type Canister = TestCanister;
-}
-
-impl EntityKind for PushdownParityEntity {}
-
-impl EntityValue for PushdownParityEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = PushdownParityEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PushdownParityEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("group", FieldKind::Uint),
+        ("rank", FieldKind::Uint),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [&PUSHDOWN_PARITY_INDEX_MODELS[0]],
+    store = TestDataStore,
+    canister = TestCanister,
 }
 
 ///
@@ -448,76 +206,18 @@ struct SingletonUnitEntity {
     label: String,
 }
 
-impl AsView for SingletonUnitEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for SingletonUnitEntity {}
-impl SanitizeCustom for SingletonUnitEntity {}
-impl ValidateAuto for SingletonUnitEntity {}
-impl ValidateCustom for SingletonUnitEntity {}
-impl Visitable for SingletonUnitEntity {}
-
-impl Path for SingletonUnitEntity {
-    const PATH: &'static str = "executor_tests::SingletonUnitEntity";
-}
-
-impl EntityKey for SingletonUnitEntity {
-    type Key = ();
-}
-
-impl EntityIdentity for SingletonUnitEntity {
-    const ENTITY_NAME: &'static str = "SingletonUnitEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static SINGLETON_UNIT_FIELDS: [FieldModel; 2] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Unit,
-    },
-    FieldModel {
-        name: "label",
-        kind: FieldKind::Text,
-    },
-];
-static SINGLETON_UNIT_FIELD_NAMES: [&str; 2] = ["id", "label"];
-static SINGLETON_UNIT_INDEXES: [&IndexModel; 0] = [];
-static SINGLETON_UNIT_MODEL: EntityModel = entity_model_from_static(
-    "executor_tests::SingletonUnitEntity",
-    "SingletonUnitEntity",
-    &SINGLETON_UNIT_FIELDS[0],
-    &SINGLETON_UNIT_FIELDS,
-    &SINGLETON_UNIT_INDEXES,
-);
-
-impl EntitySchema for SingletonUnitEntity {
-    const MODEL: &'static EntityModel = &SINGLETON_UNIT_MODEL;
-    const FIELDS: &'static [&'static str] = &SINGLETON_UNIT_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &SINGLETON_UNIT_INDEXES;
-}
-
-impl EntityPlacement for SingletonUnitEntity {
-    type Store = TestDataStore;
-    type Canister = TestCanister;
-}
-
-impl EntityKind for SingletonUnitEntity {}
-impl SingletonEntity for SingletonUnitEntity {}
-
-impl EntityValue for SingletonUnitEntity {
-    #[expect(clippy::unit_arg)]
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = SingletonUnitEntity,
+    id = (),
+    id_field = id,
+    singleton = true,
+    entity_name = "SingletonUnitEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [("id", FieldKind::Unit), ("label", FieldKind::Text)],
+    indexes = [],
+    store = TestDataStore,
+    canister = TestCanister,
 }
 
 ///
@@ -533,88 +233,26 @@ struct PhaseEntity {
     label: String,
 }
 
-impl AsView for PhaseEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for PhaseEntity {}
-impl SanitizeCustom for PhaseEntity {}
-impl ValidateAuto for PhaseEntity {}
-impl ValidateCustom for PhaseEntity {}
-impl Visitable for PhaseEntity {}
-
-impl Path for PhaseEntity {
-    const PATH: &'static str = "executor_tests::PhaseEntity";
-}
-
-impl EntityKey for PhaseEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for PhaseEntity {
-    const ENTITY_NAME: &'static str = "PhaseEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
 static PHASE_TAG_KIND: FieldKind = FieldKind::Uint;
-static PHASE_FIELDS: [FieldModel; 5] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
+
+crate::test_entity_schema! {
+    ident = PhaseEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "PhaseEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
         // Optional scalar fields are represented as scalar kinds in runtime models.
-        name: "opt_rank",
-        kind: FieldKind::Uint,
-    },
-    FieldModel {
-        name: "rank",
-        kind: FieldKind::Uint,
-    },
-    FieldModel {
-        name: "tags",
-        kind: FieldKind::List(&PHASE_TAG_KIND),
-    },
-    FieldModel {
-        name: "label",
-        kind: FieldKind::Text,
-    },
-];
-static PHASE_FIELD_NAMES: [&str; 5] = ["id", "opt_rank", "rank", "tags", "label"];
-static PHASE_INDEXES: [&IndexModel; 0] = [];
-static PHASE_MODEL: EntityModel = entity_model_from_static(
-    "executor_tests::PhaseEntity",
-    "PhaseEntity",
-    &PHASE_FIELDS[0],
-    &PHASE_FIELDS,
-    &PHASE_INDEXES,
-);
-
-impl EntitySchema for PhaseEntity {
-    const MODEL: &'static EntityModel = &PHASE_MODEL;
-    const FIELDS: &'static [&'static str] = &PHASE_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &PHASE_INDEXES;
-}
-
-impl EntityPlacement for PhaseEntity {
-    type Store = TestDataStore;
-    type Canister = TestCanister;
-}
-
-impl EntityKind for PhaseEntity {}
-
-impl EntityValue for PhaseEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+        ("opt_rank", FieldKind::Uint),
+        ("rank", FieldKind::Uint),
+        ("tags", FieldKind::List(&PHASE_TAG_KIND)),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [],
+    store = TestDataStore,
+    canister = TestCanister,
 }
 
 // Clear the test data store and any pending commit marker between runs.
@@ -624,44 +262,24 @@ fn reset_store() {
     INDEX_STORE.with(|store| store.borrow_mut().clear());
 }
 
-///
-/// RelationTestCanister
-///
+// RelationTestCanister
 
-struct RelationTestCanister;
-
-impl Path for RelationTestCanister {
-    const PATH: &'static str = "executor_tests::RelationTestCanister";
+crate::test_canister! {
+    ident = RelationTestCanister,
 }
 
-impl CanisterKind for RelationTestCanister {}
+// RelationSourceStore
 
-///
-/// RelationSourceStore
-///
-
-struct RelationSourceStore;
-
-impl Path for RelationSourceStore {
-    const PATH: &'static str = "executor_tests::RelationSourceStore";
+crate::test_store! {
+    ident = RelationSourceStore,
+    canister = RelationTestCanister,
 }
 
-impl StoreKind for RelationSourceStore {
-    type Canister = RelationTestCanister;
-}
+// RelationTargetStore
 
-///
-/// RelationTargetStore
-///
-
-struct RelationTargetStore;
-
-impl Path for RelationTargetStore {
-    const PATH: &'static str = "executor_tests::RelationTargetStore";
-}
-
-impl StoreKind for RelationTargetStore {
-    type Canister = RelationTestCanister;
+crate::test_store! {
+    ident = RelationTargetStore,
+    canister = RelationTestCanister,
 }
 
 thread_local! {
@@ -734,68 +352,17 @@ struct RelationTargetEntity {
     id: Ulid,
 }
 
-impl AsView for RelationTargetEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for RelationTargetEntity {}
-impl SanitizeCustom for RelationTargetEntity {}
-impl ValidateAuto for RelationTargetEntity {}
-impl ValidateCustom for RelationTargetEntity {}
-impl Visitable for RelationTargetEntity {}
-
-impl Path for RelationTargetEntity {
-    const PATH: &'static str = "executor_tests::RelationTargetEntity";
-}
-
-impl EntityKey for RelationTargetEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for RelationTargetEntity {
-    const ENTITY_NAME: &'static str = "RelationTargetEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static REL_TARGET_FIELDS: [FieldModel; 1] = [FieldModel {
-    name: "id",
-    kind: FieldKind::Ulid,
-}];
-static REL_TARGET_FIELD_NAMES: [&str; 1] = ["id"];
-static REL_TARGET_INDEXES: [&IndexModel; 0] = [];
-static REL_TARGET_MODEL: EntityModel = entity_model_from_static(
-    "executor_tests::RelationTargetEntity",
-    "RelationTargetEntity",
-    &REL_TARGET_FIELDS[0],
-    &REL_TARGET_FIELDS,
-    &REL_TARGET_INDEXES,
-);
-
-impl EntitySchema for RelationTargetEntity {
-    const MODEL: &'static EntityModel = &REL_TARGET_MODEL;
-    const FIELDS: &'static [&'static str] = &REL_TARGET_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &REL_TARGET_INDEXES;
-}
-
-impl EntityPlacement for RelationTargetEntity {
-    type Store = RelationTargetStore;
-    type Canister = RelationTestCanister;
-}
-
-impl EntityKind for RelationTargetEntity {}
-
-impl EntityValue for RelationTargetEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = RelationTargetEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RelationTargetEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [("id", FieldKind::Ulid)],
+    indexes = [],
+    store = RelationTargetStore,
+    canister = RelationTestCanister,
 }
 
 ///
@@ -808,80 +375,29 @@ struct RelationSourceEntity {
     target: Ulid,
 }
 
-impl AsView for RelationSourceEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for RelationSourceEntity {}
-impl SanitizeCustom for RelationSourceEntity {}
-impl ValidateAuto for RelationSourceEntity {}
-impl ValidateCustom for RelationSourceEntity {}
-impl Visitable for RelationSourceEntity {}
-
-impl Path for RelationSourceEntity {
-    const PATH: &'static str = "executor_tests::RelationSourceEntity";
-}
-
-impl EntityKey for RelationSourceEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for RelationSourceEntity {
-    const ENTITY_NAME: &'static str = "RelationSourceEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static REL_SOURCE_FIELDS: [FieldModel; 2] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "target",
-        kind: FieldKind::Relation {
-            target_path: RelationTargetEntity::PATH,
-            target_entity_name: RelationTargetEntity::ENTITY_NAME,
-            target_store_path: RelationTargetStore::PATH,
-            key_kind: &FieldKind::Ulid,
-            strength: RelationStrength::Strong,
-        },
-    },
-];
-static REL_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "target"];
-static REL_SOURCE_INDEXES: [&IndexModel; 0] = [];
-static REL_SOURCE_MODEL: EntityModel = entity_model_from_static(
-    "executor_tests::RelationSourceEntity",
-    "RelationSourceEntity",
-    &REL_SOURCE_FIELDS[0],
-    &REL_SOURCE_FIELDS,
-    &REL_SOURCE_INDEXES,
-);
-
-impl EntitySchema for RelationSourceEntity {
-    const MODEL: &'static EntityModel = &REL_SOURCE_MODEL;
-    const FIELDS: &'static [&'static str] = &REL_SOURCE_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &REL_SOURCE_INDEXES;
-}
-
-impl EntityPlacement for RelationSourceEntity {
-    type Store = RelationSourceStore;
-    type Canister = RelationTestCanister;
-}
-
-impl EntityKind for RelationSourceEntity {}
-
-impl EntityValue for RelationSourceEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = RelationSourceEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RelationSourceEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        (
+            "target",
+            FieldKind::Relation {
+                target_path: RelationTargetEntity::PATH,
+                target_entity_name: RelationTargetEntity::ENTITY_NAME,
+                target_store_path: RelationTargetStore::PATH,
+                key_kind: &FieldKind::Ulid,
+                strength: RelationStrength::Strong,
+            }
+        ),
+    ],
+    indexes = [],
+    store = RelationSourceStore,
+    canister = RelationTestCanister,
 }
 
 ///
@@ -894,80 +410,29 @@ struct WeakSingleRelationSourceEntity {
     target: Ulid,
 }
 
-impl AsView for WeakSingleRelationSourceEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for WeakSingleRelationSourceEntity {}
-impl SanitizeCustom for WeakSingleRelationSourceEntity {}
-impl ValidateAuto for WeakSingleRelationSourceEntity {}
-impl ValidateCustom for WeakSingleRelationSourceEntity {}
-impl Visitable for WeakSingleRelationSourceEntity {}
-
-impl Path for WeakSingleRelationSourceEntity {
-    const PATH: &'static str = "executor_tests::WeakSingleRelationSourceEntity";
-}
-
-impl EntityKey for WeakSingleRelationSourceEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for WeakSingleRelationSourceEntity {
-    const ENTITY_NAME: &'static str = "WeakSingleRelationSourceEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static REL_WEAK_SINGLE_SOURCE_FIELDS: [FieldModel; 2] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "target",
-        kind: FieldKind::Relation {
-            target_path: RelationTargetEntity::PATH,
-            target_entity_name: RelationTargetEntity::ENTITY_NAME,
-            target_store_path: RelationTargetStore::PATH,
-            key_kind: &FieldKind::Ulid,
-            strength: RelationStrength::Weak,
-        },
-    },
-];
-static REL_WEAK_SINGLE_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "target"];
-static REL_WEAK_SINGLE_SOURCE_INDEXES: [&IndexModel; 0] = [];
-static REL_WEAK_SINGLE_SOURCE_MODEL: EntityModel = entity_model_from_static(
-    "executor_tests::WeakSingleRelationSourceEntity",
-    "WeakSingleRelationSourceEntity",
-    &REL_WEAK_SINGLE_SOURCE_FIELDS[0],
-    &REL_WEAK_SINGLE_SOURCE_FIELDS,
-    &REL_WEAK_SINGLE_SOURCE_INDEXES,
-);
-
-impl EntitySchema for WeakSingleRelationSourceEntity {
-    const MODEL: &'static EntityModel = &REL_WEAK_SINGLE_SOURCE_MODEL;
-    const FIELDS: &'static [&'static str] = &REL_WEAK_SINGLE_SOURCE_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &REL_WEAK_SINGLE_SOURCE_INDEXES;
-}
-
-impl EntityPlacement for WeakSingleRelationSourceEntity {
-    type Store = RelationSourceStore;
-    type Canister = RelationTestCanister;
-}
-
-impl EntityKind for WeakSingleRelationSourceEntity {}
-
-impl EntityValue for WeakSingleRelationSourceEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = WeakSingleRelationSourceEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "WeakSingleRelationSourceEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        (
+            "target",
+            FieldKind::Relation {
+                target_path: RelationTargetEntity::PATH,
+                target_entity_name: RelationTargetEntity::ENTITY_NAME,
+                target_store_path: RelationTargetStore::PATH,
+                key_kind: &FieldKind::Ulid,
+                strength: RelationStrength::Weak,
+            }
+        ),
+    ],
+    indexes = [],
+    store = RelationSourceStore,
+    canister = RelationTestCanister,
 }
 
 ///
@@ -980,80 +445,29 @@ struct WeakOptionalRelationSourceEntity {
     target: Option<Ulid>,
 }
 
-impl AsView for WeakOptionalRelationSourceEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for WeakOptionalRelationSourceEntity {}
-impl SanitizeCustom for WeakOptionalRelationSourceEntity {}
-impl ValidateAuto for WeakOptionalRelationSourceEntity {}
-impl ValidateCustom for WeakOptionalRelationSourceEntity {}
-impl Visitable for WeakOptionalRelationSourceEntity {}
-
-impl Path for WeakOptionalRelationSourceEntity {
-    const PATH: &'static str = "executor_tests::WeakOptionalRelationSourceEntity";
-}
-
-impl EntityKey for WeakOptionalRelationSourceEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for WeakOptionalRelationSourceEntity {
-    const ENTITY_NAME: &'static str = "WeakOptionalRelationSourceEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static REL_WEAK_OPTIONAL_SOURCE_FIELDS: [FieldModel; 2] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "target",
-        kind: FieldKind::Relation {
-            target_path: RelationTargetEntity::PATH,
-            target_entity_name: RelationTargetEntity::ENTITY_NAME,
-            target_store_path: RelationTargetStore::PATH,
-            key_kind: &FieldKind::Ulid,
-            strength: RelationStrength::Weak,
-        },
-    },
-];
-static REL_WEAK_OPTIONAL_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "target"];
-static REL_WEAK_OPTIONAL_SOURCE_INDEXES: [&IndexModel; 0] = [];
-static REL_WEAK_OPTIONAL_SOURCE_MODEL: EntityModel = entity_model_from_static(
-    "executor_tests::WeakOptionalRelationSourceEntity",
-    "WeakOptionalRelationSourceEntity",
-    &REL_WEAK_OPTIONAL_SOURCE_FIELDS[0],
-    &REL_WEAK_OPTIONAL_SOURCE_FIELDS,
-    &REL_WEAK_OPTIONAL_SOURCE_INDEXES,
-);
-
-impl EntitySchema for WeakOptionalRelationSourceEntity {
-    const MODEL: &'static EntityModel = &REL_WEAK_OPTIONAL_SOURCE_MODEL;
-    const FIELDS: &'static [&'static str] = &REL_WEAK_OPTIONAL_SOURCE_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &REL_WEAK_OPTIONAL_SOURCE_INDEXES;
-}
-
-impl EntityPlacement for WeakOptionalRelationSourceEntity {
-    type Store = RelationSourceStore;
-    type Canister = RelationTestCanister;
-}
-
-impl EntityKind for WeakOptionalRelationSourceEntity {}
-
-impl EntityValue for WeakOptionalRelationSourceEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = WeakOptionalRelationSourceEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "WeakOptionalRelationSourceEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        (
+            "target",
+            FieldKind::Relation {
+                target_path: RelationTargetEntity::PATH,
+                target_entity_name: RelationTargetEntity::ENTITY_NAME,
+                target_store_path: RelationTargetStore::PATH,
+                key_kind: &FieldKind::Ulid,
+                strength: RelationStrength::Weak,
+            }
+        ),
+    ],
+    indexes = [],
+    store = RelationSourceStore,
+    canister = RelationTestCanister,
 }
 
 ///
@@ -1066,37 +480,6 @@ struct WeakListRelationSourceEntity {
     targets: Vec<Ulid>,
 }
 
-impl AsView for WeakListRelationSourceEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for WeakListRelationSourceEntity {}
-impl SanitizeCustom for WeakListRelationSourceEntity {}
-impl ValidateAuto for WeakListRelationSourceEntity {}
-impl ValidateCustom for WeakListRelationSourceEntity {}
-impl Visitable for WeakListRelationSourceEntity {}
-
-impl Path for WeakListRelationSourceEntity {
-    const PATH: &'static str = "executor_tests::WeakListRelationSourceEntity";
-}
-
-impl EntityKey for WeakListRelationSourceEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for WeakListRelationSourceEntity {
-    const ENTITY_NAME: &'static str = "WeakListRelationSourceEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
 static REL_WEAK_LIST_TARGET_KIND: FieldKind = FieldKind::Relation {
     target_path: RelationTargetEntity::PATH,
     target_entity_name: RelationTargetEntity::ENTITY_NAME,
@@ -1104,43 +487,21 @@ static REL_WEAK_LIST_TARGET_KIND: FieldKind = FieldKind::Relation {
     key_kind: &FieldKind::Ulid,
     strength: RelationStrength::Weak,
 };
-static REL_WEAK_LIST_SOURCE_FIELDS: [FieldModel; 2] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "targets",
-        kind: FieldKind::List(&REL_WEAK_LIST_TARGET_KIND),
-    },
-];
-static REL_WEAK_LIST_SOURCE_FIELD_NAMES: [&str; 2] = ["id", "targets"];
-static REL_WEAK_LIST_SOURCE_INDEXES: [&IndexModel; 0] = [];
-static REL_WEAK_LIST_SOURCE_MODEL: EntityModel = entity_model_from_static(
-    "executor_tests::WeakListRelationSourceEntity",
-    "WeakListRelationSourceEntity",
-    &REL_WEAK_LIST_SOURCE_FIELDS[0],
-    &REL_WEAK_LIST_SOURCE_FIELDS,
-    &REL_WEAK_LIST_SOURCE_INDEXES,
-);
 
-impl EntitySchema for WeakListRelationSourceEntity {
-    const MODEL: &'static EntityModel = &REL_WEAK_LIST_SOURCE_MODEL;
-    const FIELDS: &'static [&'static str] = &REL_WEAK_LIST_SOURCE_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &REL_WEAK_LIST_SOURCE_INDEXES;
-}
-
-impl EntityPlacement for WeakListRelationSourceEntity {
-    type Store = RelationSourceStore;
-    type Canister = RelationTestCanister;
-}
-
-impl EntityKind for WeakListRelationSourceEntity {}
-
-impl EntityValue for WeakListRelationSourceEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = WeakListRelationSourceEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "WeakListRelationSourceEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("targets", FieldKind::List(&REL_WEAK_LIST_TARGET_KIND)),
+    ],
+    indexes = [],
+    store = RelationSourceStore,
+    canister = RelationTestCanister,
 }
 
 // Clear relation test stores and any pending commit marker between runs.

@@ -1162,7 +1162,7 @@ fn delete_blocks_when_target_has_strong_referrer() {
     );
     assert!(
         err.message
-            .contains("source_entity=executor_tests::RelationSourceEntity"),
+            .contains(&format!("source_entity={}", RelationSourceEntity::PATH)),
         "diagnostic should include source entity path: {err:?}",
     );
     assert!(
@@ -1171,7 +1171,7 @@ fn delete_blocks_when_target_has_strong_referrer() {
     );
     assert!(
         err.message
-            .contains("target_entity=executor_tests::RelationTargetEntity"),
+            .contains(&format!("target_entity={}", RelationTargetEntity::PATH)),
         "diagnostic should include target entity path: {err:?}",
     );
     assert!(

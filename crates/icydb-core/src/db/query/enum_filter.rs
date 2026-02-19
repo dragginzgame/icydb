@@ -211,7 +211,7 @@ mod tests {
             validate::{SchemaInfo, ValidateError},
         },
         model::field::{FieldKind, FieldModel},
-        test_fixtures::entity_model_from_static,
+        test_support::entity_model_from_static,
         types::Ulid,
         value::{Value, ValueEnum},
     };

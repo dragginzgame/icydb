@@ -11,13 +11,9 @@ use crate::{
         field::{FieldKind, FieldModel},
         index::IndexModel,
     },
-    test_fixtures::entity_model_from_static,
-    traits::{
-        AsView, CanisterKind, EntityIdentity, EntityKey, EntityKind, EntityPlacement, EntitySchema,
-        EntityValue, FieldValue, FieldValues, Path, SanitizeAuto, SanitizeCustom, StoreKind,
-        ValidateAuto, ValidateCustom, Visitable,
-    },
-    types::{Id, Ulid, Unit},
+    test_support::entity_model_from_static,
+    traits::{EntitySchema, FieldValue, FieldValues},
+    types::{Ulid, Unit},
     value::{Value, ValueEnum},
 };
 use serde::{Deserialize, Serialize};
@@ -33,59 +29,6 @@ struct PlanEntity {
     id: Ulid,
     name: String,
 }
-
-impl AsView for PlanEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for PlanEntity {}
-impl SanitizeCustom for PlanEntity {}
-impl ValidateAuto for PlanEntity {}
-impl ValidateCustom for PlanEntity {}
-impl Visitable for PlanEntity {}
-
-impl Path for PlanEntity {
-    const PATH: &'static str = "intent_tests::PlanEntity";
-}
-
-impl EntityKey for PlanEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for PlanEntity {
-    const ENTITY_NAME: &'static str = "PlanEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static PLAN_FIELDS: [FieldModel; 2] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "name",
-        kind: FieldKind::Text,
-    },
-];
-static PLAN_FIELD_NAMES: [&str; 2] = ["id", "name"];
-static PLAN_INDEXES: [&IndexModel; 0] = [];
-
-// Manual models keep typed-vs-model planning parity tests independent of schema macros.
-static PLAN_MODEL: EntityModel = entity_model_from_static(
-    "intent_tests::PlanEntity",
-    "PlanEntity",
-    &PLAN_FIELDS[0],
-    &PLAN_FIELDS,
-    &PLAN_INDEXES,
-);
 
 static MAP_PLAN_FIELDS: [FieldModel; 2] = [
     FieldModel {
@@ -135,37 +78,6 @@ struct PlanSingleton {
     id: Unit,
 }
 
-impl AsView for PlanSingleton {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for PlanSingleton {}
-impl SanitizeCustom for PlanSingleton {}
-impl ValidateAuto for PlanSingleton {}
-impl ValidateCustom for PlanSingleton {}
-impl Visitable for PlanSingleton {}
-
-impl Path for PlanSingleton {
-    const PATH: &'static str = "intent_tests::PlanSingleton";
-}
-
-impl EntityKey for PlanSingleton {
-    type Key = Unit;
-}
-
-impl EntityIdentity for PlanSingleton {
-    const ENTITY_NAME: &'static str = "PlanSingleton";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
 impl FieldValues for PlanSingleton {
     fn get_value(&self, field: &str) -> Option<Value> {
         match field {
@@ -175,71 +87,45 @@ impl FieldValues for PlanSingleton {
     }
 }
 
-impl EntityValue for PlanSingleton {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_canister! {
+    ident = PlanCanister,
 }
 
-static SINGLETON_FIELDS: [FieldModel; 1] = [FieldModel {
-    name: "id",
-    kind: FieldKind::Unit,
-}];
-static SINGLETON_FIELD_NAMES: [&str; 1] = ["id"];
-static SINGLETON_INDEXES: [&IndexModel; 0] = [];
-
-// Singleton model is hand-built to exercise model-only planning.
-static SINGLETON_MODEL: EntityModel = entity_model_from_static(
-    "intent_tests::PlanSingleton",
-    "PlanSingleton",
-    &SINGLETON_FIELDS[0],
-    &SINGLETON_FIELDS,
-    &SINGLETON_INDEXES,
-);
-
-struct PlanCanister;
-struct PlanDataStore;
-
-impl Path for PlanCanister {
-    const PATH: &'static str = "intent_tests::PlanCanister";
+crate::test_store! {
+    ident = PlanDataStore,
+    canister = PlanCanister,
 }
 
-impl CanisterKind for PlanCanister {}
-
-impl Path for PlanDataStore {
-    const PATH: &'static str = "intent_tests::PlanDataStore";
+crate::test_entity_schema! {
+    ident = PlanEntity,
+    id = Ulid,
+    entity_name = "PlanEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("name", FieldKind::Text),
+    ],
+    indexes = [],
+    store = PlanDataStore,
+    canister = PlanCanister,
 }
 
-impl StoreKind for PlanDataStore {
-    type Canister = PlanCanister;
+crate::test_entity_schema! {
+    ident = PlanSingleton,
+    id = Unit,
+    id_field = id,
+    singleton = true,
+    entity_name = "PlanSingleton",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Unit),
+    ],
+    indexes = [],
+    store = PlanDataStore,
+    canister = PlanCanister,
 }
-
-impl EntitySchema for PlanEntity {
-    const MODEL: &'static EntityModel = &PLAN_MODEL;
-    const FIELDS: &'static [&'static str] = &PLAN_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &PLAN_INDEXES;
-}
-
-impl EntityPlacement for PlanEntity {
-    type Store = PlanDataStore;
-    type Canister = PlanCanister;
-}
-
-impl EntityKind for PlanEntity {}
-
-impl EntitySchema for PlanSingleton {
-    const MODEL: &'static EntityModel = &SINGLETON_MODEL;
-    const FIELDS: &'static [&'static str] = &SINGLETON_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &SINGLETON_INDEXES;
-}
-
-impl EntityPlacement for PlanSingleton {
-    type Store = PlanDataStore;
-    type Canister = PlanCanister;
-}
-
-impl EntityKind for PlanSingleton {}
-impl SingletonEntity for PlanSingleton {}
 
 #[test]
 fn intent_rejects_by_ids_with_predicate() {

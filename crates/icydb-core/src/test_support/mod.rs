@@ -1,3 +1,7 @@
+mod fixtures;
+
+pub(crate) use fixtures::*;
+
 use canic_cdk::structures::{
     DefaultMemoryImpl,
     memory::{MemoryId, MemoryManager, VirtualMemory},

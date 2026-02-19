@@ -68,38 +68,20 @@ mod tests {
     use super::*;
     use crate::{
         error::{ErrorClass, ErrorOrigin, InternalError},
-        model::{
-            entity::EntityModel,
-            field::{FieldKind, FieldModel},
-            index::IndexModel,
-        },
-        test_fixtures::entity_model_from_static,
-        traits::{
-            AsView, CanisterKind, EntityIdentity, EntityKey, EntityKind, EntityPlacement,
-            EntitySchema, EntityValue, Path, SanitizeAuto, SanitizeCustom, StoreKind, ValidateAuto,
-            ValidateCustom, Visitable,
-        },
-        types::{Id, Ulid},
+        model::field::FieldKind,
+        traits::EntityValue,
+        types::Ulid,
     };
     use icydb_derive::FieldValues;
     use serde::{Deserialize, Serialize};
 
-    struct TestCanister;
-
-    impl Path for TestCanister {
-        const PATH: &'static str = "entity_decode_tests::TestCanister";
+    crate::test_canister! {
+        ident = TestCanister,
     }
 
-    impl CanisterKind for TestCanister {}
-
-    struct TestStore;
-
-    impl Path for TestStore {
-        const PATH: &'static str = "entity_decode_tests::TestStore";
-    }
-
-    impl StoreKind for TestStore {
-        type Canister = TestCanister;
+    crate::test_store! {
+        ident = TestStore,
+        canister = TestCanister,
     }
 
     #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
@@ -107,68 +89,17 @@ mod tests {
         id: Ulid,
     }
 
-    impl AsView for ProbeEntity {
-        type ViewType = Self;
-
-        fn as_view(&self) -> Self::ViewType {
-            self.clone()
-        }
-
-        fn from_view(view: Self::ViewType) -> Self {
-            view
-        }
-    }
-
-    impl SanitizeAuto for ProbeEntity {}
-    impl SanitizeCustom for ProbeEntity {}
-    impl ValidateAuto for ProbeEntity {}
-    impl ValidateCustom for ProbeEntity {}
-    impl Visitable for ProbeEntity {}
-
-    impl Path for ProbeEntity {
-        const PATH: &'static str = "entity_decode_tests::ProbeEntity";
-    }
-
-    impl EntityKey for ProbeEntity {
-        type Key = Ulid;
-    }
-
-    impl EntityIdentity for ProbeEntity {
-        const ENTITY_NAME: &'static str = "ProbeEntity";
-        const PRIMARY_KEY: &'static str = "id";
-    }
-
-    static PROBE_FIELDS: [FieldModel; 1] = [FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    }];
-    static PROBE_FIELD_NAMES: [&str; 1] = ["id"];
-    static PROBE_INDEXES: [&IndexModel; 0] = [];
-    static PROBE_MODEL: EntityModel = entity_model_from_static(
-        "entity_decode_tests::ProbeEntity",
-        "ProbeEntity",
-        &PROBE_FIELDS[0],
-        &PROBE_FIELDS,
-        &PROBE_INDEXES,
-    );
-
-    impl EntitySchema for ProbeEntity {
-        const MODEL: &'static EntityModel = &PROBE_MODEL;
-        const FIELDS: &'static [&'static str] = &PROBE_FIELD_NAMES;
-        const INDEXES: &'static [&'static IndexModel] = &PROBE_INDEXES;
-    }
-
-    impl EntityPlacement for ProbeEntity {
-        type Store = TestStore;
-        type Canister = TestCanister;
-    }
-
-    impl EntityKind for ProbeEntity {}
-
-    impl EntityValue for ProbeEntity {
-        fn id(&self) -> Id<Self> {
-            Id::from_key(self.id)
-        }
+    crate::test_entity_schema! {
+        ident = ProbeEntity,
+        id = Ulid,
+        id_field = id,
+        entity_name = "ProbeEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [("id", FieldKind::Ulid)],
+        indexes = [],
+        store = TestStore,
+        canister = TestCanister,
     }
 
     #[test]

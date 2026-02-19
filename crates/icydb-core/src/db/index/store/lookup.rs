@@ -15,13 +15,6 @@ use crate::{
 };
 use std::ops::Bound;
 
-type IndexRangeEntryMap = canic_cdk::structures::BTreeMap<
-    RawIndexKey,
-    InlineIndexValue,
-    canic_cdk::structures::memory::VirtualMemory<canic_cdk::structures::DefaultMemoryImpl>,
->;
-type IndexRangeStream = (IndexRangeEntryMap, (Bound<RawIndexKey>, Bound<RawIndexKey>));
-
 impl IndexStore {
     pub(crate) fn resolve_data_values<E: EntityKind>(
         &self,
@@ -113,10 +106,9 @@ impl IndexStore {
         }
 
         let mut out = Vec::new();
-        let (entry_map, bounds) = self.index_range_stream((start_raw, end_raw), direction);
         match direction {
             Direction::Asc => {
-                for entry in entry_map.range(bounds) {
+                for entry in self.entry_map().range((start_raw, end_raw)) {
                     let raw_key = entry.key();
                     let value = entry.value();
 
@@ -140,7 +132,7 @@ impl IndexStore {
                 }
             }
             Direction::Desc => {
-                for entry in entry_map.range(bounds).rev() {
+                for entry in self.entry_map().range((start_raw, end_raw)).rev() {
                     let raw_key = entry.key();
                     let value = entry.value();
 
@@ -166,15 +158,6 @@ impl IndexStore {
         }
 
         Ok(out)
-    }
-
-    fn index_range_stream(
-        &self,
-        bounds: (Bound<RawIndexKey>, Bound<RawIndexKey>),
-        direction: Direction,
-    ) -> IndexRangeStream {
-        let _ = direction;
-        (self.entry_map(), bounds)
     }
 
     fn decode_index_entry_and_push<E: EntityKind>(

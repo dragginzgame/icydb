@@ -51,7 +51,7 @@ pub enum ExplainOrderPushdown {
         index: &'static str,
         prefix_len: usize,
     },
-    Matrix(SecondaryOrderPushdownRejection),
+    Rejected(SecondaryOrderPushdownRejection),
 }
 
 ///
@@ -233,7 +233,7 @@ impl From<PushdownSurfaceEligibility<'_>> for ExplainOrderPushdown {
             PushdownSurfaceEligibility::EligibleSecondaryIndex { index, prefix_len } => {
                 Self::EligibleSecondaryIndex { index, prefix_len }
             }
-            PushdownSurfaceEligibility::Rejected { reason } => Self::Matrix(reason.clone()),
+            PushdownSurfaceEligibility::Rejected { reason } => Self::Rejected(reason.clone()),
         }
     }
 }
@@ -432,10 +432,9 @@ mod tests {
         false,
     );
 
-    crate::test_entity_schema! {
-        ExplainPushdownEntity,
+    crate::test_entity! {
+    ident = ExplainPushdownEntity,
         id = Ulid,
-        path = "explain::PushdownEntity",
         entity_name = "PushdownEntity",
         primary_key = "id",
         pk_index = 0,
@@ -630,7 +629,7 @@ mod tests {
 
         assert_eq!(
             plan.explain_with_model(model).order_pushdown,
-            ExplainOrderPushdown::Matrix(
+            ExplainOrderPushdown::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
                     index: PUSHDOWN_INDEX.name,
                     prefix_len: 0,
@@ -676,13 +675,13 @@ mod tests {
                 SecondaryOrderPushdownEligibility::Rejected(
                     SecondaryOrderPushdownRejection::NoOrderBy,
                 ),
-                ExplainOrderPushdown::Matrix(SecondaryOrderPushdownRejection::NoOrderBy),
+                ExplainOrderPushdown::Rejected(SecondaryOrderPushdownRejection::NoOrderBy),
             ),
             (
                 SecondaryOrderPushdownEligibility::Rejected(
                     SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
                 ),
-                ExplainOrderPushdown::Matrix(
+                ExplainOrderPushdown::Rejected(
                     SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
                 ),
             ),
@@ -693,7 +692,7 @@ mod tests {
                         prefix_len: 1,
                     },
                 ),
-                ExplainOrderPushdown::Matrix(
+                ExplainOrderPushdown::Rejected(
                     SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
                         index: "explain::pushdown_tag",
                         prefix_len: 1,
@@ -707,7 +706,7 @@ mod tests {
                         index_field_len: 2,
                     },
                 ),
-                ExplainOrderPushdown::Matrix(
+                ExplainOrderPushdown::Rejected(
                     SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
                         prefix_len: 3,
                         index_field_len: 2,
@@ -720,7 +719,7 @@ mod tests {
                         field: "id".to_string(),
                     },
                 ),
-                ExplainOrderPushdown::Matrix(
+                ExplainOrderPushdown::Rejected(
                     SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
                         field: "id".to_string(),
                     },
@@ -732,7 +731,7 @@ mod tests {
                         field: "id".to_string(),
                     },
                 ),
-                ExplainOrderPushdown::Matrix(
+                ExplainOrderPushdown::Rejected(
                     SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
                         field: "id".to_string(),
                     },
@@ -744,7 +743,7 @@ mod tests {
                         field: "rank".to_string(),
                     },
                 ),
-                ExplainOrderPushdown::Matrix(
+                ExplainOrderPushdown::Rejected(
                     SecondaryOrderPushdownRejection::NonAscendingDirection {
                         field: "rank".to_string(),
                     },
@@ -760,7 +759,7 @@ mod tests {
                         actual: vec!["other".to_string()],
                     },
                 ),
-                ExplainOrderPushdown::Matrix(
+                ExplainOrderPushdown::Rejected(
                     SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
                         index: "explain::pushdown_tag",
                         prefix_len: 1,

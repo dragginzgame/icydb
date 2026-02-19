@@ -25,6 +25,15 @@ where
     }
 }
 
+impl<T> OrderedKeyStream for &mut T
+where
+    T: OrderedKeyStream + ?Sized,
+{
+    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+        (**self).next_key()
+    }
+}
+
 ///
 /// VecOrderedKeyStream
 ///
@@ -55,6 +64,44 @@ impl OrderedKeyStream for VecOrderedKeyStream {
         self.index = self.index.saturating_add(1);
 
         Ok(Some(key))
+    }
+}
+
+///
+/// BudgetedOrderedKeyStream
+///
+/// Wrapper that caps upstream key production after a fixed number of emitted keys.
+/// Once the budget is exhausted, it never polls the inner stream again.
+///
+
+pub(crate) struct BudgetedOrderedKeyStream<S> {
+    inner: S,
+    remaining: usize,
+}
+
+impl<S> BudgetedOrderedKeyStream<S> {
+    #[must_use]
+    pub(crate) const fn new(inner: S, remaining: usize) -> Self {
+        Self { inner, remaining }
+    }
+}
+
+impl<S> OrderedKeyStream for BudgetedOrderedKeyStream<S>
+where
+    S: OrderedKeyStream,
+{
+    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+        if self.remaining == 0 {
+            return Ok(None);
+        }
+
+        match self.inner.next_key()? {
+            Some(key) => {
+                self.remaining = self.remaining.saturating_sub(1);
+                Ok(Some(key))
+            }
+            None => Ok(None),
+        }
     }
 }
 
@@ -408,8 +455,8 @@ mod tests {
         db::{
             data::{DataKey, StorageKey},
             executor::ordered_key_stream::{
-                IntersectOrderedKeyStream, MergeOrderedKeyStream, OrderedKeyStream,
-                VecOrderedKeyStream,
+                BudgetedOrderedKeyStream, IntersectOrderedKeyStream, MergeOrderedKeyStream,
+                OrderedKeyStream, VecOrderedKeyStream,
             },
             identity::EntityName,
             query::plan::Direction,
@@ -507,6 +554,49 @@ mod tests {
         assert_eq!(first, Some(data_key(9)));
         assert_eq!(second, None);
         assert_eq!(third, None);
+    }
+
+    #[test]
+    fn budgeted_stream_stops_after_budget_without_polling_inner() {
+        let inner =
+            StaticOrderedKeyStream::with_fail_at(vec![data_key(1), data_key(2), data_key(3)], 1);
+        let mut stream = BudgetedOrderedKeyStream::new(inner, 1);
+
+        assert_eq!(
+            stream.next_key().expect("first key should be available"),
+            Some(data_key(1))
+        );
+        assert_eq!(
+            stream
+                .next_key()
+                .expect("exhausted budget should return None"),
+            None
+        );
+        assert_eq!(
+            stream
+                .next_key()
+                .expect("exhausted budget should keep returning None"),
+            None
+        );
+    }
+
+    #[test]
+    fn budgeted_stream_with_zero_budget_is_immediately_exhausted() {
+        let inner = StaticOrderedKeyStream::with_fail_at(vec![data_key(1)], 0);
+        let mut stream = BudgetedOrderedKeyStream::new(inner, 0);
+
+        assert_eq!(
+            stream
+                .next_key()
+                .expect("zero-budget stream should not poll inner"),
+            None
+        );
+        assert_eq!(
+            stream
+                .next_key()
+                .expect("zero-budget stream should stay exhausted"),
+            None
+        );
     }
 
     #[test]

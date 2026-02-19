@@ -12,118 +12,53 @@ use crate::{
         relation::validate_delete_strong_relations_for_source,
     },
     error::{ErrorClass, ErrorOrigin},
-    model::{
-        entity::EntityModel,
-        field::{FieldKind, FieldModel},
-        index::IndexModel,
-    },
+    model::{field::FieldKind, index::IndexModel},
     serialize::serialize,
-    test_fixtures::entity_model_from_static,
     test_support::test_memory,
-    traits::{
-        AsView, CanisterKind, EntityIdentity, EntityKey, EntityKind, EntityPlacement, EntitySchema,
-        EntityValue, FieldValue, Path, SanitizeAuto, SanitizeCustom, StoreKind, ValidateAuto,
-        ValidateCustom, Visitable,
-    },
-    types::{Id, Ulid},
+    traits::{EntityIdentity, EntitySchema, FieldValue, Path},
+    types::Ulid,
 };
 use icydb_derive::FieldValues;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, collections::BTreeSet};
 
-///
-/// RecoveryTestCanister
-///
+//
+// RecoveryTestCanister
+//
 
-struct RecoveryTestCanister;
-
-impl Path for RecoveryTestCanister {
-    const PATH: &'static str = "commit_tests::RecoveryTestCanister";
+crate::test_canister! {
+    ident = RecoveryTestCanister,
 }
 
-impl CanisterKind for RecoveryTestCanister {}
+//
+// RecoveryTestDataStore
+//
 
-///
-/// RecoveryTestDataStore
-///
-
-struct RecoveryTestDataStore;
-
-impl Path for RecoveryTestDataStore {
-    const PATH: &'static str = "commit_tests::RecoveryTestDataStore";
+crate::test_store! {
+    ident = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
 }
 
-impl StoreKind for RecoveryTestDataStore {
-    type Canister = RecoveryTestCanister;
-}
+///
+/// RecoveryTestEntity
+///
 
 #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
 struct RecoveryTestEntity {
     id: Ulid,
 }
 
-impl AsView for RecoveryTestEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for RecoveryTestEntity {}
-impl SanitizeCustom for RecoveryTestEntity {}
-impl ValidateAuto for RecoveryTestEntity {}
-impl ValidateCustom for RecoveryTestEntity {}
-impl Visitable for RecoveryTestEntity {}
-
-impl Path for RecoveryTestEntity {
-    const PATH: &'static str = "commit_tests::RecoveryTestEntity";
-}
-
-impl EntityKey for RecoveryTestEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for RecoveryTestEntity {
-    const ENTITY_NAME: &'static str = "RecoveryTestEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static RECOVERY_TEST_FIELDS: [FieldModel; 1] = [FieldModel {
-    name: "id",
-    kind: FieldKind::Ulid,
-}];
-static RECOVERY_TEST_FIELD_NAMES: [&str; 1] = ["id"];
-static RECOVERY_TEST_INDEXES: [&IndexModel; 0] = [];
-static RECOVERY_TEST_MODEL: EntityModel = entity_model_from_static(
-    "commit_tests::RecoveryTestEntity",
-    "RecoveryTestEntity",
-    &RECOVERY_TEST_FIELDS[0],
-    &RECOVERY_TEST_FIELDS,
-    &RECOVERY_TEST_INDEXES,
-);
-
-impl EntitySchema for RecoveryTestEntity {
-    const MODEL: &'static EntityModel = &RECOVERY_TEST_MODEL;
-    const FIELDS: &'static [&'static str] = &RECOVERY_TEST_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &RECOVERY_TEST_INDEXES;
-}
-
-impl EntityPlacement for RecoveryTestEntity {
-    type Store = RecoveryTestDataStore;
-    type Canister = RecoveryTestCanister;
-}
-
-impl EntityKind for RecoveryTestEntity {}
-
-impl EntityValue for RecoveryTestEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = RecoveryTestEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RecoveryTestEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [("id", FieldKind::Ulid)],
+    indexes = [],
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
@@ -132,48 +67,6 @@ struct RecoveryIndexedEntity {
     group: u32,
 }
 
-impl AsView for RecoveryIndexedEntity {
-    type ViewType = Self;
-
-    fn as_view(&self) -> Self::ViewType {
-        self.clone()
-    }
-
-    fn from_view(view: Self::ViewType) -> Self {
-        view
-    }
-}
-
-impl SanitizeAuto for RecoveryIndexedEntity {}
-impl SanitizeCustom for RecoveryIndexedEntity {}
-impl ValidateAuto for RecoveryIndexedEntity {}
-impl ValidateCustom for RecoveryIndexedEntity {}
-impl Visitable for RecoveryIndexedEntity {}
-
-impl Path for RecoveryIndexedEntity {
-    const PATH: &'static str = "commit_tests::RecoveryIndexedEntity";
-}
-
-impl EntityKey for RecoveryIndexedEntity {
-    type Key = Ulid;
-}
-
-impl EntityIdentity for RecoveryIndexedEntity {
-    const ENTITY_NAME: &'static str = "RecoveryIndexedEntity";
-    const PRIMARY_KEY: &'static str = "id";
-}
-
-static RECOVERY_INDEXED_FIELDS: [FieldModel; 2] = [
-    FieldModel {
-        name: "id",
-        kind: FieldKind::Ulid,
-    },
-    FieldModel {
-        name: "group",
-        kind: FieldKind::Uint,
-    },
-];
-static RECOVERY_INDEXED_FIELD_NAMES: [&str; 2] = ["id", "group"];
 static RECOVERY_INDEXED_INDEX_FIELDS: [&str; 1] = ["group"];
 static RECOVERY_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     "group",
@@ -181,32 +74,18 @@ static RECOVERY_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     &RECOVERY_INDEXED_INDEX_FIELDS,
     false,
 )];
-static RECOVERY_INDEXED_INDEXES: [&IndexModel; 1] = [&RECOVERY_INDEXED_INDEX_MODELS[0]];
-static RECOVERY_INDEXED_MODEL: EntityModel = entity_model_from_static(
-    "commit_tests::RecoveryIndexedEntity",
-    "RecoveryIndexedEntity",
-    &RECOVERY_INDEXED_FIELDS[0],
-    &RECOVERY_INDEXED_FIELDS,
-    &RECOVERY_INDEXED_INDEXES,
-);
 
-impl EntitySchema for RecoveryIndexedEntity {
-    const MODEL: &'static EntityModel = &RECOVERY_INDEXED_MODEL;
-    const FIELDS: &'static [&'static str] = &RECOVERY_INDEXED_FIELD_NAMES;
-    const INDEXES: &'static [&'static IndexModel] = &RECOVERY_INDEXED_INDEXES;
-}
-
-impl EntityPlacement for RecoveryIndexedEntity {
-    type Store = RecoveryTestDataStore;
-    type Canister = RecoveryTestCanister;
-}
-
-impl EntityKind for RecoveryIndexedEntity {}
-
-impl EntityValue for RecoveryIndexedEntity {
-    fn id(&self) -> Id<Self> {
-        Id::from_key(self.id)
-    }
+crate::test_entity_schema! {
+    ident = RecoveryIndexedEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "RecoveryIndexedEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [("id", FieldKind::Ulid), ("group", FieldKind::Uint)],
+    indexes = [&RECOVERY_INDEXED_INDEX_MODELS[0]],
+    store = RecoveryTestDataStore,
+    canister = RecoveryTestCanister,
 }
 
 static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[

@@ -1,9 +1,7 @@
 use crate::{
     db::{
         Context,
-        executor::load::{
-            ExecutionFastPath, ExecutionPushdownType, FastPathKeyResult, LoadExecutor,
-        },
+        executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{VecOrderedKeyStream, normalize_ordered_keys},
         query::plan::{Direction, LogicalPlan, OrderDirection, validate::PushdownApplicability},
     },
@@ -46,8 +44,7 @@ where
         Ok(Some(FastPathKeyResult {
             ordered_key_stream: Box::new(VecOrderedKeyStream::new(ordered_keys)),
             rows_scanned,
-            fast_path_used: ExecutionFastPath::SecondaryIndex,
-            pushdown_type: Some(ExecutionPushdownType::SecondaryOrder),
+            optimization: ExecutionOptimization::SecondaryOrderPushdown,
         }))
     }
 

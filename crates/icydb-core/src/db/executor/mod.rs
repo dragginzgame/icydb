@@ -13,12 +13,10 @@ pub(super) use context::*;
 pub(super) use delete::DeleteExecutor;
 pub(crate) use direction::normalize_ordered_keys;
 pub(super) use load::LoadExecutor;
-pub use load::{
-    ExecutionAccessPathVariant, ExecutionFastPath, ExecutionPushdownType, ExecutionTrace,
-};
+pub use load::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub(super) use ordered_key_stream::{
-    IntersectOrderedKeyStream, MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox,
-    VecOrderedKeyStream,
+    BudgetedOrderedKeyStream, IntersectOrderedKeyStream, MergeOrderedKeyStream, OrderedKeyStream,
+    OrderedKeyStreamBox, VecOrderedKeyStream,
 };
 pub(super) use save::SaveExecutor;
 

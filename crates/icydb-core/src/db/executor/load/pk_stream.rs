@@ -4,7 +4,7 @@ use crate::{
         data::DataKey,
         executor::{
             VecOrderedKeyStream,
-            load::{ExecutionFastPath, FastPathKeyResult, LoadExecutor},
+            load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
             normalize_ordered_keys,
         },
         query::plan::{AccessPath, Direction, LogicalPlan, OrderDirection},
@@ -57,8 +57,7 @@ where
             return Ok(Some(FastPathKeyResult {
                 ordered_key_stream: Box::new(VecOrderedKeyStream::new(Vec::new())),
                 rows_scanned: 0,
-                fast_path_used: ExecutionFastPath::PrimaryKey,
-                pushdown_type: None,
+                optimization: ExecutionOptimization::PrimaryKey,
             }));
         }
 
@@ -68,8 +67,7 @@ where
         Ok(Some(FastPathKeyResult {
             ordered_key_stream: Box::new(VecOrderedKeyStream::new(scan.keys)),
             rows_scanned: scan.rows_scanned,
-            fast_path_used: ExecutionFastPath::PrimaryKey,
-            pushdown_type: None,
+            optimization: ExecutionOptimization::PrimaryKey,
         }))
     }
 

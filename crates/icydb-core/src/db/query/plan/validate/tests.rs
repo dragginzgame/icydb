@@ -18,7 +18,7 @@ use crate::{
         field::{FieldKind, FieldModel},
         index::IndexModel,
     },
-    test_fixtures::InvalidEntityModelBuilder,
+    test_support::InvalidEntityModelBuilder,
     traits::EntitySchema,
     types::Ulid,
     value::Value,
@@ -33,10 +33,9 @@ const INDEX_FIELDS: [&str; 1] = ["tag"];
 const INDEX_MODEL: IndexModel =
     IndexModel::new("test::idx_tag", "test::IndexStore", &INDEX_FIELDS, false);
 
-crate::test_entity_schema! {
-    PlanValidateIndexedEntity,
+crate::test_entity! {
+    ident = PlanValidateIndexedEntity,
     id = Ulid,
-    path = "plan_validate::IndexedEntity",
     entity_name = "IndexedEntity",
     primary_key = "id",
     pk_index = 0,
@@ -48,10 +47,9 @@ crate::test_entity_schema! {
     indexes = [&INDEX_MODEL],
 }
 
-crate::test_entity_schema! {
-    PlanValidateListEntity,
+crate::test_entity! {
+    ident = PlanValidateListEntity,
     id = Ulid,
-    path = "plan_validate::ListEntity",
     entity_name = "ListEntity",
     primary_key = "id",
     pk_index = 0,

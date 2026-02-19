@@ -23,8 +23,6 @@ pub mod visitor;
 
 // test
 #[cfg(test)]
-pub(crate) mod test_fixtures;
-#[cfg(test)]
 pub(crate) mod test_support;
 
 ///

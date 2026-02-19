@@ -19,9 +19,7 @@ pub use cursor::encode_cursor;
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
 pub use diagnostics::StorageReport;
-pub use executor::{
-    ExecutionAccessPathVariant, ExecutionFastPath, ExecutionPushdownType, ExecutionTrace,
-};
+pub use executor::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
 #[cfg(test)]

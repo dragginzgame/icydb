@@ -6,12 +6,12 @@ use crate::{
     db::{
         Context, Db,
         executor::plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
-        executor::{OrderedKeyStream, OrderedKeyStreamBox},
+        executor::{BudgetedOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox},
         index::{IndexKey, RawIndexKey},
         query::plan::{
             AccessPlan, AccessPlanProjection, ContinuationSignature, ContinuationToken,
             CursorBoundary, Direction, ExecutablePlan, IndexRangeCursorAnchor, LogicalPlan,
-            OrderDirection, PlannedCursor, decode_pk_cursor_boundary,
+            OrderDirection, PageSpec, PlannedCursor, decode_pk_cursor_boundary,
             logical::PostAccessStats,
             project_access_plan,
             validate::{
@@ -61,26 +61,16 @@ pub enum ExecutionAccessPathVariant {
 }
 
 ///
-/// ExecutionPushdownType
+/// ExecutionOptimization
 ///
-/// Pushdown optimization kind applied by load execution, if any.
+/// Canonical load optimization selected by execution, if any.
 ///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExecutionPushdownType {
-    SecondaryOrder,
-    IndexRangeLimit,
-}
 
-///
-/// ExecutionFastPath
-///
-/// Fast-path branch selected by load execution, if any.
-///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExecutionFastPath {
+pub enum ExecutionOptimization {
     PrimaryKey,
-    SecondaryIndex,
-    IndexRange,
+    SecondaryOrderPushdown,
+    IndexRangeLimitPushdown,
 }
 
 ///
@@ -94,9 +84,7 @@ pub enum ExecutionFastPath {
 pub struct ExecutionTrace {
     pub access_path_variant: ExecutionAccessPathVariant,
     pub direction: OrderDirection,
-    pub pushdown_used: bool,
-    pub pushdown_type: Option<ExecutionPushdownType>,
-    pub fast_path_used: Option<ExecutionFastPath>,
+    pub optimization: Option<ExecutionOptimization>,
     pub keys_scanned: u64,
     pub rows_returned: u64,
     pub continuation_applied: bool,
@@ -107,9 +95,7 @@ impl ExecutionTrace {
         Self {
             access_path_variant: access_path_variant(access),
             direction: execution_order_direction(direction),
-            pushdown_used: false,
-            pushdown_type: None,
-            fast_path_used: None,
+            optimization: None,
             keys_scanned: 0,
             rows_returned: 0,
             continuation_applied,
@@ -118,14 +104,11 @@ impl ExecutionTrace {
 
     fn set_path_outcome(
         &mut self,
-        fast_path_used: Option<ExecutionFastPath>,
-        pushdown_type: Option<ExecutionPushdownType>,
+        optimization: Option<ExecutionOptimization>,
         keys_scanned: usize,
         rows_returned: usize,
     ) {
-        self.fast_path_used = fast_path_used;
-        self.pushdown_type = pushdown_type;
-        self.pushdown_used = pushdown_type.is_some();
+        self.optimization = optimization;
         self.keys_scanned = u64::try_from(keys_scanned).unwrap_or(u64::MAX);
         self.rows_returned = u64::try_from(rows_returned).unwrap_or(u64::MAX);
     }
@@ -204,8 +187,18 @@ const fn execution_order_direction(direction: Direction) -> OrderDirection {
 struct FastPathKeyResult {
     ordered_key_stream: OrderedKeyStreamBox,
     rows_scanned: usize,
-    fast_path_used: ExecutionFastPath,
-    pushdown_type: Option<ExecutionPushdownType>,
+    optimization: ExecutionOptimization,
+}
+
+///
+/// IndexRangeLimitSpec
+///
+/// Canonical executor decision payload for index-range limit pushdown.
+/// Encodes the bounded fetch size after all eligibility gates pass.
+///
+
+struct IndexRangeLimitSpec {
+    fetch: usize,
 }
 
 ///
@@ -311,13 +304,7 @@ where
                 direction,
                 continuation_signature,
             )?;
-            Self::finalize_path_outcome(
-                &mut execution_trace,
-                None,
-                None,
-                keys_scanned,
-                post_access_rows,
-            );
+            Self::finalize_path_outcome(&mut execution_trace, None, keys_scanned, post_access_rows);
 
             set_rows_from_len(&mut span, page.items.0.len());
             Ok(page)
@@ -329,19 +316,13 @@ where
     // Record shared observability outcome for any execution path.
     fn finalize_path_outcome(
         execution_trace: &mut Option<ExecutionTrace>,
-        fast_path_used: Option<ExecutionFastPath>,
-        pushdown_type: Option<ExecutionPushdownType>,
+        optimization: Option<ExecutionOptimization>,
         rows_scanned: usize,
         rows_returned: usize,
     ) {
         record_rows_scanned::<E>(rows_scanned);
         if let Some(execution_trace) = execution_trace.as_mut() {
-            execution_trace.set_path_outcome(
-                fast_path_used,
-                pushdown_type,
-                rows_scanned,
-                rows_returned,
-            );
+            execution_trace.set_path_outcome(optimization, rows_scanned, rows_returned);
             debug_assert_eq!(
                 execution_trace.keys_scanned,
                 u64::try_from(rows_scanned).unwrap_or(u64::MAX),
@@ -359,7 +340,14 @@ where
         direction: Direction,
         continuation_signature: ContinuationSignature,
     ) -> Result<(CursorPage<E>, usize, usize), InternalError> {
-        let data_rows = ctx.rows_from_ordered_key_stream(key_stream, plan.consistency)?;
+        // Apply guarded scan budgeting only when the access stream already
+        // represents final canonical ordering and no residual narrowing exists.
+        let data_rows = if let Some(scan_budget) = Self::derive_scan_budget(plan, cursor_boundary) {
+            let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
+            ctx.rows_from_ordered_key_stream(&mut budgeted, plan.consistency)?
+        } else {
+            ctx.rows_from_ordered_key_stream(key_stream, plan.consistency)?
+        };
         let rows_scanned = data_rows.len();
         let mut rows = Context::deserialize_rows(data_rows)?;
         let page = Self::finalize_rows_into_page(
@@ -372,6 +360,45 @@ where
         let post_access_rows = page.items.0.len();
 
         Ok((page, rows_scanned, post_access_rows))
+    }
+
+    // Derive an optional upstream scan budget for post-access pagination.
+    // Returns `None` unless the plan shape is proven semantics-safe.
+    fn derive_scan_budget(
+        plan: &LogicalPlan<E::Key>,
+        cursor_boundary: Option<&CursorBoundary>,
+    ) -> Option<usize> {
+        let page = plan.page.as_ref()?;
+        page.limit?;
+        if !Self::is_budget_safe_shape(plan, cursor_boundary) {
+            return None;
+        }
+
+        Some(Self::compute_page_window_fetch(page, true))
+    }
+
+    // Guard scan budgeting to cases where post-access phases are pure windowing.
+    fn is_budget_safe_shape(
+        plan: &LogicalPlan<E::Key>,
+        cursor_boundary: Option<&CursorBoundary>,
+    ) -> bool {
+        let metadata = plan.budget_safety_metadata::<E>();
+        if !plan.mode.is_load() {
+            return false;
+        }
+        if metadata.has_residual_filter {
+            return false;
+        }
+        if metadata.requires_post_access_sort {
+            return false;
+        }
+
+        Self::cursor_narrowing_is_budget_safe(cursor_boundary)
+    }
+
+    // Cursor boundary narrowing currently runs in post-access phases for these shapes.
+    const fn cursor_narrowing_is_budget_safe(cursor_boundary: Option<&CursorBoundary>) -> bool {
+        cursor_boundary.is_none()
     }
 
     // Preserve PK fast-path cursor-boundary error classification at the executor boundary.
@@ -387,11 +414,11 @@ where
         Ok(())
     }
 
-    fn index_range_limit_pushdown_fetch(
+    fn assess_index_range_limit_pushdown(
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
         index_range_anchor: Option<&RawIndexKey>,
-    ) -> Option<usize> {
+    ) -> Option<IndexRangeLimitSpec> {
         if !Self::is_index_range_limit_pushdown_shape_eligible(plan) {
             return None;
         }
@@ -402,15 +429,57 @@ where
         let page = plan.page.as_ref()?;
         let limit = page.limit?;
         if limit == 0 {
-            return Some(0);
+            return Some(IndexRangeLimitSpec { fetch: 0 });
         }
 
-        let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
-        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-        let page_end = offset.saturating_add(limit);
-        let needs_extra_row = true;
+        let fetch = Self::compute_page_window_fetch(page, true);
 
-        Some(page_end.saturating_add(usize::from(needs_extra_row)))
+        Some(IndexRangeLimitSpec { fetch })
+    }
+
+    // Compute canonical post-access window fetch sizing with saturating math.
+    fn compute_page_window_fetch(page: &PageSpec, needs_extra_row: bool) -> usize {
+        let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+        let limit = page
+            .limit
+            .map_or(0, |limit| usize::try_from(limit).unwrap_or(usize::MAX));
+        let page_end = offset.saturating_add(limit);
+
+        page_end.saturating_add(usize::from(needs_extra_row))
+    }
+
+    // Execute shared post-access materialization and observability hooks for one fast-path result.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "fast-path finalization keeps explicit execution inputs and trace sinks"
+    )]
+    fn finalize_fast_path_page(
+        ctx: &Context<'_, E>,
+        plan: &LogicalPlan<E::Key>,
+        mut fast: FastPathKeyResult,
+        cursor_boundary: Option<&CursorBoundary>,
+        direction: Direction,
+        continuation_signature: ContinuationSignature,
+        span: &mut Span<E>,
+        execution_trace: &mut Option<ExecutionTrace>,
+    ) -> Result<CursorPage<E>, InternalError> {
+        let (page, _, post_access_rows) = Self::materialize_key_stream_into_page(
+            ctx,
+            plan,
+            fast.ordered_key_stream.as_mut(),
+            cursor_boundary,
+            direction,
+            continuation_signature,
+        )?;
+        Self::finalize_path_outcome(
+            execution_trace,
+            Some(fast.optimization),
+            fast.rows_scanned,
+            post_access_rows,
+        );
+        set_rows_from_len(span, page.items.0.len());
+
+        Ok(page)
     }
 
     // Try each fast-path strategy in canonical order and return the first hit.
@@ -431,75 +500,61 @@ where
     ) -> Result<Option<CursorPage<E>>, InternalError> {
         Self::validate_pk_fast_path_boundary_if_applicable(plan, cursor_boundary)?;
 
-        if let Some(mut fast) = Self::try_execute_pk_order_stream(ctx, plan)? {
-            let (page, _, post_access_rows) = Self::materialize_key_stream_into_page(
+        if let Some(fast) = Self::try_execute_pk_order_stream(ctx, plan)? {
+            let page = Self::finalize_fast_path_page(
                 ctx,
                 plan,
-                fast.ordered_key_stream.as_mut(),
+                fast,
                 cursor_boundary,
                 direction,
                 continuation_signature,
-            )?;
-            Self::finalize_path_outcome(
+                span,
                 execution_trace,
-                Some(fast.fast_path_used),
-                fast.pushdown_type,
-                fast.rows_scanned,
-                post_access_rows,
-            );
-            set_rows_from_len(span, page.items.0.len());
+            )?;
+
             return Ok(Some(page));
         }
 
-        if let Some(mut fast) = Self::try_execute_secondary_index_order_stream(
+        if let Some(fast) = Self::try_execute_secondary_index_order_stream(
             ctx,
             plan,
             secondary_pushdown_applicability,
         )? {
-            let (page, _, post_access_rows) = Self::materialize_key_stream_into_page(
+            let page = Self::finalize_fast_path_page(
                 ctx,
                 plan,
-                fast.ordered_key_stream.as_mut(),
+                fast,
                 cursor_boundary,
                 direction,
                 continuation_signature,
-            )?;
-            Self::finalize_path_outcome(
+                span,
                 execution_trace,
-                Some(fast.fast_path_used),
-                fast.pushdown_type,
-                fast.rows_scanned,
-                post_access_rows,
-            );
-            set_rows_from_len(span, page.items.0.len());
+            )?;
+
             return Ok(Some(page));
         }
 
-        let index_range_limit_fetch =
-            Self::index_range_limit_pushdown_fetch(plan, cursor_boundary, index_range_anchor);
-        if let Some(mut fast) = Self::try_execute_index_range_limit_pushdown_stream(
-            ctx,
-            plan,
-            index_range_anchor,
-            direction,
-            index_range_limit_fetch,
-        )? {
-            let (page, _, post_access_rows) = Self::materialize_key_stream_into_page(
+        if let Some(spec) =
+            Self::assess_index_range_limit_pushdown(plan, cursor_boundary, index_range_anchor)
+            && let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
                 ctx,
                 plan,
-                fast.ordered_key_stream.as_mut(),
+                index_range_anchor,
+                direction,
+                spec.fetch,
+            )?
+        {
+            let page = Self::finalize_fast_path_page(
+                ctx,
+                plan,
+                fast,
                 cursor_boundary,
                 direction,
                 continuation_signature,
-            )?;
-            Self::finalize_path_outcome(
+                span,
                 execution_trace,
-                Some(fast.fast_path_used),
-                fast.pushdown_type,
-                fast.rows_scanned,
-                post_access_rows,
-            );
-            set_rows_from_len(span, page.items.0.len());
+            )?;
+
             return Ok(Some(page));
         }
 

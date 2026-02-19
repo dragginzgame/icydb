@@ -5,6 +5,41 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.18.0] – 2026-02-19 - Execution Scan Budgeting
+
+### 📝 Summary
+
+* Added a safe internal scan cap so eligible composite queries can stop reading keys earlier while returning the same rows and the same continuation cursor behavior.
+* This is an internal optimization only. If a query shape is not proven safe, icyDB keeps the previous full-scan behavior.
+
+```rust
+let budget = offset.saturating_add(limit).saturating_add(1);
+```
+
+### 🔧 Changed
+
+* Added `BudgetedOrderedKeyStream` to cap key polling when a plan is known to be safe.
+* Added guarded scan budget derivation (`offset + limit + 1`) for eligible load plans.
+* Added explicit budget-safety checks on `LogicalPlan` so the executor can make one clear yes/no decision before applying the optimization.
+* Kept budget wrapping at one boundary (`LoadExecutor::materialize_key_stream_into_page`) to avoid semantic drift.
+* Added a suite of macro test helpers to reduce repeated test boilerplate and keep test schemas consistent:
+
+```rust
+test_canister!(ident = RecoveryTestCanister);
+test_store!(ident = RecoveryTestDataStore, canister = RecoveryTestCanister);
+test_entity!(ident = RecoveryTestEntity { id: Ulid });
+test_entity_schema!(ident = RecoveryTestEntity, id = Ulid, id_field = id, ...);
+```
+
+### 🧪 Testing
+
+* Added tests that confirm budgeted streams stop correctly and never over-poll.
+* Added ASC/DESC composite coverage for safe budgeted paths.
+* Added guard tests for cursor-present, residual-filter, and post-sort cases to confirm fallback behavior stays unchanged.
+* Added parity tests to confirm budgeted and non-budgeted paths produce the same page rows and continuation boundaries.
+
+---
+
 ## [0.17.0] – 2026-02-19 - Composite Intersection Stream Execution
 
 ### 📝 Summary
