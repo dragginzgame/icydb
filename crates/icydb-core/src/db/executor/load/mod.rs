@@ -1,30 +1,26 @@
+mod execute;
 mod index_range_limit;
+mod page;
 mod pk_stream;
+mod route;
 mod secondary_index;
 
 use crate::{
     db::{
-        Context, Db,
-        executor::plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
-        executor::{BudgetedOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox},
-        index::{IndexKey, RawIndexKey},
+        Db,
+        executor::OrderedKeyStreamBox,
+        executor::plan::{record_plan_metrics, record_rows_scanned},
+        index::RawIndexKey,
         query::plan::{
-            AccessPlan, AccessPlanProjection, ContinuationSignature, ContinuationToken,
-            CursorBoundary, Direction, ExecutablePlan, IndexRangeCursorAnchor, LogicalPlan,
-            OrderDirection, PageSpec, PlannedCursor, decode_pk_cursor_boundary,
-            logical::PostAccessStats,
-            project_access_plan,
-            validate::{
-                PushdownApplicability, assess_secondary_order_pushdown_if_applicable_validated,
-                validate_executor_plan,
-            },
+            AccessPlan, AccessPlanProjection, CursorBoundary, Direction, ExecutablePlan,
+            LogicalPlan, OrderDirection, PageSpec, PlannedCursor, decode_pk_cursor_boundary,
+            project_access_plan, validate::validate_executor_plan,
         },
         response::Response,
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     obs::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
-    types::Id,
     value::Value,
 };
 use std::{marker::PhantomData, ops::Bound};
@@ -272,15 +268,17 @@ where
             let ctx = self.db.recovered_context::<E>()?;
 
             record_plan_metrics(&plan.access);
-            // Compute secondary ORDER BY pushdown eligibility once, then share the
-            // derived decision across trace and fast-path gating.
-            let secondary_pushdown_applicability =
-                Self::assess_secondary_order_pushdown_applicability(&plan);
+            // Plan fast-path routing decisions once, then execute in canonical order.
+            let fast_path_plan = Self::build_fast_path_plan(
+                &plan,
+                cursor_boundary.as_ref(),
+                index_range_anchor.as_ref(),
+            )?;
 
-            if let Some(page) = Self::try_execute_fast_paths(
+            if let Some(page) = Self::try_execute_fast_path_plan(
                 &ctx,
                 &plan,
-                &secondary_pushdown_applicability,
+                &fast_path_plan,
                 cursor_boundary.as_ref(),
                 index_range_anchor.as_ref(),
                 direction,
@@ -291,22 +289,16 @@ where
                 return Ok(page);
             }
 
-            let mut key_stream = ctx.ordered_key_stream_from_access_plan_with_index_range_anchor(
-                &plan.access,
-                index_range_anchor.as_ref(),
-                direction,
-            )?;
-            let (page, keys_scanned, post_access_rows) = Self::materialize_key_stream_into_page(
+            let page = Self::execute_fallback_path(
                 &ctx,
                 &plan,
-                key_stream.as_mut(),
                 cursor_boundary.as_ref(),
+                index_range_anchor.as_ref(),
                 direction,
                 continuation_signature,
+                &mut span,
+                &mut execution_trace,
             )?;
-            Self::finalize_path_outcome(&mut execution_trace, None, keys_scanned, post_access_rows);
-
-            set_rows_from_len(&mut span, page.items.0.len());
             Ok(page)
         })();
 
@@ -329,76 +321,6 @@ where
                 "execution trace keys_scanned must match rows_scanned metrics input",
             );
         }
-    }
-
-    // Run the shared load phases for an already-produced ordered key stream.
-    fn materialize_key_stream_into_page(
-        ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
-        key_stream: &mut dyn OrderedKeyStream,
-        cursor_boundary: Option<&CursorBoundary>,
-        direction: Direction,
-        continuation_signature: ContinuationSignature,
-    ) -> Result<(CursorPage<E>, usize, usize), InternalError> {
-        // Apply guarded scan budgeting only when the access stream already
-        // represents final canonical ordering and no residual narrowing exists.
-        let data_rows = if let Some(scan_budget) = Self::derive_scan_budget(plan, cursor_boundary) {
-            let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
-            ctx.rows_from_ordered_key_stream(&mut budgeted, plan.consistency)?
-        } else {
-            ctx.rows_from_ordered_key_stream(key_stream, plan.consistency)?
-        };
-        let rows_scanned = data_rows.len();
-        let mut rows = Context::deserialize_rows(data_rows)?;
-        let page = Self::finalize_rows_into_page(
-            plan,
-            &mut rows,
-            cursor_boundary,
-            direction,
-            continuation_signature,
-        )?;
-        let post_access_rows = page.items.0.len();
-
-        Ok((page, rows_scanned, post_access_rows))
-    }
-
-    // Derive an optional upstream scan budget for post-access pagination.
-    // Returns `None` unless the plan shape is proven semantics-safe.
-    fn derive_scan_budget(
-        plan: &LogicalPlan<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-    ) -> Option<usize> {
-        let page = plan.page.as_ref()?;
-        page.limit?;
-        if !Self::is_budget_safe_shape(plan, cursor_boundary) {
-            return None;
-        }
-
-        Some(Self::compute_page_window_fetch(page, true))
-    }
-
-    // Guard scan budgeting to cases where post-access phases are pure windowing.
-    fn is_budget_safe_shape(
-        plan: &LogicalPlan<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-    ) -> bool {
-        let metadata = plan.budget_safety_metadata::<E>();
-        if !plan.mode.is_load() {
-            return false;
-        }
-        if metadata.has_residual_filter {
-            return false;
-        }
-        if metadata.requires_post_access_sort {
-            return false;
-        }
-
-        Self::cursor_narrowing_is_budget_safe(cursor_boundary)
-    }
-
-    // Cursor boundary narrowing currently runs in post-access phases for these shapes.
-    const fn cursor_narrowing_is_budget_safe(cursor_boundary: Option<&CursorBoundary>) -> bool {
-        cursor_boundary.is_none()
     }
 
     // Preserve PK fast-path cursor-boundary error classification at the executor boundary.
@@ -446,210 +368,5 @@ where
         let page_end = offset.saturating_add(limit);
 
         page_end.saturating_add(usize::from(needs_extra_row))
-    }
-
-    // Execute shared post-access materialization and observability hooks for one fast-path result.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "fast-path finalization keeps explicit execution inputs and trace sinks"
-    )]
-    fn finalize_fast_path_page(
-        ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
-        mut fast: FastPathKeyResult,
-        cursor_boundary: Option<&CursorBoundary>,
-        direction: Direction,
-        continuation_signature: ContinuationSignature,
-        span: &mut Span<E>,
-        execution_trace: &mut Option<ExecutionTrace>,
-    ) -> Result<CursorPage<E>, InternalError> {
-        let (page, _, post_access_rows) = Self::materialize_key_stream_into_page(
-            ctx,
-            plan,
-            fast.ordered_key_stream.as_mut(),
-            cursor_boundary,
-            direction,
-            continuation_signature,
-        )?;
-        Self::finalize_path_outcome(
-            execution_trace,
-            Some(fast.optimization),
-            fast.rows_scanned,
-            post_access_rows,
-        );
-        set_rows_from_len(span, page.items.0.len());
-
-        Ok(page)
-    }
-
-    // Try each fast-path strategy in canonical order and return the first hit.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "fast-path dispatch keeps execution inputs explicit at one call site"
-    )]
-    fn try_execute_fast_paths(
-        ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
-        secondary_pushdown_applicability: &PushdownApplicability,
-        cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-        continuation_signature: ContinuationSignature,
-        span: &mut Span<E>,
-        execution_trace: &mut Option<ExecutionTrace>,
-    ) -> Result<Option<CursorPage<E>>, InternalError> {
-        Self::validate_pk_fast_path_boundary_if_applicable(plan, cursor_boundary)?;
-
-        if let Some(fast) = Self::try_execute_pk_order_stream(ctx, plan)? {
-            let page = Self::finalize_fast_path_page(
-                ctx,
-                plan,
-                fast,
-                cursor_boundary,
-                direction,
-                continuation_signature,
-                span,
-                execution_trace,
-            )?;
-
-            return Ok(Some(page));
-        }
-
-        if let Some(fast) = Self::try_execute_secondary_index_order_stream(
-            ctx,
-            plan,
-            secondary_pushdown_applicability,
-        )? {
-            let page = Self::finalize_fast_path_page(
-                ctx,
-                plan,
-                fast,
-                cursor_boundary,
-                direction,
-                continuation_signature,
-                span,
-                execution_trace,
-            )?;
-
-            return Ok(Some(page));
-        }
-
-        if let Some(spec) =
-            Self::assess_index_range_limit_pushdown(plan, cursor_boundary, index_range_anchor)
-            && let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
-                ctx,
-                plan,
-                index_range_anchor,
-                direction,
-                spec.fetch,
-            )?
-        {
-            let page = Self::finalize_fast_path_page(
-                ctx,
-                plan,
-                fast,
-                cursor_boundary,
-                direction,
-                continuation_signature,
-                span,
-                execution_trace,
-            )?;
-
-            return Ok(Some(page));
-        }
-
-        Ok(None)
-    }
-
-    // Apply canonical post-access phases to scanned rows and assemble the cursor page.
-    fn finalize_rows_into_page(
-        plan: &LogicalPlan<E::Key>,
-        rows: &mut Vec<(Id<E>, E)>,
-        cursor_boundary: Option<&CursorBoundary>,
-        direction: Direction,
-        continuation_signature: ContinuationSignature,
-    ) -> Result<CursorPage<E>, InternalError> {
-        let stats = plan.apply_post_access_with_cursor::<E, _>(rows, cursor_boundary)?;
-        let next_cursor =
-            Self::build_next_cursor(plan, rows, &stats, direction, continuation_signature)?;
-        let items = Response(std::mem::take(rows));
-
-        Ok(CursorPage { items, next_cursor })
-    }
-
-    // Assess secondary-index ORDER BY pushdown once for this execution and
-    // map matrix outcomes to executor decisions.
-    fn assess_secondary_order_pushdown_applicability(
-        plan: &LogicalPlan<E::Key>,
-    ) -> PushdownApplicability {
-        assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan)
-    }
-
-    fn build_next_cursor(
-        plan: &LogicalPlan<E::Key>,
-        rows: &[(Id<E>, E)],
-        stats: &PostAccessStats,
-        direction: Direction,
-        signature: ContinuationSignature,
-    ) -> Result<Option<Vec<u8>>, InternalError> {
-        let Some(page) = plan.page.as_ref() else {
-            return Ok(None);
-        };
-        let Some(limit) = page.limit else {
-            return Ok(None);
-        };
-        if rows.is_empty() {
-            return Ok(None);
-        }
-
-        // NOTE: post-access execution materializes full in-memory rows for Phase 1.
-        let page_end = (page.offset as usize).saturating_add(limit as usize);
-        if stats.rows_after_cursor <= page_end {
-            return Ok(None);
-        }
-
-        let Some((_, last_entity)) = rows.last() else {
-            return Ok(None);
-        };
-        Self::encode_next_cursor_for_last_entity(plan, last_entity, direction, signature).map(Some)
-    }
-
-    // Encode the continuation token from the last returned entity.
-    fn encode_next_cursor_for_last_entity(
-        plan: &LogicalPlan<E::Key>,
-        last_entity: &E,
-        direction: Direction,
-        signature: ContinuationSignature,
-    ) -> Result<Vec<u8>, InternalError> {
-        let boundary = plan.cursor_boundary_from_entity(last_entity)?;
-        let token = if plan.access.cursor_support().supports_index_range_anchor() {
-            let (index, _, _, _) =
-                plan.access.as_index_range_path().ok_or_else(|| {
-                    InternalError::query_invariant(
-                        "executor invariant violated: index-range cursor support missing concrete index-range path",
-                    )
-                })?;
-            let index_key = IndexKey::new(last_entity, index)?.ok_or_else(|| {
-                InternalError::query_invariant(
-                    "executor invariant violated: cursor row is not indexable for planned index-range access",
-                )
-            })?;
-
-            ContinuationToken::new_index_range_with_direction(
-                signature,
-                boundary,
-                IndexRangeCursorAnchor::new(index_key.to_raw()),
-                direction,
-            )
-        } else {
-            ContinuationToken::new_with_direction(signature, boundary, direction)
-        };
-        token.encode().map_err(|err| {
-            InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Serialize,
-                format!("failed to encode continuation cursor: {err}"),
-            )
-        })
     }
 }

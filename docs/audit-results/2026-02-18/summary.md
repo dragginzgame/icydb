@@ -7,16 +7,20 @@ Interpretation:
 7–8  = High risk / requires monitoring
 9–10 = Critical risk / structural instability
 
-Invariant Integrity Risk Index: 4/10
-Recovery Integrity Risk Index: 4/10
-Cursor/Ordering Risk Index: 3/10
-Index Integrity Risk Index: 3/10
-State-Machine Risk Index: 4/10
-Structure Integrity Risk Index: 4/10
-Complexity Risk Index: 7/10
-Velocity Risk Index: 6/10
-DRY Risk Index: 4/10
-Taxonomy Risk Index: 4/10
+## Risk Index Summary
+
+| Risk Index          | Score | Run Context               |
+| ------------------- | ----- | ------------------------- |
+| Invariant Integrity | 4/10  | run on 2026-02-18 baseline |
+| Recovery Integrity  | 4/10  | run on 2026-02-18 baseline |
+| Cursor/Ordering     | 3/10  | run on 2026-02-18 baseline |
+| Index Integrity     | 3/10  | run on 2026-02-18 baseline |
+| State-Machine       | 4/10  | run on 2026-02-18 baseline |
+| Structure Integrity | 4/10  | run on 2026-02-18 baseline |
+| Complexity          | 7/10  | run on 2026-02-18 baseline |
+| Velocity            | 6/10  | run on 2026-02-18 baseline |
+| DRY                 | 4/10  | run on 2026-02-18 baseline |
+| Taxonomy            | 4/10  | run on 2026-02-18 baseline |
 
 Codebase Size Snapshot (`cd crates && cloc .`):
 - Rust: files=390, blank=9417, comment=6629, code=53997

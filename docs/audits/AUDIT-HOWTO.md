@@ -167,13 +167,20 @@ Format:
 ```
 # Audit Summary — YYYY-MM-DD
 
-Invariant Integrity Risk Index: X/10
-Recovery Integrity Risk Index: X/10
-Cursor/Ordering Risk Index: X/10
-Structure Integrity Risk Index: X/10
-Complexity Risk Index: X/10
-Velocity Risk Index: X/10
-DRY Risk Index: X/10
+## Risk Index Summary
+
+| Risk Index          | Score | Run Context                                         |
+| ------------------- | ----- | --------------------------------------------------- |
+| Invariant Integrity | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
+| Recovery Integrity  | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
+| Cursor/Ordering     | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
+| Index Integrity     | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
+| State-Machine       | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
+| Structure Integrity | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
+| Complexity          | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
+| Velocity            | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
+| DRY                 | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
+| Taxonomy            | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
 
 Codebase Size Snapshot (`cd crates && cloc .`):
 - Rust: files=..., blank=..., comment=..., code=...
@@ -199,6 +206,9 @@ Medium Risk Areas:
 Drift Signals:
 - ...
 ```
+
+`Risk Index Summary` must be tabular in all `summary.md` files. Free-form
+single-line score lists are no longer allowed.
 
 ---
 
