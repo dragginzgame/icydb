@@ -19,16 +19,13 @@ assert_eq!(a - b, Duration::from_millis(3_000));
 
 ### 🔧 Changed
 
-* Removed legacy truncation-named timestamp duration helpers and replaced usage with direct millisecond saturating arithmetic.
 * Standardized timestamp arithmetic to `Timestamp +/- Duration` and `Timestamp - Timestamp -> Duration`, all in `u64` milliseconds.
 * `Timestamp::parse_flexible` now interprets bare integer input as milliseconds (matching internal/storage semantics) instead of implicitly treating integers as seconds.
 * Kept ordered index encoding unchanged (`u64` big-endian) while adding monotonicity coverage for timestamp ordered bytes.
-* Kept serde wire format unchanged (`#[serde(transparent)]`, bare `u64`) and added explicit `from_millis(42) -> "42"` tests for both `Timestamp` and `Duration`.
 
 ### 🧪 Testing
 
 * Added contract tests for millisecond precision, no-truncation arithmetic, timestamp-difference duration semantics, and timestamp ordered-encoding monotonicity.
-* Re-ran `cargo test -p icydb-core --locked` with passing results.
 
 ---
 
