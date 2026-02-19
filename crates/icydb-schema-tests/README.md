@@ -1,10 +1,16 @@
 # icydb-schema-tests
 
-Integration and design test suite for IcyDB schemas and generated behavior.
+Integration and design test suite for schema/macro-generated IcyDB behavior.
 
-This crate validates schema contracts, macro-driven entities, query semantics, and end-to-end paths used by the workspace.
+This crate is test-only (`publish = false`) and validates schema contracts, query semantics, and generated-system behavior across workspace scenarios.
 
-Notes:
-- `publish = false` (test-only crate)
-- includes integration tests under `tests/` and scenario modules under `src/`
-- commonly run with `cargo test -p icydb-schema-tests`
+Typical command:
+
+```bash
+cargo test -p icydb-schema-tests --locked
+```
+
+References:
+
+- Testing strategy: `TESTING.md`
+- Workspace overview: `README.md`

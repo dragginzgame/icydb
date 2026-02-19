@@ -1,11 +1,12 @@
 # icydb-derive
 
-Internal procedural macros used by the IcyDB workspace.
+Internal derive/proc-macro crate used by the IcyDB workspace.
 
-This crate provides derive macros used by runtime and tests, including:
-- `FieldValues`
-- `Display`
-- `Inner`
-- arithmetic derives such as `Add`, `Sub`, `Mul`, `Div`, and assign variants
+It provides derives used by runtime and tests (for example `FieldValues`, display helpers, and arithmetic helper derives).
 
-This crate is part of IcyDB internals. Most users should depend on `icydb` instead.
+Most users should depend on `icydb`, not this crate directly.
+
+References:
+
+- Workspace overview: `README.md`
+- Release notes: `CHANGELOG.md`

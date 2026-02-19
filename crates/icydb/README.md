@@ -1,5 +1,12 @@
 # IcyDB
 
-Public meta-crate that re-exports the IcyDB ecosystem: core runtime, macros, schema, base helpers, and error types.
+Public meta-crate for IcyDB.
 
-Start here if you want to build canister data models with IcyDB. See the workspace `README.md` for full docs and examples.
+This crate re-exports the IcyDB ecosystem, including runtime query APIs, schema/macros, and shared types.
+
+Use this crate when building canister data models and queries.
+
+For full setup, examples, and release notes:
+
+- Workspace README: `README.md`
+- Changelog: `CHANGELOG.md`

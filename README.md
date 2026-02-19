@@ -24,6 +24,13 @@ If you are new to this space: think of IcyDB as a way to get "database-like" str
 
 ---
 
+## Current Release
+
+- Workspace version: `0.18.1`
+- Changelog: `CHANGELOG.md`
+
+---
+
 ## Why Use It?
 
 - **Less boilerplate**: generate common data model code with macros.
@@ -50,7 +57,7 @@ Use a pinned git tag so builds are repeatable:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.0.1" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.18.1" }
 ```
 
 ---
@@ -81,7 +88,7 @@ use icydb::prelude::*;
 pub fn users_named_ann() -> Result<Vec<View<User>>, icydb::Error> {
     let views = db!()
         .load::<User>()
-        .filter_expr(FilterExpr::eq("name", "ann"))?
+        .filter_expr(FilterExpr::eq(User::NAME, "ann"))?
         .order_by("name")
         .offset(100)
         .limit(50)
@@ -102,10 +109,22 @@ pub fn users_named_ann() -> Result<Vec<View<User>>, icydb::Error> {
 
 For deeper rules and behavior:
 
-- `docs/QUERY_CONTRACT.md`
-- `docs/QUERY_PRACTICE.md`
-- `docs/IDENTITY_CONTRACT.md`
-- `docs/TRANSACTION_SEMANTICS.md`
+- `docs/contracts/QUERY_CONTRACT.md`
+- `docs/contracts/QUERY_PRACTICE.md`
+- `docs/contracts/IDENTITY_CONTRACT.md`
+- `docs/contracts/TRANSACTION_SEMANTICS.md`
+
+### Execution & Pagination Guarantees (0.18.x)
+
+- Composite `Union` and `Intersection` execution is stream-native and deterministic.
+- Guarded scan budgeting (`offset + limit + 1`) is applied only for safe plan shapes.
+- Composite continuation uses a single anchor with strict forward progress in ASC/DESC traversal.
+- Budgeted and fallback execution paths are verified for continuation-boundary parity.
+
+Reference docs:
+
+- `docs/design/0.18-composite-limit-pushdown.md`
+- `docs/status/0.18-status.md`
 
 ### Batch Writes: Choose Your Lane
 
@@ -136,6 +155,8 @@ in one atomic transaction is out of scope for the current surface.
 
 - `crates/icydb` — public API crate.
 - `crates/icydb-core` — runtime, query engine, stores.
+- `crates/icydb-derive` — derive macros and helper codegen surfaces.
+- `crates/icydb-primitives` — shared primitive/domain types.
 - `crates/icydb-schema-derive` — procedural macros for schema/types.
 - `crates/icydb-schema` — schema AST and validation.
 - `crates/icydb-build` — build-time codegen for canister wiring.
@@ -175,7 +196,7 @@ make build      # release build
 
 Pre-commit hooks run:
 
-- `cargo fmt -- --check`
+- `cargo fmt --all -- --check`
 - `cargo sort --check`
 - `cargo sort-derives --check`
 
@@ -197,11 +218,10 @@ git ls-remote --tags https://github.com/dragginzgame/icydb.git
 
 ## Current Focus
 
-- Better docs and runnable examples.
-- More test coverage across query/index behavior.
-- Better production metrics and storage visibility.
-- Smaller generated Wasm output from `icydb_build`.
-- Future transaction work (see `docs/ROADMAP.md`).
+- Stabilize and ship `0.18.x` execution/pagination guarantees.
+- Continue docs consolidation and runnable examples.
+- Expand query/index matrix coverage where contracts were recently tightened.
+- Track upcoming work in `docs/ROADMAP.md` and active design docs under `docs/design/`.
 
 ---
 
