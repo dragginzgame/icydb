@@ -484,6 +484,44 @@ where
     (ids, row_bytes)
 }
 
+// Collect all pages for a fixed executable-plan shape while preserving the
+// emitted continuation cursor bytes for boundary-equivalence assertions.
+fn collect_all_pages_from_executable_plan<E>(
+    load: &LoadExecutor<E>,
+    build_plan: impl Fn() -> ExecutablePlan<E>,
+    max_pages: usize,
+) -> (Vec<Ulid>, Vec<CursorBoundary>)
+where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+{
+    let mut cursor: Option<CursorBoundary> = None;
+    let mut ids = Vec::new();
+    let mut boundaries = Vec::new();
+    let mut pages = 0usize;
+
+    loop {
+        pages += 1;
+        assert!(pages <= max_pages, "pagination must terminate");
+
+        let page = load
+            .execute_paged_with_cursor(build_plan(), cursor.clone())
+            .expect("paged execution should succeed");
+
+        ids.extend(ids_from_items(&page.items.0));
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+
+        let next_boundary =
+            decode_boundary(next_cursor.as_slice(), "continuation cursor should decode");
+        cursor = Some(next_boundary.clone());
+        boundaries.push(next_boundary);
+    }
+
+    (ids, boundaries)
+}
+
 fn assert_limit_matrix<E>(build_base_query: impl Fn() -> Query<E>, limits: &[u32], max_pages: usize)
 where
     E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
@@ -3160,6 +3198,180 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
             "fallback continuation cursor should decode"
         ),
         "budgeted and fallback paths should encode the same continuation boundary"
+    );
+}
+
+#[test]
+fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [
+        37_901_u128,
+        37_902,
+        37_903,
+        37_904,
+        37_905,
+        37_906,
+        37_907,
+        37_908,
+    ] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("union permutation seed save should succeed");
+    }
+
+    let id1 = Ulid::from_u128(37_901);
+    let id2 = Ulid::from_u128(37_902);
+    let id3 = Ulid::from_u128(37_903);
+    let id4 = Ulid::from_u128(37_904);
+    let id5 = Ulid::from_u128(37_905);
+    let id6 = Ulid::from_u128(37_906);
+    let id7 = Ulid::from_u128(37_907);
+    let id8 = Ulid::from_u128(37_908);
+
+    let build_union_abc = || {
+        ExecutablePlan::<SimpleEntity>::new(LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id6, id7, id8])),
+            ]),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Desc)],
+            }),
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        })
+    };
+    let build_union_cab = || {
+        ExecutablePlan::<SimpleEntity>::new(LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id6, id7, id8])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
+            ]),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Desc)],
+            }),
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        })
+    };
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let (ids_abc, boundaries_abc) =
+        collect_all_pages_from_executable_plan(&load, build_union_abc, 12);
+    let (ids_cab, boundaries_cab) =
+        collect_all_pages_from_executable_plan(&load, build_union_cab, 12);
+
+    assert_eq!(
+        ids_abc, ids_cab,
+        "union child-plan order permutation must not change paged row sequence"
+    );
+    assert_eq!(
+        boundaries_abc, boundaries_cab,
+        "union child-plan order permutation must not change continuation boundaries"
+    );
+}
+
+#[test]
+fn load_intersection_child_order_permutation_preserves_rows_and_continuation_boundaries() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [
+        38_001_u128,
+        38_002,
+        38_003,
+        38_004,
+        38_005,
+        38_006,
+        38_007,
+        38_008,
+    ] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("intersection permutation seed save should succeed");
+    }
+
+    let id1 = Ulid::from_u128(38_001);
+    let id2 = Ulid::from_u128(38_002);
+    let id3 = Ulid::from_u128(38_003);
+    let id4 = Ulid::from_u128(38_004);
+    let id5 = Ulid::from_u128(38_005);
+    let id6 = Ulid::from_u128(38_006);
+    let id7 = Ulid::from_u128(38_007);
+    let id8 = Ulid::from_u128(38_008);
+
+    let build_intersection_abc = || {
+        ExecutablePlan::<SimpleEntity>::new(LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: AccessPlan::Intersection(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id4, id5, id6, id8])),
+            ]),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Desc)],
+            }),
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(1),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        })
+    };
+    let build_intersection_bca = || {
+        ExecutablePlan::<SimpleEntity>::new(LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: AccessPlan::Intersection(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id4, id5, id6, id8])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
+            ]),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Desc)],
+            }),
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(1),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        })
+    };
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let (ids_abc, boundaries_abc) =
+        collect_all_pages_from_executable_plan(&load, build_intersection_abc, 12);
+    let (ids_bca, boundaries_bca) =
+        collect_all_pages_from_executable_plan(&load, build_intersection_bca, 12);
+
+    assert_eq!(
+        ids_abc, ids_bca,
+        "intersection child-plan order permutation must not change paged row sequence"
+    );
+    assert_eq!(
+        boundaries_abc, boundaries_bca,
+        "intersection child-plan order permutation must not change continuation boundaries"
     );
 }
 
