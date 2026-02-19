@@ -5,12 +5,13 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.18.0] – 2026-02-19 - Execution Scan Budgeting
+## [0.18.0] – 2026-02-19 - Execution Scan Budgeting + Composite Pagination Contract
 
 ### 📝 Summary
 
 * Added a safe internal scan cap so eligible composite queries can stop reading keys earlier while returning the same rows and the same continuation cursor behavior.
 * This is an internal optimization only. If a query shape is not proven safe, icyDB keeps the previous full-scan behavior.
+* Folded composite pagination correctness tracking into `0.18` so budgeting and continuation invariants now live under one milestone.
 
 ```rust
 let budget = offset.saturating_add(limit).saturating_add(1);
@@ -22,6 +23,7 @@ let budget = offset.saturating_add(limit).saturating_add(1);
 * Added guarded scan budget derivation (`offset + limit + 1`) for eligible load plans.
 * Added explicit budget-safety checks on `LogicalPlan` so the executor can make one clear yes/no decision before applying the optimization.
 * Kept budget wrapping at one boundary (`LoadExecutor::materialize_key_stream_into_page`) to avoid semantic drift.
+* Consolidated design/status tracking so composite pagination invariants are defined in the 0.18 design contract instead of a separate 0.19 milestone.
 * Added a suite of macro test helpers to reduce repeated test boilerplate and keep test schemas consistent:
 
 ```rust
@@ -37,6 +39,12 @@ test_entity_schema!(ident = RecoveryTestEntity, id = Ulid, id_field = id, ...);
 * Added ASC/DESC composite coverage for safe budgeted paths.
 * Added guard tests for cursor-present, residual-filter, and post-sort cases to confirm fallback behavior stays unchanged.
 * Added parity tests to confirm budgeted and non-budgeted paths produce the same page rows and continuation boundaries.
+* Kept composite cursor continuation correctness coverage active (DESC no-dup/no-omission and anchor monotonicity paths) while milestone tracking was merged.
+
+### 📚 Documentation
+
+* Merged `docs/design/0.19-composite-pagination.md` into `docs/design/0.18-composite-limit-pushdown.md` as the unified 0.18 execution contract.
+* Merged `docs/status/0.19-status.md` into `docs/status/0.18-status.md` so release readiness is tracked in one place.
 
 ---
 
