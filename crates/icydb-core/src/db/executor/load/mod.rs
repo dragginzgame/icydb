@@ -13,8 +13,8 @@ use crate::{
         index::RawIndexKey,
         query::plan::{
             AccessPlan, AccessPlanProjection, CursorBoundary, Direction, ExecutablePlan,
-            LogicalPlan, OrderDirection, PageSpec, PlannedCursor, decode_pk_cursor_boundary,
-            project_access_plan, validate::validate_executor_plan,
+            LogicalPlan, OrderDirection, PlannedCursor, compute_page_window,
+            decode_pk_cursor_boundary, project_access_plan, validate::validate_executor_plan,
         },
         response::Response,
     },
@@ -354,19 +354,8 @@ where
             return Some(IndexRangeLimitSpec { fetch: 0 });
         }
 
-        let fetch = Self::compute_page_window_fetch(page, true);
+        let fetch = compute_page_window(page.offset, limit, true).fetch_count;
 
         Some(IndexRangeLimitSpec { fetch })
-    }
-
-    // Compute canonical post-access window fetch sizing with saturating math.
-    fn compute_page_window_fetch(page: &PageSpec, needs_extra_row: bool) -> usize {
-        let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
-        let limit = page
-            .limit
-            .map_or(0, |limit| usize::try_from(limit).unwrap_or(usize::MAX));
-        let page_end = offset.saturating_add(limit);
-
-        page_end.saturating_add(usize::from(needs_extra_row))
     }
 }

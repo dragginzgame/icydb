@@ -239,6 +239,60 @@ where
 }
 
 impl<K> AccessPlan<K> {
+    // Collect one child key stream for each child access plan.
+    fn collect_child_key_streams<E>(
+        ctx: &Context<'_, E>,
+        children: &[Self],
+        index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
+    ) -> Result<Vec<OrderedKeyStreamBox>, InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+        K: Copy,
+    {
+        let mut streams = Vec::with_capacity(children.len());
+        for child in children {
+            streams.push(child.produce_key_stream(ctx, index_range_anchor, direction)?);
+        }
+
+        Ok(streams)
+    }
+
+    // Reduce child streams pairwise using a stream combiner.
+    fn reduce_key_streams<F>(
+        mut streams: Vec<OrderedKeyStreamBox>,
+        combiner: F,
+    ) -> OrderedKeyStreamBox
+    where
+        F: Fn(OrderedKeyStreamBox, OrderedKeyStreamBox) -> OrderedKeyStreamBox,
+    {
+        if streams.is_empty() {
+            return Box::new(VecOrderedKeyStream::new(Vec::new()));
+        }
+        if streams.len() == 1 {
+            return streams
+                .pop()
+                .unwrap_or_else(|| Box::new(VecOrderedKeyStream::new(Vec::new())));
+        }
+
+        while streams.len() > 1 {
+            let mut next_round = Vec::with_capacity((streams.len().saturating_add(1)) / 2);
+            let mut iter = streams.into_iter();
+            while let Some(left) = iter.next() {
+                if let Some(right) = iter.next() {
+                    next_round.push(combiner(left, right));
+                } else {
+                    next_round.push(left);
+                }
+            }
+            streams = next_round;
+        }
+
+        streams
+            .pop()
+            .unwrap_or_else(|| Box::new(VecOrderedKeyStream::new(Vec::new())))
+    }
+
     // Build an ordered key stream for this access plan.
     fn produce_key_stream<E>(
         &self,
@@ -276,37 +330,12 @@ impl<K> AccessPlan<K> {
         E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
-        // Phase 1: request one stream per child access path.
-        let mut streams = Vec::with_capacity(children.len());
-        for child in children {
-            streams.push(child.produce_key_stream(ctx, index_range_anchor, direction)?);
-        }
-        if streams.is_empty() {
-            return Ok(Box::new(VecOrderedKeyStream::new(Vec::new())));
-        }
+        let streams =
+            Self::collect_child_key_streams(ctx, children, index_range_anchor, direction)?;
 
-        // Phase 2: pairwise merge streams until one stream remains.
-        while streams.len() > 1 {
-            let mut next_round = Vec::with_capacity((streams.len().saturating_add(1)) / 2);
-            let mut iter = streams.into_iter();
-            while let Some(left) = iter.next() {
-                if let Some(right) = iter.next() {
-                    let merged: OrderedKeyStreamBox =
-                        Box::new(MergeOrderedKeyStream::new(left, right, direction));
-                    next_round.push(merged);
-                } else {
-                    next_round.push(left);
-                }
-            }
-            streams = next_round;
-        }
-
-        // Phase 3: return the single canonical merged stream.
-        streams.pop().ok_or_else(|| {
-            InternalError::query_invariant(
-                "executor invariant violated: union merge produced no stream",
-            )
-        })
+        Ok(Self::reduce_key_streams(streams, |left, right| {
+            Box::new(MergeOrderedKeyStream::new(left, right, direction))
+        }))
     }
 
     // Build one canonical stream for an intersection by pairwise-intersecting child streams.
@@ -320,37 +349,12 @@ impl<K> AccessPlan<K> {
         E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
-        // Phase 1: request one stream per child access path.
-        let mut streams = Vec::with_capacity(children.len());
-        for child in children {
-            streams.push(child.produce_key_stream(ctx, index_range_anchor, direction)?);
-        }
-        if streams.is_empty() {
-            return Ok(Box::new(VecOrderedKeyStream::new(Vec::new())));
-        }
+        let streams =
+            Self::collect_child_key_streams(ctx, children, index_range_anchor, direction)?;
 
-        // Phase 2: pairwise intersect streams until one stream remains.
-        while streams.len() > 1 {
-            let mut next_round = Vec::with_capacity((streams.len().saturating_add(1)) / 2);
-            let mut iter = streams.into_iter();
-            while let Some(left) = iter.next() {
-                if let Some(right) = iter.next() {
-                    let intersected: OrderedKeyStreamBox =
-                        Box::new(IntersectOrderedKeyStream::new(left, right, direction));
-                    next_round.push(intersected);
-                } else {
-                    next_round.push(left);
-                }
-            }
-            streams = next_round;
-        }
-
-        // Phase 3: return the single canonical intersected stream.
-        streams.pop().ok_or_else(|| {
-            InternalError::query_invariant(
-                "executor invariant violated: intersection merge produced no stream",
-            )
-        })
+        Ok(Self::reduce_key_streams(streams, |left, right| {
+            Box::new(IntersectOrderedKeyStream::new(left, right, direction))
+        }))
     }
 }
 

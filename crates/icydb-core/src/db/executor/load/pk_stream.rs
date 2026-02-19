@@ -7,7 +7,9 @@ use crate::{
             load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
             normalize_ordered_keys,
         },
-        query::plan::{AccessPath, Direction, LogicalPlan, OrderDirection},
+        query::plan::{
+            AccessPath, Direction, LogicalPlan, SlotSelectionPolicy, derive_scan_direction,
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -159,13 +161,8 @@ where
     }
 
     fn pk_stream_direction(plan: &LogicalPlan<E::Key>) -> Direction {
-        let Some(order) = plan.order.as_ref() else {
-            return Direction::Asc;
-        };
-
-        match order.fields.first().map(|(_, direction)| direction) {
-            Some(OrderDirection::Desc) => Direction::Desc,
-            _ => Direction::Asc,
-        }
+        plan.order.as_ref().map_or(Direction::Asc, |order| {
+            derive_scan_direction(order, SlotSelectionPolicy::First)
+        })
     }
 }

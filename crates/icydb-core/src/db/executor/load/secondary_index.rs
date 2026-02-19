@@ -3,7 +3,10 @@ use crate::{
         Context,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{VecOrderedKeyStream, normalize_ordered_keys},
-        query::plan::{Direction, LogicalPlan, OrderDirection, validate::PushdownApplicability},
+        query::plan::{
+            Direction, LogicalPlan, SlotSelectionPolicy, derive_scan_direction,
+            validate::PushdownApplicability,
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -49,13 +52,8 @@ where
     }
 
     fn secondary_index_stream_direction(plan: &LogicalPlan<E::Key>) -> Direction {
-        let Some(order) = plan.order.as_ref() else {
-            return Direction::Asc;
-        };
-
-        match order.fields.last().map(|(_, direction)| direction) {
-            Some(OrderDirection::Desc) => Direction::Desc,
-            _ => Direction::Asc,
-        }
+        plan.order.as_ref().map_or(Direction::Asc, |order| {
+            derive_scan_direction(order, SlotSelectionPolicy::Last)
+        })
     }
 }

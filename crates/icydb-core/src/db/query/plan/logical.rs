@@ -5,7 +5,7 @@ use crate::{
         intent::QueryMode,
         plan::{
             AccessPath, AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec,
-            OrderDirection, OrderSpec, PageSpec,
+            OrderDirection, OrderSpec, PageSpec, compute_page_window,
         },
         predicate::{Predicate, coercion::canonical_cmp, eval as eval_predicate},
     },
@@ -411,10 +411,7 @@ impl<K> LogicalPlan<K> {
             return None;
         }
 
-        let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
-        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-
-        Some(offset.saturating_add(limit).saturating_add(1))
+        Some(compute_page_window(page.offset, limit, true).fetch_count)
     }
 
     /// Build a cursor boundary from one materialized entity using this plan's canonical ordering.
@@ -641,19 +638,18 @@ fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
         return;
     }
 
-    let start = offset;
-    let end = match limit {
-        Some(limit) => start.saturating_add(limit).min(total),
-        None => total,
+    let start_usize = usize::try_from(offset).unwrap_or(usize::MAX);
+    let total_usize = usize::try_from(total).unwrap_or(usize::MAX);
+    let end_usize = match limit {
+        Some(limit) => compute_page_window(offset, limit, false)
+            .keep_count
+            .min(total_usize),
+        None => total_usize,
     };
-
-    // Convert once, at the boundary.
-    let start_usize = start as usize;
-    let end_usize = end as usize;
 
     // Drop leading rows, then truncate to window size.
     rows.drain(..start_usize);
-    rows.truncate(end_usize - start_usize);
+    rows.truncate(end_usize.saturating_sub(start_usize));
 }
 
 // Apply a delete limit to an in-memory vector, in-place.

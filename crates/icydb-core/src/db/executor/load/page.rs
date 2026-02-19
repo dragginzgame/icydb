@@ -6,7 +6,7 @@ use crate::{
         index::IndexKey,
         query::plan::{
             ContinuationSignature, ContinuationToken, CursorBoundary, Direction,
-            IndexRangeCursorAnchor, LogicalPlan, logical::PostAccessStats,
+            IndexRangeCursorAnchor, LogicalPlan, compute_page_window, logical::PostAccessStats,
         },
         response::Response,
     },
@@ -57,12 +57,12 @@ where
         cursor_boundary: Option<&CursorBoundary>,
     ) -> Option<usize> {
         let page = plan.page.as_ref()?;
-        page.limit?;
+        let limit = page.limit?;
         if !Self::is_budget_safe_shape(plan, cursor_boundary) {
             return None;
         }
 
-        Some(Self::compute_page_window_fetch(page, true))
+        Some(compute_page_window(page.offset, limit, true).fetch_count)
     }
 
     // Guard scan budgeting to cases where post-access phases are pure windowing.
@@ -123,7 +123,7 @@ where
         }
 
         // NOTE: post-access execution materializes full in-memory rows for Phase 1.
-        let page_end = (page.offset as usize).saturating_add(limit as usize);
+        let page_end = compute_page_window(page.offset, limit, false).keep_count;
         if stats.rows_after_cursor <= page_end {
             return Ok(None);
         }

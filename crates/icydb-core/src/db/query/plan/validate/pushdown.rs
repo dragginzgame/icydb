@@ -173,27 +173,44 @@ pub(crate) fn assess_secondary_order_pushdown<K>(
 /// Evaluate pushdown eligibility for plans that are already known to be
 /// structurally applicable (ORDER BY + single index-prefix access path).
 ///
-/// This helper is shared by both defensive and validated-plan assessors.
-fn assess_secondary_order_pushdown_for_applicable_shape(
+/// `EnforceAndReject` is used for defensive assessors, while
+/// `AssumeValidated` keeps validated-path invariants as debug assertions.
+enum PkTieBreakPolicy {
+    EnforceAndReject,
+    AssumeValidated,
+}
+
+// Core matcher shared by defensive and validated pushdown assessors.
+fn match_secondary_order_pushdown_core(
     model: &EntityModel,
     order_fields: &[(String, OrderDirection)],
     index_name: &'static str,
     index_fields: &[&'static str],
     prefix_len: usize,
+    pk_policy: PkTieBreakPolicy,
 ) -> SecondaryOrderPushdownEligibility {
-    let pk_field = model.primary_key.name;
     let Some((last_field, last_direction)) = order_fields.last() else {
         return SecondaryOrderPushdownEligibility::Rejected(
             SecondaryOrderPushdownRejection::NoOrderBy,
         );
     };
 
-    if last_field != pk_field {
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
-                field: pk_field.to_string(),
-            },
-        );
+    match pk_policy {
+        PkTieBreakPolicy::EnforceAndReject => {
+            if last_field != model.primary_key.name {
+                return SecondaryOrderPushdownEligibility::Rejected(
+                    SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
+                        field: model.primary_key.name.to_string(),
+                    },
+                );
+            }
+        }
+        PkTieBreakPolicy::AssumeValidated => {
+            debug_assert_eq!(
+                last_field, model.primary_key.name,
+                "validated plan must include PK tie-break"
+            );
+        }
     }
 
     let expected_direction = *last_direction;
@@ -208,21 +225,20 @@ fn assess_secondary_order_pushdown_for_applicable_shape(
     }
 
     let actual_non_pk_len = order_fields.len().saturating_sub(1);
-    let actual_non_pk = || {
-        order_fields
+    let matches_expected_suffix = actual_non_pk_len
+        == index_fields.len().saturating_sub(prefix_len)
+        && order_fields
             .iter()
             .take(actual_non_pk_len)
             .map(|(field, _)| field.as_str())
-    };
-
-    let matches_expected_suffix = actual_non_pk_len
-        == index_fields.len().saturating_sub(prefix_len)
-        && actual_non_pk()
             .zip(index_fields.iter().skip(prefix_len).copied())
             .all(|(actual, expected)| actual == expected);
 
     let matches_expected_full = actual_non_pk_len == index_fields.len()
-        && actual_non_pk()
+        && order_fields
+            .iter()
+            .take(actual_non_pk_len)
+            .map(|(field, _)| field.as_str())
             .zip(index_fields.iter().copied())
             .all(|(actual, expected)| actual == expected);
 
@@ -233,29 +249,44 @@ fn assess_secondary_order_pushdown_for_applicable_shape(
         };
     }
 
-    let actual_non_pk = order_fields
-        .iter()
-        .take(actual_non_pk_len)
-        .map(|(field, _)| field.clone())
-        .collect::<Vec<_>>();
-    let expected_full = index_fields
-        .iter()
-        .map(|field| (*field).to_string())
-        .collect::<Vec<_>>();
-    let expected_suffix = index_fields
-        .iter()
-        .skip(prefix_len)
-        .map(|field| (*field).to_string())
-        .collect::<Vec<_>>();
-
     SecondaryOrderPushdownEligibility::Rejected(
         SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
             index: index_name,
             prefix_len,
-            expected_suffix,
-            expected_full,
-            actual: actual_non_pk,
+            expected_suffix: index_fields
+                .iter()
+                .skip(prefix_len)
+                .map(|field| (*field).to_string())
+                .collect(),
+            expected_full: index_fields
+                .iter()
+                .map(|field| (*field).to_string())
+                .collect(),
+            actual: order_fields
+                .iter()
+                .take(actual_non_pk_len)
+                .map(|(field, _)| field.clone())
+                .collect(),
         },
+    )
+}
+
+// Evaluate pushdown eligibility for plans that are already known to be
+// structurally applicable (ORDER BY + single index-prefix access path).
+fn assess_secondary_order_pushdown_for_applicable_shape(
+    model: &EntityModel,
+    order_fields: &[(String, OrderDirection)],
+    index_name: &'static str,
+    index_fields: &[&'static str],
+    prefix_len: usize,
+) -> SecondaryOrderPushdownEligibility {
+    match_secondary_order_pushdown_core(
+        model,
+        order_fields,
+        index_name,
+        index_fields,
+        prefix_len,
+        PkTieBreakPolicy::EnforceAndReject,
     )
 }
 
@@ -350,75 +381,12 @@ fn assess_secondary_order_pushdown_for_validated_shape(
     index_fields: &[&'static str],
     prefix_len: usize,
 ) -> SecondaryOrderPushdownEligibility {
-    let Some((last_field, last_direction)) = order_fields.last() else {
-        return SecondaryOrderPushdownEligibility::Rejected(
-            SecondaryOrderPushdownRejection::NoOrderBy,
-        );
-    };
-    debug_assert_eq!(
-        last_field, model.primary_key.name,
-        "validated plan must include a PK tie-break as the terminal ORDER field"
-    );
-
-    let expected_direction = *last_direction;
-    for (field, direction) in order_fields {
-        if *direction != expected_direction {
-            return SecondaryOrderPushdownEligibility::Rejected(
-                SecondaryOrderPushdownRejection::NonAscendingDirection {
-                    field: field.clone(),
-                },
-            );
-        }
-    }
-
-    let actual_non_pk_len = order_fields.len().saturating_sub(1);
-    let actual_non_pk = || {
-        order_fields
-            .iter()
-            .take(actual_non_pk_len)
-            .map(|(field, _)| field.as_str())
-    };
-
-    let matches_expected_suffix = actual_non_pk_len
-        == index_fields.len().saturating_sub(prefix_len)
-        && actual_non_pk()
-            .zip(index_fields.iter().skip(prefix_len).copied())
-            .all(|(actual, expected)| actual == expected);
-
-    let matches_expected_full = actual_non_pk_len == index_fields.len()
-        && actual_non_pk()
-            .zip(index_fields.iter().copied())
-            .all(|(actual, expected)| actual == expected);
-
-    if matches_expected_suffix || matches_expected_full {
-        return SecondaryOrderPushdownEligibility::Eligible {
-            index: index_name,
-            prefix_len,
-        };
-    }
-
-    let actual_non_pk = order_fields
-        .iter()
-        .take(actual_non_pk_len)
-        .map(|(field, _)| field.clone())
-        .collect::<Vec<_>>();
-    let expected_full = index_fields
-        .iter()
-        .map(|field| (*field).to_string())
-        .collect::<Vec<_>>();
-    let expected_suffix = index_fields
-        .iter()
-        .skip(prefix_len)
-        .map(|field| (*field).to_string())
-        .collect::<Vec<_>>();
-
-    SecondaryOrderPushdownEligibility::Rejected(
-        SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-            index: index_name,
-            prefix_len,
-            expected_suffix,
-            expected_full,
-            actual: actual_non_pk,
-        },
+    match_secondary_order_pushdown_core(
+        model,
+        order_fields,
+        index_name,
+        index_fields,
+        prefix_len,
+        PkTieBreakPolicy::AssumeValidated,
     )
 }

@@ -41,7 +41,7 @@ pub(crate) use logical::LogicalPlan;
 pub use types::OrderDirection;
 pub(crate) use types::{
     AccessPath, AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec, OrderSpec,
-    PageSpec,
+    PageSpec, SlotSelectionPolicy, compute_page_window, derive_scan_direction,
 };
 pub use validate::PlanError;
 pub(crate) use validate::{AccessPlanError, CursorPlanError, OrderPlanError};

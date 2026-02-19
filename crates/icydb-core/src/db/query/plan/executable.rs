@@ -5,8 +5,8 @@ use crate::{
             intent::QueryMode,
             plan::{
                 AccessPlan, ContinuationSignature, CursorBoundary, CursorPlanError, ExplainPlan,
-                LogicalPlan, OrderDirection, OrderSpec, PlanError, PlanFingerprint,
-                validate_planned_cursor, validate_planned_cursor_state,
+                LogicalPlan, OrderSpec, PlanError, PlanFingerprint, SlotSelectionPolicy,
+                derive_scan_direction, validate_planned_cursor, validate_planned_cursor_state,
             },
         },
     },
@@ -94,10 +94,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             return Direction::Asc;
         };
 
-        match order.fields.first().map(|(_, direction)| direction) {
-            Some(OrderDirection::Desc) => Direction::Desc,
-            _ => Direction::Asc,
-        }
+        derive_scan_direction(order, SlotSelectionPolicy::First)
     }
 
     /// Explain this plan without executing it.
