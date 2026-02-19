@@ -18,6 +18,7 @@
 //! the canonical contract for evaluation, coercion, and normalization.
 
 pub(crate) mod builder;
+pub(crate) mod enum_filter;
 pub(crate) mod expr;
 pub(crate) mod intent;
 pub(crate) mod plan;

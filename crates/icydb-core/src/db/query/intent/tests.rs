@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     db::query::{
         builder::field::FieldRef,
+        expr::FilterExpr,
         plan::{AccessPath, AccessPlan, LogicalPlan},
         predicate::{CompareOp, ComparePredicate},
     },
@@ -17,7 +18,7 @@ use crate::{
         ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Id, Ulid, Unit},
-    value::Value,
+    value::{Value, ValueEnum},
 };
 use serde::{Deserialize, Serialize};
 
@@ -106,6 +107,27 @@ static MAP_PLAN_MODEL: EntityModel = entity_model_from_static(
     &MAP_PLAN_FIELDS[0],
     &MAP_PLAN_FIELDS,
     &MAP_PLAN_INDEXES,
+);
+
+static ENUM_PLAN_FIELDS: [FieldModel; 2] = [
+    FieldModel {
+        name: "id",
+        kind: FieldKind::Ulid,
+    },
+    FieldModel {
+        name: "stage",
+        kind: FieldKind::Enum {
+            path: "intent_tests::Stage",
+        },
+    },
+];
+static ENUM_PLAN_INDEXES: [&IndexModel; 0] = [];
+static ENUM_PLAN_MODEL: EntityModel = entity_model_from_static(
+    "intent_tests::EnumPlanEntity",
+    "EnumPlanEntity",
+    &ENUM_PLAN_FIELDS[0],
+    &ENUM_PLAN_FIELDS,
+    &ENUM_PLAN_INDEXES,
 );
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -519,4 +541,70 @@ fn build_plan_model_rejects_map_field_predicates_before_planning() {
                     )
             )
     ));
+}
+
+#[test]
+fn filter_expr_resolves_loose_enum_stage_filters() {
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "stage",
+        CompareOp::Eq,
+        Value::Enum(ValueEnum::loose("Active")),
+        crate::db::query::predicate::CoercionId::Strict,
+    ));
+
+    let intent = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, ReadConsistency::MissingOk)
+        .filter_expr(FilterExpr(predicate))
+        .expect("filter expr should lower");
+    let plan = intent.build_plan_model().expect("plan should build");
+
+    let Some(Predicate::Compare(cmp)) = plan.predicate else {
+        panic!("expected compare predicate");
+    };
+    let Value::Enum(stage) = cmp.value else {
+        panic!("expected enum literal");
+    };
+    assert_eq!(stage.path.as_deref(), Some("intent_tests::Stage"));
+}
+
+#[test]
+fn filter_expr_rejects_wrong_strict_enum_path() {
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "stage",
+        CompareOp::Eq,
+        Value::Enum(ValueEnum::new("Active", Some("wrong::Stage"))),
+        crate::db::query::predicate::CoercionId::Strict,
+    ));
+
+    let err = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, ReadConsistency::MissingOk)
+        .filter_expr(FilterExpr(predicate))
+        .expect_err("strict enum with wrong path should fail");
+    assert!(matches!(
+        err,
+        QueryError::Validate(crate::db::query::predicate::ValidateError::InvalidLiteral {
+            field,
+            ..
+        }) if field == "stage"
+    ));
+}
+
+#[test]
+fn direct_stage_filter_resolves_loose_enum_path() {
+    let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+        "stage",
+        CompareOp::Eq,
+        Value::Enum(ValueEnum::loose("Draft")),
+        crate::db::query::predicate::CoercionId::Strict,
+    ));
+
+    let plan = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, ReadConsistency::MissingOk)
+        .filter(predicate)
+        .build_plan_model()
+        .expect("direct filter should build");
+    let Some(Predicate::Compare(cmp)) = plan.predicate else {
+        panic!("expected compare predicate");
+    };
+    let Value::Enum(stage) = cmp.value else {
+        panic!("expected enum literal");
+    };
+    assert_eq!(stage.path.as_deref(), Some("intent_tests::Stage"));
 }

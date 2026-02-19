@@ -20,7 +20,7 @@ pub struct InherentTrait {}
 
 impl Imp<Enum> for InherentTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
-        let kind = quote!(::icydb::model::field::FieldKind::Enum);
+        let kind = quote!(::icydb::model::field::FieldKind::Enum { path: Self::PATH });
         let tokens = quote! {
             pub const KIND: ::icydb::model::field::FieldKind = #kind;
         };

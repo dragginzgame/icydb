@@ -10,6 +10,7 @@ use crate::{
     db::{
         query::{
             ReadConsistency,
+            enum_filter::normalize_enum_literals,
             expr::{FilterExpr, SortExpr, SortLowerError},
             plan::{
                 DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan, OrderDirection,
@@ -290,12 +291,16 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         let schema_info = SchemaInfo::from_entity_model(self.model)?;
         self.validate_intent()?;
 
-        if let Some(predicate) = self.predicate.as_ref() {
-            reject_unsupported_query_features(predicate).map_err(ValidateError::from)?;
-        }
-
         // Phase 2: predicate normalization and access planning.
-        let normalized_predicate = self.predicate.as_ref().map(normalize);
+        let normalized_predicate = self
+            .predicate
+            .as_ref()
+            .map(|predicate| {
+                reject_unsupported_query_features(predicate).map_err(ValidateError::from)?;
+                let predicate = normalize_enum_literals(&schema_info, predicate)?;
+                Ok::<Predicate, ValidateError>(normalize(&predicate))
+            })
+            .transpose()?;
         let access_plan_value = match &self.key_access {
             Some(state) => access_plan_from_keys_value(&state.access),
             None => plan_access(self.model, &schema_info, normalized_predicate.as_ref())?,

@@ -3,7 +3,7 @@ use crate::{
         identity::{EntityName, EntityNameError, IndexName, IndexNameError},
         query::predicate::{UnsupportedQueryFeature, coercion::CoercionId},
     },
-    model::{entity::EntityModel, index::IndexModel},
+    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -72,12 +72,18 @@ fn validate_index_fields(
 #[derive(Clone, Debug)]
 pub(crate) struct SchemaInfo {
     fields: BTreeMap<String, FieldType>,
+    field_kinds: BTreeMap<String, FieldKind>,
 }
 
 impl SchemaInfo {
     #[must_use]
     pub(crate) fn field(&self, name: &str) -> Option<&FieldType> {
         self.fields.get(name)
+    }
+
+    #[must_use]
+    pub(crate) fn field_kind(&self, name: &str) -> Option<&FieldKind> {
+        self.field_kinds.get(name)
     }
 
     /// Builds runtime predicate schema information from an entity model.
@@ -101,6 +107,7 @@ impl SchemaInfo {
         }
 
         let mut fields = BTreeMap::new();
+        let mut field_kinds = BTreeMap::new();
         for field in model.fields {
             if fields.contains_key(field.name) {
                 return Err(ValidateError::DuplicateField {
@@ -109,6 +116,7 @@ impl SchemaInfo {
             }
             let ty = field_type_from_model_kind(&field.kind);
             fields.insert(field.name.to_string(), ty);
+            field_kinds.insert(field.name.to_string(), field.kind);
         }
 
         let pk_field_type = fields
@@ -130,7 +138,10 @@ impl SchemaInfo {
             })?;
         }
 
-        Ok(Self { fields })
+        Ok(Self {
+            fields,
+            field_kinds,
+        })
     }
 }
 

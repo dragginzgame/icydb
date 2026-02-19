@@ -5,6 +5,34 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.16.4] – 2026-02-19 - Enum Filter Path Normalization
+
+### 📝 Summary
+
+* Refined enum filter construction so loose enum literals are normalized to the schema enum path before validation and execution.
+* Strict enum comparison remains strict; this change removes filter-construction ambiguity without relaxing equality behavior.
+
+```rust
+// Loose filter input:
+Value::Enum(ValueEnum::loose("Active"))
+// Normalized predicate literal:
+Value::Enum(ValueEnum::new("Active", Some("entity::Stage")))
+```
+
+### 🔧 Changed
+
+* Added a dedicated query-boundary normalizer (`db::query::enum_filter`) that resolves enum paths per field schema.
+* Added enum path metadata to runtime `FieldKind::Enum { path: ... }` and threaded it through schema info for field-scoped resolution.
+* Applied enum normalization in both dynamic `filter_expr` lowering and typed query filter planning.
+* Kept `Value` equality semantics, index encoding, storage layout, and wire formats unchanged.
+
+### 🧪 Testing
+
+* Added tests for strict enum success, strict wrong-path rejection, loose enum path resolution, and `IN` stage filter normalization.
+* Added audit tests proving enum normalization is idempotent and field-scoped when different enum fields share the same variant names.
+
+---
+
 ## [0.16.3] – 2026-02-19 - Temporal Millisecond Consistency
 
 ### 📝 Summary

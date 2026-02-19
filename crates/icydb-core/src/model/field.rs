@@ -38,7 +38,7 @@ pub enum RelationStrength {
 /// only the shape required for predicate compatibility and index planning.
 ///
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum FieldKind {
     // Scalar primitives
     Account,
@@ -47,7 +47,10 @@ pub enum FieldKind {
     Date,
     Decimal,
     Duration,
-    Enum,
+    Enum {
+        /// Fully-qualified enum type path used for strict filter normalization.
+        path: &'static str,
+    },
     E8s,
     E18s,
     Float32,
@@ -107,7 +110,7 @@ impl FieldKind {
             | Self::Date
             | Self::Decimal
             | Self::Duration
-            | Self::Enum
+            | Self::Enum { .. }
             | Self::E8s
             | Self::E18s
             | Self::Float32

@@ -899,7 +899,8 @@ impl ValueEnum {
     }
 
     #[must_use]
-    /// Build an enum value that ignores the path for loose matching.
+    /// Build an enum value with an unresolved path for filter construction.
+    /// Query normalization resolves this to the schema enum path before validation.
     pub fn loose(variant: &str) -> Self {
         Self::new(variant, None)
     }

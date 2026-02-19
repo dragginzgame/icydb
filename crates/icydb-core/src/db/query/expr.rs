@@ -1,4 +1,5 @@
 use crate::db::query::{
+    enum_filter::normalize_enum_literals,
     plan::{OrderDirection, OrderSpec, PlanError, validate::validate_order},
     predicate::{self, Predicate, SchemaInfo, ValidateError, normalize},
 };
@@ -16,10 +17,11 @@ pub struct FilterExpr(pub Predicate);
 impl FilterExpr {
     /// Lower the filter expression into a validated predicate for the provided schema.
     pub(crate) fn lower_with(&self, schema: &SchemaInfo) -> Result<Predicate, ValidateError> {
-        predicate::validate::reject_unsupported_query_features(&self.0)?;
-        predicate::validate(schema, &self.0)?;
+        let normalized_enum_literals = normalize_enum_literals(schema, &self.0)?;
+        predicate::validate::reject_unsupported_query_features(&normalized_enum_literals)?;
+        predicate::validate(schema, &normalized_enum_literals)?;
 
-        Ok(normalize(&self.0))
+        Ok(normalize(&normalized_enum_literals))
     }
 }
 

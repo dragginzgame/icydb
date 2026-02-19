@@ -234,7 +234,7 @@ pub(super) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
         FieldKind::Date => FieldType::Scalar(ScalarType::Date),
         FieldKind::Decimal => FieldType::Scalar(ScalarType::Decimal),
         FieldKind::Duration => FieldType::Scalar(ScalarType::Duration),
-        FieldKind::Enum => FieldType::Scalar(ScalarType::Enum),
+        FieldKind::Enum { .. } => FieldType::Scalar(ScalarType::Enum),
         FieldKind::E8s => FieldType::Scalar(ScalarType::E8s),
         FieldKind::E18s => FieldType::Scalar(ScalarType::E18s),
         FieldKind::Float32 => FieldType::Scalar(ScalarType::Float32),
