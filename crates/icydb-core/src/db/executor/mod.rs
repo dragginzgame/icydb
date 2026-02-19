@@ -17,7 +17,8 @@ pub use load::{
     ExecutionAccessPathVariant, ExecutionFastPath, ExecutionPushdownType, ExecutionTrace,
 };
 pub(super) use ordered_key_stream::{
-    MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
+    IntersectOrderedKeyStream, MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox,
+    VecOrderedKeyStream,
 };
 pub(super) use save::SaveExecutor;
 

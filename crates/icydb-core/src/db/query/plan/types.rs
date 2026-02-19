@@ -107,7 +107,6 @@ pub(crate) enum AccessPath<K> {
     ByKeys(Vec<K>),
 
     /// Range scan over primary keys (inclusive).
-    #[allow(dead_code)]
     KeyRange { start: K, end: K },
 
     /// Index scan using a prefix of index fields and bound values.

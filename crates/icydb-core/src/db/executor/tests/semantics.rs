@@ -1,7 +1,21 @@
 #![expect(clippy::similar_names)]
 use super::*;
-use crate::db::data::DataKey;
+use crate::db::{data::DataKey, query::plan::ExplainAccessPath};
 use std::collections::BTreeSet;
+
+fn id_in_predicate(ids: &[u128]) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        "id",
+        CompareOp::In,
+        Value::List(
+            ids.iter()
+                .copied()
+                .map(|id| Value::Ulid(Ulid::from_u128(id)))
+                .collect(),
+        ),
+        CoercionId::Strict,
+    ))
+}
 
 #[test]
 fn singleton_unit_key_insert_and_only_load_round_trip() {
@@ -125,6 +139,351 @@ fn load_union_or_predicate_dedups_overlapping_pk_paths() {
         ids,
         vec![id_a, id_b],
         "union execution must keep canonical order and suppress overlapping keys"
+    );
+}
+
+#[test]
+fn load_intersection_asc_keeps_overlap_in_canonical_order() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1211_u128, 1212, 1213, 1214, 1215, 1216] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::And(vec![
+        id_in_predicate(&[1211, 1212, 1213, 1214]),
+        id_in_predicate(&[1213, 1214, 1215, 1216]),
+    ]);
+    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("id")
+        .explain()
+        .expect("intersection explain should build");
+    assert!(
+        matches!(explain.access, ExplainAccessPath::Intersection(_)),
+        "AND predicate over key sets should plan as intersection access"
+    );
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("id")
+        .plan()
+        .expect("intersection load plan should build");
+    let response = load
+        .execute(plan)
+        .expect("intersection load should succeed");
+    let ids: Vec<Ulid> = response
+        .0
+        .into_iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+
+    assert_eq!(
+        ids,
+        vec![Ulid::from_u128(1213), Ulid::from_u128(1214)],
+        "intersection execution should emit the overlap in ascending canonical order"
+    );
+}
+
+#[test]
+fn load_intersection_desc_keeps_overlap_in_desc_order() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1221_u128, 1222, 1223, 1224, 1225, 1226] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::And(vec![
+        id_in_predicate(&[1221, 1222, 1223, 1224]),
+        id_in_predicate(&[1223, 1224, 1225, 1226]),
+    ]);
+    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("id")
+        .explain()
+        .expect("intersection DESC explain should build");
+    assert!(
+        matches!(explain.access, ExplainAccessPath::Intersection(_)),
+        "AND predicate over key sets should plan as intersection access"
+    );
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("id")
+        .plan()
+        .expect("intersection DESC load plan should build");
+    let response = load
+        .execute(plan)
+        .expect("intersection DESC load should succeed");
+    let ids: Vec<Ulid> = response
+        .0
+        .into_iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+
+    assert_eq!(
+        ids,
+        vec![Ulid::from_u128(1224), Ulid::from_u128(1223)],
+        "intersection execution should emit the overlap in descending canonical order"
+    );
+}
+
+#[test]
+fn load_intersection_no_overlap_returns_empty() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1231_u128, 1232, 1233, 1234] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::And(vec![
+        id_in_predicate(&[1231, 1232]),
+        id_in_predicate(&[1233, 1234]),
+    ]);
+    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("id")
+        .explain()
+        .expect("intersection no-overlap explain should build");
+    assert!(
+        matches!(explain.access, ExplainAccessPath::Intersection(_)),
+        "disjoint AND key predicates should still plan as intersection access"
+    );
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("id")
+        .plan()
+        .expect("intersection no-overlap plan should build");
+    let response = load
+        .execute(plan)
+        .expect("intersection no-overlap load should succeed");
+    assert!(
+        response.0.is_empty(),
+        "intersection with no shared keys should return no rows"
+    );
+}
+
+#[test]
+fn load_intersection_suppresses_duplicate_keys() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1241_u128, 1242, 1243] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::And(vec![
+        id_in_predicate(&[1241, 1241, 1242, 1243]),
+        id_in_predicate(&[1241, 1241, 1243, 1243]),
+    ]);
+    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("id")
+        .explain()
+        .expect("intersection duplicate explain should build");
+    assert!(
+        matches!(explain.access, ExplainAccessPath::Intersection(_)),
+        "duplicate AND key predicates should still plan as intersection access"
+    );
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("id")
+        .plan()
+        .expect("intersection duplicate plan should build");
+    let response = load
+        .execute(plan)
+        .expect("intersection duplicate load should succeed");
+    let ids: Vec<Ulid> = response
+        .0
+        .into_iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    let unique: BTreeSet<Ulid> = ids.iter().copied().collect();
+
+    assert_eq!(
+        ids,
+        vec![Ulid::from_u128(1241), Ulid::from_u128(1243)],
+        "intersection should return shared ids once in canonical order"
+    );
+    assert_eq!(
+        unique.len(),
+        ids.len(),
+        "intersection execution must not emit duplicate rows"
+    );
+}
+
+#[test]
+fn load_intersection_nested_union_children_matches_expected_overlap() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1251_u128, 1252, 1253, 1254, 1255, 1256, 1257, 1258] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::And(vec![
+        Predicate::Or(vec![
+            id_in_predicate(&[1251, 1252, 1253, 1254]),
+            id_in_predicate(&[1253, 1254, 1255]),
+        ]),
+        Predicate::Or(vec![
+            id_in_predicate(&[1252, 1253, 1256]),
+            id_in_predicate(&[1253, 1257, 1258]),
+        ]),
+    ]);
+    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("id")
+        .explain()
+        .expect("nested intersection explain should build");
+    let ExplainAccessPath::Intersection(children) = explain.access else {
+        panic!("nested AND predicate should plan as intersection access");
+    };
+    assert_eq!(
+        children.len(),
+        2,
+        "nested intersection should preserve both composite children"
+    );
+    assert!(
+        children
+            .iter()
+            .all(|child| matches!(child, ExplainAccessPath::Union(_))),
+        "nested intersection children should remain union composites"
+    );
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("id")
+        .plan()
+        .expect("nested intersection plan should build");
+    let response = load
+        .execute(plan)
+        .expect("nested intersection load should succeed");
+    let ids: Vec<Ulid> = response
+        .0
+        .into_iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+
+    assert_eq!(
+        ids,
+        vec![Ulid::from_u128(1252), Ulid::from_u128(1253)],
+        "nested composite intersection should match overlap of union children"
+    );
+}
+
+#[test]
+fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [
+        1261_u128, 1262, 1263, 1264, 1265, 1266, 1267, 1268, 1269, 1270,
+    ] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::And(vec![
+        id_in_predicate(&[1261, 1262, 1263, 1264, 1265, 1266, 1267, 1268]),
+        id_in_predicate(&[1264, 1265, 1266, 1267, 1268, 1269, 1270]),
+    ]);
+    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("id")
+        .limit(2)
+        .explain()
+        .expect("intersection pagination explain should build");
+    assert!(
+        matches!(explain.access, ExplainAccessPath::Intersection(_)),
+        "overlapping AND predicate should plan as intersection access"
+    );
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let mut paged_ids = Vec::new();
+    let mut cursor: Option<CursorBoundary> = None;
+    loop {
+        let page_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            .filter(predicate.clone())
+            .order_by_desc("id")
+            .limit(2)
+            .plan()
+            .expect("intersection desc paged plan should build");
+        let page = load
+            .execute_paged_with_cursor(page_plan, cursor.clone())
+            .expect("intersection desc paged load should succeed");
+        let page_ids: Vec<Ulid> = page
+            .items
+            .0
+            .into_iter()
+            .map(|(_, entity)| entity.id)
+            .collect();
+        paged_ids.extend(page_ids);
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+        let token = ContinuationToken::decode(&next_cursor)
+            .expect("intersection desc continuation should decode");
+        cursor = Some(token.boundary().clone());
+    }
+
+    let full_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("id")
+        .plan()
+        .expect("intersection desc full plan should build");
+    let full_response = load
+        .execute(full_plan)
+        .expect("intersection desc full load should succeed");
+    let full_ids: Vec<Ulid> = full_response
+        .0
+        .into_iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    let unique: BTreeSet<Ulid> = paged_ids.iter().copied().collect();
+
+    assert_eq!(
+        paged_ids, full_ids,
+        "paged intersection DESC traversal with limit must match full execution"
+    );
+    assert_eq!(
+        unique.len(),
+        paged_ids.len(),
+        "intersection DESC paged traversal must not duplicate rows"
     );
 }
 

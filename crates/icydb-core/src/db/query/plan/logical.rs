@@ -92,8 +92,8 @@ impl<E: EntityKind> PlanRow<E> for (Id<E>, E) {
 /// Additional phase-level fields are compiled in tests for structural assertions.
 ///
 
-#[allow(clippy::struct_excessive_bools)]
 #[cfg_attr(test, allow(dead_code))]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct PostAccessStats {
     pub(crate) delete_was_limited: bool,
     pub(crate) rows_after_cursor: usize,

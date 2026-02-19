@@ -2,7 +2,6 @@ use crate::{
     db::{data::DataKey, query::plan::Direction},
     error::InternalError,
 };
-use std::collections::VecDeque;
 
 ///
 /// OrderedKeyStream
@@ -84,8 +83,8 @@ impl MergeDirection {
 pub(crate) struct MergeOrderedKeyStream<A, B> {
     left: A,
     right: B,
-    left_buffer: VecDeque<DataKey>,
-    right_buffer: VecDeque<DataKey>,
+    left_item: Option<DataKey>,
+    right_item: Option<DataKey>,
     left_done: bool,
     right_done: bool,
     direction: MergeDirection,
@@ -104,8 +103,8 @@ where
         Self {
             left,
             right,
-            left_buffer: VecDeque::new(),
-            right_buffer: VecDeque::new(),
+            left_item: None,
+            right_item: None,
             left_done: false,
             right_done: false,
             direction: MergeDirection::from_direction(direction),
@@ -116,7 +115,7 @@ where
     }
 
     fn ensure_left_item(&mut self) -> Result<(), InternalError> {
-        if self.left_done || !self.left_buffer.is_empty() {
+        if self.left_done || self.left_item.is_some() {
             return Ok(());
         }
 
@@ -129,7 +128,7 @@ where
     }
 
     fn ensure_right_item(&mut self) -> Result<(), InternalError> {
-        if self.right_done || !self.right_buffer.is_empty() {
+        if self.right_done || self.right_item.is_some() {
             return Ok(());
         }
 
@@ -144,7 +143,7 @@ where
     fn push_left_key(&mut self, key: DataKey) -> Result<(), InternalError> {
         self.validate_stream_direction(self.left_last_pulled.as_ref(), &key, "left")?;
         self.left_last_pulled = Some(key.clone());
-        self.left_buffer.push_back(key);
+        self.left_item = Some(key);
 
         Ok(())
     }
@@ -152,7 +151,7 @@ where
     fn push_right_key(&mut self, key: DataKey) -> Result<(), InternalError> {
         self.validate_stream_direction(self.right_last_pulled.as_ref(), &key, "right")?;
         self.right_last_pulled = Some(key.clone());
-        self.right_buffer.push_back(key);
+        self.right_item = Some(key);
 
         Ok(())
     }
@@ -197,29 +196,29 @@ where
             self.ensure_left_item()?;
             self.ensure_right_item()?;
 
-            if self.left_buffer.is_empty() && self.right_buffer.is_empty() {
+            if self.left_item.is_none() && self.right_item.is_none() {
                 return Ok(None);
             }
 
-            let next = match (self.left_buffer.front(), self.right_buffer.front()) {
+            let next = match (self.left_item.as_ref(), self.right_item.as_ref()) {
                 (Some(left_key), Some(right_key)) => {
                     if left_key == right_key {
-                        let _ = self.right_buffer.pop_front();
-                        self.left_buffer.pop_front()
+                        self.right_item = None;
+                        self.left_item.take()
                     } else {
                         let choose_left = match self.direction {
                             MergeDirection::Asc => left_key < right_key,
                             MergeDirection::Desc => left_key > right_key,
                         };
                         if choose_left {
-                            self.left_buffer.pop_front()
+                            self.left_item.take()
                         } else {
-                            self.right_buffer.pop_front()
+                            self.right_item.take()
                         }
                     }
                 }
-                (Some(_), None) => self.left_buffer.pop_front(),
-                (None, Some(_)) => self.right_buffer.pop_front(),
+                (Some(_), None) => self.left_item.take(),
+                (None, Some(_)) => self.right_item.take(),
                 (None, None) => None,
             };
 
@@ -239,6 +238,167 @@ where
 }
 
 ///
+/// IntersectOrderedKeyStream
+///
+/// Pull-based intersection over two ordered key streams.
+/// Produces one canonical ordered stream containing keys present in both inputs.
+///
+
+pub(crate) struct IntersectOrderedKeyStream<A, B> {
+    left: A,
+    right: B,
+    left_item: Option<DataKey>,
+    right_item: Option<DataKey>,
+    left_done: bool,
+    right_done: bool,
+    direction: MergeDirection,
+    left_last_pulled: Option<DataKey>,
+    right_last_pulled: Option<DataKey>,
+    last_emitted: Option<DataKey>,
+}
+
+impl<A, B> IntersectOrderedKeyStream<A, B>
+where
+    A: OrderedKeyStream,
+    B: OrderedKeyStream,
+{
+    #[must_use]
+    pub(crate) const fn new(left: A, right: B, direction: Direction) -> Self {
+        Self {
+            left,
+            right,
+            left_item: None,
+            right_item: None,
+            left_done: false,
+            right_done: false,
+            direction: MergeDirection::from_direction(direction),
+            left_last_pulled: None,
+            right_last_pulled: None,
+            last_emitted: None,
+        }
+    }
+
+    fn ensure_left_item(&mut self) -> Result<(), InternalError> {
+        if self.left_done || self.left_item.is_some() {
+            return Ok(());
+        }
+
+        match self.left.next_key()? {
+            Some(key) => self.push_left_key(key)?,
+            None => self.left_done = true,
+        }
+
+        Ok(())
+    }
+
+    fn ensure_right_item(&mut self) -> Result<(), InternalError> {
+        if self.right_done || self.right_item.is_some() {
+            return Ok(());
+        }
+
+        match self.right.next_key()? {
+            Some(key) => self.push_right_key(key)?,
+            None => self.right_done = true,
+        }
+
+        Ok(())
+    }
+
+    fn push_left_key(&mut self, key: DataKey) -> Result<(), InternalError> {
+        self.validate_stream_direction(self.left_last_pulled.as_ref(), &key, "left")?;
+        self.left_last_pulled = Some(key.clone());
+        self.left_item = Some(key);
+
+        Ok(())
+    }
+
+    fn push_right_key(&mut self, key: DataKey) -> Result<(), InternalError> {
+        self.validate_stream_direction(self.right_last_pulled.as_ref(), &key, "right")?;
+        self.right_last_pulled = Some(key.clone());
+        self.right_item = Some(key);
+
+        Ok(())
+    }
+
+    fn validate_stream_direction(
+        &self,
+        previous: Option<&DataKey>,
+        current: &DataKey,
+        stream_name: &str,
+    ) -> Result<(), InternalError> {
+        let Some(previous) = previous else {
+            return Ok(());
+        };
+
+        let violates_direction = match self.direction {
+            MergeDirection::Asc => current < previous,
+            MergeDirection::Desc => current > previous,
+        };
+        if !violates_direction {
+            return Ok(());
+        }
+
+        let direction_label = match self.direction {
+            MergeDirection::Asc => "ASC",
+            MergeDirection::Desc => "DESC",
+        };
+
+        Err(InternalError::query_invariant(format!(
+            "executor invariant violated: intersect stream {stream_name} emitted out-of-order key for {direction_label} intersection (previous: {previous}, current: {current})"
+        )))
+    }
+}
+
+impl<A, B> OrderedKeyStream for IntersectOrderedKeyStream<A, B>
+where
+    A: OrderedKeyStream,
+    B: OrderedKeyStream,
+{
+    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+        loop {
+            // Once either child is exhausted, no further intersection output is possible.
+            if self.left_done || self.right_done {
+                return Ok(None);
+            }
+
+            // Maintain one lookahead key on each side.
+            self.ensure_left_item()?;
+            self.ensure_right_item()?;
+
+            let (Some(left_key), Some(right_key)) =
+                (self.left_item.as_ref(), self.right_item.as_ref())
+            else {
+                return Ok(None);
+            };
+
+            if left_key == right_key {
+                let next = left_key.clone();
+                self.left_item = None;
+                self.right_item = None;
+
+                // Defensively suppress duplicate outputs.
+                if self.last_emitted.as_ref().is_some_and(|last| *last == next) {
+                    continue;
+                }
+
+                self.last_emitted = Some(next.clone());
+                return Ok(Some(next));
+            }
+
+            let advance_left = match self.direction {
+                MergeDirection::Asc => left_key < right_key,
+                MergeDirection::Desc => left_key > right_key,
+            };
+            if advance_left {
+                self.left_item = None;
+            } else {
+                self.right_item = None;
+            }
+        }
+    }
+}
+
+///
 /// TESTS
 ///
 
@@ -248,7 +408,8 @@ mod tests {
         db::{
             data::{DataKey, StorageKey},
             executor::ordered_key_stream::{
-                MergeOrderedKeyStream, OrderedKeyStream, VecOrderedKeyStream,
+                IntersectOrderedKeyStream, MergeOrderedKeyStream, OrderedKeyStream,
+                VecOrderedKeyStream,
             },
             identity::EntityName,
             query::plan::Direction,
@@ -419,6 +580,99 @@ mod tests {
         let mut merged = MergeOrderedKeyStream::new(left, right, Direction::Desc);
 
         let err = collect_stream(&mut merged).expect_err("merge should fail on direction mismatch");
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn intersect_stream_asc_yields_shared_keys() {
+        let left = StaticOrderedKeyStream::new(vec![data_key(1), data_key(3), data_key(5)]);
+        let right = StaticOrderedKeyStream::new(vec![data_key(3), data_key(4), data_key(5)]);
+        let mut intersected = IntersectOrderedKeyStream::new(left, right, Direction::Asc);
+
+        let out = collect_stream(&mut intersected).expect("intersection should succeed");
+        assert_eq!(out, vec![data_key(3), data_key(5)]);
+    }
+
+    #[test]
+    fn intersect_stream_desc_yields_shared_keys() {
+        let left = StaticOrderedKeyStream::new(vec![data_key(5), data_key(3), data_key(1)]);
+        let right = StaticOrderedKeyStream::new(vec![data_key(6), data_key(5), data_key(3)]);
+        let mut intersected = IntersectOrderedKeyStream::new(left, right, Direction::Desc);
+
+        let out = collect_stream(&mut intersected).expect("intersection should succeed");
+        assert_eq!(out, vec![data_key(5), data_key(3)]);
+    }
+
+    #[test]
+    fn intersect_stream_returns_empty_when_no_overlap() {
+        let left = StaticOrderedKeyStream::new(vec![data_key(1), data_key(2)]);
+        let right = StaticOrderedKeyStream::new(vec![data_key(3), data_key(4)]);
+        let mut intersected = IntersectOrderedKeyStream::new(left, right, Direction::Asc);
+
+        let out = collect_stream(&mut intersected).expect("intersection should succeed");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn intersect_stream_deduplicates_internal_duplicates() {
+        let left = StaticOrderedKeyStream::new(vec![
+            data_key(1),
+            data_key(1),
+            data_key(2),
+            data_key(3),
+            data_key(3),
+        ]);
+        let right = StaticOrderedKeyStream::new(vec![data_key(1), data_key(2), data_key(3)]);
+        let mut intersected = IntersectOrderedKeyStream::new(left, right, Direction::Asc);
+
+        let out = collect_stream(&mut intersected).expect("intersection should succeed");
+        assert_eq!(out, vec![data_key(1), data_key(2), data_key(3)]);
+    }
+
+    #[test]
+    fn intersect_stream_deduplicates_when_both_sides_duplicate() {
+        let left =
+            StaticOrderedKeyStream::new(vec![data_key(1), data_key(1), data_key(2), data_key(3)]);
+        let right =
+            StaticOrderedKeyStream::new(vec![data_key(1), data_key(1), data_key(2), data_key(3)]);
+        let mut intersected = IntersectOrderedKeyStream::new(left, right, Direction::Asc);
+
+        let out = collect_stream(&mut intersected).expect("intersection should succeed");
+        assert_eq!(out, vec![data_key(1), data_key(2), data_key(3)]);
+    }
+
+    #[test]
+    fn intersect_stream_propagates_underlying_errors() {
+        let left = StaticOrderedKeyStream::with_fail_at(vec![data_key(1), data_key(3)], 1);
+        let right = StaticOrderedKeyStream::new(vec![data_key(1), data_key(3)]);
+        let mut intersected = IntersectOrderedKeyStream::new(left, right, Direction::Asc);
+
+        let err = collect_stream(&mut intersected).expect_err("intersection should fail");
+        assert_eq!(err.class, ErrorClass::Internal);
+        assert_eq!(err.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn intersect_stream_rejects_child_direction_mismatch() {
+        let left = StaticOrderedKeyStream::new(vec![data_key(1), data_key(2)]);
+        let right = StaticOrderedKeyStream::new(vec![data_key(3), data_key(4)]);
+        let mut intersected = IntersectOrderedKeyStream::new(left, right, Direction::Desc);
+
+        let err =
+            collect_stream(&mut intersected).expect_err("intersection should fail on mismatch");
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn intersect_stream_rejects_non_monotonic_child_sequence() {
+        let left = StaticOrderedKeyStream::new(vec![data_key(1), data_key(3), data_key(2)]);
+        let right = StaticOrderedKeyStream::new(vec![data_key(1), data_key(2), data_key(3)]);
+        let mut intersected = IntersectOrderedKeyStream::new(left, right, Direction::Asc);
+
+        let err = collect_stream(&mut intersected)
+            .expect_err("intersection should fail when child emits non-monotonic keys");
         assert_eq!(err.class, ErrorClass::InvariantViolation);
         assert_eq!(err.origin, ErrorOrigin::Query);
     }

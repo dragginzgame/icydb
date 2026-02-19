@@ -4,8 +4,8 @@ use crate::{
         data::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
         entity_decode::{decode_and_validate_entity_key, format_entity_key_for_mismatch},
         executor::{
-            ExecutorError, MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox,
-            VecOrderedKeyStream, normalize_ordered_keys,
+            ExecutorError, IntersectOrderedKeyStream, MergeOrderedKeyStream, OrderedKeyStream,
+            OrderedKeyStreamBox, VecOrderedKeyStream, normalize_ordered_keys,
         },
         index::RawIndexKey,
         query::{
@@ -78,16 +78,6 @@ where
     // ------------------------------------------------------------------
     // Access path analysis
     // ------------------------------------------------------------------
-
-    pub(crate) fn ordered_key_stream_from_access(
-        &self,
-        access: &AccessPath<E::Key>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind,
-    {
-        self.ordered_key_stream_from_access_with_index_range_anchor(access, None, Direction::Asc)
-    }
 
     pub(crate) fn ordered_key_stream_from_access_with_index_range_anchor(
         &self,
@@ -269,11 +259,8 @@ impl<K> AccessPlan<K> {
             Self::Union(children) => {
                 Self::produce_union_key_stream(ctx, children, index_range_anchor, direction)
             }
-            Self::Intersection(_) => {
-                let keys = self.collect_candidate_keys(ctx)?;
-                Ok(Box::new(VecOrderedKeyStream::new(
-                    keys.into_iter().collect(),
-                )))
+            Self::Intersection(children) => {
+                Self::produce_intersection_key_stream(ctx, children, index_range_anchor, direction)
             }
         }
     }
@@ -322,47 +309,48 @@ impl<K> AccessPlan<K> {
         })
     }
 
-    // Resolve the candidate key set for this composite access plan.
-    fn collect_candidate_keys<E>(
-        &self,
+    // Build one canonical stream for an intersection by pairwise-intersecting child streams.
+    fn produce_intersection_key_stream<E>(
         ctx: &Context<'_, E>,
-    ) -> Result<BTreeSet<DataKey>, InternalError>
+        children: &[Self],
+        index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
+    ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
-        match self {
-            Self::Path(path) => {
-                let mut key_stream = ctx.ordered_key_stream_from_access(path)?;
-                let keys = Context::<E>::collect_ordered_keys(key_stream.as_mut())?;
-
-                Ok(keys.into_iter().collect())
-            }
-            Self::Union(children) => {
-                let mut keys = BTreeSet::new();
-                for child in children {
-                    keys.extend(child.collect_candidate_keys(ctx)?);
-                }
-                Ok(keys)
-            }
-            Self::Intersection(children) => {
-                let mut iter = children.iter();
-                let Some(first) = iter.next() else {
-                    return Ok(BTreeSet::new());
-                };
-
-                let mut keys = first.collect_candidate_keys(ctx)?;
-                for child in iter {
-                    let child_keys = child.collect_candidate_keys(ctx)?;
-                    keys.retain(|key| child_keys.contains(key));
-                    if keys.is_empty() {
-                        break;
-                    }
-                }
-
-                Ok(keys)
-            }
+        // Phase 1: request one stream per child access path.
+        let mut streams = Vec::with_capacity(children.len());
+        for child in children {
+            streams.push(child.produce_key_stream(ctx, index_range_anchor, direction)?);
         }
+        if streams.is_empty() {
+            return Ok(Box::new(VecOrderedKeyStream::new(Vec::new())));
+        }
+
+        // Phase 2: pairwise intersect streams until one stream remains.
+        while streams.len() > 1 {
+            let mut next_round = Vec::with_capacity((streams.len().saturating_add(1)) / 2);
+            let mut iter = streams.into_iter();
+            while let Some(left) = iter.next() {
+                if let Some(right) = iter.next() {
+                    let intersected: OrderedKeyStreamBox =
+                        Box::new(IntersectOrderedKeyStream::new(left, right, direction));
+                    next_round.push(intersected);
+                } else {
+                    next_round.push(left);
+                }
+            }
+            streams = next_round;
+        }
+
+        // Phase 3: return the single canonical intersected stream.
+        streams.pop().ok_or_else(|| {
+            InternalError::query_invariant(
+                "executor invariant violated: intersection merge produced no stream",
+            )
+        })
     }
 }
 
