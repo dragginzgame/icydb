@@ -1,6 +1,6 @@
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
-    types::{Account, Decimal, Principal},
+    types::{Account, Date, Decimal, Duration, E8s, Int128, Nat128, Principal, Repr, Timestamp},
     value::{Value, ValueEnum},
 };
 use thiserror::Error as ThisError;
@@ -52,6 +52,55 @@ impl From<OrderedValueEncodeError> for InternalError {
     }
 }
 
+/// OrderedEncode
+///
+/// Internal ordered-byte encoder for fixed-width value components.
+pub(crate) trait OrderedEncode {
+    fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError>;
+}
+
+impl OrderedEncode for Date {
+    fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError> {
+        out.extend_from_slice(&ordered_i32_bytes(self.get()));
+        Ok(())
+    }
+}
+
+impl OrderedEncode for Duration {
+    fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError> {
+        out.extend_from_slice(&self.repr().to_be_bytes());
+        Ok(())
+    }
+}
+
+impl OrderedEncode for E8s {
+    fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError> {
+        out.extend_from_slice(&self.get().to_be_bytes());
+        Ok(())
+    }
+}
+
+impl OrderedEncode for Int128 {
+    fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError> {
+        out.extend_from_slice(&ordered_i128_bytes(self.get()));
+        Ok(())
+    }
+}
+
+impl OrderedEncode for Nat128 {
+    fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError> {
+        out.extend_from_slice(&self.get().to_be_bytes());
+        Ok(())
+    }
+}
+
+impl OrderedEncode for Timestamp {
+    fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError> {
+        out.extend_from_slice(&self.repr().to_be_bytes());
+        Ok(())
+    }
+}
+
 /// Encode one scalar index component so lexicographic byte order matches
 /// canonical `Value` order for supported primitive variants.
 pub(crate) fn encode_canonical_index_component(
@@ -84,20 +133,11 @@ fn encode_component_payload(
             out.push(u8::from(*v));
             Ok(())
         }
-        Value::Date(v) => {
-            out.extend_from_slice(&ordered_i32_bytes(v.get()));
-            Ok(())
-        }
+        Value::Date(v) => v.encode_ordered(out),
         Value::Decimal(v) => push_decimal_payload(out, *v),
-        Value::Duration(v) => {
-            out.extend_from_slice(&v.get().to_be_bytes());
-            Ok(())
-        }
+        Value::Duration(v) => v.encode_ordered(out),
         Value::Enum(v) => push_enum_payload(out, v),
-        Value::E8s(v) => {
-            out.extend_from_slice(&v.get().to_be_bytes());
-            Ok(())
-        }
+        Value::E8s(v) => v.encode_ordered(out),
         Value::E18s(v) => {
             out.extend_from_slice(&v.to_be_bytes());
             Ok(())
@@ -114,10 +154,7 @@ fn encode_component_payload(
             out.extend_from_slice(&ordered_i64_bytes(*v));
             Ok(())
         }
-        Value::Int128(v) => {
-            out.extend_from_slice(&ordered_i128_bytes(v.get()));
-            Ok(())
-        }
+        Value::Int128(v) => v.encode_ordered(out),
         Value::IntBig(v) => push_signed_decimal_payload(out, &v.to_string()),
         Value::Null => Err(OrderedValueEncodeError::NullNotIndexable),
         Value::Principal(v) => {
@@ -132,18 +169,12 @@ fn encode_component_payload(
             push_terminated_bytes(out, v.as_bytes());
             Ok(())
         }
-        Value::Timestamp(v) => {
-            out.extend_from_slice(&v.get().to_be_bytes());
-            Ok(())
-        }
+        Value::Timestamp(v) => v.encode_ordered(out),
         Value::Uint(v) => {
             out.extend_from_slice(&v.to_be_bytes());
             Ok(())
         }
-        Value::Uint128(v) => {
-            out.extend_from_slice(&v.get().to_be_bytes());
-            Ok(())
-        }
+        Value::Uint128(v) => v.encode_ordered(out),
         Value::UintBig(v) => push_unsigned_decimal_payload(out, &v.to_string()),
         Value::Ulid(v) => {
             out.extend_from_slice(&v.to_bytes());
@@ -390,6 +421,10 @@ const fn ordered_f64_bytes(value: f64) -> [u8; 8] {
     ordered.to_be_bytes()
 }
 
+///
+/// TESTS
+///
+
 #[cfg(test)]
 mod tests {
     use super::encode_canonical_index_component;
@@ -619,8 +654,8 @@ mod tests {
             Value::Subaccount(Subaccount::dummy(2)),
             Value::Text("a".to_string()),
             Value::Text("b".to_string()),
-            Value::Timestamp(Timestamp::from_seconds(1)),
-            Value::Timestamp(Timestamp::from_seconds(2)),
+            Value::Timestamp(Timestamp::from_secs(1)),
+            Value::Timestamp(Timestamp::from_secs(2)),
             Value::Uint(1),
             Value::Uint(2),
             Value::Uint128(Nat128::from(1u128)),

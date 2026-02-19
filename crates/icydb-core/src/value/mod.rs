@@ -465,7 +465,7 @@ impl Value {
     fn to_decimal(&self) -> Option<Decimal> {
         match self {
             Self::Decimal(d) => Some(*d),
-            Self::Duration(d) => Decimal::from_u64(d.get()),
+            Self::Duration(d) => Decimal::from_u64(d.repr()),
             Self::E8s(v) => Some(v.to_decimal()),
             Self::E18s(v) => v.to_decimal(),
             Self::Float64(f) => Decimal::from_f64(f.get()),
@@ -473,7 +473,7 @@ impl Value {
             Self::Int(i) => Decimal::from_i64(*i),
             Self::Int128(i) => Decimal::from_i128(i.get()),
             Self::IntBig(i) => i.to_i128().and_then(Decimal::from_i128),
-            Self::Timestamp(t) => Decimal::from_u64(t.get()),
+            Self::Timestamp(t) => Decimal::from_u64(t.as_secs()),
             Self::Uint(u) => Decimal::from_u64(*u),
             Self::Uint128(u) => Decimal::from_u128(u.get()),
             Self::UintBig(u) => u.to_u128().and_then(Decimal::from_u128),
@@ -486,7 +486,7 @@ impl Value {
     #[expect(clippy::cast_precision_loss)]
     fn to_f64_lossless(&self) -> Option<f64> {
         match self {
-            Self::Duration(d) if d.get() <= F64_SAFE_U64 => Some(d.get() as f64),
+            Self::Duration(d) if d.repr() <= F64_SAFE_U64 => Some(d.repr() as f64),
             Self::Float64(f) => Some(f.get()),
             Self::Float32(f) => Some(f64::from(f.get())),
             Self::Int(i) if (-F64_SAFE_I64..=F64_SAFE_I64).contains(i) => Some(*i as f64),
@@ -498,7 +498,7 @@ impl Value {
                     .contains(&v)
                     .then_some(v as f64)
             }),
-            Self::Timestamp(t) if t.get() <= F64_SAFE_U64 => Some(t.get() as f64),
+            Self::Timestamp(t) if t.repr() <= F64_SAFE_U64 => Some(t.repr() as f64),
             Self::Uint(u) if *u <= F64_SAFE_U64 => Some(*u as f64),
             Self::Uint128(u) if u.get() <= F64_SAFE_U128 => Some(u.get() as f64),
             Self::UintBig(u) => u

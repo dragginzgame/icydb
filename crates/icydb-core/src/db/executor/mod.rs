@@ -14,7 +14,9 @@ pub(super) use load::LoadExecutor;
 pub use load::{
     ExecutionAccessPathVariant, ExecutionFastPath, ExecutionPushdownType, ExecutionTrace,
 };
-pub(super) use ordered_key_stream::{OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream};
+pub(super) use ordered_key_stream::{
+    MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
+};
 pub(super) use save::SaveExecutor;
 
 // Design notes:

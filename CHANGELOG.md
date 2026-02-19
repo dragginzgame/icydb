@@ -5,6 +5,46 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.16.0] – 2026-02-19 - Composite Union Stream Execution
+
+### 📝 Summary
+
+* Completed the `0.16.0` union-stream execution milestone for composite `Union` paths.
+* `Union` execution now uses deterministic stream merge with explicit direction safety, while continuation, limit, and filtering ownership remain unchanged.
+
+```rust
+// Pairwise union composition in executor context:
+let merged: OrderedKeyStreamBox =
+    Box::new(MergeOrderedKeyStream::new(left, right, direction));
+```
+
+### ➕ Added
+
+* added `delete-tags.sh` ci script.
+* Added a new `0.16` milestone status tracker at `docs/status/0.16-status.md`.
+
+### 🔧 Changed
+
+* Updated executor composite planning path so `AccessPlan::Union` now composes child streams with pairwise merge instead of materializing one candidate key set first.
+* Added explicit merge-direction construction for union stream composition and invariant failure on child stream direction mismatch.
+* Kept `AccessPlan::Intersection` behavior unchanged for now (still materialized and intentionally out of current 0.16 scope).
+* Refactored internal ordered index component encoding by introducing `OrderedEncode` for fixed-width scalar wrappers and delegating from `encode_component_payload`, while preserving canonical byte layout and wire behavior.
+* Replaced internal `Duration` and `Timestamp` representation reads from `.raw()` with an internal `Repr` trait (`repr()` / `from_repr(...)`) to formalize the representation boundary without changing storage bytes, constructors, or public behavior.
+
+### 🩹 Fixed
+
+* Restored `From<u64>` for `Duration` so `#[newtype(..., default = 0u64)]` macro defaults continue to compile without changing runtime behavior.
+
+### 🧪 Testing
+
+* Added semantic coverage for overlapping PK `OR` predicates to lock union de-dup and stable ordering behavior.
+* Added targeted coverage for `Union × DESC × LIMIT × Continuation` to catch duplicate/omission regressions in paged descending traversal.
+* Added merge-stream mismatch coverage to verify incorrect child direction is rejected as `InvariantViolation`.
+* Re-ran focused stream merge, semantics, and composite trace tests with passing results.
+* Re-ran `icydb-core` ordered key and library test suites after encoding/representation refactors to confirm unchanged index-byte ordering and serialization behavior.
+
+---
+
 ## [0.15.0] – 2026-02-19 - Ordered Key Stream Abstraction
 
 ### 📝 Summary

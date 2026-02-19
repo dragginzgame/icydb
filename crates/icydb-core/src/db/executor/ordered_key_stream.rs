@@ -1,4 +1,7 @@
-use crate::{db::data::DataKey, error::InternalError};
+use crate::{
+    db::{data::DataKey, query::plan::Direction},
+    error::{ErrorClass, ErrorOrigin, InternalError},
+};
 use std::collections::VecDeque;
 
 ///
@@ -57,10 +60,18 @@ impl OrderedKeyStream for VecOrderedKeyStream {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 enum MergeDirection {
     Asc,
     Desc,
+}
+
+impl MergeDirection {
+    const fn from_direction(direction: Direction) -> Self {
+        match direction {
+            Direction::Asc => Self::Asc,
+            Direction::Desc => Self::Desc,
+        }
+    }
 }
 
 ///
@@ -70,7 +81,6 @@ enum MergeDirection {
 /// Produces one canonical ordered stream while suppressing duplicate keys.
 ///
 
-#[allow(dead_code)]
 pub(crate) struct MergeOrderedKeyStream<A, B> {
     left: A,
     right: B,
@@ -78,18 +88,19 @@ pub(crate) struct MergeOrderedKeyStream<A, B> {
     right_buffer: VecDeque<DataKey>,
     left_done: bool,
     right_done: bool,
-    direction: Option<MergeDirection>,
+    direction: MergeDirection,
+    left_last_pulled: Option<DataKey>,
+    right_last_pulled: Option<DataKey>,
     last_emitted: Option<DataKey>,
 }
 
-#[allow(dead_code)]
 impl<A, B> MergeOrderedKeyStream<A, B>
 where
     A: OrderedKeyStream,
     B: OrderedKeyStream,
 {
     #[must_use]
-    pub(crate) const fn new(left: A, right: B) -> Self {
+    pub(crate) const fn new(left: A, right: B, direction: Direction) -> Self {
         Self {
             left,
             right,
@@ -97,7 +108,9 @@ where
             right_buffer: VecDeque::new(),
             left_done: false,
             right_done: false,
-            direction: None,
+            direction: MergeDirection::from_direction(direction),
+            left_last_pulled: None,
+            right_last_pulled: None,
             last_emitted: None,
         }
     }
@@ -108,7 +121,7 @@ where
         }
 
         match self.left.next_key()? {
-            Some(key) => self.left_buffer.push_back(key),
+            Some(key) => self.push_left_key(key)?,
             None => self.left_done = true,
         }
 
@@ -121,73 +134,59 @@ where
         }
 
         match self.right.next_key()? {
-            Some(key) => self.right_buffer.push_back(key),
+            Some(key) => self.push_right_key(key)?,
             None => self.right_done = true,
         }
 
         Ok(())
     }
 
-    fn infer_direction_from_left(&mut self) -> Result<Option<MergeDirection>, InternalError> {
-        self.ensure_left_item()?;
-        let Some(first_key) = self.left_buffer.front().cloned() else {
-            return Ok(None);
-        };
+    fn push_left_key(&mut self, key: DataKey) -> Result<(), InternalError> {
+        self.validate_stream_direction(self.left_last_pulled.as_ref(), &key, "left")?;
+        self.left_last_pulled = Some(key.clone());
+        self.left_buffer.push_back(key);
 
-        loop {
-            if let Some(next_distinct) = self.left_buffer.iter().find(|key| **key != first_key) {
-                return Ok(Some(direction_from_pair(&first_key, next_distinct)));
-            }
-            if self.left_done {
-                return Ok(None);
-            }
-
-            match self.left.next_key()? {
-                Some(key) => self.left_buffer.push_back(key),
-                None => self.left_done = true,
-            }
-        }
+        Ok(())
     }
 
-    fn infer_direction_from_right(&mut self) -> Result<Option<MergeDirection>, InternalError> {
-        self.ensure_right_item()?;
-        let Some(first_key) = self.right_buffer.front().cloned() else {
-            return Ok(None);
-        };
+    fn push_right_key(&mut self, key: DataKey) -> Result<(), InternalError> {
+        self.validate_stream_direction(self.right_last_pulled.as_ref(), &key, "right")?;
+        self.right_last_pulled = Some(key.clone());
+        self.right_buffer.push_back(key);
 
-        loop {
-            if let Some(next_distinct) = self.right_buffer.iter().find(|key| **key != first_key) {
-                return Ok(Some(direction_from_pair(&first_key, next_distinct)));
-            }
-            if self.right_done {
-                return Ok(None);
-            }
-
-            match self.right.next_key()? {
-                Some(key) => self.right_buffer.push_back(key),
-                None => self.right_done = true,
-            }
-        }
+        Ok(())
     }
 
-    fn ensure_direction(&mut self) -> Result<MergeDirection, InternalError> {
-        if let Some(direction) = self.direction {
-            return Ok(direction);
+    fn validate_stream_direction(
+        &self,
+        previous: Option<&DataKey>,
+        current: &DataKey,
+        stream_name: &str,
+    ) -> Result<(), InternalError> {
+        let Some(previous) = previous else {
+            return Ok(());
+        };
+
+        let violates_direction = match self.direction {
+            MergeDirection::Asc => current < previous,
+            MergeDirection::Desc => current > previous,
+        };
+        if !violates_direction {
+            return Ok(());
         }
 
-        // Infer from left stream first, then right stream. If both streams are
-        // exhausted (or all observed keys are equal), default to ASC.
-        if let Some(direction) = self.infer_direction_from_left()? {
-            self.direction = Some(direction);
-            return Ok(direction);
-        }
-        if let Some(direction) = self.infer_direction_from_right()? {
-            self.direction = Some(direction);
-            return Ok(direction);
-        }
+        let direction_label = match self.direction {
+            MergeDirection::Asc => "ASC",
+            MergeDirection::Desc => "DESC",
+        };
 
-        self.direction = Some(MergeDirection::Asc);
-        Ok(MergeDirection::Asc)
+        Err(InternalError::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Query,
+            format!(
+                "executor invariant violated: merge stream {stream_name} emitted out-of-order key for {direction_label} merge (previous: {previous}, current: {current})"
+            ),
+        ))
     }
 }
 
@@ -206,14 +205,13 @@ where
                 return Ok(None);
             }
 
-            let direction = self.ensure_direction()?;
             let next = match (self.left_buffer.front(), self.right_buffer.front()) {
                 (Some(left_key), Some(right_key)) => {
                     if left_key == right_key {
                         let _ = self.right_buffer.pop_front();
                         self.left_buffer.pop_front()
                     } else {
-                        let choose_left = match direction {
+                        let choose_left = match self.direction {
                             MergeDirection::Asc => left_key < right_key,
                             MergeDirection::Desc => left_key > right_key,
                         };
@@ -244,15 +242,6 @@ where
     }
 }
 
-#[allow(dead_code)]
-fn direction_from_pair(first: &DataKey, second: &DataKey) -> MergeDirection {
-    if first < second {
-        MergeDirection::Asc
-    } else {
-        MergeDirection::Desc
-    }
-}
-
 ///
 /// TESTS
 ///
@@ -266,6 +255,7 @@ mod tests {
                 MergeOrderedKeyStream, OrderedKeyStream, VecOrderedKeyStream,
             },
             identity::EntityName,
+            query::plan::Direction,
         },
         error::{ErrorClass, ErrorOrigin, InternalError},
     };
@@ -366,7 +356,7 @@ mod tests {
     fn merge_stream_asc_interleaves_two_ordered_streams() {
         let left = StaticOrderedKeyStream::new(vec![data_key(1), data_key(3), data_key(5)]);
         let right = StaticOrderedKeyStream::new(vec![data_key(2), data_key(4), data_key(6)]);
-        let mut merged = MergeOrderedKeyStream::new(left, right);
+        let mut merged = MergeOrderedKeyStream::new(left, right, Direction::Asc);
 
         let out = collect_stream(&mut merged).expect("merge should succeed");
         assert_eq!(
@@ -386,7 +376,7 @@ mod tests {
     fn merge_stream_deduplicates_shared_keys() {
         let left = StaticOrderedKeyStream::new(vec![data_key(1), data_key(2), data_key(3)]);
         let right = StaticOrderedKeyStream::new(vec![data_key(2), data_key(3), data_key(4)]);
-        let mut merged = MergeOrderedKeyStream::new(left, right);
+        let mut merged = MergeOrderedKeyStream::new(left, right, Direction::Asc);
 
         let out = collect_stream(&mut merged).expect("merge should succeed");
         assert_eq!(
@@ -399,7 +389,7 @@ mod tests {
     fn merge_stream_desc_interleaves_two_descending_streams() {
         let left = StaticOrderedKeyStream::new(vec![data_key(6), data_key(4), data_key(2)]);
         let right = StaticOrderedKeyStream::new(vec![data_key(5), data_key(3), data_key(1)]);
-        let mut merged = MergeOrderedKeyStream::new(left, right);
+        let mut merged = MergeOrderedKeyStream::new(left, right, Direction::Desc);
 
         let out = collect_stream(&mut merged).expect("merge should succeed");
         assert_eq!(
@@ -419,10 +409,21 @@ mod tests {
     fn merge_stream_propagates_underlying_errors() {
         let left = StaticOrderedKeyStream::with_fail_at(vec![data_key(1), data_key(3)], 1);
         let right = StaticOrderedKeyStream::new(vec![data_key(2), data_key(4)]);
-        let mut merged = MergeOrderedKeyStream::new(left, right);
+        let mut merged = MergeOrderedKeyStream::new(left, right, Direction::Asc);
 
         let err = collect_stream(&mut merged).expect_err("merge should fail");
         assert_eq!(err.class, ErrorClass::Internal);
+        assert_eq!(err.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn merge_stream_rejects_child_direction_mismatch() {
+        let left = StaticOrderedKeyStream::new(vec![data_key(1), data_key(2)]);
+        let right = StaticOrderedKeyStream::new(vec![data_key(3), data_key(4)]);
+        let mut merged = MergeOrderedKeyStream::new(left, right, Direction::Desc);
+
+        let err = collect_stream(&mut merged).expect_err("merge should fail on direction mismatch");
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
         assert_eq!(err.origin, ErrorOrigin::Query);
     }
 }

@@ -1,6 +1,7 @@
 #![expect(clippy::similar_names)]
 use super::*;
 use crate::db::data::DataKey;
+use std::collections::BTreeSet;
 
 #[test]
 fn singleton_unit_key_insert_and_only_load_round_trip() {
@@ -64,6 +65,290 @@ fn load_by_ids_dedups_duplicate_input_ids() {
         ids,
         vec![id_a, id_b],
         "duplicate by_ids entries should not emit duplicate rows"
+    );
+}
+
+#[test]
+fn load_union_or_predicate_dedups_overlapping_pk_paths() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    let id_a = Ulid::from_u128(1201);
+    let id_b = Ulid::from_u128(1202);
+    for id in [id_a, id_b] {
+        save.insert(SimpleEntity { id })
+            .expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Or(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Eq,
+            Value::Ulid(id_a),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![Value::Ulid(id_a), Value::Ulid(id_b)]),
+            CoercionId::Strict,
+        )),
+    ]);
+    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("id")
+        .explain()
+        .expect("union explain should build");
+    assert!(
+        matches!(
+            explain.access,
+            crate::db::query::plan::ExplainAccessPath::Union(_)
+        ),
+        "OR predicate over PK paths should plan as union access"
+    );
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("id")
+        .plan()
+        .expect("union load plan should build");
+    let response = load.execute(plan).expect("union load should succeed");
+    let ids: Vec<Ulid> = response
+        .0
+        .into_iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+
+    assert_eq!(
+        ids,
+        vec![id_a, id_b],
+        "union execution must keep canonical order and suppress overlapping keys"
+    );
+}
+
+#[test]
+fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1301_u128, 1302, 1303, 1304, 1305, 1306] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Or(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Ulid(Ulid::from_u128(1301)),
+                Value::Ulid(Ulid::from_u128(1302)),
+                Value::Ulid(Ulid::from_u128(1303)),
+                Value::Ulid(Ulid::from_u128(1304)),
+            ]),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Ulid(Ulid::from_u128(1303)),
+                Value::Ulid(Ulid::from_u128(1304)),
+                Value::Ulid(Ulid::from_u128(1305)),
+                Value::Ulid(Ulid::from_u128(1306)),
+            ]),
+            CoercionId::Strict,
+        )),
+    ]);
+    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("id")
+        .limit(2)
+        .explain()
+        .expect("union pagination explain should build");
+    assert!(
+        matches!(
+            explain.access,
+            crate::db::query::plan::ExplainAccessPath::Union(_)
+        ),
+        "overlapping OR predicate should plan as union access"
+    );
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let mut paged_ids = Vec::new();
+    let mut cursor: Option<CursorBoundary> = None;
+    loop {
+        let page_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            .filter(predicate.clone())
+            .order_by_desc("id")
+            .limit(2)
+            .plan()
+            .expect("union desc paged plan should build");
+        let page = load
+            .execute_paged_with_cursor(page_plan, cursor.clone())
+            .expect("union desc paged load should succeed");
+        let page_ids: Vec<Ulid> = page
+            .items
+            .0
+            .into_iter()
+            .map(|(_, entity)| entity.id)
+            .collect();
+        paged_ids.extend(page_ids);
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+        let token =
+            ContinuationToken::decode(&next_cursor).expect("union desc continuation should decode");
+        cursor = Some(token.boundary().clone());
+    }
+
+    let full_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("id")
+        .plan()
+        .expect("union desc full plan should build");
+    let full_response = load
+        .execute(full_plan)
+        .expect("union desc full load should succeed");
+    let full_ids: Vec<Ulid> = full_response
+        .0
+        .into_iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+
+    assert_eq!(
+        paged_ids, full_ids,
+        "paged union DESC traversal with limit must match full execution"
+    );
+    let unique: BTreeSet<Ulid> = paged_ids.iter().copied().collect();
+    assert_eq!(
+        unique.len(),
+        paged_ids.len(),
+        "union DESC paged traversal must not duplicate rows"
+    );
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omission() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1401_u128, 1402, 1403, 1404, 1405, 1406, 1407, 1408, 1409] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("seed row save should succeed");
+    }
+
+    let predicate = Predicate::Or(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Ulid(Ulid::from_u128(1401)),
+                Value::Ulid(Ulid::from_u128(1402)),
+                Value::Ulid(Ulid::from_u128(1403)),
+                Value::Ulid(Ulid::from_u128(1404)),
+            ]),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Ulid(Ulid::from_u128(1403)),
+                Value::Ulid(Ulid::from_u128(1404)),
+                Value::Ulid(Ulid::from_u128(1405)),
+                Value::Ulid(Ulid::from_u128(1406)),
+            ]),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Ulid(Ulid::from_u128(1406)),
+                Value::Ulid(Ulid::from_u128(1407)),
+                Value::Ulid(Ulid::from_u128(1408)),
+                Value::Ulid(Ulid::from_u128(1409)),
+            ]),
+            CoercionId::Strict,
+        )),
+    ]);
+    let explain = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by_desc("id")
+        .limit(3)
+        .explain()
+        .expect("three-child union pagination explain should build");
+    assert!(
+        matches!(
+            explain.access,
+            crate::db::query::plan::ExplainAccessPath::Union(_)
+        ),
+        "three-child overlapping OR predicate should plan as union access"
+    );
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let mut paged_ids = Vec::new();
+    let mut cursor: Option<CursorBoundary> = None;
+    loop {
+        let page_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            .filter(predicate.clone())
+            .order_by_desc("id")
+            .limit(3)
+            .plan()
+            .expect("three-child union desc paged plan should build");
+        let page = load
+            .execute_paged_with_cursor(page_plan, cursor.clone())
+            .expect("three-child union desc paged load should succeed");
+        let page_ids: Vec<Ulid> = page
+            .items
+            .0
+            .into_iter()
+            .map(|(_, entity)| entity.id)
+            .collect();
+        paged_ids.extend(page_ids);
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+        let token = ContinuationToken::decode(&next_cursor)
+            .expect("three-child continuation should decode");
+        cursor = Some(token.boundary().clone());
+    }
+
+    let full_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by_desc("id")
+        .plan()
+        .expect("three-child union desc full plan should build");
+    let full_response = load
+        .execute(full_plan)
+        .expect("three-child union desc full load should succeed");
+    let full_ids: Vec<Ulid> = full_response
+        .0
+        .into_iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+
+    assert_eq!(
+        paged_ids, full_ids,
+        "three-child paged union DESC traversal with limit must match full execution"
+    );
+    let unique: BTreeSet<Ulid> = paged_ids.iter().copied().collect();
+    assert_eq!(
+        unique.len(),
+        paged_ids.len(),
+        "three-child union DESC paged traversal must not duplicate rows"
     );
 }
 

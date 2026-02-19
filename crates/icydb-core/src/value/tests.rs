@@ -84,7 +84,7 @@ macro_rules! sample_value_for_scalar {
         Value::Text("example".to_string())
     };
     (Timestamp) => {
-        Value::Timestamp(Timestamp::from_seconds(1))
+        Value::Timestamp(Timestamp::from_secs(1))
     };
     (Uint) => {
         Value::Uint(7)
@@ -242,7 +242,7 @@ fn canonical_tag_and_rank_are_stable() {
         ),
         (Value::Subaccount(Subaccount::new([1u8; 32])), 19),
         (Value::Text("example".to_string()), 20),
-        (Value::Timestamp(Timestamp::from_seconds(1)), 21),
+        (Value::Timestamp(Timestamp::from_secs(1)), 21),
         (Value::Uint(7), 22),
         (Value::Uint128(Nat128::from(9u128)), 23),
         (Value::UintBig(Nat::from(11u64)), 24),

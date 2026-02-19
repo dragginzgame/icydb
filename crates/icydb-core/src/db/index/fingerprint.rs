@@ -1,5 +1,6 @@
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
+    types::Repr,
     value::Value,
 };
 use canic_utils::hash::Xxh3;
@@ -75,7 +76,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
             feed_bytes(h, &normalized.mantissa().to_be_bytes());
         }
         Value::Duration(t) => {
-            feed_u64(h, t.get());
+            feed_u64(h, t.repr());
         }
         Value::Enum(v) => {
             match &v.path {
@@ -160,7 +161,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
             feed_bytes(h, s.as_bytes());
         }
         Value::Timestamp(t) => {
-            feed_u64(h, t.get());
+            feed_u64(h, t.repr());
         }
         Value::Uint(u) => {
             feed_u64(h, *u);

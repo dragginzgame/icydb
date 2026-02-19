@@ -8,7 +8,7 @@
 
 use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
-    types::{Account, Principal, Subaccount, Timestamp, Ulid},
+    types::{Account, Principal, Repr, Subaccount, Timestamp, Ulid},
     value::Value,
 };
 use candid::CandidType;
@@ -251,7 +251,7 @@ impl StorageKey {
             }
             Self::Uint(v) => payload[..Self::UINT_SIZE].copy_from_slice(&v.to_be_bytes()),
             Self::Timestamp(v) => {
-                payload[..Self::TIMESTAMP_SIZE].copy_from_slice(&v.get().to_be_bytes());
+                payload[..Self::TIMESTAMP_SIZE].copy_from_slice(&v.repr().to_be_bytes());
             }
             Self::Principal(v) => {
                 let bytes = v.to_bytes().map_err(Self::from_principal_encode_error)?;
@@ -329,7 +329,9 @@ impl StorageKey {
                 ensure_zero_padding(Self::TIMESTAMP_SIZE, "timestamp")?;
                 let mut buf = [0u8; Self::TIMESTAMP_SIZE];
                 buf.copy_from_slice(&payload[..Self::TIMESTAMP_SIZE]);
-                Ok(Self::Timestamp(Timestamp::from(u64::from_be_bytes(buf))))
+                Ok(Self::Timestamp(Timestamp::from_repr(u64::from_be_bytes(
+                    buf,
+                ))))
             }
             Self::TAG_UINT => {
                 ensure_zero_padding(Self::UINT_SIZE, "uint")?;
@@ -462,7 +464,7 @@ mod tests {
             Value::Text("example".to_string())
         };
         (Timestamp) => {
-            Value::Timestamp(Timestamp::from_seconds(1))
+            Value::Timestamp(Timestamp::from_secs(1))
         };
         (Uint) => {
             Value::Uint(7)
@@ -537,7 +539,7 @@ mod tests {
             StorageKey::try_from_value(&Value::Ulid(Ulid::from_u128(2)))
                 .expect("Ulid is encodable"),
             StorageKey::try_from_value(&Value::Uint(2)).expect("Uint is encodable"),
-            StorageKey::try_from_value(&Value::Timestamp(Timestamp::from_seconds(2)))
+            StorageKey::try_from_value(&Value::Timestamp(Timestamp::from_secs(2)))
                 .expect("Timestamp is encodable"),
             StorageKey::try_from_value(&Value::Subaccount(Subaccount::new([3u8; 32])))
                 .expect("Subaccount is encodable"),
@@ -555,7 +557,7 @@ mod tests {
             StorageKey::Int(-1),
             StorageKey::Principal(Principal::from_slice(&[9u8])),
             StorageKey::Subaccount(Subaccount::new([3u8; 32])),
-            StorageKey::Timestamp(Timestamp::from_seconds(2)),
+            StorageKey::Timestamp(Timestamp::from_secs(2)),
             StorageKey::Uint(2),
             StorageKey::Ulid(Ulid::from_u128(2)),
             StorageKey::Unit,

@@ -272,7 +272,7 @@ fn encode_value_key(out: &mut Vec<u8>, value: &Value) {
             out.extend_from_slice(&v.mantissa().to_be_bytes());
         }
         Value::Duration(v) => {
-            out.extend_from_slice(&v.get().to_be_bytes());
+            out.extend_from_slice(&v.as_millis().to_be_bytes());
         }
         Value::Enum(v) => {
             push_enum(out, v);
@@ -322,7 +322,7 @@ fn encode_value_key(out: &mut Vec<u8>, value: &Value) {
             push_str(out, v);
         }
         Value::Timestamp(v) => {
-            out.extend_from_slice(&v.get().to_be_bytes());
+            out.extend_from_slice(&v.as_secs().to_be_bytes());
         }
         Value::Uint(v) => {
             out.extend_from_slice(&v.to_be_bytes());

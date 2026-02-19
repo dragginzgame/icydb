@@ -3,14 +3,17 @@ use crate::{
         Db,
         data::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
         entity_decode::{decode_and_validate_entity_key, format_entity_key_for_mismatch},
-        executor::{ExecutorError, OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream},
+        executor::{
+            ExecutorError, MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox,
+            VecOrderedKeyStream,
+        },
         index::RawIndexKey,
         query::{
             ReadConsistency,
             plan::{AccessPath, AccessPlan, Direction},
         },
     },
-    error::{ErrorOrigin, InternalError},
+    error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue, Path},
     types::Id,
 };
@@ -263,13 +266,62 @@ impl<K> AccessPlan<K> {
                 index_range_anchor,
                 direction,
             ),
-            Self::Union(_) | Self::Intersection(_) => {
+            Self::Union(children) => {
+                Self::produce_union_key_stream(ctx, children, index_range_anchor, direction)
+            }
+            Self::Intersection(_) => {
                 let keys = self.collect_candidate_keys(ctx)?;
                 Ok(Box::new(VecOrderedKeyStream::new(
                     keys.into_iter().collect(),
                 )))
             }
         }
+    }
+
+    // Build one canonical stream for a union by pairwise-merging child streams.
+    fn produce_union_key_stream<E>(
+        ctx: &Context<'_, E>,
+        children: &[Self],
+        index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
+    ) -> Result<OrderedKeyStreamBox, InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+        K: Copy,
+    {
+        // Phase 1: request one stream per child access path.
+        let mut streams = Vec::with_capacity(children.len());
+        for child in children {
+            streams.push(child.produce_key_stream(ctx, index_range_anchor, direction)?);
+        }
+        if streams.is_empty() {
+            return Ok(Box::new(VecOrderedKeyStream::new(Vec::new())));
+        }
+
+        // Phase 2: pairwise merge streams until one stream remains.
+        while streams.len() > 1 {
+            let mut next_round = Vec::with_capacity((streams.len().saturating_add(1)) / 2);
+            let mut iter = streams.into_iter();
+            while let Some(left) = iter.next() {
+                if let Some(right) = iter.next() {
+                    let merged: OrderedKeyStreamBox =
+                        Box::new(MergeOrderedKeyStream::new(left, right, direction));
+                    next_round.push(merged);
+                } else {
+                    next_round.push(left);
+                }
+            }
+            streams = next_round;
+        }
+
+        // Phase 3: return the single canonical merged stream.
+        streams.pop().ok_or_else(|| {
+            InternalError::new(
+                ErrorClass::InvariantViolation,
+                ErrorOrigin::Query,
+                "executor invariant violated: union merge produced no stream",
+            )
+        })
     }
 
     // Resolve the candidate key set for this composite access plan.
@@ -384,6 +436,9 @@ impl<K> AccessPath<K> {
 
         if self.is_index_path() {
             candidates.sort_unstable();
+        }
+        if matches!(direction, Direction::Desc) {
+            candidates.reverse();
         }
 
         Ok(Box::new(VecOrderedKeyStream::new(candidates)))
