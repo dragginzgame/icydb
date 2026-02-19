@@ -20,7 +20,7 @@ use crate::{
         },
         query::save::SaveMode,
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::{ErrorOrigin, InternalError},
     obs::sink::{ExecKind, MetricsEvent, Span, record},
     sanitize::sanitize,
     serialize::serialize,
@@ -164,14 +164,10 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
                 let (marker_row_op, data_key) = Self::prepare_marker_row_op(&ctx, mode, &entity)?;
                 if !seen_row_keys.insert(marker_row_op.key.clone()) {
-                    return Err(InternalError::new(
-                        ErrorClass::Unsupported,
-                        ErrorOrigin::Executor,
-                        format!(
-                            "atomic save batch rejected duplicate key: entity={} key={data_key}",
-                            E::PATH,
-                        ),
-                    ));
+                    return Err(InternalError::executor_unsupported(format!(
+                        "atomic save batch rejected duplicate key: entity={} key={data_key}",
+                        E::PATH,
+                    )));
                 }
                 marker_row_ops.push(marker_row_op);
                 out.push(entity);

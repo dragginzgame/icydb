@@ -191,13 +191,7 @@ mod tests {
         let err = decode_and_validate_entity_key::<ProbeEntity, _, _, _, _>(
             expected,
             || Err("decode_failed"),
-            |source| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Serialize,
-                    format!("decode map: {source}"),
-                )
-            },
+            |source| InternalError::serialize_corruption(format!("decode map: {source}")),
             |_, _| unreachable!("mismatch mapping must not run on decode failure"),
         )
         .expect_err("decode failure must map into InternalError");
@@ -218,11 +212,9 @@ mod tests {
                 unreachable!("decode-error mapping must not run for successful decode")
             },
             |expected_key, actual_key| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    format!("mismatch: {expected_key:?} != {actual_key:?}"),
-                )
+                InternalError::store_corruption(format!(
+                    "mismatch: {expected_key:?} != {actual_key:?}"
+                ))
             },
         )
         .expect_err("key mismatch must map into InternalError");

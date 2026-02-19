@@ -50,6 +50,109 @@ impl InternalError {
         }
     }
 
+    /// Construct a query-origin invariant violation.
+    pub(crate) fn query_invariant(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Query,
+            message.into(),
+        )
+    }
+
+    /// Construct an index-origin invariant violation.
+    pub(crate) fn index_invariant(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Index,
+            message.into(),
+        )
+    }
+
+    /// Construct an executor-origin invariant violation.
+    pub(crate) fn executor_invariant(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Executor,
+            message.into(),
+        )
+    }
+
+    /// Construct a store-origin invariant violation.
+    pub(crate) fn store_invariant(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::InvariantViolation,
+            ErrorOrigin::Store,
+            message.into(),
+        )
+    }
+
+    /// Construct a corruption error for a specific origin.
+    pub(crate) fn corruption(origin: ErrorOrigin, message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Corruption, origin, message.into())
+    }
+
+    /// Construct a store-origin internal error.
+    pub(crate) fn store_internal(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Internal, ErrorOrigin::Store, message.into())
+    }
+
+    /// Construct an executor-origin internal error.
+    pub(crate) fn executor_internal(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Internal, ErrorOrigin::Executor, message.into())
+    }
+
+    /// Construct an index-origin internal error.
+    pub(crate) fn index_internal(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Internal, ErrorOrigin::Index, message.into())
+    }
+
+    /// Construct a store-origin corruption error.
+    pub(crate) fn store_corruption(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Corruption, ErrorOrigin::Store, message.into())
+    }
+
+    /// Construct an index-origin corruption error.
+    pub(crate) fn index_corruption(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Corruption, ErrorOrigin::Index, message.into())
+    }
+
+    /// Construct a serialize-origin corruption error.
+    pub(crate) fn serialize_corruption(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Corruption,
+            ErrorOrigin::Serialize,
+            message.into(),
+        )
+    }
+
+    /// Construct a store-origin unsupported error.
+    pub(crate) fn store_unsupported(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Store, message.into())
+    }
+
+    /// Construct an index-origin unsupported error.
+    pub(crate) fn index_unsupported(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Unsupported, ErrorOrigin::Index, message.into())
+    }
+
+    /// Construct an executor-origin unsupported error.
+    pub(crate) fn executor_unsupported(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Executor,
+            message.into(),
+        )
+    }
+
+    /// Construct a serialize-origin unsupported error.
+    pub(crate) fn serialize_unsupported(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Serialize,
+            message.into(),
+        )
+    }
+
     pub fn store_not_found(key: impl Into<String>) -> Self {
         let key = key.into();
 

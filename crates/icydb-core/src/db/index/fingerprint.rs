@@ -1,8 +1,4 @@
-use crate::{
-    error::{ErrorClass, ErrorOrigin, InternalError},
-    types::Repr,
-    value::Value,
-};
+use crate::{error::InternalError, types::Repr, value::Value};
 use canic_utils::hash::Xxh3;
 
 fn feed_i32(h: &mut Xxh3, x: i32) {
@@ -49,13 +45,9 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
 
     match value {
         Value::Account(a) => {
-            let bytes = a.to_bytes().map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Unsupported,
-                    ErrorOrigin::Serialize,
-                    err.to_string(),
-                )
-            })?;
+            let bytes = a
+                .to_bytes()
+                .map_err(|err| InternalError::serialize_unsupported(err.to_string()))?;
             feed_bytes(h, &bytes);
         }
         Value::Blob(v) => {
@@ -139,13 +131,9 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
             }
         }
         Value::Principal(p) => {
-            let raw = p.to_bytes().map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Unsupported,
-                    ErrorOrigin::Serialize,
-                    err.to_string(),
-                )
-            })?;
+            let raw = p
+                .to_bytes()
+                .map_err(|err| InternalError::serialize_unsupported(err.to_string()))?;
             feed_u32(h, raw.len() as u32);
             feed_bytes(h, &raw);
         }

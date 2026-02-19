@@ -10,7 +10,7 @@ use crate::{
             },
         },
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, FieldValue},
 };
 use std::marker::PhantomData;
@@ -210,16 +210,12 @@ impl<E: EntityKind> ExecutablePlan<E> {
     // Missing or empty ordering at this boundary is an execution invariant violation.
     fn validated_cursor_order_internal(&self) -> Result<&OrderSpec, InternalError> {
         let Some(order) = self.plan.order.as_ref() else {
-            return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
+            return Err(InternalError::query_invariant(
                 "executor invariant violated: cursor pagination requires explicit ordering",
             ));
         };
         if order.fields.is_empty() {
-            return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
+            return Err(InternalError::query_invariant(
                 "executor invariant violated: cursor pagination requires non-empty ordering",
             ));
         }
@@ -249,7 +245,7 @@ impl InternalError {
             _ => err.to_string(),
         };
 
-        Self::new(ErrorClass::InvariantViolation, ErrorOrigin::Query, message)
+        Self::query_invariant(message)
     }
 }
 

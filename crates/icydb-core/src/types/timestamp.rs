@@ -97,8 +97,8 @@ impl Timestamp {
         Self::parse_rfc3339(s)
     }
 
-    #[must_use]
     /// Current wall-clock timestamp in milliseconds.
+    #[must_use]
     pub fn now() -> Self {
         Self(now_millis())
     }

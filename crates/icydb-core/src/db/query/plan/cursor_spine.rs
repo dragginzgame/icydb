@@ -2,7 +2,7 @@ use crate::{
     db::{
         data::StorageKey,
         index::{
-            Direction, IndexId, IndexKey, IndexKeyKind, IndexRangeBoundEncodeError, RawIndexKey,
+            Direction, IndexId, IndexKey, IndexKeyKind, RawIndexKey, map_bound_encode_error,
             raw_bounds_for_index_component_range,
         },
         query::{
@@ -312,18 +312,12 @@ fn validate_index_range_anchor<E: EntityKind>(
             index, prefix, lower, upper,
         )
         .map_err(|err| {
-            let reason = match err {
-                IndexRangeBoundEncodeError::Prefix => {
-                    "index-range continuation anchor prefix is not indexable".to_string()
-                }
-                IndexRangeBoundEncodeError::Lower => {
-                    "index-range cursor lower continuation bound is not indexable".to_string()
-                }
-                IndexRangeBoundEncodeError::Upper => {
-                    "index-range cursor upper continuation bound is not indexable".to_string()
-                }
-            };
-            PlanError::invalid_continuation_cursor_payload(reason)
+            PlanError::invalid_continuation_cursor_payload(map_bound_encode_error(
+                err,
+                "index-range continuation anchor prefix is not indexable",
+                "index-range cursor lower continuation bound is not indexable",
+                "index-range cursor upper continuation bound is not indexable",
+            ))
         })?;
 
         if !cursor_anchor_within_envelope(

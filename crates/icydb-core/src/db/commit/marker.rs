@@ -1,7 +1,4 @@
-use crate::{
-    error::{ErrorClass, ErrorOrigin, InternalError},
-    types::Ulid,
-};
+use crate::{error::InternalError, types::Ulid};
 use serde::{Deserialize, Serialize};
 
 // Stage-2 invariant:
@@ -87,11 +84,7 @@ impl CommitMarker {
     pub(crate) fn new(row_ops: Vec<CommitRowOp>) -> Result<Self, InternalError> {
         let id = Ulid::try_generate()
             .map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Store,
-                    format!("commit id generation failed: {err}"),
-                )
+                InternalError::store_internal(format!("commit id generation failed: {err}"))
             })?
             .to_bytes();
 

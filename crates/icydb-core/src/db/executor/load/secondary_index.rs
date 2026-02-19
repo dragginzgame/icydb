@@ -1,10 +1,10 @@
 use crate::{
     db::{
         Context,
-        executor::VecOrderedKeyStream,
         executor::load::{
             ExecutionFastPath, ExecutionPushdownType, FastPathKeyResult, LoadExecutor,
         },
+        executor::{VecOrderedKeyStream, normalize_ordered_keys},
         query::plan::{Direction, LogicalPlan, OrderDirection, validate::PushdownApplicability},
     },
     error::InternalError,
@@ -36,12 +36,11 @@ where
                 store.with_index(|index_store| index_store.resolve_data_values::<E>(index, values))
             })
         })?;
-        if matches!(
+        normalize_ordered_keys(
+            &mut ordered_keys,
             Self::secondary_index_stream_direction(plan),
-            Direction::Desc
-        ) {
-            ordered_keys.reverse();
-        }
+            true,
+        );
         let rows_scanned = ordered_keys.len();
 
         Ok(Some(FastPathKeyResult {

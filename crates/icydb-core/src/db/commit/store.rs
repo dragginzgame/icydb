@@ -5,7 +5,7 @@ use crate::{
         CommitMarker, MAX_COMMIT_BYTES, commit_corruption_message, memory::commit_memory_id,
         validate_commit_marker_shape,
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     serialize::{deserialize_bounded, serialize},
 };
 use canic_cdk::structures::{
@@ -37,14 +37,10 @@ impl RawCommitMarker {
     fn try_from_marker(marker: &CommitMarker) -> Result<Self, InternalError> {
         let bytes = serialize(marker)?;
         if bytes.len() > MAX_COMMIT_BYTES as usize {
-            return Err(InternalError::new(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Store,
-                format!(
-                    "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
-                    bytes.len()
-                ),
-            ));
+            return Err(InternalError::store_unsupported(format!(
+                "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
+                bytes.len()
+            )));
         }
         Ok(Self(bytes))
     }
@@ -55,24 +51,14 @@ impl RawCommitMarker {
             return Ok(None);
         }
         if self.0.len() > MAX_COMMIT_BYTES as usize {
-            return Err(InternalError::new(
-                ErrorClass::Corruption,
-                ErrorOrigin::Store,
-                format!(
-                    "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
-                    self.0.len()
-                ),
-            ));
+            return Err(InternalError::store_corruption(format!(
+                "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
+                self.0.len()
+            )));
         }
 
         let marker = deserialize_bounded::<CommitMarker>(&self.0, MAX_COMMIT_BYTES as usize)
-            .map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    commit_corruption_message(err),
-                )
-            })?;
+            .map_err(|err| InternalError::store_corruption(commit_corruption_message(err)))?;
         validate_commit_marker_shape(&marker)?;
 
         Ok(Some(marker))

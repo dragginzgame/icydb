@@ -9,7 +9,7 @@ use crate::{
         },
         predicate::{Predicate, coercion::canonical_cmp, eval as eval_predicate},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Id,
 };
@@ -424,16 +424,6 @@ impl<K> LogicalPlan<K> {
                 .map(|(field, _)| field_slot(entity, field))
                 .collect(),
         })
-    }
-}
-
-impl InternalError {
-    fn query_invariant(message: impl Into<String>) -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Query,
-            message.into(),
-        )
     }
 }
 

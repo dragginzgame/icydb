@@ -117,23 +117,17 @@ impl DataKey {
     {
         let expected = Self::entity_for::<E>();
         if self.entity != expected {
-            return Err(InternalError::new(
-                ErrorClass::Corruption,
-                ErrorOrigin::Store,
-                format!(
-                    "data key entity mismatch: expected {}, found {}",
-                    expected, self.entity
-                ),
-            ));
+            return Err(InternalError::store_corruption(format!(
+                "data key entity mismatch: expected {}, found {}",
+                expected, self.entity
+            )));
         }
 
         let value = self.key.as_value();
         <E::Key as FieldValue>::from_value(&value).ok_or_else(|| {
-            InternalError::new(
-                ErrorClass::Corruption,
-                ErrorOrigin::Store,
-                format!("data key primary key decode failed: {value:?}"),
-            )
+            InternalError::store_corruption(format!(
+                "data key primary key decode failed: {value:?}"
+            ))
         })
     }
 
@@ -168,7 +162,6 @@ impl DataKey {
         }
     }
 
-    #[inline]
     fn entity_for<E: EntityKind>() -> EntityName {
         // INVARIANT:
         // `E::ENTITY_NAME` is compile-time schema/codegen metadata. Runtime

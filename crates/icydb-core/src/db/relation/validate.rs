@@ -12,7 +12,7 @@ use crate::{
         Db,
         data::{DataKey, RawDataKey},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue, Path},
     value::Value,
@@ -82,23 +82,16 @@ where
                 let source_raw_row = source_store.with_data(|store| store.get(&source_raw_key));
 
                 let Some(source_raw_row) = source_raw_row else {
-                    return Err(InternalError::new(
-                        ErrorClass::Corruption,
-                        ErrorOrigin::Store,
-                        format!(
-                            "reverse index points at missing source row: source={} field={} source_id={source_key:?} target={} key={target_value:?}",
-                            S::PATH,
-                            relation.field_name,
-                            relation.target_path,
-                        ),
-                    ));
+                    return Err(InternalError::store_corruption(format!(
+                        "reverse index points at missing source row: source={} field={} source_id={source_key:?} target={} key={target_value:?}",
+                        S::PATH,
+                        relation.field_name,
+                        relation.target_path,
+                    )));
                 };
 
                 let source = source_raw_row.try_decode::<S>().map_err(|err| {
-                    InternalError::new(
-                        ErrorClass::Corruption,
-                        ErrorOrigin::Serialize,
-                        format!(
+                    InternalError::serialize_corruption(format!(
                             "source row decode failed during delete relation validation: source={} ({err})",
                             S::PATH
                         ),
@@ -112,9 +105,7 @@ where
                         reverse_lookups: 0,
                         blocked_deletes: 1,
                     });
-                    return Err(InternalError::new(
-                        ErrorClass::Unsupported,
-                        ErrorOrigin::Executor,
+                    return Err(InternalError::executor_unsupported(
                         blocked_delete_diagnostic::<S>(relation, source_key, &target_value),
                     ));
                 }

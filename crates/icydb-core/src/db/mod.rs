@@ -55,7 +55,7 @@ use crate::{
         query::intent::QueryMode,
         relation::StrongRelationDeleteValidateFn,
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     obs::sink::{MetricsSink, with_metrics_sink},
     traits::{CanisterKind, EntityIdentity, EntityKind, EntityValue},
 };
@@ -236,22 +236,18 @@ impl<C: CanisterKind> Db<C> {
             }
 
             if matched.is_some() {
-                return Err(InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Store,
-                    format!("duplicate runtime hooks for entity name '{entity_name}'"),
-                ));
+                return Err(InternalError::store_invariant(format!(
+                    "duplicate runtime hooks for entity name '{entity_name}'"
+                )));
             }
 
             matched = Some(hooks);
         }
 
         matched.ok_or_else(|| {
-            InternalError::new(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Store,
-                format!("unsupported entity name in data store: '{entity_name}'"),
-            )
+            InternalError::store_unsupported(format!(
+                "unsupported entity name in data store: '{entity_name}'"
+            ))
         })
     }
 }

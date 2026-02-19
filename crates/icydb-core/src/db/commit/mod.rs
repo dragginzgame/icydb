@@ -26,7 +26,7 @@ mod tests;
 mod validate;
 
 #[cfg(test)]
-use crate::error::{ErrorClass, ErrorOrigin, InternalError};
+use crate::error::InternalError;
 #[cfg(test)]
 use canic_memory::{
     registry::{MemoryRegistry, MemoryRegistryError},
@@ -79,28 +79,20 @@ pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> 
         Ok(_) => {}
         Err(MemoryRegistryError::Overlap { .. }) => {
             MemoryRegistryRuntime::init(None).map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Store,
-                    format!("memory registry init failed: {err}"),
-                )
+                InternalError::store_internal(format!("memory registry init failed: {err}"))
             })?;
         }
         Err(err) => {
-            return Err(InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Store,
-                format!("memory registry init failed: {err}"),
-            ));
+            return Err(InternalError::store_internal(format!(
+                "memory registry init failed: {err}"
+            )));
         }
     }
 
     // Phase 2: ensure a DB-store entry exists so commit memory can be allocated.
     let snapshots = MemoryRegistryRuntime::snapshot_ids_by_range();
     if snapshots.is_empty() {
-        return Err(InternalError::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Store,
+        return Err(InternalError::store_internal(
             "no memory ranges available for commit marker tests",
         ));
     }
@@ -112,11 +104,7 @@ pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> 
 
     if !has_store_entry {
         let snapshot = snapshots.first().ok_or_else(|| {
-            InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Store,
-                "no memory ranges available for commit marker tests",
-            )
+            InternalError::store_internal("no memory ranges available for commit marker tests")
         })?;
         let used_ids = snapshot
             .entries
@@ -126,23 +114,17 @@ pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> 
         let dummy_id = (snapshot.range.start..=snapshot.range.end)
             .find(|id| !used_ids.contains(id))
             .ok_or_else(|| {
-                InternalError::new(
-                    ErrorClass::Unsupported,
-                    ErrorOrigin::Store,
-                    format!(
-                        "no free memory ids available for commit marker tests in range {}-{}",
-                        snapshot.range.start, snapshot.range.end
-                    ),
-                )
+                InternalError::store_unsupported(format!(
+                    "no free memory ids available for commit marker tests in range {}-{}",
+                    snapshot.range.start, snapshot.range.end
+                ))
             })?;
 
         MemoryRegistry::register(dummy_id, &snapshot.owner, "commit_test::DataStore").map_err(
             |err| {
-                InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Store,
-                    format!("commit test memory registration failed: {err}"),
-                )
+                InternalError::store_internal(format!(
+                    "commit test memory registration failed: {err}"
+                ))
             },
         )?;
     }

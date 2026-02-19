@@ -1,6 +1,6 @@
 use crate::{
     db::{data::DataKey, query::plan::Direction},
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
 };
 use std::collections::VecDeque;
 
@@ -180,13 +180,9 @@ where
             MergeDirection::Desc => "DESC",
         };
 
-        Err(InternalError::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Query,
-            format!(
-                "executor invariant violated: merge stream {stream_name} emitted out-of-order key for {direction_label} merge (previous: {previous}, current: {current})"
-            ),
-        ))
+        Err(InternalError::query_invariant(format!(
+            "executor invariant violated: merge stream {stream_name} emitted out-of-order key for {direction_label} merge (previous: {previous}, current: {current})"
+        )))
     }
 }
 

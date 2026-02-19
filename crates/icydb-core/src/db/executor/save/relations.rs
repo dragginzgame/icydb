@@ -3,10 +3,11 @@ use crate::{
         executor::save::SaveExecutor,
         relation::{
             StrongRelationTargetInfo, build_relation_target_raw_key,
-            for_each_relation_target_value, strong_relation_target_from_kind,
+            for_each_relation_target_value, incompatible_store_error,
+            strong_relation_target_from_kind, target_key_mismatch_error,
         },
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, EntityValue},
     value::Value,
 };
@@ -21,11 +22,11 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             };
 
             let value = entity.get_value(field.name).ok_or_else(|| {
-                InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Executor,
-                    format!("entity field missing: {} field={}", E::PATH, field.name),
-                )
+                InternalError::executor_internal(format!(
+                    "entity field missing: {} field={}",
+                    E::PATH,
+                    field.name
+                ))
             })?;
 
             // Phase 2: validate each referenced key.
@@ -65,29 +66,22 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             .db
             .with_store_registry(|reg| reg.try_get_store(relation.target_store_path))
             .map_err(|err| {
-                InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Executor,
-                    format!(
-                        "strong relation target store missing: source={} field={} target={} store={} key={value:?} ({err})",
-                        E::PATH,
-                        field_name,
-                        relation.target_path,
-                        relation.target_store_path
-                    ),
+                incompatible_store_error(
+                    E::PATH,
+                    field_name,
+                    relation.target_path,
+                    relation.target_store_path,
+                    value,
+                    err,
                 )
             })?;
         let exists = store.with_data(|s| s.contains_key(&raw_key));
         if !exists {
-            return Err(InternalError::new(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Executor,
-                format!(
-                    "strong relation missing: source={} field={} target={} key={value:?}",
-                    E::PATH,
-                    field_name,
-                    relation.target_path
-                ),
+            return Err(target_key_mismatch_error(
+                E::PATH,
+                field_name,
+                relation.target_path,
+                value,
             ));
         }
 

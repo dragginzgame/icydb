@@ -5,7 +5,7 @@ use crate::{
         entity_decode::{decode_and_validate_entity_key, format_entity_key_for_mismatch},
         executor::{
             ExecutorError, MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox,
-            VecOrderedKeyStream,
+            VecOrderedKeyStream, normalize_ordered_keys,
         },
         index::RawIndexKey,
         query::{
@@ -13,7 +13,7 @@ use crate::{
             plan::{AccessPath, AccessPlan, Direction},
         },
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::{ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue, Path},
     types::Id,
 };
@@ -316,9 +316,7 @@ impl<K> AccessPlan<K> {
 
         // Phase 3: return the single canonical merged stream.
         streams.pop().ok_or_else(|| {
-            InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
+            InternalError::query_invariant(
                 "executor invariant violated: union merge produced no stream",
             )
         })
@@ -434,12 +432,7 @@ impl<K> AccessPath<K> {
             }
         };
 
-        if self.is_index_path() {
-            candidates.sort_unstable();
-        }
-        if matches!(direction, Direction::Desc) {
-            candidates.reverse();
-        }
+        normalize_ordered_keys(&mut candidates, direction, !self.is_index_path());
 
         Ok(Box::new(VecOrderedKeyStream::new(candidates)))
     }

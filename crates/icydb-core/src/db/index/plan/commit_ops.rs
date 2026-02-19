@@ -3,7 +3,7 @@ use crate::{
         commit::CommitIndexOp,
         index::{IndexEntry, IndexEntryEncodeError, IndexKey, RawIndexEntry, RawIndexKey},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     model::index::IndexModel,
     traits::{EntityKind, Storable},
 };
@@ -34,9 +34,7 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
     // Removal phase.
     if let Some(old_key) = old_key {
         let Some(old_entity_key) = old_entity_key else {
-            return Err(InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Index,
+            return Err(InternalError::index_internal(
                 "missing old entity key for index removal".to_string(),
             ));
         };
@@ -54,9 +52,7 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
     // Insertion phase.
     if let Some(new_key) = new_key {
         let Some(new_entity_key) = new_entity_key else {
-            return Err(InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Index,
+            return Err(InternalError::index_internal(
                 "missing new entity key for index insertion".to_string(),
             ));
         };
@@ -83,25 +79,21 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
     for (raw_key, entry) in touched {
         let value = if let Some(entry) = entry {
             let raw = RawIndexEntry::try_from(&entry).map_err(|err| match err {
-                IndexEntryEncodeError::TooManyKeys { keys } => InternalError::new(
-                    ErrorClass::Unsupported,
-                    ErrorOrigin::Index,
-                    format!(
+                IndexEntryEncodeError::TooManyKeys { keys } => {
+                    InternalError::index_unsupported(format!(
                         "index entry exceeds max keys: {} ({}) -> {} keys",
                         E::PATH,
                         fields,
                         keys
-                    ),
-                ),
-                IndexEntryEncodeError::KeyEncoding(err) => InternalError::new(
-                    ErrorClass::Unsupported,
-                    ErrorOrigin::Index,
-                    format!(
+                    ))
+                }
+                IndexEntryEncodeError::KeyEncoding(err) => {
+                    InternalError::index_unsupported(format!(
                         "index entry key encoding failed: {} ({}) -> {err}",
                         E::PATH,
                         fields
-                    ),
-                ),
+                    ))
+                }
             })?;
             Some(raw.into_bytes())
         } else {

@@ -11,7 +11,7 @@ use crate::{
         index::{IndexKey, plan_index_mutation_for_entity},
         relation::prepare_reverse_relation_index_mutations_for_source,
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, EntityValue, Path},
 };
 use std::collections::BTreeMap;
@@ -26,24 +26,16 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     op: &CommitRowOp,
 ) -> Result<PreparedRowCommitOp, InternalError> {
     if op.entity_path != E::PATH {
-        return Err(InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Store,
-            format!(
-                "commit marker entity path mismatch: expected '{}', found '{}'",
-                E::PATH,
-                op.entity_path
-            ),
-        ));
+        return Err(InternalError::store_corruption(format!(
+            "commit marker entity path mismatch: expected '{}', found '{}'",
+            E::PATH,
+            op.entity_path
+        )));
     }
 
     let raw_key = decode_data_key(&op.key)?;
     let data_key = DataKey::try_from_raw(&raw_key).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Store,
-            commit_component_corruption_message("data key", err),
-        )
+        InternalError::store_corruption(commit_component_corruption_message("data key", err))
     })?;
     let expected_key = data_key.try_key::<E>()?;
 
@@ -53,20 +45,14 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
             expected_key,
             || row.try_decode::<E>(),
             |err| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Serialize,
-                    format!("commit marker {label} row decode failed: {err}"),
-                )
+                InternalError::serialize_corruption(format!(
+                    "commit marker {label} row decode failed: {err}"
+                ))
             },
             |expected, actual| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Store,
-                    format!(
-                        "commit marker row key mismatch: expected {expected:?}, found {actual:?}"
-                    ),
-                )
+                InternalError::store_corruption(format!(
+                    "commit marker row key mismatch: expected {expected:?}, found {actual:?}"
+                ))
             },
         )?;
 
@@ -85,9 +71,7 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
         .transpose()?;
 
     if old_pair.is_none() && new_pair.is_none() {
-        return Err(InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Store,
+        return Err(InternalError::store_corruption(
             "commit marker row op is a no-op (before/after both missing)",
         ));
     }
@@ -133,15 +117,11 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
             .get(index_op.store.as_str())
             .copied()
             .ok_or_else(|| {
-                InternalError::new(
-                    ErrorClass::Corruption,
-                    ErrorOrigin::Index,
-                    format!(
-                        "missing index store '{}' for entity '{}'",
-                        index_op.store,
-                        E::PATH
-                    ),
-                )
+                InternalError::index_corruption(format!(
+                    "missing index store '{}' for entity '{}'",
+                    index_op.store,
+                    E::PATH
+                ))
             })?;
         let key = decode_index_key(&index_op.key)?;
         let value = index_op

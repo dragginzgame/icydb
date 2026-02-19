@@ -15,7 +15,7 @@ use crate::{
             encode_canonical_index_component,
         },
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, EntityValue},
     value::Value,
 };
@@ -30,10 +30,7 @@ where
     S: EntityKind,
 {
     let source_entity_name = EntityName::try_from_str(S::ENTITY_NAME).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Index,
-            format!(
+        InternalError::index_internal(format!(
                 "invalid source entity name while building reverse index id: source={} field={} ({err})",
                 S::PATH,
                 relation.field_name,
@@ -57,16 +54,12 @@ where
         relation_token.as_str(),
     ];
     let name = IndexName::try_from_parts(&source_entity_name, &fields).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Index,
-            format!(
-                "reverse index id construction failed: source={} field={} target={} ({err})",
-                S::PATH,
-                relation.field_name,
-                relation.target_path,
-            ),
-        )
+        InternalError::index_internal(format!(
+            "reverse index id construction failed: source={} field={} target={} ({err})",
+            S::PATH,
+            relation.field_name,
+            relation.target_path,
+        ))
     })?;
 
     Ok(IndexId(name))
@@ -120,15 +113,11 @@ where
     S: EntityKind + EntityValue,
 {
     let value = source.get_value(relation.field_name).ok_or_else(|| {
-        InternalError::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Executor,
-            format!(
-                "entity field missing during strong relation processing: source={} field={}",
-                S::PATH,
-                relation.field_name,
-            ),
-        )
+        InternalError::executor_internal(format!(
+            "entity field missing during strong relation processing: source={} field={}",
+            S::PATH,
+            relation.field_name,
+        ))
     })?;
 
     relation_target_keys_from_value::<S>(relation.field_name, relation, &value)
@@ -144,17 +133,13 @@ where
     S: EntityKind + EntityValue,
 {
     raw_entry.try_decode::<S>().map_err(|err| {
-        InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Index,
-            format!(
-                "reverse index entry corrupted: source={} field={} target={} key={:?} ({err})",
-                S::PATH,
-                relation.field_name,
-                relation.target_path,
-                index_key,
-            ),
-        )
+        InternalError::index_corruption(format!(
+            "reverse index entry corrupted: source={} field={} target={} key={:?} ({err})",
+            S::PATH,
+            relation.field_name,
+            relation.target_path,
+            index_key,
+        ))
     })
 }
 
@@ -167,16 +152,12 @@ where
     S: EntityKind + EntityValue,
 {
     RawIndexEntry::try_from_entry(entry).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Index,
-            format!(
-                "reverse index entry encoding failed: source={} field={} target={} ({err})",
-                S::PATH,
-                relation.field_name,
-                relation.target_path,
-            ),
-        )
+        InternalError::index_unsupported(format!(
+            "reverse index entry encoding failed: source={} field={} target={} ({err})",
+            S::PATH,
+            relation.field_name,
+            relation.target_path,
+        ))
     })
 }
 
@@ -191,17 +172,13 @@ where
     db.with_store_registry(|reg| reg.try_get_store(relation.target_store_path))
         .map(|store| store.index_store())
         .map_err(|err| {
-            InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Executor,
-                format!(
-                    "relation target store missing: source={} field={} target={} store={} ({err})",
-                    S::PATH,
-                    relation.field_name,
-                    relation.target_path,
-                    relation.target_store_path,
-                ),
-            )
+            InternalError::executor_internal(format!(
+                "relation target store missing: source={} field={} target={} store={} ({err})",
+                S::PATH,
+                relation.field_name,
+                relation.target_path,
+                relation.target_store_path,
+            ))
         })
 }
 
@@ -261,16 +238,12 @@ where
                 RelationTargetMismatchPolicy::Reject,
             )?
             else {
-                return Err(InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Executor,
-                    format!(
-                        "relation target decode invariant violated while preparing reverse index: source={} field={} target={}",
-                        S::PATH,
-                        relation.field_name,
-                        relation.target_path,
-                    ),
-                ));
+                return Err(InternalError::executor_internal(format!(
+                    "relation target decode invariant violated while preparing reverse index: source={} field={} target={}",
+                    S::PATH,
+                    relation.field_name,
+                    relation.target_path,
+                )));
             };
 
             let target_value = target_data_key.storage_key().as_value();

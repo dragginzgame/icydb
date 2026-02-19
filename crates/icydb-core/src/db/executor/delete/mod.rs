@@ -14,7 +14,7 @@ use crate::{
         query::plan::{ExecutablePlan, validate::validate_executor_plan},
         response::Response,
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     obs::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
     types::Id,
@@ -58,9 +58,7 @@ where
 
     pub(crate) fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
         if !plan.mode().is_delete() {
-            return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
+            return Err(InternalError::query_invariant(
                 "executor invariant violated: delete executor requires delete plans".to_string(),
             ));
         }
@@ -109,9 +107,7 @@ where
                 .map(|row| {
                     let raw_key = row.key.to_raw()?;
                     let raw_row = row.raw.take().ok_or_else(|| {
-                        InternalError::new(
-                            ErrorClass::Internal,
-                            ErrorOrigin::Store,
+                        InternalError::store_internal(
                             "missing raw row for delete rollback".to_string(),
                         )
                     })?;

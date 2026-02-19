@@ -5,10 +5,11 @@ use crate::{
         executor::{
             VecOrderedKeyStream,
             load::{ExecutionFastPath, FastPathKeyResult, LoadExecutor},
+            normalize_ordered_keys,
         },
         query::plan::{AccessPath, Direction, LogicalPlan, OrderDirection},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, EntityValue},
 };
 use std::ops::Bound;
@@ -110,34 +111,16 @@ where
 
             let mut rows_scanned = 0usize;
             let mut keys = Vec::new();
-            match direction {
-                Direction::Asc => {
-                    for entry in store.range((lower_bound, Bound::Included(upper_raw))) {
-                        rows_scanned = rows_scanned.saturating_add(1);
-                        let data_key = DataKey::try_from_raw(entry.key()).map_err(|err| {
-                            InternalError::new(
-                                ErrorClass::Corruption,
-                                ErrorOrigin::Store,
-                                format!("ordered scan encountered corrupted data key: {err}"),
-                            )
-                        })?;
-                        keys.push(data_key);
-                    }
-                }
-                Direction::Desc => {
-                    for entry in store.range((lower_bound, Bound::Included(upper_raw))).rev() {
-                        rows_scanned = rows_scanned.saturating_add(1);
-                        let data_key = DataKey::try_from_raw(entry.key()).map_err(|err| {
-                            InternalError::new(
-                                ErrorClass::Corruption,
-                                ErrorOrigin::Store,
-                                format!("ordered scan encountered corrupted data key: {err}"),
-                            )
-                        })?;
-                        keys.push(data_key);
-                    }
-                }
+            for entry in store.range((lower_bound, Bound::Included(upper_raw))) {
+                rows_scanned = rows_scanned.saturating_add(1);
+                let data_key = DataKey::try_from_raw(entry.key()).map_err(|err| {
+                    InternalError::store_corruption(format!(
+                        "ordered scan encountered corrupted data key: {err}"
+                    ))
+                })?;
+                keys.push(data_key);
             }
+            normalize_ordered_keys(&mut keys, direction, true);
 
             Ok(PkStreamScanResult { keys, rows_scanned })
         })?

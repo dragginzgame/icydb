@@ -5,6 +5,29 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.16.2] – 2026-02-19 - DRY Survey
+
+### 📝 Summary
+
+* Reduced direction-handling drift in executor key production by routing ordered key normalization through one shared helper.
+
+```rust
+pub(crate) fn normalize_ordered_keys(
+    keys: &mut Vec<DataKey>,
+    direction: Direction,
+    already_sorted: bool,
+)
+```
+
+### 🔧 Changed
+
+* Centralized executor ordered-key direction normalization behind `normalize_ordered_keys(...)`, so PK stream, secondary index stream, and access-path key production all use one sort/reverse path.
+* Added shared index-range bound encode reason mapping (`map_bound_encode_error(...)`) and reused it in planner cursor validation and index-store range lookup without changing boundary-specific error classes.
+* Added relation-owned error helpers (`target_key_mismatch_error(...)`, `incompatible_store_error(...)`) and routed save-time strong-relation checks through them to keep operator-facing wording consistent.
+* Added domain-specific `InternalError` constructors for repeated `(ErrorClass, ErrorOrigin)` pairs and routed repeated call sites through those constructors to reduce taxonomy drift while preserving exact classes, origins, and messages.
+
+---
+
 ## [0.16.1] – 2026-02-19 - Timestamps in Milliseconds
 
 ### 📝 Summary

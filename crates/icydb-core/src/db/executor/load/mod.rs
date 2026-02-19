@@ -259,9 +259,7 @@ where
         let index_range_anchor = cursor.index_range_anchor().cloned();
 
         if !plan.mode().is_load() {
-            return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
+            return Err(InternalError::query_invariant(
                 "executor invariant violated: load executor requires load plans",
             ));
         }
@@ -572,16 +570,12 @@ where
         let token = if plan.access.cursor_support().supports_index_range_anchor() {
             let (index, _, _, _) =
                 plan.access.as_index_range_path().ok_or_else(|| {
-                    InternalError::new(
-                        ErrorClass::InvariantViolation,
-                        ErrorOrigin::Query,
+                    InternalError::query_invariant(
                         "executor invariant violated: index-range cursor support missing concrete index-range path",
                     )
                 })?;
             let index_key = IndexKey::new(last_entity, index)?.ok_or_else(|| {
-                InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Query,
+                InternalError::query_invariant(
                     "executor invariant violated: cursor row is not indexable for planned index-range access",
                 )
             })?;

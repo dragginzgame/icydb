@@ -95,9 +95,7 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
         // Prevalidate membership so commit-phase mutations cannot surface corruption.
         if let Some(old_key) = &old_key {
             let Some(old_entity_key) = old_entity_key else {
-                return Err(InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Index,
+                return Err(InternalError::index_internal(
                     "missing old entity key for index removal".to_string(),
                 ));
             };

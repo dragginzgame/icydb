@@ -3,7 +3,7 @@ use crate::{
         marker::CommitMarker,
         store::{CommitStore, with_commit_store, with_commit_store_infallible},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -44,14 +44,10 @@ impl CommitApplyGuard {
 
     pub(crate) fn finish(mut self) -> Result<(), InternalError> {
         if self.finished {
-            return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Executor,
-                format!(
-                    "commit apply guard invariant violated: finish called twice ({})",
-                    self.phase
-                ),
-            ));
+            return Err(InternalError::executor_invariant(format!(
+                "commit apply guard invariant violated: finish called twice ({})",
+                self.phase
+            )));
         }
 
         self.finished = true;
@@ -106,9 +102,7 @@ impl CommitGuard {
 pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
     with_commit_store(|store| {
         if store.load()?.is_some() {
-            return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Store,
+            return Err(InternalError::store_invariant(
                 "commit marker already present before begin",
             ));
         }

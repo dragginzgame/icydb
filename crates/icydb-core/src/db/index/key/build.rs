@@ -8,7 +8,7 @@ use crate::{
             encode_canonical_index_component,
         },
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     model::index::IndexModel,
     traits::{EntityKind, EntityValue, FieldValue},
 };
@@ -40,16 +40,12 @@ impl IndexKey {
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
         if index.fields.len() > MAX_INDEX_FIELDS {
-            return Err(InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Index,
-                format!(
-                    "index '{}' has {} fields (max {})",
-                    index.name,
-                    index.fields.len(),
-                    MAX_INDEX_FIELDS
-                ),
-            ));
+            return Err(InternalError::index_invariant(format!(
+                "index '{}' has {} fields (max {})",
+                index.name,
+                index.fields.len(),
+                MAX_INDEX_FIELDS
+            )));
         }
 
         let mut components = Vec::with_capacity(index.fields.len());
@@ -71,16 +67,12 @@ impl IndexKey {
             };
 
             if component.len() > Self::MAX_COMPONENT_SIZE {
-                return Err(InternalError::new(
-                    ErrorClass::Unsupported,
-                    ErrorOrigin::Index,
-                    format!(
-                        "index component exceeds max size: field '{}' -> {} bytes (limit {})",
-                        field,
-                        component.len(),
-                        Self::MAX_COMPONENT_SIZE
-                    ),
-                ));
+                return Err(InternalError::index_unsupported(format!(
+                    "index component exceeds max size: field '{}' -> {} bytes (limit {})",
+                    field,
+                    component.len(),
+                    Self::MAX_COMPONENT_SIZE
+                )));
             }
 
             components.push(component);

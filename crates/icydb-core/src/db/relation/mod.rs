@@ -8,7 +8,7 @@ use crate::{
     traits::{EntityKind, EntityValue},
     value::Value,
 };
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, fmt::Display};
 
 mod metadata;
 mod reverse_index;
@@ -102,6 +102,32 @@ impl InternalError {
     }
 }
 
+/// Build a consistent strong-relation target-key mismatch error for save validation.
+pub(crate) fn target_key_mismatch_error(
+    source_path: &'static str,
+    field_name: &str,
+    target_path: &str,
+    value: &Value,
+) -> InternalError {
+    InternalError::executor_unsupported(format!(
+        "strong relation missing: source={source_path} field={field_name} target={target_path} key={value:?}",
+    ))
+}
+
+/// Build a consistent strong-relation target-store incompatibility error.
+pub(crate) fn incompatible_store_error(
+    source_path: &'static str,
+    field_name: &str,
+    target_path: &str,
+    target_store_path: &str,
+    value: &Value,
+    err: impl Display,
+) -> InternalError {
+    InternalError::executor_internal(format!(
+        "strong relation target store missing: source={source_path} field={field_name} target={target_path} store={target_store_path} key={value:?} ({err})",
+    ))
+}
+
 /// Convert a relation target `Value` into its canonical `RawDataKey` representation.
 pub(super) fn build_relation_target_raw_key(
     target_entity_name: &str,
@@ -173,32 +199,24 @@ where
     S: EntityKind,
 {
     let target_data_key = DataKey::try_from_raw(target_raw_key).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Store,
-            format!(
-                "{}: source={} field={} target={} ({err})",
-                relation_target_decode_message(context),
-                S::PATH,
-                relation.field_name,
-                relation.target_path,
-            ),
-        )
+        InternalError::store_corruption(format!(
+            "{}: source={} field={} target={} ({err})",
+            relation_target_decode_message(context),
+            S::PATH,
+            relation.field_name,
+            relation.target_path,
+        ))
     })?;
 
     let target_entity = EntityName::try_from_str(relation.target_entity_name).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Executor,
-            format!(
-                "{}: source={} field={} target={} name={} ({err})",
-                relation_target_entity_name_message(context),
-                S::PATH,
-                relation.field_name,
-                relation.target_path,
-                relation.target_entity_name,
-            ),
-        )
+        InternalError::executor_internal(format!(
+            "{}: source={} field={} target={} name={} ({err})",
+            relation_target_entity_name_message(context),
+            S::PATH,
+            relation.field_name,
+            relation.target_path,
+            relation.target_entity_name,
+        ))
     })?;
 
     if target_data_key.entity_name() != &target_entity {
@@ -206,19 +224,15 @@ where
             return Ok(None);
         }
 
-        return Err(InternalError::new(
-            ErrorClass::Corruption,
-            ErrorOrigin::Store,
-            format!(
-                "{}: source={} field={} target={} expected={} actual={}",
-                relation_target_entity_mismatch_message(context),
-                S::PATH,
-                relation.field_name,
-                relation.target_path,
-                relation.target_entity_name,
-                target_data_key.entity_name(),
-            ),
-        ));
+        return Err(InternalError::store_corruption(format!(
+            "{}: source={} field={} target={} expected={} actual={}",
+            relation_target_entity_mismatch_message(context),
+            S::PATH,
+            relation.field_name,
+            relation.target_path,
+            relation.target_entity_name,
+            target_data_key.entity_name(),
+        )));
     }
 
     Ok(Some(target_data_key))

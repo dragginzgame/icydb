@@ -1,9 +1,6 @@
 //! Commit store memory allocation helpers.
 
-use crate::{
-    db::commit::marker::COMMIT_LABEL,
-    error::{ErrorClass, ErrorOrigin, InternalError},
-};
+use crate::{db::commit::marker::COMMIT_LABEL, error::InternalError};
 use canic_memory::{
     registry::{MemoryRange, MemoryRegistry, MemoryRegistryEntry},
     runtime::registry::MemoryRegistryRuntime,
@@ -19,21 +16,13 @@ pub(super) fn commit_memory_id() -> Result<u8, InternalError> {
     }
 
     MemoryRegistryRuntime::init(None).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Store,
-            format!("memory registry init failed: {err}"),
-        )
+        InternalError::store_internal(format!("memory registry init failed: {err}"))
     })?;
 
     let (owner, range, used_ids) = select_commit_range()?;
     let id = allocate_commit_id(range, &used_ids)?;
     MemoryRegistry::register(id, &owner, COMMIT_LABEL).map_err(|err| {
-        InternalError::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Store,
-            format!("commit memory id registration failed: {err}"),
-        )
+        InternalError::store_internal(format!("commit memory id registration failed: {err}"))
     })?;
 
     let _ = COMMIT_STORE_ID.set(id);
@@ -58,9 +47,7 @@ fn select_commit_range() -> Result<(String, MemoryRange, BTreeSet<u8>), Internal
         }
     }
 
-    Err(InternalError::new(
-        ErrorClass::Internal,
-        ErrorOrigin::Store,
+    Err(InternalError::store_internal(
         "unable to locate reserved memory range for commit markers",
     ))
 }
@@ -73,14 +60,10 @@ fn allocate_commit_id(range: MemoryRange, used: &BTreeSet<u8>) -> Result<u8, Int
         }
     }
 
-    Err(InternalError::new(
-        ErrorClass::Unsupported,
-        ErrorOrigin::Store,
-        format!(
-            "no free memory ids available for commit markers in range {}-{}",
-            range.start, range.end
-        ),
-    ))
+    Err(InternalError::store_unsupported(format!(
+        "no free memory ids available for commit markers in range {}-{}",
+        range.start, range.end
+    )))
 }
 
 // Identify registry entries that belong to DB stores.

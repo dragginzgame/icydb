@@ -25,7 +25,7 @@ use crate::{
             predicate::{self, SchemaInfo},
         },
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
     traits::EntityKind,
     value::Value,
@@ -298,11 +298,7 @@ pub(crate) fn validate_executor_plan<E: EntityKind>(
     plan: &LogicalPlan<E::Key>,
 ) -> Result<(), InternalError> {
     let schema = SchemaInfo::from_entity_model(E::MODEL).map_err(|err| {
-        InternalError::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Query,
-            format!("entity schema invalid for {}: {err}", E::PATH),
-        )
+        InternalError::query_invariant(format!("entity schema invalid for {}: {err}", E::PATH))
     })?;
 
     validate_access_plan(&schema, E::MODEL, &plan.access)
@@ -341,10 +337,6 @@ where
 // Map shared `PlanError` validation failures into executor-boundary invariant errors.
 impl InternalError {
     fn from_executor_plan_error(err: PlanError) -> Self {
-        Self::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Query,
-            err.to_string(),
-        )
+        Self::query_invariant(err.to_string())
     }
 }

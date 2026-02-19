@@ -1,5 +1,6 @@
 mod context;
 mod delete;
+mod direction;
 mod load;
 mod mutation;
 mod ordered_key_stream;
@@ -10,6 +11,7 @@ mod tests;
 
 pub(super) use context::*;
 pub(super) use delete::DeleteExecutor;
+pub(crate) use direction::normalize_ordered_keys;
 pub(super) use load::LoadExecutor;
 pub use load::{
     ExecutionAccessPathVariant, ExecutionFastPath, ExecutionPushdownType, ExecutionTrace,

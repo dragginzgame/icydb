@@ -38,6 +38,27 @@ pub(in crate::db) enum IndexRangeBoundEncodeError {
 }
 
 ///
+/// map_bound_encode_error
+///
+/// Map a bound-encode variant to the caller-provided reason string for that
+/// bound position. Callers keep ownership of their error class and boundary.
+///
+
+#[must_use]
+pub(in crate::db) const fn map_bound_encode_error(
+    err: IndexRangeBoundEncodeError,
+    prefix_reason: &'static str,
+    lower_reason: &'static str,
+    upper_reason: &'static str,
+) -> &'static str {
+    match err {
+        IndexRangeBoundEncodeError::Prefix => prefix_reason,
+        IndexRangeBoundEncodeError::Lower => lower_reason,
+        IndexRangeBoundEncodeError::Upper => upper_reason,
+    }
+}
+
+///
 /// raw_bounds_for_index_component_range
 ///
 /// Build raw key-space bounds for one ranged component after an equality prefix.

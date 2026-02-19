@@ -8,7 +8,7 @@ use crate::{
         index::RawIndexKey,
         query::{plan::hash_parts, predicate::SchemaInfo},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     model::entity::EntityModel,
     serialize::{deserialize_bounded, serialize},
     traits::{EntityKind, FieldValue, Storable},
@@ -142,14 +142,10 @@ where
     decode_primary_key_cursor_slot::<E::Key>(slot)
         .map(Some)
         .map_err(|err| match err {
-            PrimaryKeyCursorSlotDecodeError::Missing => InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
+            PrimaryKeyCursorSlotDecodeError::Missing => InternalError::query_invariant(
                 "executor invariant violated: pk cursor slot must be present",
             ),
-            PrimaryKeyCursorSlotDecodeError::TypeMismatch { .. } => InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Query,
+            PrimaryKeyCursorSlotDecodeError::TypeMismatch { .. } => InternalError::query_invariant(
                 "executor invariant violated: pk cursor slot type mismatch",
             ),
         })

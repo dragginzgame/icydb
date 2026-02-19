@@ -4,7 +4,7 @@ use crate::{
         data::DataKey,
         index::{IndexEntry, IndexEntryCorruption, key::encode_canonical_index_component},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
     obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue, FieldValue},
@@ -35,9 +35,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     };
 
     let Some(new_key) = new_key else {
-        return Err(InternalError::new(
-            ErrorClass::InvariantViolation,
-            ErrorOrigin::Index,
+        return Err(InternalError::index_invariant(
             "missing entity key during unique validation".to_string(),
         ));
     };
@@ -47,15 +45,11 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     let mut prefix_values = Vec::with_capacity(index.fields.len());
     for field in index.fields {
         let expected = new_entity.get_value(field).ok_or_else(|| {
-            InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Index,
-                format!(
-                    "index field missing on lookup entity: {} ({})",
-                    E::PATH,
-                    field
-                ),
-            )
+            InternalError::index_invariant(format!(
+                "index field missing on lookup entity: {} ({})",
+                E::PATH,
+                field
+            ))
         })?;
 
         if encode_canonical_index_component(&expected).is_err() {
@@ -140,15 +134,11 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
 
     for field in index.fields {
         let expected = new_entity.get_value(field).ok_or_else(|| {
-            InternalError::new(
-                ErrorClass::InvariantViolation,
-                ErrorOrigin::Index,
-                format!(
-                    "index field missing on lookup entity: {} ({})",
-                    E::PATH,
-                    field
-                ),
-            )
+            InternalError::index_invariant(format!(
+                "index field missing on lookup entity: {} ({})",
+                E::PATH,
+                field
+            ))
         })?;
         let actual = stored.get_value(field).ok_or_else(|| {
             InternalError::index_plan_corruption(

@@ -3,12 +3,12 @@ use crate::{
     db::{
         data::DataKey,
         index::{
-            Direction, IndexId, IndexKey, IndexRangeBoundEncodeError, continuation_advanced,
-            encode_canonical_index_component, raw_bounds_for_index_component_range, resume_bounds,
+            Direction, IndexId, IndexKey, continuation_advanced, encode_canonical_index_component,
+            map_bound_encode_error, raw_bounds_for_index_component_range, resume_bounds,
             store::{IndexStore, RawIndexKey},
         },
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
     traits::EntityKind,
     value::Value,
@@ -33,9 +33,7 @@ impl IndexStore {
         let mut components = Vec::with_capacity(prefix.len());
         for value in prefix {
             let component = encode_canonical_index_component(value).map_err(|_| {
-                InternalError::new(
-                    ErrorClass::InvariantViolation,
-                    ErrorOrigin::Index,
+                InternalError::index_invariant(
                     "executor invariant violated: index prefix value is not indexable",
                 )
             })?;
@@ -99,21 +97,12 @@ impl IndexStore {
             index, prefix, lower, upper,
         )
         .map_err(|err| {
-            let message = match err {
-                IndexRangeBoundEncodeError::Prefix => {
-                    "executor invariant violated: index range prefix value is not indexable"
-                        .to_string()
-                }
-                IndexRangeBoundEncodeError::Lower => {
-                    "executor invariant violated: index range lower bound value is not indexable"
-                        .to_string()
-                }
-                IndexRangeBoundEncodeError::Upper => {
-                    "executor invariant violated: index range upper bound value is not indexable"
-                        .to_string()
-                }
-            };
-            InternalError::new(ErrorClass::InvariantViolation, ErrorOrigin::Index, message)
+            InternalError::index_invariant(map_bound_encode_error(
+                err,
+                "executor invariant violated: index range prefix value is not indexable",
+                "executor invariant violated: index range lower bound value is not indexable",
+                "executor invariant violated: index range upper bound value is not indexable",
+            ))
         })?;
         let (start_raw, end_raw) = match continuation_start_exclusive {
             Some(anchor) => resume_bounds(direction, start_raw, end_raw, anchor),
@@ -134,9 +123,7 @@ impl IndexStore {
                     if let Some(anchor) = continuation_start_exclusive
                         && !continuation_advanced(direction, raw_key, anchor)
                     {
-                        return Err(InternalError::new(
-                            ErrorClass::InvariantViolation,
-                            ErrorOrigin::Index,
+                        return Err(InternalError::index_invariant(
                             "index-range continuation scan did not advance beyond the anchor",
                         ));
                     }
@@ -160,9 +147,7 @@ impl IndexStore {
                     if let Some(anchor) = continuation_start_exclusive
                         && !continuation_advanced(direction, raw_key, anchor)
                     {
-                        return Err(InternalError::new(
-                            ErrorClass::InvariantViolation,
-                            ErrorOrigin::Index,
+                        return Err(InternalError::index_invariant(
                             "index-range continuation scan did not advance beyond the anchor",
                         ));
                     }
@@ -208,20 +193,19 @@ impl IndexStore {
         }
 
         IndexKey::try_from_raw(raw_key).map_err(|err| {
-            InternalError::new(
-                ErrorClass::Corruption,
+            InternalError::corruption(
                 ErrorOrigin::Index,
                 format!("index key corrupted during {context}: {err}"),
             )
         })?;
 
-        let storage_keys = value.entry.decode_keys().map_err(|err| {
-            InternalError::new(ErrorClass::Corruption, ErrorOrigin::Index, err.to_string())
-        })?;
+        let storage_keys = value
+            .entry
+            .decode_keys()
+            .map_err(|err| InternalError::corruption(ErrorOrigin::Index, err.to_string()))?;
 
         if index.unique && storage_keys.len() != 1 {
-            return Err(InternalError::new(
-                ErrorClass::Corruption,
+            return Err(InternalError::corruption(
                 ErrorOrigin::Index,
                 "unique index entry contains an unexpected number of keys",
             ));
