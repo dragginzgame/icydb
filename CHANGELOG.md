@@ -5,6 +5,36 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.17.0] – 2026-02-19 - Composite Intersection Stream Execution
+
+### 📝 Summary
+
+* Completed the `0.17` composite streaming milestone by moving `AccessPlan::Intersection` from materialized set intersection to stream-native pairwise execution.
+* Composite `Union` and `Intersection` now share the same pull-based execution model, with ordering and invariant behavior preserved.
+
+```rust
+let intersected: OrderedKeyStreamBox =
+    Box::new(IntersectOrderedKeyStream::new(left, right, direction));
+```
+
+### 🔧 Changed
+
+* Added `IntersectOrderedKeyStream` and wired `AccessPlan::Intersection` to reduce child streams pairwise instead of materializing candidate key sets.
+* Removed the old intersection candidate-set path (`collect_candidate_keys`) from composite executor flow.
+* Preserved ordering semantics, continuation behavior, error classification, index encoding, and public API surface.
+* Simplified `MergeOrderedKeyStream` internals to single-item lookahead state, matching intersection stream structure without changing output behavior.
+
+### 🧪 Testing
+
+* Added/expanded intersection coverage for ASC, DESC, no-overlap, duplicate suppression (including duplicates on both sides), and monotonic-direction violation handling.
+* Added executor-level regression coverage for nested composite intersection plans and `DESC + LIMIT + continuation` traversal with no duplicates or omissions.
+
+### 📚 Documentation
+
+* Updated `docs/status/0.17-status.md` to mark `0.17` intersection-streaming scope complete with current verification results.
+
+---
+
 ## [0.16.4] – 2026-02-19 - Enum Filter Path Normalization
 
 ### 📝 Summary
