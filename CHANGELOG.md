@@ -23,11 +23,13 @@ pub(crate) trait OrderedKeyStream {
 * Added internal `OrderedKeyStream` and `VecOrderedKeyStream` so load execution uses one key-stream model.
 * Updated query key production to return stream producers (`produce_key_stream(...)`) instead of exposing direct key vectors.
 * Updated load execution (normal path and fast paths) to read keys from streams through one shared row-loading path.
+* Added internal `MergeOrderedKeyStream` support so two ordered key streams can be merged in canonical order with duplicate suppression.
 * Kept responsibilities in the same places as before: cursor resume/validation logic stays in cursor and range helpers, and filtering/sorting/paging still runs in post-access execution.
 
 ### 🧪 Testing
 
 * Added focused stream abstraction unit coverage for deterministic key order and exhaustion behavior.
+* Added merge-stream unit coverage for ascending/descending merge order, duplicate suppression, and error propagation.
 * Added explicit regression coverage that duplicate `by_ids(...)` input keys are still de-duplicated with stream-backed key production.
 
 ### 📚 Documentation
