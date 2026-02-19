@@ -5,7 +5,24 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.14.2] – 2026-02-18 - Execution Phase Alignment
+
+### 🧹 Cleanup
+
+* Aligned the PK fast path with the same execution phase structure used by other load paths: ordered key iteration, row fetch, then shared row deserialization.
+* Removed the PK-only inline decode loop so fast-path execution is easier to reason about and less likely to drift from the shared load pipeline.
+
+### 🔧 Changed
+
+* This is a structural cleanup only; query behavior and pagination semantics remain unchanged.
+
+---
+
 ## [0.14.1] – 2026-02-18 - Validation Unification I
+
+### ➕ Added
+
+* Added a minimal, opt-in load execution trace surface in `icydb-core` for cursor-paged queries via `PagedLoadQuery::execute_with_trace()`.
 
 ### 🧹 Cleanup
 
@@ -14,6 +31,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Simplified store-side lookup checks so store code focuses on safe reads and decode integrity instead of user input rules.
 * Simplified pushdown checks so they only decide optimization eligibility, not query validity.
 * Standardized boundary-arity runtime failures as `InvariantViolation` instead of `Unsupported`.
+
+### 🔧 Changed
+
+* Trace output is debug-only and semantics-neutral: it reports access path variant, direction, pushdown and fast-path decisions, keys scanned, rows returned, and whether continuation was applied.
 
 ---
 

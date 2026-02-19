@@ -1,22 +1,15 @@
 use crate::{
     db::{
         Context,
-        executor::load::{FastLoadResult, LoadExecutor},
+        executor::load::{
+            ExecutionFastPath, ExecutionPushdownType, FastPathKeyResult, LoadExecutor,
+        },
         index::RawIndexKey,
-        query::plan::{ContinuationSignature, CursorBoundary, Direction, LogicalPlan},
+        query::plan::{Direction, LogicalPlan},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
-
-/// IndexRangeLimitSpec
-/// Canonical LIMIT pushdown sizing for `IndexRange` execution.
-/// Centralizes fetch math so ASC/DESC work can reuse one policy point.
-struct IndexRangeLimitSpec {
-    effective_fetch: usize,
-    needs_extra_row: bool,
-    is_cursor_mode: bool,
-}
 
 impl<E> LoadExecutor<E>
 where
@@ -26,19 +19,13 @@ where
     pub(super) fn try_execute_index_range_limit_pushdown_stream(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
-        continuation_signature: ContinuationSignature,
-    ) -> Result<Option<FastLoadResult<E>>, InternalError> {
-        let Some(limit_spec) = Self::assess_index_range_limit_pushdown(plan, cursor_boundary)
-        else {
+        effective_fetch: Option<usize>,
+    ) -> Result<Option<FastPathKeyResult>, InternalError> {
+        let Some(effective_fetch) = effective_fetch else {
             return Ok(None);
         };
-        if limit_spec.is_cursor_mode && index_range_anchor.is_none() {
-            return Ok(None);
-        }
-        debug_assert!(!limit_spec.needs_extra_row || limit_spec.effective_fetch > 0);
 
         let Some((index, prefix, lower, upper)) = plan.access.as_index_range_path() else {
             return Ok(None);
@@ -54,55 +41,44 @@ where
                         (lower, upper),
                         index_range_anchor,
                         direction,
-                        limit_spec.effective_fetch,
+                        effective_fetch,
                     )
                 })
             })
         })?;
         let rows_scanned = ordered_keys.len();
 
-        // Phase 2: load rows preserving traversal order.
-        let data_rows = ctx.rows_from_ordered_data_keys(&ordered_keys, plan.consistency)?;
-        let mut rows = Context::deserialize_rows(data_rows)?;
-
-        // Phase 3: apply canonical post-access semantics and derive continuation.
-        let page = Self::finalize_rows_into_page(
-            plan,
-            &mut rows,
-            cursor_boundary,
-            direction,
-            continuation_signature,
-        )?;
-
-        Ok(Some(FastLoadResult {
-            post_access_rows: page.items.0.len(),
-            page,
+        Ok(Some(FastPathKeyResult {
+            ordered_keys,
             rows_scanned,
+            fast_path_used: ExecutionFastPath::IndexRange,
+            pushdown_type: Some(ExecutionPushdownType::IndexRangeLimit),
         }))
     }
 
-    fn assess_index_range_limit_pushdown(
-        plan: &LogicalPlan<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-    ) -> Option<IndexRangeLimitSpec> {
-        let (index_fields, prefix_len) = plan
-            .access
-            .as_index_range_path()
-            .map(|(index, prefix, _, _)| (index.fields, prefix.len()))?;
+    pub(super) fn is_index_range_limit_pushdown_shape_eligible(plan: &LogicalPlan<E::Key>) -> bool {
+        let Some((index, prefix, _, _)) = plan.access.as_index_range_path() else {
+            return false;
+        };
+        let index_fields = index.fields;
+        let prefix_len = prefix.len();
         if plan.predicate.is_some() {
-            return None;
+            return false;
         }
 
         if let Some(order) = plan.order.as_ref()
             && !order.fields.is_empty()
         {
-            let expected_direction = order.fields.last().map(|(_, direction)| *direction)?;
+            let Some(expected_direction) = order.fields.last().map(|(_, direction)| *direction)
+            else {
+                return false;
+            };
             if order
                 .fields
                 .iter()
                 .any(|(_, direction)| *direction != expected_direction)
             {
-                return None;
+                return false;
             }
 
             let mut expected =
@@ -110,7 +86,7 @@ where
             expected.extend(index_fields.iter().skip(prefix_len).copied());
             expected.push(E::MODEL.primary_key.name);
             if order.fields.len() != expected.len() {
-                return None;
+                return false;
             }
             if !order
                 .fields
@@ -118,31 +94,10 @@ where
                 .map(|(field, _)| field.as_str())
                 .eq(expected)
             {
-                return None;
+                return false;
             }
         }
 
-        let page = plan.page.as_ref()?;
-        let limit = page.limit?;
-        let is_cursor_mode = cursor_boundary.is_some();
-        if limit == 0 {
-            return Some(IndexRangeLimitSpec {
-                effective_fetch: 0,
-                needs_extra_row: false,
-                is_cursor_mode,
-            });
-        }
-
-        let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
-        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-        let page_end = offset.saturating_add(limit);
-        let needs_extra_row = true;
-        let effective_fetch = page_end.saturating_add(usize::from(needs_extra_row));
-
-        Some(IndexRangeLimitSpec {
-            effective_fetch,
-            needs_extra_row,
-            is_cursor_mode,
-        })
+        true
     }
 }

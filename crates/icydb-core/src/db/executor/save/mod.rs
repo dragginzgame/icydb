@@ -17,14 +17,11 @@ use crate::{
                 OpenCommitWindow, apply_prepared_row_ops, emit_prepared_row_op_delta_metrics,
                 open_commit_window,
             },
-            trace::{
-                QueryTraceSink, TraceExecutorKind, finish_trace_from_result, start_exec_trace,
-            },
         },
         query::save::SaveMode,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    obs::sink::{ExecKind, Span},
+    obs::sink::{ExecKind, MetricsEvent, Span, record},
     sanitize::sanitize,
     serialize::serialize,
     traits::{EntityKind, EntityValue},
@@ -42,8 +39,6 @@ use std::{collections::BTreeSet, marker::PhantomData};
 #[derive(Clone, Copy)]
 pub(crate) struct SaveExecutor<E: EntityKind + EntityValue> {
     db: Db<E::Canister>,
-    debug: bool,
-    trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
@@ -52,21 +47,11 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     // Construction & configuration
     // ======================================================================
 
-    // Debug is session-scoped via DbSession and propagated into executors;
-    // executors do not expose independent debug control.
     #[must_use]
-    pub(crate) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
+    pub(crate) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
         Self {
             db,
-            debug,
-            trace: None,
             _marker: PhantomData,
-        }
-    }
-
-    fn debug_log(&self, s: impl Into<String>) {
-        if self.debug {
-            println!("[debug] {}", s.into());
         }
     }
 
@@ -134,13 +119,10 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 Ok(saved) => out.push(saved),
                 Err(err) => {
                     if !out.is_empty() {
-                        // Batch writes are intentionally non-atomic; surface partial commits loudly.
-                        println!(
-                            "[warn] icydb non-atomic batch partial commit: mode={mode:?} entity={} committed={} failed_at_item={} error={err}",
-                            E::PATH,
-                            out.len(),
-                            batch_index,
-                        );
+                        record(MetricsEvent::NonAtomicPartialCommit {
+                            entity_path: E::PATH,
+                            committed_rows: u64::try_from(out.len()).unwrap_or(u64::MAX),
+                        });
                     }
 
                     return Err(err);
@@ -162,15 +144,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         mode: SaveMode,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
-        let mut commit_started = false;
-        let trace = start_exec_trace(
-            self.trace,
-            TraceExecutorKind::Save,
-            E::PATH,
-            None,
-            Some(save_mode_tag(mode)),
-        );
-        let result = (|| {
+        (|| {
             let mut span = Span::<E>::new(ExecKind::Save);
             let ctx = self.db.context::<E>();
             let iter = entities.into_iter();
@@ -216,8 +190,6 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 delta,
             } = open_commit_window::<E>(&self.db, marker_row_ops)?;
             let rows_touched = u64::try_from(delta.rows_touched).unwrap_or(u64::MAX);
-            commit_started = true;
-            self.debug_log("Atomic save batch commit window opened");
 
             // FIRST STABLE WRITE: commit marker is persisted before any mutations.
             apply_prepared_row_ops(
@@ -231,18 +203,9 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                     span.set_rows(rows_touched);
                 },
             )?;
-            self.debug_log("Atomic save batch committed");
 
             Ok(out)
-        })();
-
-        if commit_started && result.is_err() {
-            self.debug_log("Atomic save batch failed during marker apply; cleanup attempted");
-        }
-
-        finish_trace_from_result(trace, &result, Vec::len);
-
-        result
+        })()
     }
 
     /// Insert a single-entity-type batch atomically in one commit window.
@@ -386,15 +349,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     }
 
     fn save_entity(&self, mode: SaveMode, mut entity: E) -> Result<E, InternalError> {
-        let mut commit_started = false;
-        let trace = start_exec_trace(
-            self.trace,
-            TraceExecutorKind::Save,
-            E::PATH,
-            None,
-            Some(save_mode_tag(mode)),
-        );
-        let result = (|| {
+        (|| {
             let mut span = Span::<E>::new(ExecKind::Save);
             let ctx = self.db.context::<E>();
 
@@ -409,8 +364,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             // Enforce explicit strong relations before commit planning.
             self.validate_strong_relations(&entity)?;
 
-            let (marker_row_op, data_key) = Self::prepare_marker_row_op(&ctx, mode, &entity)?;
-            self.debug_log(format!("save {:?} on {} (key={})", mode, E::PATH, data_key));
+            let (marker_row_op, _data_key) = Self::prepare_marker_row_op(&ctx, mode, &entity)?;
 
             // Preflight data store availability before index mutations.
             ctx.with_store(|_| ())?;
@@ -426,8 +380,6 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 prepared_row_ops,
                 delta,
             } = open_commit_window::<E>(&self.db, marker_row_ops)?;
-            commit_started = true;
-            self.debug_log("Save commit window opened");
 
             // FIRST STABLE WRITE: commit marker is persisted before any mutations.
             apply_prepared_row_ops(
@@ -442,25 +394,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 },
             )?;
 
-            self.debug_log("Save committed");
-
             Ok(entity)
-        })();
-
-        if commit_started && result.is_err() {
-            self.debug_log("Save failed during marker apply; best-effort cleanup attempted");
-        }
-
-        finish_trace_from_result(trace, &result, |_| 1);
-
-        result
-    }
-}
-
-const fn save_mode_tag(mode: SaveMode) -> &'static str {
-    match mode {
-        SaveMode::Insert => "insert",
-        SaveMode::Update => "update",
-        SaveMode::Replace => "replace",
+        })()
     }
 }

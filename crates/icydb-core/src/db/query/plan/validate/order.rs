@@ -30,16 +30,6 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
     Ok(())
 }
 
-/// Validate ORDER BY fields for executor-only plans.
-///
-/// CONTRACT: executor ordering validation matches planner rules.
-pub(super) fn validate_executor_order(
-    schema: &SchemaInfo,
-    order: &OrderSpec,
-) -> Result<(), PlanError> {
-    validate_order(schema, order)
-}
-
 // Ordered plans must include exactly one terminal primary-key field so ordering is total and
 // deterministic across explain, fingerprint, and executor comparison paths.
 pub(crate) fn validate_primary_key_tie_break(

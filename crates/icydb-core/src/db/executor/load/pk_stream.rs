@@ -2,17 +2,11 @@ use crate::{
     db::{
         Context,
         data::DataKey,
-        entity_decode::{decode_and_validate_entity_key, format_entity_key_for_mismatch},
-        executor::load::{CursorPage, FastLoadResult, LoadExecutor},
-        query::plan::{
-            AccessPath, ContinuationSignature, CursorBoundary, Direction, LogicalPlan,
-            OrderDirection, decode_pk_cursor_boundary,
-        },
-        response::Response,
+        executor::load::{ExecutionFastPath, FastPathKeyResult, LoadExecutor},
+        query::plan::{AccessPath, Direction, LogicalPlan, OrderDirection},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     traits::{EntityKind, EntityValue},
-    types::Id,
 };
 use std::ops::Bound;
 
@@ -32,11 +26,11 @@ struct PkStreamScanConfig<K> {
 /// PkStreamScanResult
 ///
 /// Fast-path access scan output before canonical post-access semantics.
-/// Captures decoded rows and low-level scan volume.
+/// Captures ordered keys and low-level scan volume.
 ///
 
-struct PkStreamScanResult<E: EntityKind> {
-    rows: Vec<(Id<E>, E)>,
+struct PkStreamScanResult {
+    keys: Vec<DataKey>,
     rows_scanned: usize,
 }
 
@@ -45,76 +39,61 @@ where
     E: EntityKind + EntityValue,
 {
     // Fast path for canonical primary-key ordering over full scans.
+    // Produces ordered keys only; shared row materialization happens in load/mod.rs.
     pub(super) fn try_execute_pk_order_stream(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-        direction: Direction,
-        continuation_signature: ContinuationSignature,
-    ) -> Result<Option<FastLoadResult<E>>, InternalError> {
-        // Phase 1: derive a fast-path scan config from the canonical plan + cursor.
-        let Some(config) = Self::build_pk_stream_scan_config(plan, cursor_boundary)? else {
+    ) -> Result<Option<FastPathKeyResult>, InternalError> {
+        // Phase 1: derive a fast-path scan config from the canonical plan.
+        let Some(config) = Self::build_pk_stream_scan_config(plan) else {
             return Ok(None);
         };
         let stream_direction = Self::pk_stream_direction(plan);
         if Self::pk_scan_range_is_empty(config.range_start_key, config.range_end_key) {
-            return Ok(Some(FastLoadResult {
-                page: CursorPage {
-                    items: Response(Vec::new()),
-                    next_cursor: None,
-                },
+            return Ok(Some(FastPathKeyResult {
+                ordered_keys: Vec::new(),
                 rows_scanned: 0,
-                post_access_rows: 0,
+                fast_path_used: ExecutionFastPath::PrimaryKey,
+                pushdown_type: None,
             }));
         }
 
-        // Phase 2: stream rows directly from the store in primary-key order.
-        let mut scan = Self::scan_pk_stream_rows(ctx, &config, stream_direction)?;
+        // Phase 2: stream ordered keys directly from the store.
+        let scan = Self::scan_pk_stream_keys(ctx, &config, stream_direction)?;
 
-        // Phase 3: apply canonical post-access semantics and derive continuation.
-        let page = Self::finalize_rows_into_page(
-            plan,
-            &mut scan.rows,
-            cursor_boundary,
-            direction,
-            continuation_signature,
-        )?;
-        Ok(Some(FastLoadResult {
-            post_access_rows: page.items.0.len(),
-            page,
+        Ok(Some(FastPathKeyResult {
+            ordered_keys: scan.keys,
             rows_scanned: scan.rows_scanned,
+            fast_path_used: ExecutionFastPath::PrimaryKey,
+            pushdown_type: None,
         }))
     }
 
     // Build the fast-path scan config for canonical PK-ordered streaming.
     fn build_pk_stream_scan_config(
         plan: &LogicalPlan<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-    ) -> Result<Option<PkStreamScanConfig<E::Key>>, InternalError> {
+    ) -> Option<PkStreamScanConfig<E::Key>> {
         if !Self::is_pk_order_stream_eligible(plan) {
-            return Ok(None);
+            return None;
         }
 
-        // Keep malformed boundary classification stable on PK fast-path execution.
-        let _cursor_key = decode_pk_cursor_boundary::<E>(cursor_boundary)?;
-        let Some((range_start_key, range_end_key)) =
-            plan.access.as_path().and_then(AccessPath::pk_stream_bounds)
-        else {
-            return Ok(None);
-        };
+        let (range_start_key, range_end_key) = plan
+            .access
+            .as_path()
+            .and_then(AccessPath::pk_stream_bounds)?;
 
-        Ok(Some(PkStreamScanConfig {
+        Some(PkStreamScanConfig {
             range_start_key,
             range_end_key,
-        }))
+        })
     }
 
-    // Execute the store-range streaming phase for the PK fast path.
-    fn scan_pk_stream_rows(
+    // Execute the store-range key streaming phase for the PK fast path.
+    fn scan_pk_stream_keys(
         ctx: &Context<'_, E>,
         config: &PkStreamScanConfig<E::Key>,
         direction: Direction,
-    ) -> Result<PkStreamScanResult<E>, InternalError> {
+    ) -> Result<PkStreamScanResult, InternalError> {
         ctx.with_store(|store| {
             let lower_raw = match config.range_start_key {
                 Some(start) => DataKey::try_new::<E>(start)?.to_raw()?,
@@ -127,7 +106,7 @@ where
             };
 
             let mut rows_scanned = 0usize;
-            let mut rows = Vec::new();
+            let mut keys = Vec::new();
             match direction {
                 Direction::Asc => {
                     for entry in store.range((lower_bound, Bound::Included(upper_raw))) {
@@ -139,30 +118,7 @@ where
                                 format!("ordered scan encountered corrupted data key: {err}"),
                             )
                         })?;
-                        let expected_key = data_key.try_key::<E>()?;
-                        let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
-                            expected_key,
-                            || entry.value().try_decode::<E>(),
-                            |err| {
-                                InternalError::new(
-                                    ErrorClass::Corruption,
-                                    ErrorOrigin::Serialize,
-                                    format!(
-                                        "ordered scan failed to decode row for {data_key}: {err}"
-                                    ),
-                                )
-                            },
-                            |expected_key, actual_key| {
-                                let expected = format_entity_key_for_mismatch::<E>(expected_key);
-                                let found = format_entity_key_for_mismatch::<E>(actual_key);
-                                InternalError::new(
-                                    ErrorClass::Corruption,
-                                    ErrorOrigin::Store,
-                                    format!("row key mismatch: expected {expected}, found {found}"),
-                                )
-                            },
-                        )?;
-                        rows.push((Id::from_key(expected_key), entity));
+                        keys.push(data_key);
                     }
                 }
                 Direction::Desc => {
@@ -175,39 +131,16 @@ where
                                 format!("ordered scan encountered corrupted data key: {err}"),
                             )
                         })?;
-                        let expected_key = data_key.try_key::<E>()?;
-                        let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
-                            expected_key,
-                            || entry.value().try_decode::<E>(),
-                            |err| {
-                                InternalError::new(
-                                    ErrorClass::Corruption,
-                                    ErrorOrigin::Serialize,
-                                    format!(
-                                        "ordered scan failed to decode row for {data_key}: {err}"
-                                    ),
-                                )
-                            },
-                            |expected_key, actual_key| {
-                                let expected = format_entity_key_for_mismatch::<E>(expected_key);
-                                let found = format_entity_key_for_mismatch::<E>(actual_key);
-                                InternalError::new(
-                                    ErrorClass::Corruption,
-                                    ErrorOrigin::Store,
-                                    format!("row key mismatch: expected {expected}, found {found}"),
-                                )
-                            },
-                        )?;
-                        rows.push((Id::from_key(expected_key), entity));
+                        keys.push(data_key);
                     }
                 }
             }
 
-            Ok(PkStreamScanResult { rows, rows_scanned })
+            Ok(PkStreamScanResult { keys, rows_scanned })
         })?
     }
 
-    fn is_pk_order_stream_eligible(plan: &LogicalPlan<E::Key>) -> bool {
+    pub(super) fn is_pk_order_stream_eligible(plan: &LogicalPlan<E::Key>) -> bool {
         if !plan.mode.is_load() {
             return false;
         }

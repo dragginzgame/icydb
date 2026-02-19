@@ -73,6 +73,10 @@ pub enum MetricsEvent {
         reverse_lookups: u64,
         blocked_deletes: u64,
     },
+    NonAtomicPartialCommit {
+        entity_path: &'static str,
+        committed_rows: u64,
+    },
     Plan {
         kind: PlanKind,
     },
@@ -237,6 +241,27 @@ impl MetricsSink for GlobalMetricsSink {
                         .saturating_add(reverse_lookups);
                     entry.relation_delete_blocks =
                         entry.relation_delete_blocks.saturating_add(blocked_deletes);
+                });
+            }
+
+            MetricsEvent::NonAtomicPartialCommit {
+                entity_path,
+                committed_rows,
+            } => {
+                metrics::with_state_mut(|m| {
+                    m.ops.non_atomic_partial_commits =
+                        m.ops.non_atomic_partial_commits.saturating_add(1);
+                    m.ops.non_atomic_partial_rows_committed = m
+                        .ops
+                        .non_atomic_partial_rows_committed
+                        .saturating_add(committed_rows);
+
+                    let entry = m.entities.entry(entity_path.to_string()).or_default();
+                    entry.non_atomic_partial_commits =
+                        entry.non_atomic_partial_commits.saturating_add(1);
+                    entry.non_atomic_partial_rows_committed = entry
+                        .non_atomic_partial_rows_committed
+                        .saturating_add(committed_rows);
                 });
             }
 

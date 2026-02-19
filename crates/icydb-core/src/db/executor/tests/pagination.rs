@@ -373,17 +373,6 @@ fn explain_contains_index_range(
     }
 }
 
-fn extract_access_rows(events: &[QueryTraceEvent]) -> Option<u64> {
-    events.iter().find_map(|event| match event {
-        QueryTraceEvent::Phase {
-            phase: TracePhase::Access,
-            rows,
-            ..
-        } => Some(*rows),
-        _ => None,
-    })
-}
-
 fn assert_anchor_monotonic(
     anchors: &mut Vec<RawIndexKey>,
     next_cursor: &[u8],
@@ -2547,14 +2536,12 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligibl
     });
     let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
 
-    let _ = take_trace_events();
-    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
-    let _page = load
-        .execute_paged_with_cursor(page_plan, None)
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let (_page, trace) = load
+        .execute_paged_with_cursor_traced(page_plan, None)
         .expect("trace limit-pushdown execution should succeed");
-    let events = take_trace_events();
 
-    let access_rows = extract_access_rows(&events);
+    let access_rows = trace.map(|trace| trace.keys_scanned);
 
     assert_eq!(
         access_rows,
@@ -2598,14 +2585,12 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_el
     });
     let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
 
-    let _ = take_trace_events();
-    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
-    let _page = load
-        .execute_paged_with_cursor(page_plan, None)
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let (_page, trace) = load
+        .execute_paged_with_cursor_traced(page_plan, None)
         .expect("trace descending limit-pushdown execution should succeed");
-    let events = take_trace_events();
 
-    let access_rows = extract_access_rows(&events);
+    let access_rows = trace.map(|trace| trace.keys_scanned);
 
     assert_eq!(
         access_rows,
@@ -2646,14 +2631,12 @@ fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
     });
     let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
 
-    let _ = take_trace_events();
-    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
-    let page = load
-        .execute_paged_with_cursor(page_plan, None)
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let (page, trace) = load
+        .execute_paged_with_cursor_traced(page_plan, None)
         .expect("limit=0 trace execution should succeed");
-    let events = take_trace_events();
 
-    let access_rows = extract_access_rows(&events);
+    let access_rows = trace.map(|trace| trace.keys_scanned);
 
     assert_eq!(
         access_rows,
@@ -2703,14 +2686,12 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
     });
     let page_plan = ExecutablePlan::<IndexedMetricsEntity>::new(logical);
 
-    let _ = take_trace_events();
-    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
-    let page = load
-        .execute_paged_with_cursor(page_plan, None)
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let (page, trace) = load
+        .execute_paged_with_cursor_traced(page_plan, None)
         .expect("limit=0 with offset trace execution should succeed");
-    let events = take_trace_events();
 
-    let access_rows = extract_access_rows(&events);
+    let access_rows = trace.map(|trace| trace.keys_scanned);
 
     assert_eq!(
         access_rows,
@@ -4200,36 +4181,22 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
             .plan()
             .expect("trace outcome test plan should build for case");
 
-        let _ = take_trace_events();
-        let load =
-            LoadExecutor::<PushdownParityEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
-        let _page = load
-            .execute_paged_with_cursor(plan, None)
+        let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+        let (_page, trace) = load
+            .execute_paged_with_cursor_traced(plan, None)
             .expect("trace outcome execution should succeed for case");
-        let events = take_trace_events();
+        let trace = trace.expect("debug trace should be present");
 
-        let matched = events.iter().any(|event| match case.expected {
-            ExpectedDecision::Accepted => matches!(
-                event,
-                QueryTraceEvent::Pushdown {
-                    decision: TracePushdownDecision::AcceptedSecondaryIndexOrder,
-                    ..
-                }
-            ),
-            ExpectedDecision::RejectedNonAscending => matches!(
-                event,
-                QueryTraceEvent::Pushdown {
-                    decision: TracePushdownDecision::RejectedSecondaryIndexOrder {
-                        reason: TracePushdownRejectionReason::NonAscendingDirection
-                    },
-                    ..
-                }
-            ),
-        });
+        let matched = match case.expected {
+            ExpectedDecision::Accepted => {
+                trace.pushdown_type == Some(ExecutionPushdownType::SecondaryOrder)
+            }
+            ExpectedDecision::RejectedNonAscending => !trace.pushdown_used,
+        };
 
         assert!(
             matched,
-            "trace should emit expected secondary-order pushdown marker for case '{}'",
+            "trace should emit expected secondary-order pushdown outcome for case '{}'",
             case.name
         );
     }
@@ -4264,26 +4231,14 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
     };
     let plan = ExecutablePlan::<PushdownParityEntity>::new(logical);
 
-    let _ = take_trace_events();
-    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false).with_trace(&TEST_TRACE_SINK);
-    let _page = load
-        .execute_paged_with_cursor(plan, None)
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+    let (_page, trace) = load
+        .execute_paged_with_cursor_traced(plan, None)
         .expect("composite-index-range trace test execution should succeed");
-    let events = take_trace_events();
-
-    let matched = events.iter().any(|event| {
-        matches!(
-            event,
-            QueryTraceEvent::Pushdown {
-                decision: TracePushdownDecision::RejectedSecondaryIndexOrder {
-                    reason: TracePushdownRejectionReason::AccessPathIndexRangeUnsupported
-                },
-                ..
-            }
-        )
-    });
+    let trace = trace.expect("debug trace should be present");
+    let matched = !trace.pushdown_used;
     assert!(
         matched,
-        "composite access with index-range child should emit explicit pushdown rejection trace"
+        "composite access with index-range child should not emit secondary-order pushdown traces"
     );
 }

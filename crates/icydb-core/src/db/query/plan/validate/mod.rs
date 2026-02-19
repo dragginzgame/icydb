@@ -290,7 +290,7 @@ pub(crate) fn validate_logical_plan_model(
 ///
 /// Ownership:
 /// - defensive execution-boundary guardrail, not a semantic owner
-/// - must map violations to internal invariant failures, never new user semantics
+/// - must enforce structural integrity only, never user-shape semantics
 ///
 /// Any disagreement with logical validation indicates an internal bug and is not
 /// a recoverable user-input condition.
@@ -305,23 +305,13 @@ pub(crate) fn validate_executor_plan<E: EntityKind>(
         )
     })?;
 
-    validate_plan_core(
-        &schema,
-        E::MODEL,
-        plan,
-        order::validate_executor_order,
-        |schema, model, plan| validate_access_plan(schema, model, &plan.access),
-    )
-    .map_err(InternalError::from_executor_plan_error)?;
+    validate_access_plan(&schema, E::MODEL, &plan.access)
+        .map_err(InternalError::from_executor_plan_error)?;
 
     Ok(())
 }
 
-// Shared logical/structural plan validation core used by planner and executor.
-//
-// Boundary-specific behavior is injected via:
-// - `validate_order_fn` (planner vs executor order surface)
-// - `validate_access_fn` (model-key vs typed-key access validation)
+// Shared logical plan validation core owned by planner semantics.
 fn validate_plan_core<K, FOrder, FAccess>(
     schema: &SchemaInfo,
     model: &EntityModel,

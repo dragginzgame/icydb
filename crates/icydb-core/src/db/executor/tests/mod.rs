@@ -5,23 +5,16 @@ mod metrics;
 mod paged_builder;
 mod pagination;
 mod semantics;
-mod structural_trace;
 
 use crate::{
     db::{
-        Context, Db, DbSession, EntityRuntimeHooks,
+        Db, DbSession, EntityRuntimeHooks,
         commit::{
             CommitMarker, begin_commit, commit_marker_present, ensure_recovered_for_write,
             init_commit_store_for_tests, prepare_row_commit_for_entity,
         },
         data::DataStore,
-        executor::{
-            DeleteExecutor, LoadExecutor, SaveExecutor,
-            trace::{
-                QueryTraceEvent, QueryTraceSink, TracePhase, TracePushdownDecision,
-                TracePushdownRejectionReason,
-            },
-        },
+        executor::{DeleteExecutor, ExecutionPushdownType, LoadExecutor, SaveExecutor},
         index::IndexStore,
         query::{
             ReadConsistency,
@@ -80,7 +73,6 @@ impl StoreKind for TestDataStore {
 thread_local! {
     static DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(0)));
     static INDEX_STORE: RefCell<IndexStore> = RefCell::new(IndexStore::init(test_memory(1)));
-    static TRACE_EVENTS: RefCell<Vec<QueryTraceEvent>> = const { RefCell::new(Vec::new()) };
     static STORE_REGISTRY: StoreRegistry = {
         let mut reg = StoreRegistry::new();
         reg.register_store(TestDataStore::PATH, &DATA_STORE, &INDEX_STORE)
@@ -90,30 +82,6 @@ thread_local! {
 }
 
 static DB: Db<TestCanister> = Db::new(&STORE_REGISTRY);
-static TEST_TRACE_SINK: TestTraceSink = TestTraceSink;
-
-///
-/// TestTraceSink
-///
-
-struct TestTraceSink;
-
-impl QueryTraceSink for TestTraceSink {
-    fn on_event(&self, event: QueryTraceEvent) {
-        TRACE_EVENTS.with(|events| {
-            events.borrow_mut().push(event);
-        });
-    }
-}
-
-// Clear and return all buffered trace events for structural assertions.
-fn take_trace_events() -> Vec<QueryTraceEvent> {
-    TRACE_EVENTS.with(|events| {
-        let out = events.borrow().clone();
-        events.borrow_mut().clear();
-        out
-    })
-}
 
 ///
 /// SimpleEntity

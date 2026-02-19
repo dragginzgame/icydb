@@ -61,6 +61,8 @@ pub struct EventOps {
     pub relation_reverse_lookups: u64,
     pub relation_delete_blocks: u64,
     pub unique_violations: u64,
+    pub non_atomic_partial_commits: u64,
+    pub non_atomic_partial_rows_committed: u64,
 }
 
 /// EntityCounters
@@ -82,6 +84,8 @@ pub struct EntityCounters {
     pub relation_reverse_lookups: u64,
     pub relation_delete_blocks: u64,
     pub unique_violations: u64,
+    pub non_atomic_partial_commits: u64,
+    pub non_atomic_partial_rows_committed: u64,
 }
 
 /// EventPerf
@@ -168,6 +172,8 @@ pub struct EntitySummary {
     pub relation_reverse_lookups: u64,
     pub relation_delete_blocks: u64,
     pub unique_violations: u64,
+    pub non_atomic_partial_commits: u64,
+    pub non_atomic_partial_rows_committed: u64,
 }
 
 /// Build a metrics report gated by `window_start_ms`.
@@ -224,6 +230,8 @@ pub(super) fn report_window_start(window_start_ms: Option<u64>) -> EventReport {
             relation_reverse_lookups: ops.relation_reverse_lookups,
             relation_delete_blocks: ops.relation_delete_blocks,
             unique_violations: ops.unique_violations,
+            non_atomic_partial_commits: ops.non_atomic_partial_commits,
+            non_atomic_partial_rows_committed: ops.non_atomic_partial_rows_committed,
         });
     }
 

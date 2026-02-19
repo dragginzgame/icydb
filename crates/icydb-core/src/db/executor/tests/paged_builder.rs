@@ -175,3 +175,41 @@ fn paged_query_rejects_non_token_cursor_payload_as_payload_error() {
         "payload decode reason should provide context for debugging"
     );
 }
+
+#[test]
+fn paged_query_execute_with_trace_is_none_without_debug_mode() {
+    let session = DbSession::new(DB);
+
+    let (_, _, trace) = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("paged builder should accept order+limit")
+        .execute_with_trace()
+        .expect("paged execute_with_trace should succeed");
+
+    assert!(
+        trace.is_none(),
+        "execution trace should be disabled unless session debug mode is enabled"
+    );
+}
+
+#[test]
+fn paged_query_execute_with_trace_is_present_in_debug_mode() {
+    let session = DbSession::new(DB).debug();
+
+    let (_, _, trace) = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(2)
+        .page()
+        .expect("paged builder should accept order+limit")
+        .execute_with_trace()
+        .expect("paged execute_with_trace should succeed");
+
+    assert!(
+        trace.is_some(),
+        "execution trace should be present when session debug mode is enabled"
+    );
+}

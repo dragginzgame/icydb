@@ -5,19 +5,15 @@ mod secondary_index;
 use crate::{
     db::{
         Context, Db,
-        executor::{
-            debug::{access_summary, yes_no},
-            plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
-            trace::{
-                QueryTraceSink, TraceExecutorKind, TracePushdownDecision, TraceScope,
-                emit_access_post_access_phases, finish_trace_from_result, start_plan_trace,
-            },
-        },
-        index::IndexKey,
+        data::DataKey,
+        executor::plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
+        index::{IndexKey, RawIndexKey},
         query::plan::{
-            ContinuationSignature, ContinuationToken, CursorBoundary, Direction, ExecutablePlan,
-            IndexRangeCursorAnchor, LogicalPlan, PlannedCursor,
+            AccessPlan, AccessPlanProjection, ContinuationSignature, ContinuationToken,
+            CursorBoundary, Direction, ExecutablePlan, IndexRangeCursorAnchor, LogicalPlan,
+            OrderDirection, PlannedCursor, decode_pk_cursor_boundary,
             logical::PostAccessStats,
+            project_access_plan,
             validate::{
                 PushdownApplicability, assess_secondary_order_pushdown_if_applicable_validated,
                 validate_executor_plan,
@@ -29,8 +25,9 @@ use crate::{
     obs::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
     types::Id,
+    value::Value,
 };
-use std::marker::PhantomData;
+use std::{marker::PhantomData, ops::Bound};
 
 ///
 /// CursorPage
@@ -47,16 +44,168 @@ pub(crate) struct CursorPage<E: EntityKind> {
 }
 
 ///
-/// FastLoadResult
+/// ExecutionAccessPathVariant
 ///
-/// Internal fast-path load execution result.
-/// Bundles the page payload and row accounting.
+/// Coarse access path shape used by the load execution trace surface.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExecutionAccessPathVariant {
+    ByKey,
+    ByKeys,
+    KeyRange,
+    IndexPrefix,
+    IndexRange,
+    FullScan,
+    Union,
+    Intersection,
+}
+
+///
+/// ExecutionPushdownType
+///
+/// Pushdown optimization kind applied by load execution, if any.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExecutionPushdownType {
+    SecondaryOrder,
+    IndexRangeLimit,
+}
+
+///
+/// ExecutionFastPath
+///
+/// Fast-path branch selected by load execution, if any.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExecutionFastPath {
+    PrimaryKey,
+    SecondaryIndex,
+    IndexRange,
+}
+
+///
+/// ExecutionTrace
+///
+/// Structured, opt-in load execution introspection snapshot.
+/// Captures plan-shape and execution decisions without changing semantics.
 ///
 
-struct FastLoadResult<E: EntityKind> {
-    page: CursorPage<E>,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExecutionTrace {
+    pub access_path_variant: ExecutionAccessPathVariant,
+    pub direction: OrderDirection,
+    pub pushdown_used: bool,
+    pub pushdown_type: Option<ExecutionPushdownType>,
+    pub fast_path_used: Option<ExecutionFastPath>,
+    pub keys_scanned: u64,
+    pub rows_returned: u64,
+    pub continuation_applied: bool,
+}
+
+impl ExecutionTrace {
+    fn new<K>(access: &AccessPlan<K>, direction: Direction, continuation_applied: bool) -> Self {
+        Self {
+            access_path_variant: access_path_variant(access),
+            direction: execution_order_direction(direction),
+            pushdown_used: false,
+            pushdown_type: None,
+            fast_path_used: None,
+            keys_scanned: 0,
+            rows_returned: 0,
+            continuation_applied,
+        }
+    }
+
+    fn set_path_outcome(
+        &mut self,
+        fast_path_used: Option<ExecutionFastPath>,
+        pushdown_type: Option<ExecutionPushdownType>,
+        keys_scanned: usize,
+        rows_returned: usize,
+    ) {
+        self.fast_path_used = fast_path_used;
+        self.pushdown_type = pushdown_type;
+        self.pushdown_used = pushdown_type.is_some();
+        self.keys_scanned = u64::try_from(keys_scanned).unwrap_or(u64::MAX);
+        self.rows_returned = u64::try_from(rows_returned).unwrap_or(u64::MAX);
+    }
+}
+
+struct ExecutionAccessProjection;
+
+impl<K> AccessPlanProjection<K> for ExecutionAccessProjection {
+    type Output = ExecutionAccessPathVariant;
+
+    fn by_key(&mut self, _key: &K) -> Self::Output {
+        ExecutionAccessPathVariant::ByKey
+    }
+
+    fn by_keys(&mut self, _keys: &[K]) -> Self::Output {
+        ExecutionAccessPathVariant::ByKeys
+    }
+
+    fn key_range(&mut self, _start: &K, _end: &K) -> Self::Output {
+        ExecutionAccessPathVariant::KeyRange
+    }
+
+    fn index_prefix(
+        &mut self,
+        _index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        _values: &[Value],
+    ) -> Self::Output {
+        ExecutionAccessPathVariant::IndexPrefix
+    }
+
+    fn index_range(
+        &mut self,
+        _index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        _prefix: &[Value],
+        _lower: &Bound<Value>,
+        _upper: &Bound<Value>,
+    ) -> Self::Output {
+        ExecutionAccessPathVariant::IndexRange
+    }
+
+    fn full_scan(&mut self) -> Self::Output {
+        ExecutionAccessPathVariant::FullScan
+    }
+
+    fn union(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+        ExecutionAccessPathVariant::Union
+    }
+
+    fn intersection(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+        ExecutionAccessPathVariant::Intersection
+    }
+}
+
+fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant {
+    let mut projection = ExecutionAccessProjection;
+    project_access_plan(access, &mut projection)
+}
+
+const fn execution_order_direction(direction: Direction) -> OrderDirection {
+    match direction {
+        Direction::Asc => OrderDirection::Asc,
+        Direction::Desc => OrderDirection::Desc,
+    }
+}
+
+///
+/// FastPathKeyResult
+///
+/// Internal fast-path access result.
+/// Carries ordered keys plus observability metadata for shared execution phases.
+///
+struct FastPathKeyResult {
+    ordered_keys: Vec<DataKey>,
     rows_scanned: usize,
-    post_access_rows: usize,
+    fast_path_used: ExecutionFastPath,
+    pushdown_type: Option<ExecutionPushdownType>,
 }
 
 ///
@@ -70,7 +219,6 @@ struct FastLoadResult<E: EntityKind> {
 pub(crate) struct LoadExecutor<E: EntityKind> {
     db: Db<E::Canister>,
     debug: bool,
-    trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
@@ -83,20 +231,7 @@ where
         Self {
             db,
             debug,
-            trace: None,
             _marker: PhantomData,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn with_trace(mut self, trace: &'static dyn QueryTraceSink) -> Self {
-        self.trace = Some(trace);
-        self
-    }
-
-    fn debug_log(&self, s: impl AsRef<str>) {
-        if self.debug {
-            println!("[debug] {}", s.as_ref());
         }
     }
 
@@ -110,21 +245,33 @@ where
         plan: ExecutablePlan<E>,
         cursor: impl Into<PlannedCursor>,
     ) -> Result<CursorPage<E>, InternalError> {
+        self.execute_paged_with_cursor_traced(plan, cursor)
+            .map(|(page, _)| page)
+    }
+
+    pub(in crate::db) fn execute_paged_with_cursor_traced(
+        &self,
+        plan: ExecutablePlan<E>,
+        cursor: impl Into<PlannedCursor>,
+    ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         let cursor: PlannedCursor = plan.revalidate_planned_cursor(cursor.into())?;
         let cursor_boundary = cursor.boundary().cloned();
         let index_range_anchor = cursor.index_range_anchor().cloned();
 
         if !plan.mode().is_load() {
             return Err(InternalError::new(
-                ErrorClass::Unsupported,
+                ErrorClass::InvariantViolation,
                 ErrorOrigin::Query,
-                "load executor requires load plans",
+                "executor invariant violated: load executor requires load plans",
             ));
         }
 
         let direction = plan.direction();
         let continuation_signature = plan.continuation_signature();
-        let trace = start_plan_trace(self.trace, TraceExecutorKind::Load, &plan);
+        let continuation_applied = cursor_boundary.is_some() || index_range_anchor.is_some();
+        let mut execution_trace = self
+            .debug
+            .then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
 
         let result = (|| {
             let mut span = Span::<E>::new(ExecKind::Load);
@@ -132,48 +279,25 @@ where
 
             validate_executor_plan::<E>(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;
-            self.debug_log_load_plan(&plan, cursor_boundary.as_ref());
 
             record_plan_metrics(&plan.access);
             // Compute secondary ORDER BY pushdown eligibility once, then share the
             // derived decision across trace and fast-path gating.
             let secondary_pushdown_applicability =
                 Self::assess_secondary_order_pushdown_applicability(&plan);
-            Self::emit_secondary_order_pushdown_trace(
-                trace.as_ref(),
-                &secondary_pushdown_applicability,
-            );
 
-            if let Some(fast) = Self::try_execute_pk_order_stream(
-                &ctx,
-                &plan,
-                cursor_boundary.as_ref(),
-                direction,
-                continuation_signature,
-            )? {
-                return Ok(Self::finish_fast_path(&mut span, trace.as_ref(), fast));
-            }
-
-            if let Some(fast) = Self::try_execute_secondary_index_order_stream(
+            if let Some(page) = Self::try_execute_fast_paths(
                 &ctx,
                 &plan,
                 &secondary_pushdown_applicability,
-                cursor_boundary.as_ref(),
-                direction,
-                continuation_signature,
-            )? {
-                return Ok(Self::finish_fast_path(&mut span, trace.as_ref(), fast));
-            }
-
-            if let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
-                &ctx,
-                &plan,
                 cursor_boundary.as_ref(),
                 index_range_anchor.as_ref(),
                 direction,
                 continuation_signature,
+                &mut span,
+                &mut execution_trace,
             )? {
-                return Ok(Self::finish_fast_path(&mut span, trace.as_ref(), fast));
+                return Ok(page);
             }
 
             let data_rows = ctx.rows_from_access_plan_with_index_range_anchor(
@@ -182,10 +306,9 @@ where
                 index_range_anchor.as_ref(),
                 direction,
             )?;
-            record_rows_scanned::<E>(data_rows.len());
+            let keys_scanned = data_rows.len();
 
             let mut rows = Context::deserialize_rows(data_rows)?;
-            let access_rows = rows.len();
             let page = Self::finalize_rows_into_page(
                 &plan,
                 &mut rows,
@@ -194,82 +317,198 @@ where
                 continuation_signature,
             )?;
             let post_access_rows = page.items.0.len();
-
-            emit_access_post_access_phases(trace.as_ref(), access_rows, post_access_rows);
+            Self::finalize_path_outcome(
+                &mut execution_trace,
+                None,
+                None,
+                keys_scanned,
+                post_access_rows,
+            );
 
             set_rows_from_len(&mut span, page.items.0.len());
             Ok(page)
         })();
 
-        finish_trace_from_result(trace, &result, |page| page.items.0.len());
-
-        result
+        result.map(|page| (page, execution_trace))
     }
 
-    // Emit a compact debug summary for one load execution plan.
-    fn debug_log_load_plan(
-        &self,
+    // Record shared observability outcome for any execution path.
+    fn finalize_path_outcome(
+        execution_trace: &mut Option<ExecutionTrace>,
+        fast_path_used: Option<ExecutionFastPath>,
+        pushdown_type: Option<ExecutionPushdownType>,
+        rows_scanned: usize,
+        rows_returned: usize,
+    ) {
+        record_rows_scanned::<E>(rows_scanned);
+        if let Some(execution_trace) = execution_trace.as_mut() {
+            execution_trace.set_path_outcome(
+                fast_path_used,
+                pushdown_type,
+                rows_scanned,
+                rows_returned,
+            );
+            debug_assert_eq!(
+                execution_trace.keys_scanned,
+                u64::try_from(rows_scanned).unwrap_or(u64::MAX),
+                "execution trace keys_scanned must match rows_scanned metrics input",
+            );
+        }
+    }
+
+    // Run the shared load phases for an already-produced ordered key list.
+    fn materialize_keys_into_page(
+        ctx: &Context<'_, E>,
+        plan: &LogicalPlan<E::Key>,
+        ordered_keys: &[DataKey],
+        cursor_boundary: Option<&CursorBoundary>,
+        direction: Direction,
+        continuation_signature: ContinuationSignature,
+    ) -> Result<(CursorPage<E>, usize), InternalError> {
+        let data_rows = ctx.rows_from_ordered_data_keys(ordered_keys, plan.consistency)?;
+        let mut rows = Context::deserialize_rows(data_rows)?;
+        let page = Self::finalize_rows_into_page(
+            plan,
+            &mut rows,
+            cursor_boundary,
+            direction,
+            continuation_signature,
+        )?;
+        let post_access_rows = page.items.0.len();
+
+        Ok((page, post_access_rows))
+    }
+
+    // Preserve PK fast-path cursor-boundary error classification at the executor boundary.
+    fn validate_pk_fast_path_boundary_if_applicable(
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
-    ) {
-        if !self.debug {
-            return;
+    ) -> Result<(), InternalError> {
+        if !Self::is_pk_order_stream_eligible(plan) {
+            return Ok(());
+        }
+        let _ = decode_pk_cursor_boundary::<E>(cursor_boundary)?;
+
+        Ok(())
+    }
+
+    fn index_range_limit_pushdown_fetch(
+        plan: &LogicalPlan<E::Key>,
+        cursor_boundary: Option<&CursorBoundary>,
+        index_range_anchor: Option<&RawIndexKey>,
+    ) -> Option<usize> {
+        if !Self::is_index_range_limit_pushdown_shape_eligible(plan) {
+            return None;
+        }
+        if cursor_boundary.is_some() && index_range_anchor.is_none() {
+            return None;
         }
 
-        self.debug_log(format!(
-            "Executing load plan on {} (consistency={:?})",
-            E::PATH,
-            plan.consistency
-        ));
-        self.debug_log(format!("Access: {}", access_summary(&plan.access)));
+        let page = plan.page.as_ref()?;
+        let limit = page.limit?;
+        if limit == 0 {
+            return Some(0);
+        }
 
-        let ordered = plan
-            .order
-            .as_ref()
-            .is_some_and(|order| !order.fields.is_empty());
-        let page = match plan.page.as_ref() {
-            Some(p) => format!("limit={:?}, offset={}", p.limit, p.offset),
-            None => "none".to_string(),
-        };
-        self.debug_log(format!(
-            "Post-access: filter={}, order={}, page={}",
-            yes_no(plan.predicate.is_some()),
-            yes_no(ordered),
-            page
-        ));
-        self.debug_log(format!(
-            "Cursor provided: {}",
-            yes_no(cursor_boundary.is_some())
-        ));
+        let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+        let page_end = offset.saturating_add(limit);
+        let needs_extra_row = true;
+
+        Some(page_end.saturating_add(usize::from(needs_extra_row)))
     }
 
-    // Emit a deterministic trace marker for secondary ORDER BY pushdown decisions.
-    fn emit_secondary_order_pushdown_trace(
-        trace: Option<&TraceScope>,
-        applicability: &PushdownApplicability,
-    ) {
-        let Some(trace) = trace else {
-            return;
-        };
-        let Some(surface) = applicability.surface_eligibility() else {
-            return;
-        };
-        let trace_decision = TracePushdownDecision::from(surface);
-
-        trace.pushdown(trace_decision);
-    }
-
-    // Apply shared metrics/trace/span completion for any fast-path branch.
-    fn finish_fast_path(
+    // Try each fast-path strategy in canonical order and return the first hit.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "fast-path dispatch keeps execution inputs explicit at one call site"
+    )]
+    fn try_execute_fast_paths(
+        ctx: &Context<'_, E>,
+        plan: &LogicalPlan<E::Key>,
+        secondary_pushdown_applicability: &PushdownApplicability,
+        cursor_boundary: Option<&CursorBoundary>,
+        index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
+        continuation_signature: ContinuationSignature,
         span: &mut Span<E>,
-        trace: Option<&TraceScope>,
-        fast: FastLoadResult<E>,
-    ) -> CursorPage<E> {
-        record_rows_scanned::<E>(fast.rows_scanned);
-        emit_access_post_access_phases(trace, fast.rows_scanned, fast.post_access_rows);
-        set_rows_from_len(span, fast.page.items.0.len());
+        execution_trace: &mut Option<ExecutionTrace>,
+    ) -> Result<Option<CursorPage<E>>, InternalError> {
+        Self::validate_pk_fast_path_boundary_if_applicable(plan, cursor_boundary)?;
 
-        fast.page
+        if let Some(fast) = Self::try_execute_pk_order_stream(ctx, plan)? {
+            let (page, post_access_rows) = Self::materialize_keys_into_page(
+                ctx,
+                plan,
+                &fast.ordered_keys,
+                cursor_boundary,
+                direction,
+                continuation_signature,
+            )?;
+            Self::finalize_path_outcome(
+                execution_trace,
+                Some(fast.fast_path_used),
+                fast.pushdown_type,
+                fast.rows_scanned,
+                post_access_rows,
+            );
+            set_rows_from_len(span, page.items.0.len());
+            return Ok(Some(page));
+        }
+
+        if let Some(fast) = Self::try_execute_secondary_index_order_stream(
+            ctx,
+            plan,
+            secondary_pushdown_applicability,
+        )? {
+            let (page, post_access_rows) = Self::materialize_keys_into_page(
+                ctx,
+                plan,
+                &fast.ordered_keys,
+                cursor_boundary,
+                direction,
+                continuation_signature,
+            )?;
+            Self::finalize_path_outcome(
+                execution_trace,
+                Some(fast.fast_path_used),
+                fast.pushdown_type,
+                fast.rows_scanned,
+                post_access_rows,
+            );
+            set_rows_from_len(span, page.items.0.len());
+            return Ok(Some(page));
+        }
+
+        let index_range_limit_fetch =
+            Self::index_range_limit_pushdown_fetch(plan, cursor_boundary, index_range_anchor);
+        if let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
+            ctx,
+            plan,
+            index_range_anchor,
+            direction,
+            index_range_limit_fetch,
+        )? {
+            let (page, post_access_rows) = Self::materialize_keys_into_page(
+                ctx,
+                plan,
+                &fast.ordered_keys,
+                cursor_boundary,
+                direction,
+                continuation_signature,
+            )?;
+            Self::finalize_path_outcome(
+                execution_trace,
+                Some(fast.fast_path_used),
+                fast.pushdown_type,
+                fast.rows_scanned,
+                post_access_rows,
+            );
+            set_rows_from_len(span, page.items.0.len());
+            return Ok(Some(page));
+        }
+
+        Ok(None)
     }
 
     // Apply canonical post-access phases to scanned rows and assemble the cursor page.

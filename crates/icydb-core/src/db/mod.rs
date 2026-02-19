@@ -19,6 +19,9 @@ pub use cursor::encode_cursor;
 pub use data::DataStore;
 pub(crate) use data::StorageKey;
 pub use diagnostics::StorageReport;
+pub use executor::{
+    ExecutionAccessPathVariant, ExecutionFastPath, ExecutionPushdownType, ExecutionTrace,
+};
 pub use identity::{EntityName, IndexName};
 pub use index::IndexStore;
 #[cfg(test)]
@@ -57,6 +60,20 @@ use crate::{
     traits::{CanisterKind, EntityIdentity, EntityKind, EntityValue},
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
+
+///
+/// PagedLoadExecution
+///
+/// Cursor-paged load response with optional continuation cursor bytes.
+///
+pub type PagedLoadExecution<E> = (Response<E>, Option<Vec<u8>>);
+
+///
+/// PagedLoadExecutionWithTrace
+///
+/// Cursor-paged load response plus optional execution trace details.
+///
+pub type PagedLoadExecutionWithTrace<E> = (Response<E>, Option<Vec<u8>>, Option<ExecutionTrace>);
 
 ///
 /// Db
@@ -421,11 +438,11 @@ impl<C: CanisterKind> DbSession<C> {
         result.map_err(QueryError::Execute)
     }
 
-    pub(crate) fn execute_load_query_paged<E>(
+    pub(crate) fn execute_load_query_paged_with_trace<E>(
         &self,
         query: &Query<E>,
         cursor_token: Option<&str>,
-    ) -> Result<(Response<E>, Option<Vec<u8>>), QueryError>
+    ) -> Result<PagedLoadExecutionWithTrace<E>, QueryError>
     where
         E: EntityKind<Canister = C> + EntityValue,
     {
@@ -440,14 +457,14 @@ impl<C: CanisterKind> DbSession<C> {
         };
         let cursor = plan.plan_cursor(cursor_bytes.as_deref())?;
 
-        let page = self
+        let (page, trace) = self
             .with_metrics(|| {
                 self.load_executor::<E>()
-                    .execute_paged_with_cursor(plan, cursor)
+                    .execute_paged_with_cursor_traced(plan, cursor)
             })
             .map_err(QueryError::Execute)?;
 
-        Ok((page.items, page.next_cursor))
+        Ok((page.items, page.next_cursor, trace))
     }
 
     // ---------------------------------------------------------------------

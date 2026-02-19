@@ -1,11 +1,10 @@
 use crate::{
     db::{
         Context,
-        executor::load::{FastLoadResult, LoadExecutor},
-        query::plan::{
-            ContinuationSignature, CursorBoundary, Direction, LogicalPlan, OrderDirection,
-            validate::PushdownApplicability,
+        executor::load::{
+            ExecutionFastPath, ExecutionPushdownType, FastPathKeyResult, LoadExecutor,
         },
+        query::plan::{Direction, LogicalPlan, OrderDirection, validate::PushdownApplicability},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -21,10 +20,7 @@ where
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
         secondary_pushdown_applicability: &PushdownApplicability,
-        cursor_boundary: Option<&CursorBoundary>,
-        direction: Direction,
-        continuation_signature: ContinuationSignature,
-    ) -> Result<Option<FastLoadResult<E>>, InternalError> {
+    ) -> Result<Option<FastPathKeyResult>, InternalError> {
         if !secondary_pushdown_applicability.is_eligible() {
             return Ok(None);
         }
@@ -47,23 +43,11 @@ where
         }
         let rows_scanned = ordered_keys.len();
 
-        // Phase 2: load rows while preserving traversal order.
-        let data_rows = ctx.rows_from_ordered_data_keys(&ordered_keys, plan.consistency)?;
-        let mut rows = Context::deserialize_rows(data_rows)?;
-
-        // Phase 3: apply canonical post-access semantics (predicate/cursor/page) and continuation.
-        let page = Self::finalize_rows_into_page(
-            plan,
-            &mut rows,
-            cursor_boundary,
-            direction,
-            continuation_signature,
-        )?;
-
-        Ok(Some(FastLoadResult {
-            post_access_rows: page.items.0.len(),
-            page,
+        Ok(Some(FastPathKeyResult {
+            ordered_keys,
             rows_scanned,
+            fast_path_used: ExecutionFastPath::SecondaryIndex,
+            pushdown_type: Some(ExecutionPushdownType::SecondaryOrder),
         }))
     }
 

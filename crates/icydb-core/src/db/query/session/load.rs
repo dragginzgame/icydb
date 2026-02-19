@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        DbSession,
+        DbSession, PagedLoadExecution, PagedLoadExecutionWithTrace,
         query::{
             expr::{FilterExpr, SortExpr},
             intent::{IntentError, Query, QueryError},
@@ -332,14 +332,28 @@ where
     /// Continuation is best-effort and forward-only over live state:
     /// deterministic per request under canonical ordering, with no
     /// snapshot/version pinned across requests.
-    pub fn execute(self) -> Result<(Response<E>, Option<Vec<u8>>), QueryError>
+    pub fn execute(self) -> Result<PagedLoadExecution<E>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.execute_with_trace()
+            .map(|(items, next_cursor, _)| (items, next_cursor))
+    }
+
+    /// Execute in cursor-pagination mode and return items, next cursor,
+    /// and optional execution trace details when session debug mode is enabled.
+    ///
+    /// Trace collection is opt-in via `DbSession::debug()` and does not
+    /// change query planning or result semantics.
+    pub fn execute_with_trace(self) -> Result<PagedLoadExecutionWithTrace<E>, QueryError>
     where
         E: EntityValue,
     {
         self.inner.ensure_paged_mode_ready()?;
 
-        self.inner
-            .session
-            .execute_load_query_paged(self.inner.query(), self.inner.cursor_token.as_deref())
+        self.inner.session.execute_load_query_paged_with_trace(
+            self.inner.query(),
+            self.inner.cursor_token.as_deref(),
+        )
     }
 }

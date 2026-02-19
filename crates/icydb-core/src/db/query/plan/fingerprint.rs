@@ -15,10 +15,6 @@ use sha2::{Digest, Sha256};
 pub struct PlanFingerprint([u8; 32]);
 
 impl PlanFingerprint {
-    pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
     #[must_use]
     pub fn as_hex(&self) -> String {
         super::encode_plan_hex(&self.0)

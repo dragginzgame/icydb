@@ -1,5 +1,4 @@
 mod context;
-mod debug;
 mod delete;
 mod load;
 mod mutation;
@@ -7,11 +6,13 @@ mod plan;
 mod save;
 #[cfg(test)]
 mod tests;
-mod trace;
 
 pub(super) use context::*;
 pub(super) use delete::DeleteExecutor;
 pub(super) use load::LoadExecutor;
+pub use load::{
+    ExecutionAccessPathVariant, ExecutionFastPath, ExecutionPushdownType, ExecutionTrace,
+};
 pub(super) use save::SaveExecutor;
 
 // Design notes:

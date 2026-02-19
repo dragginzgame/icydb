@@ -93,6 +93,7 @@ impl<E: EntityKind> PlanRow<E> for (Id<E>, E) {
 ///
 
 #[allow(clippy::struct_excessive_bools)]
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) struct PostAccessStats {
     pub(crate) delete_was_limited: bool,
     pub(crate) rows_after_cursor: usize,

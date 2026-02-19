@@ -41,23 +41,6 @@ impl PushdownApplicability {
             Self::Applicable(SecondaryOrderPushdownEligibility::Eligible { .. })
         )
     }
-
-    /// Return a shared surface projection when pushdown applicability is present.
-    #[must_use]
-    pub(crate) const fn surface_eligibility(&self) -> Option<PushdownSurfaceEligibility<'_>> {
-        match self {
-            Self::NotApplicable => None,
-            Self::Applicable(SecondaryOrderPushdownEligibility::Eligible { index, prefix_len }) => {
-                Some(PushdownSurfaceEligibility::EligibleSecondaryIndex {
-                    index,
-                    prefix_len: *prefix_len,
-                })
-            }
-            Self::Applicable(SecondaryOrderPushdownEligibility::Rejected(reason)) => {
-                Some(PushdownSurfaceEligibility::Rejected { reason })
-            }
-        }
-    }
 }
 
 ///

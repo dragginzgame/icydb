@@ -5,16 +5,11 @@ use crate::{
         Db,
         commit::{CommitRowOp, ensure_recovered_for_write},
         executor::{
-            debug::{access_summary, yes_no},
             mutation::{
                 OpenCommitWindow, apply_prepared_row_ops, emit_index_delta_metrics,
                 open_commit_window,
             },
             plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
-            trace::{
-                QueryTraceSink, TraceExecutorKind, emit_access_post_access_phases,
-                finish_trace_from_result, start_plan_trace,
-            },
         },
         query::plan::{ExecutablePlan, validate::validate_executor_plan},
         response::Response,
@@ -42,8 +37,6 @@ where
     E: EntityKind,
 {
     db: Db<E::Canister>,
-    debug: bool,
-    trace: Option<&'static dyn QueryTraceSink>,
     _marker: PhantomData<E>,
 }
 
@@ -51,21 +44,11 @@ impl<E> DeleteExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
-    // Debug is session-scoped via DbSession and propagated into executors;
-    // executors do not expose independent debug control.
     #[must_use]
-    pub(crate) const fn new(db: Db<E::Canister>, debug: bool) -> Self {
+    pub(crate) const fn new(db: Db<E::Canister>, _debug: bool) -> Self {
         Self {
             db,
-            debug,
-            trace: None,
             _marker: PhantomData,
-        }
-    }
-
-    fn debug_log(&self, s: impl Into<String>) {
-        if self.debug {
-            println!("[debug] {}", s.into());
         }
     }
 
@@ -73,48 +56,20 @@ where
     // Plan-based delete
     // ─────────────────────────────────────────────
 
-    #[expect(clippy::too_many_lines)]
     pub(crate) fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
         if !plan.mode().is_delete() {
             return Err(InternalError::new(
-                ErrorClass::Unsupported,
+                ErrorClass::InvariantViolation,
                 ErrorOrigin::Query,
-                "delete executor requires delete plans".to_string(),
+                "executor invariant violated: delete executor requires delete plans".to_string(),
             ));
         }
-        let mut commit_started = false;
-        let trace = start_plan_trace(self.trace, TraceExecutorKind::Delete, &plan);
-        let result = (|| {
+        (|| {
             // Recovery is mandatory before mutations; read paths recover separately.
             ensure_recovered_for_write(&self.db)?;
             let plan = plan.into_inner();
             validate_executor_plan::<E>(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;
-
-            if self.debug {
-                let access = access_summary(&plan.access);
-                let ordered = plan
-                    .order
-                    .as_ref()
-                    .is_some_and(|order| !order.fields.is_empty());
-                let delete_limit = match plan.delete_limit {
-                    Some(limit) => limit.max_rows.to_string(),
-                    None => "none".to_string(),
-                };
-
-                self.debug_log(format!(
-                    "Delete plan on {} (consistency={:?})",
-                    E::PATH,
-                    plan.consistency
-                ));
-                self.debug_log(format!("Access: {access}"));
-                self.debug_log(format!(
-                    "Intent: predicate={}, order={}, delete_limit={}",
-                    yes_no(plan.predicate.is_some()),
-                    yes_no(ordered),
-                    delete_limit
-                ));
-            }
 
             let mut span = Span::<E>::new(ExecKind::Delete);
             record_plan_metrics(&plan.access);
@@ -125,22 +80,13 @@ where
 
             // Decode rows into entities before post-access filtering.
             let mut rows = helpers::decode_rows::<E>(data_rows)?;
-            let access_rows = rows.len();
 
             // Post-access phase: filter, order, and apply delete limits.
             let stats = plan.apply_post_access::<E, _>(&mut rows)?;
-            let post_access_rows = rows.len();
-            if stats.delete_was_limited {
-                self.debug_log(format!(
-                    "applied delete limit -> {} entities selected",
-                    rows.len()
-                ));
-            }
+            let _ = stats.delete_was_limited;
 
             if rows.is_empty() {
-                emit_access_post_access_phases(trace.as_ref(), access_rows, post_access_rows);
                 set_rows_from_len(&mut span, 0);
-                self.debug_log("Delete complete -> 0 rows (nothing to commit)");
                 return Ok(Response(Vec::new()));
             }
 
@@ -182,8 +128,6 @@ where
                 prepared_row_ops,
                 delta,
             } = open_commit_window::<E>(&self.db, row_ops)?;
-            commit_started = true;
-            self.debug_log("Delete commit window opened");
 
             apply_prepared_row_ops(
                 commit,
@@ -200,9 +144,6 @@ where
                 || {},
             )?;
 
-            // Emit per-phase counts after the delete succeeds.
-            emit_access_post_access_phases(trace.as_ref(), access_rows, post_access_rows);
-
             // Response identifiers are validated before begin_commit. The apply
             // phase remains mechanical after the commit boundary.
             let res = response_ids
@@ -211,17 +152,8 @@ where
                 .map(|(id, row)| (id, row.entity))
                 .collect::<Vec<_>>();
             set_rows_from_len(&mut span, res.len());
-            self.debug_log(format!("Delete committed -> {} rows", res.len()));
 
             Ok(Response(res))
-        })();
-
-        if commit_started && result.is_err() {
-            self.debug_log("Delete failed during marker apply; best-effort cleanup attempted");
-        }
-
-        finish_trace_from_result(trace, &result, |resp| resp.0.len());
-
-        result
+        })()
     }
 }
