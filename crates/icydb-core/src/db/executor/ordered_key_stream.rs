@@ -121,6 +121,117 @@ impl MergeDirection {
 }
 
 ///
+/// OrderedPairState
+///
+/// Shared lookahead state for left/right ordered stream polling.
+/// Keeps one pending key per side for merge/intersection stream combinators.
+///
+
+struct OrderedPairState<L, R> {
+    left: Option<L>,
+    right: Option<R>,
+}
+
+impl<L, R> OrderedPairState<L, R> {
+    const fn new() -> Self {
+        Self {
+            left: None,
+            right: None,
+        }
+    }
+}
+
+// Ensure one lookahead item is available for one stream side.
+#[expect(clippy::too_many_arguments)]
+fn ensure_item<S>(
+    stream: &mut S,
+    stream_item: &mut Option<DataKey>,
+    stream_done: &mut bool,
+    stream_last_pulled: &mut Option<DataKey>,
+    direction: MergeDirection,
+    stream_name: &'static str,
+    stream_kind: &'static str,
+    direction_context: &'static str,
+) -> Result<(), InternalError>
+where
+    S: OrderedKeyStream,
+{
+    if *stream_done || stream_item.is_some() {
+        return Ok(());
+    }
+
+    match stream.next_key()? {
+        Some(key) => push_key(
+            key,
+            stream_item,
+            stream_last_pulled,
+            direction,
+            stream_name,
+            stream_kind,
+            direction_context,
+        )?,
+        None => *stream_done = true,
+    }
+
+    Ok(())
+}
+
+// Push one polled key into one stream-side lookahead slot with direction checks.
+fn push_key(
+    key: DataKey,
+    stream_item: &mut Option<DataKey>,
+    stream_last_pulled: &mut Option<DataKey>,
+    direction: MergeDirection,
+    stream_name: &'static str,
+    stream_kind: &'static str,
+    direction_context: &'static str,
+) -> Result<(), InternalError> {
+    validate_stream_direction(
+        stream_last_pulled.as_ref(),
+        &key,
+        direction,
+        stream_name,
+        stream_kind,
+        direction_context,
+    )?;
+    *stream_last_pulled = Some(key.clone());
+    *stream_item = Some(key);
+
+    Ok(())
+}
+
+// Validate one child stream monotonicity against the configured merge direction.
+fn validate_stream_direction(
+    previous: Option<&DataKey>,
+    current: &DataKey,
+    direction: MergeDirection,
+    stream_name: &'static str,
+    stream_kind: &'static str,
+    direction_context: &'static str,
+) -> Result<(), InternalError> {
+    let Some(previous) = previous else {
+        return Ok(());
+    };
+
+    let violates_direction = match direction {
+        MergeDirection::Asc => current < previous,
+        MergeDirection::Desc => current > previous,
+    };
+    if !violates_direction {
+        return Ok(());
+    }
+
+    let direction_label = match direction {
+        MergeDirection::Asc => "ASC",
+        MergeDirection::Desc => "DESC",
+    };
+
+    Err(InternalError::query_invariant(format!(
+        "executor invariant violated: {stream_kind} stream {stream_name} emitted out-of-order key for {direction_label} {direction_context} (previous: {previous}, current: {current})"
+    )))
+}
+
+///
 /// MergeOrderedKeyStream
 ///
 /// Pull-based merger over two ordered key streams.
@@ -130,8 +241,7 @@ impl MergeDirection {
 pub(crate) struct MergeOrderedKeyStream<A, B> {
     left: A,
     right: B,
-    left_item: Option<DataKey>,
-    right_item: Option<DataKey>,
+    pair: OrderedPairState<DataKey, DataKey>,
     left_done: bool,
     right_done: bool,
     direction: MergeDirection,
@@ -150,8 +260,7 @@ where
         Self {
             left,
             right,
-            left_item: None,
-            right_item: None,
+            pair: OrderedPairState::new(),
             left_done: false,
             right_done: false,
             direction: MergeDirection::from_direction(direction),
@@ -162,73 +271,29 @@ where
     }
 
     fn ensure_left_item(&mut self) -> Result<(), InternalError> {
-        if self.left_done || self.left_item.is_some() {
-            return Ok(());
-        }
-
-        match self.left.next_key()? {
-            Some(key) => self.push_left_key(key)?,
-            None => self.left_done = true,
-        }
-
-        Ok(())
+        ensure_item(
+            &mut self.left,
+            &mut self.pair.left,
+            &mut self.left_done,
+            &mut self.left_last_pulled,
+            self.direction,
+            "left",
+            "merge",
+            "merge",
+        )
     }
 
     fn ensure_right_item(&mut self) -> Result<(), InternalError> {
-        if self.right_done || self.right_item.is_some() {
-            return Ok(());
-        }
-
-        match self.right.next_key()? {
-            Some(key) => self.push_right_key(key)?,
-            None => self.right_done = true,
-        }
-
-        Ok(())
-    }
-
-    fn push_left_key(&mut self, key: DataKey) -> Result<(), InternalError> {
-        self.validate_stream_direction(self.left_last_pulled.as_ref(), &key, "left")?;
-        self.left_last_pulled = Some(key.clone());
-        self.left_item = Some(key);
-
-        Ok(())
-    }
-
-    fn push_right_key(&mut self, key: DataKey) -> Result<(), InternalError> {
-        self.validate_stream_direction(self.right_last_pulled.as_ref(), &key, "right")?;
-        self.right_last_pulled = Some(key.clone());
-        self.right_item = Some(key);
-
-        Ok(())
-    }
-
-    fn validate_stream_direction(
-        &self,
-        previous: Option<&DataKey>,
-        current: &DataKey,
-        stream_name: &str,
-    ) -> Result<(), InternalError> {
-        let Some(previous) = previous else {
-            return Ok(());
-        };
-
-        let violates_direction = match self.direction {
-            MergeDirection::Asc => current < previous,
-            MergeDirection::Desc => current > previous,
-        };
-        if !violates_direction {
-            return Ok(());
-        }
-
-        let direction_label = match self.direction {
-            MergeDirection::Asc => "ASC",
-            MergeDirection::Desc => "DESC",
-        };
-
-        Err(InternalError::query_invariant(format!(
-            "executor invariant violated: merge stream {stream_name} emitted out-of-order key for {direction_label} merge (previous: {previous}, current: {current})"
-        )))
+        ensure_item(
+            &mut self.right,
+            &mut self.pair.right,
+            &mut self.right_done,
+            &mut self.right_last_pulled,
+            self.direction,
+            "right",
+            "merge",
+            "merge",
+        )
     }
 }
 
@@ -243,29 +308,29 @@ where
             self.ensure_left_item()?;
             self.ensure_right_item()?;
 
-            if self.left_item.is_none() && self.right_item.is_none() {
+            if self.pair.left.is_none() && self.pair.right.is_none() {
                 return Ok(None);
             }
 
-            let next = match (self.left_item.as_ref(), self.right_item.as_ref()) {
+            let next = match (self.pair.left.as_ref(), self.pair.right.as_ref()) {
                 (Some(left_key), Some(right_key)) => {
                     if left_key == right_key {
-                        self.right_item = None;
-                        self.left_item.take()
+                        self.pair.right = None;
+                        self.pair.left.take()
                     } else {
                         let choose_left = match self.direction {
                             MergeDirection::Asc => left_key < right_key,
                             MergeDirection::Desc => left_key > right_key,
                         };
                         if choose_left {
-                            self.left_item.take()
+                            self.pair.left.take()
                         } else {
-                            self.right_item.take()
+                            self.pair.right.take()
                         }
                     }
                 }
-                (Some(_), None) => self.left_item.take(),
-                (None, Some(_)) => self.right_item.take(),
+                (Some(_), None) => self.pair.left.take(),
+                (None, Some(_)) => self.pair.right.take(),
                 (None, None) => None,
             };
 
@@ -294,8 +359,7 @@ where
 pub(crate) struct IntersectOrderedKeyStream<A, B> {
     left: A,
     right: B,
-    left_item: Option<DataKey>,
-    right_item: Option<DataKey>,
+    pair: OrderedPairState<DataKey, DataKey>,
     left_done: bool,
     right_done: bool,
     direction: MergeDirection,
@@ -314,8 +378,7 @@ where
         Self {
             left,
             right,
-            left_item: None,
-            right_item: None,
+            pair: OrderedPairState::new(),
             left_done: false,
             right_done: false,
             direction: MergeDirection::from_direction(direction),
@@ -326,73 +389,29 @@ where
     }
 
     fn ensure_left_item(&mut self) -> Result<(), InternalError> {
-        if self.left_done || self.left_item.is_some() {
-            return Ok(());
-        }
-
-        match self.left.next_key()? {
-            Some(key) => self.push_left_key(key)?,
-            None => self.left_done = true,
-        }
-
-        Ok(())
+        ensure_item(
+            &mut self.left,
+            &mut self.pair.left,
+            &mut self.left_done,
+            &mut self.left_last_pulled,
+            self.direction,
+            "left",
+            "intersect",
+            "intersection",
+        )
     }
 
     fn ensure_right_item(&mut self) -> Result<(), InternalError> {
-        if self.right_done || self.right_item.is_some() {
-            return Ok(());
-        }
-
-        match self.right.next_key()? {
-            Some(key) => self.push_right_key(key)?,
-            None => self.right_done = true,
-        }
-
-        Ok(())
-    }
-
-    fn push_left_key(&mut self, key: DataKey) -> Result<(), InternalError> {
-        self.validate_stream_direction(self.left_last_pulled.as_ref(), &key, "left")?;
-        self.left_last_pulled = Some(key.clone());
-        self.left_item = Some(key);
-
-        Ok(())
-    }
-
-    fn push_right_key(&mut self, key: DataKey) -> Result<(), InternalError> {
-        self.validate_stream_direction(self.right_last_pulled.as_ref(), &key, "right")?;
-        self.right_last_pulled = Some(key.clone());
-        self.right_item = Some(key);
-
-        Ok(())
-    }
-
-    fn validate_stream_direction(
-        &self,
-        previous: Option<&DataKey>,
-        current: &DataKey,
-        stream_name: &str,
-    ) -> Result<(), InternalError> {
-        let Some(previous) = previous else {
-            return Ok(());
-        };
-
-        let violates_direction = match self.direction {
-            MergeDirection::Asc => current < previous,
-            MergeDirection::Desc => current > previous,
-        };
-        if !violates_direction {
-            return Ok(());
-        }
-
-        let direction_label = match self.direction {
-            MergeDirection::Asc => "ASC",
-            MergeDirection::Desc => "DESC",
-        };
-
-        Err(InternalError::query_invariant(format!(
-            "executor invariant violated: intersect stream {stream_name} emitted out-of-order key for {direction_label} intersection (previous: {previous}, current: {current})"
-        )))
+        ensure_item(
+            &mut self.right,
+            &mut self.pair.right,
+            &mut self.right_done,
+            &mut self.right_last_pulled,
+            self.direction,
+            "right",
+            "intersect",
+            "intersection",
+        )
     }
 }
 
@@ -413,15 +432,15 @@ where
             self.ensure_right_item()?;
 
             let (Some(left_key), Some(right_key)) =
-                (self.left_item.as_ref(), self.right_item.as_ref())
+                (self.pair.left.as_ref(), self.pair.right.as_ref())
             else {
                 return Ok(None);
             };
 
             if left_key == right_key {
                 let next = left_key.clone();
-                self.left_item = None;
-                self.right_item = None;
+                self.pair.left = None;
+                self.pair.right = None;
 
                 // Defensively suppress duplicate outputs.
                 if self.last_emitted.as_ref().is_some_and(|last| *last == next) {
@@ -437,9 +456,9 @@ where
                 MergeDirection::Desc => left_key > right_key,
             };
             if advance_left {
-                self.left_item = None;
+                self.pair.left = None;
             } else {
-                self.right_item = None;
+                self.pair.right = None;
             }
         }
     }
