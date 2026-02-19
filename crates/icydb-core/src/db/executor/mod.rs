@@ -2,6 +2,7 @@ mod context;
 mod delete;
 mod load;
 mod mutation;
+mod ordered_key_stream;
 mod plan;
 mod save;
 #[cfg(test)]
@@ -13,6 +14,7 @@ pub(super) use load::LoadExecutor;
 pub use load::{
     ExecutionAccessPathVariant, ExecutionFastPath, ExecutionPushdownType, ExecutionTrace,
 };
+pub(super) use ordered_key_stream::{OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream};
 pub(super) use save::SaveExecutor;
 
 // Design notes:

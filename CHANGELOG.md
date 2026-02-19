@@ -5,6 +5,37 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.15.0] – 2026-02-19 - Ordered Key Stream Abstraction
+
+### 📝 Summary
+
+* Completed the `0.15` internal ordered-key stream milestone by moving key collection behind one shared stream interface.
+* This is an internal cleanup release. Query results, cursors, pagination behavior, explain output, and metrics behavior are unchanged.
+
+```rust
+pub(crate) trait OrderedKeyStream {
+    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError>;
+}
+```
+
+### 🔧 Changed
+
+* Added internal `OrderedKeyStream` and `VecOrderedKeyStream` so load execution uses one key-stream model.
+* Updated query key production to return stream producers (`produce_key_stream(...)`) instead of exposing direct key vectors.
+* Updated load execution (normal path and fast paths) to read keys from streams through one shared row-loading path.
+* Kept responsibilities in the same places as before: cursor resume/validation logic stays in cursor and range helpers, and filtering/sorting/paging still runs in post-access execution.
+
+### 🧪 Testing
+
+* Added focused stream abstraction unit coverage for deterministic key order and exhaustion behavior.
+* Added explicit regression coverage that duplicate `by_ids(...)` input keys are still de-duplicated with stream-backed key production.
+
+### 📚 Documentation
+
+* Added `docs/status/0.15-status.md` and marked the `0.15` completion matrix as complete with verification notes.
+
+---
+
 ## [0.14.2] – 2026-02-18 - Execution Phase Alignment
 
 ### 🧹 Cleanup

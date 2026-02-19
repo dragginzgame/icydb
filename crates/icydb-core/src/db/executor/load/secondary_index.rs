@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context,
+        executor::VecOrderedKeyStream,
         executor::load::{
             ExecutionFastPath, ExecutionPushdownType, FastPathKeyResult, LoadExecutor,
         },
@@ -44,7 +45,7 @@ where
         let rows_scanned = ordered_keys.len();
 
         Ok(Some(FastPathKeyResult {
-            ordered_keys,
+            ordered_key_stream: Box::new(VecOrderedKeyStream::new(ordered_keys)),
             rows_scanned,
             fast_path_used: ExecutionFastPath::SecondaryIndex,
             pushdown_type: Some(ExecutionPushdownType::SecondaryOrder),

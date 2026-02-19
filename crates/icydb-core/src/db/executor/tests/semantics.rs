@@ -35,6 +35,39 @@ fn singleton_unit_key_insert_and_only_load_round_trip() {
 }
 
 #[test]
+fn load_by_ids_dedups_duplicate_input_ids() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    let id_a = Ulid::from_u128(1001);
+    let id_b = Ulid::from_u128(1002);
+    for id in [id_a, id_b] {
+        save.insert(SimpleEntity { id })
+            .expect("seed row save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .by_ids([id_a, id_a, id_b, id_a])
+        .plan()
+        .expect("by_ids plan should build");
+    let response = load.execute(plan).expect("by_ids load should succeed");
+
+    let mut ids: Vec<Ulid> = response
+        .0
+        .into_iter()
+        .map(|(_, entity)| entity.id)
+        .collect();
+    ids.sort();
+    assert_eq!(
+        ids,
+        vec![id_a, id_b],
+        "duplicate by_ids entries should not emit duplicate rows"
+    );
+}
+
+#[test]
 fn delete_applies_order_and_delete_limit() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();

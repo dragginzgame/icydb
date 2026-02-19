@@ -2,7 +2,10 @@ use crate::{
     db::{
         Context,
         data::DataKey,
-        executor::load::{ExecutionFastPath, FastPathKeyResult, LoadExecutor},
+        executor::{
+            VecOrderedKeyStream,
+            load::{ExecutionFastPath, FastPathKeyResult, LoadExecutor},
+        },
         query::plan::{AccessPath, Direction, LogicalPlan, OrderDirection},
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -51,7 +54,7 @@ where
         let stream_direction = Self::pk_stream_direction(plan);
         if Self::pk_scan_range_is_empty(config.range_start_key, config.range_end_key) {
             return Ok(Some(FastPathKeyResult {
-                ordered_keys: Vec::new(),
+                ordered_key_stream: Box::new(VecOrderedKeyStream::new(Vec::new())),
                 rows_scanned: 0,
                 fast_path_used: ExecutionFastPath::PrimaryKey,
                 pushdown_type: None,
@@ -62,7 +65,7 @@ where
         let scan = Self::scan_pk_stream_keys(ctx, &config, stream_direction)?;
 
         Ok(Some(FastPathKeyResult {
-            ordered_keys: scan.keys,
+            ordered_key_stream: Box::new(VecOrderedKeyStream::new(scan.keys)),
             rows_scanned: scan.rows_scanned,
             fast_path_used: ExecutionFastPath::PrimaryKey,
             pushdown_type: None,

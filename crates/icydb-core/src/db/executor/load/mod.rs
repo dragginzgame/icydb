@@ -5,8 +5,8 @@ mod secondary_index;
 use crate::{
     db::{
         Context, Db,
-        data::DataKey,
         executor::plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
+        executor::{OrderedKeyStream, OrderedKeyStreamBox},
         index::{IndexKey, RawIndexKey},
         query::plan::{
             AccessPlan, AccessPlanProjection, ContinuationSignature, ContinuationToken,
@@ -202,7 +202,7 @@ const fn execution_order_direction(direction: Direction) -> OrderDirection {
 /// Carries ordered keys plus observability metadata for shared execution phases.
 ///
 struct FastPathKeyResult {
-    ordered_keys: Vec<DataKey>,
+    ordered_key_stream: OrderedKeyStreamBox,
     rows_scanned: usize,
     fast_path_used: ExecutionFastPath,
     pushdown_type: Option<ExecutionPushdownType>,
@@ -300,23 +300,19 @@ where
                 return Ok(page);
             }
 
-            let data_rows = ctx.rows_from_access_plan_with_index_range_anchor(
+            let mut key_stream = ctx.ordered_key_stream_from_access_plan_with_index_range_anchor(
                 &plan.access,
-                plan.consistency,
                 index_range_anchor.as_ref(),
                 direction,
             )?;
-            let keys_scanned = data_rows.len();
-
-            let mut rows = Context::deserialize_rows(data_rows)?;
-            let page = Self::finalize_rows_into_page(
+            let (page, keys_scanned, post_access_rows) = Self::materialize_key_stream_into_page(
+                &ctx,
                 &plan,
-                &mut rows,
+                key_stream.as_mut(),
                 cursor_boundary.as_ref(),
                 direction,
                 continuation_signature,
             )?;
-            let post_access_rows = page.items.0.len();
             Self::finalize_path_outcome(
                 &mut execution_trace,
                 None,
@@ -356,16 +352,17 @@ where
         }
     }
 
-    // Run the shared load phases for an already-produced ordered key list.
-    fn materialize_keys_into_page(
+    // Run the shared load phases for an already-produced ordered key stream.
+    fn materialize_key_stream_into_page(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
-        ordered_keys: &[DataKey],
+        key_stream: &mut dyn OrderedKeyStream,
         cursor_boundary: Option<&CursorBoundary>,
         direction: Direction,
         continuation_signature: ContinuationSignature,
-    ) -> Result<(CursorPage<E>, usize), InternalError> {
-        let data_rows = ctx.rows_from_ordered_data_keys(ordered_keys, plan.consistency)?;
+    ) -> Result<(CursorPage<E>, usize, usize), InternalError> {
+        let data_rows = ctx.rows_from_ordered_key_stream(key_stream, plan.consistency)?;
+        let rows_scanned = data_rows.len();
         let mut rows = Context::deserialize_rows(data_rows)?;
         let page = Self::finalize_rows_into_page(
             plan,
@@ -376,7 +373,7 @@ where
         )?;
         let post_access_rows = page.items.0.len();
 
-        Ok((page, post_access_rows))
+        Ok((page, rows_scanned, post_access_rows))
     }
 
     // Preserve PK fast-path cursor-boundary error classification at the executor boundary.
@@ -436,11 +433,11 @@ where
     ) -> Result<Option<CursorPage<E>>, InternalError> {
         Self::validate_pk_fast_path_boundary_if_applicable(plan, cursor_boundary)?;
 
-        if let Some(fast) = Self::try_execute_pk_order_stream(ctx, plan)? {
-            let (page, post_access_rows) = Self::materialize_keys_into_page(
+        if let Some(mut fast) = Self::try_execute_pk_order_stream(ctx, plan)? {
+            let (page, _, post_access_rows) = Self::materialize_key_stream_into_page(
                 ctx,
                 plan,
-                &fast.ordered_keys,
+                fast.ordered_key_stream.as_mut(),
                 cursor_boundary,
                 direction,
                 continuation_signature,
@@ -456,15 +453,15 @@ where
             return Ok(Some(page));
         }
 
-        if let Some(fast) = Self::try_execute_secondary_index_order_stream(
+        if let Some(mut fast) = Self::try_execute_secondary_index_order_stream(
             ctx,
             plan,
             secondary_pushdown_applicability,
         )? {
-            let (page, post_access_rows) = Self::materialize_keys_into_page(
+            let (page, _, post_access_rows) = Self::materialize_key_stream_into_page(
                 ctx,
                 plan,
-                &fast.ordered_keys,
+                fast.ordered_key_stream.as_mut(),
                 cursor_boundary,
                 direction,
                 continuation_signature,
@@ -482,17 +479,17 @@ where
 
         let index_range_limit_fetch =
             Self::index_range_limit_pushdown_fetch(plan, cursor_boundary, index_range_anchor);
-        if let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
+        if let Some(mut fast) = Self::try_execute_index_range_limit_pushdown_stream(
             ctx,
             plan,
             index_range_anchor,
             direction,
             index_range_limit_fetch,
         )? {
-            let (page, post_access_rows) = Self::materialize_keys_into_page(
+            let (page, _, post_access_rows) = Self::materialize_key_stream_into_page(
                 ctx,
                 plan,
-                &fast.ordered_keys,
+                fast.ordered_key_stream.as_mut(),
                 cursor_boundary,
                 direction,
                 continuation_signature,

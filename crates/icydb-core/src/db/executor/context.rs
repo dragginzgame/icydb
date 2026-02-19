@@ -3,7 +3,7 @@ use crate::{
         Db,
         data::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
         entity_decode::{decode_and_validate_entity_key, format_entity_key_for_mismatch},
-        executor::ExecutorError,
+        executor::{ExecutorError, OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream},
         index::RawIndexKey,
         query::{
             ReadConsistency,
@@ -76,39 +76,26 @@ where
     // Access path analysis
     // ------------------------------------------------------------------
 
-    pub(crate) fn candidates_from_access(
+    pub(crate) fn ordered_key_stream_from_access(
         &self,
         access: &AccessPath<E::Key>,
-    ) -> Result<Vec<DataKey>, InternalError>
+    ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind,
     {
-        self.candidates_from_access_with_index_range_anchor(access, None, Direction::Asc)
+        self.ordered_key_stream_from_access_with_index_range_anchor(access, None, Direction::Asc)
     }
 
-    pub(crate) fn candidates_from_access_with_index_range_anchor(
+    pub(crate) fn ordered_key_stream_from_access_with_index_range_anchor(
         &self,
         access: &AccessPath<E::Key>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
-    ) -> Result<Vec<DataKey>, InternalError>
+    ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind,
     {
-        access.execute_candidate_keys(self, index_range_anchor, direction)
-    }
-
-    pub(crate) fn rows_from_access_with_index_range_anchor(
-        &self,
-        access: &AccessPath<E::Key>,
-        consistency: ReadConsistency,
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-    ) -> Result<Vec<DataRow>, InternalError>
-    where
-        E: EntityKind,
-    {
-        access.execute(self, consistency, index_range_anchor, direction)
+        access.produce_key_stream(self, index_range_anchor, direction)
     }
 
     pub(crate) fn rows_from_access_plan(
@@ -127,6 +114,18 @@ where
         )
     }
 
+    pub(crate) fn ordered_key_stream_from_access_plan_with_index_range_anchor(
+        &self,
+        access: &AccessPlan<E::Key>,
+        index_range_anchor: Option<&RawIndexKey>,
+        direction: Direction,
+    ) -> Result<OrderedKeyStreamBox, InternalError>
+    where
+        E: EntityKind,
+    {
+        access.produce_key_stream(self, index_range_anchor, direction)
+    }
+
     pub(crate) fn rows_from_access_plan_with_index_range_anchor(
         &self,
         access: &AccessPlan<E::Key>,
@@ -137,16 +136,24 @@ where
     where
         E: EntityKind,
     {
-        access.execute_rows(self, consistency, index_range_anchor, direction)
+        let mut key_stream = self.ordered_key_stream_from_access_plan_with_index_range_anchor(
+            access,
+            index_range_anchor,
+            direction,
+        )?;
+
+        self.rows_from_ordered_key_stream(key_stream.as_mut(), consistency)
     }
 
-    // Load rows for a pre-ordered key list while preserving input order.
-    pub(crate) fn rows_from_ordered_data_keys(
+    // Load rows for an ordered key stream by preserving the stream order.
+    pub(crate) fn rows_from_ordered_key_stream(
         &self,
-        keys: &[DataKey],
+        key_stream: &mut dyn OrderedKeyStream,
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError> {
-        self.load_many_with_consistency(keys, consistency)
+        let keys = Self::collect_ordered_keys(key_stream)?;
+
+        self.load_many_with_consistency(&keys, consistency)
     }
 
     // ------------------------------------------------------------------
@@ -164,6 +171,17 @@ where
         let mut set = BTreeSet::new();
         set.extend(keys);
         set.into_iter().collect()
+    }
+
+    fn collect_ordered_keys(
+        key_stream: &mut dyn OrderedKeyStream,
+    ) -> Result<Vec<DataKey>, InternalError> {
+        let mut keys = Vec::new();
+        while let Some(key) = key_stream.next_key()? {
+            keys.push(key);
+        }
+
+        Ok(keys)
     }
 
     fn load_many_with_consistency(
@@ -185,19 +203,6 @@ where
             }
         }
         Ok(out)
-    }
-
-    fn load_range(&self, start: DataKey, end: DataKey) -> Result<Vec<DataRow>, InternalError> {
-        self.with_store(|s| {
-            let start_raw = start.to_raw()?;
-            let end_raw = end.to_raw()?;
-            s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                .map(|e| {
-                    let dk = Self::decode_data_key(e.key())?;
-                    Ok((dk, e.value()))
-                })
-                .collect::<Result<Vec<_>, InternalError>>()
-        })?
     }
 
     fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
@@ -241,28 +246,28 @@ where
 }
 
 impl<K> AccessPlan<K> {
-    // Execute this plan into materialized rows for the bound entity context.
-    fn execute_rows<E>(
+    // Build an ordered key stream for this access plan.
+    fn produce_key_stream<E>(
         &self,
         ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
-    ) -> Result<Vec<DataRow>, InternalError>
+    ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
+        K: Copy,
     {
         match self {
-            Self::Path(path) => ctx.rows_from_access_with_index_range_anchor(
+            Self::Path(path) => ctx.ordered_key_stream_from_access_with_index_range_anchor(
                 path,
-                consistency,
                 index_range_anchor,
                 direction,
             ),
             Self::Union(_) | Self::Intersection(_) => {
                 let keys = self.collect_candidate_keys(ctx)?;
-                ctx.load_many_with_consistency(&keys.into_iter().collect::<Vec<_>>(), consistency)
+                Ok(Box::new(VecOrderedKeyStream::new(
+                    keys.into_iter().collect(),
+                )))
             }
         }
     }
@@ -278,7 +283,9 @@ impl<K> AccessPlan<K> {
     {
         match self {
             Self::Path(path) => {
-                let keys = ctx.candidates_from_access(path)?;
+                let mut key_stream = ctx.ordered_key_stream_from_access(path)?;
+                let keys = Context::<E>::collect_ordered_keys(key_stream.as_mut())?;
+
                 Ok(keys.into_iter().collect())
             }
             Self::Union(children) => {
@@ -310,22 +317,21 @@ impl<K> AccessPlan<K> {
 }
 
 impl<K> AccessPath<K> {
-    /// Execute this path as a candidate-key lookup for the bound entity context.
-    fn execute_candidate_keys<E>(
+    /// Build an ordered key stream for this access path.
+    fn produce_key_stream<E>(
         &self,
         ctx: &Context<'_, E>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
-    ) -> Result<Vec<DataKey>, InternalError>
+    ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
-        K: Copy,
+        K: Copy + Ord,
     {
         let mut candidates = match self {
             Self::ByKey(key) => vec![Context::<E>::data_key_from_key(*key)?],
-            Self::ByKeys(keys) => keys
-                .iter()
-                .copied()
+            Self::ByKeys(keys) => Context::<E>::dedup_keys(keys.clone())
+                .into_iter()
                 .map(Context::<E>::data_key_from_key)
                 .collect::<Result<Vec<_>, _>>()?,
             Self::KeyRange { start, end } => ctx.with_store(|s| {
@@ -380,55 +386,6 @@ impl<K> AccessPath<K> {
             candidates.sort_unstable();
         }
 
-        Ok(candidates)
-    }
-
-    /// Execute this path into materialized rows for the bound entity context.
-    fn execute<E>(
-        &self,
-        ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-    ) -> Result<Vec<DataRow>, InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
-    {
-        match self {
-            Self::ByKey(key) => {
-                let keys = vec![Context::<E>::data_key_from_key(*key)?];
-                ctx.load_many_with_consistency(&keys, consistency)
-            }
-            Self::ByKeys(keys) => {
-                let keys = Context::<E>::dedup_keys(keys.clone())
-                    .into_iter()
-                    .map(Context::<E>::data_key_from_key)
-                    .collect::<Result<Vec<_>, _>>()?;
-                ctx.load_many_with_consistency(&keys, consistency)
-            }
-            Self::KeyRange { start, end } => {
-                let start = Context::<E>::data_key_from_key(*start)?;
-                let end = Context::<E>::data_key_from_key(*end)?;
-                ctx.load_range(start, end)
-            }
-            Self::FullScan => ctx.with_store(|s| {
-                let start = DataKey::lower_bound::<E>();
-                let end = DataKey::upper_bound::<E>();
-                let start_raw = start.to_raw()?;
-                let end_raw = end.to_raw()?;
-
-                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                    .map(|e| {
-                        let dk = Context::<E>::decode_data_key(e.key())?;
-                        Ok((dk, e.value()))
-                    })
-                    .collect::<Result<Vec<_>, InternalError>>()
-            })?,
-            Self::IndexPrefix { .. } | Self::IndexRange { .. } => {
-                let keys = self.execute_candidate_keys(ctx, index_range_anchor, direction)?;
-                ctx.load_many_with_consistency(&keys, consistency)
-            }
-        }
+        Ok(Box::new(VecOrderedKeyStream::new(candidates)))
     }
 }
