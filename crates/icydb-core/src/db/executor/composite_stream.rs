@@ -31,6 +31,7 @@ impl<K> AccessPlan<K> {
                 index_range_anchor,
                 direction,
                 key_comparator,
+                None,
             )?);
         }
 
@@ -79,6 +80,7 @@ impl<K> AccessPlan<K> {
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
         key_comparator: KeyOrderComparator,
+        physical_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
@@ -89,6 +91,7 @@ impl<K> AccessPlan<K> {
                 path,
                 index_range_anchor,
                 direction,
+                physical_fetch_hint,
             ),
             Self::Union(children) => Self::produce_union_key_stream(
                 ctx,

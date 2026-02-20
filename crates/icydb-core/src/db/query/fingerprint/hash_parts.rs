@@ -297,7 +297,7 @@ const fn order_direction_tag(direction: OrderDirection) -> u8 {
 /// Hashing profiles that select canonical explain-surface fields.
 ///
 
-pub(super) enum ExplainHashProfile<'a> {
+pub(in crate::db::query) enum ExplainHashProfile<'a> {
     FingerprintV2,
     ContinuationV1 { entity_path: &'a str },
 }
@@ -432,7 +432,7 @@ fn hash_explain_field(
 }
 
 /// Hash an `ExplainPlan` using a profile-specific canonical field set.
-pub(super) fn hash_explain_plan_profile(
+pub(in crate::db::query) fn hash_explain_plan_profile(
     hasher: &mut Sha256,
     plan: &ExplainPlan,
     profile: ExplainHashProfile<'_>,

@@ -20,7 +20,7 @@ fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> PlanError {
 }
 
 // Validate optional index-range cursor anchor against the planned access envelope.
-pub(in crate::db::query::plan) fn validate_index_range_anchor<E: EntityKind>(
+pub(in crate::db::query) fn validate_index_range_anchor<E: EntityKind>(
     anchor: Option<&IndexRangeCursorAnchor>,
     access: Option<&AccessPath<E::Key>>,
     direction: Direction,
@@ -99,9 +99,7 @@ pub(in crate::db::query::plan) fn validate_index_range_anchor<E: EntityKind>(
 }
 
 // Enforce that boundary and raw anchor identify the same ordered row position.
-pub(in crate::db::query::plan) fn validate_index_range_boundary_anchor_consistency<
-    K: FieldValue,
->(
+pub(in crate::db::query) fn validate_index_range_boundary_anchor_consistency<K: FieldValue>(
     anchor: Option<&IndexRangeCursorAnchor>,
     access: Option<&AccessPath<K>>,
     boundary_pk_key: K,

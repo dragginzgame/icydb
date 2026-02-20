@@ -11,8 +11,10 @@
 //! If an ordering decision appears to imply semantic preference, it does not
 //! belong in this module.
 
-use super::types::{AccessPath, AccessPlan};
-use crate::value::Value;
+use crate::{
+    db::query::plan::{AccessPath, AccessPlan},
+    value::Value,
+};
 use std::cmp::Ordering;
 use std::ops::Bound;
 

@@ -1,14 +1,7 @@
 //! Plan module wiring; must not implement planning or validation logic.
 
 mod access_projection;
-pub(crate) mod canonical;
-pub(crate) mod continuation;
-mod cursor_anchor;
-mod cursor_spine;
 pub(crate) mod executable;
-pub(crate) mod explain;
-pub(crate) mod fingerprint;
-mod hash_parts;
 pub(crate) mod logical;
 pub(crate) mod planner;
 #[cfg(test)]
@@ -16,7 +9,14 @@ mod tests;
 mod types;
 pub(crate) mod validate;
 
-pub(crate) use crate::db::index::Direction;
+pub(crate) use crate::db::{
+    index::Direction,
+    query::{
+        cursor::{continuation, cursor_anchor, cursor_spine},
+        explain,
+        fingerprint::{canonical, fingerprint, hash_parts},
+    },
+};
 pub(crate) use access_projection::{
     AccessPlanProjection, project_access_plan, project_explain_access_path,
 };
@@ -45,7 +45,3 @@ pub(crate) use types::{
 };
 pub use validate::PlanError;
 pub(crate) use validate::{AccessPlanError, CursorPlanError, OrderPlanError};
-
-pub(super) fn encode_plan_hex(bytes: &[u8]) -> String {
-    crate::db::cursor::encode_cursor(bytes)
-}

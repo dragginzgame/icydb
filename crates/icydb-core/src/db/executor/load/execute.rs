@@ -78,6 +78,7 @@ where
                         inputs.index_range_anchor,
                         inputs.direction,
                         super::key_stream_comparator_from_plan(inputs.plan, inputs.direction),
+                        fast_path_plan.probe_fetch_hint,
                     )?;
 
                 ResolvedExecutionKeyStream {

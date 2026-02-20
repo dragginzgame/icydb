@@ -81,11 +81,12 @@ where
         access: &AccessPath<E::Key>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
+        physical_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind,
     {
-        access.resolve_physical_key_stream(self, index_range_anchor, direction)
+        access.resolve_physical_key_stream(self, index_range_anchor, direction, physical_fetch_hint)
     }
 
     pub(crate) fn rows_from_access_plan(
@@ -110,11 +111,18 @@ where
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
         key_comparator: KeyOrderComparator,
+        physical_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind,
     {
-        access.produce_key_stream(self, index_range_anchor, direction, key_comparator)
+        access.produce_key_stream(
+            self,
+            index_range_anchor,
+            direction,
+            key_comparator,
+            physical_fetch_hint,
+        )
     }
 
     pub(crate) fn rows_from_access_plan_with_index_range_anchor(
@@ -132,6 +140,7 @@ where
             index_range_anchor,
             direction,
             KeyOrderComparator::from_direction(direction),
+            None,
         )?;
 
         self.rows_from_ordered_key_stream(key_stream.as_mut(), consistency)

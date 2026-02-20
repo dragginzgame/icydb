@@ -9,7 +9,10 @@ use crate::{
         },
         query::{
             ReadConsistency,
-            plan::{Direction, ExecutablePlan, LogicalPlan, validate::validate_executor_plan},
+            plan::{
+                AccessPath, AccessPlan, Direction, ExecutablePlan, LogicalPlan,
+                validate::validate_executor_plan,
+            },
         },
         response::Response,
     },
@@ -143,64 +146,135 @@ where
 
     // Execute one aggregate terminal. Use streaming fold for conservative-safe
     // plan shapes, otherwise fall back to canonical materialized execution.
+    //
+    // IMPORTANT:
+    // - Streaming eligibility must remain aligned with load fast-path routing.
+    // - COUNT pushdown (0.22.1+) must remain a strict subset of streaming safety.
+    // - This function must reuse the same key-stream construction path as `execute()`
+    //   to preserve ordering, DISTINCT, and pagination semantics.
     fn execute_aggregate(
         &self,
         plan: ExecutablePlan<E>,
         kind: AggregateKind,
     ) -> Result<AggregateOutput<E>, InternalError> {
         // COUNT pushdown must remain a strict subset of streaming eligibility.
-        // Keep this gate in one place so 0.22.1 does not fork safety logic.
+        // Keep this gate centralized so future optimizations do not fork safety logic.
         if matches!(kind, AggregateKind::Count)
             && Self::is_count_pushdown_shape_supported(plan.as_inner())
         {
-            // 0.22.1: COUNT pushdown implementation hooks in here.
+            return self.execute_count_pushdown(plan);
         }
 
+        // If the logical plan requires post-access filtering, sorting,
+        // or any non-stream-safe phase, fall back to canonical execution.
+        // This preserves exact parity with materialized load semantics.
         if !Self::is_streaming_aggregate_shape_supported(plan.as_inner()) {
             let response = self.execute(plan)?;
-
             return Ok(Self::aggregate_from_materialized(response, kind));
         }
 
+        // EXISTS may provide a bounded probe hint (offset + 1) so eligible
+        // fast-paths can avoid over-producing candidates.
+        // This is only valid under streaming-safe shapes.
         let exists_probe_fetch_hint = Self::exists_probe_fetch_hint(plan.as_inner(), kind);
+
+        // Direction must be captured before consuming the ExecutablePlan.
+        // After `into_inner()`, we operate purely on LogicalPlan.
         let direction = plan.direction();
-        (|| {
-            let logical_plan = plan.into_inner();
 
-            validate_executor_plan::<E>(&logical_plan)?;
-            let ctx = self.db.recovered_context::<E>()?;
+        // Move into the underlying logical plan.
+        // After this point, `plan` is consumed.
+        let logical_plan = plan.into_inner();
 
-            // Reuse canonical load routing/stream construction path.
-            record_plan_metrics(&logical_plan.access);
-            if exists_probe_fetch_hint == Some(0) {
-                record_rows_scanned::<E>(0);
+        // Re-validate executor invariants at the logical boundary.
+        validate_executor_plan::<E>(&logical_plan)?;
 
-                return Ok(AggregateOutput::Exists(false));
-            }
+        // Obtain recovered execution context (read-consistency aware).
+        let ctx = self.db.recovered_context::<E>()?;
 
-            let execution_inputs = ExecutionInputs {
-                ctx: &ctx,
-                plan: &logical_plan,
-                index_range_anchor: None,
-                direction,
-            };
-            let fast_path_plan =
-                Self::build_fast_path_plan(&logical_plan, None, None, exists_probe_fetch_hint)?;
-            let mut resolved =
-                Self::resolve_execution_key_stream(&execution_inputs, &fast_path_plan)?;
-            let (aggregate_output, keys_scanned) = Self::fold_existing_rows(
-                &ctx,
-                &logical_plan,
-                logical_plan.consistency,
-                direction,
-                resolved.key_stream.as_mut(),
-                kind,
-            )?;
-            let rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
-            record_rows_scanned::<E>(rows_scanned);
+        // Record plan-level metrics before execution begins.
+        // This mirrors the load execution path.
+        record_plan_metrics(&logical_plan.access);
 
-            Ok(aggregate_output)
-        })()
+        // Fast exit: EXISTS with effective limit == 0 can return false
+        // without constructing or scanning any key stream.
+        if exists_probe_fetch_hint == Some(0) {
+            record_rows_scanned::<E>(0);
+            return Ok(AggregateOutput::Exists(false));
+        }
+
+        // Build canonical execution inputs. This must match the load executor
+        // path exactly to preserve ordering and DISTINCT behavior.
+        let execution_inputs = ExecutionInputs {
+            ctx: &ctx,
+            plan: &logical_plan,
+            index_range_anchor: None,
+            direction,
+        };
+
+        // Fast-path planning must be identical to load execution so aggregate
+        // folding sees the exact same ordered key stream.
+        let fast_path_plan =
+            Self::build_fast_path_plan(&logical_plan, None, None, exists_probe_fetch_hint)?;
+
+        // Resolve the ordered key stream using canonical routing logic.
+        let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, &fast_path_plan)?;
+
+        // Fold only over rows that actually exist (respecting read consistency)
+        // and apply pagination window semantics during folding.
+        let (aggregate_output, keys_scanned) = Self::fold_existing_rows(
+            &ctx,
+            &logical_plan,
+            logical_plan.consistency,
+            direction,
+            resolved.key_stream.as_mut(),
+            kind,
+        )?;
+
+        // Preserve row-scan metrics semantics.
+        // If a fast-path overrides scan accounting, honor it.
+        let rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
+        record_rows_scanned::<E>(rows_scanned);
+
+        Ok(aggregate_output)
+    }
+
+    // Execute COUNT through the canonical key-stream resolver and count emitted
+    // keys directly for access shapes that guarantee key->row existence parity.
+    fn execute_count_pushdown(
+        &self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        // Direction must be captured before consuming the executable wrapper.
+        let direction = plan.direction();
+        let logical_plan = plan.into_inner();
+
+        // Phase 1: validate and recover context at the same boundary as load.
+        validate_executor_plan::<E>(&logical_plan)?;
+        let ctx = self.db.recovered_context::<E>()?;
+
+        // Phase 2: resolve keys through the same fast-path/fallback router.
+        record_plan_metrics(&logical_plan.access);
+        let execution_inputs = ExecutionInputs {
+            ctx: &ctx,
+            plan: &logical_plan,
+            index_range_anchor: None,
+            direction,
+        };
+        let count_fetch_hint = Self::count_pushdown_fetch_hint(&logical_plan);
+        let fast_path_plan =
+            Self::build_fast_path_plan(&logical_plan, None, None, count_fetch_hint)?;
+        let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, &fast_path_plan)?;
+
+        // Phase 3: count keys in the effective window without per-key row reads.
+        let (count, keys_scanned) = Self::count_emitted_keys(
+            resolved.key_stream.as_mut(),
+            AggregateWindowState::from_plan(&logical_plan),
+        )?;
+        let rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
+        record_rows_scanned::<E>(rows_scanned);
+
+        Ok(AggregateOutput::Count(count))
     }
 
     // EXISTS probe mode can request an internal fetch hint so eligible
@@ -214,6 +288,13 @@ where
         }
 
         let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
+        // Keep probe-hint semantics explicit: DISTINCT with a positive offset
+        // can shrink raw-key windows before offset consumption.
+        // Disable bounded probing for that shape so future path changes
+        // cannot silently under-produce EXISTS windows.
+        if plan.distinct && offset > 0 {
+            return None;
+        }
 
         Some(offset.saturating_add(1))
     }
@@ -231,7 +312,57 @@ where
             return false;
         }
 
-        false
+        Self::count_pushdown_access_shape_supported(&plan.access)
+    }
+
+    // COUNT pushdown requires key streams backed by rows in the primary data
+    // store. Keep this intentionally narrow.
+    fn count_pushdown_access_shape_supported(access: &AccessPlan<E::Key>) -> bool {
+        match access {
+            AccessPlan::Path(path) => Self::count_pushdown_path_shape_supported(path),
+            AccessPlan::Union(children) | AccessPlan::Intersection(children) => children
+                .iter()
+                .all(Self::count_pushdown_access_shape_supported),
+        }
+    }
+
+    // Single-path safety rule for COUNT pushdown.
+    const fn count_pushdown_path_shape_supported(path: &AccessPath<E::Key>) -> bool {
+        matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. })
+    }
+
+    // Optional bounded fetch hint for COUNT windowing.
+    // When limit exists, we only need (offset + limit) keys.
+    fn count_pushdown_fetch_hint(plan: &LogicalPlan<E::Key>) -> Option<usize> {
+        let page = plan.page.as_ref()?;
+        let limit = page.limit?;
+        let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+
+        Some(offset.saturating_add(limit))
+    }
+
+    // Count keys emitted in the effective page window without row validation.
+    fn count_emitted_keys(
+        key_stream: &mut dyn OrderedKeyStream,
+        mut window: AggregateWindowState,
+    ) -> Result<(u32, usize), InternalError> {
+        let mut keys_scanned = 0usize;
+        let mut count = 0u32;
+
+        while !window.exhausted() {
+            let Some(_key) = key_stream.next_key()? else {
+                break;
+            };
+            keys_scanned = keys_scanned.saturating_add(1);
+            if !window.accept_existing_row() {
+                continue;
+            }
+
+            count = count.saturating_add(1);
+        }
+
+        Ok((count, keys_scanned))
     }
 
     fn aggregate_from_materialized(

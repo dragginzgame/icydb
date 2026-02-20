@@ -5,6 +5,30 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.22.1] – 2026-02-20 - Aggregate Count Pushdown
+
+### 📝 Summary
+
+* Improved `count()` performance for safe query shapes by counting directly from the resolved key stream.
+
+```rust
+let total = session.load::<MyEntity>().order_by("id").offset(10).limit(25).count()?;
+```
+
+### 🔧 Changed
+
+* Added a conservative `count` pushdown path that reuses the same key-stream routing as normal loads.
+* Kept pushdown eligibility intentionally narrow (`FullScan` / `KeyRange`, including composite combinations) to preserve behavior.
+* Added bounded fetch hints for paged `count()` windows so eligible paths can stop earlier.
+* Threaded probe fetch hints into fallback physical key resolution for safe primary-data scan paths, so `exists()` can short-circuit even without a fast path.
+* Added a defensive guard that disables `exists()` probe capping for `distinct + offset` shapes, making that invariant explicit and future-proof.
+
+### 🧹 Cleanup
+
+* Kept the shared safety gate as the single decision point so load and aggregate rules do not drift.
+
+---
+
 ## [0.22.0] – 2026-02-20 - Streaming Aggregates
 
 ### 📝 Summary
