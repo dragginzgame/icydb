@@ -3305,6 +3305,212 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
 }
 
 #[test]
+fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination() {
+    setup_pagination_test();
+
+    let rows = [
+        (39_001, 7, 10, "g7-r10"),
+        (39_002, 7, 20, "g7-r20-a"),
+        (39_003, 7, 20, "g7-r20-b"),
+        (39_004, 7, 30, "g7-r30"),
+        (39_005, 8, 15, "g8-r15"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(39_001);
+    let id2 = Ulid::from_u128(39_002);
+    let id3 = Ulid::from_u128(39_003);
+    let id4 = Ulid::from_u128(39_004);
+    let id5 = Ulid::from_u128(39_005);
+
+    let build_plan = || {
+        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id5])),
+            ]),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![
+                    ("rank".to_string(), OrderDirection::Desc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        })
+    };
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let (ids, boundaries) = collect_all_pages_from_executable_plan(&load, build_plan, 10);
+
+    assert_eq!(
+        ids,
+        vec![id4, id2, id3, id5, id1],
+        "mixed-direction union fallback should preserve rank DESC with PK ASC tie-break across pages",
+    );
+    assert_eq!(
+        boundaries.len(),
+        2,
+        "limit=2 over five rows should emit exactly two continuation boundaries"
+    );
+}
+
+#[test]
+fn load_mixed_direction_resume_matrix_is_boundary_complete() {
+    setup_pagination_test();
+
+    let rows = [
+        (39_101, 7, 10, "g7-r10"),
+        (39_102, 7, 20, "g7-r20-a"),
+        (39_103, 7, 20, "g7-r20-b"),
+        (39_104, 7, 30, "g7-r30-a"),
+        (39_105, 7, 30, "g7-r30-b"),
+        (39_106, 7, 40, "g7-r40"),
+        (39_107, 8, 20, "g8-r20"),
+        (39_108, 8, 30, "g8-r30"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(39_101);
+    let id2 = Ulid::from_u128(39_102);
+    let id3 = Ulid::from_u128(39_103);
+    let id4 = Ulid::from_u128(39_104);
+    let id5 = Ulid::from_u128(39_105);
+    let id6 = Ulid::from_u128(39_106);
+    let id7 = Ulid::from_u128(39_107);
+    let id8 = Ulid::from_u128(39_108);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let assert_resume_case = |case_name: &'static str,
+                              filter_group: Option<u32>,
+                              group_desc: Option<bool>,
+                              rank_desc: bool,
+                              id_desc: bool,
+                              expected_ids: Vec<Ulid>| {
+        let order_query = |limit: u32| {
+            let mut query =
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk).limit(limit);
+
+            if let Some(group) = filter_group {
+                query = query.filter(pushdown_group_predicate(group));
+            }
+
+            if let Some(desc) = group_desc {
+                query = if desc {
+                    query.order_by_desc("group")
+                } else {
+                    query.order_by("group")
+                };
+            }
+
+            query = if rank_desc {
+                query.order_by_desc("rank")
+            } else {
+                query.order_by("rank")
+            };
+
+            if id_desc {
+                query.order_by_desc("id")
+            } else {
+                query.order_by("id")
+            }
+        };
+
+        let base_plan = order_query(16)
+            .plan()
+            .expect("mixed-direction base plan should build");
+        let base_page = load
+            .execute_paged_with_cursor(base_plan, None)
+            .expect("mixed-direction base page should execute");
+        let base_ids = ids_from_items(&base_page.items.0);
+        assert_eq!(
+            base_ids, expected_ids,
+            "case '{case_name}' should preserve mixed-direction canonical ordering",
+        );
+
+        for idx in 0..base_page.items.0.len() {
+            let boundary_entity = &base_page.items.0[idx].1;
+            assert_resume_after_entity(
+                || order_query(16),
+                boundary_entity,
+                expected_ids[idx + 1..].to_vec(),
+            );
+        }
+
+        for limit in [1_u32, 2, 3] {
+            let (paged_ids, _) = collect_all_pages(&load, || order_query(limit), 20);
+            assert_eq!(
+                paged_ids, expected_ids,
+                "case '{case_name}' with limit={limit} paged traversal should match unbounded mixed-direction ordering",
+            );
+
+            let unique: BTreeSet<Ulid> = paged_ids.iter().copied().collect();
+            assert_eq!(
+                unique.len(),
+                paged_ids.len(),
+                "case '{case_name}' with limit={limit} mixed-direction pagination must not duplicate rows",
+            );
+        }
+    };
+
+    assert_resume_case(
+        "rank_desc_id_asc",
+        Some(7),
+        None,
+        true,
+        false,
+        vec![id6, id4, id5, id2, id3, id1],
+    );
+    assert_resume_case(
+        "rank_asc_id_desc",
+        Some(7),
+        None,
+        false,
+        true,
+        vec![id1, id3, id2, id5, id4, id6],
+    );
+    assert_resume_case(
+        "rank_desc_id_desc",
+        Some(7),
+        None,
+        true,
+        true,
+        vec![id6, id5, id4, id3, id2, id1],
+    );
+    assert_resume_case(
+        "rank_asc_id_asc",
+        Some(7),
+        None,
+        false,
+        false,
+        vec![id1, id2, id3, id4, id5, id6],
+    );
+    assert_resume_case(
+        "group_asc_rank_desc_id_asc",
+        None,
+        Some(false),
+        true,
+        false,
+        vec![id6, id4, id5, id2, id3, id1, id8, id7],
+    );
+    assert_resume_case(
+        "group_desc_rank_asc_id_desc",
+        None,
+        Some(true),
+        false,
+        true,
+        vec![id7, id8, id1, id3, id2, id5, id4, id6],
+    );
+}
+
+#[test]
 fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries() {
     setup_pagination_test();
 
@@ -3476,6 +3682,409 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
         boundaries_abc, boundaries_bca,
         "intersection child-plan order permutation must not change continuation boundaries"
     );
+}
+
+#[test]
+fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_direction() {
+    setup_pagination_test();
+
+    let rows = [
+        (40_001, 7, 30, "g7-r30-a"),
+        (40_002, 7, 20, "g7-r20-a"),
+        (40_003, 7, 20, "g7-r20-b"),
+        (40_004, 7, 10, "g7-r10"),
+        (40_005, 7, 30, "g7-r30-b"),
+        (40_006, 7, 40, "g7-r40"),
+        (40_007, 7, 20, "g7-r20-c"),
+        (40_008, 8, 15, "g8-r15"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(40_001);
+    let id2 = Ulid::from_u128(40_002);
+    let id3 = Ulid::from_u128(40_003);
+    let id4 = Ulid::from_u128(40_004);
+    let id5 = Ulid::from_u128(40_005);
+    let id6 = Ulid::from_u128(40_006);
+    let id7 = Ulid::from_u128(40_007);
+    let id8 = Ulid::from_u128(40_008);
+
+    let build_union_abc = || {
+        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id7, id8])),
+            ]),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![
+                    ("rank".to_string(), OrderDirection::Desc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        })
+    };
+    let build_union_cab = || {
+        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id7, id8])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6])),
+            ]),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![
+                    ("rank".to_string(), OrderDirection::Desc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        })
+    };
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let (ids_abc, boundaries_abc) =
+        collect_all_pages_from_executable_plan(&load, build_union_abc, 12);
+    let (ids_cab, boundaries_cab) =
+        collect_all_pages_from_executable_plan(&load, build_union_cab, 12);
+
+    assert_eq!(
+        ids_abc, ids_cab,
+        "mixed-direction union child-plan permutation must not change paged row sequence"
+    );
+    assert_eq!(
+        boundaries_abc, boundaries_cab,
+        "mixed-direction union child-plan permutation must not change continuation boundaries"
+    );
+}
+
+#[test]
+fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under_mixed_direction() {
+    setup_pagination_test();
+
+    let rows = [
+        (40_101, 7, 50, "g7-r50"),
+        (40_102, 7, 40, "g7-r40"),
+        (40_103, 7, 30, "g7-r30-a"),
+        (40_104, 7, 30, "g7-r30-b"),
+        (40_105, 7, 20, "g7-r20-a"),
+        (40_106, 7, 20, "g7-r20-b"),
+        (40_107, 7, 10, "g7-r10"),
+        (40_108, 8, 5, "g8-r5"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(40_101);
+    let id2 = Ulid::from_u128(40_102);
+    let id3 = Ulid::from_u128(40_103);
+    let id4 = Ulid::from_u128(40_104);
+    let id5 = Ulid::from_u128(40_105);
+    let id6 = Ulid::from_u128(40_106);
+    let id7 = Ulid::from_u128(40_107);
+    let id8 = Ulid::from_u128(40_108);
+
+    let build_intersection_abc = || {
+        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: AccessPlan::Intersection(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id8])),
+            ]),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![
+                    ("rank".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Desc),
+                ],
+            }),
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(1),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        })
+    };
+    let build_intersection_bca = || {
+        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: AccessPlan::Intersection(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id8])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
+            ]),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![
+                    ("rank".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Desc),
+                ],
+            }),
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(1),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        })
+    };
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let (ids_abc, boundaries_abc) =
+        collect_all_pages_from_executable_plan(&load, build_intersection_abc, 12);
+    let (ids_bca, boundaries_bca) =
+        collect_all_pages_from_executable_plan(&load, build_intersection_bca, 12);
+
+    assert_eq!(
+        ids_abc, ids_bca,
+        "mixed-direction intersection child-plan permutation must not change paged row sequence"
+    );
+    assert_eq!(
+        boundaries_abc, boundaries_bca,
+        "mixed-direction intersection child-plan permutation must not change continuation boundaries"
+    );
+}
+
+#[test]
+fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under_mixed_direction() {
+    setup_pagination_test();
+
+    let rows = [
+        (41_001, 7, 60, "g7-r60"),
+        (41_002, 7, 50, "g7-r50-a"),
+        (41_003, 7, 50, "g7-r50-b"),
+        (41_004, 7, 40, "g7-r40"),
+        (41_005, 7, 30, "g7-r30"),
+        (41_006, 7, 20, "g7-r20-a"),
+        (41_007, 7, 20, "g7-r20-b"),
+        (41_008, 8, 70, "g8-r70"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(41_001);
+    let id2 = Ulid::from_u128(41_002);
+    let id3 = Ulid::from_u128(41_003);
+    let id4 = Ulid::from_u128(41_004);
+    let id5 = Ulid::from_u128(41_005);
+    let id6 = Ulid::from_u128(41_006);
+    let id7 = Ulid::from_u128(41_007);
+    let id8 = Ulid::from_u128(41_008);
+
+    for (case_name, rank_direction, id_direction, limit) in [
+        (
+            "rank_desc_id_asc_limit1",
+            OrderDirection::Desc,
+            OrderDirection::Asc,
+            1,
+        ),
+        (
+            "rank_desc_id_asc_limit3",
+            OrderDirection::Desc,
+            OrderDirection::Asc,
+            3,
+        ),
+        (
+            "rank_asc_id_desc_limit2",
+            OrderDirection::Asc,
+            OrderDirection::Desc,
+            2,
+        ),
+    ] {
+        let build_union_abc = || {
+            ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                access: AccessPlan::Union(vec![
+                    AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4, id6])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6, id7])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id8])),
+                ]),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("rank".to_string(), rank_direction),
+                        ("id".to_string(), id_direction),
+                    ],
+                }),
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(limit),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            })
+        };
+        let build_union_cab = || {
+            ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                access: AccessPlan::Union(vec![
+                    AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id8])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4, id6])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6, id7])),
+                ]),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("rank".to_string(), rank_direction),
+                        ("id".to_string(), id_direction),
+                    ],
+                }),
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(limit),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            })
+        };
+
+        let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+        let (ids_abc, boundaries_abc) =
+            collect_all_pages_from_executable_plan(&load, build_union_abc, 20);
+        let (ids_cab, boundaries_cab) =
+            collect_all_pages_from_executable_plan(&load, build_union_cab, 20);
+
+        assert_eq!(
+            ids_abc, ids_cab,
+            "{case_name}: mixed-direction union child-plan permutation must not change paged row sequence"
+        );
+        assert_eq!(
+            boundaries_abc, boundaries_cab,
+            "{case_name}: mixed-direction union child-plan permutation must not change continuation boundaries"
+        );
+    }
+}
+
+#[test]
+fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundaries_under_mixed_direction()
+ {
+    setup_pagination_test();
+
+    let rows = [
+        (41_101, 7, 70, "g7-r70"),
+        (41_102, 7, 60, "g7-r60"),
+        (41_103, 7, 50, "g7-r50-a"),
+        (41_104, 7, 50, "g7-r50-b"),
+        (41_105, 7, 40, "g7-r40-a"),
+        (41_106, 7, 40, "g7-r40-b"),
+        (41_107, 7, 30, "g7-r30"),
+        (41_108, 7, 20, "g7-r20"),
+        (41_109, 8, 10, "g8-r10"),
+        (41_110, 8, 5, "g8-r5"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(41_101);
+    let id2 = Ulid::from_u128(41_102);
+    let id3 = Ulid::from_u128(41_103);
+    let id4 = Ulid::from_u128(41_104);
+    let id5 = Ulid::from_u128(41_105);
+    let id6 = Ulid::from_u128(41_106);
+    let id7 = Ulid::from_u128(41_107);
+    let id8 = Ulid::from_u128(41_108);
+    let id9 = Ulid::from_u128(41_109);
+    let id10 = Ulid::from_u128(41_110);
+
+    for (case_name, rank_direction, id_direction, limit) in [
+        (
+            "rank_desc_id_asc_limit1",
+            OrderDirection::Desc,
+            OrderDirection::Asc,
+            1,
+        ),
+        (
+            "rank_asc_id_desc_limit2",
+            OrderDirection::Asc,
+            OrderDirection::Desc,
+            2,
+        ),
+        (
+            "rank_asc_id_desc_limit3",
+            OrderDirection::Asc,
+            OrderDirection::Desc,
+            3,
+        ),
+    ] {
+        let build_intersection_abc = || {
+            ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                access: AccessPlan::Intersection(vec![
+                    AccessPlan::path(AccessPath::ByKeys(vec![
+                        id1, id2, id3, id4, id5, id6, id7, id8,
+                    ])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7, id9])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id7, id10])),
+                ]),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("rank".to_string(), rank_direction),
+                        ("id".to_string(), id_direction),
+                    ],
+                }),
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(limit),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            })
+        };
+        let build_intersection_bca = || {
+            ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                access: AccessPlan::Intersection(vec![
+                    AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7, id9])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id7, id10])),
+                    AccessPlan::path(AccessPath::ByKeys(vec![
+                        id1, id2, id3, id4, id5, id6, id7, id8,
+                    ])),
+                ]),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("rank".to_string(), rank_direction),
+                        ("id".to_string(), id_direction),
+                    ],
+                }),
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(limit),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            })
+        };
+
+        let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+        let (ids_abc, boundaries_abc) =
+            collect_all_pages_from_executable_plan(&load, build_intersection_abc, 20);
+        let (ids_bca, boundaries_bca) =
+            collect_all_pages_from_executable_plan(&load, build_intersection_bca, 20);
+
+        assert_eq!(
+            ids_abc, ids_bca,
+            "{case_name}: mixed-direction intersection child-plan permutation must not change paged row sequence"
+        );
+        assert_eq!(
+            boundaries_abc, boundaries_bca,
+            "{case_name}: mixed-direction intersection child-plan permutation must not change continuation boundaries"
+        );
+    }
 }
 
 #[test]

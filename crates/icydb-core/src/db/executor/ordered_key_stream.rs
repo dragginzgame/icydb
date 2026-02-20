@@ -2,6 +2,7 @@ use crate::{
     db::{data::DataKey, query::plan::Direction},
     error::InternalError,
 };
+use std::cmp::Ordering;
 
 ///
 /// OrderedKeyStream
@@ -105,17 +106,40 @@ where
     }
 }
 
+///
+/// KeyOrderComparator
+///
+/// Comparator wrapper for ordered key stream monotonicity and merge decisions.
+/// This keeps stream combinators comparator-driven instead of directly branching
+/// on traversal direction at each call site.
+///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum MergeDirection {
-    Asc,
-    Desc,
+pub(crate) struct KeyOrderComparator {
+    direction: Direction,
 }
 
-impl MergeDirection {
-    const fn from_direction(direction: Direction) -> Self {
-        match direction {
-            Direction::Asc => Self::Asc,
-            Direction::Desc => Self::Desc,
+impl KeyOrderComparator {
+    #[must_use]
+    pub(crate) const fn from_direction(direction: Direction) -> Self {
+        Self { direction }
+    }
+
+    fn compare(self, left: &DataKey, right: &DataKey) -> Ordering {
+        match self.direction {
+            Direction::Asc => left.cmp(right),
+            Direction::Desc => right.cmp(left),
+        }
+    }
+
+    fn violates_monotonicity(self, previous: &DataKey, current: &DataKey) -> bool {
+        self.compare(previous, current).is_gt()
+    }
+
+    const fn order_label(self) -> &'static str {
+        match self.direction {
+            Direction::Asc => "ASC",
+            Direction::Desc => "DESC",
         }
     }
 }
@@ -148,7 +172,7 @@ fn ensure_item<S>(
     stream_item: &mut Option<DataKey>,
     stream_done: &mut bool,
     stream_last_pulled: &mut Option<DataKey>,
-    direction: MergeDirection,
+    comparator: KeyOrderComparator,
     stream_name: &'static str,
     stream_kind: &'static str,
     direction_context: &'static str,
@@ -165,7 +189,7 @@ where
             key,
             stream_item,
             stream_last_pulled,
-            direction,
+            comparator,
             stream_name,
             stream_kind,
             direction_context,
@@ -181,15 +205,15 @@ fn push_key(
     key: DataKey,
     stream_item: &mut Option<DataKey>,
     stream_last_pulled: &mut Option<DataKey>,
-    direction: MergeDirection,
+    comparator: KeyOrderComparator,
     stream_name: &'static str,
     stream_kind: &'static str,
     direction_context: &'static str,
 ) -> Result<(), InternalError> {
-    validate_stream_direction(
+    validate_stream_monotonicity(
         stream_last_pulled.as_ref(),
         &key,
-        direction,
+        comparator,
         stream_name,
         stream_kind,
         direction_context,
@@ -200,11 +224,11 @@ fn push_key(
     Ok(())
 }
 
-// Validate one child stream monotonicity against the configured merge direction.
-fn validate_stream_direction(
+// Validate one child stream monotonicity against the configured key comparator.
+fn validate_stream_monotonicity(
     previous: Option<&DataKey>,
     current: &DataKey,
-    direction: MergeDirection,
+    comparator: KeyOrderComparator,
     stream_name: &'static str,
     stream_kind: &'static str,
     direction_context: &'static str,
@@ -213,21 +237,13 @@ fn validate_stream_direction(
         return Ok(());
     };
 
-    let violates_direction = match direction {
-        MergeDirection::Asc => current < previous,
-        MergeDirection::Desc => current > previous,
-    };
-    if !violates_direction {
+    if !comparator.violates_monotonicity(previous, current) {
         return Ok(());
     }
 
-    let direction_label = match direction {
-        MergeDirection::Asc => "ASC",
-        MergeDirection::Desc => "DESC",
-    };
-
     Err(InternalError::query_invariant(format!(
-        "executor invariant violated: {stream_kind} stream {stream_name} emitted out-of-order key for {direction_label} {direction_context} (previous: {previous}, current: {current})"
+        "executor invariant violated: {stream_kind} stream {stream_name} emitted out-of-order key for {} {direction_context} (previous: {previous}, current: {current})",
+        comparator.order_label(),
     )))
 }
 
@@ -244,7 +260,7 @@ pub(crate) struct MergeOrderedKeyStream<A, B> {
     pair: OrderedPairState<DataKey, DataKey>,
     left_done: bool,
     right_done: bool,
-    direction: MergeDirection,
+    comparator: KeyOrderComparator,
     left_last_pulled: Option<DataKey>,
     right_last_pulled: Option<DataKey>,
     last_emitted: Option<DataKey>,
@@ -255,15 +271,25 @@ where
     A: OrderedKeyStream,
     B: OrderedKeyStream,
 {
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn new(left: A, right: B, direction: Direction) -> Self {
+        Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))
+    }
+
+    #[must_use]
+    pub(crate) const fn new_with_comparator(
+        left: A,
+        right: B,
+        comparator: KeyOrderComparator,
+    ) -> Self {
         Self {
             left,
             right,
             pair: OrderedPairState::new(),
             left_done: false,
             right_done: false,
-            direction: MergeDirection::from_direction(direction),
+            comparator,
             left_last_pulled: None,
             right_last_pulled: None,
             last_emitted: None,
@@ -276,7 +302,7 @@ where
             &mut self.pair.left,
             &mut self.left_done,
             &mut self.left_last_pulled,
-            self.direction,
+            self.comparator,
             "left",
             "merge",
             "merge",
@@ -289,7 +315,7 @@ where
             &mut self.pair.right,
             &mut self.right_done,
             &mut self.right_last_pulled,
-            self.direction,
+            self.comparator,
             "right",
             "merge",
             "merge",
@@ -318,10 +344,7 @@ where
                         self.pair.right = None;
                         self.pair.left.take()
                     } else {
-                        let choose_left = match self.direction {
-                            MergeDirection::Asc => left_key < right_key,
-                            MergeDirection::Desc => left_key > right_key,
-                        };
+                        let choose_left = self.comparator.compare(left_key, right_key).is_lt();
                         if choose_left {
                             self.pair.left.take()
                         } else {
@@ -362,7 +385,7 @@ pub(crate) struct IntersectOrderedKeyStream<A, B> {
     pair: OrderedPairState<DataKey, DataKey>,
     left_done: bool,
     right_done: bool,
-    direction: MergeDirection,
+    comparator: KeyOrderComparator,
     left_last_pulled: Option<DataKey>,
     right_last_pulled: Option<DataKey>,
     last_emitted: Option<DataKey>,
@@ -373,15 +396,25 @@ where
     A: OrderedKeyStream,
     B: OrderedKeyStream,
 {
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn new(left: A, right: B, direction: Direction) -> Self {
+        Self::new_with_comparator(left, right, KeyOrderComparator::from_direction(direction))
+    }
+
+    #[must_use]
+    pub(crate) const fn new_with_comparator(
+        left: A,
+        right: B,
+        comparator: KeyOrderComparator,
+    ) -> Self {
         Self {
             left,
             right,
             pair: OrderedPairState::new(),
             left_done: false,
             right_done: false,
-            direction: MergeDirection::from_direction(direction),
+            comparator,
             left_last_pulled: None,
             right_last_pulled: None,
             last_emitted: None,
@@ -394,7 +427,7 @@ where
             &mut self.pair.left,
             &mut self.left_done,
             &mut self.left_last_pulled,
-            self.direction,
+            self.comparator,
             "left",
             "intersect",
             "intersection",
@@ -407,7 +440,7 @@ where
             &mut self.pair.right,
             &mut self.right_done,
             &mut self.right_last_pulled,
-            self.direction,
+            self.comparator,
             "right",
             "intersect",
             "intersection",
@@ -451,10 +484,7 @@ where
                 return Ok(Some(next));
             }
 
-            let advance_left = match self.direction {
-                MergeDirection::Asc => left_key < right_key,
-                MergeDirection::Desc => left_key > right_key,
-            };
+            let advance_left = self.comparator.compare(left_key, right_key).is_lt();
             if advance_left {
                 self.pair.left = None;
             } else {

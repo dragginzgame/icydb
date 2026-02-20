@@ -4,8 +4,8 @@ use crate::{
         data::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
         entity_decode::{decode_and_validate_entity_key, format_entity_key_for_mismatch},
         executor::{
-            ExecutorError, IntersectOrderedKeyStream, MergeOrderedKeyStream, OrderedKeyStream,
-            OrderedKeyStreamBox, VecOrderedKeyStream, normalize_ordered_keys,
+            ExecutorError, IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
+            OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
         },
         index::RawIndexKey,
         query::{
@@ -17,7 +17,7 @@ use crate::{
     traits::{EntityKind, EntityValue, Path},
     types::Id,
 };
-use std::{collections::BTreeSet, marker::PhantomData, ops::Bound};
+use std::{collections::BTreeSet, marker::PhantomData};
 
 ///
 /// Context
@@ -88,7 +88,7 @@ where
     where
         E: EntityKind,
     {
-        access.produce_key_stream(self, index_range_anchor, direction)
+        access.resolve_physical_key_stream(self, index_range_anchor, direction)
     }
 
     pub(crate) fn rows_from_access_plan(
@@ -112,11 +112,12 @@ where
         access: &AccessPlan<E::Key>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
+        key_comparator: KeyOrderComparator,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind,
     {
-        access.produce_key_stream(self, index_range_anchor, direction)
+        access.produce_key_stream(self, index_range_anchor, direction, key_comparator)
     }
 
     pub(crate) fn rows_from_access_plan_with_index_range_anchor(
@@ -133,6 +134,7 @@ where
             access,
             index_range_anchor,
             direction,
+            KeyOrderComparator::from_direction(direction),
         )?;
 
         self.rows_from_ordered_key_stream(key_stream.as_mut(), consistency)
@@ -153,14 +155,14 @@ where
     // Helpers
     // ------------------------------------------------------------------
 
-    fn data_key_from_key(key: E::Key) -> Result<DataKey, InternalError>
+    pub(super) fn data_key_from_key(key: E::Key) -> Result<DataKey, InternalError>
     where
         E: EntityKind,
     {
         DataKey::try_new::<E>(key)
     }
 
-    fn dedup_keys(keys: Vec<E::Key>) -> Vec<E::Key> {
+    pub(super) fn dedup_keys(keys: Vec<E::Key>) -> Vec<E::Key> {
         let mut set = BTreeSet::new();
         set.extend(keys);
         set.into_iter().collect()
@@ -198,7 +200,7 @@ where
         Ok(out)
     }
 
-    fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
+    pub(super) fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
         DataKey::try_from_raw(raw).map_err(|err| ExecutorError::store_corruption_from(err).into())
     }
 
@@ -242,6 +244,7 @@ impl<K> AccessPlan<K> {
         children: &[Self],
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
+        key_comparator: KeyOrderComparator,
     ) -> Result<Vec<OrderedKeyStreamBox>, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
@@ -249,7 +252,12 @@ impl<K> AccessPlan<K> {
     {
         let mut streams = Vec::with_capacity(children.len());
         for child in children {
-            streams.push(child.produce_key_stream(ctx, index_range_anchor, direction)?);
+            streams.push(child.produce_key_stream(
+                ctx,
+                index_range_anchor,
+                direction,
+                key_comparator,
+            )?);
         }
 
         Ok(streams)
@@ -296,6 +304,7 @@ impl<K> AccessPlan<K> {
         ctx: &Context<'_, E>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
+        key_comparator: KeyOrderComparator,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
@@ -307,12 +316,20 @@ impl<K> AccessPlan<K> {
                 index_range_anchor,
                 direction,
             ),
-            Self::Union(children) => {
-                Self::produce_union_key_stream(ctx, children, index_range_anchor, direction)
-            }
-            Self::Intersection(children) => {
-                Self::produce_intersection_key_stream(ctx, children, index_range_anchor, direction)
-            }
+            Self::Union(children) => Self::produce_union_key_stream(
+                ctx,
+                children,
+                index_range_anchor,
+                direction,
+                key_comparator,
+            ),
+            Self::Intersection(children) => Self::produce_intersection_key_stream(
+                ctx,
+                children,
+                index_range_anchor,
+                direction,
+                key_comparator,
+            ),
         }
     }
 
@@ -322,16 +339,26 @@ impl<K> AccessPlan<K> {
         children: &[Self],
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
+        key_comparator: KeyOrderComparator,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
-        let streams =
-            Self::collect_child_key_streams(ctx, children, index_range_anchor, direction)?;
+        let streams = Self::collect_child_key_streams(
+            ctx,
+            children,
+            index_range_anchor,
+            direction,
+            key_comparator,
+        )?;
 
         Ok(Self::reduce_key_streams(streams, |left, right| {
-            Box::new(MergeOrderedKeyStream::new(left, right, direction))
+            Box::new(MergeOrderedKeyStream::new_with_comparator(
+                left,
+                right,
+                key_comparator,
+            ))
         }))
     }
 
@@ -341,88 +368,26 @@ impl<K> AccessPlan<K> {
         children: &[Self],
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
+        key_comparator: KeyOrderComparator,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
-        let streams =
-            Self::collect_child_key_streams(ctx, children, index_range_anchor, direction)?;
+        let streams = Self::collect_child_key_streams(
+            ctx,
+            children,
+            index_range_anchor,
+            direction,
+            key_comparator,
+        )?;
 
         Ok(Self::reduce_key_streams(streams, |left, right| {
-            Box::new(IntersectOrderedKeyStream::new(left, right, direction))
+            Box::new(IntersectOrderedKeyStream::new_with_comparator(
+                left,
+                right,
+                key_comparator,
+            ))
         }))
-    }
-}
-
-impl<K> AccessPath<K> {
-    /// Build an ordered key stream for this access path.
-    fn produce_key_stream<E>(
-        &self,
-        ctx: &Context<'_, E>,
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind<Key = K> + EntityValue,
-        K: Copy + Ord,
-    {
-        let mut candidates = match self {
-            Self::ByKey(key) => vec![Context::<E>::data_key_from_key(*key)?],
-            Self::ByKeys(keys) => Context::<E>::dedup_keys(keys.clone())
-                .into_iter()
-                .map(Context::<E>::data_key_from_key)
-                .collect::<Result<Vec<_>, _>>()?,
-            Self::KeyRange { start, end } => ctx.with_store(|s| {
-                let start = Context::<E>::data_key_from_key(*start)?;
-                let end = Context::<E>::data_key_from_key(*end)?;
-                let start_raw = start.to_raw()?;
-                let end_raw = end.to_raw()?;
-
-                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                    .map(|e| Context::<E>::decode_data_key(e.key()))
-                    .collect::<Result<Vec<_>, _>>()
-            })??,
-            Self::FullScan => ctx.with_store(|s| {
-                let start = DataKey::lower_bound::<E>();
-                let end = DataKey::upper_bound::<E>();
-                let start_raw = start.to_raw()?;
-                let end_raw = end.to_raw()?;
-
-                s.range((Bound::Included(start_raw), Bound::Included(end_raw)))
-                    .map(|e| Context::<E>::decode_data_key(e.key()))
-                    .collect::<Result<Vec<_>, _>>()
-            })??,
-            Self::IndexPrefix { index, values } => {
-                let store = ctx
-                    .db
-                    .with_store_registry(|reg| reg.try_get_store(index.store))?;
-                store.with_index(|s| s.resolve_data_values::<E>(index, values))?
-            }
-            Self::IndexRange {
-                index,
-                prefix,
-                lower,
-                upper,
-            } => {
-                let store = ctx
-                    .db
-                    .with_store_registry(|reg| reg.try_get_store(index.store))?;
-                store.with_index(|s| {
-                    s.resolve_data_values_in_range_from_start_exclusive::<E>(
-                        index,
-                        prefix,
-                        lower,
-                        upper,
-                        index_range_anchor,
-                        direction,
-                    )
-                })?
-            }
-        };
-
-        normalize_ordered_keys(&mut candidates, direction, !self.is_index_path());
-
-        Ok(Box::new(VecOrderedKeyStream::new(candidates)))
     }
 }

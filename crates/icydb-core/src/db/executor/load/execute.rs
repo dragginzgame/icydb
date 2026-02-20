@@ -112,6 +112,7 @@ where
             &plan.access,
             index_range_anchor,
             direction,
+            super::key_stream_comparator_from_plan(plan, direction),
         )?;
         let (page, keys_scanned, post_access_rows) = Self::materialize_key_stream_into_page(
             ctx,

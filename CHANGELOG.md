@@ -5,6 +5,28 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.19.0] – 2026-02-20 - Mixed-Direction ORDER BY
+
+### 📝 Summary
+
+* Completed the mixed-direction ordering milestone so `ORDER BY` can combine ascending and descending fields in one query.
+* Kept pagination and continuation semantics deterministic with no cursor format or storage changes.
+
+```rust
+let query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+    .order_by_desc("rank")
+    .order_by("id");
+```
+
+### 🔧 Changed
+
+* Moved executor ordered-stream comparisons to comparator-driven logic so `Union` and `Intersection` honor mixed-direction ordering.
+* Centralized continuation resume comparisons behind direction-aware comparator helpers for consistent boundary handling.
+* Completed mixed-direction boundary coverage with resume-from-every-boundary matrices across two-field and three-field order patterns.
+* Isolated physical access-path key resolution into `db::executor::physical_path` and renamed the path resolver to `resolve_physical_key_stream` without changing behavior.
+
+---
+
 ## [0.18.2] – 2026-02-20 - Complexity Audit Follow-Through
 
 ### 📝 Summary

@@ -19,6 +19,7 @@ use crate::{
     traits::{EntityKind, FieldValue},
     value::Value,
 };
+use std::cmp::Ordering;
 use std::ops::Bound;
 
 /// Validate and materialize an executable cursor through the canonical spine.
@@ -96,6 +97,46 @@ impl PlanError {
 }
 
 ///
+/// DirectionComparator
+///
+/// Direction-aware key comparator used by cursor resume and continuation checks.
+/// Keeps strict "after anchor" semantics in one place.
+///
+
+struct DirectionComparator {
+    direction: Direction,
+}
+
+impl DirectionComparator {
+    const fn new(direction: Direction) -> Self {
+        Self { direction }
+    }
+
+    fn compare<K: Ord>(&self, left: &K, right: &K) -> Ordering {
+        match self.direction {
+            Direction::Asc => left.cmp(right),
+            Direction::Desc => right.cmp(left),
+        }
+    }
+
+    fn is_strictly_after<K: Ord>(&self, candidate: &K, anchor: &K) -> bool {
+        self.compare(candidate, anchor).is_gt()
+    }
+
+    fn apply_anchor<K: Clone>(
+        &self,
+        lower: Bound<K>,
+        upper: Bound<K>,
+        anchor: &K,
+    ) -> (Bound<K>, Bound<K>) {
+        match self.direction {
+            Direction::Asc => (Bound::Excluded(anchor.clone()), upper),
+            Direction::Desc => (lower, Bound::Excluded(anchor.clone())),
+        }
+    }
+}
+
+///
 /// KeyEnvelope
 ///
 /// Canonical raw-key envelope with direction-aware continuation semantics.
@@ -104,7 +145,7 @@ impl PlanError {
 ///
 
 struct KeyEnvelope<K> {
-    direction: Direction,
+    comparator: DirectionComparator,
     lower: Bound<K>,
     upper: Bound<K>,
 }
@@ -115,7 +156,7 @@ where
 {
     const fn new(direction: Direction, lower: Bound<K>, upper: Bound<K>) -> Self {
         Self {
-            direction,
+            comparator: DirectionComparator::new(direction),
             lower,
             upper,
         }
@@ -123,17 +164,11 @@ where
 
     // Rewrite the directional continuation edge to strict "after anchor".
     fn apply_anchor(self, anchor: &K) -> Self {
-        match self.direction {
-            Direction::Asc => Self {
-                direction: self.direction,
-                lower: Bound::Excluded(anchor.clone()),
-                upper: self.upper,
-            },
-            Direction::Desc => Self {
-                direction: self.direction,
-                lower: self.lower,
-                upper: Bound::Excluded(anchor.clone()),
-            },
+        let (lower, upper) = self.comparator.apply_anchor(self.lower, self.upper, anchor);
+        Self {
+            comparator: self.comparator,
+            lower,
+            upper,
         }
     }
 
@@ -153,10 +188,7 @@ where
     }
 
     fn continuation_advanced(&self, candidate: &K, anchor: &K) -> bool {
-        match self.direction {
-            Direction::Asc => candidate > anchor,
-            Direction::Desc => candidate < anchor,
-        }
+        self.comparator.is_strictly_after(candidate, anchor)
     }
 
     fn is_empty(&self) -> bool {

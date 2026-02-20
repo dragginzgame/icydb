@@ -8,13 +8,15 @@ mod secondary_index;
 use crate::{
     db::{
         Db,
+        executor::KeyOrderComparator,
         executor::OrderedKeyStreamBox,
         executor::plan::{record_plan_metrics, record_rows_scanned},
         index::RawIndexKey,
         query::plan::{
             AccessPlan, AccessPlanProjection, CursorBoundary, Direction, ExecutablePlan,
-            LogicalPlan, OrderDirection, PlannedCursor, compute_page_window,
-            decode_pk_cursor_boundary, project_access_plan, validate::validate_executor_plan,
+            LogicalPlan, OrderDirection, PlannedCursor, SlotSelectionPolicy, compute_page_window,
+            decode_pk_cursor_boundary, derive_scan_direction, project_access_plan,
+            validate::validate_executor_plan,
         },
         response::Response,
     },
@@ -172,6 +174,25 @@ const fn execution_order_direction(direction: Direction) -> OrderDirection {
         Direction::Asc => OrderDirection::Asc,
         Direction::Desc => OrderDirection::Desc,
     }
+}
+
+fn key_stream_comparator_from_plan<K>(
+    plan: &LogicalPlan<K>,
+    fallback_direction: Direction,
+) -> KeyOrderComparator {
+    let derived_direction = plan.order.as_ref().map_or(fallback_direction, |order| {
+        derive_scan_direction(order, SlotSelectionPolicy::Last)
+    });
+
+    // Comparator and child-stream monotonicity must stay aligned until access-path
+    // stream production can emit keys under an order-spec-derived comparator.
+    let comparator_direction = if derived_direction == fallback_direction {
+        derived_direction
+    } else {
+        fallback_direction
+    };
+
+    KeyOrderComparator::from_direction(comparator_direction)
 }
 
 ///
