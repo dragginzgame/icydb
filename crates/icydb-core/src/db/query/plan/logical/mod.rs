@@ -1,22 +1,26 @@
 //! Executor contract for a fully resolved logical plan; must not plan or validate.
+mod order_cursor;
+mod window;
+
 use crate::{
     db::query::{
         ReadConsistency,
         intent::QueryMode,
         plan::{
-            AccessPath, AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec,
-            OrderDirection, OrderSpec, PageSpec, compute_page_window,
+            AccessPath, AccessPlan, CursorBoundary, DeleteLimitSpec, OrderSpec, PageSpec,
+            compute_page_window,
         },
-        predicate::{Predicate, coercion::canonical_cmp, eval as eval_predicate},
+        predicate::{Predicate, eval as eval_predicate},
     },
     error::InternalError,
     traits::{EntityKind, EntitySchema, EntityValue},
     types::Id,
 };
-use std::cmp::Ordering;
 
 #[cfg(test)]
 use crate::db::query::intent::LoadSpec;
+#[cfg(test)]
+use crate::db::query::plan::OrderDirection;
 
 ///
 /// LogicalPlan
@@ -304,9 +308,9 @@ impl<K> LogicalPlan<K> {
             let ordered_total = rows.len();
             if rows.len() > 1 {
                 if let Some(keep_count) = bounded_order_keep {
-                    apply_order_spec_bounded::<E, R>(rows, order, keep_count);
+                    order_cursor::apply_order_spec_bounded::<E, R>(rows, order, keep_count);
                 } else {
-                    apply_order_spec::<E, R>(rows, order);
+                    order_cursor::apply_order_spec::<E, R>(rows, order);
                 }
             }
 
@@ -345,7 +349,7 @@ impl<K> LogicalPlan<K> {
                 ));
             }
 
-            apply_cursor_boundary::<E, R>(rows, order, boundary);
+            order_cursor::apply_cursor_boundary::<E, R>(rows, order, boundary);
             return Ok((true, rows.len()));
         }
 
@@ -371,7 +375,7 @@ impl<K> LogicalPlan<K> {
             }
             // Offset is applied only on the initial page. Continuation requests
             // resume from the cursor boundary and must not re-apply offset.
-            apply_pagination(rows, self.effective_page_offset(cursor), page.limit);
+            window::apply_pagination(rows, self.effective_page_offset(cursor), page.limit);
             true
         } else {
             false
@@ -394,7 +398,7 @@ impl<K> LogicalPlan<K> {
                     "delete limit must run after ordering",
                 ));
             }
-            apply_delete_limit(rows, limit.max_rows);
+            window::apply_delete_limit(rows, limit.max_rows);
             true
         } else {
             false
@@ -452,7 +456,7 @@ impl<K> LogicalPlan<K> {
             slots: order
                 .fields
                 .iter()
-                .map(|(field, _)| field_slot(entity, field))
+                .map(|(field, _)| order_cursor::field_slot(entity, field))
                 .collect(),
         })
     }
@@ -520,185 +524,6 @@ impl<K> LogicalPlan<K> {
             | AccessPath::FullScan => true,
         }
     }
-}
-
-// Sort rows by the configured order spec, using entity field values.
-fn apply_order_spec<E, R>(rows: &mut [R], order: &OrderSpec)
-where
-    E: EntityKind + EntityValue,
-    R: PlanRow<E>,
-{
-    // Canonical order already includes the PK tie-break; comparator equality should only occur
-    // for semantically equal rows. Avoid positional tie-breakers so cursor-boundary comparison can
-    // share this exact ordering contract.
-    rows.sort_by(|left, right| compare_entities::<E>(left.entity(), right.entity(), order));
-}
-
-// Bounded ordering for first-page loads.
-// We select the smallest `keep_count` rows under canonical order and then sort
-// only that prefix. This preserves output and continuation behavior.
-fn apply_order_spec_bounded<E, R>(rows: &mut Vec<R>, order: &OrderSpec, keep_count: usize)
-where
-    E: EntityKind + EntityValue,
-    R: PlanRow<E>,
-{
-    if keep_count == 0 {
-        rows.clear();
-        return;
-    }
-
-    if rows.len() > keep_count {
-        // Partition around the last element we want to keep.
-        // After this call, `0..keep_count` contains the canonical top-k set
-        // (unsorted), which we then sort deterministically.
-        rows.select_nth_unstable_by(keep_count - 1, |left, right| {
-            compare_entities::<E>(left.entity(), right.entity(), order)
-        });
-        rows.truncate(keep_count);
-    }
-
-    apply_order_spec::<E, R>(rows, order);
-}
-
-// Compare two entities according to the order spec, returning the first non-equal field ordering.
-fn compare_entities<E: EntityKind + EntityValue>(
-    left: &E,
-    right: &E,
-    order: &OrderSpec,
-) -> Ordering {
-    for (field, direction) in &order.fields {
-        let ordering = compare_entity_field_pair(left, right, field, *direction);
-
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-    }
-
-    Ordering::Equal
-}
-
-// Convert one field value into the explicit ordering slot used for deterministic comparisons.
-fn field_slot<E: EntityKind + EntityValue>(entity: &E, field: &str) -> CursorBoundarySlot {
-    match entity.get_value(field) {
-        Some(value) => CursorBoundarySlot::Present(value),
-        None => CursorBoundarySlot::Missing,
-    }
-}
-
-// Compare ordering slots using the same semantics used by query ordering:
-// - Missing values sort lower than present values in ascending order
-// - Present values use canonical value ordering
-fn compare_order_slots(left: &CursorBoundarySlot, right: &CursorBoundarySlot) -> Ordering {
-    match (left, right) {
-        (CursorBoundarySlot::Missing, CursorBoundarySlot::Missing) => Ordering::Equal,
-        (CursorBoundarySlot::Missing, CursorBoundarySlot::Present(_)) => Ordering::Less,
-        (CursorBoundarySlot::Present(_), CursorBoundarySlot::Missing) => Ordering::Greater,
-        (CursorBoundarySlot::Present(left_value), CursorBoundarySlot::Present(right_value)) => {
-            canonical_cmp(left_value, right_value)
-        }
-    }
-}
-
-// Apply configured order direction to one base slot ordering.
-const fn apply_order_direction(ordering: Ordering, direction: OrderDirection) -> Ordering {
-    match direction {
-        OrderDirection::Asc => ordering,
-        OrderDirection::Desc => ordering.reverse(),
-    }
-}
-
-// Compare one configured order field across two entities.
-fn compare_entity_field_pair<E: EntityKind + EntityValue>(
-    left: &E,
-    right: &E,
-    field: &str,
-    direction: OrderDirection,
-) -> Ordering {
-    let left_slot = field_slot(left, field);
-    let right_slot = field_slot(right, field);
-    let ordering = compare_order_slots(&left_slot, &right_slot);
-
-    apply_order_direction(ordering, direction)
-}
-
-// Compare one configured order field between an entity and a boundary slot.
-fn compare_entity_field_to_boundary<E: EntityKind + EntityValue>(
-    entity: &E,
-    field: &str,
-    boundary_slot: &CursorBoundarySlot,
-    direction: OrderDirection,
-) -> Ordering {
-    let entity_slot = field_slot(entity, field);
-    let ordering = compare_order_slots(&entity_slot, boundary_slot);
-
-    apply_order_direction(ordering, direction)
-}
-
-// Apply a strict continuation boundary using the canonical order comparator.
-fn apply_cursor_boundary<E, R>(rows: &mut Vec<R>, order: &OrderSpec, boundary: &CursorBoundary)
-where
-    E: EntityKind + EntityValue,
-    R: PlanRow<E>,
-{
-    debug_assert_eq!(
-        boundary.slots.len(),
-        order.fields.len(),
-        "continuation boundary arity is validated by the cursor spine",
-    );
-
-    // Strict continuation: keep only rows greater than the boundary under canonical order.
-    rows.retain(|row| compare_entity_with_boundary::<E>(row.entity(), order, boundary).is_gt());
-}
-
-// Compare an entity with a continuation boundary using the exact canonical ordering semantics.
-fn compare_entity_with_boundary<E: EntityKind + EntityValue>(
-    entity: &E,
-    order: &OrderSpec,
-    boundary: &CursorBoundary,
-) -> Ordering {
-    for ((field, direction), boundary_slot) in order.fields.iter().zip(boundary.slots.iter()) {
-        let ordering = compare_entity_field_to_boundary(entity, field, boundary_slot, *direction);
-
-        if ordering != Ordering::Equal {
-            return ordering;
-        }
-    }
-
-    Ordering::Equal
-}
-
-/// Apply offset/limit pagination to an in-memory vector, in-place.
-///
-/// - `offset` and `limit` are logical (u32) pagination parameters
-/// - Conversion to `usize` happens only at the indexing boundary
-#[expect(clippy::cast_possible_truncation)]
-fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
-    let total: u32 = rows.len() as u32;
-
-    // If offset is past the end, clear everything.
-    if offset >= total {
-        rows.clear();
-        return;
-    }
-
-    let start_usize = usize::try_from(offset).unwrap_or(usize::MAX);
-    let total_usize = usize::try_from(total).unwrap_or(usize::MAX);
-    let end_usize = match limit {
-        Some(limit) => compute_page_window(offset, limit, false)
-            .keep_count
-            .min(total_usize),
-        None => total_usize,
-    };
-
-    // Drop leading rows, then truncate to window size.
-    rows.drain(..start_usize);
-    rows.truncate(end_usize.saturating_sub(start_usize));
-}
-
-// Apply a delete limit to an in-memory vector, in-place.
-fn apply_delete_limit<T>(rows: &mut Vec<T>, max_rows: u32) {
-    let limit = usize::min(rows.len(), max_rows as usize);
-    rows.truncate(limit);
 }
 
 ///

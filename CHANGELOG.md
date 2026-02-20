@@ -5,6 +5,26 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.21.1] – 2026-02-20 - Post-Release Cleanup
+
+### 🧹 Cleanup
+
+* Reduced repeated index-plan corruption mapping by introducing origin-specific `InternalError` helpers and simplified index-plan modules to use those helpers directly.
+* Split `executor/tests/pagination.rs` into focused pagination submodules with shared helpers in `pagination/mod.rs` to reduce test maintenance load.
+* Split `query/plan/planner.rs` into focused internal submodules (`planner/range.rs`, `planner/normalize.rs`) to reduce planner file pressure without changing planning behavior.
+* Split `query/plan/logical.rs` helpers into focused internal submodules (`logical/order_cursor.rs`, `logical/window.rs`) to reduce logical-plan file pressure without changing execution semantics.
+* Normalized index lookup invariant-message construction so executor-invariant prefixes are generated through one path.
+* De-duplicated ASC/DESC index-range continuation-advance checks into one helper to keep guard behavior consistent.
+* Simplified `RawRowError -> InternalError` mapping to use canonical store-unsupported construction.
+* Added focused regression checks for index-plan corruption helper origins and raw-row error mapping.
+* Updated `docs/status/0.21-status.md` to reflect that `0.21.0` is shipped and complete.
+
+```rust
+InternalError::index_plan_index_corruption(message)
+```
+
+---
+
 ## [0.21.0] – 2026-02-20 - Cursor Offset
 
 ### 📝 Summary

@@ -5,6 +5,99 @@ use crate::{
 use std::fmt;
 use thiserror::Error as ThisError;
 
+// ============================================================================
+// INTERNAL ERROR TAXONOMY — ARCHITECTURAL CONTRACT
+// ============================================================================
+//
+// This file defines the canonical runtime error classification system for
+// icydb-core. It is the single source of truth for:
+//
+//   • ErrorClass   (semantic domain)
+//   • ErrorOrigin  (subsystem boundary)
+//   • Structured detail payloads
+//   • Canonical constructor entry points
+//
+// -----------------------------------------------------------------------------
+// DESIGN INTENT
+// -----------------------------------------------------------------------------
+//
+// 1. InternalError is a *taxonomy carrier*, not a formatting utility.
+//
+//    - ErrorClass represents semantic meaning (corruption, invariant_violation,
+//      unsupported, etc).
+//    - ErrorOrigin represents the subsystem boundary (store, index, query,
+//      executor, serialize, interface, etc).
+//    - The (class, origin) pair must remain stable and intentional.
+//
+// 2. Call sites MUST prefer canonical constructors.
+//
+//    Do NOT construct errors manually via:
+//        InternalError::new(class, origin, ...)
+//    unless you are defining a new canonical helper here.
+//
+//    If a pattern appears more than once, centralize it here.
+//
+// 3. Constructors in this file must represent real architectural boundaries.
+//
+//    Add a new helper ONLY if it:
+//
+//      • Encodes a cross-cutting invariant,
+//      • Represents a subsystem boundary,
+//      • Or prevents taxonomy drift across call sites.
+//
+//    Do NOT add feature-specific helpers.
+//    Do NOT add one-off formatting helpers.
+//    Do NOT turn this file into a generic message factory.
+//
+// 4. ErrorDetail must align with ErrorOrigin.
+//
+//    If detail is present, it MUST correspond to the origin.
+//    Do not attach mismatched detail variants.
+//
+// 5. Plan-layer errors are NOT runtime failures.
+//
+//    PlanError and CursorPlanError must be translated into
+//    executor/query invariants via the canonical mapping functions.
+//    Do not leak plan-layer error types across execution boundaries.
+//
+// 6. Preserve taxonomy stability.
+//
+//    Do NOT:
+//      • Merge error classes.
+//      • Reclassify corruption as internal.
+//      • Downgrade invariant violations.
+//      • Introduce ambiguous class/origin combinations.
+//
+//    Any change to ErrorClass or ErrorOrigin is an architectural change
+//    and must be reviewed accordingly.
+//
+// -----------------------------------------------------------------------------
+// NON-GOALS
+// -----------------------------------------------------------------------------
+//
+// This is NOT:
+//
+//   • A public API contract.
+//   • A generic error abstraction layer.
+//   • A feature-specific message builder.
+//   • A dumping ground for temporary error conversions.
+//
+// -----------------------------------------------------------------------------
+// MAINTENANCE GUIDELINES
+// -----------------------------------------------------------------------------
+//
+// When modifying this file:
+//
+//   1. Ensure classification semantics remain consistent.
+//   2. Avoid constructor proliferation.
+//   3. Prefer narrow, origin-specific helpers over ad-hoc new(...).
+//   4. Keep formatting minimal and standardized.
+//   5. Keep this file boring and stable.
+//
+// If this file grows rapidly, something is wrong at the call sites.
+//
+// ============================================================================
+
 ///
 /// InternalError
 ///
@@ -243,6 +336,21 @@ impl InternalError {
         )
     }
 
+    /// Construct an index-plan corruption error for index-origin failures.
+    pub(crate) fn index_plan_index_corruption(message: impl Into<String>) -> Self {
+        Self::index_plan_corruption(ErrorOrigin::Index, message)
+    }
+
+    /// Construct an index-plan corruption error for store-origin failures.
+    pub(crate) fn index_plan_store_corruption(message: impl Into<String>) -> Self {
+        Self::index_plan_corruption(ErrorOrigin::Store, message)
+    }
+
+    /// Construct an index-plan corruption error for serialize-origin failures.
+    pub(crate) fn index_plan_serialize_corruption(message: impl Into<String>) -> Self {
+        Self::index_plan_corruption(ErrorOrigin::Serialize, message)
+    }
+
     /// Construct an index uniqueness violation conflict error.
     pub(crate) fn index_violation(path: &str, index_fields: &[&str]) -> Self {
         Self::new(
@@ -398,5 +506,44 @@ impl fmt::Display for ErrorOrigin {
             Self::Interface => "interface",
         };
         write!(f, "{label}")
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn index_plan_index_corruption_uses_index_origin() {
+        let err = InternalError::index_plan_index_corruption("broken key payload");
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Index);
+        assert_eq!(
+            err.message,
+            "corruption detected (index): broken key payload"
+        );
+    }
+
+    #[test]
+    fn index_plan_store_corruption_uses_store_origin() {
+        let err = InternalError::index_plan_store_corruption("row/key mismatch");
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert_eq!(err.message, "corruption detected (store): row/key mismatch");
+    }
+
+    #[test]
+    fn index_plan_serialize_corruption_uses_serialize_origin() {
+        let err = InternalError::index_plan_serialize_corruption("decode failed");
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Serialize);
+        assert_eq!(
+            err.message,
+            "corruption detected (serialize): decode failed"
+        );
     }
 }

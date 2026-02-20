@@ -69,6 +69,7 @@ use crate::{
 * `use self::...`
 * Scattered or inline imports
 * Relative imports that obscure module boundaries
+* `#[path = \"...\"]` module wiring attributes
 
 ### Allowed Exceptions
 
@@ -189,6 +190,14 @@ It means:
 Each module is responsible for its own boundary.
 
 If something is nested three levels deep and is part of the API, that module root must re-export it intentionally.
+
+### Module Split Rule
+
+When splitting a Rust module into multiple files:
+
+* Always convert it to a directory module with `mod.rs` as the root (for example `foo/mod.rs` + `foo/bar.rs`).
+* Keep module wiring in `mod.rs` via `mod child;` and explicit re-exports where needed.
+* Never use `#[path]` to wire modules. No exceptions.
 
 ---
 

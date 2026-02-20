@@ -1,6 +1,6 @@
 use crate::{
     db::index::{IndexEntry, IndexKey, IndexStore},
-    error::{ErrorOrigin, InternalError},
+    error::InternalError,
     model::index::IndexModel,
     traits::{EntityKind, EntityValue},
 };
@@ -23,15 +23,12 @@ pub(super) fn load_existing_entry<E: EntityKind + EntityValue>(
         .with_borrow(|index_store| index_store.get(&key.to_raw()))
         .map(|raw_entry| {
             raw_entry.try_decode().map_err(|err| {
-                InternalError::index_plan_corruption(
-                    ErrorOrigin::Index,
-                    format!(
-                        "index corrupted: {} ({}) -> {}",
-                        E::PATH,
-                        index.fields.join(", "),
-                        err
-                    ),
-                )
+                InternalError::index_plan_index_corruption(format!(
+                    "index corrupted: {} ({}) -> {}",
+                    E::PATH,
+                    index.fields.join(", "),
+                    err
+                ))
             })
         })
         .transpose()

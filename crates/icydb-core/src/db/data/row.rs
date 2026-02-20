@@ -1,7 +1,7 @@
 use super::DataKey;
 use crate::{
     db::codec::deserialize_row,
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, Storable},
 };
 use canic_cdk::structures::storable::Bound;
@@ -25,21 +25,9 @@ pub(crate) enum RawRowError {
     TooLarge { len: u32 },
 }
 
-impl RawRowError {
-    #[must_use]
-    pub(crate) const fn class() -> ErrorClass {
-        ErrorClass::Unsupported
-    }
-
-    #[must_use]
-    pub(crate) const fn origin() -> ErrorOrigin {
-        ErrorOrigin::Store
-    }
-}
-
 impl From<RawRowError> for InternalError {
     fn from(err: RawRowError) -> Self {
-        Self::new(RawRowError::class(), RawRowError::origin(), err.to_string())
+        Self::store_unsupported(err.to_string())
     }
 }
 
@@ -127,11 +115,22 @@ impl Storable for RawRow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::{ErrorClass, ErrorOrigin};
 
     #[test]
     fn raw_row_rejects_oversized_payload() {
         let bytes = vec![0u8; MAX_ROW_BYTES as usize + 1];
         let err = RawRow::try_new(bytes).unwrap_err();
         assert!(matches!(err, RawRowError::TooLarge { .. }));
+    }
+
+    #[test]
+    fn raw_row_error_maps_to_store_unsupported() {
+        let err: InternalError = RawRowError::TooLarge {
+            len: MAX_ROW_BYTES + 1,
+        }
+        .into();
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert_eq!(err.origin, ErrorOrigin::Store);
     }
 }

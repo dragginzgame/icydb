@@ -4,7 +4,7 @@ use crate::{
         data::DataKey,
         index::{IndexEntry, IndexEntryCorruption, key::encode_canonical_index_component},
     },
-    error::{ErrorOrigin, InternalError},
+    error::InternalError,
     model::index::IndexModel,
     obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue, FieldValue},
@@ -77,15 +77,12 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     }
 
     if matching_keys.len() > 1 {
-        return Err(InternalError::index_plan_corruption(
-            ErrorOrigin::Index,
-            format!(
-                "index corrupted: {} ({}) -> {} keys",
-                E::PATH,
-                index.fields.join(", "),
-                matching_keys.len()
-            ),
-        ));
+        return Err(InternalError::index_plan_index_corruption(format!(
+            "index corrupted: {} ({}) -> {} keys",
+            E::PATH,
+            index.fields.join(", "),
+            matching_keys.len()
+        )));
     }
 
     if matching_keys.contains(new_key) {
@@ -93,14 +90,11 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     }
 
     let existing_key = matching_keys.iter().next().copied().ok_or_else(|| {
-        InternalError::index_plan_corruption(
-            ErrorOrigin::Index,
-            format!(
-                "index corrupted: {} ({}) -> failed to resolve existing key",
-                E::PATH,
-                index.fields.join(", "),
-            ),
-        )
+        InternalError::index_plan_index_corruption(format!(
+            "index corrupted: {} ({}) -> failed to resolve existing key",
+            E::PATH,
+            index.fields.join(", "),
+        ))
     })?;
 
     // Phase 3: verify the stored row still belongs to this key and value.
@@ -108,28 +102,24 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         let data_key = DataKey::try_new::<E>(existing_key)?;
         let row = db.context::<E>().read_strict(&data_key)?;
         row.try_decode::<E>().map_err(|err| {
-            InternalError::index_plan_corruption(
-                ErrorOrigin::Serialize,
-                format!("failed to deserialize row: {data_key} ({err})"),
-            )
+            InternalError::index_plan_serialize_corruption(format!(
+                "failed to deserialize row: {data_key} ({err})"
+            ))
         })?
     };
 
     let stored_key = stored.id().key();
     if stored_key != existing_key {
         // Stored row decoded successfully but key mismatch indicates index/data divergence; treat as corruption.
-        return Err(InternalError::index_plan_corruption(
-            ErrorOrigin::Store,
-            format!(
-                "index corrupted: {} ({}) -> {}",
-                E::PATH,
-                index.fields.join(", "),
-                IndexEntryCorruption::RowKeyMismatch {
-                    indexed_key: Box::new(existing_key.to_value()),
-                    row_key: Box::new(stored_key.to_value()),
-                }
-            ),
-        ));
+        return Err(InternalError::index_plan_store_corruption(format!(
+            "index corrupted: {} ({}) -> {}",
+            E::PATH,
+            index.fields.join(", "),
+            IndexEntryCorruption::RowKeyMismatch {
+                indexed_key: Box::new(existing_key.to_value()),
+                row_key: Box::new(stored_key.to_value()),
+            }
+        )));
     }
 
     for field in index.fields {
@@ -141,21 +131,19 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
             ))
         })?;
         let actual = stored.get_value(field).ok_or_else(|| {
-            InternalError::index_plan_corruption(
-                ErrorOrigin::Index,
-                format!(
-                    "index corrupted: {} ({}) -> stored entity missing field",
-                    E::PATH,
-                    field
-                ),
-            )
+            InternalError::index_plan_index_corruption(format!(
+                "index corrupted: {} ({}) -> stored entity missing field",
+                E::PATH,
+                field
+            ))
         })?;
 
         if expected != actual {
-            return Err(InternalError::index_plan_corruption(
-                ErrorOrigin::Index,
-                format!("index canonical collision: {} ({})", E::PATH, field),
-            ));
+            return Err(InternalError::index_plan_index_corruption(format!(
+                "index canonical collision: {} ({})",
+                E::PATH,
+                field
+            )));
         }
     }
 

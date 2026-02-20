@@ -16,6 +16,16 @@ use crate::{
 };
 use std::ops::Bound;
 
+const PREFIX_NOT_INDEXABLE: &str = "index prefix value is not indexable";
+const RANGE_PREFIX_NOT_INDEXABLE: &str = "index range prefix value is not indexable";
+const RANGE_LOWER_NOT_INDEXABLE: &str = "index range lower bound value is not indexable";
+const RANGE_UPPER_NOT_INDEXABLE: &str = "index range upper bound value is not indexable";
+
+// Keep index-store invariant messages on the canonical executor-invariant prefix.
+fn index_executor_invariant(reason: &'static str) -> InternalError {
+    InternalError::index_invariant(InternalError::executor_invariant_message(reason))
+}
+
 impl IndexStore {
     pub(crate) fn resolve_data_values<E: EntityKind>(
         &self,
@@ -26,11 +36,8 @@ impl IndexStore {
 
         let mut components = Vec::with_capacity(prefix.len());
         for value in prefix {
-            let component = encode_canonical_index_component(value).map_err(|_| {
-                InternalError::index_invariant(
-                    "executor invariant violated: index prefix value is not indexable",
-                )
-            })?;
+            let component = encode_canonical_index_component(value)
+                .map_err(|_| index_executor_invariant(PREFIX_NOT_INDEXABLE))?;
             components.push(component);
         }
 
@@ -91,11 +98,11 @@ impl IndexStore {
             index, prefix, lower, upper,
         )
         .map_err(|err| {
-            InternalError::index_invariant(map_bound_encode_error(
+            index_executor_invariant(map_bound_encode_error(
                 err,
-                "executor invariant violated: index range prefix value is not indexable",
-                "executor invariant violated: index range lower bound value is not indexable",
-                "executor invariant violated: index range upper bound value is not indexable",
+                RANGE_PREFIX_NOT_INDEXABLE,
+                RANGE_LOWER_NOT_INDEXABLE,
+                RANGE_UPPER_NOT_INDEXABLE,
             ))
         })?;
         let (start_raw, end_raw) = match continuation_start_exclusive {
@@ -113,13 +120,11 @@ impl IndexStore {
                     let raw_key = entry.key();
                     let value = entry.value();
 
-                    if let Some(anchor) = continuation_start_exclusive
-                        && !continuation_advanced(direction, raw_key, anchor)
-                    {
-                        return Err(InternalError::index_invariant(
-                            "index-range continuation scan did not advance beyond the anchor",
-                        ));
-                    }
+                    Self::ensure_continuation_advanced(
+                        direction,
+                        raw_key,
+                        continuation_start_exclusive,
+                    )?;
                     if Self::decode_index_entry_and_push::<E>(
                         index,
                         raw_key,
@@ -137,13 +142,11 @@ impl IndexStore {
                     let raw_key = entry.key();
                     let value = entry.value();
 
-                    if let Some(anchor) = continuation_start_exclusive
-                        && !continuation_advanced(direction, raw_key, anchor)
-                    {
-                        return Err(InternalError::index_invariant(
-                            "index-range continuation scan did not advance beyond the anchor",
-                        ));
-                    }
+                    Self::ensure_continuation_advanced(
+                        direction,
+                        raw_key,
+                        continuation_start_exclusive,
+                    )?;
                     if Self::decode_index_entry_and_push::<E>(
                         index,
                         raw_key,
@@ -159,6 +162,23 @@ impl IndexStore {
         }
 
         Ok(out)
+    }
+
+    // Validate strict continuation advancement when an anchor is present.
+    fn ensure_continuation_advanced(
+        direction: Direction,
+        candidate: &RawIndexKey,
+        anchor: Option<&RawIndexKey>,
+    ) -> Result<(), InternalError> {
+        if let Some(anchor) = anchor
+            && !continuation_advanced(direction, candidate, anchor)
+        {
+            return Err(InternalError::index_invariant(
+                "index-range continuation scan did not advance beyond the anchor",
+            ));
+        }
+
+        Ok(())
     }
 
     fn decode_index_entry_and_push<E: EntityKind>(
@@ -201,5 +221,26 @@ impl IndexStore {
         }
 
         Ok(false)
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{PREFIX_NOT_INDEXABLE, index_executor_invariant};
+    use crate::error::{ErrorClass, ErrorOrigin};
+
+    #[test]
+    fn index_executor_invariant_uses_canonical_prefix_and_origin() {
+        let err = index_executor_invariant(PREFIX_NOT_INDEXABLE);
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Index);
+        assert_eq!(
+            err.message,
+            "executor invariant violated: index prefix value is not indexable"
+        );
     }
 }

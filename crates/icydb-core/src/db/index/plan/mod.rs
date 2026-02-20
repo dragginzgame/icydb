@@ -8,7 +8,7 @@ use crate::{
         commit::CommitIndexOp,
         index::{IndexEntryCorruption, IndexKey, IndexStore},
     },
-    error::{ErrorOrigin, InternalError},
+    error::InternalError,
     model::index::IndexModel,
     traits::{EntityKind, EntityValue},
 };
@@ -79,39 +79,30 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             };
 
             let entry = old_entry.as_ref().ok_or_else(|| {
-                InternalError::index_plan_corruption(
-                    ErrorOrigin::Index,
-                    format!(
-                        "index corrupted: {} ({}) -> {}",
-                        E::PATH,
-                        index.fields.join(", "),
-                        IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_key)
-                    ),
-                )
+                InternalError::index_plan_index_corruption(format!(
+                    "index corrupted: {} ({}) -> {}",
+                    E::PATH,
+                    index.fields.join(", "),
+                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_key)
+                ))
             })?;
 
             if index.unique && entry.len() > 1 {
-                return Err(InternalError::index_plan_corruption(
-                    ErrorOrigin::Index,
-                    format!(
-                        "index corrupted: {} ({}) -> {}",
-                        E::PATH,
-                        index.fields.join(", "),
-                        IndexEntryCorruption::NonUniqueEntry { keys: entry.len() }
-                    ),
-                ));
+                return Err(InternalError::index_plan_index_corruption(format!(
+                    "index corrupted: {} ({}) -> {}",
+                    E::PATH,
+                    index.fields.join(", "),
+                    IndexEntryCorruption::NonUniqueEntry { keys: entry.len() }
+                )));
             }
 
             if !entry.contains(old_entity_key) {
-                return Err(InternalError::index_plan_corruption(
-                    ErrorOrigin::Index,
-                    format!(
-                        "index corrupted: {} ({}) -> {}",
-                        E::PATH,
-                        index.fields.join(", "),
-                        IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_key)
-                    ),
-                ));
+                return Err(InternalError::index_plan_index_corruption(format!(
+                    "index corrupted: {} ({}) -> {}",
+                    E::PATH,
+                    index.fields.join(", "),
+                    IndexEntryCorruption::missing_key(old_key.to_raw(), old_entity_key)
+                )));
             }
         }
 
