@@ -595,11 +595,7 @@ mod tests {
     impl OrderedKeyStream for StaticOrderedKeyStream {
         fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
             if self.fail_at.is_some_and(|idx| self.index == idx) {
-                return Err(InternalError::new(
-                    ErrorClass::Internal,
-                    ErrorOrigin::Query,
-                    "forced stream failure",
-                ));
+                return Err(InternalError::query_internal("forced stream failure"));
             }
             if self.index >= self.keys.len() {
                 return Ok(None);

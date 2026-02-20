@@ -4,7 +4,7 @@ use crate::{
         data::{DataKey, RawDataKey, StorageKey, StorageKeyEncodeError},
         identity::{EntityName, EntityNameError},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, EntityValue},
     value::Value,
 };
@@ -84,20 +84,14 @@ impl InternalError {
         invalid_target_message: &'static str,
     ) -> Self {
         match err {
-            RelationTargetRawKeyError::StorageKeyEncode(err) => Self::new(
-                ErrorClass::Unsupported,
-                ErrorOrigin::Executor,
-                format!(
+            RelationTargetRawKeyError::StorageKeyEncode(err) => {
+                Self::executor_unsupported(format!(
                     "{storage_compat_message}: source={source_path} field={field_name} target={target_path} value={value:?} ({err})",
-                ),
-            ),
-            RelationTargetRawKeyError::TargetEntityName(err) => Self::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Executor,
-                format!(
-                    "{invalid_target_message}: source={source_path} field={field_name} target={target_path} name={target_entity_name} ({err})",
-                ),
-            ),
+                ))
+            }
+            RelationTargetRawKeyError::TargetEntityName(err) => Self::executor_internal(format!(
+                "{invalid_target_message}: source={source_path} field={field_name} target={target_path} name={target_entity_name} ({err})",
+            )),
         }
     }
 }

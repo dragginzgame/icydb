@@ -1,6 +1,6 @@
 use crate::{
     db::data::MAX_ROW_BYTES,
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     serialize::{SerializeError, deserialize_bounded},
 };
 use serde::de::DeserializeOwned;
@@ -34,27 +34,11 @@ fn deserialize_with_limit<T>(
 where
     T: DeserializeOwned,
 {
-    deserialize_bounded(bytes, max_bytes).map_err(|source| {
-        map_deserialize_error(
-            source,
-            payload_label,
-            ErrorClass::Corruption,
-            ErrorOrigin::Serialize,
-        )
-    })
+    deserialize_bounded(bytes, max_bytes)
+        .map_err(|source| map_deserialize_error(source, payload_label))
 }
 
 // Convert format-level deserialize errors into DB engine classification.
-fn map_deserialize_error(
-    source: SerializeError,
-    payload_label: &'static str,
-    class: ErrorClass,
-    origin: ErrorOrigin,
-) -> InternalError {
-    let message = format!("{payload_label} decode failed: {source}");
-    if matches!(class, ErrorClass::Corruption) {
-        return InternalError::corruption(origin, message);
-    }
-
-    InternalError::new(class, origin, message)
+fn map_deserialize_error(source: SerializeError, payload_label: &'static str) -> InternalError {
+    InternalError::serialize_corruption(format!("{payload_label} decode failed: {source}"))
 }

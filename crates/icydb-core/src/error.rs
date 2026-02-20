@@ -53,6 +53,20 @@ impl InternalError {
         }
     }
 
+    /// Construct an error while preserving an explicit class/origin taxonomy pair.
+    pub(crate) fn classified(
+        class: ErrorClass,
+        origin: ErrorOrigin,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::new(class, origin, message)
+    }
+
+    /// Rebuild this error with a new message while preserving class/origin taxonomy.
+    pub(crate) fn with_message(self, message: impl Into<String>) -> Self {
+        Self::classified(self.class, self.origin, message)
+    }
+
     /// Construct a query-origin invariant violation.
     pub(crate) fn query_invariant(message: impl Into<String>) -> Self {
         Self::new(
@@ -89,11 +103,6 @@ impl InternalError {
         )
     }
 
-    /// Construct a corruption error for a specific origin.
-    pub(crate) fn corruption(origin: ErrorOrigin, message: impl Into<String>) -> Self {
-        Self::new(ErrorClass::Corruption, origin, message.into())
-    }
-
     /// Construct a store-origin internal error.
     pub(crate) fn store_internal(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Internal, ErrorOrigin::Store, message.into())
@@ -107,6 +116,12 @@ impl InternalError {
     /// Construct an index-origin internal error.
     pub(crate) fn index_internal(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Internal, ErrorOrigin::Index, message.into())
+    }
+
+    /// Construct a query-origin internal error.
+    #[cfg(test)]
+    pub(crate) fn query_internal(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Internal, ErrorOrigin::Query, message.into())
     }
 
     /// Construct a serialize-origin internal error.

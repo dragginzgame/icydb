@@ -245,7 +245,7 @@ impl CachedInvariant {
     }
 
     fn to_error(&self) -> InternalError {
-        InternalError::new(self.class, self.origin, self.message.clone())
+        InternalError::classified(self.class, self.origin, self.message.clone())
     }
 }
 

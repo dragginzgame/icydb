@@ -182,14 +182,12 @@ fn rebuild_secondary_indexes_in_place(
                 Some(raw_row.as_bytes().to_vec()),
             );
             let prepared = (hooks.prepare_row_commit)(db, &row_op).map_err(|err| {
-                InternalError::new(
-                    err.class,
-                    err.origin,
-                    format!(
-                        "startup index rebuild failed: store='{}' entity='{}' ({})",
-                        store_path, hooks.entity_path, err.message
-                    ),
-                )
+                let message = format!(
+                    "startup index rebuild failed: store='{}' entity='{}' ({})",
+                    store_path, hooks.entity_path, err.message
+                );
+
+                err.with_message(message)
             })?;
 
             apply_index_mutations(prepared.index_ops);

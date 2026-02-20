@@ -5,6 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.20.1] – 2026-02-20 - Error Mapping Consolidation
+
+* Consolidated internal error construction so executor/query/store origin mapping is more consistent and easier to audit.
+
+```rust
+InternalError::serialize_corruption(format!("{payload_label} decode failed: {source}"))
+```
+
+---
+
 ## [0.19.1] – 2026-02-20 - Execution Structure Cleanup
 
 ### 📝 Summary
