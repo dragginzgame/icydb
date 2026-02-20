@@ -18,6 +18,25 @@ use crate::{
 };
 use std::{collections::BTreeSet, ops::Bound};
 
+macro_rules! assert_exhausted_continuation_page {
+    ($page:expr, $empty_message:expr, $cursor_message:expr $(,)?) => {{
+        assert!($page.items.0.is_empty(), "{}", $empty_message);
+        assert!($page.next_cursor.is_none(), "{}", $cursor_message);
+    }};
+}
+
+type RangeBounds = &'static [(CompareOp, u32)];
+
+/// RangeMatrixCase
+///
+/// Shared table row for strict range-predicate pushdown parity matrices.
+#[derive(Clone, Copy)]
+struct RangeMatrixCase {
+    name: &'static str,
+    bounds: RangeBounds,
+    descending: bool,
+}
+
 // Resolve ids directly from the `(group, rank)` index prefix in raw index-key order.
 fn ordered_ids_from_group_rank_index(group: u32) -> Vec<Ulid> {
     // Phase 1: read candidate keys from canonical index traversal order.
@@ -268,6 +287,25 @@ fn predicate_from_field_bounds(field: &str, bounds: &[(CompareOp, u32)]) -> Pred
         return predicates
             .pop()
             .expect("single-bound predicate list should contain one predicate");
+    }
+
+    Predicate::And(predicates)
+}
+
+// Build one strict composite `(group, rank)` predicate from range matrix bounds.
+fn predicate_from_group_rank_bounds(group: u32, bounds: &[(CompareOp, u32)]) -> Predicate {
+    let mut predicates = Vec::with_capacity(bounds.len() + 1);
+    predicates.push(strict_compare_predicate(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(u64::from(group)),
+    ));
+    for (op, bound) in bounds {
+        predicates.push(strict_compare_predicate(
+            "rank",
+            *op,
+            Value::Uint(u64::from(*bound)),
+        ));
     }
 
     Predicate::And(predicates)
@@ -579,6 +617,95 @@ fn assert_resume_after_entity<E>(
     let ids: Vec<Ulid> = ids_from_items(&page.items.0);
 
     assert_eq!(ids, expected_ids);
+}
+
+fn assert_resume_from_terminal_entity_exhausts_range<E>(
+    build_query: impl Fn() -> Query<E>,
+    terminal_entity: &E,
+    empty_message: &'static str,
+    cursor_message: &'static str,
+) where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+{
+    let load = LoadExecutor::<E>::new(DB, false);
+
+    let terminal_boundary = build_query()
+        .plan()
+        .expect("terminal-boundary plan should build")
+        .into_inner()
+        .cursor_boundary_from_entity(terminal_entity)
+        .expect("terminal boundary should build");
+    let resume = load
+        .execute_paged_with_cursor(
+            build_query()
+                .plan()
+                .expect("terminal resume plan should build"),
+            Some(terminal_boundary),
+        )
+        .expect("terminal resume execution should succeed");
+
+    assert_exhausted_continuation_page!(resume, empty_message, cursor_message);
+}
+
+fn apply_order_field<E>(query: Query<E>, field: &str, descending: bool) -> Query<E>
+where
+    E: EntityKind,
+{
+    if descending {
+        query.order_by_desc(field)
+    } else {
+        query.order_by(field)
+    }
+}
+
+#[expect(clippy::too_many_arguments)]
+fn run_range_pushdown_parity_matrix<E, Row>(
+    rows: &[Row],
+    cases: &[RangeMatrixCase],
+    seed_rows: fn(&[Row]),
+    build_predicate: impl Fn(RangeBounds) -> Predicate + Copy,
+    fallback_ids_for_bounds: impl Fn(&[Row], RangeBounds) -> Vec<Ulid> + Copy,
+    order_field: &str,
+    index_name: &'static str,
+    index_range_slots: usize,
+    matrix_name: &'static str,
+) where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+{
+    for case in cases {
+        // Phase 1: seed deterministic rows and verify range planning shape.
+        reset_store();
+        seed_rows(rows);
+
+        let predicate = build_predicate(case.bounds);
+        let explain = apply_order_field(
+            Query::<E>::new(ReadConsistency::MissingOk).filter(predicate.clone()),
+            order_field,
+            case.descending,
+        )
+        .explain()
+        .expect("range matrix explain should build");
+        assert!(
+            explain_contains_index_range(&explain.access, index_name, index_range_slots),
+            "{} case '{}' should plan an IndexRange access path",
+            matrix_name,
+            case.name
+        );
+
+        // Phase 2: execute pushdown and fallback plans under identical ordering.
+        let fallback_seed_ids = fallback_ids_for_bounds(rows, case.bounds);
+        assert_pushdown_parity(
+            || {
+                apply_order_field(
+                    Query::<E>::new(ReadConsistency::MissingOk).filter(predicate.clone()),
+                    order_field,
+                    case.descending,
+                )
+            },
+            fallback_seed_ids,
+            |query| apply_order_field(query, order_field, case.descending),
+        );
+    }
 }
 
 #[test]
@@ -1145,13 +1272,10 @@ fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page(
         .execute_paged_with_cursor(plan, boundary)
         .expect("pk-range cursor past end should execute");
 
-    assert!(
-        page.items.0.is_empty(),
-        "cursor beyond range end should produce an empty page"
-    );
-    assert!(
-        page.next_cursor.is_none(),
-        "empty page should not emit a continuation cursor"
+    assert_exhausted_continuation_page!(
+        page,
+        "cursor beyond range end should produce an empty page",
+        "empty page should not emit a continuation cursor",
     );
 }
 
@@ -2079,7 +2203,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .as_ref()
         .expect("prefix window page1 should emit continuation cursor");
     let page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
+        .filter(predicate)
         .order_by("rank")
         .limit(2)
         .plan()
@@ -2096,32 +2220,17 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         "final prefix window page should not emit continuation cursor"
     );
 
-    let plan_for_boundary = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by("rank")
-        .limit(2)
-        .plan()
-        .expect("prefix window boundary plan should build");
-    let explicit_boundary = plan_for_boundary
-        .into_inner()
-        .cursor_boundary_from_entity(&page2.items.0[0].1)
-        .expect("explicit boundary from terminal row should build");
-    let past_end_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(pushdown_group_predicate(7))
-        .order_by("rank")
-        .limit(2)
-        .plan()
-        .expect("past-end plan should build");
-    let past_end = load
-        .execute_paged_with_cursor(past_end_plan, Some(explicit_boundary))
-        .expect("past-end execution should succeed");
-    assert!(
-        past_end.items.0.is_empty(),
-        "cursor boundary at final prefix row should yield an empty continuation page"
-    );
-    assert!(
-        past_end.next_cursor.is_none(),
-        "empty continuation page should not emit a cursor"
+    let terminal_entity = &page2.items.0[0].1;
+    assert_resume_from_terminal_entity_exhausts_range(
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(pushdown_group_predicate(7))
+                .order_by("rank")
+                .limit(2)
+        },
+        terminal_entity,
+        "cursor boundary at final prefix row should yield an empty continuation page",
+        "empty continuation page should not emit a cursor",
     );
 }
 
@@ -2681,13 +2790,10 @@ fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
         Some(0),
         "limit=0 index-range pushdown should not scan access rows"
     );
-    assert!(
-        page.items.0.is_empty(),
-        "limit=0 should return an empty page for eligible index-range plans"
-    );
-    assert!(
-        page.next_cursor.is_none(),
-        "limit=0 should not emit a continuation cursor"
+    assert_exhausted_continuation_page!(
+        page,
+        "limit=0 should return an empty page for eligible index-range plans",
+        "limit=0 should not emit a continuation cursor",
     );
 }
 
@@ -2736,13 +2842,10 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
         Some(0),
         "limit=0 should short-circuit access scanning even when offset is non-zero"
     );
-    assert!(
-        page.items.0.is_empty(),
-        "limit=0 with offset should return an empty page for eligible index-range plans"
-    );
-    assert!(
-        page.next_cursor.is_none(),
-        "limit=0 with offset should not emit a continuation cursor"
+    assert_exhausted_continuation_page!(
+        page,
+        "limit=0 with offset should return an empty page for eligible index-range plans",
+        "limit=0 with offset should not emit a continuation cursor",
     );
 }
 
@@ -3920,32 +4023,16 @@ fn load_single_field_range_cursor_boundaries_respect_lower_and_upper_edges() {
     );
 
     let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
-    let terminal_boundary_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by("tag")
-        .limit(10)
-        .plan()
-        .expect("single-field terminal-boundary plan should build");
-    let terminal_boundary = terminal_boundary_plan
-        .into_inner()
-        .cursor_boundary_from_entity(terminal_entity)
-        .expect("single-field terminal boundary should build");
-    let past_end_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(tag_range_predicate(10, 30))
-        .order_by("tag")
-        .limit(10)
-        .plan()
-        .expect("single-field past-end plan should build");
-    let past_end = load
-        .execute_paged_with_cursor(past_end_plan, Some(terminal_boundary))
-        .expect("single-field past-end page should execute");
-    assert!(
-        past_end.items.0.is_empty(),
-        "cursor boundary at the upper edge row should return an empty continuation page"
-    );
-    assert!(
-        past_end.next_cursor.is_none(),
-        "single-field empty continuation page should not emit a cursor"
+    assert_resume_from_terminal_entity_exhausts_range(
+        || {
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(tag_range_predicate(10, 30))
+                .order_by("tag")
+                .limit(10)
+        },
+        terminal_entity,
+        "cursor boundary at the upper edge row should return an empty continuation page",
+        "single-field empty continuation page should not emit a cursor",
     );
 }
 
@@ -4026,7 +4113,7 @@ fn load_single_field_desc_range_resume_from_lower_boundary_returns_empty() {
     let predicate = tag_between_equivalent_predicate(10, 30);
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
     let base_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
+        .filter(predicate)
         .order_by_desc("tag")
         .limit(10)
         .plan()
@@ -4036,34 +4123,16 @@ fn load_single_field_desc_range_resume_from_lower_boundary_returns_empty() {
         .expect("single-field desc lower-boundary base page should execute");
 
     let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
-    let terminal_boundary_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by_desc("tag")
-        .limit(10)
-        .plan()
-        .expect("single-field desc lower-boundary plan should build");
-    let terminal_boundary = terminal_boundary_plan
-        .into_inner()
-        .cursor_boundary_from_entity(terminal_entity)
-        .expect("single-field desc lower-boundary should build");
-
-    let resume_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(tag_between_equivalent_predicate(10, 30))
-        .order_by_desc("tag")
-        .limit(10)
-        .plan()
-        .expect("single-field desc lower-boundary resume plan should build");
-    let resume = load
-        .execute_paged_with_cursor(resume_plan, Some(terminal_boundary))
-        .expect("single-field desc lower-boundary resume should execute");
-
-    assert!(
-        resume.items.0.is_empty(),
-        "descending resume from the lower boundary row must return an empty page"
-    );
-    assert!(
-        resume.next_cursor.is_none(),
-        "empty descending continuation page must not emit a cursor"
+    assert_resume_from_terminal_entity_exhausts_range(
+        || {
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(tag_between_equivalent_predicate(10, 30))
+                .order_by_desc("tag")
+                .limit(10)
+        },
+        terminal_entity,
+        "descending resume from the lower boundary row must return an empty page",
+        "empty descending continuation page must not emit a cursor",
     );
 }
 
@@ -4081,7 +4150,7 @@ fn load_single_field_desc_range_single_element_resume_returns_empty() {
     let predicate = tag_between_equivalent_predicate(30, 30);
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
     let page1_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate.clone())
+        .filter(predicate)
         .order_by_desc("tag")
         .limit(1)
         .plan()
@@ -4099,33 +4168,16 @@ fn load_single_field_desc_range_single_element_resume_returns_empty() {
         "single-element descending first page should not emit a cursor"
     );
 
-    let boundary_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by_desc("tag")
-        .limit(1)
-        .plan()
-        .expect("single-element desc boundary plan should build");
-    let boundary = boundary_plan
-        .into_inner()
-        .cursor_boundary_from_entity(&page1.items.0[0].1)
-        .expect("single-element desc boundary should build");
-    let resume_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(tag_between_equivalent_predicate(30, 30))
-        .order_by_desc("tag")
-        .limit(1)
-        .plan()
-        .expect("single-element desc resume plan should build");
-    let resume = load
-        .execute_paged_with_cursor(resume_plan, Some(boundary))
-        .expect("single-element desc resume should execute");
-
-    assert!(
-        resume.items.0.is_empty(),
-        "resuming a single-element descending range must return an empty page"
-    );
-    assert!(
-        resume.next_cursor.is_none(),
-        "single-element empty resume must not emit a cursor"
+    assert_resume_from_terminal_entity_exhausts_range(
+        || {
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(tag_between_equivalent_predicate(30, 30))
+                .order_by_desc("tag")
+                .limit(1)
+        },
+        &page1.items.0[0].1,
+        "resuming a single-element descending range must return an empty page",
+        "single-element empty resume must not emit a cursor",
     );
 }
 
@@ -4293,34 +4345,18 @@ fn load_single_field_desc_range_mixed_edges_resume_inside_duplicate_group() {
 
     // Boundary at the terminal row should exhaust the descending range.
     let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
-    let terminal_boundary_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by_desc("tag")
-        .limit(10)
-        .plan()
-        .expect("single-field mixed-edge desc terminal-boundary plan should build");
-    let terminal_boundary = terminal_boundary_plan
-        .into_inner()
-        .cursor_boundary_from_entity(terminal_entity)
-        .expect("single-field mixed-edge desc terminal boundary should build");
-    let past_end_plan = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-        .filter(Predicate::And(vec![
-            strict_compare_predicate("tag", CompareOp::Gt, Value::Uint(10)),
-            strict_compare_predicate("tag", CompareOp::Lte, Value::Uint(30)),
-        ]))
-        .order_by_desc("tag")
-        .limit(10)
-        .plan()
-        .expect("single-field mixed-edge desc past-end plan should build");
-    let past_end = load
-        .execute_paged_with_cursor(past_end_plan, Some(terminal_boundary))
-        .expect("single-field mixed-edge desc past-end page should execute");
-    assert!(
-        past_end.items.0.is_empty(),
+    assert_resume_from_terminal_entity_exhausts_range(
+        || {
+            Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .filter(Predicate::And(vec![
+                    strict_compare_predicate("tag", CompareOp::Gt, Value::Uint(10)),
+                    strict_compare_predicate("tag", CompareOp::Lte, Value::Uint(30)),
+                ]))
+                .order_by_desc("tag")
+                .limit(10)
+        },
+        terminal_entity,
         "descending mixed-edge range should be exhausted after the lower-edge terminal boundary",
-    );
-    assert!(
-        past_end.next_cursor.is_none(),
         "empty descending mixed-edge continuation page must not emit a cursor",
     );
 }
@@ -4393,100 +4429,77 @@ fn load_composite_desc_range_mixed_edges_resume_inside_duplicate_group() {
 
     // Boundary at terminal lower row should exhaust the range.
     let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
-    let terminal_boundary_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by_desc("rank")
-        .limit(10)
-        .plan()
-        .expect("composite mixed-edge desc terminal-boundary plan should build");
-    let terminal_boundary = terminal_boundary_plan
-        .into_inner()
-        .cursor_boundary_from_entity(terminal_entity)
-        .expect("composite mixed-edge desc terminal boundary should build");
-    let past_end_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(Predicate::And(vec![
-            strict_compare_predicate("group", CompareOp::Eq, Value::Uint(7)),
-            strict_compare_predicate("rank", CompareOp::Gt, Value::Uint(10)),
-            strict_compare_predicate("rank", CompareOp::Lte, Value::Uint(30)),
-        ]))
-        .order_by_desc("rank")
-        .limit(10)
-        .plan()
-        .expect("composite mixed-edge desc past-end plan should build");
-    let past_end = load
-        .execute_paged_with_cursor(past_end_plan, Some(terminal_boundary))
-        .expect("composite mixed-edge desc past-end page should execute");
-    assert!(
-        past_end.items.0.is_empty(),
+    assert_resume_from_terminal_entity_exhausts_range(
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(Predicate::And(vec![
+                    strict_compare_predicate("group", CompareOp::Eq, Value::Uint(7)),
+                    strict_compare_predicate("rank", CompareOp::Gt, Value::Uint(10)),
+                    strict_compare_predicate("rank", CompareOp::Lte, Value::Uint(30)),
+                ]))
+                .order_by_desc("rank")
+                .limit(10)
+        },
+        terminal_entity,
         "composite descending mixed-edge range should be exhausted after the lower-edge terminal boundary",
-    );
-    assert!(
-        past_end.next_cursor.is_none(),
         "composite empty descending mixed-edge continuation page must not emit a cursor",
     );
 }
 
 #[test]
 fn load_single_field_range_pushdown_parity_matrix_is_table_driven() {
-    #[derive(Clone, Copy)]
-    struct Case {
-        name: &'static str,
-        bounds: &'static [(CompareOp, u32)],
-        descending: bool,
-    }
-
-    const GT_10: &[(CompareOp, u32)] = &[(CompareOp::Gt, 10)];
-    const GTE_10: &[(CompareOp, u32)] = &[(CompareOp::Gte, 10)];
-    const LT_30: &[(CompareOp, u32)] = &[(CompareOp::Lt, 30)];
-    const LTE_30: &[(CompareOp, u32)] = &[(CompareOp::Lte, 30)];
-    const GTE_10_LT_30: &[(CompareOp, u32)] = &[(CompareOp::Gte, 10), (CompareOp::Lt, 30)];
-    const GT_10_LTE_30: &[(CompareOp, u32)] = &[(CompareOp::Gt, 10), (CompareOp::Lte, 30)];
-    const BETWEEN_10_30: &[(CompareOp, u32)] = &[(CompareOp::Gte, 10), (CompareOp::Lte, 30)];
-    const GT_40_NO_MATCH: &[(CompareOp, u32)] = &[(CompareOp::Gt, 40)];
-    const LTE_40_ALL: &[(CompareOp, u32)] = &[(CompareOp::Lte, 40)];
+    const GT_10: RangeBounds = &[(CompareOp::Gt, 10)];
+    const GTE_10: RangeBounds = &[(CompareOp::Gte, 10)];
+    const LT_30: RangeBounds = &[(CompareOp::Lt, 30)];
+    const LTE_30: RangeBounds = &[(CompareOp::Lte, 30)];
+    const GTE_10_LT_30: RangeBounds = &[(CompareOp::Gte, 10), (CompareOp::Lt, 30)];
+    const GT_10_LTE_30: RangeBounds = &[(CompareOp::Gt, 10), (CompareOp::Lte, 30)];
+    const BETWEEN_10_30: RangeBounds = &[(CompareOp::Gte, 10), (CompareOp::Lte, 30)];
+    const GT_40_NO_MATCH: RangeBounds = &[(CompareOp::Gt, 40)];
+    const LTE_40_ALL: RangeBounds = &[(CompareOp::Lte, 40)];
 
     let cases = [
-        Case {
+        RangeMatrixCase {
             name: "gt_only",
             bounds: GT_10,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "gte_only",
             bounds: GTE_10,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "lt_only_desc",
             bounds: LT_30,
             descending: true,
         },
-        Case {
+        RangeMatrixCase {
             name: "lte_only",
             bounds: LTE_30,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "gte_lt_window",
             bounds: GTE_10_LT_30,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "gt_lte_window_desc",
             bounds: GT_10_LTE_30,
             descending: true,
         },
-        Case {
+        RangeMatrixCase {
             name: "between_equivalent",
             bounds: BETWEEN_10_30,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "no_match",
             bounds: GT_40_NO_MATCH,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "all_rows",
             bounds: LTE_40_ALL,
             descending: false,
@@ -4502,114 +4515,73 @@ fn load_single_field_range_pushdown_parity_matrix_is_table_driven() {
         (23_005, 30, "t30"),
         (23_006, 40, "t40"),
     ];
-
-    for case in cases {
-        // Phase 1: seed deterministic rows and verify range planning shape.
-        reset_store();
-        seed_indexed_metrics_rows(&rows);
-
-        let predicate = predicate_from_field_bounds("tag", case.bounds);
-        let mut explain_query = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-            .filter(predicate.clone());
-        explain_query = if case.descending {
-            explain_query.order_by_desc("tag")
-        } else {
-            explain_query.order_by("tag")
-        };
-        let explain = explain_query
-            .explain()
-            .expect("single-field matrix explain should build");
-        assert!(
-            explain_contains_index_range(&explain.access, INDEXED_METRICS_INDEX_MODELS[0].name, 0),
-            "single-field case '{}' should plan an IndexRange access path",
-            case.name
-        );
-
-        // Phase 2: execute pushdown and fallback plans under identical ordering.
-        let fallback_seed_ids = indexed_metrics_ids_for_bounds(&rows, case.bounds);
-        assert_pushdown_parity(
-            || {
-                let query = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
-                    .filter(predicate.clone());
-                if case.descending {
-                    query.order_by_desc("tag")
-                } else {
-                    query.order_by("tag")
-                }
-            },
-            fallback_seed_ids,
-            |query| {
-                if case.descending {
-                    query.order_by_desc("tag")
-                } else {
-                    query.order_by("tag")
-                }
-            },
-        );
-    }
+    run_range_pushdown_parity_matrix::<IndexedMetricsEntity, IndexedMetricsSeedRow>(
+        &rows,
+        &cases,
+        seed_indexed_metrics_rows,
+        |bounds| predicate_from_field_bounds("tag", bounds),
+        indexed_metrics_ids_for_bounds,
+        "tag",
+        INDEXED_METRICS_INDEX_MODELS[0].name,
+        0,
+        "single-field",
+    );
 }
 
 #[test]
 fn load_composite_range_pushdown_parity_matrix_is_table_driven() {
-    #[derive(Clone, Copy)]
-    struct Case {
-        name: &'static str,
-        bounds: &'static [(CompareOp, u32)],
-        descending: bool,
-    }
-
-    const GT_10: &[(CompareOp, u32)] = &[(CompareOp::Gt, 10)];
-    const GTE_10: &[(CompareOp, u32)] = &[(CompareOp::Gte, 10)];
-    const LT_30: &[(CompareOp, u32)] = &[(CompareOp::Lt, 30)];
-    const LTE_30: &[(CompareOp, u32)] = &[(CompareOp::Lte, 30)];
-    const GTE_10_LT_40: &[(CompareOp, u32)] = &[(CompareOp::Gte, 10), (CompareOp::Lt, 40)];
-    const GT_10_LTE_40: &[(CompareOp, u32)] = &[(CompareOp::Gt, 10), (CompareOp::Lte, 40)];
-    const BETWEEN_10_30: &[(CompareOp, u32)] = &[(CompareOp::Gte, 10), (CompareOp::Lte, 30)];
-    const GT_50_NO_MATCH: &[(CompareOp, u32)] = &[(CompareOp::Gt, 50)];
-    const LTE_50_ALL: &[(CompareOp, u32)] = &[(CompareOp::Lte, 50)];
+    const GT_10: RangeBounds = &[(CompareOp::Gt, 10)];
+    const GTE_10: RangeBounds = &[(CompareOp::Gte, 10)];
+    const LT_30: RangeBounds = &[(CompareOp::Lt, 30)];
+    const LTE_30: RangeBounds = &[(CompareOp::Lte, 30)];
+    const GTE_10_LT_40: RangeBounds = &[(CompareOp::Gte, 10), (CompareOp::Lt, 40)];
+    const GT_10_LTE_40: RangeBounds = &[(CompareOp::Gt, 10), (CompareOp::Lte, 40)];
+    const BETWEEN_10_30: RangeBounds = &[(CompareOp::Gte, 10), (CompareOp::Lte, 30)];
+    const GT_50_NO_MATCH: RangeBounds = &[(CompareOp::Gt, 50)];
+    const LTE_50_ALL: RangeBounds = &[(CompareOp::Lte, 50)];
 
     let cases = [
-        Case {
+        RangeMatrixCase {
             name: "gt_only",
             bounds: GT_10,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "gte_only",
             bounds: GTE_10,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "lt_only_desc",
             bounds: LT_30,
             descending: true,
         },
-        Case {
+        RangeMatrixCase {
             name: "lte_only",
             bounds: LTE_30,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "gte_lt_window",
             bounds: GTE_10_LT_40,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "gt_lte_window_desc",
             bounds: GT_10_LTE_40,
             descending: true,
         },
-        Case {
+        RangeMatrixCase {
             name: "between_equivalent",
             bounds: BETWEEN_10_30,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "no_match",
             bounds: GT_50_NO_MATCH,
             descending: false,
         },
-        Case {
+        RangeMatrixCase {
             name: "all_rows",
             bounds: LTE_50_ALL,
             descending: false,
@@ -4627,64 +4599,17 @@ fn load_composite_range_pushdown_parity_matrix_is_table_driven() {
         (24_007, 8, 15, "g8-r15"),
         (24_008, 7, 50, "g7-r50"),
     ];
-    for case in cases {
-        // Phase 1: seed deterministic rows and verify prefix+range planning shape.
-        reset_store();
-        seed_pushdown_rows(&rows);
-
-        let mut compare_bounds = Vec::with_capacity(case.bounds.len() + 1);
-        compare_bounds.push(strict_compare_predicate(
-            "group",
-            CompareOp::Eq,
-            Value::Uint(7),
-        ));
-        for (op, bound) in case.bounds {
-            compare_bounds.push(strict_compare_predicate(
-                "rank",
-                *op,
-                Value::Uint(u64::from(*bound)),
-            ));
-        }
-        let predicate = Predicate::And(compare_bounds);
-
-        let mut explain_query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-            .filter(predicate.clone());
-        explain_query = if case.descending {
-            explain_query.order_by_desc("rank")
-        } else {
-            explain_query.order_by("rank")
-        };
-        let explain = explain_query
-            .explain()
-            .expect("composite matrix explain should build");
-        assert!(
-            explain_contains_index_range(&explain.access, PUSHDOWN_PARITY_INDEX_MODELS[0].name, 1),
-            "composite case '{}' should plan an IndexRange access path",
-            case.name
-        );
-
-        // Phase 2: execute pushdown and fallback plans under identical ordering.
-        let fallback_seed_ids = pushdown_ids_for_group_rank_bounds(&rows, 7, case.bounds);
-        assert_pushdown_parity(
-            || {
-                let query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-                    .filter(predicate.clone());
-                if case.descending {
-                    query.order_by_desc("rank")
-                } else {
-                    query.order_by("rank")
-                }
-            },
-            fallback_seed_ids,
-            |query| {
-                if case.descending {
-                    query.order_by_desc("rank")
-                } else {
-                    query.order_by("rank")
-                }
-            },
-        );
-    }
+    run_range_pushdown_parity_matrix::<PushdownParityEntity, PushdownSeedRow>(
+        &rows,
+        &cases,
+        seed_pushdown_rows,
+        |bounds| predicate_from_group_rank_bounds(7, bounds),
+        |seed_rows, bounds| pushdown_ids_for_group_rank_bounds(seed_rows, 7, bounds),
+        "rank",
+        PUSHDOWN_PARITY_INDEX_MODELS[0].name,
+        1,
+        "composite",
+    );
 }
 
 #[test]
@@ -4761,32 +4686,16 @@ fn load_composite_between_cursor_boundaries_respect_duplicate_lower_and_upper_ed
 
     // Phase 4: boundary at the terminal upper-edge row should produce an empty continuation page.
     let terminal_entity = &base_page.items.0[base_page.items.0.len() - 1].1;
-    let terminal_boundary_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(predicate)
-        .order_by("rank")
-        .limit(10)
-        .plan()
-        .expect("composite duplicate-edge terminal-boundary plan should build");
-    let terminal_boundary = terminal_boundary_plan
-        .into_inner()
-        .cursor_boundary_from_entity(terminal_entity)
-        .expect("composite duplicate-edge terminal boundary should build");
-    let past_end_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .filter(group_rank_between_equivalent_predicate(7, 10, 30))
-        .order_by("rank")
-        .limit(10)
-        .plan()
-        .expect("composite duplicate-edge past-end plan should build");
-    let past_end = load
-        .execute_paged_with_cursor(past_end_plan, Some(terminal_boundary))
-        .expect("composite duplicate-edge past-end page should execute");
-    assert!(
-        past_end.items.0.is_empty(),
-        "boundary at upper-edge terminal row should return an empty continuation page"
-    );
-    assert!(
-        past_end.next_cursor.is_none(),
-        "composite empty continuation page should not emit a cursor"
+    assert_resume_from_terminal_entity_exhausts_range(
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(group_rank_between_equivalent_predicate(7, 10, 30))
+                .order_by("rank")
+                .limit(10)
+        },
+        terminal_entity,
+        "boundary at upper-edge terminal row should return an empty continuation page",
+        "composite empty continuation page should not emit a cursor",
     );
 }
 

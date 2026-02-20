@@ -9,7 +9,7 @@ use crate::{
             store::{IndexStore, RawIndexKey},
         },
     },
-    error::{ErrorOrigin, InternalError},
+    error::InternalError,
     model::index::IndexModel,
     traits::EntityKind,
     value::Value,
@@ -177,20 +177,16 @@ impl IndexStore {
         }
 
         IndexKey::try_from_raw(raw_key).map_err(|err| {
-            InternalError::corruption(
-                ErrorOrigin::Index,
-                format!("index key corrupted during {context}: {err}"),
-            )
+            InternalError::index_corruption(format!("index key corrupted during {context}: {err}"))
         })?;
 
         let storage_keys = value
             .entry
             .decode_keys()
-            .map_err(|err| InternalError::corruption(ErrorOrigin::Index, err.to_string()))?;
+            .map_err(|err| InternalError::index_corruption(err.to_string()))?;
 
         if index.unique && storage_keys.len() != 1 {
-            return Err(InternalError::corruption(
-                ErrorOrigin::Index,
+            return Err(InternalError::index_corruption(
                 "unique index entry contains an unexpected number of keys",
             ));
         }

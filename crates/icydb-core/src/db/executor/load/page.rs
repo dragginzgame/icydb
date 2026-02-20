@@ -10,7 +10,7 @@ use crate::{
         },
         response::Response,
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, EntityValue},
     types::Id,
 };
@@ -165,11 +165,9 @@ where
             ContinuationToken::new_with_direction(signature, boundary, direction)
         };
         token.encode().map_err(|err| {
-            InternalError::new(
-                ErrorClass::Internal,
-                ErrorOrigin::Serialize,
-                format!("failed to encode continuation cursor: {err}"),
-            )
+            InternalError::serialize_internal(format!(
+                "failed to encode continuation cursor: {err}"
+            ))
         })
     }
 }

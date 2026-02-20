@@ -4,7 +4,7 @@ use crate::{
         entity_decode::decode_and_validate_entity_key,
         executor::ExecutorError,
     },
-    error::{ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, EntityValue},
 };
 
@@ -39,17 +39,15 @@ pub(super) fn decode_rows<E: EntityKind + EntityValue>(
                 expected,
                 || raw.try_decode::<E>(),
                 |err| {
-                    ExecutorError::corruption(
-                        ErrorOrigin::Serialize,
-                        format!("failed to deserialize row: {dk} ({err})"),
-                    )
+                    ExecutorError::serialize_corruption(format!(
+                        "failed to deserialize row: {dk} ({err})"
+                    ))
                     .into()
                 },
                 |expected, actual| {
-                    ExecutorError::corruption(
-                        ErrorOrigin::Store,
-                        format!("row key mismatch: expected {expected:?}, found {actual:?}"),
-                    )
+                    ExecutorError::store_corruption(format!(
+                        "row key mismatch: expected {expected:?}, found {actual:?}"
+                    ))
                     .into()
                 },
             )?;

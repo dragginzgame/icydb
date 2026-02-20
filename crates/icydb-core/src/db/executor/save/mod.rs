@@ -20,7 +20,7 @@ use crate::{
         },
         query::save::SaveMode,
     },
-    error::{ErrorOrigin, InternalError},
+    error::InternalError,
     obs::sink::{ExecKind, MetricsEvent, Span, record},
     sanitize::sanitize,
     serialize::serialize,
@@ -336,17 +336,15 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             expected,
             || row.try_decode::<E>(),
             |err| {
-                ExecutorError::corruption(
-                    ErrorOrigin::Serialize,
-                    format!("failed to deserialize row: {data_key} ({err})"),
-                )
+                ExecutorError::serialize_corruption(format!(
+                    "failed to deserialize row: {data_key} ({err})"
+                ))
                 .into()
             },
             |expected, actual| {
-                ExecutorError::corruption(
-                    ErrorOrigin::Store,
-                    format!("row key mismatch: expected {expected:?}, found {actual:?}"),
-                )
+                ExecutorError::store_corruption(format!(
+                    "row key mismatch: expected {expected:?}, found {actual:?}"
+                ))
                 .into()
             },
         )?;

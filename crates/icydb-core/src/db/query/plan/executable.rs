@@ -221,31 +221,6 @@ impl<E: EntityKind> ExecutablePlan<E> {
     }
 }
 
-impl InternalError {
-    fn from_cursor_plan_error(err: PlanError) -> Self {
-        let message = match &err {
-            PlanError::Cursor(inner) => match inner.as_ref() {
-                CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected: 1, found } => {
-                    format!(
-                        "executor invariant violated: pk-ordered continuation boundary must contain exactly 1 slot, found {found}"
-                    )
-                }
-                CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                    value: None, ..
-                } => "executor invariant violated: pk cursor slot must be present".to_string(),
-                CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
-                    value: Some(_),
-                    ..
-                } => "executor invariant violated: pk cursor slot type mismatch".to_string(),
-                _ => err.to_string(),
-            },
-            _ => err.to_string(),
-        };
-
-        Self::query_invariant(message)
-    }
-}
-
 ///
 /// TESTS
 ///

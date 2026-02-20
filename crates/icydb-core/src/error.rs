@@ -1,4 +1,7 @@
-use crate::patch::MergePatchError;
+use crate::{
+    db::query::plan::{CursorPlanError, PlanError},
+    patch::MergePatchError,
+};
 use std::fmt;
 use thiserror::Error as ThisError;
 
@@ -106,6 +109,11 @@ impl InternalError {
         Self::new(ErrorClass::Internal, ErrorOrigin::Index, message.into())
     }
 
+    /// Construct a serialize-origin internal error.
+    pub(crate) fn serialize_internal(message: impl Into<String>) -> Self {
+        Self::new(ErrorClass::Internal, ErrorOrigin::Serialize, message.into())
+    }
+
     /// Construct a store-origin corruption error.
     pub(crate) fn store_corruption(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Corruption, ErrorOrigin::Store, message.into())
@@ -186,6 +194,57 @@ impl InternalError {
     #[must_use]
     pub fn display_with_class(&self) -> String {
         format!("{}:{}: {}", self.origin, self.class, self.message)
+    }
+
+    /// Construct an index-plan corruption error with a canonical prefix.
+    pub(crate) fn index_plan_corruption(origin: ErrorOrigin, message: impl Into<String>) -> Self {
+        let message = message.into();
+        Self::new(
+            ErrorClass::Corruption,
+            origin,
+            format!("corruption detected ({origin}): {message}"),
+        )
+    }
+
+    /// Construct an index uniqueness violation conflict error.
+    pub(crate) fn index_violation(path: &str, index_fields: &[&str]) -> Self {
+        Self::new(
+            ErrorClass::Conflict,
+            ErrorOrigin::Index,
+            format!(
+                "index constraint violation: {path} ({})",
+                index_fields.join(", ")
+            ),
+        )
+    }
+
+    /// Map plan-surface cursor failures into executor-boundary invariants.
+    pub(crate) fn from_cursor_plan_error(err: PlanError) -> Self {
+        let message = match &err {
+            PlanError::Cursor(inner) => match inner.as_ref() {
+                CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected: 1, found } => {
+                    format!(
+                        "executor invariant violated: pk-ordered continuation boundary must contain exactly 1 slot, found {found}"
+                    )
+                }
+                CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+                    value: None, ..
+                } => "executor invariant violated: pk cursor slot must be present".to_string(),
+                CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
+                    value: Some(_),
+                    ..
+                } => "executor invariant violated: pk cursor slot type mismatch".to_string(),
+                _ => err.to_string(),
+            },
+            _ => err.to_string(),
+        };
+
+        Self::query_invariant(message)
+    }
+
+    /// Map shared plan-validation failures into executor-boundary invariants.
+    pub(crate) fn from_executor_plan_error(err: PlanError) -> Self {
+        Self::query_invariant(err.to_string())
     }
 }
 

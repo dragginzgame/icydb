@@ -5,6 +5,27 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.18.2] – 2026-02-20 - Complexity Audit Follow-Through
+
+### 📝 Summary
+
+* Continued the complexity audit with low-risk cleanup focused on consistency.
+* Reduced code spread in save flow, boundary handling, pagination tests, and internal error mapping.
+
+### 🔧 Changed
+
+* Simplified save-path wiring while keeping mode and lane behavior explicit.
+* Finished boundary handling cleanup so continuation/range checks use one consistent path.
+* Reduced pagination test boilerplate with shared helpers (`4911` lines to `4819` lines).
+* Moved repeated planner/index error-mapping helpers into one canonical `InternalError` location.
+
+### 🧹 Cleanup
+
+* Removed duplicate internal error-mapping blocks in plan modules.
+* Replaced repeated terminal resume assertions in pagination tests with shared checks.
+
+---
+
 ## [0.18.1] – 2026-02-19 - Composite Pagination Closure + Test Macro Helpers
 
 ### 📝 Summary

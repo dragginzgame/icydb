@@ -8,7 +8,7 @@ use crate::{
         commit::CommitIndexOp,
         index::{IndexEntryCorruption, IndexKey, IndexStore},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::{ErrorOrigin, InternalError},
     model::index::IndexModel,
     traits::{EntityKind, EntityValue},
 };
@@ -32,28 +32,6 @@ pub(crate) struct IndexApplyPlan {
 pub(crate) struct IndexMutationPlan {
     pub apply: Vec<IndexApplyPlan>,
     pub commit_ops: Vec<CommitIndexOp>,
-}
-
-impl InternalError {
-    pub(super) fn index_plan_corruption(origin: ErrorOrigin, message: impl Into<String>) -> Self {
-        let message = message.into();
-        Self::new(
-            ErrorClass::Corruption,
-            origin,
-            format!("corruption detected ({origin}): {message}"),
-        )
-    }
-
-    pub(super) fn index_violation(path: &str, index_fields: &[&str]) -> Self {
-        Self::new(
-            ErrorClass::Conflict,
-            ErrorOrigin::Index,
-            format!(
-                "index constraint violation: {path} ({})",
-                index_fields.join(", ")
-            ),
-        )
-    }
 }
 
 /// Plan all index mutations for a single entity transition.

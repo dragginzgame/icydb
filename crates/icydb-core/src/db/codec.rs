@@ -51,9 +51,10 @@ fn map_deserialize_error(
     class: ErrorClass,
     origin: ErrorOrigin,
 ) -> InternalError {
-    InternalError::new(
-        class,
-        origin,
-        format!("{payload_label} decode failed: {source}"),
-    )
+    let message = format!("{payload_label} decode failed: {source}");
+    if matches!(class, ErrorClass::Corruption) {
+        return InternalError::corruption(origin, message);
+    }
+
+    InternalError::new(class, origin, message)
 }

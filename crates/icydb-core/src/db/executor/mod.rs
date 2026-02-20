@@ -72,6 +72,21 @@ impl ExecutorError {
             message: message.into(),
         }
     }
+
+    // Construct a store-origin corruption error with canonical taxonomy.
+    pub(crate) fn store_corruption(message: impl Into<String>) -> Self {
+        Self::corruption(ErrorOrigin::Store, message)
+    }
+
+    // Construct a serialize-origin corruption error with canonical taxonomy.
+    pub(crate) fn serialize_corruption(message: impl Into<String>) -> Self {
+        Self::corruption(ErrorOrigin::Serialize, message)
+    }
+
+    // Construct a store-origin corruption error from displayable source context.
+    pub(crate) fn store_corruption_from(source: impl std::fmt::Display) -> Self {
+        Self::store_corruption(source.to_string())
+    }
 }
 
 impl From<ExecutorError> for InternalError {

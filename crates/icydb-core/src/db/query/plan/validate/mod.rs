@@ -333,10 +333,3 @@ where
 
     Ok(())
 }
-
-// Map shared `PlanError` validation failures into executor-boundary invariant errors.
-impl InternalError {
-    fn from_executor_plan_error(err: PlanError) -> Self {
-        Self::query_invariant(err.to_string())
-    }
-}

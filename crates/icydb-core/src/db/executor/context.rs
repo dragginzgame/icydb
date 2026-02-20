@@ -13,7 +13,7 @@ use crate::{
             plan::{AccessPath, AccessPlan, Direction},
         },
     },
-    error::{ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, EntityValue, Path},
     types::Id,
 };
@@ -70,7 +70,7 @@ where
         self.with_store(|s| {
             let raw = key.to_raw()?;
             s.get(&raw).ok_or_else(|| {
-                ExecutorError::corruption(ErrorOrigin::Store, format!("missing row: {key}")).into()
+                ExecutorError::store_corruption(format!("missing row: {key}")).into()
             })
         })?
     }
@@ -199,8 +199,7 @@ where
     }
 
     fn decode_data_key(raw: &RawDataKey) -> Result<DataKey, InternalError> {
-        DataKey::try_from_raw(raw)
-            .map_err(|err| ExecutorError::corruption(ErrorOrigin::Store, err.to_string()).into())
+        DataKey::try_from_raw(raw).map_err(|err| ExecutorError::store_corruption_from(err).into())
     }
 
     pub(crate) fn deserialize_rows(rows: Vec<DataRow>) -> Result<Vec<(Id<E>, E)>, InternalError>
@@ -214,20 +213,18 @@ where
                     expected_key,
                     || row.try_decode::<E>(),
                     |err| {
-                        ExecutorError::corruption(
-                            ErrorOrigin::Serialize,
-                            format!("failed to deserialize row: {key} ({err})"),
-                        )
+                        ExecutorError::serialize_corruption(format!(
+                            "failed to deserialize row: {key} ({err})"
+                        ))
                         .into()
                     },
                     |expected_key, actual_key| {
                         let expected = format_entity_key_for_mismatch::<E>(expected_key);
                         let found = format_entity_key_for_mismatch::<E>(actual_key);
 
-                        ExecutorError::corruption(
-                            ErrorOrigin::Store,
-                            format!("row key mismatch: expected {expected}, found {found}"),
-                        )
+                        ExecutorError::store_corruption(format!(
+                            "row key mismatch: expected {expected}, found {found}"
+                        ))
                         .into()
                     },
                 )?;

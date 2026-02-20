@@ -113,7 +113,7 @@ impl<K> KeyEnvelope<K>
 where
     K: Ord + Clone,
 {
-    fn new(direction: Direction, lower: Bound<K>, upper: Bound<K>) -> Self {
+    const fn new(direction: Direction, lower: Bound<K>, upper: Bound<K>) -> Self {
         Self {
             direction,
             lower,
@@ -181,7 +181,7 @@ where
         (self.lower, self.upper)
     }
 
-    fn bound_key_ref(bound: &Bound<K>) -> Option<&K> {
+    const fn bound_key_ref(bound: &Bound<K>) -> Option<&K> {
         match bound {
             Bound::Included(value) | Bound::Excluded(value) => Some(value),
             Bound::Unbounded => None,
