@@ -17,8 +17,9 @@ pub(crate) use direction::normalize_ordered_keys;
 pub(super) use load::LoadExecutor;
 pub use load::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub(super) use ordered_key_stream::{
-    BudgetedOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
-    OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
+    BudgetedOrderedKeyStream, DistinctOrderedKeyStream, IntersectOrderedKeyStream,
+    KeyOrderComparator, MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox,
+    VecOrderedKeyStream,
 };
 pub(super) use save::SaveExecutor;
 

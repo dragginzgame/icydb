@@ -374,6 +374,7 @@ impl ExplainPlan {
     /// - access path
     /// - normalized predicate
     /// - canonical order-by (including implicit PK tie-break)
+    /// - distinct flag
     /// - projection marker (currently full entity row projection)
     ///
     /// Excluded fields:
@@ -456,6 +457,7 @@ mod tests {
             access: access_a,
             predicate: None,
             order: None,
+            distinct: false,
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
@@ -465,6 +467,7 @@ mod tests {
             access: access_b,
             predicate: None,
             order: None,
+            distinct: false,
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
@@ -511,6 +514,20 @@ mod tests {
         plan_b.order = Some(OrderSpec {
             fields: vec![("name".to_string(), OrderDirection::Desc)],
         });
+
+        assert_ne!(
+            plan_a.continuation_signature("tests::Entity"),
+            plan_b.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
+    fn signature_changes_when_distinct_flag_changes() {
+        let plan_a: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        plan_b.distinct = true;
 
         assert_ne!(
             plan_a.continuation_signature("tests::Entity"),

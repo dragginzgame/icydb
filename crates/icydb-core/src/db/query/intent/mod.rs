@@ -124,6 +124,7 @@ pub(crate) struct QueryModel<'m, K> {
     key_access: Option<KeyAccessState<K>>,
     key_access_conflict: bool,
     order: Option<OrderSpec>,
+    distinct: bool,
     consistency: ReadConsistency,
 }
 
@@ -137,6 +138,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             key_access: None,
             key_access_conflict: false,
             order: None,
+            distinct: false,
             consistency,
         }
     }
@@ -211,6 +213,13 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     /// Set a fully-specified order spec (validated before reaching this boundary).
     pub(crate) fn order_spec(mut self, order: OrderSpec) -> Self {
         self.order = Some(order);
+        self
+    }
+
+    /// Enable DISTINCT semantics for this query intent.
+    #[must_use]
+    pub(crate) const fn distinct(mut self) -> Self {
+        self.distinct = true;
         self
     }
 
@@ -314,6 +323,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             // Canonicalize ORDER BY to include an explicit primary-key tie-break.
             // This ensures explain/fingerprint/execution share one deterministic order shape.
             order: canonicalize_order_spec(self.model, self.order.clone()),
+            distinct: self.distinct,
             delete_limit: match self.mode {
                 QueryMode::Delete(spec) => spec.limit.map(|max_rows| DeleteLimitSpec { max_rows }),
                 QueryMode::Load(_) => None,
@@ -448,6 +458,13 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
+    /// Enable DISTINCT semantics for this query.
+    #[must_use]
+    pub fn distinct(mut self) -> Self {
+        self.intent = self.intent.distinct();
+        self
+    }
+
     /// Set the access path to a single primary key lookup.
     pub(crate) fn by_id(self, id: E::Key) -> Self {
         let Self { intent, _marker } = self;
@@ -518,6 +535,7 @@ impl<E: EntityKind> Query<E> {
             access,
             predicate,
             order,
+            distinct,
             delete_limit,
             page,
             consistency,
@@ -529,6 +547,7 @@ impl<E: EntityKind> Query<E> {
             access,
             predicate,
             order,
+            distinct,
             delete_limit,
             page,
             consistency,

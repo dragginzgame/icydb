@@ -71,6 +71,7 @@ fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> LogicalPlan
         access,
         predicate: None,
         order,
+        distinct: false,
         delete_limit: None,
         page: None,
         consistency: ReadConsistency::MissingOk,
@@ -319,6 +320,7 @@ fn plan_rejects_unorderable_field() {
         order: Some(OrderSpec {
             fields: vec![("tags".to_string(), OrderDirection::Asc)],
         }),
+        distinct: false,
         delete_limit: None,
         page: None,
         consistency: crate::db::query::ReadConsistency::MissingOk,
@@ -343,6 +345,7 @@ fn plan_rejects_index_prefix_too_long() {
         }),
         predicate: None,
         order: None,
+        distinct: false,
         delete_limit: None,
         page: None,
         consistency: crate::db::query::ReadConsistency::MissingOk,
@@ -368,6 +371,7 @@ fn plan_rejects_empty_index_prefix() {
         }),
         predicate: None,
         order: None,
+        distinct: false,
         delete_limit: None,
         page: None,
         consistency: crate::db::query::ReadConsistency::MissingOk,
@@ -389,6 +393,7 @@ fn plan_accepts_model_based_validation() {
         access: AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::nil()))),
         predicate: None,
         order: None,
+        distinct: false,
         delete_limit: None,
         page: None,
         consistency: crate::db::query::ReadConsistency::MissingOk,
@@ -406,6 +411,7 @@ fn plan_rejects_unordered_pagination() {
         access: AccessPlan::path(AccessPath::FullScan),
         predicate: None,
         order: None,
+        distinct: false,
         delete_limit: None,
         page: Some(PageSpec {
             limit: Some(10),
@@ -433,6 +439,7 @@ fn plan_accepts_ordered_pagination() {
         order: Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         }),
+        distinct: false,
         delete_limit: None,
         page: Some(PageSpec {
             limit: Some(10),
@@ -455,6 +462,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
         order: Some(OrderSpec {
             fields: vec![("tag".to_string(), OrderDirection::Asc)],
         }),
+        distinct: false,
         delete_limit: None,
         page: None,
         consistency: crate::db::query::ReadConsistency::MissingOk,

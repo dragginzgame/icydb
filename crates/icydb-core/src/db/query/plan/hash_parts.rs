@@ -309,6 +309,7 @@ enum ExplainHashField {
     Access,
     Predicate,
     Order,
+    Distinct,
     Page,
     DeleteLimit,
     Consistency,
@@ -326,7 +327,7 @@ struct ExplainHashProfileSpec<'a> {
     steps: &'static [ExplainHashStep],
 }
 
-const FINGERPRINT_V2_STEPS: [ExplainHashStep; 7] = [
+const FINGERPRINT_V2_STEPS: [ExplainHashStep; 8] = [
     ExplainHashStep {
         section_tag: 0x01,
         field: ExplainHashField::Access,
@@ -341,23 +342,27 @@ const FINGERPRINT_V2_STEPS: [ExplainHashStep; 7] = [
     },
     ExplainHashStep {
         section_tag: 0x04,
-        field: ExplainHashField::Page,
+        field: ExplainHashField::Distinct,
     },
     ExplainHashStep {
         section_tag: 0x05,
-        field: ExplainHashField::DeleteLimit,
+        field: ExplainHashField::Page,
     },
     ExplainHashStep {
         section_tag: 0x06,
-        field: ExplainHashField::Consistency,
+        field: ExplainHashField::DeleteLimit,
     },
     ExplainHashStep {
         section_tag: 0x07,
+        field: ExplainHashField::Consistency,
+    },
+    ExplainHashStep {
+        section_tag: 0x08,
         field: ExplainHashField::Mode,
     },
 ];
 
-const CONTINUATION_V1_STEPS: [ExplainHashStep; 6] = [
+const CONTINUATION_V1_STEPS: [ExplainHashStep; 7] = [
     ExplainHashStep {
         section_tag: 0x01,
         field: ExplainHashField::EntityPath,
@@ -380,6 +385,10 @@ const CONTINUATION_V1_STEPS: [ExplainHashStep; 6] = [
     },
     ExplainHashStep {
         section_tag: 0x06,
+        field: ExplainHashField::Distinct,
+    },
+    ExplainHashStep {
+        section_tag: 0x07,
         field: ExplainHashField::ProjectionDefault,
     },
 ];
@@ -414,6 +423,7 @@ fn hash_explain_field(
         ExplainHashField::Access => hash_access(hasher, &plan.access),
         ExplainHashField::Predicate => hash_predicate(hasher, &plan.predicate),
         ExplainHashField::Order => hash_order(hasher, &plan.order_by),
+        ExplainHashField::Distinct => hash_distinct(hasher, plan.distinct),
         ExplainHashField::Page => hash_page(hasher, &plan.page),
         ExplainHashField::DeleteLimit => hash_delete_limit(hasher, &plan.delete_limit),
         ExplainHashField::Consistency => hash_consistency(hasher, plan.consistency),
@@ -448,6 +458,14 @@ fn hash_page(hasher: &mut Sha256, page: &ExplainPagination) {
             }
             write_u32(hasher, *offset);
         }
+    }
+}
+
+fn hash_distinct(hasher: &mut Sha256, distinct: bool) {
+    if distinct {
+        write_tag(hasher, 0x44);
+    } else {
+        write_tag(hasher, 0x45);
     }
 }
 

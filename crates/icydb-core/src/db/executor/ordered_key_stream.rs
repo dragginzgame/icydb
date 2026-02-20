@@ -107,6 +107,50 @@ where
 }
 
 ///
+/// DistinctOrderedKeyStream
+///
+/// Wrapper that suppresses adjacent duplicate keys from an ordered stream.
+/// Correct DISTINCT requires identical keys to be contiguous in the underlying order.
+/// This keeps DISTINCT semantics streaming and O(1) memory.
+///
+
+pub(crate) struct DistinctOrderedKeyStream<S> {
+    inner: S,
+    last_emitted: Option<DataKey>,
+}
+
+impl<S> DistinctOrderedKeyStream<S> {
+    #[must_use]
+    pub(crate) const fn new(inner: S) -> Self {
+        Self {
+            inner,
+            last_emitted: None,
+        }
+    }
+}
+
+impl<S> OrderedKeyStream for DistinctOrderedKeyStream<S>
+where
+    S: OrderedKeyStream,
+{
+    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+        loop {
+            let Some(next) = self.inner.next_key()? else {
+                return Ok(None);
+            };
+
+            if self.last_emitted.as_ref().is_some_and(|last| *last == next) {
+                continue;
+            }
+
+            self.last_emitted = Some(next.clone());
+
+            return Ok(Some(next));
+        }
+    }
+}
+
+///
 /// KeyOrderComparator
 ///
 /// Comparator wrapper for ordered key stream monotonicity and merge decisions.
@@ -504,8 +548,8 @@ mod tests {
         db::{
             data::{DataKey, StorageKey},
             executor::ordered_key_stream::{
-                BudgetedOrderedKeyStream, IntersectOrderedKeyStream, MergeOrderedKeyStream,
-                OrderedKeyStream, VecOrderedKeyStream,
+                BudgetedOrderedKeyStream, DistinctOrderedKeyStream, IntersectOrderedKeyStream,
+                MergeOrderedKeyStream, OrderedKeyStream, VecOrderedKeyStream,
             },
             identity::EntityName,
             query::plan::Direction,
@@ -646,6 +690,32 @@ mod tests {
                 .expect("zero-budget stream should stay exhausted"),
             None
         );
+    }
+
+    #[test]
+    fn distinct_stream_suppresses_consecutive_duplicates() {
+        let inner = StaticOrderedKeyStream::new(vec![
+            data_key(1),
+            data_key(1),
+            data_key(2),
+            data_key(2),
+            data_key(2),
+            data_key(3),
+        ]);
+        let mut stream = DistinctOrderedKeyStream::new(inner);
+
+        let out = collect_stream(&mut stream).expect("distinct stream should succeed");
+        assert_eq!(out, vec![data_key(1), data_key(2), data_key(3)]);
+    }
+
+    #[test]
+    fn distinct_stream_propagates_underlying_errors() {
+        let inner = StaticOrderedKeyStream::with_fail_at(vec![data_key(1), data_key(1)], 1);
+        let mut stream = DistinctOrderedKeyStream::new(inner);
+
+        let err = collect_stream(&mut stream).expect_err("distinct stream should fail");
+        assert_eq!(err.class, ErrorClass::Internal);
+        assert_eq!(err.origin, ErrorOrigin::Query);
     }
 
     #[test]

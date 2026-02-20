@@ -109,6 +109,7 @@ mod tests {
             access: access_a,
             predicate: None,
             order: None,
+            distinct: false,
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
@@ -118,6 +119,7 @@ mod tests {
             access: access_b,
             predicate: None,
             order: None,
+            distinct: false,
             delete_limit: None,
             page: None,
             consistency: ReadConsistency::MissingOk,
@@ -188,6 +190,17 @@ mod tests {
         plan_b.mode = QueryMode::Delete(DeleteSpec::new());
         plan_a.delete_limit = Some(DeleteLimitSpec { max_rows: 2 });
         plan_b.delete_limit = Some(DeleteLimitSpec { max_rows: 3 });
+
+        assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
+    }
+
+    #[test]
+    fn fingerprint_changes_with_distinct_flag() {
+        let plan_a: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        plan_b.distinct = true;
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
     }

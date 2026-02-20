@@ -560,6 +560,41 @@ where
     (ids, boundaries)
 }
 
+// Collect all pages from a fixed executable plan starting from one cursor boundary.
+fn collect_all_pages_from_executable_plan_with_start<E>(
+    load: &LoadExecutor<E>,
+    build_plan: impl Fn() -> ExecutablePlan<E>,
+    initial_cursor: Option<CursorBoundary>,
+    max_pages: usize,
+) -> Vec<Ulid>
+where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+{
+    let mut cursor = initial_cursor;
+    let mut ids = Vec::new();
+    let mut pages = 0usize;
+
+    loop {
+        pages += 1;
+        assert!(pages <= max_pages, "pagination must terminate");
+
+        let page = load
+            .execute_paged_with_cursor(build_plan(), cursor.clone())
+            .expect("paged execution should succeed");
+        ids.extend(ids_from_items(&page.items.0));
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+        cursor = Some(decode_boundary(
+            next_cursor.as_slice(),
+            "continuation cursor should decode",
+        ));
+    }
+
+    ids
+}
+
 fn assert_limit_matrix<E>(build_base_query: impl Fn() -> Query<E>, limits: &[u32], max_pages: usize)
 where
     E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
@@ -2878,6 +2913,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
         order: Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         }),
+        distinct: false,
         delete_limit: None,
         page: Some(PageSpec {
             limit: Some(2),
@@ -2933,6 +2969,7 @@ fn load_composite_pk_budget_disabled_when_cursor_boundary_present() {
         order: Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         }),
+        distinct: false,
         delete_limit: None,
         page: Some(PageSpec {
             limit: Some(2),
@@ -2991,6 +3028,7 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
                 ("id".to_string(), OrderDirection::Asc),
             ],
         }),
+        distinct: false,
         delete_limit: None,
         page: Some(PageSpec {
             limit: Some(2),
@@ -3045,6 +3083,7 @@ fn load_composite_budget_disabled_for_offset_with_residual_filter() {
         order: Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         }),
+        distinct: false,
         delete_limit: None,
         page: Some(PageSpec {
             limit: Some(2),
@@ -3104,6 +3143,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_desc_shape() {
         order: Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Desc)],
         }),
+        distinct: false,
         delete_limit: None,
         page: Some(PageSpec {
             limit: Some(2),
@@ -3176,6 +3216,7 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
         order: Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         }),
+        distinct: false,
         delete_limit: None,
         page: Some(PageSpec {
             limit: Some(2),
@@ -3231,6 +3272,7 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
         order: Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         }),
+        distinct: false,
         delete_limit: None,
         page: Some(PageSpec {
             limit: Some(2),
@@ -3251,6 +3293,7 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
         order: Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         }),
+        distinct: false,
         delete_limit: None,
         page: Some(PageSpec {
             limit: Some(2),
@@ -3337,6 +3380,7 @@ fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination(
                     ("id".to_string(), OrderDirection::Asc),
                 ],
             }),
+            distinct: false,
             delete_limit: None,
             page: Some(PageSpec {
                 limit: Some(2),
@@ -3359,6 +3403,167 @@ fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination(
         2,
         "limit=2 over five rows should emit exactly two continuation boundaries"
     );
+}
+
+#[test]
+fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
+    setup_pagination_test();
+
+    let rows = [
+        (39_201, 7, 10, "g7-r10"),
+        (39_202, 7, 20, "g7-r20-a"),
+        (39_203, 7, 20, "g7-r20-b"),
+        (39_204, 7, 30, "g7-r30"),
+        (39_205, 8, 15, "g8-r15"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(39_201);
+    let id2 = Ulid::from_u128(39_202);
+    let id3 = Ulid::from_u128(39_203);
+    let id4 = Ulid::from_u128(39_204);
+    let id5 = Ulid::from_u128(39_205);
+
+    let build_plan = |distinct: bool, limit: u32| {
+        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            access: AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),
+                AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id5])),
+            ]),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![
+                    ("rank".to_string(), OrderDirection::Desc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            distinct,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(limit),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        })
+    };
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    for limit in [1_u32, 2, 3] {
+        let (ids_plain, boundaries_plain) =
+            collect_all_pages_from_executable_plan(&load, || build_plan(false, limit), 12);
+        let (ids_distinct, boundaries_distinct) =
+            collect_all_pages_from_executable_plan(&load, || build_plan(true, limit), 12);
+
+        assert_eq!(
+            ids_plain, ids_distinct,
+            "distinct on/off should preserve canonical row order for limit={limit}"
+        );
+        assert_eq!(
+            boundaries_plain, boundaries_distinct,
+            "distinct on/off should preserve continuation boundaries for limit={limit}"
+        );
+    }
+}
+
+#[test]
+fn load_distinct_union_resume_matrix_is_boundary_complete() {
+    setup_pagination_test();
+
+    let rows = [
+        (39_301, 7, 10, "g7-r10"),
+        (39_302, 7, 20, "g7-r20"),
+        (39_303, 7, 30, "g7-r30"),
+        (39_304, 7, 40, "g7-r40"),
+        (39_305, 7, 50, "g7-r50"),
+        (39_306, 8, 10, "g8-r10"),
+        (39_307, 8, 20, "g8-r20"),
+        (39_308, 8, 30, "g8-r30"),
+        (39_309, 9, 10, "g9-r10"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let id1 = Ulid::from_u128(39_301);
+    let id2 = Ulid::from_u128(39_302);
+    let id3 = Ulid::from_u128(39_303);
+    let id4 = Ulid::from_u128(39_304);
+    let id5 = Ulid::from_u128(39_305);
+    let id6 = Ulid::from_u128(39_306);
+    let id7 = Ulid::from_u128(39_307);
+    let id8 = Ulid::from_u128(39_308);
+    let id9 = Ulid::from_u128(39_309);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    for (case_name, order_direction) in
+        [("asc", OrderDirection::Asc), ("desc", OrderDirection::Desc)]
+    {
+        let expected_ids = if order_direction == OrderDirection::Asc {
+            vec![id1, id2, id3, id4, id5, id6, id7, id8, id9]
+        } else {
+            vec![id9, id8, id7, id6, id5, id4, id3, id2, id1]
+        };
+
+        for limit in [1_u32, 2, 3] {
+            let build_plan = || {
+                ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
+                    mode: QueryMode::Load(LoadSpec::new()),
+                    access: AccessPlan::Union(vec![
+                        AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5])),
+                        AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
+                        AccessPlan::path(AccessPath::ByKeys(vec![id5, id6, id7, id8, id9])),
+                    ]),
+                    predicate: None,
+                    order: Some(OrderSpec {
+                        fields: vec![("id".to_string(), order_direction)],
+                    }),
+                    distinct: true,
+                    delete_limit: None,
+                    page: Some(PageSpec {
+                        limit: Some(limit),
+                        offset: 0,
+                    }),
+                    consistency: ReadConsistency::MissingOk,
+                })
+            };
+
+            let (ids, boundaries) = collect_all_pages_from_executable_plan(&load, build_plan, 30);
+            assert_eq!(
+                ids, expected_ids,
+                "case '{case_name}' with limit={limit} should preserve distinct canonical ordering",
+            );
+
+            let unique: BTreeSet<Ulid> = ids.iter().copied().collect();
+            assert_eq!(
+                unique.len(),
+                ids.len(),
+                "case '{case_name}' with limit={limit} distinct pagination must not duplicate rows",
+            );
+
+            for boundary in boundaries {
+                let boundary_id = match boundary.slots.as_slice() {
+                    [CursorBoundarySlot::Present(Value::Ulid(id))] => *id,
+                    slots => panic!("expected single id boundary slot, found {slots:?}"),
+                };
+                let expected_suffix = expected_ids
+                    .iter()
+                    .copied()
+                    .skip_while(|id| id != &boundary_id)
+                    .skip(1)
+                    .collect::<Vec<_>>();
+
+                let resumed_ids = collect_all_pages_from_executable_plan_with_start(
+                    &load,
+                    build_plan,
+                    Some(boundary),
+                    30,
+                );
+                assert_eq!(
+                    resumed_ids, expected_suffix,
+                    "case '{case_name}' with limit={limit} resume from boundary should return strict suffix",
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -3552,6 +3757,7 @@ fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries
             order: Some(OrderSpec {
                 fields: vec![("id".to_string(), OrderDirection::Desc)],
             }),
+            distinct: false,
             delete_limit: None,
             page: Some(PageSpec {
                 limit: Some(2),
@@ -3572,6 +3778,7 @@ fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries
             order: Some(OrderSpec {
                 fields: vec![("id".to_string(), OrderDirection::Desc)],
             }),
+            distinct: false,
             delete_limit: None,
             page: Some(PageSpec {
                 limit: Some(2),
@@ -3639,6 +3846,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
             order: Some(OrderSpec {
                 fields: vec![("id".to_string(), OrderDirection::Desc)],
             }),
+            distinct: false,
             delete_limit: None,
             page: Some(PageSpec {
                 limit: Some(1),
@@ -3659,6 +3867,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
             order: Some(OrderSpec {
                 fields: vec![("id".to_string(), OrderDirection::Desc)],
             }),
+            distinct: false,
             delete_limit: None,
             page: Some(PageSpec {
                 limit: Some(1),
@@ -3724,6 +3933,7 @@ fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_
                     ("id".to_string(), OrderDirection::Asc),
                 ],
             }),
+            distinct: false,
             delete_limit: None,
             page: Some(PageSpec {
                 limit: Some(2),
@@ -3747,6 +3957,7 @@ fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_
                     ("id".to_string(), OrderDirection::Asc),
                 ],
             }),
+            distinct: false,
             delete_limit: None,
             page: Some(PageSpec {
                 limit: Some(2),
@@ -3812,6 +4023,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under
                     ("id".to_string(), OrderDirection::Desc),
                 ],
             }),
+            distinct: false,
             delete_limit: None,
             page: Some(PageSpec {
                 limit: Some(1),
@@ -3835,6 +4047,7 @@ fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under
                     ("id".to_string(), OrderDirection::Desc),
                 ],
             }),
+            distinct: false,
             delete_limit: None,
             page: Some(PageSpec {
                 limit: Some(1),
@@ -3920,6 +4133,7 @@ fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under
                         ("id".to_string(), id_direction),
                     ],
                 }),
+                distinct: false,
                 delete_limit: None,
                 page: Some(PageSpec {
                     limit: Some(limit),
@@ -3943,6 +4157,7 @@ fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under
                         ("id".to_string(), id_direction),
                     ],
                 }),
+                distinct: false,
                 delete_limit: None,
                 page: Some(PageSpec {
                     limit: Some(limit),
@@ -4036,6 +4251,7 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
                         ("id".to_string(), id_direction),
                     ],
                 }),
+                distinct: false,
                 delete_limit: None,
                 page: Some(PageSpec {
                     limit: Some(limit),
@@ -4061,6 +4277,7 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
                         ("id".to_string(), id_direction),
                     ],
                 }),
+                distinct: false,
                 delete_limit: None,
                 page: Some(PageSpec {
                     limit: Some(limit),
@@ -5407,6 +5624,7 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
         order: Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         }),
+        distinct: false,
         delete_limit: None,
         page: Some(PageSpec {
             limit: Some(1),

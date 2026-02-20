@@ -55,6 +55,9 @@ pub(crate) struct LogicalPlan<K> {
     /// Optional ordering specification.
     pub(crate) order: Option<OrderSpec>,
 
+    /// Optional distinct semantics over ordered rows.
+    pub(crate) distinct: bool,
+
     /// Optional delete bound (delete intents only).
     pub(crate) delete_limit: Option<DeleteLimitSpec>,
 
@@ -138,6 +141,7 @@ impl<K> LogicalPlan<K> {
             access: AccessPlan::path(access),
             predicate: None,
             order: None,
+            distinct: false,
             delete_limit: None,
             page: None,
             consistency,

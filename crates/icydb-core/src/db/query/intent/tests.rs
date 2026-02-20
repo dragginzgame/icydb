@@ -368,6 +368,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         access,
         predicate: plan_predicate,
         order,
+        distinct,
         delete_limit,
         page,
         consistency,
@@ -380,6 +381,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         access,
         predicate: plan_predicate,
         order,
+        distinct,
         delete_limit,
         page,
         consistency,
@@ -395,6 +397,33 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         .into_inner();
 
     assert_eq!(model_as_typed, typed_plan);
+}
+
+#[test]
+fn query_distinct_defaults_to_false() {
+    let plan = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .plan()
+        .expect("typed plan")
+        .into_inner();
+
+    assert!(
+        !plan.distinct,
+        "distinct should default to false for new query intents"
+    );
+}
+
+#[test]
+fn query_distinct_sets_logical_plan_flag() {
+    let plan = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .distinct()
+        .plan()
+        .expect("typed plan")
+        .into_inner();
+
+    assert!(
+        plan.distinct,
+        "distinct should be true when query intent enables distinct"
+    );
 }
 
 #[test]

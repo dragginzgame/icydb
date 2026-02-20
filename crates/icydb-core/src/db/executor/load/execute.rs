@@ -1,6 +1,7 @@
 use crate::{
     db::{
         Context,
+        executor::DistinctOrderedKeyStream,
         executor::load::{
             CursorPage, ExecutionOptimization, ExecutionTrace, FastPathKeyResult, LoadExecutor,
             route::FastPathPlan,
@@ -123,6 +124,12 @@ where
             direction,
             super::key_stream_comparator_from_plan(plan, direction),
         )?;
+
+        // Apply DISTINCT before post-access phases so pagination sees unique keys.
+        if plan.distinct {
+            key_stream = Box::new(DistinctOrderedKeyStream::new(key_stream));
+        }
+
         let (page, keys_scanned, post_access_rows) = Self::materialize_key_stream_into_page(
             ctx,
             plan,
@@ -150,17 +157,23 @@ where
     fn finalize_fast_path_page(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
-        mut fast: FastPathKeyResult,
+        fast: FastPathKeyResult,
         cursor_boundary: Option<&CursorBoundary>,
         direction: Direction,
         continuation_signature: ContinuationSignature,
         span: &mut Span<E>,
         execution_trace: &mut Option<ExecutionTrace>,
     ) -> Result<CursorPage<E>, InternalError> {
+        // Route fast-path stream output through DISTINCT when requested.
+        let mut key_stream = fast.ordered_key_stream;
+        if plan.distinct {
+            key_stream = Box::new(DistinctOrderedKeyStream::new(key_stream));
+        }
+
         let (page, _, post_access_rows) = Self::materialize_key_stream_into_page(
             ctx,
             plan,
-            fast.ordered_key_stream.as_mut(),
+            key_stream.as_mut(),
             cursor_boundary,
             direction,
             continuation_signature,
