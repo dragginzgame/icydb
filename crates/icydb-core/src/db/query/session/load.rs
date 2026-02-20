@@ -226,7 +226,15 @@ where
     where
         E: EntityValue,
     {
-        Ok(self.execute()?.is_empty())
+        Ok(!self.exists()?)
+    }
+
+    /// Execute and return whether at least one matching row exists.
+    pub fn exists(&self) -> Result<bool, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.session.execute_load_query_exists(self.query())
     }
 
     /// Execute and return the number of matching rows.
@@ -234,7 +242,23 @@ where
     where
         E: EntityValue,
     {
-        Ok(self.execute()?.count())
+        self.session.execute_load_query_count(self.query())
+    }
+
+    /// Execute and return the smallest matching identifier, if any.
+    pub fn min(&self) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.session.execute_load_query_min(self.query())
+    }
+
+    /// Execute and return the largest matching identifier, if any.
+    pub fn max(&self) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.session.execute_load_query_max(self.query())
     }
 
     /// Execute and require exactly one matching row.

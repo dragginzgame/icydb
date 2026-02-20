@@ -5,7 +5,6 @@ use crate::{
         executor::{
             VecOrderedKeyStream,
             load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
-            normalize_ordered_keys,
         },
         query::plan::{
             AccessPath, Direction, LogicalPlan, SlotSelectionPolicy, derive_scan_direction,
@@ -49,6 +48,7 @@ where
     pub(super) fn try_execute_pk_order_stream(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
+        probe_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: derive a fast-path scan config from the canonical plan.
         let Some(config) = Self::build_pk_stream_scan_config(plan) else {
@@ -64,7 +64,7 @@ where
         }
 
         // Phase 2: stream ordered keys directly from the store.
-        let scan = Self::scan_pk_stream_keys(ctx, &config, stream_direction)?;
+        let scan = Self::scan_pk_stream_keys(ctx, &config, stream_direction, probe_fetch_hint)?;
 
         Ok(Some(FastPathKeyResult {
             ordered_key_stream: Box::new(VecOrderedKeyStream::new(scan.keys)),
@@ -97,6 +97,7 @@ where
         ctx: &Context<'_, E>,
         config: &PkStreamScanConfig<E::Key>,
         direction: Direction,
+        probe_fetch_hint: Option<usize>,
     ) -> Result<PkStreamScanResult, InternalError> {
         ctx.with_store(|store| {
             let lower_raw = match config.range_start_key {
@@ -111,16 +112,42 @@ where
 
             let mut rows_scanned = 0usize;
             let mut keys = Vec::new();
-            for entry in store.range((lower_bound, Bound::Included(upper_raw))) {
-                rows_scanned = rows_scanned.saturating_add(1);
-                let data_key = DataKey::try_from_raw(entry.key()).map_err(|err| {
-                    InternalError::store_corruption(format!(
-                        "ordered scan encountered corrupted data key: {err}"
-                    ))
-                })?;
-                keys.push(data_key);
+            let range = (lower_bound, Bound::Included(upper_raw));
+            let fetch_cap = probe_fetch_hint.unwrap_or(usize::MAX);
+            if fetch_cap == 0 {
+                return Ok(PkStreamScanResult { keys, rows_scanned });
             }
-            normalize_ordered_keys(&mut keys, direction, true);
+
+            match direction {
+                Direction::Asc => {
+                    for entry in store.range(range) {
+                        rows_scanned = rows_scanned.saturating_add(1);
+                        let data_key = DataKey::try_from_raw(entry.key()).map_err(|err| {
+                            InternalError::store_corruption(format!(
+                                "ordered scan encountered corrupted data key: {err}"
+                            ))
+                        })?;
+                        keys.push(data_key);
+                        if keys.len() == fetch_cap {
+                            break;
+                        }
+                    }
+                }
+                Direction::Desc => {
+                    for entry in store.range(range).rev() {
+                        rows_scanned = rows_scanned.saturating_add(1);
+                        let data_key = DataKey::try_from_raw(entry.key()).map_err(|err| {
+                            InternalError::store_corruption(format!(
+                                "ordered scan encountered corrupted data key: {err}"
+                            ))
+                        })?;
+                        keys.push(data_key);
+                        if keys.len() == fetch_cap {
+                            break;
+                        }
+                    }
+                }
+            }
 
             Ok(PkStreamScanResult { keys, rows_scanned })
         })?

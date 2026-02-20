@@ -5,6 +5,33 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.22.0] – 2026-02-20 - Streaming Aggregates
+
+### 📝 Summary
+
+* Added aggregate query terminals for loads: `count`, `exists`, `min`, and `max`.
+* `min` and `max` return primary keys (`Option<Id<E>>`).
+
+```rust
+let count = session.load::<MyEntity>().order_by("id").limit(50).count()?;
+```
+
+### 🔧 Changed
+
+* Aggregates now follow the same internal key path as normal loads, so behavior stays consistent across paths.
+* Load execution now resolves one key stream first and then runs shared paging/finalization steps, which keeps normal-load and aggregate behavior aligned.
+* `min`/`max` now take advantage of sort direction to return earlier when safe.
+* Aggregate results now respect pagination windows (`offset`/`limit`) the same way normal loads do.
+* Added a small internal probe for `exists` and wired fetch hints across PK, secondary-prefix, and index-range fast paths so they can stop earlier.
+* Expanded parity coverage so aggregate results match regular query results across key query shapes.
+
+### 🧹 Cleanup
+
+* Unified the safety check used by load and aggregate streaming to keep rules aligned.
+* Added a clear hook for upcoming `count` pushdown work without changing behavior in `0.22.0`.
+
+---
+
 ## [0.21.1] – 2026-02-20 - Post-Release Cleanup
 
 ### 🧹 Cleanup

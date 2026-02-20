@@ -22,6 +22,7 @@ where
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
         secondary_pushdown_applicability: &PushdownApplicability,
+        probe_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         if !secondary_pushdown_applicability.is_eligible() {
             return Ok(None);
@@ -30,18 +31,29 @@ where
         let Some((index, values)) = plan.access.as_index_prefix_path() else {
             return Ok(None);
         };
+        let stream_direction = Self::secondary_index_stream_direction(plan);
 
         // Phase 1: resolve candidate keys using canonical index traversal order.
+        // When a probe hint is present (EXISTS), use a bounded resolver so
+        // candidate production can short-circuit earlier.
         let mut ordered_keys = ctx.db.with_store_registry(|reg| {
             reg.try_get_store(index.store).and_then(|store| {
-                store.with_index(|index_store| index_store.resolve_data_values::<E>(index, values))
+                store.with_index(|index_store| match probe_fetch_hint {
+                    Some(fetch) => index_store.resolve_data_values_limited::<E>(
+                        index,
+                        values,
+                        stream_direction,
+                        fetch,
+                    ),
+                    None => index_store.resolve_data_values::<E>(index, values),
+                })
             })
         })?;
-        normalize_ordered_keys(
-            &mut ordered_keys,
-            Self::secondary_index_stream_direction(plan),
-            true,
-        );
+
+        // The bounded resolver already returns keys in requested order.
+        if probe_fetch_hint.is_none() {
+            normalize_ordered_keys(&mut ordered_keys, stream_direction, true);
+        }
         let rows_scanned = ordered_keys.len();
 
         Ok(Some(FastPathKeyResult {

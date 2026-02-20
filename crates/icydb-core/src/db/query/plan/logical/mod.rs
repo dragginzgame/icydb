@@ -482,6 +482,28 @@ impl<K> LogicalPlan<K> {
         }
     }
 
+    // Shared streaming eligibility gate for execution paths that consume
+    // the resolved ordered key stream directly without post-access filtering/sorting.
+    #[must_use]
+    pub(crate) fn is_streaming_access_shape_safe<E>(&self) -> bool
+    where
+        E: EntitySchema<Key = K>,
+    {
+        if !self.mode.is_load() {
+            return false;
+        }
+
+        let metadata = self.budget_safety_metadata::<E>();
+        if metadata.has_residual_filter {
+            return false;
+        }
+        if metadata.requires_post_access_sort {
+            return false;
+        }
+
+        true
+    }
+
     // Return true when access-phase key ordering already matches canonical
     // executor ordering for the current plan order spec.
     fn is_access_order_satisfied_by_path<E>(&self) -> bool

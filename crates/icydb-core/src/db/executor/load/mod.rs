@@ -1,3 +1,4 @@
+mod aggregate;
 mod execute;
 mod index_range_limit;
 mod page;
@@ -229,10 +230,8 @@ where
             let execution_inputs = ExecutionInputs {
                 ctx: &ctx,
                 plan: &plan,
-                cursor_boundary: cursor_boundary.as_ref(),
                 index_range_anchor: index_range_anchor.as_ref(),
                 direction,
-                continuation_signature,
             };
 
             record_plan_metrics(&plan.access);
@@ -241,28 +240,30 @@ where
                 &plan,
                 cursor_boundary.as_ref(),
                 index_range_anchor.as_ref(),
+                None,
             )?;
 
-            if let Some(page) = Self::try_execute_fast_path_plan(
-                &execution_inputs,
-                &fast_path_plan,
-                &mut span,
-                &mut execution_trace,
-            )? {
-                return Ok(page);
-            }
-
-            let page = Self::execute_fallback_path(
+            // Resolve one canonical key stream, then run shared page materialization/finalization.
+            let mut resolved =
+                Self::resolve_execution_key_stream(&execution_inputs, &fast_path_plan)?;
+            let (page, keys_scanned, post_access_rows) = Self::materialize_key_stream_into_page(
                 &ctx,
                 &plan,
+                resolved.key_stream.as_mut(),
                 cursor_boundary.as_ref(),
-                index_range_anchor.as_ref(),
                 direction,
                 continuation_signature,
+            )?;
+            let rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
+
+            Ok(Self::finalize_execution(
+                page,
+                resolved.optimization,
+                rows_scanned,
+                post_access_rows,
                 &mut span,
                 &mut execution_trace,
-            )?;
-            Ok(page)
+            ))
         })();
 
         result.map(|page| (page, execution_trace))

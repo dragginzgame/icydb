@@ -70,14 +70,7 @@ where
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> bool {
-        let metadata = plan.budget_safety_metadata::<E>();
-        if !plan.mode.is_load() {
-            return false;
-        }
-        if metadata.has_residual_filter {
-            return false;
-        }
-        if metadata.requires_post_access_sort {
+        if !plan.is_streaming_access_shape_safe::<E>() {
             return false;
         }
 

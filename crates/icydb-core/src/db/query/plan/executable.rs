@@ -162,6 +162,11 @@ impl<E: EntityKind> ExecutablePlan<E> {
     }
 
     #[must_use]
+    pub(in crate::db) const fn as_inner(&self) -> &LogicalPlan<E::Key> {
+        &self.plan
+    }
+
+    #[must_use]
     pub(in crate::db) const fn direction(&self) -> Direction {
         self.direction
     }

@@ -1,3 +1,4 @@
+mod aggregate;
 mod cursor_validation;
 mod lifecycle;
 mod live_state;

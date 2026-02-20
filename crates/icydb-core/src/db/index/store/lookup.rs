@@ -32,8 +32,23 @@ impl IndexStore {
         index: &IndexModel,
         prefix: &[Value],
     ) -> Result<Vec<DataKey>, InternalError> {
+        self.resolve_data_values_limited::<E>(index, prefix, Direction::Asc, usize::MAX)
+    }
+
+    pub(crate) fn resolve_data_values_limited<E: EntityKind>(
+        &self,
+        index: &IndexModel,
+        prefix: &[Value],
+        direction: Direction,
+        limit: usize,
+    ) -> Result<Vec<DataKey>, InternalError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
         let index_id = IndexId::new::<E>(index);
 
+        // Phase 1: encode prefix bounds once and derive the canonical index envelope.
         let mut components = Vec::with_capacity(prefix.len());
         for value in prefix {
             let component = encode_canonical_index_component(value)
@@ -44,18 +59,41 @@ impl IndexStore {
         let (start, end) = IndexKey::bounds_for_prefix(&index_id, index.fields.len(), &components);
         let (start_raw, end_raw) = (start.to_raw(), end.to_raw());
 
+        // Phase 2: decode in traversal direction and stop once we collected `limit` keys.
         let mut out = Vec::new();
-
-        for entry in self.entry_map().range(start_raw..=end_raw) {
-            let raw_key = entry.key();
-            let value = entry.value();
-            let reached_limit = Self::decode_index_entry_and_push::<E>(
-                index, raw_key, &value, &mut out, None, "resolve",
-            )?;
-            debug_assert!(
-                !reached_limit,
-                "unbounded prefix resolution must not hit a decode helper limit"
-            );
+        match direction {
+            Direction::Asc => {
+                for entry in self.entry_map().range(start_raw..=end_raw) {
+                    let raw_key = entry.key();
+                    let value = entry.value();
+                    if Self::decode_index_entry_and_push::<E>(
+                        index,
+                        raw_key,
+                        &value,
+                        &mut out,
+                        Some(limit),
+                        "resolve",
+                    )? {
+                        return Ok(out);
+                    }
+                }
+            }
+            Direction::Desc => {
+                for entry in self.entry_map().range(start_raw..=end_raw).rev() {
+                    let raw_key = entry.key();
+                    let value = entry.value();
+                    if Self::decode_index_entry_and_push::<E>(
+                        index,
+                        raw_key,
+                        &value,
+                        &mut out,
+                        Some(limit),
+                        "resolve",
+                    )? {
+                        return Ok(out);
+                    }
+                }
+            }
         }
 
         Ok(out)

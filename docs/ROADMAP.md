@@ -1,283 +1,100 @@
 # IcyDB Roadmap
 
-This document describes the **long-term direction** of IcyDB.
+This document describes the long-term direction of IcyDB.
 
-It intentionally does **not** redefine the current contract.
-All guarantees, invariants, and limits for released versions are defined in:
+Current guarantees, invariants, and limits for shipped behavior are defined in:
 
-- `docs/ATOMICITY.md`
-- `docs/REF_INTEGRITY.md`
-- `docs/TRANSACTION_SEMANTICS.md`
+- `docs/contracts/ATOMICITY.md`
+- `docs/contracts/REF_INTEGRITY.md`
+- `docs/contracts/TRANSACTION_SEMANTICS.md`
 
-This roadmap describes **where the system is going**, not what is currently guaranteed.
-Implementation cleanup tasks supporting this direction are tracked separately.
+This roadmap is directional and planning-oriented, not a release contract.
 
----
+Active execution/planning references:
 
-## Current State (0.10.2)
-
-As of `0.10.2` (2026-02-16):
-
-- Single-entity save and delete operations are **atomic**
-- Save-time referential integrity is enforced **only for strong relations**
-- Delete-time referential integrity for strong relations is enforced
-- `*_many_non_atomic` batch helpers are fail-fast and non-atomic
-- `*_many_atomic` batch helpers are atomic for a **single entity type per call**
-- Atomicity and recovery guarantees are scoped to the current executor and commit model
-- `0.9.x` strengthening work is shipped (see `docs/status/0.9-status.md`)
-- `0.10.x` index-key ordering work is shipped (see `docs/status/0.10-status.md`)
-
-No multi-entity transaction guarantees exist beyond what is explicitly documented.
+- `docs/design/0.22-streaming-aggregates.md`
+- `docs/status/0.22-status.md`
+- `docs/status/0.21-status.md`
 
 ---
 
-## Direction
+## Current Baseline
 
-The project direction remains stable and intentional:
+Today, the system is built around:
 
-- **Typed-entity-first APIs**
-  - Typed schemas are the canonical source of truth
-  - Structural models are derived, internal representations
-- **Deterministic planning and execution**
-  - Identical inputs must produce identical plans
-  - Ordering and validation rules are explicit and enforced
-- **Explicit invariants**
-  - Correctness properties are schema-declared
-  - Enforcement is mechanical, bounded, and testable
-- **Clear API boundaries**
-  - Public APIs are stable and typed
-  - Engine internals remain flexible and non-contractual
+- Typed-entity-first APIs
+- Deterministic planning and execution
+- Explicit, enforced invariants
+- Clear boundaries between public API and engine internals
 
-This direction governs all future feature work.
+Core save/delete semantics remain explicit:
+
+- single-entity save/delete operations are atomic
+- non-atomic batch helpers are fail-fast and non-atomic
+- atomic batch helpers are atomic per single entity type per call
+- multi-entity transaction guarantees are not part of the current contract
 
 ---
 
-## Shipped in 0.9.x - Strengthening Release
+## Short-Term Goals
 
-`0.9.x` is the **Strengthening release**.
+Focus: finish current execution hardening and reduce drift risk before larger architectural work.
 
-- Consolidates and hardens existing correctness boundaries from 0.8.
-- Finalizes delete-side strong relation validation and supporting diagnostics.
-- Keeps transaction semantics explicit and opt-in.
-- Continues pagination performance work without semantic drift.
-
-See `docs/design/0.9-referential-integrity-v1.md` for the detailed `0.9.x`
-plan.
-Current shipped status: `docs/status/0.9-status.md`.
-
----
-
-## Shipped in 0.10.x - Index Keys Release
-
-`0.10.x` is the **Index Keys release**.
-
-- Canonical variable-length ordered secondary index keys.
-- Versioned migration from fixed-slot key encoding.
-- Ordered traversal/range scan correctness at byte-order level.
-
-See `docs/design/0.10-index-ordering.md` for the detailed `0.10.x` plan.
-Current shipped status: `docs/status/0.10-status.md`.
+- Complete aggregate execution hardening (`count`, `exists`, `min`, `max`) with parity-first behavior guarantees.
+- Land `count` pushdown safely, constrained by the shared streaming eligibility gate.
+- Prioritize reverse streaming hardening in the short term (DESC traversal parity and early-stop behavior).
+- Keep load and aggregate safety decisions centralized to avoid rule divergence.
+- Continue cleanup passes that reduce cross-cutting complexity (error mapping, boundary handling, and test-surface maintainability).
+- Keep changelog/status docs aligned as features move from design to shipped.
+- Keep milestone tracking current in `docs/status/` as each feature closes.
 
 ---
 
-## Planned for 0.11.x - Secondary Range Pushdown Release
+## Medium-Term Goals
 
-`0.11.x` is the **Secondary Range Pushdown release**.
+Focus: improve execution efficiency without changing user-facing semantics.
 
-- Secondary index range pushdown for `>`, `>=`, `<`, `<=`, and `BETWEEN`.
-- Composite prefix + range eligibility with deterministic bounds.
-- Pagination and fallback parity preservation under bounded range traversal.
-
-See `docs/design/0.11-range-pushdown.md` for the detailed `0.11.x` plan.
-Current tracking status: `docs/status/0.11-status.md`.
+- Convert physical access paths from vector materialization to iterator-backed ordered streams.
+- Add aggregate-aware fast paths where behavior is provably equivalent.
+- Continue cursor and continuation hardening, including stronger envelope/signature boundaries.
+- Advance data-integrity hardening for replay safety, migration safety, and corruption detection tooling.
 
 ---
 
-## Future Milestone (Post-0.11) - Data Integrity
+## Long-Term Goals
 
-Data-integrity hardening has moved to a future milestone after 0.11.
+Focus: expand capability while preserving explicit semantics.
 
-- Row format versioning and backward-compatible decode rules.
-- Commit marker compatibility and replay safety across upgrades.
-- Explicit migration execution and corruption-detection tooling.
+- Multi-entity transactions with a formal semantics spec, explicit APIs, and replay/recovery test coverage.
+- First-class operational CLI over a stable engine command surface.
+- Structural identity projection to remove drift between normalization and plan fingerprinting.
 
-See `docs/design/data-integrity-v1.md` for the detailed deferred plan.
-
----
-
-## v0.20–0.25 — icydb-cli & Operational Surface
-
-This milestone exposes IcyDB's deterministic engine, index model, and
-integrity system through a first-class CLI interface.
-
-It is not UI tooling. It is an operational surface over a stable engine.
-
-This work is a direct evolution of shipped and planned engine contracts:
-
-- `0.10.x` established canonical ordered index keys (`IndexKey v2`).
-- `0.11.x` and post-`0.11` integrity work harden deterministic execution and
-  fail-closed recovery boundaries.
-
-### Core CLI Objectives
-
-- Schema definition and inspection.
-- Collection creation and management.
-- Row insert, update, and delete operations.
-- Deterministic query execution.
-- Ordered index prefix scans.
-- Index inspection and debugging.
-- Integrity check and rebuild commands.
-- Canonical export and import.
-- Query explain mode.
-
-### Engine Prerequisites (Pre-CLI Hardening)
-
-Before CLI delivery, these engine surfaces must be stabilized:
-
-- `IndexKey v2` canonical framing (already started).
-- Stable query AST.
-- `EngineCommand` abstraction.
-- Classified error model.
-- Deterministic row encoding.
-- Rebuild and fail-closed recovery surface.
-- Canonical import/export format.
-
-The CLI is a thin layer over a hardened engine command surface.
-
-### Design Principles
-
-- Deterministic output.
-- Explainable execution.
-- Byte-level introspection.
-- No hidden nondeterminism.
-- Fail-closed behavior.
-- Stable wire formats.
-
-### Example CLI Command Surface (Conceptual)
-
-The command set below is conceptual; concrete syntax may evolve.
+Conceptual CLI surface (illustrative):
 
 ```bash
 icydb schema create
 icydb collection create
 icydb insert
-icydb query
 icydb query --explain
-icydb index list
 icydb index inspect
-icydb rebuild
 icydb check
+icydb rebuild
 icydb export
 icydb import
 ```
-
-### Strategic Framing
-
-- Makes IcyDB usable outside Toko.
-- Provides a developer-facing operational surface.
-- Validates the deterministic index architecture under a direct command model.
-- Forces integrity guarantees to be production-ready for operator workflows.
-
----
-
-## Future Architectural Cleanup (Post-0.11)
-
-### Structural Identity Projection for Plan DRYness
-
-There is a known DRY risk in keeping canonical ordering and hash encoding as
-separate structural implementations for access-path identity.
-
-Target direction:
-
-- Introduce a single structural identity projection, for example:
-  `fn structural_identity(&self) -> IdentityParts`.
-- Define `IdentityParts` as deterministic and fully ordered.
-- Ensure `IdentityParts` includes index name, index fields, prefix values, and
-  range bounds (including bound discriminants).
-- Make canonical normalization compare `IdentityParts`.
-- Make plan hash/fingerprint encoding serialize `IdentityParts`.
-
-Why this matters:
-
-- Removes cross-module drift risk between normalization and hashing.
-- Prevents plan-cache instability from mismatched structural encodings.
-- Reduces repeated match logic when access-path shapes evolve.
-
-Scope note:
-
-- This is an architectural refactor, not a quick deduplication patch.
-
----
-
-## Explicit Goals
-
-### Transactions
-
-**Multi-entity transactions are a project goal.**
-
-Future releases may introduce transactional semantics that span multiple entities
-and/or multiple mutations.
-
-This goal does **not** change the current 0.10 contract.
-
-Specifically:
-
-- Existing `*_many_non_atomic` helpers remain fail-fast and non-atomic
-- Any stronger batch semantics are opt-in (for example, `*_many_atomic`) and currently single-entity-type only
-- No implicit transactional behavior is introduced
-- No multi-entity transaction guarantees exist today
-
-Any transactional feature must ship with:
-
-- a formal semantics specification
-- updated atomicity and recovery documentation
-- explicitly named APIs (no silent upgrades)
-- migration guidance for existing users
-- tests covering failure, replay, and recovery scenarios
-
-Transactions will be introduced only when the above conditions are met.
-
-### Signed Binary Cursors
-
-Signed opaque binary cursors are a future hardening goal.
-
-Target direction:
-
-- Move continuation tokens to an opaque binary envelope instead of a structured
-  payload surface.
-- Require signature verification for every cursor (unsigned binary cursors are
-  not acceptable).
-- Bind signature input to both boundary bytes and canonical query-plan
-  signature to prevent tampering/rebinding.
-
-Conceptual format:
-
-- `cursor = base64(mac || key_bytes)` where `mac = HMAC(secret, key_bytes ||
-  plan_signature)`
-
-Why this is valuable:
-
-- Smaller payloads and less serialization overhead.
-- No field-name/type exposure in public cursor data.
-- Stronger resistance to client-crafted boundary jumps.
-
-Adoption trigger:
-
-- Prioritize this when continuation payload shape leaks internal planning
-  details (field names, composite component layout, or similar internals).
 
 ---
 
 ## Non-Goals (Near Term)
 
-The following are explicitly **not** goals for the near term:
+The following are explicitly out of near-term scope:
 
-- Implicit or inferred transactional behavior
-- Relaxing existing atomicity guarantees
-- Introducing relational query semantics
-- Hiding failure modes behind retries or recovery logic
+- implicit or inferred transactional behavior
+- hidden retries that mask failure semantics
+- relaxing existing atomicity guarantees
+- relational query semantics beyond the documented model
 
-Correctness remains explicit, not magical.
+Correctness remains explicit, bounded, and testable.
 
 ---
 
@@ -285,8 +102,8 @@ Correctness remains explicit, not magical.
 
 IcyDB evolves deliberately:
 
-- current guarantees are strict and limited
-- future power comes with explicit semantics
-- nothing silently changes underneath users
+- strict current guarantees
+- explicit future semantics
+- no silent behavioral upgrades
 
-The roadmap is directional, not contractual.
+Roadmap items move by readiness and safety, not by fixed future version numbering.

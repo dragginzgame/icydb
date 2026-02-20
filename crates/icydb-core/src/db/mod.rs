@@ -56,6 +56,7 @@ use crate::{
     error::InternalError,
     obs::sink::{MetricsSink, with_metrics_sink},
     traits::{CanisterKind, EntityIdentity, EntityKind, EntityValue},
+    types::Id,
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
@@ -263,6 +264,7 @@ impl<C: CanisterKind> Clone for Db<C> {
 ///
 /// Session-scoped database handle with policy (debug, metrics) and execution routing.
 ///
+
 pub struct DbSession<C: CanisterKind> {
     db: Db<C>,
     debug: bool,
@@ -430,6 +432,52 @@ impl<C: CanisterKind> DbSession<C> {
         };
 
         result.map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_count<E>(&self, query: &Query<E>) -> Result<u32, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| self.load_executor::<E>().aggregate_count(plan))
+            .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_exists<E>(&self, query: &Query<E>) -> Result<bool, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| self.load_executor::<E>().aggregate_exists(plan))
+            .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_min<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| self.load_executor::<E>().aggregate_min(plan))
+            .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_max<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| self.load_executor::<E>().aggregate_max(plan))
+            .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_paged_with_trace<E>(

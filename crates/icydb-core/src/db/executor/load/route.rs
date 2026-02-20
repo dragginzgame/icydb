@@ -20,6 +20,7 @@ use crate::{
 pub(super) struct FastPathPlan {
     pub(super) secondary_pushdown_applicability: PushdownApplicability,
     pub(super) index_range_limit_spec: Option<IndexRangeLimitSpec>,
+    pub(super) probe_fetch_hint: Option<usize>,
 }
 
 impl<E> LoadExecutor<E>
@@ -31,6 +32,7 @@ where
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
         index_range_anchor: Option<&RawIndexKey>,
+        probe_fetch_hint: Option<usize>,
     ) -> Result<FastPathPlan, InternalError> {
         Self::validate_pk_fast_path_boundary_if_applicable(plan, cursor_boundary)?;
 
@@ -42,7 +44,9 @@ where
                 plan,
                 cursor_boundary,
                 index_range_anchor,
+                probe_fetch_hint,
             ),
+            probe_fetch_hint,
         })
     }
 
@@ -63,12 +67,16 @@ where
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
         index_range_anchor: Option<&RawIndexKey>,
+        probe_fetch_hint: Option<usize>,
     ) -> Option<IndexRangeLimitSpec> {
         if !Self::is_index_range_limit_pushdown_shape_eligible(plan) {
             return None;
         }
         if cursor_boundary.is_some() && index_range_anchor.is_none() {
             return None;
+        }
+        if let Some(fetch) = probe_fetch_hint {
+            return Some(IndexRangeLimitSpec { fetch });
         }
 
         let page = plan.page.as_ref()?;
