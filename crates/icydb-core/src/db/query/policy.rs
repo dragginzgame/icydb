@@ -61,12 +61,10 @@ impl PlanPolicyError {
 /// Canonical policy failures for cursor-pagination readiness.
 ///
 
-#[expect(clippy::enum_variant_names)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CursorPagingPolicyError {
     CursorRequiresOrder,
     CursorRequiresLimit,
-    CursorWithOffsetUnsupported,
 }
 
 /// Return true when an ORDER BY exists and contains at least one field.
@@ -91,9 +89,6 @@ pub(crate) const fn validate_cursor_paging_requirements(
     }
     if spec.limit.is_none() {
         return Err(CursorPagingPolicyError::CursorRequiresLimit);
-    }
-    if spec.offset > 0 {
-        return Err(CursorPagingPolicyError::CursorWithOffsetUnsupported);
     }
 
     Ok(())

@@ -58,8 +58,8 @@ where
 
     pub(crate) fn execute(self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {
         if !plan.mode().is_delete() {
-            return Err(InternalError::query_invariant(
-                "executor invariant violated: delete executor requires delete plans".to_string(),
+            return Err(InternalError::query_executor_invariant(
+                "delete executor requires delete plans",
             ));
         }
         (|| {

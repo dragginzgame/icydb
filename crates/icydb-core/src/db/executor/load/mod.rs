@@ -208,8 +208,8 @@ where
         let index_range_anchor = cursor.index_range_anchor().cloned();
 
         if !plan.mode().is_load() {
-            return Err(InternalError::query_invariant(
-                "executor invariant violated: load executor requires load plans",
+            return Err(InternalError::query_executor_invariant(
+                "load executor requires load plans",
             ));
         }
 

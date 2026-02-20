@@ -37,6 +37,84 @@ struct RangeMatrixCase {
     descending: bool,
 }
 
+// Extract the canonical resume id from the trailing cursor boundary slot.
+fn boundary_last_ulid(boundary: &CursorBoundary) -> Ulid {
+    match boundary.slots.last() {
+        Some(CursorBoundarySlot::Present(Value::Ulid(id))) => *id,
+        slots => panic!("expected trailing Ulid boundary slot, found {slots:?}"),
+    }
+}
+
+// Compute the strict suffix expected when resuming after one boundary id.
+fn expected_resume_suffix_after_id(expected_ids: &[Ulid], boundary_id: Ulid) -> Vec<Ulid> {
+    expected_ids
+        .iter()
+        .copied()
+        .skip_while(|id| id != &boundary_id)
+        .skip(1)
+        .collect::<Vec<_>>()
+}
+
+// Verify boundary-complete resume semantics for a paged execution plan.
+fn assert_resume_suffixes_from_boundaries<E, F>(
+    load: &LoadExecutor<E>,
+    build_plan: &F,
+    boundaries: &[CursorBoundary],
+    expected_ids: &[Ulid],
+    max_pages: usize,
+    context: &str,
+) where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+    F: Fn() -> ExecutablePlan<E>,
+{
+    for boundary in boundaries {
+        let boundary_id = boundary_last_ulid(boundary);
+        let expected_suffix = expected_resume_suffix_after_id(expected_ids, boundary_id);
+        let resumed_ids = collect_all_pages_from_executable_plan_with_start(
+            load,
+            build_plan,
+            Some(boundary.clone()),
+            max_pages,
+        );
+        assert_eq!(
+            resumed_ids, expected_suffix,
+            "{context}: resume from boundary should return strict suffix",
+        );
+    }
+}
+
+// Verify token-complete resume semantics for offset-aware paged execution plans.
+fn assert_resume_suffixes_from_tokens<E, F>(
+    load: &LoadExecutor<E>,
+    build_plan: &F,
+    tokens: &[Vec<u8>],
+    expected_ids: &[Ulid],
+    max_pages: usize,
+    context: &str,
+) where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+    F: Fn() -> ExecutablePlan<E>,
+{
+    for token in tokens {
+        let boundary = decode_boundary(
+            token.as_slice(),
+            "continuation cursor should decode for token resume checks",
+        );
+        let boundary_id = boundary_last_ulid(&boundary);
+        let expected_suffix = expected_resume_suffix_after_id(expected_ids, boundary_id);
+        let resumed_ids = collect_all_pages_from_executable_plan_with_token_start(
+            load,
+            build_plan,
+            Some(token.clone()),
+            max_pages,
+        );
+        assert_eq!(
+            resumed_ids, expected_suffix,
+            "{context}: resume from token should return strict suffix",
+        );
+    }
+}
+
 // Resolve ids directly from the `(group, rank)` index prefix in raw index-key order.
 fn ordered_ids_from_group_rank_index(group: u32) -> Vec<Ulid> {
     // Phase 1: read candidate keys from canonical index traversal order.
@@ -560,6 +638,50 @@ where
     (ids, boundaries)
 }
 
+// Collect all pages while preserving raw continuation cursor bytes.
+fn collect_all_pages_from_executable_plan_with_tokens<E>(
+    load: &LoadExecutor<E>,
+    build_plan: impl Fn() -> ExecutablePlan<E>,
+    max_pages: usize,
+) -> (Vec<Ulid>, Vec<CursorBoundary>, Vec<Vec<u8>>)
+where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+{
+    let mut cursor_bytes: Option<Vec<u8>> = None;
+    let mut ids = Vec::new();
+    let mut boundaries = Vec::new();
+    let mut tokens = Vec::new();
+    let mut pages = 0usize;
+
+    loop {
+        pages += 1;
+        assert!(pages <= max_pages, "pagination must terminate");
+
+        let plan = build_plan();
+        let planned_cursor = plan
+            .plan_cursor(cursor_bytes.as_deref())
+            .expect("page cursor should plan");
+        let page = load
+            .execute_paged_with_cursor(plan, planned_cursor)
+            .expect("paged execution should succeed");
+
+        ids.extend(ids_from_items(&page.items.0));
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+
+        boundaries.push(decode_boundary(
+            next_cursor.as_slice(),
+            "continuation cursor should decode",
+        ));
+        tokens.push(next_cursor.clone());
+        cursor_bytes = Some(next_cursor);
+    }
+
+    (ids, boundaries, tokens)
+}
+
 // Collect all pages from a fixed executable plan starting from one cursor boundary.
 fn collect_all_pages_from_executable_plan_with_start<E>(
     load: &LoadExecutor<E>,
@@ -590,6 +712,42 @@ where
             next_cursor.as_slice(),
             "continuation cursor should decode",
         ));
+    }
+
+    ids
+}
+
+// Collect all pages from a fixed executable plan starting from raw cursor bytes.
+fn collect_all_pages_from_executable_plan_with_token_start<E>(
+    load: &LoadExecutor<E>,
+    build_plan: impl Fn() -> ExecutablePlan<E>,
+    initial_cursor: Option<Vec<u8>>,
+    max_pages: usize,
+) -> Vec<Ulid>
+where
+    E: EntityKind<Key = Ulid, Canister = TestCanister> + EntityValue,
+{
+    let mut cursor = initial_cursor;
+    let mut ids = Vec::new();
+    let mut pages = 0usize;
+
+    loop {
+        pages += 1;
+        assert!(pages <= max_pages, "pagination must terminate");
+
+        let plan = build_plan();
+        let planned_cursor = plan
+            .plan_cursor(cursor.as_deref())
+            .expect("page cursor should plan");
+        let page = load
+            .execute_paged_with_cursor(plan, planned_cursor)
+            .expect("paged execution should succeed");
+        ids.extend(ids_from_items(&page.items.0));
+
+        let Some(next_cursor) = page.next_cursor else {
+            break;
+        };
+        cursor = Some(next_cursor);
     }
 
     ids
@@ -826,6 +984,281 @@ fn load_offset_pagination_preserves_next_cursor_boundary() {
         &expected_boundary,
         "next cursor must encode the last returned row for offset pages"
     );
+}
+
+#[test]
+fn load_cursor_with_offset_applies_offset_once_across_pages() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [6_u128, 1_u128, 5_u128, 2_u128, 4_u128, 3_u128] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    // Phase 1: first page consumes offset before applying limit.
+    let page1_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("offset page1 plan should build");
+    let page1_boundary = page1_plan
+        .plan_cursor(None)
+        .expect("offset page1 boundary should plan");
+    let page1 = load
+        .execute_paged_with_cursor(page1_plan, page1_boundary)
+        .expect("offset page1 should execute");
+    assert_eq!(
+        ids_from_items(&page1.items.0),
+        vec![Ulid::from_u128(2), Ulid::from_u128(3)],
+        "first page should apply offset once"
+    );
+
+    // Phase 2: continuation resumes from cursor boundary without re-applying offset.
+    let cursor = page1
+        .next_cursor
+        .expect("first page should emit continuation cursor");
+    let page2_plan = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .limit(2)
+        .offset(1)
+        .plan()
+        .expect("offset page2 plan should build");
+    let page2_boundary = page2_plan
+        .plan_cursor(Some(cursor.as_slice()))
+        .expect("offset page2 boundary should plan");
+    let page2 = load
+        .execute_paged_with_cursor(page2_plan, page2_boundary)
+        .expect("offset page2 should execute");
+    assert_eq!(
+        ids_from_items(&page2.items.0),
+        vec![Ulid::from_u128(4), Ulid::from_u128(5)],
+        "continuation page should not re-apply offset"
+    );
+}
+
+#[test]
+fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
+    setup_pagination_test();
+
+    let rows = pushdown_rows_with_group9(42_001);
+    seed_pushdown_rows(&rows);
+    let predicate = pushdown_group_predicate(7);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+    for (case_name, descending) in [("asc", false), ("desc", true)] {
+        let build_plan = || {
+            let base = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .limit(2)
+                .offset(1);
+            let ordered = if descending {
+                base.order_by_desc("rank").order_by_desc("id")
+            } else {
+                base.order_by("rank").order_by("id")
+            };
+
+            ordered
+                .plan()
+                .expect("secondary offset continuation plan should build")
+        };
+
+        let (_seed_page, seed_trace) = load
+            .execute_paged_with_cursor_traced(build_plan(), None)
+            .expect("secondary offset seed page should execute");
+        let seed_trace = seed_trace.expect("debug trace should be present");
+        assert_eq!(
+            seed_trace.optimization,
+            Some(ExecutionOptimization::SecondaryOrderPushdown),
+            "secondary offset shape should use pushdown for case={case_name}",
+        );
+
+        let mut expected_ids = ordered_ids_from_group_rank_index(7);
+        if descending {
+            expected_ids.reverse();
+        }
+        let expected_ids = expected_ids.into_iter().skip(1).collect::<Vec<_>>();
+
+        let (ids, _boundaries, tokens) =
+            collect_all_pages_from_executable_plan_with_tokens(&load, build_plan, 20);
+        assert_eq!(
+            ids, expected_ids,
+            "secondary offset traversal must preserve canonical order for case={case_name}",
+        );
+        assert_resume_suffixes_from_tokens(
+            &load,
+            &build_plan,
+            &tokens,
+            &expected_ids,
+            20,
+            case_name,
+        );
+    }
+}
+
+#[test]
+fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_complete() {
+    setup_pagination_test();
+
+    let rows = [
+        (42_101, 10, "t10-a"),
+        (42_102, 10, "t10-b"),
+        (42_103, 20, "t20-a"),
+        (42_104, 20, "t20-b"),
+        (42_105, 25, "t25"),
+        (42_106, 28, "t28-a"),
+        (42_107, 28, "t28-b"),
+        (42_108, 40, "t40"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    for (case_name, direction) in [("asc", OrderDirection::Asc), ("desc", OrderDirection::Desc)] {
+        let build_plan = || {
+            ExecutablePlan::<IndexedMetricsEntity>::new(LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                access: AccessPlan::path(AccessPath::IndexRange {
+                    index: INDEXED_METRICS_INDEX_MODELS[0],
+                    prefix: Vec::new(),
+                    lower: Bound::Included(Value::Uint(10)),
+                    upper: Bound::Excluded(Value::Uint(30)),
+                }),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("tag".to_string(), direction),
+                        ("id".to_string(), direction),
+                    ],
+                }),
+                distinct: false,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(2),
+                    offset: 1,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            })
+        };
+
+        let (_seed_page, seed_trace) = load
+            .execute_paged_with_cursor_traced(build_plan(), None)
+            .expect("index-range offset seed page should execute");
+        let seed_trace = seed_trace.expect("debug trace should be present");
+        assert_eq!(
+            seed_trace.optimization,
+            Some(ExecutionOptimization::IndexRangeLimitPushdown),
+            "index-range offset shape should use limit pushdown for case={case_name}",
+        );
+
+        let mut expected_rows = rows
+            .iter()
+            .filter(|(_, tag, _)| *tag >= 10 && *tag < 30)
+            .map(|(id, tag, _)| (*tag, Ulid::from_u128(*id)))
+            .collect::<Vec<_>>();
+        expected_rows.sort_by(
+            |(left_tag, left_id), (right_tag, right_id)| match direction {
+                OrderDirection::Asc => left_tag.cmp(right_tag).then_with(|| left_id.cmp(right_id)),
+                OrderDirection::Desc => right_tag.cmp(left_tag).then_with(|| right_id.cmp(left_id)),
+            },
+        );
+        let expected_ids = expected_rows
+            .iter()
+            .map(|(_, id)| *id)
+            .skip(1)
+            .collect::<Vec<_>>();
+
+        let (ids, _boundaries, tokens) =
+            collect_all_pages_from_executable_plan_with_tokens(&load, build_plan, 20);
+        assert_eq!(
+            ids, expected_ids,
+            "index-range offset traversal must preserve canonical order for case={case_name}",
+        );
+        assert_resume_suffixes_from_tokens(
+            &load,
+            &build_plan,
+            &tokens,
+            &expected_ids,
+            20,
+            case_name,
+        );
+    }
+}
+
+#[test]
+fn load_cursor_with_offset_fallback_resume_matrix_is_boundary_complete() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [42_201_u128, 42_202, 42_203, 42_204, 42_205, 42_206, 42_207] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("fallback offset seed save should succeed");
+    }
+
+    let fallback_ids = vec![
+        Ulid::from_u128(42_204),
+        Ulid::from_u128(42_201),
+        Ulid::from_u128(42_207),
+        Ulid::from_u128(42_202),
+        Ulid::from_u128(42_206),
+        Ulid::from_u128(42_203),
+        Ulid::from_u128(42_205),
+    ];
+    let load = LoadExecutor::<SimpleEntity>::new(DB, true);
+
+    for (case_name, descending) in [("asc", false), ("desc", true)] {
+        let build_plan = || {
+            let base = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .by_ids(fallback_ids.iter().copied())
+                .limit(2)
+                .offset(1);
+            let ordered = if descending {
+                base.order_by_desc("id")
+            } else {
+                base.order_by("id")
+            };
+            ordered
+                .plan()
+                .expect("fallback offset continuation plan should build")
+        };
+
+        let (_seed_page, seed_trace) = load
+            .execute_paged_with_cursor_traced(build_plan(), None)
+            .expect("fallback offset seed page should execute");
+        let seed_trace = seed_trace.expect("debug trace should be present");
+        assert_eq!(
+            seed_trace.optimization, None,
+            "fallback by-ids offset shape should remain non-optimized for case={case_name}",
+        );
+
+        let mut expected_ids = fallback_ids.clone();
+        expected_ids.sort();
+        if descending {
+            expected_ids.reverse();
+        }
+        let expected_ids = expected_ids.into_iter().skip(1).collect::<Vec<_>>();
+
+        let (ids, _boundaries, tokens) =
+            collect_all_pages_from_executable_plan_with_tokens(&load, build_plan, 20);
+        assert_eq!(
+            ids, expected_ids,
+            "fallback offset traversal must preserve canonical order for case={case_name}",
+        );
+        assert_resume_suffixes_from_tokens(
+            &load,
+            &build_plan,
+            &tokens,
+            &expected_ids,
+            20,
+            case_name,
+        );
+    }
 }
 
 #[test]
@@ -3539,29 +3972,15 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
                 "case '{case_name}' with limit={limit} distinct pagination must not duplicate rows",
             );
 
-            for boundary in boundaries {
-                let boundary_id = match boundary.slots.as_slice() {
-                    [CursorBoundarySlot::Present(Value::Ulid(id))] => *id,
-                    slots => panic!("expected single id boundary slot, found {slots:?}"),
-                };
-                let expected_suffix = expected_ids
-                    .iter()
-                    .copied()
-                    .skip_while(|id| id != &boundary_id)
-                    .skip(1)
-                    .collect::<Vec<_>>();
-
-                let resumed_ids = collect_all_pages_from_executable_plan_with_start(
-                    &load,
-                    build_plan,
-                    Some(boundary),
-                    30,
-                );
-                assert_eq!(
-                    resumed_ids, expected_suffix,
-                    "case '{case_name}' with limit={limit} resume from boundary should return strict suffix",
-                );
-            }
+            let context = format!("case '{case_name}' with limit={limit}");
+            assert_resume_suffixes_from_boundaries(
+                &load,
+                &build_plan,
+                &boundaries,
+                &expected_ids,
+                30,
+                &context,
+            );
         }
     }
 }
@@ -3625,32 +4044,15 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
             "distinct DESC secondary pagination must not emit duplicates for limit={limit}",
         );
 
-        for boundary in boundaries {
-            let boundary_id = match boundary.slots.as_slice() {
-                [
-                    CursorBoundarySlot::Present(Value::Uint(_)),
-                    CursorBoundarySlot::Present(Value::Ulid(id)),
-                ] => *id,
-                slots => panic!("expected [rank, id] boundary slots, found {slots:?}"),
-            };
-            let expected_suffix = expected_ids
-                .iter()
-                .copied()
-                .skip_while(|id| id != &boundary_id)
-                .skip(1)
-                .collect::<Vec<_>>();
-
-            let resumed_ids = collect_all_pages_from_executable_plan_with_start(
-                &load,
-                build_plan,
-                Some(boundary),
-                20,
-            );
-            assert_eq!(
-                resumed_ids, expected_suffix,
-                "distinct DESC secondary resume should return strict suffix for limit={limit}",
-            );
-        }
+        let context = format!("distinct DESC secondary limit={limit}");
+        assert_resume_suffixes_from_boundaries(
+            &load,
+            &build_plan,
+            &boundaries,
+            &expected_ids,
+            20,
+            &context,
+        );
     }
 }
 
@@ -3728,10 +4130,10 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                 .expect("distinct DESC fallback plan should build")
         };
 
-        let (fast_ids, fast_boundaries) =
-            collect_all_pages_from_executable_plan(&load, build_fast_plan, 20);
-        let (fallback_ids, fallback_boundaries) =
-            collect_all_pages_from_executable_plan(&load, build_fallback_plan, 20);
+        let (fast_ids, fast_boundaries, _fast_tokens) =
+            collect_all_pages_from_executable_plan_with_tokens(&load, build_fast_plan, 20);
+        let (fallback_ids, fallback_boundaries, _fallback_tokens) =
+            collect_all_pages_from_executable_plan_with_tokens(&load, build_fallback_plan, 20);
 
         assert_eq!(
             fast_ids, fallback_ids,
@@ -3845,32 +4247,15 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
             "distinct DESC index-range pushdown should preserve canonical ordering for limit={limit}",
         );
 
-        for boundary in &fast_boundaries {
-            let boundary_id = match boundary.slots.as_slice() {
-                [
-                    CursorBoundarySlot::Present(Value::Uint(_)),
-                    CursorBoundarySlot::Present(Value::Ulid(id)),
-                ] => *id,
-                slots => panic!("expected [tag, id] boundary slots, found {slots:?}"),
-            };
-            let expected_suffix = expected_ids
-                .iter()
-                .copied()
-                .skip_while(|id| id != &boundary_id)
-                .skip(1)
-                .collect::<Vec<_>>();
-
-            let resumed_ids = collect_all_pages_from_executable_plan_with_start(
-                &load,
-                build_fast_plan,
-                Some(boundary.clone()),
-                20,
-            );
-            assert_eq!(
-                resumed_ids, expected_suffix,
-                "distinct DESC index-range resume should return strict suffix for limit={limit}",
-            );
-        }
+        let context = format!("distinct DESC index-range limit={limit}");
+        assert_resume_suffixes_from_boundaries(
+            &load,
+            &build_fast_plan,
+            &fast_boundaries,
+            &expected_ids,
+            20,
+            &context,
+        );
 
         // Phase 4: fallback by-ids semantics must match IDs and boundaries.
         let build_fallback_plan = || {
@@ -3980,10 +4365,10 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                 .expect("distinct DESC PK fallback plan should build")
         };
 
-        let (fast_ids, fast_boundaries) =
-            collect_all_pages_from_executable_plan(&load, build_fast_plan, 20);
-        let (fallback_ids, fallback_boundaries) =
-            collect_all_pages_from_executable_plan(&load, build_fallback_plan, 20);
+        let (fast_ids, fast_boundaries, _fast_tokens) =
+            collect_all_pages_from_executable_plan_with_tokens(&load, build_fast_plan, 20);
+        let (fallback_ids, fallback_boundaries, _fallback_tokens) =
+            collect_all_pages_from_executable_plan_with_tokens(&load, build_fallback_plan, 20);
         assert_eq!(
             fast_ids, fallback_ids,
             "distinct DESC PK fast-path and fallback ids should match for limit={limit}",
@@ -3991,6 +4376,227 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
         assert_eq!(
             fast_boundaries, fallback_boundaries,
             "distinct DESC PK fast-path and fallback boundaries should match for limit={limit}",
+        );
+    }
+}
+
+#[test]
+fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
+    setup_pagination_test();
+
+    // Secondary-index source fixture.
+    let secondary_rows = pushdown_rows_with_group9(42_301);
+    seed_pushdown_rows(&secondary_rows);
+    let secondary_predicate = pushdown_group_predicate(7);
+    let secondary_group_ids = pushdown_group_ids(&secondary_rows, 7);
+
+    // Index-range source fixture.
+    let index_rows = [
+        (42_401, 10, "t10-a"),
+        (42_402, 10, "t10-b"),
+        (42_403, 20, "t20-a"),
+        (42_404, 20, "t20-b"),
+        (42_405, 25, "t25"),
+        (42_406, 28, "t28-a"),
+        (42_407, 28, "t28-b"),
+        (42_408, 40, "t40"),
+    ];
+    seed_indexed_metrics_rows(&index_rows);
+
+    let load_secondary = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+    let load_index_range = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    for (case_name, direction) in [("asc", OrderDirection::Asc), ("desc", OrderDirection::Desc)] {
+        // ------------------------------------------------------------------
+        // Secondary distinct+offset parity: pushdown vs fallback
+        // ------------------------------------------------------------------
+
+        let build_secondary_fast = || {
+            let base = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(secondary_predicate.clone())
+                .distinct()
+                .limit(2)
+                .offset(1);
+            let ordered = match direction {
+                OrderDirection::Asc => base.order_by("rank").order_by("id"),
+                OrderDirection::Desc => base.order_by_desc("rank").order_by_desc("id"),
+            };
+
+            ordered
+                .plan()
+                .expect("distinct secondary offset fast-path plan should build")
+        };
+        let build_secondary_fallback = || {
+            let base = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .by_ids(secondary_group_ids.iter().copied())
+                .distinct()
+                .limit(2)
+                .offset(1);
+            let ordered = match direction {
+                OrderDirection::Asc => base.order_by("rank").order_by("id"),
+                OrderDirection::Desc => base.order_by_desc("rank").order_by_desc("id"),
+            };
+
+            ordered
+                .plan()
+                .expect("distinct secondary offset fallback plan should build")
+        };
+
+        let (_seed_fast, trace_fast) = load_secondary
+            .execute_paged_with_cursor_traced(build_secondary_fast(), None)
+            .expect("distinct secondary offset fast-path seed should execute");
+        let trace_fast = trace_fast.expect("debug trace should be present");
+        assert_eq!(
+            trace_fast.optimization,
+            Some(ExecutionOptimization::SecondaryOrderPushdown),
+            "distinct secondary offset fast path should use pushdown for case={case_name}",
+        );
+
+        let (_seed_fallback, trace_fallback) = load_secondary
+            .execute_paged_with_cursor_traced(build_secondary_fallback(), None)
+            .expect("distinct secondary offset fallback seed should execute");
+        let trace_fallback = trace_fallback.expect("debug trace should be present");
+        assert_eq!(
+            trace_fallback.optimization, None,
+            "distinct secondary offset fallback should remain non-optimized for case={case_name}",
+        );
+
+        let (secondary_fast_ids, secondary_fast_boundaries, secondary_fast_tokens) =
+            collect_all_pages_from_executable_plan_with_tokens(
+                &load_secondary,
+                build_secondary_fast,
+                20,
+            );
+        let (secondary_fallback_ids, secondary_fallback_boundaries, _secondary_fallback_tokens) =
+            collect_all_pages_from_executable_plan_with_tokens(
+                &load_secondary,
+                build_secondary_fallback,
+                20,
+            );
+        assert_eq!(
+            secondary_fast_ids, secondary_fallback_ids,
+            "distinct secondary offset fast/fallback ids should match for case={case_name}",
+        );
+        assert_eq!(
+            secondary_fast_boundaries, secondary_fallback_boundaries,
+            "distinct secondary offset fast/fallback boundaries should match for case={case_name}",
+        );
+        assert_resume_suffixes_from_tokens(
+            &load_secondary,
+            &build_secondary_fast,
+            &secondary_fast_tokens,
+            &secondary_fast_ids,
+            20,
+            case_name,
+        );
+
+        // ------------------------------------------------------------------
+        // Index-range distinct+offset parity: pushdown vs fallback
+        // ------------------------------------------------------------------
+
+        let build_index_range_fast = || {
+            ExecutablePlan::<IndexedMetricsEntity>::new(LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                access: AccessPlan::path(AccessPath::IndexRange {
+                    index: INDEXED_METRICS_INDEX_MODELS[0],
+                    prefix: Vec::new(),
+                    lower: Bound::Included(Value::Uint(10)),
+                    upper: Bound::Excluded(Value::Uint(30)),
+                }),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("tag".to_string(), direction),
+                        ("id".to_string(), direction),
+                    ],
+                }),
+                distinct: true,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(2),
+                    offset: 1,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            })
+        };
+
+        let mut index_rows_sorted = index_rows
+            .iter()
+            .filter(|(_, tag, _)| *tag >= 10 && *tag < 30)
+            .map(|(id, tag, _)| (*tag, Ulid::from_u128(*id)))
+            .collect::<Vec<_>>();
+        index_rows_sorted.sort_by(
+            |(left_tag, left_id), (right_tag, right_id)| match direction {
+                OrderDirection::Asc => left_tag.cmp(right_tag).then_with(|| left_id.cmp(right_id)),
+                OrderDirection::Desc => right_tag.cmp(left_tag).then_with(|| right_id.cmp(left_id)),
+            },
+        );
+        let index_candidate_ids = index_rows_sorted
+            .iter()
+            .map(|(_, id)| *id)
+            .collect::<Vec<_>>();
+
+        let build_index_range_fallback = || {
+            let base = Query::<IndexedMetricsEntity>::new(ReadConsistency::MissingOk)
+                .by_ids(index_candidate_ids.iter().copied())
+                .distinct()
+                .limit(2)
+                .offset(1);
+            let ordered = match direction {
+                OrderDirection::Asc => base.order_by("tag").order_by("id"),
+                OrderDirection::Desc => base.order_by_desc("tag").order_by_desc("id"),
+            };
+
+            ordered
+                .plan()
+                .expect("distinct index-range offset fallback plan should build")
+        };
+
+        let (_seed_fast, trace_fast) = load_index_range
+            .execute_paged_with_cursor_traced(build_index_range_fast(), None)
+            .expect("distinct index-range offset fast-path seed should execute");
+        let trace_fast = trace_fast.expect("debug trace should be present");
+        assert_eq!(
+            trace_fast.optimization,
+            Some(ExecutionOptimization::IndexRangeLimitPushdown),
+            "distinct index-range offset fast path should use limit pushdown for case={case_name}",
+        );
+
+        let (_seed_fallback, trace_fallback) = load_index_range
+            .execute_paged_with_cursor_traced(build_index_range_fallback(), None)
+            .expect("distinct index-range offset fallback seed should execute");
+        let trace_fallback = trace_fallback.expect("debug trace should be present");
+        assert_eq!(
+            trace_fallback.optimization, None,
+            "distinct index-range offset fallback should remain non-optimized for case={case_name}",
+        );
+
+        let (index_fast_ids, index_fast_boundaries, index_fast_tokens) =
+            collect_all_pages_from_executable_plan_with_tokens(
+                &load_index_range,
+                build_index_range_fast,
+                20,
+            );
+        let (index_fallback_ids, index_fallback_boundaries, _index_fallback_tokens) =
+            collect_all_pages_from_executable_plan_with_tokens(
+                &load_index_range,
+                build_index_range_fallback,
+                20,
+            );
+        assert_eq!(
+            index_fast_ids, index_fallback_ids,
+            "distinct index-range offset fast/fallback ids should match for case={case_name}",
+        );
+        assert_eq!(
+            index_fast_boundaries, index_fallback_boundaries,
+            "distinct index-range offset fast/fallback boundaries should match for case={case_name}",
+        );
+        assert_resume_suffixes_from_tokens(
+            &load_index_range,
+            &build_index_range_fast,
+            &index_fast_tokens,
+            &index_fast_ids,
+            20,
+            case_name,
         );
     }
 }

@@ -1,6 +1,6 @@
 mod cbor;
 
-use crate::error::{ErrorClass, ErrorOrigin, InternalError};
+use crate::error::InternalError;
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error as ThisError;
 
@@ -26,11 +26,7 @@ pub enum SerializeError {
 
 impl From<SerializeError> for InternalError {
     fn from(err: SerializeError) -> Self {
-        Self::new(
-            ErrorClass::Internal,
-            ErrorOrigin::Serialize,
-            err.to_string(),
-        )
+        Self::serialize_internal(err.to_string())
     }
 }
 

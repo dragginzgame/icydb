@@ -162,9 +162,9 @@ Each dated directory must include:
 summary.md
 ```
 
-Format:
+Format template:
 
-```
+```md
 # Audit Summary — YYYY-MM-DD
 
 ## Risk Index Summary
@@ -181,6 +181,48 @@ Format:
 | Velocity            | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
 | DRY                 | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
 | Taxonomy            | X/10  | (from YYYY-MM-DD) or (run on current working tree) |
+
+## Risk Index Summary (Vertical Format)
+
+Invariant Integrity
+- Score: X/10
+- Run Context: ...
+
+Recovery Integrity
+- Score: X/10
+- Run Context: ...
+
+Cursor/Ordering
+- Score: X/10
+- Run Context: ...
+
+Index Integrity
+- Score: X/10
+- Run Context: ...
+
+State-Machine
+- Score: X/10
+- Run Context: ...
+
+Structure Integrity
+- Score: X/10
+- Run Context: ...
+
+Complexity
+- Score: X/10
+- Run Context: ...
+
+Velocity
+- Score: X/10
+- Run Context: ...
+
+DRY
+- Score: X/10
+- Run Context: ...
+
+Taxonomy
+- Score: X/10
+- Run Context: ...
 
 Codebase Size Snapshot (`cd crates && cloc .`):
 - Rust: files=..., blank=..., comment=..., code=...
@@ -207,8 +249,17 @@ Drift Signals:
 - ...
 ```
 
-`Risk Index Summary` must be tabular in all `summary.md` files. Free-form
-single-line score lists are no longer allowed.
+`Risk Index Summary` must include both, in this order:
+- `## Risk Index Summary` (table)
+- `## Risk Index Summary (Vertical Format)` (one block per index)
+
+Vertical blocks must use this exact shape:
+- `<Risk Index Name>`
+- `- Score: X/10`
+- `- Run Context: ...`
+- one blank line between index blocks
+
+Free-form single-line score lists are not allowed.
 
 ---
 

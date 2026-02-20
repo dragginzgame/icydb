@@ -77,7 +77,8 @@ where
             return Some(IndexRangeLimitSpec { fetch: 0 });
         }
 
-        let fetch = compute_page_window(page.offset, limit, true).fetch_count;
+        let fetch = compute_page_window(plan.effective_page_offset(cursor_boundary), limit, true)
+            .fetch_count;
 
         Some(IndexRangeLimitSpec { fetch })
     }

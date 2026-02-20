@@ -7,7 +7,7 @@
 #![expect(clippy::cast_possible_truncation)]
 
 use crate::{
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     types::{Account, Principal, Repr, Subaccount, Timestamp, Ulid},
     value::Value,
 };
@@ -39,11 +39,7 @@ pub enum StorageKeyEncodeError {
 
 impl From<StorageKeyEncodeError> for InternalError {
     fn from(err: StorageKeyEncodeError) -> Self {
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Serialize,
-            err.to_string(),
-        )
+        Self::serialize_unsupported(err.to_string())
     }
 }
 

@@ -76,6 +76,28 @@ impl InternalError {
         )
     }
 
+    /// Build the canonical executor-invariant message prefix.
+    #[must_use]
+    pub(crate) fn executor_invariant_message(reason: impl Into<String>) -> String {
+        format!("executor invariant violated: {}", reason.into())
+    }
+
+    /// Build the canonical invalid-logical-plan message prefix.
+    #[must_use]
+    pub(crate) fn invalid_logical_plan_message(reason: impl Into<String>) -> String {
+        format!("invalid logical plan: {}", reason.into())
+    }
+
+    /// Construct a query-origin invariant with the canonical executor prefix.
+    pub(crate) fn query_executor_invariant(reason: impl Into<String>) -> Self {
+        Self::query_invariant(Self::executor_invariant_message(reason))
+    }
+
+    /// Construct a query-origin invariant with the canonical invalid-plan prefix.
+    pub(crate) fn query_invalid_logical_plan(reason: impl Into<String>) -> Self {
+        Self::query_invariant(Self::invalid_logical_plan_message(reason))
+    }
+
     /// Construct an index-origin invariant violation.
     pub(crate) fn index_invariant(message: impl Into<String>) -> Self {
         Self::new(
@@ -238,17 +260,17 @@ impl InternalError {
         let message = match &err {
             PlanError::Cursor(inner) => match inner.as_ref() {
                 CursorPlanError::ContinuationCursorBoundaryArityMismatch { expected: 1, found } => {
-                    format!(
-                        "executor invariant violated: pk-ordered continuation boundary must contain exactly 1 slot, found {found}"
-                    )
+                    Self::executor_invariant_message(format!(
+                        "pk-ordered continuation boundary must contain exactly 1 slot, found {found}"
+                    ))
                 }
                 CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
                     value: None, ..
-                } => "executor invariant violated: pk cursor slot must be present".to_string(),
+                } => Self::executor_invariant_message("pk cursor slot must be present"),
                 CursorPlanError::ContinuationCursorPrimaryKeyTypeMismatch {
                     value: Some(_),
                     ..
-                } => "executor invariant violated: pk cursor slot type mismatch".to_string(),
+                } => Self::executor_invariant_message("pk cursor slot type mismatch"),
                 _ => err.to_string(),
             },
             _ => err.to_string(),

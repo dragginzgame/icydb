@@ -51,6 +51,7 @@ impl std::fmt::Display for ContinuationSignature {
 }
 
 const CONTINUATION_TOKEN_VERSION_V1: u8 = 1;
+const CONTINUATION_TOKEN_VERSION_V2: u8 = 2;
 const MAX_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
 
 /// Decode errors for typed primary-key cursor slot extraction.
@@ -142,12 +143,12 @@ where
     decode_primary_key_cursor_slot::<E::Key>(slot)
         .map(Some)
         .map_err(|err| match err {
-            PrimaryKeyCursorSlotDecodeError::Missing => InternalError::query_invariant(
-                "executor invariant violated: pk cursor slot must be present",
-            ),
-            PrimaryKeyCursorSlotDecodeError::TypeMismatch { .. } => InternalError::query_invariant(
-                "executor invariant violated: pk cursor slot type mismatch",
-            ),
+            PrimaryKeyCursorSlotDecodeError::Missing => {
+                InternalError::query_executor_invariant("pk cursor slot must be present")
+            }
+            PrimaryKeyCursorSlotDecodeError::TypeMismatch { .. } => {
+                InternalError::query_executor_invariant("pk cursor slot type mismatch")
+            }
         })
 }
 
@@ -161,6 +162,7 @@ pub(crate) struct ContinuationToken {
     signature: ContinuationSignature,
     boundary: CursorBoundary,
     direction: Direction,
+    initial_offset: u32,
     index_range_anchor: Option<IndexRangeCursorAnchor>,
 }
 
@@ -169,11 +171,13 @@ impl ContinuationToken {
         signature: ContinuationSignature,
         boundary: CursorBoundary,
         direction: Direction,
+        initial_offset: u32,
     ) -> Self {
         Self {
             signature,
             boundary,
             direction,
+            initial_offset,
             index_range_anchor: None,
         }
     }
@@ -183,11 +187,13 @@ impl ContinuationToken {
         boundary: CursorBoundary,
         index_range_anchor: IndexRangeCursorAnchor,
         direction: Direction,
+        initial_offset: u32,
     ) -> Self {
         Self {
             signature,
             boundary,
             direction,
+            initial_offset,
             index_range_anchor: Some(index_range_anchor),
         }
     }
@@ -204,6 +210,10 @@ impl ContinuationToken {
         self.direction
     }
 
+    pub(in crate::db) const fn initial_offset(&self) -> u32 {
+        self.initial_offset
+    }
+
     pub(in crate::db) const fn index_range_anchor(&self) -> Option<&IndexRangeCursorAnchor> {
         self.index_range_anchor.as_ref()
     }
@@ -213,10 +223,11 @@ impl ContinuationToken {
             .index_range_anchor()
             .map(IndexRangeCursorAnchorWire::from);
         let wire = ContinuationTokenWire {
-            version: CONTINUATION_TOKEN_VERSION_V1,
+            version: CONTINUATION_TOKEN_VERSION_V2,
             signature: self.signature.into_bytes(),
             boundary: self.boundary.clone(),
             direction: self.direction,
+            initial_offset: self.initial_offset,
             index_range_anchor,
         };
 
@@ -227,24 +238,36 @@ impl ContinuationToken {
         let wire: ContinuationTokenWire = deserialize_bounded(bytes, MAX_CONTINUATION_TOKEN_BYTES)
             .map_err(|err| ContinuationTokenError::Decode(err.to_string()))?;
 
-        if wire.version != CONTINUATION_TOKEN_VERSION_V1 {
-            return Err(ContinuationTokenError::UnsupportedVersion {
-                version: wire.version,
-            });
-        }
-
         let signature = ContinuationSignature::from_bytes(wire.signature);
         let boundary = wire.boundary;
         let direction = wire.direction;
+        let initial_offset = match wire.version {
+            CONTINUATION_TOKEN_VERSION_V1 => 0,
+            CONTINUATION_TOKEN_VERSION_V2 => wire.initial_offset,
+            _ => {
+                return Err(ContinuationTokenError::UnsupportedVersion {
+                    version: wire.version,
+                });
+            }
+        };
 
         match wire
             .index_range_anchor
             .map(IndexRangeCursorAnchorWire::into_anchor)
         {
             Some(anchor) => Ok(Self::new_index_range_with_direction(
-                signature, boundary, anchor, direction,
+                signature,
+                boundary,
+                anchor,
+                direction,
+                initial_offset,
             )),
-            None => Ok(Self::new_with_direction(signature, boundary, direction)),
+            None => Ok(Self::new_with_direction(
+                signature,
+                boundary,
+                direction,
+                initial_offset,
+            )),
         }
     }
 
@@ -261,6 +284,7 @@ impl ContinuationToken {
             signature: self.signature.into_bytes(),
             boundary: self.boundary.clone(),
             direction: self.direction,
+            initial_offset: self.initial_offset,
             index_range_anchor,
         };
 
@@ -296,6 +320,8 @@ struct ContinuationTokenWire {
     boundary: CursorBoundary,
     #[serde(default)]
     direction: Direction,
+    #[serde(default)]
+    initial_offset: u32,
     #[serde(default)]
     index_range_anchor: Option<IndexRangeCursorAnchorWire>,
 }
@@ -559,6 +585,7 @@ mod tests {
             boundary.clone(),
             IndexRangeCursorAnchor::new(raw_key.clone()),
             Direction::Asc,
+            3,
         );
 
         let encoded = token
@@ -569,6 +596,7 @@ mod tests {
 
         assert_eq!(decoded.signature(), signature);
         assert_eq!(decoded.boundary(), &boundary);
+        assert_eq!(decoded.initial_offset(), 3);
         let decoded_anchor = decoded
             .index_range_anchor()
             .expect("decoded token should include index-range anchor");

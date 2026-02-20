@@ -418,6 +418,19 @@ fn index_range_candidate_for_index(
     index: &'static IndexModel,
     compares: &[&ComparePredicate],
 ) -> Option<(Vec<Value>, RangeConstraint)> {
+    // Phase 1: classify each index field as Eq/Range/None for this compare set.
+    let constraints = classify_index_field_constraints(schema, index, compares)?;
+
+    // Phase 2: materialize deterministic prefix+range shape from constraints.
+    select_prefix_and_range(index.fields.len(), &constraints)
+}
+
+// Build per-field constraint classes for one index from compare predicates.
+fn classify_index_field_constraints(
+    schema: &SchemaInfo,
+    index: &'static IndexModel,
+    compares: &[&ComparePredicate],
+) -> Option<Vec<IndexFieldConstraint>> {
     let mut constraints = vec![IndexFieldConstraint::None; index.fields.len()];
 
     for cmp in compares {
@@ -460,6 +473,14 @@ fn index_range_candidate_for_index(
         }
     }
 
+    Some(constraints)
+}
+
+// Convert classified constraints into one valid prefix+range candidate shape.
+fn select_prefix_and_range(
+    field_count: usize,
+    constraints: &[IndexFieldConstraint],
+) -> Option<(Vec<Value>, RangeConstraint)> {
     let mut prefix = Vec::new();
     let mut range: Option<RangeConstraint> = None;
     let mut range_position = None;
@@ -482,10 +503,10 @@ fn index_range_candidate_for_index(
     let (Some(range_position), Some(range)) = (range_position, range) else {
         return None;
     };
-    if range_position >= index.fields.len() {
+    if range_position >= field_count {
         return None;
     }
-    if prefix.len() >= index.fields.len() {
+    if prefix.len() >= field_count {
         return None;
     }
 
@@ -572,11 +593,20 @@ fn range_bounds_are_compatible(range: &RangeConstraint) -> bool {
         return false;
     }
 
+    !range_is_empty(range)
+}
+
+// Return true when a bounded range is empty under canonical value ordering.
+fn range_is_empty(range: &RangeConstraint) -> bool {
+    let (Some(lower), Some(upper)) = (bound_value(&range.lower), bound_value(&range.upper)) else {
+        return false;
+    };
+
     match canonical_cmp(lower, upper) {
-        std::cmp::Ordering::Less => true,
-        std::cmp::Ordering::Greater => false,
+        std::cmp::Ordering::Less => false,
+        std::cmp::Ordering::Greater => true,
         std::cmp::Ordering::Equal => {
-            matches!(range.lower, Bound::Included(_)) && matches!(range.upper, Bound::Included(_))
+            !matches!(range.lower, Bound::Included(_)) || !matches!(range.upper, Bound::Included(_))
         }
     }
 }

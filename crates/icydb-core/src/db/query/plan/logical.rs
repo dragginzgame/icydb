@@ -184,7 +184,7 @@ impl<K> LogicalPlan<K> {
             self.apply_cursor_phase::<E, R>(rows, cursor, ordered, rows_after_order)?;
 
         // Phase 4: load pagination.
-        let (paged, rows_after_page) = self.apply_page_phase(rows, ordered)?;
+        let (paged, rows_after_page) = self.apply_page_phase(rows, ordered, cursor)?;
 
         // Phase 5: delete limiting.
         let (delete_was_limited, rows_after_delete_limit) =
@@ -223,14 +223,14 @@ impl<K> LogicalPlan<K> {
     // Planner owns user-facing validation; this only catches internal misuse.
     fn validate_post_access_invariants(&self) -> Result<(), InternalError> {
         if self.mode.is_load() && self.delete_limit.is_some() {
-            return Err(InternalError::query_invariant(
-                "executor invariant violated: load plans must not carry delete limits",
+            return Err(InternalError::query_executor_invariant(
+                "load plans must not carry delete limits",
             ));
         }
 
         if self.mode.is_delete() && self.page.is_some() {
-            return Err(InternalError::query_invariant(
-                "executor invariant violated: delete plans must not carry pagination",
+            return Err(InternalError::query_executor_invariant(
+                "delete plans must not carry pagination",
             ));
         }
 
@@ -239,14 +239,14 @@ impl<K> LogicalPlan<K> {
             .as_ref()
             .is_some_and(|order| !order.fields.is_empty());
         if self.page.is_some() && !has_explicit_order {
-            return Err(InternalError::query_invariant(
-                "executor invariant violated: pagination requires explicit ordering",
+            return Err(InternalError::query_executor_invariant(
+                "pagination requires explicit ordering",
             ));
         }
 
         if self.delete_limit.is_some() && !has_explicit_order {
-            return Err(InternalError::query_invariant(
-                "executor invariant violated: delete limit requires explicit ordering",
+            return Err(InternalError::query_executor_invariant(
+                "delete limit requires explicit ordering",
             ));
         }
 
@@ -256,8 +256,8 @@ impl<K> LogicalPlan<K> {
     // Enforce load/delete cursor compatibility before execution phases.
     fn validate_cursor_mode(&self, cursor: Option<&CursorBoundary>) -> Result<(), InternalError> {
         if cursor.is_some() && !self.mode.is_load() {
-            return Err(InternalError::query_invariant(
-                "invalid logical plan: delete plans must not carry cursor boundaries",
+            return Err(InternalError::query_invalid_logical_plan(
+                "delete plans must not carry cursor boundaries",
             ));
         }
 
@@ -296,8 +296,8 @@ impl<K> LogicalPlan<K> {
             && !order.fields.is_empty()
         {
             if self.predicate.is_some() && !filtered {
-                return Err(InternalError::query_invariant(
-                    "executor invariant violated: ordering must run after filtering",
+                return Err(InternalError::query_executor_invariant(
+                    "ordering must run after filtering",
                 ));
             }
 
@@ -334,14 +334,14 @@ impl<K> LogicalPlan<K> {
             && let Some(boundary) = cursor
         {
             let Some(order) = self.order.as_ref() else {
-                return Err(InternalError::query_invariant(
-                    "executor invariant violated: cursor boundary requires ordering",
+                return Err(InternalError::query_executor_invariant(
+                    "cursor boundary requires ordering",
                 ));
             };
 
             if !ordered {
-                return Err(InternalError::query_invariant(
-                    "executor invariant violated: cursor boundary must run after ordering",
+                return Err(InternalError::query_executor_invariant(
+                    "cursor boundary must run after ordering",
                 ));
             }
 
@@ -359,16 +359,19 @@ impl<K> LogicalPlan<K> {
         &self,
         rows: &mut Vec<R>,
         ordered: bool,
+        cursor: Option<&CursorBoundary>,
     ) -> Result<(bool, usize), InternalError> {
         let paged = if self.mode.is_load()
             && let Some(page) = &self.page
         {
             if self.order.is_some() && !ordered {
-                return Err(InternalError::query_invariant(
-                    "executor invariant violated: pagination must run after ordering",
+                return Err(InternalError::query_executor_invariant(
+                    "pagination must run after ordering",
                 ));
             }
-            apply_pagination(rows, page.offset, page.limit);
+            // Offset is applied only on the initial page. Continuation requests
+            // resume from the cursor boundary and must not re-apply offset.
+            apply_pagination(rows, self.effective_page_offset(cursor), page.limit);
             true
         } else {
             false
@@ -387,8 +390,8 @@ impl<K> LogicalPlan<K> {
             && let Some(limit) = &self.delete_limit
         {
             if self.order.is_some() && !ordered {
-                return Err(InternalError::query_invariant(
-                    "executor invariant violated: delete limit must run after ordering",
+                return Err(InternalError::query_executor_invariant(
+                    "delete limit must run after ordering",
                 ));
             }
             apply_delete_limit(rows, limit.max_rows);
@@ -418,6 +421,19 @@ impl<K> LogicalPlan<K> {
         Some(compute_page_window(page.offset, limit, true).fetch_count)
     }
 
+    /// Return the effective page offset for this request.
+    ///
+    /// Offset is only consumed on the first page. Any continuation cursor means
+    /// the offset has already been applied and the next request uses offset `0`.
+    #[must_use]
+    pub(crate) fn effective_page_offset(&self, cursor: Option<&CursorBoundary>) -> u32 {
+        if cursor.is_some() {
+            return 0;
+        }
+
+        self.page.as_ref().map_or(0, |page| page.offset)
+    }
+
     /// Build a cursor boundary from one materialized entity using this plan's canonical ordering.
     pub(crate) fn cursor_boundary_from_entity<E>(
         &self,
@@ -427,8 +443,8 @@ impl<K> LogicalPlan<K> {
         E: EntityKind + EntityValue,
     {
         let Some(order) = self.order.as_ref() else {
-            return Err(InternalError::query_invariant(
-                "executor invariant violated: cannot build cursor boundary without ordering",
+            return Err(InternalError::query_executor_invariant(
+                "cannot build cursor boundary without ordering",
             ));
         };
 
@@ -551,14 +567,7 @@ fn compare_entities<E: EntityKind + EntityValue>(
     order: &OrderSpec,
 ) -> Ordering {
     for (field, direction) in &order.fields {
-        let left_slot = field_slot(left, field);
-        let right_slot = field_slot(right, field);
-        let ordering = compare_order_slots(&left_slot, &right_slot);
-
-        let ordering = match direction {
-            OrderDirection::Asc => ordering,
-            OrderDirection::Desc => ordering.reverse(),
-        };
+        let ordering = compare_entity_field_pair(left, right, field, *direction);
 
         if ordering != Ordering::Equal {
             return ordering;
@@ -590,6 +599,41 @@ fn compare_order_slots(left: &CursorBoundarySlot, right: &CursorBoundarySlot) ->
     }
 }
 
+// Apply configured order direction to one base slot ordering.
+const fn apply_order_direction(ordering: Ordering, direction: OrderDirection) -> Ordering {
+    match direction {
+        OrderDirection::Asc => ordering,
+        OrderDirection::Desc => ordering.reverse(),
+    }
+}
+
+// Compare one configured order field across two entities.
+fn compare_entity_field_pair<E: EntityKind + EntityValue>(
+    left: &E,
+    right: &E,
+    field: &str,
+    direction: OrderDirection,
+) -> Ordering {
+    let left_slot = field_slot(left, field);
+    let right_slot = field_slot(right, field);
+    let ordering = compare_order_slots(&left_slot, &right_slot);
+
+    apply_order_direction(ordering, direction)
+}
+
+// Compare one configured order field between an entity and a boundary slot.
+fn compare_entity_field_to_boundary<E: EntityKind + EntityValue>(
+    entity: &E,
+    field: &str,
+    boundary_slot: &CursorBoundarySlot,
+    direction: OrderDirection,
+) -> Ordering {
+    let entity_slot = field_slot(entity, field);
+    let ordering = compare_order_slots(&entity_slot, boundary_slot);
+
+    apply_order_direction(ordering, direction)
+}
+
 // Apply a strict continuation boundary using the canonical order comparator.
 fn apply_cursor_boundary<E, R>(rows: &mut Vec<R>, order: &OrderSpec, boundary: &CursorBoundary)
 where
@@ -613,12 +657,7 @@ fn compare_entity_with_boundary<E: EntityKind + EntityValue>(
     boundary: &CursorBoundary,
 ) -> Ordering {
     for ((field, direction), boundary_slot) in order.fields.iter().zip(boundary.slots.iter()) {
-        let entity_slot = field_slot(entity, field);
-        let ordering = compare_order_slots(&entity_slot, boundary_slot);
-        let ordering = match direction {
-            OrderDirection::Asc => ordering,
-            OrderDirection::Desc => ordering.reverse(),
-        };
+        let ordering = compare_entity_field_to_boundary(entity, field, boundary_slot, *direction);
 
         if ordering != Ordering::Equal {
             return ordering;

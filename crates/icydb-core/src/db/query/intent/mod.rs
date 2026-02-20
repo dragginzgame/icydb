@@ -633,9 +633,6 @@ pub enum IntentError {
 
     #[error("cursor pagination requires an explicit limit")]
     CursorRequiresLimit,
-
-    #[error("cursor pagination does not support offset; use the cursor token for continuation")]
-    CursorWithOffsetUnsupported,
 }
 
 impl From<policy::CursorPagingPolicyError> for IntentError {
@@ -643,9 +640,6 @@ impl From<policy::CursorPagingPolicyError> for IntentError {
         match err {
             policy::CursorPagingPolicyError::CursorRequiresOrder => Self::CursorRequiresOrder,
             policy::CursorPagingPolicyError::CursorRequiresLimit => Self::CursorRequiresLimit,
-            policy::CursorPagingPolicyError::CursorWithOffsetUnsupported => {
-                Self::CursorWithOffsetUnsupported
-            }
         }
     }
 }

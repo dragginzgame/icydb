@@ -193,6 +193,15 @@ pub enum CursorPlanError {
     #[error("continuation cursor boundary arity mismatch: expected {expected}, found {found}")]
     ContinuationCursorBoundaryArityMismatch { expected: usize, found: usize },
 
+    /// Cursor window offset does not match the current query window shape.
+    #[error(
+        "continuation cursor offset mismatch: expected {expected_offset}, found {actual_offset}"
+    )]
+    ContinuationCursorWindowMismatch {
+        expected_offset: u32,
+        actual_offset: u32,
+    },
+
     /// Cursor boundary value type mismatch for a non-primary-key ordered field.
     #[error(
         "continuation cursor boundary type mismatch for field '{field}': expected {expected}, found {value:?}"

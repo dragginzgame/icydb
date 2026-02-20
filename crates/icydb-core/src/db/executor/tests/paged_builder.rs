@@ -15,26 +15,16 @@ fn paged_query_builder_requires_explicit_limit() {
 }
 
 #[test]
-fn paged_query_builder_rejects_offset() {
+fn paged_query_builder_accepts_offset() {
     let session = DbSession::new(DB);
 
-    let Err(err) = session
+    session
         .load::<PhaseEntity>()
         .order_by("rank")
         .limit(10)
         .offset(2)
         .page()
-    else {
-        panic!("paged builder should reject offset usage")
-    };
-
-    assert!(
-        matches!(
-            err,
-            QueryError::Intent(IntentError::CursorWithOffsetUnsupported)
-        ),
-        "offset should be rejected at page-builder boundary"
-    );
+        .expect("paged builder should accept offset usage");
 }
 
 #[test]

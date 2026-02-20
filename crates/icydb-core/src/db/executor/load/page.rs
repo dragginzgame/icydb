@@ -98,8 +98,14 @@ where
         continuation_signature: ContinuationSignature,
     ) -> Result<CursorPage<E>, InternalError> {
         let stats = plan.apply_post_access_with_cursor::<E, _>(rows, cursor_boundary)?;
-        let next_cursor =
-            Self::build_next_cursor(plan, rows, &stats, direction, continuation_signature)?;
+        let next_cursor = Self::build_next_cursor(
+            plan,
+            rows,
+            &stats,
+            cursor_boundary,
+            direction,
+            continuation_signature,
+        )?;
         let items = Response(std::mem::take(rows));
 
         Ok(CursorPage { items, next_cursor })
@@ -109,6 +115,7 @@ where
         plan: &LogicalPlan<E::Key>,
         rows: &[(Id<E>, E)],
         stats: &PostAccessStats,
+        cursor_boundary: Option<&CursorBoundary>,
         direction: Direction,
         signature: ContinuationSignature,
     ) -> Result<Option<Vec<u8>>, InternalError> {
@@ -123,7 +130,9 @@ where
         }
 
         // NOTE: post-access execution materializes full in-memory rows for Phase 1.
-        let page_end = compute_page_window(page.offset, limit, false).keep_count;
+        let page_end =
+            compute_page_window(plan.effective_page_offset(cursor_boundary), limit, false)
+                .keep_count;
         if stats.rows_after_cursor <= page_end {
             return Ok(None);
         }
@@ -143,15 +152,16 @@ where
         signature: ContinuationSignature,
     ) -> Result<Vec<u8>, InternalError> {
         let boundary = plan.cursor_boundary_from_entity(last_entity)?;
+        let initial_offset = plan.page.as_ref().map_or(0, |page| page.offset);
         let token = if plan.access.cursor_support().supports_index_range_anchor() {
             let (index, _, _, _) = plan.access.as_index_range_path().ok_or_else(|| {
-                InternalError::query_invariant(
-                    "executor invariant violated: index-range cursor support missing concrete index-range path",
+                InternalError::query_executor_invariant(
+                    "index-range cursor support missing concrete index-range path",
                 )
             })?;
             let index_key = IndexKey::new(last_entity, index)?.ok_or_else(|| {
-                InternalError::query_invariant(
-                    "executor invariant violated: cursor row is not indexable for planned index-range access",
+                InternalError::query_executor_invariant(
+                    "cursor row is not indexable for planned index-range access",
                 )
             })?;
 
@@ -160,9 +170,10 @@ where
                 boundary,
                 IndexRangeCursorAnchor::new(index_key.to_raw()),
                 direction,
+                initial_offset,
             )
         } else {
-            ContinuationToken::new_with_direction(signature, boundary, direction)
+            ContinuationToken::new_with_direction(signature, boundary, direction, initial_offset)
         };
         token.encode().map_err(|err| {
             InternalError::serialize_internal(format!(

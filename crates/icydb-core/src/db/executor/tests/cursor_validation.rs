@@ -18,6 +18,7 @@ fn load_cursor_rejects_version_mismatch_at_plan_time() {
         plan.continuation_signature(),
         boundary,
         Direction::Asc,
+        0,
     );
     let version_mismatch_cursor = token
         .encode_with_version_for_test(99)
@@ -58,6 +59,7 @@ fn load_cursor_rejects_boundary_value_type_mismatch_at_plan_time() {
         plan.continuation_signature(),
         boundary,
         Direction::Asc,
+        0,
     )
     .encode()
     .expect("boundary-type cursor should encode");
@@ -98,6 +100,7 @@ fn load_cursor_rejects_primary_key_type_mismatch_at_plan_time() {
         plan.continuation_signature(),
         boundary,
         Direction::Asc,
+        0,
     )
     .encode()
     .expect("pk-type cursor should encode");
@@ -136,6 +139,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
             )))],
         },
         Direction::Asc,
+        0,
     )
     .encode()
     .expect("foreign entity cursor should encode");
@@ -158,5 +162,90 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
                 )
         ),
         "planning should reject wrong-entity cursors via plan-signature mismatch"
+    );
+}
+
+#[test]
+fn load_cursor_rejects_offset_mismatch_at_plan_time() {
+    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .offset(2)
+        .plan()
+        .expect("offset plan should build");
+    let boundary = CursorBoundary {
+        slots: vec![
+            CursorBoundarySlot::Present(Value::Uint(10)),
+            CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(4001))),
+        ],
+    };
+    let cursor = ContinuationToken::new_with_direction(
+        plan.continuation_signature(),
+        boundary,
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("offset-mismatch cursor should encode");
+
+    let err = plan
+        .plan_cursor(Some(cursor.as_slice()))
+        .expect_err("offset mismatch should be rejected during planning");
+    assert!(
+        matches!(
+            err,
+            crate::db::query::plan::PlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::CursorPlanError::ContinuationCursorWindowMismatch {
+                        expected_offset: 2,
+                        actual_offset: 0
+                    }
+                )
+        ),
+        "planning should reject continuation cursors that do not match query offset"
+    );
+}
+
+#[test]
+fn load_cursor_v1_token_rejects_non_zero_offset_plan() {
+    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .offset(2)
+        .plan()
+        .expect("offset plan should build");
+    let boundary = CursorBoundary {
+        slots: vec![
+            CursorBoundarySlot::Present(Value::Uint(10)),
+            CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(4002))),
+        ],
+    };
+    let token = ContinuationToken::new_with_direction(
+        plan.continuation_signature(),
+        boundary,
+        Direction::Asc,
+        2,
+    );
+    let legacy_cursor = token
+        .encode_with_version_for_test(1)
+        .expect("legacy v1 cursor should encode");
+
+    let err = plan
+        .plan_cursor(Some(legacy_cursor.as_slice()))
+        .expect_err("v1 cursor should be rejected for non-zero offset plans");
+    assert!(
+        matches!(
+            err,
+            crate::db::query::plan::PlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::CursorPlanError::ContinuationCursorWindowMismatch {
+                        expected_offset: 2,
+                        actual_offset: 0
+                    }
+                )
+        ),
+        "legacy v1 cursors should map to offset mismatch when offset is non-zero"
     );
 }

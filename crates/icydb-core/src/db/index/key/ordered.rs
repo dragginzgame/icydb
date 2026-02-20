@@ -1,5 +1,5 @@
 use crate::{
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     types::{Account, Date, Decimal, Duration, E8s, Int128, Nat128, Principal, Repr, Timestamp},
     value::{Value, ValueEnum},
 };
@@ -44,11 +44,9 @@ pub(crate) enum OrderedValueEncodeError {
 
 impl From<OrderedValueEncodeError> for InternalError {
     fn from(err: OrderedValueEncodeError) -> Self {
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Index,
-            format!("index value is not canonically order-encodable: {err}"),
-        )
+        Self::index_unsupported(format!(
+            "index value is not canonically order-encodable: {err}"
+        ))
     }
 }
 

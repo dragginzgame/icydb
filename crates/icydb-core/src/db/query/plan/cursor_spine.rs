@@ -1,16 +1,15 @@
 use crate::{
     db::{
-        data::StorageKey,
-        index::{
-            Direction, IndexId, IndexKey, IndexKeyKind, map_bound_encode_error,
-            raw_bounds_for_index_component_range,
-        },
+        index::Direction,
         query::{
             plan::{
                 AccessPath, ContinuationSignature, ContinuationToken, CursorBoundary,
                 CursorBoundarySlot, CursorPlanError, IndexRangeCursorAnchor, OrderPlanError,
                 OrderSpec, PlanError, PlannedCursor,
                 continuation::{ContinuationTokenError, decode_typed_primary_key_cursor_slot},
+                cursor_anchor::{
+                    validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
+                },
             },
             predicate::{SchemaInfo, validate::literal_matches_type},
         },
@@ -22,6 +21,7 @@ use crate::{
 use std::{cmp::Ordering, ops::Bound};
 
 /// Validate and materialize an executable cursor through the canonical spine.
+#[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn validate_planned_cursor<E>(
     cursor: Option<&[u8]>,
     access: Option<&AccessPath<E::Key>>,
@@ -30,6 +30,7 @@ pub(in crate::db) fn validate_planned_cursor<E>(
     order: &OrderSpec,
     expected_signature: ContinuationSignature,
     direction: Direction,
+    expected_initial_offset: u32,
 ) -> Result<PlannedCursor, PlanError>
 where
     E: EntityKind,
@@ -39,10 +40,17 @@ where
         return Ok(PlannedCursor::none());
     };
 
-    let token = decode_validated_cursor(cursor, entity_path, expected_signature, direction)?;
+    let token = decode_validated_cursor(
+        cursor,
+        entity_path,
+        expected_signature,
+        direction,
+        expected_initial_offset,
+    )?;
     validate_structured_cursor::<E>(
         token.boundary().clone(),
         token.index_range_anchor().cloned(),
+        token.initial_offset(),
         access,
         model,
         order,
@@ -58,6 +66,7 @@ pub(in crate::db) fn validate_planned_cursor_state<E>(
     model: &EntityModel,
     order: &OrderSpec,
     direction: Direction,
+    expected_initial_offset: u32,
 ) -> Result<PlannedCursor, PlanError>
 where
     E: EntityKind,
@@ -66,6 +75,9 @@ where
     if cursor.is_empty() {
         return Ok(PlannedCursor::none());
     }
+
+    // Reuse the canonical cursor window compatibility check.
+    validate_cursor_window_offset(expected_initial_offset, cursor.initial_offset())?;
 
     let boundary = cursor.boundary().cloned().ok_or_else(|| {
         PlanError::invalid_continuation_cursor_payload("continuation cursor boundary is missing")
@@ -78,6 +90,7 @@ where
     validate_structured_cursor::<E>(
         boundary,
         index_range_anchor,
+        cursor.initial_offset(),
         access,
         model,
         order,
@@ -226,6 +239,7 @@ fn decode_validated_cursor(
     entity_path: &'static str,
     expected_signature: ContinuationSignature,
     expected_direction: Direction,
+    expected_initial_offset: u32,
 ) -> Result<ContinuationToken, PlanError> {
     let token = ContinuationToken::decode(cursor).map_err(|err| match err {
         ContinuationTokenError::Encode(message) | ContinuationTokenError::Decode(message) => {
@@ -236,28 +250,70 @@ fn decode_validated_cursor(
         }
     })?;
 
-    if token.signature() != expected_signature {
+    // Canonical compatibility gates: signature, direction, then window shape.
+    validate_cursor_signature(entity_path, &expected_signature, &token.signature())?;
+    validate_cursor_direction(expected_direction, token.direction())?;
+    validate_cursor_window_offset(expected_initial_offset, token.initial_offset())?;
+
+    Ok(token)
+}
+
+// Validate continuation token signature against the executable signature.
+fn validate_cursor_signature(
+    entity_path: &'static str,
+    expected_signature: &ContinuationSignature,
+    actual_signature: &ContinuationSignature,
+) -> Result<(), PlanError> {
+    if actual_signature != expected_signature {
         return Err(PlanError::from(
             CursorPlanError::ContinuationCursorSignatureMismatch {
                 entity_path,
                 expected: expected_signature.to_string(),
-                actual: token.signature().to_string(),
+                actual: actual_signature.to_string(),
             },
         ));
     }
-    if token.direction() != expected_direction {
+
+    Ok(())
+}
+
+// Validate continuation token direction against the executable direction.
+fn validate_cursor_direction(
+    expected_direction: Direction,
+    actual_direction: Direction,
+) -> Result<(), PlanError> {
+    if actual_direction != expected_direction {
         return Err(PlanError::invalid_continuation_cursor_payload(
             "continuation cursor direction does not match executable plan direction",
         ));
     }
 
-    Ok(token)
+    Ok(())
+}
+
+// Validate continuation window shape compatibility (initial offset).
+fn validate_cursor_window_offset(
+    expected_initial_offset: u32,
+    actual_initial_offset: u32,
+) -> Result<(), PlanError> {
+    if actual_initial_offset != expected_initial_offset {
+        return Err(PlanError::from(
+            CursorPlanError::ContinuationCursorWindowMismatch {
+                expected_offset: expected_initial_offset,
+                actual_offset: actual_initial_offset,
+            },
+        ));
+    }
+
+    Ok(())
 }
 
 // Validate the canonical structured cursor payload and materialize executor state.
+#[expect(clippy::too_many_arguments)]
 fn validate_structured_cursor<E: EntityKind>(
     boundary: CursorBoundary,
     index_range_anchor: Option<IndexRangeCursorAnchor>,
+    initial_offset: u32,
     access: Option<&AccessPath<E::Key>>,
     model: &EntityModel,
     order: &OrderSpec,
@@ -288,7 +344,11 @@ where
 
     let index_range_anchor = index_range_anchor.map(|anchor| anchor.last_raw_key().clone());
 
-    Ok(PlannedCursor::new(boundary, index_range_anchor))
+    Ok(PlannedCursor::new(
+        boundary,
+        index_range_anchor,
+        initial_offset,
+    ))
 }
 
 // Validate decoded cursor boundary slot types against canonical order fields.
@@ -352,124 +412,6 @@ fn validate_cursor_boundary_types(
                 }
             }
         }
-    }
-
-    Ok(())
-}
-
-// Validate optional index-range cursor anchor against the planned access envelope.
-fn validate_index_range_anchor<E: EntityKind>(
-    anchor: Option<&IndexRangeCursorAnchor>,
-    access: Option<&AccessPath<E::Key>>,
-    direction: Direction,
-    require_anchor: bool,
-) -> Result<(), PlanError> {
-    let Some(access) = access else {
-        if anchor.is_some() {
-            return Err(PlanError::invalid_continuation_cursor_payload(
-                "unexpected index-range continuation anchor for composite access plan",
-            ));
-        }
-
-        return Ok(());
-    };
-
-    if let Some((index, prefix, lower, upper)) = access.as_index_range() {
-        let Some(anchor) = anchor else {
-            if require_anchor {
-                return Err(PlanError::invalid_continuation_cursor_payload(
-                    "index-range continuation cursor is missing a raw-key anchor",
-                ));
-            }
-
-            return Ok(());
-        };
-
-        let decoded_key = IndexKey::try_from_raw(anchor.last_raw_key()).map_err(|err| {
-            PlanError::invalid_continuation_cursor_payload(format!(
-                "index-range continuation anchor decode failed: {err}"
-            ))
-        })?;
-        let expected_index_id = IndexId::new::<E>(index);
-
-        if decoded_key.index_id() != &expected_index_id {
-            return Err(PlanError::invalid_continuation_cursor_payload(
-                "index-range continuation anchor index id mismatch",
-            ));
-        }
-        if decoded_key.key_kind() != IndexKeyKind::User {
-            return Err(PlanError::invalid_continuation_cursor_payload(
-                "index-range continuation anchor key namespace mismatch",
-            ));
-        }
-        if decoded_key.component_count() != index.fields.len() {
-            return Err(PlanError::invalid_continuation_cursor_payload(
-                "index-range continuation anchor component arity mismatch",
-            ));
-        }
-        let (range_start, range_end) = raw_bounds_for_index_component_range::<E>(
-            index, prefix, lower, upper,
-        )
-        .map_err(|err| {
-            PlanError::invalid_continuation_cursor_payload(map_bound_encode_error(
-                err,
-                "index-range continuation anchor prefix is not indexable",
-                "index-range cursor lower continuation bound is not indexable",
-                "index-range cursor upper continuation bound is not indexable",
-            ))
-        })?;
-
-        if !KeyEnvelope::new(direction, range_start, range_end).contains(anchor.last_raw_key()) {
-            return Err(PlanError::invalid_continuation_cursor_payload(
-                "index-range continuation anchor is outside the original range envelope",
-            ));
-        }
-    } else if anchor.is_some() {
-        return Err(PlanError::invalid_continuation_cursor_payload(
-            "unexpected index-range continuation anchor for non-index-range access path",
-        ));
-    }
-
-    Ok(())
-}
-
-// Enforce that boundary and raw anchor identify the same ordered row position.
-fn validate_index_range_boundary_anchor_consistency<K: FieldValue>(
-    anchor: Option<&IndexRangeCursorAnchor>,
-    access: Option<&AccessPath<K>>,
-    boundary_pk_key: K,
-) -> Result<(), PlanError> {
-    let Some(anchor) = anchor else {
-        return Ok(());
-    };
-    let Some(access) = access else {
-        return Ok(());
-    };
-    if !access.cursor_support().supports_index_range_anchor() {
-        return Ok(());
-    }
-
-    let anchor_key = IndexKey::try_from_raw(anchor.last_raw_key()).map_err(|err| {
-        PlanError::invalid_continuation_cursor_payload(format!(
-            "index-range continuation anchor decode failed: {err}"
-        ))
-    })?;
-    let anchor_storage_key = anchor_key.primary_storage_key().map_err(|err| {
-        PlanError::invalid_continuation_cursor_payload(format!(
-            "index-range continuation anchor primary key decode failed: {err}"
-        ))
-    })?;
-    let boundary_storage_key =
-        StorageKey::try_from_value(&boundary_pk_key.to_value()).map_err(|err| {
-            PlanError::invalid_continuation_cursor_payload(format!(
-                "index-range continuation boundary primary key decode failed: {err}"
-            ))
-        })?;
-
-    if anchor_storage_key != boundary_storage_key {
-        return Err(PlanError::invalid_continuation_cursor_payload(
-            "index-range continuation boundary/anchor mismatch",
-        ));
     }
 
     Ok(())

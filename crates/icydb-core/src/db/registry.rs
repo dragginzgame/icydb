@@ -29,7 +29,7 @@ impl StoreRegistryError {
 
 impl From<StoreRegistryError> for InternalError {
     fn from(err: StoreRegistryError) -> Self {
-        Self::new(err.class(), ErrorOrigin::Store, err.to_string())
+        Self::classified(err.class(), ErrorOrigin::Store, err.to_string())
     }
 }
 

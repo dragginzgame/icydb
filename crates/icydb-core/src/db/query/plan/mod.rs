@@ -3,6 +3,7 @@
 mod access_projection;
 pub(crate) mod canonical;
 pub(crate) mod continuation;
+mod cursor_anchor;
 mod cursor_spine;
 pub(crate) mod executable;
 pub(crate) mod explain;

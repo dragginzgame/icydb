@@ -4,7 +4,7 @@ use crate::{
         data::storage_key::{StorageKey, StorageKeyEncodeError},
         identity::{EntityName, IdentityDecodeError},
     },
-    error::{ErrorClass, ErrorOrigin, InternalError},
+    error::InternalError,
     traits::{EntityKind, FieldValue, Storable},
 };
 use canic_cdk::structures::storable::Bound;
@@ -30,11 +30,7 @@ pub(crate) enum DataKeyEncodeError {
 
 impl From<DataKeyEncodeError> for InternalError {
     fn from(err: DataKeyEncodeError) -> Self {
-        Self::new(
-            ErrorClass::Unsupported,
-            ErrorOrigin::Serialize,
-            err.to_string(),
-        )
+        Self::serialize_unsupported(err.to_string())
     }
 }
 

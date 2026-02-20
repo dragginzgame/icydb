@@ -157,7 +157,6 @@ where
     /// Cursor-mode invariants are checked before planning/execution:
     /// - explicit `order_by(...)` is required
     /// - explicit `limit(...)` is required
-    /// - `offset(...)` is not allowed
     #[must_use]
     pub fn cursor(mut self, token: impl Into<String>) -> Self {
         self.cursor_token = Some(token.into());
@@ -197,7 +196,6 @@ where
     /// Cursor pagination requires:
     /// - explicit `order_by(...)`
     /// - explicit `limit(...)`
-    /// - no `offset(...)`
     ///
     /// Requests are deterministic under canonical ordering, but continuation is
     /// best-effort and forward-only over live state.

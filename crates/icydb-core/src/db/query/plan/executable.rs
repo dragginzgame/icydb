@@ -25,6 +25,7 @@ use std::marker::PhantomData;
 pub(in crate::db) struct PlannedCursor {
     boundary: Option<CursorBoundary>,
     index_range_anchor: Option<RawIndexKey>,
+    initial_offset: u32,
 }
 
 impl PlannedCursor {
@@ -33,6 +34,7 @@ impl PlannedCursor {
         Self {
             boundary: None,
             index_range_anchor: None,
+            initial_offset: 0,
         }
     }
 
@@ -40,10 +42,12 @@ impl PlannedCursor {
     pub(in crate::db) const fn new(
         boundary: CursorBoundary,
         index_range_anchor: Option<RawIndexKey>,
+        initial_offset: u32,
     ) -> Self {
         Self {
             boundary: Some(boundary),
             index_range_anchor,
+            initial_offset,
         }
     }
 
@@ -58,8 +62,13 @@ impl PlannedCursor {
     }
 
     #[must_use]
+    pub(in crate::db) const fn initial_offset(&self) -> u32 {
+        self.initial_offset
+    }
+
+    #[must_use]
     pub(in crate::db) const fn is_empty(&self) -> bool {
-        self.boundary.is_none() && self.index_range_anchor.is_none()
+        self.boundary.is_none() && self.index_range_anchor.is_none() && self.initial_offset == 0
     }
 }
 
@@ -68,6 +77,7 @@ impl From<Option<CursorBoundary>> for PlannedCursor {
         Self {
             boundary: value,
             index_range_anchor: None,
+            initial_offset: 0,
         }
     }
 }
@@ -137,6 +147,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             order,
             self.continuation_signature(),
             self.direction,
+            self.plan.effective_page_offset(None),
         )
     }
 
@@ -179,6 +190,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             E::MODEL,
             order,
             self.direction,
+            self.plan.effective_page_offset(None),
         )
         .map_err(InternalError::from_cursor_plan_error)
     }
@@ -188,15 +200,16 @@ impl<E: EntityKind> ExecutablePlan<E> {
     fn validated_cursor_order_plan(&self) -> Result<&OrderSpec, CursorPlanError> {
         let Some(order) = self.plan.order.as_ref() else {
             return Err(CursorPlanError::InvalidContinuationCursorPayload {
-                reason: "executor invariant violated: cursor pagination requires explicit ordering"
-                    .to_string(),
+                reason: InternalError::executor_invariant_message(
+                    "cursor pagination requires explicit ordering",
+                ),
             });
         };
         if order.fields.is_empty() {
             return Err(CursorPlanError::InvalidContinuationCursorPayload {
-                reason:
-                    "executor invariant violated: cursor pagination requires non-empty ordering"
-                        .to_string(),
+                reason: InternalError::executor_invariant_message(
+                    "cursor pagination requires non-empty ordering",
+                ),
             });
         }
 
@@ -207,13 +220,13 @@ impl<E: EntityKind> ExecutablePlan<E> {
     // Missing or empty ordering at this boundary is an execution invariant violation.
     fn validated_cursor_order_internal(&self) -> Result<&OrderSpec, InternalError> {
         let Some(order) = self.plan.order.as_ref() else {
-            return Err(InternalError::query_invariant(
-                "executor invariant violated: cursor pagination requires explicit ordering",
+            return Err(InternalError::query_executor_invariant(
+                "cursor pagination requires explicit ordering",
             ));
         };
         if order.fields.is_empty() {
-            return Err(InternalError::query_invariant(
-                "executor invariant violated: cursor pagination requires non-empty ordering",
+            return Err(InternalError::query_executor_invariant(
+                "cursor pagination requires non-empty ordering",
             ));
         }
 
@@ -358,6 +371,7 @@ mod tests {
             boundary,
             anchor,
             Direction::Asc,
+            0,
         )
         .encode()
         .expect("cursor token should encode")

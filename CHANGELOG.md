@@ -5,6 +5,40 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.21.0] – 2026-02-20 - Cursor Offset
+
+### 📝 Summary
+
+* Added cursor paging support for offset queries.
+* Offset is now applied on the first page only, and continuation pages resume correctly without re-applying it.
+
+```rust
+validate_cursor_window_offset(expected_initial_offset, actual_initial_offset)?;
+```
+
+* Latest audit snapshot (risk index, lower is better):
+
+```text
+Invariant Integrity  4/10
+Recovery Integrity   4/10
+Cursor/Ordering      3/10
+Index Integrity      3/10
+State-Machine        4/10
+Structure Integrity  4/10
+Complexity           6/10
+Velocity             6/10
+DRY                  4/10
+Taxonomy             4/10
+```
+
+### 🔧 Changed
+
+* Cursor validation and anchor handling were consolidated so resume rules are enforced in one place.
+* Pagination coverage was expanded for offset + continuation, including DISTINCT and ASC/DESC parity checks.
+* Fixed ten of the lowest hanging fruit from the recent audit, including cleaner cursor checks, shared pagination helpers, and more consistent internal error handling.
+
+---
+
 ## [0.20.1] – 2026-02-20 - Error Mapping Consolidation
 
 * Consolidated internal error construction so executor/query/store origin mapping is more consistent and easier to audit.
@@ -12,6 +46,27 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ```rust
 InternalError::serialize_corruption(format!("{payload_label} decode failed: {source}"))
 ```
+
+---
+
+## [0.20.0] – 2026-02-20 - DISTINCT Row Deduplication
+
+### 📝 Summary
+
+* Added `DISTINCT` for full-row query results.
+* DISTINCT now runs as an ordered stream step, so paging and continuation stay consistent across fast-path and fallback execution.
+
+```rust
+let query = Query::<DistinctEntity>::new(ReadConsistency::MissingOk).distinct();
+```
+
+### 🔧 Changed
+
+* Added `Query::distinct()` planning support via a `distinct` flag on `LogicalPlan`.
+* Added `DistinctOrderedKeyStream` to suppress adjacent duplicate keys from ordered streams.
+* Wired DISTINCT into both fast-path and fallback load execution before row materialization.
+* Included DISTINCT in explain/fingerprint/continuation-signature shape so continuation tokens stay query-compatible.
+* Completed DISTINCT pagination/resume matrix coverage across ASC and DESC traversal shapes.
 
 ---
 
