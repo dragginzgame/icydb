@@ -4,7 +4,8 @@ use crate::{
         data::DataKey,
         index::{
             Direction, IndexId, IndexKey, continuation_advanced, encode_canonical_index_component,
-            map_bound_encode_error, raw_bounds_for_index_component_range, resume_bounds,
+            envelope_is_empty, map_bound_encode_error, raw_bounds_for_index_component_range,
+            resume_bounds,
             store::{IndexStore, RawIndexKey},
         },
     },
@@ -101,7 +102,7 @@ impl IndexStore {
             Some(anchor) => resume_bounds(direction, start_raw, end_raw, anchor),
             None => (start_raw, end_raw),
         };
-        if range_is_empty(&start_raw, &end_raw) {
+        if envelope_is_empty(&start_raw, &end_raw) {
             return Ok(Vec::new());
         }
 
@@ -204,27 +205,5 @@ impl IndexStore {
         }
 
         Ok(false)
-    }
-}
-
-fn range_is_empty(lower: &Bound<RawIndexKey>, upper: &Bound<RawIndexKey>) -> bool {
-    let (Some(lower_key), Some(upper_key)) = (bound_key(lower), bound_key(upper)) else {
-        return false;
-    };
-
-    if lower_key < upper_key {
-        return false;
-    }
-    if lower_key > upper_key {
-        return true;
-    }
-
-    !matches!(lower, Bound::Included(_)) || !matches!(upper, Bound::Included(_))
-}
-
-const fn bound_key(bound: &Bound<RawIndexKey>) -> Option<&RawIndexKey> {
-    match bound {
-        Bound::Included(value) | Bound::Excluded(value) => Some(value),
-        Bound::Unbounded => None,
     }
 }

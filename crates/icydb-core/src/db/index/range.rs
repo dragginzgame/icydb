@@ -1,7 +1,10 @@
 use crate::{
     db::{
         index::{IndexId, IndexKey, RawIndexKey, encode_canonical_index_component},
-        query::plan::{cursor_anchor_within_envelope, cursor_resume_bounds},
+        query::plan::{
+            cursor_anchor_within_envelope, cursor_continuation_advanced, cursor_envelope_is_empty,
+            cursor_resume_bounds,
+        },
     },
     model::index::IndexModel,
     traits::EntityKind,
@@ -140,10 +143,21 @@ pub(in crate::db) fn continuation_advanced(
     candidate: &RawIndexKey,
     anchor: &RawIndexKey,
 ) -> bool {
-    match direction {
-        Direction::Asc => candidate > anchor,
-        Direction::Desc => candidate < anchor,
-    }
+    cursor_continuation_advanced(direction, candidate, anchor)
+}
+
+///
+/// envelope_is_empty
+///
+/// Validate whether raw index-key bounds encode an empty traversal envelope.
+///
+
+#[must_use]
+pub(in crate::db) fn envelope_is_empty(
+    lower: &Bound<RawIndexKey>,
+    upper: &Bound<RawIndexKey>,
+) -> bool {
+    cursor_envelope_is_empty(lower, upper)
 }
 
 fn encode_index_component_bound(

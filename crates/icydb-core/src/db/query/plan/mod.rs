@@ -23,8 +23,8 @@ pub(in crate::db) use continuation::{
     ContinuationSignature, ContinuationToken, IndexRangeCursorAnchor, decode_pk_cursor_boundary,
 };
 pub(in crate::db) use cursor_spine::{
-    cursor_anchor_within_envelope, cursor_resume_bounds, validate_planned_cursor,
-    validate_planned_cursor_state,
+    cursor_anchor_within_envelope, cursor_continuation_advanced, cursor_envelope_is_empty,
+    cursor_resume_bounds, validate_planned_cursor, validate_planned_cursor_state,
 };
 ///
 /// Re-Exports
