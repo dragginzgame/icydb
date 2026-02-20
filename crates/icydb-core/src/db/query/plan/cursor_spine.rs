@@ -2,7 +2,7 @@ use crate::{
     db::{
         data::StorageKey,
         index::{
-            Direction, IndexId, IndexKey, IndexKeyKind, RawIndexKey, map_bound_encode_error,
+            Direction, IndexId, IndexKey, IndexKeyKind, map_bound_encode_error,
             raw_bounds_for_index_component_range,
         },
         query::{
@@ -19,8 +19,7 @@ use crate::{
     traits::{EntityKind, FieldValue},
     value::Value,
 };
-use std::cmp::Ordering;
-use std::ops::Bound;
+use std::{cmp::Ordering, ops::Bound};
 
 /// Validate and materialize an executable cursor through the canonical spine.
 pub(in crate::db) fn validate_planned_cursor<E>(
@@ -144,7 +143,7 @@ impl DirectionComparator {
 /// empty-envelope detection for cursor continuation paths.
 ///
 
-struct KeyEnvelope<K> {
+pub(in crate::db) struct KeyEnvelope<K> {
     comparator: DirectionComparator,
     lower: Bound<K>,
     upper: Bound<K>,
@@ -154,7 +153,7 @@ impl<K> KeyEnvelope<K>
 where
     K: Ord + Clone,
 {
-    const fn new(direction: Direction, lower: Bound<K>, upper: Bound<K>) -> Self {
+    pub(in crate::db) const fn new(direction: Direction, lower: Bound<K>, upper: Bound<K>) -> Self {
         Self {
             comparator: DirectionComparator::new(direction),
             lower,
@@ -163,7 +162,7 @@ where
     }
 
     // Rewrite the directional continuation edge to strict "after anchor".
-    fn apply_anchor(self, anchor: &K) -> Self {
+    pub(in crate::db) fn apply_anchor(self, anchor: &K) -> Self {
         let (lower, upper) = self.comparator.apply_anchor(self.lower, self.upper, anchor);
         Self {
             comparator: self.comparator,
@@ -172,7 +171,7 @@ where
         }
     }
 
-    fn contains(&self, key: &K) -> bool {
+    pub(in crate::db) fn contains(&self, key: &K) -> bool {
         let lower_ok = match &self.lower {
             Bound::Unbounded => true,
             Bound::Included(boundary) => key >= boundary,
@@ -187,11 +186,11 @@ where
         lower_ok && upper_ok
     }
 
-    fn continuation_advanced(&self, candidate: &K, anchor: &K) -> bool {
+    pub(in crate::db) fn continuation_advanced(&self, candidate: &K, anchor: &K) -> bool {
         self.comparator.is_strictly_after(candidate, anchor)
     }
 
-    fn is_empty(&self) -> bool {
+    pub(in crate::db) fn is_empty(&self) -> bool {
         let (Some(lower), Some(upper)) = (
             Self::bound_key_ref(&self.lower),
             Self::bound_key_ref(&self.upper),
@@ -209,7 +208,7 @@ where
         !matches!(&self.lower, Bound::Included(_)) || !matches!(&self.upper, Bound::Included(_))
     }
 
-    fn into_bounds(self) -> (Bound<K>, Bound<K>) {
+    pub(in crate::db) fn into_bounds(self) -> (Bound<K>, Bound<K>) {
         (self.lower, self.upper)
     }
 
@@ -219,50 +218,6 @@ where
             Bound::Unbounded => None,
         }
     }
-}
-
-/// Central continuation bound rewrite for cursor resume semantics.
-#[must_use]
-pub(in crate::db) fn cursor_resume_bounds(
-    direction: Direction,
-    lower: Bound<RawIndexKey>,
-    upper: Bound<RawIndexKey>,
-    anchor: &RawIndexKey,
-) -> (Bound<RawIndexKey>, Bound<RawIndexKey>) {
-    KeyEnvelope::new(direction, lower, upper)
-        .apply_anchor(anchor)
-        .into_bounds()
-}
-
-/// Central envelope containment check for cursor anchors.
-#[must_use]
-pub(in crate::db) fn cursor_anchor_within_envelope(
-    direction: Direction,
-    anchor: &RawIndexKey,
-    lower: &Bound<RawIndexKey>,
-    upper: &Bound<RawIndexKey>,
-) -> bool {
-    KeyEnvelope::new(direction, lower.clone(), upper.clone()).contains(anchor)
-}
-
-/// Central strict monotonic continuation advancement check.
-#[must_use]
-pub(in crate::db) fn cursor_continuation_advanced(
-    direction: Direction,
-    candidate: &RawIndexKey,
-    anchor: &RawIndexKey,
-) -> bool {
-    KeyEnvelope::new(direction, Bound::Unbounded, Bound::Unbounded)
-        .continuation_advanced(candidate, anchor)
-}
-
-/// Central empty-envelope check for raw key bounds.
-#[must_use]
-pub(in crate::db) fn cursor_envelope_is_empty(
-    lower: &Bound<RawIndexKey>,
-    upper: &Bound<RawIndexKey>,
-) -> bool {
-    KeyEnvelope::new(Direction::Asc, lower.clone(), upper.clone()).is_empty()
 }
 
 // Decode and validate one continuation cursor against a canonical plan surface.
@@ -464,12 +419,7 @@ fn validate_index_range_anchor<E: EntityKind>(
             ))
         })?;
 
-        if !cursor_anchor_within_envelope(
-            direction,
-            anchor.last_raw_key(),
-            &range_start,
-            &range_end,
-        ) {
+        if !KeyEnvelope::new(direction, range_start, range_end).contains(anchor.last_raw_key()) {
             return Err(PlanError::invalid_continuation_cursor_payload(
                 "index-range continuation anchor is outside the original range envelope",
             ));

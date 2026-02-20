@@ -24,10 +24,12 @@ impl<K> AccessPath<K> {
     {
         let mut candidates = match self {
             Self::ByKey(key) => vec![Context::<E>::data_key_from_key(*key)?],
+
             Self::ByKeys(keys) => Context::<E>::dedup_keys(keys.clone())
                 .into_iter()
                 .map(Context::<E>::data_key_from_key)
                 .collect::<Result<Vec<_>, _>>()?,
+
             Self::KeyRange { start, end } => ctx.with_store(|s| {
                 let start = Context::<E>::data_key_from_key(*start)?;
                 let end = Context::<E>::data_key_from_key(*end)?;
@@ -38,6 +40,7 @@ impl<K> AccessPath<K> {
                     .map(|e| Context::<E>::decode_data_key(e.key()))
                     .collect::<Result<Vec<_>, _>>()
             })??,
+
             Self::FullScan => ctx.with_store(|s| {
                 let start = DataKey::lower_bound::<E>();
                 let end = DataKey::upper_bound::<E>();
@@ -48,12 +51,14 @@ impl<K> AccessPath<K> {
                     .map(|e| Context::<E>::decode_data_key(e.key()))
                     .collect::<Result<Vec<_>, _>>()
             })??,
+
             Self::IndexPrefix { index, values } => {
                 let store = ctx
                     .db
                     .with_store_registry(|reg| reg.try_get_store(index.store))?;
                 store.with_index(|s| s.resolve_data_values::<E>(index, values))?
             }
+
             Self::IndexRange {
                 index,
                 prefix,

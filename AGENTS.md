@@ -229,6 +229,7 @@ Code must be readable top-down without reverse-engineering intent.
 
 * Large blocks of logic MUST be visually segmented.
 * As a rule of thumb, no uninterrupted block of complex logic should exceed ~8–12 lines without an explanatory comment.
+* In larger functions, add a little more phase-level commentary around major logic blocks (light-touch, not excessive) to improve scanability.
 * Comments should explain intent, invariants, and risk — not restate syntax.
 * In non-trivial functions, insert a blank line immediately before the final return expression (or last `return` at the bottom) to visually separate the result from the preceding logic.
 

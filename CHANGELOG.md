@@ -5,12 +5,42 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.19.1] – 2026-02-20 - Execution Structure Cleanup
+
+### 📝 Summary
+
+* Reduced executor complexity with mechanical refactors that keep behavior the same.
+* Tightened module boundaries so routing, stream composition, physical key resolution, and tracing are easier to read and maintain.
+
+```rust
+// Routing now follows one decision step, then one materialization step.
+let decision = Self::evaluate_fast_path(inputs, fast_path_plan)?;
+```
+
+### 🔧 Changed
+
+* Moved physical access-path key resolution into `db::executor::physical_path` (`resolve_physical_key_stream`).
+* Moved composite stream reduction logic (`AccessPlan` union/intersection stream building) into `db::executor::composite_stream`.
+* Added `ExecutionInputs` in load execution to group shared execution inputs in one place.
+* Split fast-path routing from execution with `evaluate_fast_path(...)` and `FastPathDecision`.
+* Unified fast-path and fallback finalization through one `finalize_execution(...)` helper.
+* Moved index-range limit pushdown assessment next to routing in `load/route.rs`.
+* Moved trace-only access-shape projection logic into `load/trace.rs`.
+* Simplified boundary/envelope API by using `KeyEnvelope` directly instead of thin wrapper helpers.
+
+### 🧹 Cleanup
+
+* Reduced branch-heavy routing code in `load/execute`.
+* Reduced `context.rs` and `load/mod.rs` fan-out by moving domain-specific blocks into focused submodules.
+
+---
+
 ## [0.19.0] – 2026-02-20 - Mixed-Direction ORDER BY
 
 ### 📝 Summary
 
-* Completed the mixed-direction ordering milestone so `ORDER BY` can combine ascending and descending fields in one query.
-* Kept pagination and continuation semantics deterministic with no cursor format or storage changes.
+* Added full support for mixed-direction `ORDER BY` (for example, one field descending and the next ascending).
+* Kept paging behavior stable, with no cursor format or storage changes.
 
 ```rust
 let query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -20,10 +50,10 @@ let query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
 
 ### 🔧 Changed
 
-* Moved executor ordered-stream comparisons to comparator-driven logic so `Union` and `Intersection` honor mixed-direction ordering.
-* Centralized continuation resume comparisons behind direction-aware comparator helpers for consistent boundary handling.
-* Completed mixed-direction boundary coverage with resume-from-every-boundary matrices across two-field and three-field order patterns.
-* Isolated physical access-path key resolution into `db::executor::physical_path` and renamed the path resolver to `resolve_physical_key_stream` without changing behavior.
+* Updated internal stream ordering so `Union` and `Intersection` follow mixed-direction sort rules correctly.
+* Unified paging resume checks so continuation boundaries are handled the same way across paths.
+* Expanded mixed-direction paging coverage to include resume-from-each-boundary cases for two-field and three-field order patterns.
+* Moved physical access-path key resolution into `db::executor::physical_path` and renamed the resolver to `resolve_physical_key_stream` without changing behavior.
 
 ---
 

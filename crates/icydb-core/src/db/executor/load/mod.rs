@@ -4,18 +4,21 @@ mod page;
 mod pk_stream;
 mod route;
 mod secondary_index;
+mod trace;
 
+use self::{
+    execute::ExecutionInputs,
+    trace::{access_path_variant, execution_order_direction},
+};
 use crate::{
     db::{
         Db,
         executor::KeyOrderComparator,
         executor::OrderedKeyStreamBox,
         executor::plan::{record_plan_metrics, record_rows_scanned},
-        index::RawIndexKey,
         query::plan::{
-            AccessPlan, AccessPlanProjection, CursorBoundary, Direction, ExecutablePlan,
-            LogicalPlan, OrderDirection, PlannedCursor, SlotSelectionPolicy, compute_page_window,
-            decode_pk_cursor_boundary, derive_scan_direction, project_access_plan,
+            AccessPlan, CursorBoundary, Direction, ExecutablePlan, LogicalPlan, OrderDirection,
+            PlannedCursor, SlotSelectionPolicy, decode_pk_cursor_boundary, derive_scan_direction,
             validate::validate_executor_plan,
         },
         response::Response,
@@ -23,9 +26,8 @@ use crate::{
     error::InternalError,
     obs::sink::{ExecKind, Span},
     traits::{EntityKind, EntityValue},
-    value::Value,
 };
-use std::{marker::PhantomData, ops::Bound};
+use std::marker::PhantomData;
 
 ///
 /// CursorPage
@@ -109,70 +111,6 @@ impl ExecutionTrace {
         self.optimization = optimization;
         self.keys_scanned = u64::try_from(keys_scanned).unwrap_or(u64::MAX);
         self.rows_returned = u64::try_from(rows_returned).unwrap_or(u64::MAX);
-    }
-}
-
-struct ExecutionAccessProjection;
-
-impl<K> AccessPlanProjection<K> for ExecutionAccessProjection {
-    type Output = ExecutionAccessPathVariant;
-
-    fn by_key(&mut self, _key: &K) -> Self::Output {
-        ExecutionAccessPathVariant::ByKey
-    }
-
-    fn by_keys(&mut self, _keys: &[K]) -> Self::Output {
-        ExecutionAccessPathVariant::ByKeys
-    }
-
-    fn key_range(&mut self, _start: &K, _end: &K) -> Self::Output {
-        ExecutionAccessPathVariant::KeyRange
-    }
-
-    fn index_prefix(
-        &mut self,
-        _index_name: &'static str,
-        _index_fields: &[&'static str],
-        _prefix_len: usize,
-        _values: &[Value],
-    ) -> Self::Output {
-        ExecutionAccessPathVariant::IndexPrefix
-    }
-
-    fn index_range(
-        &mut self,
-        _index_name: &'static str,
-        _index_fields: &[&'static str],
-        _prefix_len: usize,
-        _prefix: &[Value],
-        _lower: &Bound<Value>,
-        _upper: &Bound<Value>,
-    ) -> Self::Output {
-        ExecutionAccessPathVariant::IndexRange
-    }
-
-    fn full_scan(&mut self) -> Self::Output {
-        ExecutionAccessPathVariant::FullScan
-    }
-
-    fn union(&mut self, _children: Vec<Self::Output>) -> Self::Output {
-        ExecutionAccessPathVariant::Union
-    }
-
-    fn intersection(&mut self, _children: Vec<Self::Output>) -> Self::Output {
-        ExecutionAccessPathVariant::Intersection
-    }
-}
-
-fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant {
-    let mut projection = ExecutionAccessProjection;
-    project_access_plan(access, &mut projection)
-}
-
-const fn execution_order_direction(direction: Direction) -> OrderDirection {
-    match direction {
-        Direction::Asc => OrderDirection::Asc,
-        Direction::Desc => OrderDirection::Desc,
     }
 }
 
@@ -287,6 +225,14 @@ where
 
             validate_executor_plan::<E>(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;
+            let execution_inputs = ExecutionInputs {
+                ctx: &ctx,
+                plan: &plan,
+                cursor_boundary: cursor_boundary.as_ref(),
+                index_range_anchor: index_range_anchor.as_ref(),
+                direction,
+                continuation_signature,
+            };
 
             record_plan_metrics(&plan.access);
             // Plan fast-path routing decisions once, then execute in canonical order.
@@ -297,13 +243,8 @@ where
             )?;
 
             if let Some(page) = Self::try_execute_fast_path_plan(
-                &ctx,
-                &plan,
+                &execution_inputs,
                 &fast_path_plan,
-                cursor_boundary.as_ref(),
-                index_range_anchor.as_ref(),
-                direction,
-                continuation_signature,
                 &mut span,
                 &mut execution_trace,
             )? {
@@ -355,28 +296,5 @@ where
         let _ = decode_pk_cursor_boundary::<E>(cursor_boundary)?;
 
         Ok(())
-    }
-
-    fn assess_index_range_limit_pushdown(
-        plan: &LogicalPlan<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RawIndexKey>,
-    ) -> Option<IndexRangeLimitSpec> {
-        if !Self::is_index_range_limit_pushdown_shape_eligible(plan) {
-            return None;
-        }
-        if cursor_boundary.is_some() && index_range_anchor.is_none() {
-            return None;
-        }
-
-        let page = plan.page.as_ref()?;
-        let limit = page.limit?;
-        if limit == 0 {
-            return Some(IndexRangeLimitSpec { fetch: 0 });
-        }
-
-        let fetch = compute_page_window(page.offset, limit, true).fetch_count;
-
-        Some(IndexRangeLimitSpec { fetch })
     }
 }

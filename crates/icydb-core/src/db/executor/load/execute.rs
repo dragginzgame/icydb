@@ -2,7 +2,8 @@ use crate::{
     db::{
         Context,
         executor::load::{
-            CursorPage, ExecutionTrace, FastPathKeyResult, LoadExecutor, route::FastPathPlan,
+            CursorPage, ExecutionOptimization, ExecutionTrace, FastPathKeyResult, LoadExecutor,
+            route::FastPathPlan,
         },
         executor::plan::set_rows_from_len,
         index::RawIndexKey,
@@ -13,84 +14,92 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
+///
+/// ExecutionInputs
+///
+/// Shared immutable execution inputs for one load execution attempt.
+/// Keeps fast-path dispatch signatures compact without changing behavior.
+///
+
+pub(super) struct ExecutionInputs<'a, E: EntityKind + EntityValue> {
+    pub(super) ctx: &'a Context<'a, E>,
+    pub(super) plan: &'a LogicalPlan<E::Key>,
+    pub(super) cursor_boundary: Option<&'a CursorBoundary>,
+    pub(super) index_range_anchor: Option<&'a RawIndexKey>,
+    pub(super) direction: Direction,
+    pub(super) continuation_signature: ContinuationSignature,
+}
+
+// Canonical fast-path routing decision for one execution attempt.
+enum FastPathDecision {
+    Pk(FastPathKeyResult),
+    Secondary(FastPathKeyResult),
+    IndexRange(FastPathKeyResult),
+    None,
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
     // Execute one planned fast-path route set in canonical precedence order.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "fast-path dispatch keeps execution inputs explicit at one call site"
-    )]
     pub(super) fn try_execute_fast_path_plan(
-        ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
+        inputs: &ExecutionInputs<'_, E>,
         fast_path_plan: &FastPathPlan,
-        cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-        continuation_signature: ContinuationSignature,
         span: &mut Span<E>,
         execution_trace: &mut Option<ExecutionTrace>,
     ) -> Result<Option<CursorPage<E>>, InternalError> {
-        if let Some(fast) = Self::try_execute_pk_order_stream(ctx, plan)? {
-            let page = Self::finalize_fast_path_page(
-                ctx,
-                plan,
-                fast,
-                cursor_boundary,
-                direction,
-                continuation_signature,
-                span,
-                execution_trace,
-            )?;
+        let fast = match Self::evaluate_fast_path(inputs, fast_path_plan)? {
+            FastPathDecision::Pk(fast)
+            | FastPathDecision::Secondary(fast)
+            | FastPathDecision::IndexRange(fast) => fast,
+            FastPathDecision::None => return Ok(None),
+        };
 
-            return Ok(Some(page));
+        let page = Self::finalize_fast_path_page(
+            inputs.ctx,
+            inputs.plan,
+            fast,
+            inputs.cursor_boundary,
+            inputs.direction,
+            inputs.continuation_signature,
+            span,
+            execution_trace,
+        )?;
+
+        Ok(Some(page))
+    }
+
+    // Evaluate fast-path routes in canonical precedence and return one decision.
+    fn evaluate_fast_path(
+        inputs: &ExecutionInputs<'_, E>,
+        fast_path_plan: &FastPathPlan,
+    ) -> Result<FastPathDecision, InternalError> {
+        if let Some(fast) = Self::try_execute_pk_order_stream(inputs.ctx, inputs.plan)? {
+            return Ok(FastPathDecision::Pk(fast));
         }
 
         if let Some(fast) = Self::try_execute_secondary_index_order_stream(
-            ctx,
-            plan,
+            inputs.ctx,
+            inputs.plan,
             &fast_path_plan.secondary_pushdown_applicability,
         )? {
-            let page = Self::finalize_fast_path_page(
-                ctx,
-                plan,
-                fast,
-                cursor_boundary,
-                direction,
-                continuation_signature,
-                span,
-                execution_trace,
-            )?;
-
-            return Ok(Some(page));
+            return Ok(FastPathDecision::Secondary(fast));
         }
 
         if let Some(spec) = fast_path_plan.index_range_limit_spec.as_ref()
             && let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
-                ctx,
-                plan,
-                index_range_anchor,
-                direction,
+                inputs.ctx,
+                inputs.plan,
+                inputs.index_range_anchor,
+                inputs.direction,
                 spec.fetch,
             )?
         {
-            let page = Self::finalize_fast_path_page(
-                ctx,
-                plan,
-                fast,
-                cursor_boundary,
-                direction,
-                continuation_signature,
-                span,
-                execution_trace,
-            )?;
-
-            return Ok(Some(page));
+            return Ok(FastPathDecision::IndexRange(fast));
         }
 
-        Ok(None)
+        Ok(FastPathDecision::None)
     }
 
     // Execute canonical fallback stream production + shared materialization phases.
@@ -122,10 +131,15 @@ where
             direction,
             continuation_signature,
         )?;
-        Self::finalize_path_outcome(execution_trace, None, keys_scanned, post_access_rows);
-        set_rows_from_len(span, page.items.0.len());
 
-        Ok(page)
+        Ok(Self::finalize_execution(
+            page,
+            None,
+            keys_scanned,
+            post_access_rows,
+            span,
+            execution_trace,
+        ))
     }
 
     // Execute shared post-access materialization and observability hooks for one fast-path result.
@@ -151,14 +165,34 @@ where
             direction,
             continuation_signature,
         )?;
-        Self::finalize_path_outcome(
-            execution_trace,
+
+        Ok(Self::finalize_execution(
+            page,
             Some(fast.optimization),
             fast.rows_scanned,
+            post_access_rows,
+            span,
+            execution_trace,
+        ))
+    }
+
+    // Apply shared path finalization hooks after page materialization.
+    fn finalize_execution(
+        page: CursorPage<E>,
+        optimization: Option<ExecutionOptimization>,
+        rows_scanned: usize,
+        post_access_rows: usize,
+        span: &mut Span<E>,
+        execution_trace: &mut Option<ExecutionTrace>,
+    ) -> CursorPage<E> {
+        Self::finalize_path_outcome(
+            execution_trace,
+            optimization,
+            rows_scanned,
             post_access_rows,
         );
         set_rows_from_len(span, page.items.0.len());
 
-        Ok(page)
+        page
     }
 }

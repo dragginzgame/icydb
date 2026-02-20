@@ -1,3 +1,4 @@
+mod composite_stream;
 mod context;
 mod delete;
 mod direction;

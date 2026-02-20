@@ -1,10 +1,7 @@
 use crate::{
     db::{
         index::{IndexId, IndexKey, RawIndexKey, encode_canonical_index_component},
-        query::plan::{
-            cursor_anchor_within_envelope, cursor_continuation_advanced, cursor_envelope_is_empty,
-            cursor_resume_bounds,
-        },
+        query::plan::KeyEnvelope,
     },
     model::index::IndexModel,
     traits::EntityKind,
@@ -110,7 +107,9 @@ pub(in crate::db) fn resume_bounds(
     upper: Bound<RawIndexKey>,
     anchor: &RawIndexKey,
 ) -> (Bound<RawIndexKey>, Bound<RawIndexKey>) {
-    cursor_resume_bounds(direction, lower, upper, anchor)
+    KeyEnvelope::new(direction, lower, upper)
+        .apply_anchor(anchor)
+        .into_bounds()
 }
 
 ///
@@ -128,7 +127,7 @@ pub(in crate::db) fn anchor_within_envelope(
     lower: &Bound<RawIndexKey>,
     upper: &Bound<RawIndexKey>,
 ) -> bool {
-    cursor_anchor_within_envelope(direction, anchor, lower, upper)
+    KeyEnvelope::new(direction, lower.clone(), upper.clone()).contains(anchor)
 }
 
 ///
@@ -143,7 +142,8 @@ pub(in crate::db) fn continuation_advanced(
     candidate: &RawIndexKey,
     anchor: &RawIndexKey,
 ) -> bool {
-    cursor_continuation_advanced(direction, candidate, anchor)
+    KeyEnvelope::new(direction, Bound::Unbounded, Bound::Unbounded)
+        .continuation_advanced(candidate, anchor)
 }
 
 ///
@@ -157,7 +157,7 @@ pub(in crate::db) fn envelope_is_empty(
     lower: &Bound<RawIndexKey>,
     upper: &Bound<RawIndexKey>,
 ) -> bool {
-    cursor_envelope_is_empty(lower, upper)
+    KeyEnvelope::new(Direction::Asc, lower.clone(), upper.clone()).is_empty()
 }
 
 fn encode_index_component_bound(

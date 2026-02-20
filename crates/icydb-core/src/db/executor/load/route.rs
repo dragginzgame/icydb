@@ -2,7 +2,9 @@ use crate::{
     db::{
         executor::load::{IndexRangeLimitSpec, LoadExecutor},
         index::RawIndexKey,
-        query::plan::{CursorBoundary, LogicalPlan, validate::PushdownApplicability},
+        query::plan::{
+            CursorBoundary, LogicalPlan, compute_page_window, validate::PushdownApplicability,
+        },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -53,5 +55,30 @@ where
             E::MODEL,
             plan,
         )
+    }
+
+    // Assess index-range limit pushdown once for this execution and produce
+    // the bounded fetch spec when all eligibility gates pass.
+    fn assess_index_range_limit_pushdown(
+        plan: &LogicalPlan<E::Key>,
+        cursor_boundary: Option<&CursorBoundary>,
+        index_range_anchor: Option<&RawIndexKey>,
+    ) -> Option<IndexRangeLimitSpec> {
+        if !Self::is_index_range_limit_pushdown_shape_eligible(plan) {
+            return None;
+        }
+        if cursor_boundary.is_some() && index_range_anchor.is_none() {
+            return None;
+        }
+
+        let page = plan.page.as_ref()?;
+        let limit = page.limit?;
+        if limit == 0 {
+            return Some(IndexRangeLimitSpec { fetch: 0 });
+        }
+
+        let fetch = compute_page_window(page.offset, limit, true).fetch_count;
+
+        Some(IndexRangeLimitSpec { fetch })
     }
 }
