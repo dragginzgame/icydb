@@ -155,9 +155,9 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.9.23"
+version = "0.9.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d3723d12d53250337f4070fa0e3cfc89d0676262e22f3b008f3a6c0c2b4f8a2"
+checksum = "84df3e8aed14613d07547a70ffc0291f5d8a99bb0747f64f282f1c717f5fae6f"
 dependencies = [
  "base32 0.5.1",
  "candid",
@@ -179,9 +179,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.9.23"
+version = "0.9.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "047e5dde8f5516dfe396174907e4e5158953556457ffd6719c84a4f2fe39a41e"
+checksum = "48b44170c087a4f1b585fa96f2ec6b39b45d2b788b23a5e1a34a0f1842ca658e"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -193,9 +193,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.9.23"
+version = "0.9.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d138cff6185980f2d0008290365f2d600fe7628d66d2e531fc8d2be17b8fe009"
+checksum = "0a168006d99579d42ca684efc2b67c5e0dfd555d88116f47345211cd5efe1080"
 dependencies = [
  "candid",
  "convert_case 0.11.0",
@@ -828,7 +828,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.18.2"
+version = "0.19.0"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -849,7 +849,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-build"
-version = "0.18.2"
+version = "0.19.0"
 dependencies = [
  "icydb-schema",
  "proc-macro2",
@@ -859,7 +859,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.18.2"
+version = "0.19.0"
 dependencies = [
  "bencher",
  "candid",
@@ -885,7 +885,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-derive"
-version = "0.18.2"
+version = "0.19.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -894,11 +894,11 @@ dependencies = [
 
 [[package]]
 name = "icydb-primitives"
-version = "0.18.2"
+version = "0.19.0"
 
 [[package]]
 name = "icydb-schema"
-version = "0.18.2"
+version = "0.19.0"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -914,7 +914,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-derive"
-version = "0.18.2"
+version = "0.19.0"
 dependencies = [
  "candid",
  "canic-utils",
@@ -931,7 +931,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema-tests"
-version = "0.18.2"
+version = "0.19.0"
 dependencies = [
  "candid",
  "icydb",
