@@ -13,9 +13,10 @@ use self::{
 use crate::{
     db::{
         Db,
-        executor::KeyOrderComparator,
-        executor::OrderedKeyStreamBox,
-        executor::plan::{record_plan_metrics, record_rows_scanned},
+        executor::{
+            KeyOrderComparator, OrderedKeyStreamBox,
+            plan::{record_plan_metrics, record_rows_scanned},
+        },
         query::plan::{
             AccessPlan, CursorBoundary, Direction, ExecutablePlan, LogicalPlan, OrderDirection,
             PlannedCursor, SlotSelectionPolicy, decode_pk_cursor_boundary, derive_scan_direction,
