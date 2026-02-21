@@ -74,10 +74,15 @@ impl Item {
             );
         }
 
-        // Phase 4: validate decimal-only scale metadata.
+        // Phase 4: validate decimal-scale metadata.
         if self.scale.is_some() && !matches!(self.primitive, Some(Primitive::Decimal)) {
             return Err(DarlingError::custom(
                 "scale may only be used with prim = \"Decimal\"",
+            ));
+        }
+        if matches!(self.primitive, Some(Primitive::Decimal)) && self.scale.is_none() {
+            return Err(DarlingError::custom(
+                "prim = \"Decimal\" requires item(scale = N)",
             ));
         }
 
@@ -255,6 +260,16 @@ mod tests {
     fn validate_rejects_scale_without_declared_primitive() {
         let item = Item {
             scale: Some(8),
+            ..Item::default()
+        };
+
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_decimal_without_scale() {
+        let item = Item {
+            primitive: Some(Primitive::Decimal),
             ..Item::default()
         };
 

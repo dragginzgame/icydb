@@ -5,6 +5,50 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.23.1] – 2026-02-21 - Decimal Scale Boundary Hardening
+
+### 📝 Summary
+
+* Follow-up hardening for the decimal consolidation release.
+* Tightened write and decode checks so decimal scale mismatches fail early and clearly.
+
+### 🔧 Changed
+
+* Decimal fields now require an explicit schema scale (`item(scale = N)`).
+* Save paths now reject mixed-scale decimal writes before persistence.
+* Update/decode paths now reject persisted rows that violate decimal scale rules.
+* Aligned decimal roadmap/status doc references.
+
+### 🧪 Testing
+
+* Added regressions for mixed-scale write rejection, persisted-row scale drift rejection, and invalid decimal binary scale decode.
+
+---
+
+## [0.23.0] – 2026-02-21 - Decimal Consolidation
+
+### 📝 Summary
+
+* Unified decimal handling behind one internal decimal implementation.
+* Removed split fixed-point paths so runtime behavior is simpler and more consistent.
+
+### 🔧 Changed
+
+* Query/value runtime paths now use one decimal representation.
+* Removed runtime reliance on `rust_decimal`.
+* Added schema support for explicit decimal scale metadata with `item(prim = "Decimal", scale = N)`.
+* Added decimal-backed compatibility wrappers for common fixed-scale finance usage (`E8s`, `E18s`).
+
+### ⚠️ Breaking
+
+* Removed `Primitive::E8s` and `Primitive::E18s` from schema/runtime primitive surfaces.
+
+### 🧭 Migration Notes
+
+* Replace primitive `E8s`/`E18s` usage with decimal fields plus explicit scale metadata, or use wrappers in `base::types::finance`.
+
+---
+
 ## [0.22.2] – 2026-02-21 - Aggregate Sealing + DESC Early-Stop Parity
 
 ### 📝 Summary

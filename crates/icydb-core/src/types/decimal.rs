@@ -1234,6 +1234,14 @@ mod tests {
     }
 
     #[test]
+    fn decimal_serde_cbor_rejects_invalid_binary_scale() {
+        let invalid = serde_cbor::to_vec(&(123_i128.to_be_bytes().to_vec(), 29u32))
+            .expect("serialize invalid decimal scale payload");
+        let parsed: Result<Decimal, _> = serde_cbor::from_slice(&invalid);
+        assert!(parsed.is_err(), "invalid binary scale must be rejected");
+    }
+
+    #[test]
     fn decimal_division_is_fixed_scale_and_rounded() {
         let one = Decimal::new(1, 0);
         let third = one / Decimal::new(3, 0);

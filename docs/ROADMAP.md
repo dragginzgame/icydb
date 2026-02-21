@@ -13,7 +13,7 @@ This roadmap is directional and planning-oriented, not a release contract.
 Active execution/planning references:
 
 - `docs/design/0.22-streaming-aggregates.md`
-- `docs/design/0.23-decimalisation.md`
+- `docs/design/0.23-decimal-consolidation.md`
 - `docs/status/0.22-status.md`
 - `docs/status/0.21-status.md`
 

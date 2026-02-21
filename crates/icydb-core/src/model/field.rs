@@ -46,8 +46,8 @@ pub enum FieldKind {
     Bool,
     Date,
     Decimal {
-        /// Optional schema-declared fractional scale for decimal fields.
-        scale: Option<u32>,
+        /// Required schema-declared fractional scale for decimal fields.
+        scale: u32,
     },
     Duration,
     Enum {

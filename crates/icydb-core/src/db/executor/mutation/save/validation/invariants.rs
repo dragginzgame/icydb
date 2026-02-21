@@ -137,11 +137,66 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 )));
             }
 
-            // Phase 3: enforce deterministic collection/map encodings at runtime.
+            // Phase 3: enforce schema-declared decimal scales at write boundaries.
+            Self::validate_decimal_scale(field.name, &field.kind, &value)?;
+
+            // Phase 4: enforce deterministic collection/map encodings at runtime.
             Self::validate_deterministic_field_value(field.name, &field.kind, &value)?;
         }
 
         Ok(())
+    }
+
+    /// Enforce fixed decimal scales across scalar and nested collection values.
+    fn validate_decimal_scale(
+        field_name: &str,
+        kind: &FieldKind,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        if matches!(value, Value::Null | Value::Unit) {
+            return Ok(());
+        }
+
+        match (kind, value) {
+            (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
+                if decimal.scale() != *scale {
+                    return Err(InternalError::executor_unsupported(format!(
+                        "decimal field scale mismatch: {} field={} expected_scale={} actual_scale={}",
+                        E::PATH,
+                        field_name,
+                        scale,
+                        decimal.scale()
+                    )));
+                }
+
+                Ok(())
+            }
+            (FieldKind::Relation { key_kind, .. }, value) => {
+                Self::validate_decimal_scale(field_name, key_kind, value)
+            }
+            (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
+                for item in items {
+                    Self::validate_decimal_scale(field_name, inner, item)?;
+                }
+
+                Ok(())
+            }
+            (
+                FieldKind::Map {
+                    key,
+                    value: map_value,
+                },
+                Value::Map(entries),
+            ) => {
+                for (entry_key, entry_value) in entries {
+                    Self::validate_decimal_scale(field_name, key, entry_key)?;
+                    Self::validate_decimal_scale(field_name, map_value, entry_value)?;
+                }
+
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Enforce deterministic value encodings for collection-like field kinds.

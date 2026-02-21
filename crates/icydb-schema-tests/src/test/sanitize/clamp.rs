@@ -41,7 +41,7 @@ pub struct ClampInt32 {}
 
 #[newtype(
     primitive = "Decimal",
-    item(prim = "Decimal"),
+    item(prim = "Decimal", scale = 1),
     ty(sanitizer(path = "base::sanitizer::num::Clamp", args(0.5, 5.5)))
 )]
 pub struct ClampDecimal {}

@@ -182,8 +182,8 @@ crate::test_entity! {
         ("uint_big", FieldKind::UintBig),
         ("int_small", FieldKind::Int),
         ("uint_small", FieldKind::Uint),
-        ("decimal", FieldKind::Decimal { scale: None }),
-        ("decimal_scaled", FieldKind::Decimal { scale: Some(8) }),
+        ("decimal", FieldKind::Decimal { scale: 18 }),
+        ("decimal_scaled", FieldKind::Decimal { scale: 8 }),
     ],
     indexes = [],
 }

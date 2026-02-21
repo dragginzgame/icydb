@@ -328,7 +328,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         row: &RawRow,
     ) -> Result<(), InternalError> {
         let expected = data_key.try_key::<E>()?;
-        let _decoded = decode_and_validate_entity_key::<E, _, _, _, _>(
+        let decoded = decode_and_validate_entity_key::<E, _, _, _, _>(
             expected,
             || row.try_decode::<E>(),
             |err| {
@@ -344,6 +344,12 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
                 .into()
             },
         )?;
+        Self::ensure_entity_invariants(&decoded).map_err(|err| {
+            InternalError::from(ExecutorError::store_corruption(format!(
+                "persisted row invariant violation: {data_key} ({})",
+                err.message
+            )))
+        })?;
 
         Ok(())
     }

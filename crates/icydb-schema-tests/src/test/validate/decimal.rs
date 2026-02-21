@@ -39,7 +39,7 @@ pub struct MultipleTenType {}
 
 #[newtype(
     primitive = "Decimal",
-    item(prim = "Decimal"),
+    item(prim = "Decimal", scale = 3),
     ty(validator(path = "base::validator::decimal::MaxDecimalPlaces", args(3)))
 )]
 pub struct DecimalMaxDp {}

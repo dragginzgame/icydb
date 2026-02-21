@@ -10,7 +10,7 @@ use crate::design::prelude::*;
 
 #[newtype(
     primitive = "Decimal",
-    item(prim = "Decimal"),
+    item(prim = "Decimal", scale = 2),
     ty(
         sanitizer(path = "base::sanitizer::num::RoundDecimalPlaces", args(2)),
         validator(path = "base::validator::decimal::MaxDecimalPlaces", args(2)),

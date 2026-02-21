@@ -1,7 +1,4 @@
-use crate::{
-    helper::quote_option,
-    node::{Item, ItemTarget, Value},
-};
+use crate::node::{Item, ItemTarget, Value};
 use icydb_schema::types::{Cardinality, Primitive};
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -60,21 +57,24 @@ pub fn model_kind_from_item(item: &Item) -> TokenStream {
 /// underlying key representation used at persistence boundaries.
 fn model_storage_kind_from_item(item: &Item) -> TokenStream {
     match item.target() {
-        ItemTarget::Primitive(prim) => model_kind_from_primitive(prim, item.scale),
+        ItemTarget::Primitive(prim) => {
+            // Decimal scale is required by `Item::validate`.
+            let decimal_scale = item.scale.unwrap_or(0);
+            model_kind_from_primitive(prim, decimal_scale)
+        }
         ItemTarget::Is(path) => quote!(#path::KIND),
     }
 }
 
 /// Returns the persisted model kind for a primitive type.
-pub fn model_kind_from_primitive(prim: Primitive, decimal_scale: Option<u32>) -> TokenStream {
+pub fn model_kind_from_primitive(prim: Primitive, decimal_scale: u32) -> TokenStream {
     match prim {
         Primitive::Account => quote!(::icydb::model::field::FieldKind::Account),
         Primitive::Blob => quote!(::icydb::model::field::FieldKind::Blob),
         Primitive::Bool => quote!(::icydb::model::field::FieldKind::Bool),
         Primitive::Date => quote!(::icydb::model::field::FieldKind::Date),
         Primitive::Decimal => {
-            let scale = quote_option(decimal_scale.as_ref(), |scale| quote!(#scale));
-            quote!(::icydb::model::field::FieldKind::Decimal { scale: #scale })
+            quote!(::icydb::model::field::FieldKind::Decimal { scale: #decimal_scale })
         }
         Primitive::Duration => quote!(::icydb::model::field::FieldKind::Duration),
         Primitive::Float32 => quote!(::icydb::model::field::FieldKind::Float32),

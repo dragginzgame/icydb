@@ -1,0 +1,7 @@
+error: prim = "Decimal" requires item(scale = N)
+ --> tests/ui/decimal_requires_scale.rs:3:1
+  |
+3 | #[newtype(primitive = "Decimal", item(prim = "Decimal"))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `newtype` (in Nightly builds, run with -Z macro-backtrace for more info)

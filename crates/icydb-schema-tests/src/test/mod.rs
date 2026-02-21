@@ -89,7 +89,7 @@ pub struct Negative {}
 
 #[newtype(
     primitive = "Decimal",
-    item(prim = "Decimal"),
+    item(prim = "Decimal", scale = 18),
     ty(validator(path = "base::validator::num::Lte", args(5.0)))
 )]
 pub struct NewtypeValidated {}

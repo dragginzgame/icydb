@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     db::{
         commit::{ensure_recovered_for_write, init_commit_store_for_tests},
-        data::{DataKey, DataStore},
+        data::{DataKey, DataStore, RawRow},
         executor::DeleteExecutor,
         index::IndexStore,
         query::{ReadConsistency, intent::Query},
@@ -14,9 +14,10 @@ use crate::{
         index::IndexModel,
     },
     obs::{metrics_report, metrics_reset_all},
+    serialize::serialize,
     test_support::test_memory,
     traits::{EntityIdentity, Path},
-    types::Ulid,
+    types::{Decimal, Ulid},
 };
 use icydb_derive::FieldValues;
 use serde::{Deserialize, Serialize};
@@ -292,6 +293,32 @@ crate::test_entity_schema! {
     primary_key = "id",
     pk_index = 0,
     fields = [("id", FieldKind::Ulid), ("actual_id", FieldKind::Ulid)],
+    indexes = [],
+    store = SourceStore,
+    canister = TestCanister,
+}
+
+///
+/// DecimalScaleEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+struct DecimalScaleEntity {
+    id: Ulid,
+    amount: Decimal,
+}
+
+crate::test_entity_schema! {
+    ident = DecimalScaleEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "DecimalScaleEntity",
+    primary_key = "id",
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("amount", FieldKind::Decimal { scale: 2 }),
+    ],
     indexes = [],
     store = SourceStore,
     canister = TestCanister,
@@ -1166,6 +1193,74 @@ fn unique_index_violation_rejected_on_insert() {
 
     let rows = with_data_store(SourceStore::PATH, |data_store| data_store.iter().count());
     assert_eq!(rows, 1, "conflicting insert must not persist");
+}
+
+#[test]
+fn decimal_scale_mixed_writes_reject_noncanonical_scale() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<DecimalScaleEntity>::new(DB, false);
+    save.insert(DecimalScaleEntity {
+        id: Ulid::from_u128(8101),
+        amount: Decimal::new(123, 2),
+    })
+    .expect("canonical decimal scale should save");
+
+    let err = save
+        .insert(DecimalScaleEntity {
+            id: Ulid::from_u128(8102),
+            amount: Decimal::new(1234, 3),
+        })
+        .expect_err("mixed decimal scale write must be rejected");
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert!(
+        err.message.contains("decimal field scale mismatch"),
+        "unexpected error: {err:?}"
+    );
+
+    let rows = with_data_store(SourceStore::PATH, |data_store| data_store.iter().count());
+    assert_eq!(rows, 1, "rejected mixed-scale write must not persist");
+}
+
+#[test]
+fn save_update_rejects_persisted_row_with_decimal_scale_drift() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let id = Ulid::from_u128(8201);
+    let data_key = DataKey::try_new::<DecimalScaleEntity>(id)
+        .expect("decimal entity key should build")
+        .to_raw()
+        .expect("decimal entity raw key should encode");
+    let malformed = DecimalScaleEntity {
+        id,
+        amount: Decimal::new(1234, 3),
+    };
+    let raw_row = RawRow::try_new(serialize(&malformed).expect("malformed row should serialize"))
+        .expect("malformed row bytes should satisfy row bound");
+    with_data_store_mut(SourceStore::PATH, |data_store| {
+        data_store.insert(data_key, raw_row);
+    });
+
+    let save = SaveExecutor::<DecimalScaleEntity>::new(DB, false);
+    let err = save
+        .update(DecimalScaleEntity {
+            id,
+            amount: Decimal::new(123, 2),
+        })
+        .expect_err("decode path must reject persisted decimal scale drift");
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message.contains("persisted row invariant violation"),
+        "unexpected error: {err:?}"
+    );
+    assert!(
+        err.message.contains("decimal field scale mismatch"),
+        "unexpected error: {err:?}"
+    );
 }
 
 #[test]

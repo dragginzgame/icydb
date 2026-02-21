@@ -41,8 +41,8 @@ pub struct PercentModifier {}
 
 #[record(
     fields(
-        field(ident = "min", value(item(prim = "Decimal"))),
-        field(ident = "max", value(item(prim = "Decimal"))),
+        field(ident = "min", value(item(prim = "Decimal", scale = 18))),
+        field(ident = "max", value(item(prim = "Decimal", scale = 18))),
     ),
     traits(remove(ValidateCustom))
 )]

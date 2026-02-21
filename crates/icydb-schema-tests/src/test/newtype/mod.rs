@@ -15,7 +15,7 @@ pub struct BoolN {}
 #[newtype(primitive = "Date", item(prim = "Date"))]
 pub struct DateN {}
 
-#[newtype(item(prim = "Decimal"), primitive = "Decimal")]
+#[newtype(item(prim = "Decimal", scale = 18), primitive = "Decimal")]
 pub struct DecimalN {}
 
 #[newtype(item(prim = "Duration"), primitive = "Duration")]
@@ -117,7 +117,11 @@ pub struct BoolD {}
 )]
 pub struct DateD {}
 
-#[newtype(primitive = "Decimal", item(prim = "Decimal"), default = 0.0)]
+#[newtype(
+    primitive = "Decimal",
+    item(prim = "Decimal", scale = 18),
+    default = 0.0
+)]
 pub struct DecimalD {}
 
 #[newtype(primitive = "Duration", item(prim = "Duration"), default = 0u64)]
