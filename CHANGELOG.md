@@ -5,6 +5,35 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.23.6] – 2026-02-21 - IndexRange Aggregate Direct Path
+
+### 📝 Summary
+
+* Added a direct aggregate fast path for `IndexRange` query shapes.
+* Kept aggregate results unchanged while reducing aggregate routing overhead for index-range reads.
+
+### 🔧 Changed
+
+* Aggregate execution now short-circuits eligible `AccessPath::IndexRange` plans through the existing bounded index-range traversal path.
+* Added explicit spec-boundary guards for index-range aggregate fast-path usage (exact range-spec arity and no prefix-spec mixing).
+
+### 🧹 Cleanup
+
+* Reduced `clippy::too_many_arguments` pressure in executor hot paths by bundling related stream and fast-path inputs into small internal state/input structs, lowering drift risk without changing query behavior.
+
+### 🧪 Testing
+
+* Added index-range aggregate scan-budget coverage for windowed `exists` (`offset + 1`).
+* Added invariant tests for index-range aggregate fast-path spec assumptions.
+
+### 🛣️ Roadmap
+
+* This patch closes the aggregate fast-path expansion for the `0.23.x` line while keeping semantics parity-first and boundary-safe.
+* It finishes the patch-scope step that this series was building toward: direct aggregate handling for index-range traversal.
+* This work unlocks a cleaner `0.24` decision point, focused on a new feature track rather than more patch-level routing hardening.
+
+---
+
 ## [0.23.5] – 2026-02-21 - Aggregate Access-Path Fast Paths
 
 ### 📝 Summary
@@ -16,10 +45,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 * Aggregate execution now short-circuits `AccessPath::ByKey`, `AccessPath::ByKeys`, eligible `AccessPath::IndexPrefix`, `AccessPath::KeyRange`, and `AccessPath::FullScan` plans directly instead of building the generic ordered key stream.
 * Preserved existing consistency and window semantics for `count`, `exists`, `min`, and `max`.
+* Added a defensive fast-path arity guard for secondary aggregate prefix specs to fail fast on planner/executor drift.
 
 ### 🧪 Testing
 
-* Added regressions for windowed `by_id`/`by_ids` aggregate parity, dedup-before-window behavior, secondary index-prefix `MissingOk` scan safety, `KeyRange`/`FullScan` scan budgeting, and strict missing-row classification.
+* Added regressions for windowed `by_id`/`by_ids` aggregate parity, dedup-before-window behavior, secondary index-prefix `MissingOk` scan safety, `KeyRange`/`FullScan` scan budgeting, and strict missing-row classification (including secondary-prefix traversal).
 
 ---
 

@@ -14,6 +14,8 @@ Active execution/planning references:
 
 - `docs/design/0.22-streaming-aggregates.md`
 - `docs/design/0.23-decimal-consolidation.md`
+- `docs/design/0.23.6-indexrange-aggregate-direct-path.md`
+- `docs/design/0.24-feature-selection.md`
 - `docs/status/0.22-status.md`
 - `docs/status/0.21-status.md`
 

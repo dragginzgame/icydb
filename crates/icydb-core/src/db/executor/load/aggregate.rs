@@ -10,7 +10,8 @@ use crate::{
         query::{
             ReadConsistency,
             plan::{
-                AccessPath, AccessPlan, Direction, ExecutablePlan, IndexPrefixSpec, LogicalPlan,
+                AccessPath, AccessPlan, Direction, ExecutablePlan, IndexPrefixSpec, IndexRangeSpec,
+                LogicalPlan,
                 validate::{
                     assess_secondary_order_pushdown_if_applicable_validated, validate_executor_plan,
                 },
@@ -50,6 +51,45 @@ enum FoldControl {
 enum AggregateFoldMode {
     ExistingRows,
     KeysOnly,
+}
+
+// Guard secondary aggregate fast-path assumptions so index-prefix
+// spec consumption cannot silently drift if planner shapes evolve.
+fn ensure_secondary_aggregate_fast_path_arity(
+    secondary_pushdown_eligible: bool,
+    index_prefix_spec_count: usize,
+) -> Result<(), InternalError> {
+    if secondary_pushdown_eligible && index_prefix_spec_count > 1 {
+        return Err(InternalError::query_executor_invariant(
+            "secondary aggregate fast-path expects at most one index-prefix spec",
+        ));
+    }
+
+    Ok(())
+}
+
+// Guard index-range aggregate fast-path assumptions so planner/executor
+// spec boundaries remain explicit and drift-resistant.
+fn ensure_index_range_aggregate_fast_path_specs(
+    index_range_pushdown_eligible: bool,
+    index_prefix_spec_count: usize,
+    index_range_spec_count: usize,
+) -> Result<(), InternalError> {
+    if !index_range_pushdown_eligible {
+        return Ok(());
+    }
+    if index_prefix_spec_count > 0 {
+        return Err(InternalError::query_executor_invariant(
+            "index-range aggregate fast-path must not consume index-prefix specs",
+        ));
+    }
+    if index_range_spec_count != 1 {
+        return Err(InternalError::query_executor_invariant(
+            "index-range aggregate fast-path expects exactly one index-range spec",
+        ));
+    }
+
+    Ok(())
 }
 
 ///
@@ -104,6 +144,24 @@ impl AggregateWindowState {
 
         true
     }
+}
+
+///
+/// AggregateFastPathInputs
+///
+/// Aggregate fast-path execution inputs bundled for one dispatch entry.
+/// Keeps branch routing parameters aligned between aggregate path helpers.
+///
+
+struct AggregateFastPathInputs<'exec, 'ctx, E: EntityKind + EntityValue> {
+    ctx: &'exec Context<'ctx, E>,
+    logical_plan: &'exec LogicalPlan<E::Key>,
+    index_prefix_specs: &'exec [IndexPrefixSpec],
+    index_range_specs: &'exec [IndexRangeSpec],
+    direction: Direction,
+    physical_fetch_hint: Option<usize>,
+    kind: AggregateKind,
+    fold_mode: AggregateFoldMode,
 }
 
 impl<E> LoadExecutor<E>
@@ -188,9 +246,12 @@ where
         let secondary_pushdown_eligible =
             assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan.as_inner())
                 .is_eligible();
+        let index_range_pushdown_eligible =
+            Self::is_index_range_limit_pushdown_shape_eligible(plan.as_inner());
         if !count_pushdown_eligible
             && !Self::is_streaming_aggregate_shape_supported(plan.as_inner())
             && !secondary_pushdown_eligible
+            && !index_range_pushdown_eligible
         {
             let response = self.execute(plan)?;
             return Ok(Self::aggregate_from_materialized(response, kind));
@@ -228,51 +289,21 @@ where
         // This mirrors the load execution path.
         record_plan_metrics(&logical_plan.access);
 
-        // Aggregate-aware fast path for primary-key point/batch access shapes.
-        // This keeps semantics identical while avoiding generic stream setup.
-        if let Some((aggregate_output, keys_scanned)) =
-            Self::try_execute_primary_key_access_aggregate(&ctx, &logical_plan, direction, kind)?
-        {
-            record_rows_scanned::<E>(keys_scanned);
-            return Ok(aggregate_output);
-        }
-
-        // Aggregate-aware fast path for secondary index-prefix plans that are
-        // eligible for canonical order pushdown.
-        if let Some((aggregate_output, rows_scanned)) = Self::try_execute_index_prefix_aggregate(
-            &ctx,
-            &logical_plan,
-            index_prefix_specs.as_slice(),
+        let fast_path_inputs = AggregateFastPathInputs {
+            ctx: &ctx,
+            logical_plan: &logical_plan,
+            index_prefix_specs: index_prefix_specs.as_slice(),
+            index_range_specs: index_range_specs.as_slice(),
             direction,
+            physical_fetch_hint,
             kind,
             fold_mode,
-        )? {
-            record_rows_scanned::<E>(rows_scanned);
-            return Ok(aggregate_output);
-        }
-
-        // Aggregate-aware fast path for primary-data range/full scans.
-        // This reuses canonical fold logic while skipping generic stream routing.
-        if physical_fetch_hint.is_some()
-            && let Some((aggregate_output, rows_scanned)) =
-                Self::try_execute_primary_scan_aggregate(
-                    &ctx,
-                    &logical_plan,
-                    direction,
-                    physical_fetch_hint,
-                    kind,
-                    fold_mode,
-                )?
+        };
+        if let Some((aggregate_output, rows_scanned)) =
+            Self::try_fast_path_aggregate(&fast_path_inputs)?
         {
             record_rows_scanned::<E>(rows_scanned);
             return Ok(aggregate_output);
-        }
-
-        // Fast exit: effective limit == 0 has an empty aggregate window and can
-        // return terminal defaults without constructing or scanning key streams.
-        if physical_fetch_hint == Some(0) {
-            record_rows_scanned::<E>(0);
-            return Ok(Self::aggregate_zero_window_result(kind));
         }
 
         // Build canonical execution inputs. This must match the load executor
@@ -312,6 +343,70 @@ where
         record_rows_scanned::<E>(rows_scanned);
 
         Ok(aggregate_output)
+    }
+
+    // Attempt aggregate fast-path execution in canonical priority order.
+    // Returns `Some` when one branch fully resolves the terminal.
+    fn try_fast_path_aggregate(
+        inputs: &AggregateFastPathInputs<'_, '_, E>,
+    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
+        // Aggregate-aware fast path for primary-key point/batch access shapes.
+        // This keeps semantics identical while avoiding generic stream setup.
+        if let Some((aggregate_output, rows_scanned)) =
+            Self::try_execute_primary_key_access_aggregate(
+                inputs.ctx,
+                inputs.logical_plan,
+                inputs.direction,
+                inputs.kind,
+            )?
+        {
+            return Ok(Some((aggregate_output, rows_scanned)));
+        }
+
+        // Aggregate-aware fast path for secondary index-prefix plans that are
+        // eligible for canonical order pushdown.
+        if let Some((aggregate_output, rows_scanned)) = Self::try_execute_index_prefix_aggregate(
+            inputs.ctx,
+            inputs.logical_plan,
+            inputs.index_prefix_specs,
+            inputs.direction,
+            inputs.kind,
+            inputs.fold_mode,
+        )? {
+            return Ok(Some((aggregate_output, rows_scanned)));
+        }
+
+        // Aggregate-aware fast path for primary-data range/full scans.
+        // This reuses canonical fold logic while skipping generic stream routing.
+        if inputs.physical_fetch_hint.is_some()
+            && let Some((aggregate_output, rows_scanned)) =
+                Self::try_execute_primary_scan_aggregate(
+                    inputs.ctx,
+                    inputs.logical_plan,
+                    inputs.direction,
+                    inputs.physical_fetch_hint,
+                    inputs.kind,
+                    inputs.fold_mode,
+                )?
+        {
+            return Ok(Some((aggregate_output, rows_scanned)));
+        }
+
+        // Aggregate-aware fast path for index-range plans using lowered
+        // byte-level range specs and shared fold semantics.
+        if let Some((aggregate_output, rows_scanned)) =
+            Self::try_execute_index_range_aggregate(inputs)?
+        {
+            return Ok(Some((aggregate_output, rows_scanned)));
+        }
+
+        // Fast exit: effective limit == 0 has an empty aggregate window and can
+        // return terminal defaults without constructing or scanning key streams.
+        if inputs.physical_fetch_hint == Some(0) {
+            return Ok(Some((Self::aggregate_zero_window_result(inputs.kind), 0)));
+        }
+
+        Ok(None)
     }
 
     // Derive bounded probe hints for aggregate terminals where first-kept-row
@@ -536,6 +631,10 @@ where
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
         let secondary_pushdown_applicability =
             assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan);
+        ensure_secondary_aggregate_fast_path_arity(
+            secondary_pushdown_applicability.is_eligible(),
+            index_prefix_specs.len(),
+        )?;
         let Some(mut fast) = Self::try_execute_secondary_index_order_stream(
             ctx,
             plan,
@@ -603,6 +702,53 @@ where
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
+    }
+
+    // Resolve aggregate terminals directly for index-range access plans.
+    // This reuses canonical range traversal while preserving one fold engine.
+    fn try_execute_index_range_aggregate(
+        inputs: &AggregateFastPathInputs<'_, '_, E>,
+    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
+        let index_range_pushdown_eligible =
+            Self::is_index_range_limit_pushdown_shape_eligible(inputs.logical_plan);
+        ensure_index_range_aggregate_fast_path_specs(
+            index_range_pushdown_eligible,
+            inputs.index_prefix_specs.len(),
+            inputs.index_range_specs.len(),
+        )?;
+        if !index_range_pushdown_eligible {
+            return Ok(None);
+        }
+        let effective_fetch = inputs.physical_fetch_hint.unwrap_or(usize::MAX);
+
+        let Some(mut fast) = Self::try_execute_index_range_limit_pushdown_stream(
+            inputs.ctx,
+            inputs.logical_plan,
+            inputs.index_range_specs.first(),
+            None,
+            inputs.direction,
+            effective_fetch,
+        )?
+        else {
+            return Ok(None);
+        };
+        if inputs.logical_plan.distinct {
+            fast.ordered_key_stream =
+                Box::new(DistinctOrderedKeyStream::new(fast.ordered_key_stream));
+        }
+
+        let rows_scanned = fast.rows_scanned;
+        let (aggregate_output, _keys_scanned) = Self::fold_streaming_aggregate(
+            inputs.ctx,
+            inputs.logical_plan,
+            inputs.logical_plan.consistency,
+            inputs.direction,
+            fast.ordered_key_stream.as_mut(),
+            inputs.kind,
+            inputs.fold_mode,
+        )?;
+
+        Ok(Some((aggregate_output, rows_scanned)))
     }
 
     // Single streaming fold entry for all aggregate terminals.
@@ -763,5 +909,85 @@ where
                 Err(err) => Err(err),
             },
         }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::error::ErrorClass;
+
+    #[test]
+    fn secondary_aggregate_fast_path_arity_accepts_single_prefix_spec() {
+        let result = super::ensure_secondary_aggregate_fast_path_arity(true, 1);
+
+        assert!(
+            result.is_ok(),
+            "single secondary prefix spec should be accepted"
+        );
+    }
+
+    #[test]
+    fn secondary_aggregate_fast_path_arity_rejects_multiple_prefix_specs() {
+        let err = super::ensure_secondary_aggregate_fast_path_arity(true, 2)
+            .expect_err("secondary aggregate fast-path must reject multiple prefix specs");
+
+        assert_eq!(
+            err.class,
+            ErrorClass::InvariantViolation,
+            "arity violation must classify as invariant violation"
+        );
+        assert!(
+            err.message
+                .contains("secondary aggregate fast-path expects at most one index-prefix spec"),
+            "arity violation must return a clear invariant message"
+        );
+    }
+
+    #[test]
+    fn index_range_aggregate_fast_path_specs_accept_exact_arity() {
+        let result = super::ensure_index_range_aggregate_fast_path_specs(true, 0, 1);
+
+        assert!(
+            result.is_ok(),
+            "index-range aggregate fast-path should accept one range spec and no prefix specs"
+        );
+    }
+
+    #[test]
+    fn index_range_aggregate_fast_path_specs_reject_prefix_spec_presence() {
+        let err = super::ensure_index_range_aggregate_fast_path_specs(true, 1, 1)
+            .expect_err("index-range aggregate fast-path must reject prefix specs");
+
+        assert_eq!(
+            err.class,
+            ErrorClass::InvariantViolation,
+            "prefix-spec violation must classify as invariant violation"
+        );
+        assert!(
+            err.message
+                .contains("index-range aggregate fast-path must not consume index-prefix specs"),
+            "prefix-spec violation must return a clear invariant message"
+        );
+    }
+
+    #[test]
+    fn index_range_aggregate_fast_path_specs_reject_non_exact_range_arity() {
+        let err = super::ensure_index_range_aggregate_fast_path_specs(true, 0, 2)
+            .expect_err("index-range aggregate fast-path must reject non-exact range arity");
+
+        assert_eq!(
+            err.class,
+            ErrorClass::InvariantViolation,
+            "range-arity violation must classify as invariant violation"
+        );
+        assert!(
+            err.message
+                .contains("index-range aggregate fast-path expects exactly one index-range spec"),
+            "range-arity violation must return a clear invariant message"
+        );
     }
 }

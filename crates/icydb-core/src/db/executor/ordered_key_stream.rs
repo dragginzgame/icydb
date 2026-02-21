@@ -176,6 +176,10 @@ impl KeyOrderComparator {
         }
     }
 
+    const fn direction(self) -> Direction {
+        self.direction
+    }
+
     fn violates_monotonicity(self, previous: &DataKey, current: &DataKey) -> bool {
         self.compare(previous, current).is_gt()
     }
@@ -189,6 +193,103 @@ impl KeyOrderComparator {
 }
 
 ///
+/// StreamSideState
+///
+/// StreamSideState
+///
+/// Per-side lookahead state for one ordered child stream.
+/// Tracks pending key, exhaustion status, and monotonicity witness.
+///
+
+struct StreamSideState {
+    item: Option<DataKey>,
+    done: bool,
+    last_key: Option<DataKey>,
+    direction: Direction,
+    strict_monotonicity: bool,
+    name: &'static str,
+}
+
+impl StreamSideState {
+    const fn new(name: &'static str, direction: Direction) -> Self {
+        Self {
+            item: None,
+            done: false,
+            last_key: None,
+            direction,
+            strict_monotonicity: true,
+            name,
+        }
+    }
+
+    // Ensure one lookahead item is available for this stream side.
+    fn ensure_item<S>(
+        &mut self,
+        stream: &mut S,
+        stream_kind: &'static str,
+        direction_context: &'static str,
+    ) -> Result<(), InternalError>
+    where
+        S: OrderedKeyStream,
+    {
+        if self.done || self.item.is_some() {
+            return Ok(());
+        }
+
+        match stream.next_key()? {
+            Some(key) => self.push_key(key, stream_kind, direction_context)?,
+            None => self.done = true,
+        }
+
+        Ok(())
+    }
+
+    // Push one polled key into this stream-side lookahead slot with direction checks.
+    fn push_key(
+        &mut self,
+        key: DataKey,
+        stream_kind: &'static str,
+        direction_context: &'static str,
+    ) -> Result<(), InternalError> {
+        self.validate_monotonicity(&key, stream_kind, direction_context)?;
+        self.last_key = Some(key.clone());
+        self.item = Some(key);
+
+        Ok(())
+    }
+
+    // Validate this stream-side monotonicity according to configured direction.
+    fn validate_monotonicity(
+        &self,
+        current: &DataKey,
+        stream_kind: &'static str,
+        direction_context: &'static str,
+    ) -> Result<(), InternalError> {
+        if !self.strict_monotonicity {
+            return Ok(());
+        }
+        let Some(previous) = self.last_key.as_ref() else {
+            return Ok(());
+        };
+
+        let comparator = KeyOrderComparator::from_direction(self.direction);
+        if !comparator.violates_monotonicity(previous, current) {
+            return Ok(());
+        }
+
+        Err(InternalError::query_invariant(format!(
+            "executor invariant violated: {stream_kind} stream {} emitted out-of-order key for {} {direction_context} (previous: {previous}, current: {current})",
+            self.name,
+            comparator.order_label(),
+        )))
+    }
+
+    const fn take_item(&mut self) -> Option<DataKey> {
+        self.item.take()
+    }
+}
+
+///
 /// OrderedPairState
 ///
 /// Shared lookahead state for left/right ordered stream polling.
@@ -196,99 +297,17 @@ impl KeyOrderComparator {
 ///
 
 struct OrderedPairState {
-    left: Option<DataKey>,
-    right: Option<DataKey>,
+    left: StreamSideState,
+    right: StreamSideState,
 }
 
 impl OrderedPairState {
-    const fn new() -> Self {
+    const fn new(direction: Direction) -> Self {
         Self {
-            left: None,
-            right: None,
+            left: StreamSideState::new("left", direction),
+            right: StreamSideState::new("right", direction),
         }
     }
-}
-
-// Ensure one lookahead item is available for one stream side.
-#[expect(clippy::too_many_arguments)]
-fn ensure_item<S>(
-    stream: &mut S,
-    stream_item: &mut Option<DataKey>,
-    stream_done: &mut bool,
-    stream_last_pulled: &mut Option<DataKey>,
-    comparator: KeyOrderComparator,
-    stream_name: &'static str,
-    stream_kind: &'static str,
-    direction_context: &'static str,
-) -> Result<(), InternalError>
-where
-    S: OrderedKeyStream,
-{
-    if *stream_done || stream_item.is_some() {
-        return Ok(());
-    }
-
-    match stream.next_key()? {
-        Some(key) => push_key(
-            key,
-            stream_item,
-            stream_last_pulled,
-            comparator,
-            stream_name,
-            stream_kind,
-            direction_context,
-        )?,
-        None => *stream_done = true,
-    }
-
-    Ok(())
-}
-
-// Push one polled key into one stream-side lookahead slot with direction checks.
-fn push_key(
-    key: DataKey,
-    stream_item: &mut Option<DataKey>,
-    stream_last_pulled: &mut Option<DataKey>,
-    comparator: KeyOrderComparator,
-    stream_name: &'static str,
-    stream_kind: &'static str,
-    direction_context: &'static str,
-) -> Result<(), InternalError> {
-    validate_stream_monotonicity(
-        stream_last_pulled.as_ref(),
-        &key,
-        comparator,
-        stream_name,
-        stream_kind,
-        direction_context,
-    )?;
-    *stream_last_pulled = Some(key.clone());
-    *stream_item = Some(key);
-
-    Ok(())
-}
-
-// Validate one child stream monotonicity against the configured key comparator.
-fn validate_stream_monotonicity(
-    previous: Option<&DataKey>,
-    current: &DataKey,
-    comparator: KeyOrderComparator,
-    stream_name: &'static str,
-    stream_kind: &'static str,
-    direction_context: &'static str,
-) -> Result<(), InternalError> {
-    let Some(previous) = previous else {
-        return Ok(());
-    };
-
-    if !comparator.violates_monotonicity(previous, current) {
-        return Ok(());
-    }
-
-    Err(InternalError::query_invariant(format!(
-        "executor invariant violated: {stream_kind} stream {stream_name} emitted out-of-order key for {} {direction_context} (previous: {previous}, current: {current})",
-        comparator.order_label(),
-    )))
 }
 
 ///
@@ -302,11 +321,7 @@ pub(crate) struct MergeOrderedKeyStream<A, B> {
     left: A,
     right: B,
     pair: OrderedPairState,
-    left_done: bool,
-    right_done: bool,
     comparator: KeyOrderComparator,
-    left_last_pulled: Option<DataKey>,
-    right_last_pulled: Option<DataKey>,
     last_emitted: Option<DataKey>,
 }
 
@@ -330,40 +345,20 @@ where
         Self {
             left,
             right,
-            pair: OrderedPairState::new(),
-            left_done: false,
-            right_done: false,
+            pair: OrderedPairState::new(comparator.direction()),
             comparator,
-            left_last_pulled: None,
-            right_last_pulled: None,
             last_emitted: None,
         }
     }
 
     fn ensure_left_item(&mut self) -> Result<(), InternalError> {
-        ensure_item(
-            &mut self.left,
-            &mut self.pair.left,
-            &mut self.left_done,
-            &mut self.left_last_pulled,
-            self.comparator,
-            "left",
-            "merge",
-            "merge",
-        )
+        self.pair.left.ensure_item(&mut self.left, "merge", "merge")
     }
 
     fn ensure_right_item(&mut self) -> Result<(), InternalError> {
-        ensure_item(
-            &mut self.right,
-            &mut self.pair.right,
-            &mut self.right_done,
-            &mut self.right_last_pulled,
-            self.comparator,
-            "right",
-            "merge",
-            "merge",
-        )
+        self.pair
+            .right
+            .ensure_item(&mut self.right, "merge", "merge")
     }
 }
 
@@ -378,26 +373,26 @@ where
             self.ensure_left_item()?;
             self.ensure_right_item()?;
 
-            if self.pair.left.is_none() && self.pair.right.is_none() {
+            if self.pair.left.item.is_none() && self.pair.right.item.is_none() {
                 return Ok(None);
             }
 
-            let next = match (self.pair.left.as_ref(), self.pair.right.as_ref()) {
+            let next = match (self.pair.left.item.as_ref(), self.pair.right.item.as_ref()) {
                 (Some(left_key), Some(right_key)) => {
                     if left_key == right_key {
-                        self.pair.right = None;
-                        self.pair.left.take()
+                        self.pair.right.item = None;
+                        self.pair.left.take_item()
                     } else {
                         let choose_left = self.comparator.compare(left_key, right_key).is_lt();
                         if choose_left {
-                            self.pair.left.take()
+                            self.pair.left.take_item()
                         } else {
-                            self.pair.right.take()
+                            self.pair.right.take_item()
                         }
                     }
                 }
-                (Some(_), None) => self.pair.left.take(),
-                (None, Some(_)) => self.pair.right.take(),
+                (Some(_), None) => self.pair.left.take_item(),
+                (None, Some(_)) => self.pair.right.take_item(),
                 (None, None) => None,
             };
 
@@ -427,11 +422,7 @@ pub(crate) struct IntersectOrderedKeyStream<A, B> {
     left: A,
     right: B,
     pair: OrderedPairState,
-    left_done: bool,
-    right_done: bool,
     comparator: KeyOrderComparator,
-    left_last_pulled: Option<DataKey>,
-    right_last_pulled: Option<DataKey>,
     last_emitted: Option<DataKey>,
 }
 
@@ -455,40 +446,22 @@ where
         Self {
             left,
             right,
-            pair: OrderedPairState::new(),
-            left_done: false,
-            right_done: false,
+            pair: OrderedPairState::new(comparator.direction()),
             comparator,
-            left_last_pulled: None,
-            right_last_pulled: None,
             last_emitted: None,
         }
     }
 
     fn ensure_left_item(&mut self) -> Result<(), InternalError> {
-        ensure_item(
-            &mut self.left,
-            &mut self.pair.left,
-            &mut self.left_done,
-            &mut self.left_last_pulled,
-            self.comparator,
-            "left",
-            "intersect",
-            "intersection",
-        )
+        self.pair
+            .left
+            .ensure_item(&mut self.left, "intersect", "intersection")
     }
 
     fn ensure_right_item(&mut self) -> Result<(), InternalError> {
-        ensure_item(
-            &mut self.right,
-            &mut self.pair.right,
-            &mut self.right_done,
-            &mut self.right_last_pulled,
-            self.comparator,
-            "right",
-            "intersect",
-            "intersection",
-        )
+        self.pair
+            .right
+            .ensure_item(&mut self.right, "intersect", "intersection")
     }
 }
 
@@ -500,7 +473,7 @@ where
     fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
         loop {
             // Once either child is exhausted, no further intersection output is possible.
-            if self.left_done || self.right_done {
+            if self.pair.left.done || self.pair.right.done {
                 return Ok(None);
             }
 
@@ -509,15 +482,15 @@ where
             self.ensure_right_item()?;
 
             let (Some(left_key), Some(right_key)) =
-                (self.pair.left.as_ref(), self.pair.right.as_ref())
+                (self.pair.left.item.as_ref(), self.pair.right.item.as_ref())
             else {
                 return Ok(None);
             };
 
             if left_key == right_key {
                 let next = left_key.clone();
-                self.pair.left = None;
-                self.pair.right = None;
+                self.pair.left.item = None;
+                self.pair.right.item = None;
 
                 // Defensively suppress duplicate outputs.
                 if self.last_emitted.as_ref().is_some_and(|last| *last == next) {
@@ -530,9 +503,9 @@ where
 
             let advance_left = self.comparator.compare(left_key, right_key).is_lt();
             if advance_left {
-                self.pair.left = None;
+                self.pair.left.item = None;
             } else {
-                self.pair.right = None;
+                self.pair.right.item = None;
             }
         }
     }

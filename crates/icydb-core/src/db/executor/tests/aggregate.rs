@@ -539,6 +539,61 @@ fn aggregate_count_key_range_window_scans_offset_plus_limit() {
 }
 
 #[test]
+fn aggregate_exists_index_range_window_scans_offset_plus_one() {
+    seed_unique_index_range_entities(&[
+        (8691, 100),
+        (8692, 101),
+        (8693, 102),
+        (8694, 103),
+        (8695, 104),
+        (8696, 105),
+    ]);
+    let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+
+    let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
+        crate::db::query::plan::AccessPath::IndexRange {
+            index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            prefix: vec![],
+            lower: std::ops::Bound::Included(Value::Uint(101)),
+            upper: std::ops::Bound::Excluded(Value::Uint(106)),
+        },
+        ReadConsistency::MissingOk,
+    );
+    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+        fields: vec![
+            (
+                "code".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+            (
+                "id".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+        ],
+    });
+    logical_plan.page = Some(crate::db::query::plan::PageSpec {
+        limit: None,
+        offset: 2,
+    });
+    let index_range_plan =
+        crate::db::query::plan::ExecutablePlan::<UniqueIndexRangeEntity>::new(logical_plan);
+
+    let (exists, scanned) = capture_rows_scanned_for_entity(UniqueIndexRangeEntity::PATH, || {
+        load.aggregate_exists(index_range_plan)
+            .expect("index-range EXISTS should succeed")
+    });
+
+    assert!(
+        exists,
+        "index-range EXISTS window should find a matching row"
+    );
+    assert_eq!(
+        scanned, 3,
+        "index-range EXISTS window should scan exactly offset + 1 keys"
+    );
+}
+
+#[test]
 fn aggregate_parity_distinct_asc() {
     seed_simple_entities(&[8301, 8302, 8303, 8304, 8305, 8306]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
@@ -680,6 +735,45 @@ fn aggregate_exists_secondary_index_window_preserves_missing_ok_scan_safety() {
     assert_eq!(
         scanned, 5,
         "secondary-index EXISTS window should keep full prefix scan budget under MissingOk safety"
+    );
+}
+
+#[test]
+fn aggregate_exists_secondary_index_strict_missing_surfaces_corruption_error() {
+    seed_pushdown_entities(&[(8821, 7, 10), (8822, 7, 20), (8823, 7, 30)]);
+    remove_pushdown_row_data(8821);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
+        crate::db::query::plan::AccessPath::IndexPrefix {
+            index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        ReadConsistency::Strict,
+    );
+    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+        fields: vec![
+            (
+                "rank".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+            (
+                "id".to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            ),
+        ],
+    });
+    let strict_plan =
+        crate::db::query::plan::ExecutablePlan::<PushdownParityEntity>::new(logical_plan);
+
+    let err = load
+        .aggregate_exists(strict_plan)
+        .expect_err("strict secondary-index aggregate should fail when row is missing");
+
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Corruption,
+        "strict secondary-index aggregate missing row should classify as corruption"
     );
 }
 

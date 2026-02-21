@@ -27,6 +27,110 @@ pub(crate) struct Context<'a, E: EntityKind + EntityValue> {
     _marker: PhantomData<E>,
 }
 
+///
+/// AccessStreamInputs
+///
+/// Canonical access-stream construction inputs shared across context/composite boundaries.
+/// This bundles spec slices and traversal controls to avoid argument-order drift.
+///
+
+#[derive(Clone, Copy)]
+pub(in crate::db::executor) struct AccessStreamInputs<'ctx, 'a, E: EntityKind + EntityValue> {
+    pub(in crate::db::executor) ctx: &'a Context<'ctx, E>,
+    pub(in crate::db::executor) index_prefix_specs: &'a [IndexPrefixSpec],
+    pub(in crate::db::executor) index_range_specs: &'a [IndexRangeSpec],
+    pub(in crate::db::executor) index_range_anchor: Option<&'a RawIndexKey>,
+    pub(in crate::db::executor) direction: Direction,
+    pub(in crate::db::executor) key_comparator: KeyOrderComparator,
+    pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
+}
+
+impl<'a, E> AccessStreamInputs<'_, 'a, E>
+where
+    E: EntityKind + EntityValue,
+{
+    #[must_use]
+    pub(in crate::db::executor) const fn with_physical_fetch_hint(
+        &self,
+        physical_fetch_hint: Option<usize>,
+    ) -> Self {
+        Self {
+            ctx: self.ctx,
+            index_prefix_specs: self.index_prefix_specs,
+            index_range_specs: self.index_range_specs,
+            index_range_anchor: self.index_range_anchor,
+            direction: self.direction,
+            key_comparator: self.key_comparator,
+            physical_fetch_hint,
+        }
+    }
+
+    #[must_use]
+    fn spec_cursor(&self) -> AccessSpecCursor<'a> {
+        AccessSpecCursor {
+            index_prefix_specs: self.index_prefix_specs.iter(),
+            index_range_specs: self.index_range_specs.iter(),
+        }
+    }
+}
+
+///
+/// AccessSpecCursor
+///
+/// Mutable traversal cursor for index prefix/range specs while walking an access plan.
+/// Keeps consumption order explicit and exposes one end-of-traversal invariant check.
+///
+
+pub(in crate::db::executor) struct AccessSpecCursor<'a> {
+    index_prefix_specs: std::slice::Iter<'a, IndexPrefixSpec>,
+    index_range_specs: std::slice::Iter<'a, IndexRangeSpec>,
+}
+
+impl<'a> AccessSpecCursor<'a> {
+    pub(in crate::db::executor) fn next_index_prefix_spec(
+        &mut self,
+    ) -> Option<&'a IndexPrefixSpec> {
+        self.index_prefix_specs.next()
+    }
+
+    pub(in crate::db::executor) fn next_index_range_spec(&mut self) -> Option<&'a IndexRangeSpec> {
+        self.index_range_specs.next()
+    }
+
+    pub(in crate::db::executor) fn validate_consumed(&mut self) -> Result<(), InternalError> {
+        if self.index_prefix_specs.next().is_some() {
+            return Err(InternalError::query_executor_invariant(
+                "unused index-prefix executable specs after access-plan traversal",
+            ));
+        }
+        if self.index_range_specs.next().is_some() {
+            return Err(InternalError::query_executor_invariant(
+                "unused index-range executable specs after access-plan traversal",
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+///
+/// AccessPlanStreamRequest
+///
+/// Canonical request payload for access-plan key-stream production.
+/// Bundles access path, lowered specs, and traversal controls so call sites
+/// do not pass ordering and spec parameters as loose arguments.
+///
+
+pub(in crate::db::executor) struct AccessPlanStreamRequest<'a, K> {
+    pub(in crate::db::executor) access: &'a AccessPlan<K>,
+    pub(in crate::db::executor) index_prefix_specs: &'a [IndexPrefixSpec],
+    pub(in crate::db::executor) index_range_specs: &'a [IndexRangeSpec],
+    pub(in crate::db::executor) index_range_anchor: Option<&'a RawIndexKey>,
+    pub(in crate::db::executor) direction: Direction,
+    pub(in crate::db::executor) key_comparator: KeyOrderComparator,
+    pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
+}
+
 impl<'a, E> Context<'a, E>
 where
     E: EntityKind + EntityValue,
@@ -120,41 +224,27 @@ where
         )
     }
 
-    #[expect(clippy::too_many_arguments)]
-    pub(in crate::db) fn ordered_key_stream_from_access_plan_with_index_range_anchor(
+    pub(in crate::db::executor) fn ordered_key_stream_from_access_plan_with_index_range_anchor(
         &self,
-        access: &AccessPlan<E::Key>,
-        index_prefix_specs: &[IndexPrefixSpec],
-        index_range_specs: &[IndexRangeSpec],
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-        key_comparator: KeyOrderComparator,
-        physical_fetch_hint: Option<usize>,
+        request: AccessPlanStreamRequest<'_, E::Key>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind,
     {
-        let mut index_prefix_specs = index_prefix_specs.iter();
-        let mut index_range_specs = index_range_specs.iter();
-        let key_stream = access.produce_key_stream(
-            self,
-            &mut index_prefix_specs,
-            &mut index_range_specs,
-            index_range_anchor,
-            direction,
-            key_comparator,
-            physical_fetch_hint,
-        )?;
-        if index_prefix_specs.next().is_some() {
-            return Err(InternalError::query_executor_invariant(
-                "unused index-prefix executable specs after access-plan traversal",
-            ));
-        }
-        if index_range_specs.next().is_some() {
-            return Err(InternalError::query_executor_invariant(
-                "unused index-range executable specs after access-plan traversal",
-            ));
-        }
+        let inputs = AccessStreamInputs {
+            ctx: self,
+            index_prefix_specs: request.index_prefix_specs,
+            index_range_specs: request.index_range_specs,
+            index_range_anchor: request.index_range_anchor,
+            direction: request.direction,
+            key_comparator: request.key_comparator,
+            physical_fetch_hint: request.physical_fetch_hint,
+        };
+        let mut spec_cursor = inputs.spec_cursor();
+        let key_stream = request
+            .access
+            .produce_key_stream(&inputs, &mut spec_cursor)?;
+        spec_cursor.validate_consumed()?;
 
         Ok(key_stream)
     }
@@ -171,15 +261,17 @@ where
     where
         E: EntityKind,
     {
-        let mut key_stream = self.ordered_key_stream_from_access_plan_with_index_range_anchor(
+        let request = AccessPlanStreamRequest {
             access,
             index_prefix_specs,
             index_range_specs,
             index_range_anchor,
             direction,
-            KeyOrderComparator::from_direction(direction),
-            None,
-        )?;
+            key_comparator: KeyOrderComparator::from_direction(direction),
+            physical_fetch_hint: None,
+        };
+        let mut key_stream =
+            self.ordered_key_stream_from_access_plan_with_index_range_anchor(request)?;
 
         self.rows_from_ordered_key_stream(key_stream.as_mut(), consistency)
     }

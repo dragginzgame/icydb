@@ -6,7 +6,7 @@ use crate::{
             route::FastPathPlan,
         },
         executor::plan::set_rows_from_len,
-        executor::{DistinctOrderedKeyStream, OrderedKeyStreamBox},
+        executor::{AccessPlanStreamRequest, DistinctOrderedKeyStream, OrderedKeyStreamBox},
         index::RawIndexKey,
         query::plan::{Direction, IndexPrefixSpec, IndexRangeSpec, LogicalPlan},
     },
@@ -95,17 +95,21 @@ where
             },
             FastPathDecision::None => {
                 // Phase 2: resolve canonical fallback access stream.
+                let stream_request = AccessPlanStreamRequest {
+                    access: &inputs.plan.access,
+                    index_prefix_specs: inputs.index_prefix_specs,
+                    index_range_specs: inputs.index_range_specs,
+                    index_range_anchor: inputs.index_range_anchor,
+                    direction: inputs.direction,
+                    key_comparator: super::key_stream_comparator_from_plan(
+                        inputs.plan,
+                        inputs.direction,
+                    ),
+                    physical_fetch_hint: fast_path_plan.probe_fetch_hint,
+                };
                 let key_stream = inputs
                     .ctx
-                    .ordered_key_stream_from_access_plan_with_index_range_anchor(
-                        &inputs.plan.access,
-                        inputs.index_prefix_specs,
-                        inputs.index_range_specs,
-                        inputs.index_range_anchor,
-                        inputs.direction,
-                        super::key_stream_comparator_from_plan(inputs.plan, inputs.direction),
-                        fast_path_plan.probe_fetch_hint,
-                    )?;
+                    .ordered_key_stream_from_access_plan_with_index_range_anchor(stream_request)?;
 
                 ResolvedExecutionKeyStream {
                     key_stream,

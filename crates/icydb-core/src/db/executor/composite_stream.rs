@@ -1,11 +1,10 @@
 use crate::{
     db::{
         executor::{
-            Context, IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
+            AccessSpecCursor, AccessStreamInputs, IntersectOrderedKeyStream, MergeOrderedKeyStream,
             OrderedKeyStreamBox, VecOrderedKeyStream,
         },
-        index::RawIndexKey,
-        query::plan::{AccessPath, AccessPlan, Direction, IndexPrefixSpec, IndexRangeSpec},
+        query::plan::{AccessPath, AccessPlan, IndexPrefixSpec, IndexRangeSpec},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -45,14 +44,10 @@ impl<K> AccessPlan<K> {
     }
 
     // Collect one child key stream for each child access plan.
-    fn collect_child_key_streams<E>(
-        ctx: &Context<'_, E>,
+    fn collect_child_key_streams<'a, E>(
         children: &[Self],
-        index_prefix_specs: &mut std::slice::Iter<'_, IndexPrefixSpec>,
-        index_range_specs: &mut std::slice::Iter<'_, IndexRangeSpec>,
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-        key_comparator: KeyOrderComparator,
+        inputs: &AccessStreamInputs<'_, 'a, E>,
+        spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<Vec<OrderedKeyStreamBox>, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
@@ -60,15 +55,9 @@ impl<K> AccessPlan<K> {
     {
         let mut streams = Vec::with_capacity(children.len());
         for child in children {
-            streams.push(child.produce_key_stream(
-                ctx,
-                index_prefix_specs,
-                index_range_specs,
-                index_range_anchor,
-                direction,
-                key_comparator,
-                None,
-            )?);
+            // Composite plans never need physical fetch-hint expansion on child lookups.
+            let child_inputs = inputs.with_physical_fetch_hint(None);
+            streams.push(child.produce_key_stream(&child_inputs, spec_cursor)?);
         }
 
         Ok(streams)
@@ -110,16 +99,10 @@ impl<K> AccessPlan<K> {
     }
 
     // Build an ordered key stream for this access plan.
-    #[expect(clippy::too_many_arguments)]
-    pub(super) fn produce_key_stream<E>(
+    pub(super) fn produce_key_stream<'a, E>(
         &self,
-        ctx: &Context<'_, E>,
-        index_prefix_specs: &mut std::slice::Iter<'_, IndexPrefixSpec>,
-        index_range_specs: &mut std::slice::Iter<'_, IndexRangeSpec>,
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-        key_comparator: KeyOrderComparator,
-        physical_fetch_hint: Option<usize>,
+        inputs: &AccessStreamInputs<'_, 'a, E>,
+        spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
@@ -128,71 +111,48 @@ impl<K> AccessPlan<K> {
         match self {
             Self::Path(path) => {
                 let index_prefix_spec = if matches!(path.as_ref(), AccessPath::IndexPrefix { .. }) {
-                    index_prefix_specs.next()
+                    spec_cursor.next_index_prefix_spec()
                 } else {
                     None
                 };
                 let index_range_spec = if matches!(path.as_ref(), AccessPath::IndexRange { .. }) {
-                    index_range_specs.next()
+                    spec_cursor.next_index_range_spec()
                 } else {
                     None
                 };
                 Self::validate_index_prefix_spec_alignment(path.as_ref(), index_prefix_spec)?;
                 Self::validate_index_range_spec_alignment(path.as_ref(), index_range_spec)?;
 
-                ctx.ordered_key_stream_from_access_with_index_range_anchor(
-                    path,
-                    index_prefix_spec,
-                    index_range_spec,
-                    index_range_anchor,
-                    direction,
-                    physical_fetch_hint,
-                )
+                inputs
+                    .ctx
+                    .ordered_key_stream_from_access_with_index_range_anchor(
+                        path,
+                        index_prefix_spec,
+                        index_range_spec,
+                        inputs.index_range_anchor,
+                        inputs.direction,
+                        inputs.physical_fetch_hint,
+                    )
             }
-            Self::Union(children) => Self::produce_union_key_stream(
-                ctx,
-                children,
-                index_prefix_specs,
-                index_range_specs,
-                index_range_anchor,
-                direction,
-                key_comparator,
-            ),
-            Self::Intersection(children) => Self::produce_intersection_key_stream(
-                ctx,
-                children,
-                index_prefix_specs,
-                index_range_specs,
-                index_range_anchor,
-                direction,
-                key_comparator,
-            ),
+            Self::Union(children) => Self::produce_union_key_stream(children, inputs, spec_cursor),
+            Self::Intersection(children) => {
+                Self::produce_intersection_key_stream(children, inputs, spec_cursor)
+            }
         }
     }
 
     // Build one canonical stream for a union by pairwise-merging child streams.
-    fn produce_union_key_stream<E>(
-        ctx: &Context<'_, E>,
+    fn produce_union_key_stream<'a, E>(
         children: &[Self],
-        index_prefix_specs: &mut std::slice::Iter<'_, IndexPrefixSpec>,
-        index_range_specs: &mut std::slice::Iter<'_, IndexRangeSpec>,
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-        key_comparator: KeyOrderComparator,
+        inputs: &AccessStreamInputs<'_, 'a, E>,
+        spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
-        let streams = Self::collect_child_key_streams(
-            ctx,
-            children,
-            index_prefix_specs,
-            index_range_specs,
-            index_range_anchor,
-            direction,
-            key_comparator,
-        )?;
+        let streams = Self::collect_child_key_streams(children, inputs, spec_cursor)?;
+        let key_comparator = inputs.key_comparator;
 
         Ok(Self::reduce_key_streams(streams, |left, right| {
             Box::new(MergeOrderedKeyStream::new_with_comparator(
@@ -204,28 +164,17 @@ impl<K> AccessPlan<K> {
     }
 
     // Build one canonical stream for an intersection by pairwise-intersecting child streams.
-    fn produce_intersection_key_stream<E>(
-        ctx: &Context<'_, E>,
+    fn produce_intersection_key_stream<'a, E>(
         children: &[Self],
-        index_prefix_specs: &mut std::slice::Iter<'_, IndexPrefixSpec>,
-        index_range_specs: &mut std::slice::Iter<'_, IndexRangeSpec>,
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-        key_comparator: KeyOrderComparator,
+        inputs: &AccessStreamInputs<'_, 'a, E>,
+        spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
         K: Copy,
     {
-        let streams = Self::collect_child_key_streams(
-            ctx,
-            children,
-            index_prefix_specs,
-            index_range_specs,
-            index_range_anchor,
-            direction,
-            key_comparator,
-        )?;
+        let streams = Self::collect_child_key_streams(children, inputs, spec_cursor)?;
+        let key_comparator = inputs.key_comparator;
 
         Ok(Self::reduce_key_streams(streams, |left, right| {
             Box::new(IntersectOrderedKeyStream::new_with_comparator(
