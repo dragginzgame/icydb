@@ -44,6 +44,17 @@ pub struct Int(WrappedInt);
 
 impl Int {
     #[must_use]
+    /// Return sign and base-2^32 magnitude limbs for decimal key encoding.
+    ///
+    /// This allocates for the returned limb vector.
+    pub(crate) fn sign_and_u32_digits(&self) -> (bool, Vec<u32>) {
+        (
+            self.0.0.cmp(&0.into()).is_lt(),
+            self.0.0.magnitude().to_u32_digits(),
+        )
+    }
+
+    #[must_use]
     pub fn to_i128(&self) -> Option<i128> {
         let big = &self.0.0;
 

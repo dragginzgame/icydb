@@ -270,21 +270,16 @@ fn encode_value_key(out: &mut Vec<u8>, value: &Value) {
             out.extend_from_slice(&v.get().to_be_bytes());
         }
         Value::Decimal(v) => {
-            out.push(u8::from(v.is_sign_negative()));
-            out.extend_from_slice(&v.scale().to_be_bytes());
-            out.extend_from_slice(&v.mantissa().to_be_bytes());
+            let normalized = v.normalize();
+            out.push(u8::from(normalized.is_sign_negative()));
+            out.extend_from_slice(&normalized.scale().to_be_bytes());
+            out.extend_from_slice(&normalized.mantissa().to_be_bytes());
         }
         Value::Duration(v) => {
             out.extend_from_slice(&v.as_millis().to_be_bytes());
         }
         Value::Enum(v) => {
             push_enum(out, v);
-        }
-        Value::E8s(v) => {
-            out.extend_from_slice(&v.get().to_be_bytes());
-        }
-        Value::E18s(v) => {
-            out.extend_from_slice(&v.get().to_be_bytes());
         }
         Value::Float32(v) => {
             out.extend_from_slice(&v.to_be_bytes());
@@ -422,7 +417,7 @@ fn push_str(out: &mut Vec<u8>, s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::query::predicate::CompareOp;
+    use crate::{db::query::predicate::CompareOp, types::Decimal};
 
     #[test]
     fn sort_key_distinguishes_list_text_with_delimiters() {
@@ -443,5 +438,23 @@ mod tests {
         });
 
         assert_ne!(sort_key(&left), sort_key(&right));
+    }
+
+    #[test]
+    fn sort_key_normalizes_decimal_literals() {
+        let left = Predicate::Compare(ComparePredicate {
+            field: "field".to_string(),
+            op: CompareOp::Eq,
+            value: Value::Decimal(Decimal::new(1, 0)),
+            coercion: CoercionSpec::default(),
+        });
+        let right = Predicate::Compare(ComparePredicate {
+            field: "field".to_string(),
+            op: CompareOp::Eq,
+            value: Value::Decimal(Decimal::new(10, 1)),
+            coercion: CoercionSpec::default(),
+        });
+
+        assert_eq!(sort_key(&left), sort_key(&right));
     }
 }

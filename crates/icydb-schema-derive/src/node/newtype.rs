@@ -177,15 +177,13 @@ mod tests {
     use super::Newtype;
     use crate::prelude::*;
 
-    const ALL_PRIMITIVES: [Primitive; 28] = [
+    const ALL_PRIMITIVES: [Primitive; 26] = [
         Primitive::Account,
         Primitive::Blob,
         Primitive::Bool,
         Primitive::Date,
         Primitive::Decimal,
         Primitive::Duration,
-        Primitive::E8s,
-        Primitive::E18s,
         Primitive::Float32,
         Primitive::Float64,
         Primitive::Int,

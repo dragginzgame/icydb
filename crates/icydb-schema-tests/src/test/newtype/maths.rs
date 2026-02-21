@@ -19,10 +19,12 @@
 #[cfg(test)]
 mod test {
     use crate::test::newtype::*;
+    use icydb::types::Decimal;
     use std::{
         fmt::Debug,
         iter::Sum,
         ops::{Add, AddAssign, Mul, MulAssign, Rem, Sub, SubAssign},
+        str::FromStr,
     };
 
     /// -------------------------
@@ -89,6 +91,10 @@ mod test {
         assert_eq!(s, expected);
     }
 
+    fn dec(value: &str) -> Decimal {
+        Decimal::from_str(value).expect("valid decimal literal")
+    }
+
     #[test]
     fn int32_math() {
         let a = Int32N::from(10);
@@ -149,45 +155,33 @@ mod test {
     }
 
     /// -------------------------
-    /// Fixed-point: E8s
+    /// Fixed-point compatibility: scale 8 decimal values
     /// -------------------------
 
     #[test]
-    fn e8s_math() {
-        // 1.0 and 2.0 in E8s
-        let one = E8sN::from(100_000_000u64);
-        let two = E8sN::from(200_000_000u64);
+    fn decimal_scale_8_math() {
+        let one = DecimalN::from(dec("1.00000000"));
+        let two = DecimalN::from(dec("2.00000000"));
 
-        // addition is raw
-        assert_add(one, two, E8sN::from(300_000_000u64));
-
-        // subtraction is raw
-        assert_sub(two, one, E8sN::from(100_000_000u64));
-
-        // multiplication rescales
-        // 1.0 * 2.0 = 2.0
-        assert_mul(one, two, E8sN::from(200_000_000u64));
-
-        // sum should be raw add
-        assert_sum(&[one, two], E8sN::from(300_000_000u64));
+        assert_add(one, two, DecimalN::from(dec("3.00000000")));
+        assert_sub(two, one, DecimalN::from(dec("1.00000000")));
+        assert_mul(one, two, DecimalN::from(dec("2.00000000")));
+        assert_sum(&[one, two], DecimalN::from(dec("3.00000000")));
     }
 
     /// -------------------------
-    /// Fixed-point: E18s
+    /// Fixed-point compatibility: scale 18 decimal values
     /// -------------------------
 
     #[test]
-    fn e18s_math() {
-        let one = E18sN::from(1_000_000_000_000_000_000u128);
-        let two = E18sN::from(2_000_000_000_000_000_000u128);
+    fn decimal_scale_18_math() {
+        let one = DecimalN::from(dec("1.000000000000000000"));
+        let two = DecimalN::from(dec("2.000000000000000000"));
 
-        assert_add(one, two, E18sN::from(3_000_000_000_000_000_000u128));
-        assert_sub(two, one, E18sN::from(1_000_000_000_000_000_000u128));
-
-        // scaled multiplication
-        assert_mul(one, two, E18sN::from(2_000_000_000_000_000_000u128));
-
-        assert_sum(&[one, two], E18sN::from(3_000_000_000_000_000_000u128));
+        assert_add(one, two, DecimalN::from(dec("3.000000000000000000")));
+        assert_sub(two, one, DecimalN::from(dec("1.000000000000000000")));
+        assert_mul(one, two, DecimalN::from(dec("2.000000000000000000")));
+        assert_sum(&[one, two], DecimalN::from(dec("3.000000000000000000")));
     }
 
     /// -------------------------

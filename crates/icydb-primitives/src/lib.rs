@@ -16,8 +16,6 @@ pub enum ScalarKind {
     Decimal,
     Duration,
     Enum,
-    E8s,
-    E18s,
     Float32,
     Float64,
     Int,
@@ -127,4 +125,4 @@ pub enum ScalarCoercionFamily {
 }
 
 /// Ordered list of all scalar kinds in registry order.
-pub const ALL_SCALAR_KINDS: [ScalarKind; 23] = scalar_kind_registry!(all_kinds_from_registry);
+pub const ALL_SCALAR_KINDS: [ScalarKind; 21] = scalar_kind_registry!(all_kinds_from_registry);

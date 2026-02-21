@@ -91,12 +91,6 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
                 None => feed_u8(h, 0x00),
             }
         }
-        Value::E8s(v) => {
-            feed_u64(h, v.get());
-        }
-        Value::E18s(v) => {
-            feed_bytes(h, &v.to_be_bytes());
-        }
         Value::Float32(v) => {
             feed_bytes(h, &v.to_be_bytes());
         }

@@ -84,28 +84,6 @@ macro_rules! scalar_kind_registry_entries {
                 is_storage_key_encodable = false
             ),
             (
-                E8s,
-                Numeric,
-                is_numeric_value = true,
-                supports_numeric_coercion = true,
-                supports_arithmetic = true,
-                supports_equality = true,
-                supports_ordering = true,
-                is_keyable = false,
-                is_storage_key_encodable = false
-            ),
-            (
-                E18s,
-                Numeric,
-                is_numeric_value = true,
-                supports_numeric_coercion = true,
-                supports_arithmetic = true,
-                supports_equality = true,
-                supports_ordering = true,
-                is_keyable = false,
-                is_storage_key_encodable = false
-            ),
-            (
                 Float32,
                 Numeric,
                 is_numeric_value = true,

@@ -45,14 +45,15 @@ pub enum FieldKind {
     Blob,
     Bool,
     Date,
-    Decimal,
+    Decimal {
+        /// Optional schema-declared fractional scale for decimal fields.
+        scale: Option<u32>,
+    },
     Duration,
     Enum {
         /// Fully-qualified enum type path used for strict filter normalization.
         path: &'static str,
     },
-    E8s,
-    E18s,
     Float32,
     Float64,
     Int,
@@ -108,11 +109,8 @@ impl FieldKind {
             | Self::Blob
             | Self::Bool
             | Self::Date
-            | Self::Decimal
             | Self::Duration
             | Self::Enum { .. }
-            | Self::E8s
-            | Self::E18s
             | Self::Float32
             | Self::Float64
             | Self::Int
@@ -127,6 +125,7 @@ impl FieldKind {
             | Self::UintBig
             | Self::Ulid
             | Self::Unit
+            | Self::Decimal { .. }
             | Self::Relation { .. } => FieldValueKind::Atomic,
             Self::List(_) | Self::Set(_) => FieldValueKind::Structured { queryable: true },
             Self::Map { .. } => FieldValueKind::Structured { queryable: false },

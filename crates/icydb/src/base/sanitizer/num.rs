@@ -1,4 +1,5 @@
 use crate::{
+    base::helper::decimal_cast::try_cast_decimal,
     design::prelude::*,
     traits::{NumCast, Sanitizer},
 };
@@ -16,8 +17,8 @@ pub struct Clamp {
 
 impl Clamp {
     pub fn new<N: NumCast + Clone>(min: N, max: N) -> Self {
-        let min = <Decimal as NumCast>::from(min).unwrap_or_default();
-        let max = <Decimal as NumCast>::from(max).unwrap_or_default();
+        let min = try_cast_decimal(&min).unwrap_or_default();
+        let max = try_cast_decimal(&max).unwrap_or_default();
 
         Self { min, max }
     }
@@ -32,7 +33,7 @@ impl<T: NumCast + Clone> Sanitizer<T> for Clamp {
             ));
         }
 
-        let v = <Decimal as NumCast>::from(value.clone()).ok_or_else(|| {
+        let v = try_cast_decimal(value).ok_or_else(|| {
             format!(
                 "value of type {} cannot be represented as Decimal",
                 type_name::<T>()

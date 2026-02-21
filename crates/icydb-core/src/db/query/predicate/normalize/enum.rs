@@ -151,10 +151,8 @@ fn normalize_value_for_kind(
         | FieldKind::Blob
         | FieldKind::Bool
         | FieldKind::Date
-        | FieldKind::Decimal
+        | FieldKind::Decimal { .. }
         | FieldKind::Duration
-        | FieldKind::E8s
-        | FieldKind::E18s
         | FieldKind::Float32
         | FieldKind::Float64
         | FieldKind::Int

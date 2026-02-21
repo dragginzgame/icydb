@@ -14,8 +14,8 @@ use crate::{
     test_support::InvalidEntityModelBuilder,
     traits::{EntitySchema, FieldValue},
     types::{
-        Account, Date, Decimal, Duration, E8s, E18s, Float32, Float64, Int, Int128, Nat, Nat128,
-        Principal, Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
+        Subaccount, Timestamp, Ulid,
     },
     value::{CoercionFamily, Value, ValueEnum},
 };
@@ -38,7 +38,7 @@ fn registry_scalars() -> Vec<ScalarType> {
 }
 
 /// Returns the total count of ScalarType variants.
-const SCALAR_TYPE_VARIANT_COUNT: usize = 23;
+const SCALAR_TYPE_VARIANT_COUNT: usize = 21;
 
 /// Map each ScalarType variant to a stable index.
 fn scalar_index(scalar: ScalarType) -> usize {
@@ -50,22 +50,20 @@ fn scalar_index(scalar: ScalarType) -> usize {
         ScalarType::Decimal => 4,
         ScalarType::Duration => 5,
         ScalarType::Enum => 6,
-        ScalarType::E8s => 7,
-        ScalarType::E18s => 8,
-        ScalarType::Float32 => 9,
-        ScalarType::Float64 => 10,
-        ScalarType::Int => 11,
-        ScalarType::Int128 => 12,
-        ScalarType::IntBig => 13,
-        ScalarType::Principal => 14,
-        ScalarType::Subaccount => 15,
-        ScalarType::Text => 16,
-        ScalarType::Timestamp => 17,
-        ScalarType::Uint => 18,
-        ScalarType::Uint128 => 19,
-        ScalarType::UintBig => 20,
-        ScalarType::Ulid => 21,
-        ScalarType::Unit => 22,
+        ScalarType::Float32 => 7,
+        ScalarType::Float64 => 8,
+        ScalarType::Int => 9,
+        ScalarType::Int128 => 10,
+        ScalarType::IntBig => 11,
+        ScalarType::Principal => 12,
+        ScalarType::Subaccount => 13,
+        ScalarType::Text => 14,
+        ScalarType::Timestamp => 15,
+        ScalarType::Uint => 16,
+        ScalarType::Uint128 => 17,
+        ScalarType::UintBig => 18,
+        ScalarType::Ulid => 19,
+        ScalarType::Unit => 20,
     }
 }
 
@@ -79,22 +77,20 @@ fn scalar_from_index(index: usize) -> Option<ScalarType> {
         4 => ScalarType::Decimal,
         5 => ScalarType::Duration,
         6 => ScalarType::Enum,
-        7 => ScalarType::E8s,
-        8 => ScalarType::E18s,
-        9 => ScalarType::Float32,
-        10 => ScalarType::Float64,
-        11 => ScalarType::Int,
-        12 => ScalarType::Int128,
-        13 => ScalarType::IntBig,
-        14 => ScalarType::Principal,
-        15 => ScalarType::Subaccount,
-        16 => ScalarType::Text,
-        17 => ScalarType::Timestamp,
-        18 => ScalarType::Uint,
-        19 => ScalarType::Uint128,
-        20 => ScalarType::UintBig,
-        21 => ScalarType::Ulid,
-        22 => ScalarType::Unit,
+        7 => ScalarType::Float32,
+        8 => ScalarType::Float64,
+        9 => ScalarType::Int,
+        10 => ScalarType::Int128,
+        11 => ScalarType::IntBig,
+        12 => ScalarType::Principal,
+        13 => ScalarType::Subaccount,
+        14 => ScalarType::Text,
+        15 => ScalarType::Timestamp,
+        16 => ScalarType::Uint,
+        17 => ScalarType::Uint128,
+        18 => ScalarType::UintBig,
+        19 => ScalarType::Ulid,
+        20 => ScalarType::Unit,
         _ => return None,
     };
 
@@ -111,8 +107,6 @@ fn sample_value_for_scalar(scalar: ScalarType) -> Value {
         ScalarType::Decimal => Value::Decimal(Decimal::ZERO),
         ScalarType::Duration => Value::Duration(Duration::ZERO),
         ScalarType::Enum => Value::Enum(ValueEnum::loose("example")),
-        ScalarType::E8s => Value::E8s(E8s::from_atomic(0)),
-        ScalarType::E18s => Value::E18s(E18s::from_atomic(0)),
         ScalarType::Float32 => {
             Value::Float32(Float32::try_new(0.0).expect("Float32 sample should be finite"))
         }
@@ -188,8 +182,8 @@ crate::test_entity! {
         ("uint_big", FieldKind::UintBig),
         ("int_small", FieldKind::Int),
         ("uint_small", FieldKind::Uint),
-        ("decimal", FieldKind::Decimal),
-        ("e8s", FieldKind::E8s),
+        ("decimal", FieldKind::Decimal { scale: None }),
+        ("decimal_scaled", FieldKind::Decimal { scale: Some(8) }),
     ],
     indexes = [],
 }
@@ -295,7 +289,7 @@ fn validate_model_accepts_numeric_widen_for_registry_allowed_scalars() {
         FieldRef::new("int_small").lt(9u64),
         FieldRef::new("uint_small").lt(9i64),
         FieldRef::new("decimal").lt(9u64),
-        FieldRef::new("e8s").lt(9u64),
+        FieldRef::new("decimal_scaled").lt(9u64),
     ]);
 
     assert!(validate_model(model, &predicate).is_ok());

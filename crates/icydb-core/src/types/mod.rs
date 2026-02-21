@@ -3,8 +3,6 @@ mod blob;
 mod date;
 mod decimal;
 mod duration;
-mod e18s;
-mod e8s;
 mod float;
 mod identity;
 mod int;
@@ -21,8 +19,6 @@ pub use blob::*;
 pub use date::*;
 pub use decimal::*;
 pub use duration::*;
-pub use e8s::*;
-pub use e18s::*;
 pub use float::*;
 pub use identity::*;
 pub use int::*;
@@ -39,8 +35,6 @@ pub use unit::*;
 //
 // - Float32: view = f32 (sanitized; finite only, -0.0 → 0.0)
 // - Float64: view = f64 (sanitized; finite only, -0.0 → 0.0)
-// - E8s:     view = u64 (raw atomics)
-// - E18s:    view = u128 (raw atomics)
 // - Timestamp, Principal, Ulid, Blob, Decimal, Nat, Int, Unit: view = Self
 //
 // Notes

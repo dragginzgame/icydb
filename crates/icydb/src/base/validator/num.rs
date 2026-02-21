@@ -1,16 +1,13 @@
 use crate::{
+    base::helper::decimal_cast::try_cast_decimal,
     design::prelude::*,
     traits::{NumCast, Validator},
 };
 use std::any::type_name;
 
-// ============================================================================
-// Helpers
-// ============================================================================
-
 /// Convert a numeric value into Decimal during *configuration* time.
 fn cast_decimal_cfg<N: NumCast + Clone>(value: &N) -> Decimal {
-    <Decimal as NumCast>::from(value.clone()).unwrap_or_default()
+    try_cast_decimal(value).unwrap_or_default()
 }
 
 /// Convert a numeric value into Decimal during *validation* time.
@@ -18,7 +15,7 @@ fn cast_decimal_val<N: NumCast + Clone>(
     value: &N,
     ctx: &mut dyn VisitorContext,
 ) -> Option<Decimal> {
-    <Decimal as NumCast>::from(value.clone()).or_else(|| {
+    try_cast_decimal(value).or_else(|| {
         ctx.issue(format!(
             "value of type {} cannot be represented as Decimal",
             type_name::<N>()

@@ -12,6 +12,9 @@ pub struct Item {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relation: Option<&'static str>,
 
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<u32>,
+
     #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
     pub validators: &'static [TypeValidator],
 
@@ -55,13 +58,16 @@ impl ValidateNode for Item {
                     if let Some(primary_field) = entity.get_pk_field() {
                         let relation_target = &primary_field.value.item.target;
 
-                        // Step 3: Compare to self.target()
-                        if &self.target != relation_target {
+                        // Step 3: Compare declared item target and decimal-scale metadata.
+                        let relation_scale = primary_field.value.item.scale;
+                        if &self.target != relation_target || self.scale != relation_scale {
                             err!(
                                 errs,
-                                "relation target type mismatch: expected {:?}, found {:?}",
+                                "relation target type mismatch: expected ({:?}, scale={:?}), found ({:?}, scale={:?})",
                                 relation_target,
-                                self.target
+                                relation_scale,
+                                self.target,
+                                self.scale
                             );
                         }
                     } else {

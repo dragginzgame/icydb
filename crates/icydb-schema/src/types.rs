@@ -50,8 +50,6 @@ pub enum Primitive {
     Date,
     Decimal,
     Duration,
-    E8s,
-    E18s,
     Float32,
     Float64,
     Int,
@@ -82,8 +80,6 @@ const fn primitive_scalar_kind(primitive: Primitive) -> ScalarKind {
         Primitive::Date => ScalarKind::Date,
         Primitive::Decimal => ScalarKind::Decimal,
         Primitive::Duration => ScalarKind::Duration,
-        Primitive::E8s => ScalarKind::E8s,
-        Primitive::E18s => ScalarKind::E18s,
         Primitive::Float32 => ScalarKind::Float32,
         Primitive::Float64 => ScalarKind::Float64,
         Primitive::Int => ScalarKind::IntBig,
@@ -150,8 +146,6 @@ impl Primitive {
             Self::Date
                 | Self::Decimal
                 | Self::Duration
-                | Self::E8s
-                | Self::E18s
                 | Self::Int8
                 | Self::Int16
                 | Self::Int32
@@ -182,10 +176,10 @@ impl Primitive {
     }
 
     // is_numeric
-    // Includes ints, floats, fixed‑point (E8s/E18s), and Decimal.
+    // Includes ints, floats, and Decimal.
     #[must_use]
     pub const fn is_numeric(self) -> bool {
-        self.is_int() || self.is_float() || self.is_fixed_point() || self.is_decimal()
+        self.is_int() || self.is_float() || self.is_decimal()
     }
 
     #[must_use]
@@ -215,11 +209,6 @@ impl Primitive {
     }
 
     #[must_use]
-    pub const fn is_fixed_point(self) -> bool {
-        matches!(self, Self::E8s | Self::E18s)
-    }
-
-    #[must_use]
     pub fn as_type(self) -> TokenStream {
         let ident = format_ident!("{self}");
 
@@ -232,7 +221,6 @@ impl Primitive {
     ///
     pub fn num_cast_fn(self) -> Result<&'static str, darling::Error> {
         match self {
-            Self::E18s => Ok("u128"),
             Self::Float32 => Ok("f32"),
             Self::Float64 | Self::Decimal => Ok("f64"),
             Self::Int8 => Ok("i8"),
@@ -242,7 +230,7 @@ impl Primitive {
             Self::Nat8 => Ok("u8"),
             Self::Nat16 => Ok("u16"),
             Self::Nat32 => Ok("u32"),
-            Self::Nat64 | Self::Duration | Self::E8s | Self::Timestamp => Ok("u64"),
+            Self::Nat64 | Self::Duration | Self::Timestamp => Ok("u64"),
             _ => Err(darling::Error::custom(format!(
                 "numeric cast is unsupported for primitive {self}"
             ))),

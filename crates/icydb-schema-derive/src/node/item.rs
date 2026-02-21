@@ -12,6 +12,9 @@ pub struct Item {
     #[darling(default, rename = "prim")]
     pub primitive: Option<Primitive>,
 
+    #[darling(default)]
+    pub scale: Option<u32>,
+
     #[darling(default, rename = "rel")]
     pub relation: Option<Path>,
 
@@ -69,6 +72,13 @@ impl Item {
             return Err(
                 DarlingError::custom("relations cannot be set to indirect").with_span(relation)
             );
+        }
+
+        // Phase 4: validate decimal-only scale metadata.
+        if self.scale.is_some() && !matches!(self.primitive, Some(Primitive::Decimal)) {
+            return Err(DarlingError::custom(
+                "scale may only be used with prim = \"Decimal\"",
+            ));
         }
 
         Ok(())
@@ -141,6 +151,7 @@ impl HasSchemaPart for Item {
     fn schema_part(&self) -> TokenStream {
         let target = self.target().schema_part();
         let relation = quote_option(self.relation.as_ref(), to_path);
+        let scale = quote_option(self.scale.as_ref(), |scale| quote!(#scale));
         let validators = quote_slice(&self.validators, TypeValidator::schema_part);
         let sanitizers = quote_slice(&self.sanitizers, TypeSanitizer::schema_part);
         let indirect = self.indirect;
@@ -149,6 +160,7 @@ impl HasSchemaPart for Item {
             ::icydb::schema::node::Item {
                 target: #target,
                 relation: #relation,
+                scale: #scale,
                 validators: #validators,
                 sanitizers: #sanitizers,
                 indirect: #indirect,
@@ -205,5 +217,47 @@ impl HasTypeExpr for ItemTarget {
                 quote!(#ty)
             }
         }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::Item;
+    use icydb_schema::types::Primitive;
+
+    #[test]
+    fn validate_accepts_scale_for_decimal_primitive() {
+        let item = Item {
+            primitive: Some(Primitive::Decimal),
+            scale: Some(8),
+            ..Item::default()
+        };
+
+        assert!(item.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_scale_for_non_decimal_primitive() {
+        let item = Item {
+            primitive: Some(Primitive::Nat64),
+            scale: Some(8),
+            ..Item::default()
+        };
+
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_scale_without_declared_primitive() {
+        let item = Item {
+            scale: Some(8),
+            ..Item::default()
+        };
+
+        assert!(item.validate().is_err());
     }
 }

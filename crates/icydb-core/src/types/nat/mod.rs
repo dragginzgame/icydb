@@ -44,6 +44,14 @@ pub struct Nat(WrappedNat);
 
 impl Nat {
     #[must_use]
+    /// Return base-2^32 limbs for decimal key encoding.
+    ///
+    /// This allocates for the returned limb vector.
+    pub(crate) fn u32_digits(&self) -> Vec<u32> {
+        self.0.0.to_u32_digits()
+    }
+
+    #[must_use]
     pub fn to_u128(&self) -> Option<u128> {
         let big = &self.0.0;
 

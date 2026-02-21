@@ -55,12 +55,6 @@ macro_rules! scalar_registry_value_pat {
     (Enum) => {
         $crate::value::Value::Enum(_)
     };
-    (E8s) => {
-        $crate::value::Value::E8s(_)
-    };
-    (E18s) => {
-        $crate::value::Value::E18s(_)
-    };
     (Float32) => {
         $crate::value::Value::Float32(_)
     };

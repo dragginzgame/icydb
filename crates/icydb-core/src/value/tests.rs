@@ -3,12 +3,12 @@ use crate::{
     serialize::{deserialize, serialize},
     traits::NumFromPrimitive,
     types::{
-        Account, Date, Decimal, Duration, E8s, E18s, Float32 as F32, Float64 as F64, Int, Int128,
-        Nat, Nat128, Principal, Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32 as F32, Float64 as F64, Int, Int128, Nat, Nat128,
+        Principal, Subaccount, Timestamp, Ulid,
     },
     value::{CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum},
 };
-use std::{cmp::Ordering, str::FromStr};
+use std::cmp::Ordering;
 
 // ---- helpers -----------------------------------------------------------
 
@@ -52,12 +52,6 @@ macro_rules! sample_value_for_scalar {
     };
     (Enum) => {
         Value::Enum(ValueEnum::loose("example"))
-    };
-    (E8s) => {
-        Value::E8s(E8s::from_atomic(1))
-    };
-    (E18s) => {
-        Value::E18s(E18s::from_atomic(1))
     };
     (Float32) => {
         Value::Float32(F32::try_new(1.25).expect("Float32 sample should be finite"))
@@ -220,34 +214,32 @@ fn canonical_tag_and_rank_are_stable() {
         (Value::Decimal(Decimal::new(123, 2)), 5),
         (Value::Duration(Duration::from_secs(1)), 6),
         (Value::Enum(ValueEnum::loose("example")), 7),
-        (Value::E8s(E8s::from_atomic(1)), 8),
-        (Value::E18s(E18s::from_atomic(1)), 9),
         (
             Value::Float32(F32::try_new(1.25).expect("Float32 sample should be finite")),
-            10,
+            8,
         ),
         (
             Value::Float64(F64::try_new(2.5).expect("Float64 sample should be finite")),
-            11,
+            9,
         ),
-        (Value::Int(-7), 12),
-        (Value::Int128(Int128::from(123i128)), 13),
-        (Value::IntBig(Int::from(99i32)), 14),
-        (list, 15),
-        (map, 16),
-        (Value::Null, 17),
+        (Value::Int(-7), 10),
+        (Value::Int128(Int128::from(123i128)), 11),
+        (Value::IntBig(Int::from(99i32)), 12),
+        (list, 13),
+        (map, 14),
+        (Value::Null, 15),
         (
             Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
-            18,
+            16,
         ),
-        (Value::Subaccount(Subaccount::new([1u8; 32])), 19),
-        (Value::Text("example".to_string()), 20),
-        (Value::Timestamp(Timestamp::from_secs(1)), 21),
-        (Value::Uint(7), 22),
-        (Value::Uint128(Nat128::from(9u128)), 23),
-        (Value::UintBig(Nat::from(11u64)), 24),
-        (Value::Ulid(Ulid::from_u128(42)), 25),
-        (Value::Unit, 26),
+        (Value::Subaccount(Subaccount::new([1u8; 32])), 17),
+        (Value::Text("example".to_string()), 18),
+        (Value::Timestamp(Timestamp::from_secs(1)), 19),
+        (Value::Uint(7), 20),
+        (Value::Uint128(Nat128::from(9u128)), 21),
+        (Value::UintBig(Nat::from(11u64)), 22),
+        (Value::Ulid(Ulid::from_u128(42)), 23),
+        (Value::Unit, 24),
     ];
 
     for (value, expected_tag) in cases {
@@ -754,88 +746,6 @@ fn text_contains_starts_ends_cs_ci() {
 
     assert_eq!(a.text_ends_with(&v_txt("WORLD"), TextMode::Cs), Some(false));
     assert_eq!(a.text_ends_with(&v_txt("WORLD"), TextMode::Ci), Some(true));
-}
-
-// ---- E8s / E18s <-> Decimal / Float cross-type tests -------------------
-
-// helper constructors — ADAPT these to your actual API
-fn v_e8(raw: u64) -> Value {
-    // e.g., E8s::from_raw(raw) or E8s(raw)
-    Value::E8s(E8s::from(raw)) // <-- change if needed
-}
-fn v_e18(raw: u128) -> Value {
-    Value::E18s(E18s::from(raw)) // <-- change if needed
-}
-fn v_dec_str(s: &str) -> Value {
-    Value::Decimal(Decimal::from_str(s).expect("valid decimal"))
-}
-
-#[test]
-fn e8s_equals_decimal_when_scaled() {
-    // 1.00 token == 100_000_000 e8s
-    let one_token_e8s = v_e8(100_000_000);
-    let one_token_dec = v_dec_str("1");
-    assert_eq!(
-        one_token_e8s.cmp_numeric(&one_token_dec),
-        Some(Ordering::Equal)
-    );
-
-    // 12.34567890 tokens == 1_234_567_890 e8s
-    let e8s = v_e8(1_234_567_890);
-    let dec = v_dec_str("12.3456789");
-    assert_eq!(e8s.cmp_numeric(&dec), Some(Ordering::Equal));
-}
-
-#[test]
-fn e8s_orders_correctly_against_decimal() {
-    let nine_tenths_e8s = v_e8(90_000_000);
-    let one_dec = v_dec_str("1");
-    assert_eq!(nine_tenths_e8s.cmp_numeric(&one_dec), Some(Ordering::Less));
-
-    let eleven_tenths_e8s = v_e8(110_000_000);
-    assert_eq!(
-        eleven_tenths_e8s.cmp_numeric(&one_dec),
-        Some(Ordering::Greater)
-    );
-}
-
-#[test]
-fn e8s_vs_float64_safe_eq() {
-    // 2^53-safe region: exact in f64 when converted through Decimal or safe-int path
-    let e8s = v_e8(200_000_000); // 2.0
-    assert_eq!(e8s.cmp_numeric(&v_f64(2.0)), Some(Ordering::Equal));
-}
-
-#[test]
-fn e18s_equals_decimal_when_scaled() {
-    // 1.000000000000000000 == 1e18 e18s
-    let one = v_e18(1_000_000_000_000_000_000);
-    let one_dec = v_dec_str("1");
-    assert_eq!(one.cmp_numeric(&one_dec), Some(Ordering::Equal));
-
-    // 0.000000000000000123 == 123 e18s
-    let tiny = v_e18(123);
-    let tiny_dec = v_dec_str("0.000000000000000123");
-    assert_eq!(tiny.cmp_numeric(&tiny_dec), Some(Ordering::Equal));
-}
-
-#[test]
-fn e18s_ordering_and_float_cross_check() {
-    let half = v_e18(500_000_000_000_000_000); // 0.5
-    assert_eq!(half.cmp_numeric(&v_dec_str("0.4")), Some(Ordering::Greater));
-    assert_eq!(half.cmp_numeric(&v_dec_str("0.6")), Some(Ordering::Less));
-    assert_eq!(half.cmp_numeric(&v_f64(0.5)), Some(Ordering::Equal));
-}
-
-#[test]
-fn e8s_e18s_text_and_list_do_not_compare() {
-    // sanity: non-numeric shapes return None from cmp_numeric
-    assert!(v_e8(1).partial_cmp(&v_txt("1")).is_none());
-    assert!(
-        v_e18(1)
-            .partial_cmp(&Value::from_slice(&[v_i(1)]))
-            .is_none()
-    );
 }
 
 // ----------- eq and none

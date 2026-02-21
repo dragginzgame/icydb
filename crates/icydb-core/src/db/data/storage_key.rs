@@ -140,8 +140,6 @@ impl StorageKey {
             Value::Decimal(_) => "Decimal",
             Value::Duration(_) => "Duration",
             Value::Enum(_) => "Enum",
-            Value::E8s(_) => "E8s",
-            Value::E18s(_) => "E18s",
             Value::Float32(_) => "Float32",
             Value::Float64(_) => "Float64",
             Value::Int(_) => "Int",
@@ -405,8 +403,8 @@ mod tests {
     use super::{StorageKey, StorageKeyEncodeError};
     use crate::{
         types::{
-            Account, Date, Decimal, Duration, E8s, E18s, Float32, Float64, Int, Int128, Nat,
-            Nat128, Principal, Subaccount, Timestamp, Ulid,
+            Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
+            Principal, Subaccount, Timestamp, Ulid,
         },
         value::{Value, ValueEnum},
     };
@@ -432,12 +430,6 @@ mod tests {
         };
         (Enum) => {
             Value::Enum(ValueEnum::loose("example"))
-        };
-        (E8s) => {
-            Value::E8s(E8s::from_atomic(1))
-        };
-        (E18s) => {
-            Value::E18s(E18s::from_atomic(1))
         };
         (Float32) => {
             Value::Float32(Float32::try_new(1.25).expect("Float32 sample should be finite"))

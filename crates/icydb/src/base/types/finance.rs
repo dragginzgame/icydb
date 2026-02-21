@@ -18,3 +18,35 @@ use crate::design::prelude::*;
     )
 )]
 pub struct Usd {}
+
+///
+/// E8s
+///
+/// Decimal amount constrained to at most 8 decimal places and non-negative.
+///
+
+#[newtype(
+    primitive = "Decimal",
+    item(prim = "Decimal", scale = 8),
+    ty(
+        validator(path = "base::validator::decimal::MaxDecimalPlaces", args(8)),
+        validator(path = "base::validator::num::Gte", args(0))
+    )
+)]
+pub struct E8s {}
+
+///
+/// E18s
+///
+/// Decimal amount constrained to at most 18 decimal places and non-negative.
+///
+
+#[newtype(
+    primitive = "Decimal",
+    item(prim = "Decimal", scale = 18),
+    ty(
+        validator(path = "base::validator::decimal::MaxDecimalPlaces", args(18)),
+        validator(path = "base::validator::num::Gte", args(0))
+    )
+)]
+pub struct E18s {}

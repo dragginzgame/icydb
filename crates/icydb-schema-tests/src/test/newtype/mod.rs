@@ -21,12 +21,6 @@ pub struct DecimalN {}
 #[newtype(item(prim = "Duration"), primitive = "Duration")]
 pub struct DurationN {}
 
-#[newtype(primitive = "E8s", item(prim = "E8s"))]
-pub struct E8sN {}
-
-#[newtype(primitive = "E18s", item(prim = "E18s"))]
-pub struct E18sN {}
-
 #[newtype(primitive = "Float32", item(prim = "Float32"))]
 pub struct Float32N {}
 
@@ -128,12 +122,6 @@ pub struct DecimalD {}
 
 #[newtype(primitive = "Duration", item(prim = "Duration"), default = 0u64)]
 pub struct DurationD {}
-
-#[newtype(primitive = "E8s", item(prim = "E8s"), default = 0u64)]
-pub struct E8sD {}
-
-#[newtype(primitive = "E18s", item(prim = "E18s"), default = 0u128)]
-pub struct E18sD {}
 
 #[newtype(primitive = "Float32", item(prim = "Float32"), default = 0)]
 pub struct Float32D {}
