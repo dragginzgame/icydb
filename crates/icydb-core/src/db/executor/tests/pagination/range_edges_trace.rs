@@ -1226,7 +1226,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
     #[derive(Clone, Copy)]
     enum ExpectedDecision {
         Accepted,
-        RejectedNonAscending,
+        RejectedMixedDirection,
     }
 
     #[derive(Clone, Copy)]
@@ -1248,7 +1248,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
             name: "rejected_descending",
             prefix: 17_000,
             order: [("rank", OrderDirection::Desc), ("id", OrderDirection::Asc)],
-            expected: ExpectedDecision::RejectedNonAscending,
+            expected: ExpectedDecision::RejectedMixedDirection,
         },
         Case {
             name: "accepted_descending_with_explicit_pk_desc",
@@ -1289,7 +1289,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
             ExpectedDecision::Accepted => {
                 trace.optimization == Some(ExecutionOptimization::SecondaryOrderPushdown)
             }
-            ExpectedDecision::RejectedNonAscending => trace.optimization.is_none(),
+            ExpectedDecision::RejectedMixedDirection => trace.optimization.is_none(),
         };
 
         assert!(

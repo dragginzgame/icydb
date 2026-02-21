@@ -1,7 +1,6 @@
 use crate::db::query::{
-    enum_filter::normalize_enum_literals,
     plan::{OrderDirection, OrderSpec, PlanError, validate::validate_order},
-    predicate::{self, Predicate, SchemaInfo, ValidateError, normalize},
+    predicate::{self, Predicate, SchemaInfo, ValidateError, normalize, normalize_enum_literals},
 };
 use thiserror::Error as ThisError;
 

@@ -784,7 +784,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
         matches!(
             explain.order_pushdown,
             ExplainOrderPushdown::Rejected(
-                SecondaryOrderPushdownRejection::NonAscendingDirection { .. }
+                SecondaryOrderPushdownRejection::MixedDirectionNotEligible { .. }
             )
         ),
         "distinct mixed-direction ordering should remain ineligible for secondary pushdown"

@@ -50,9 +50,53 @@ impl std::fmt::Display for ContinuationSignature {
     }
 }
 
-const CONTINUATION_TOKEN_VERSION_V1: u8 = 1;
-const CONTINUATION_TOKEN_VERSION_V2: u8 = 2;
 const MAX_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
+
+///
+/// CursorTokenVersion
+///
+/// CursorTokenVersion
+///
+/// Wire-level cursor token version owned by the cursor protocol boundary.
+/// This keeps version parsing and compatibility behavior centralized.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::query) enum CursorTokenVersion {
+    V1,
+    V2,
+}
+
+impl CursorTokenVersion {
+    const V1_TAG: u8 = 1;
+    const V2_TAG: u8 = 2;
+
+    // Decode one raw wire version into the protocol enum.
+    const fn decode(raw: u8) -> Result<Self, ContinuationTokenError> {
+        match raw {
+            Self::V1_TAG => Ok(Self::V1),
+            Self::V2_TAG => Ok(Self::V2),
+            version => Err(ContinuationTokenError::UnsupportedVersion { version }),
+        }
+    }
+
+    // Encode this protocol version for wire format output.
+    const fn encode(self) -> u8 {
+        match self {
+            Self::V1 => Self::V1_TAG,
+            Self::V2 => Self::V2_TAG,
+        }
+    }
+
+    // Apply version compatibility behavior for initial offset.
+    // V1 tokens did not carry offset and must decode as zero.
+    const fn decode_initial_offset(self, wire_initial_offset: u32) -> u32 {
+        match self {
+            Self::V1 => 0,
+            Self::V2 => wire_initial_offset,
+        }
+    }
+}
 
 /// Decode errors for typed primary-key cursor slot extraction.
 #[derive(Clone, Debug)]
@@ -223,7 +267,7 @@ impl ContinuationToken {
             .index_range_anchor()
             .map(IndexRangeCursorAnchorWire::from);
         let wire = ContinuationTokenWire {
-            version: CONTINUATION_TOKEN_VERSION_V2,
+            version: CursorTokenVersion::V2.encode(),
             signature: self.signature.into_bytes(),
             boundary: self.boundary.clone(),
             direction: self.direction,
@@ -238,18 +282,12 @@ impl ContinuationToken {
         let wire: ContinuationTokenWire = deserialize_bounded(bytes, MAX_CONTINUATION_TOKEN_BYTES)
             .map_err(|err| ContinuationTokenError::Decode(err.to_string()))?;
 
+        // Decode the protocol version first so compatibility behavior remains centralized.
+        let version = CursorTokenVersion::decode(wire.version)?;
         let signature = ContinuationSignature::from_bytes(wire.signature);
         let boundary = wire.boundary;
         let direction = wire.direction;
-        let initial_offset = match wire.version {
-            CONTINUATION_TOKEN_VERSION_V1 => 0,
-            CONTINUATION_TOKEN_VERSION_V2 => wire.initial_offset,
-            _ => {
-                return Err(ContinuationTokenError::UnsupportedVersion {
-                    version: wire.version,
-                });
-            }
-        };
+        let initial_offset = version.decode_initial_offset(wire.initial_offset);
 
         match wire
             .index_range_anchor
@@ -430,7 +468,9 @@ impl ExplainPlan {
 
 #[cfg(test)]
 mod tests {
-    use super::{ContinuationSignature, ContinuationToken, IndexRangeCursorAnchor};
+    use super::{
+        ContinuationSignature, ContinuationToken, ContinuationTokenError, IndexRangeCursorAnchor,
+    };
     use crate::db::query::intent::{KeyAccess, LoadSpec, access_plan_from_keys_value};
     use crate::db::query::plan::{
         AccessPath, CursorBoundary, CursorBoundarySlot, Direction, LogicalPlan, OrderDirection,
@@ -601,5 +641,43 @@ mod tests {
             .index_range_anchor()
             .expect("decoded token should include index-range anchor");
         assert_eq!(decoded_anchor.last_raw_key().as_bytes(), raw_key.as_bytes());
+    }
+
+    #[test]
+    fn continuation_token_decode_rejects_unknown_version() {
+        let boundary = CursorBoundary {
+            slots: vec![CursorBoundarySlot::Present(Value::Uint(1))],
+        };
+        let signature = ContinuationSignature::from_bytes([3u8; 32]);
+        let token = ContinuationToken::new_with_direction(signature, boundary, Direction::Asc, 9);
+        let encoded = token
+            .encode_with_version_for_test(99)
+            .expect("unknown-version wire token should encode");
+
+        let err = ContinuationToken::decode(&encoded).expect_err("unknown version must fail");
+        assert_eq!(
+            err,
+            ContinuationTokenError::UnsupportedVersion { version: 99 }
+        );
+    }
+
+    #[test]
+    fn continuation_token_v1_decodes_initial_offset_as_zero() {
+        let boundary = CursorBoundary {
+            slots: vec![CursorBoundarySlot::Present(Value::Uint(1))],
+        };
+        let signature = ContinuationSignature::from_bytes([4u8; 32]);
+        let token = ContinuationToken::new_with_direction(signature, boundary, Direction::Desc, 11);
+        let encoded = token
+            .encode_with_version_for_test(1)
+            .expect("v1 wire token should encode");
+
+        let decoded = ContinuationToken::decode(&encoded).expect("v1 wire token should decode");
+        assert_eq!(
+            decoded.initial_offset(),
+            0,
+            "v1 must decode with zero offset"
+        );
+        assert_eq!(decoded.direction(), Direction::Desc);
     }
 }

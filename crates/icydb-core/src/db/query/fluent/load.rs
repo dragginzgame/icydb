@@ -10,24 +10,23 @@ use crate::{
         },
         response::Response,
     },
-    traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
+    traits::{EntityKind, EntityValue, SingletonEntity},
     types::Id,
 };
 
 ///
-/// SessionLoadQuery
+/// FluentLoadQuery
 ///
 /// Session-bound load query wrapper.
 /// Owns intent construction and execution routing only.
 /// All result inspection and projection is performed on `Response<E>`.
 ///
 
-pub struct SessionLoadQuery<'a, C, E>
+pub struct FluentLoadQuery<'a, E>
 where
-    C: CanisterKind,
-    E: EntityKind<Canister = C>,
+    E: EntityKind,
 {
-    session: &'a DbSession<C>,
+    session: &'a DbSession<E::Canister>,
     query: Query<E>,
     cursor_token: Option<String>,
 }
@@ -39,20 +38,18 @@ where
 /// This wrapper only exposes cursor continuation and paged execution.
 ///
 
-pub struct PagedLoadQuery<'a, C, E>
+pub struct PagedLoadQuery<'a, E>
 where
-    C: CanisterKind,
-    E: EntityKind<Canister = C>,
+    E: EntityKind,
 {
-    inner: SessionLoadQuery<'a, C, E>,
+    inner: FluentLoadQuery<'a, E>,
 }
 
-impl<'a, C, E> SessionLoadQuery<'a, C, E>
+impl<'a, E> FluentLoadQuery<'a, E>
 where
-    C: CanisterKind,
-    E: EntityKind<Canister = C>,
+    E: EntityKind,
 {
-    pub(crate) const fn new(session: &'a DbSession<C>, query: Query<E>) -> Self {
+    pub(crate) const fn new(session: &'a DbSession<E::Canister>, query: Query<E>) -> Self {
         Self {
             session,
             query,
@@ -201,7 +198,7 @@ where
     /// best-effort and forward-only over live state.
     /// No snapshot/version is pinned across requests, so concurrent writes may
     /// shift page boundaries.
-    pub fn page(self) -> Result<PagedLoadQuery<'a, C, E>, QueryError> {
+    pub fn page(self) -> Result<PagedLoadQuery<'a, E>, QueryError> {
         self.ensure_paged_mode_ready()?;
 
         Ok(PagedLoadQuery { inner: self })
@@ -280,10 +277,9 @@ where
     }
 }
 
-impl<C, E> SessionLoadQuery<'_, C, E>
+impl<E> FluentLoadQuery<'_, E>
 where
-    C: CanisterKind,
-    E: EntityKind<Canister = C>,
+    E: EntityKind,
 {
     fn cursor_intent_error(&self) -> Option<IntentError> {
         self.cursor_token
@@ -308,10 +304,9 @@ where
     }
 }
 
-impl<C, E> SessionLoadQuery<'_, C, E>
+impl<E> FluentLoadQuery<'_, E>
 where
-    C: CanisterKind,
-    E: EntityKind<Canister = C> + SingletonEntity,
+    E: EntityKind + SingletonEntity,
     E::Key: Default,
 {
     #[must_use]
@@ -320,10 +315,9 @@ where
     }
 }
 
-impl<C, E> PagedLoadQuery<'_, C, E>
+impl<E> PagedLoadQuery<'_, E>
 where
-    C: CanisterKind,
-    E: EntityKind<Canister = C>,
+    E: EntityKind,
 {
     // ------------------------------------------------------------------
     // Intent inspection

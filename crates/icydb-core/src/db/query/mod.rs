@@ -19,16 +19,14 @@
 
 pub(crate) mod builder;
 pub(crate) mod cursor;
-pub(crate) mod enum_filter;
 pub(crate) mod explain;
 pub(crate) mod expr;
 pub(crate) mod fingerprint;
+pub(crate) mod fluent;
 pub(crate) mod intent;
 pub(crate) mod plan;
 pub(crate) mod policy;
 pub(crate) mod predicate;
-pub(crate) mod save;
-pub(crate) mod session;
 
 /// ---------------------------------------------------------------------
 /// Public Contract Types

@@ -396,6 +396,10 @@ impl TryFrom<&[u8]> for StorageKey {
     }
 }
 
+///
+/// TESTS
+///
+
 #[cfg(test)]
 mod tests {
     use super::{StorageKey, StorageKeyEncodeError};

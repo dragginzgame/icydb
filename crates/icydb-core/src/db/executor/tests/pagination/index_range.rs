@@ -287,7 +287,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         matches!(
             explain.order_pushdown,
             ExplainOrderPushdown::Rejected(
-                SecondaryOrderPushdownRejection::NonAscendingDirection { field }
+                SecondaryOrderPushdownRejection::MixedDirectionNotEligible { field }
             ) if field == "rank"
         ),
         "descending rank order should be ineligible and use fallback execution"

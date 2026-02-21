@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 📝 Summary
 
-* Improved `count()` performance for safe query shapes by counting directly from the resolved key stream.
+* Improved `count()` performance for eligible queries while keeping results unchanged.
 
 ```rust
 let total = session.load::<MyEntity>().order_by("id").offset(10).limit(25).count()?;
@@ -17,15 +17,11 @@ let total = session.load::<MyEntity>().order_by("id").offset(10).limit(25).count
 
 ### 🔧 Changed
 
-* Added a conservative `count` pushdown path that reuses the same key-stream routing as normal loads.
-* Kept pushdown eligibility intentionally narrow (`FullScan` / `KeyRange`, including composite combinations) to preserve behavior.
-* Added bounded fetch hints for paged `count()` windows so eligible paths can stop earlier.
-* Threaded probe fetch hints into fallback physical key resolution for safe primary-data scan paths, so `exists()` can short-circuit even without a fast path.
-* Added a defensive guard that disables `exists()` probe capping for `distinct + offset` shapes, making that invariant explicit and future-proof.
-
-### 🧹 Cleanup
-
-* Kept the shared safety gate as the single decision point so load and aggregate rules do not drift.
+* `count()` now uses a faster path for safe query shapes, and page-aware counting can stop earlier when possible.
+* `exists()` now exits earlier in more cases, with a safety guard to keep `distinct + offset` behavior correct.
+* Reorganized the entire db/ module tree so responsibilities are clearer.
+* Single-row and batch save paths now share one pre-check flow, and save validation error classification is more consistent.
+* Did a pass to remove the number of generics on types and functions.
 
 ---
 

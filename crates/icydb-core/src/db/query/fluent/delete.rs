@@ -9,33 +9,31 @@ use crate::{
         },
         response::Response,
     },
-    traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity},
+    traits::{EntityKind, EntityValue, SingletonEntity},
     types::Id,
 };
 
 ///
-/// SessionDeleteQuery
+/// FluentDeleteQuery
 ///
 /// Session-bound delete query wrapper.
 /// This type owns *intent construction* and *execution routing only*.
 /// All result projection and cardinality handling lives on `Response<E>`.
 ///
 
-pub struct SessionDeleteQuery<'a, C, E>
+pub struct FluentDeleteQuery<'a, E>
 where
-    C: CanisterKind,
-    E: EntityKind<Canister = C>,
+    E: EntityKind,
 {
-    session: &'a DbSession<C>,
+    session: &'a DbSession<E::Canister>,
     query: Query<E>,
 }
 
-impl<'a, C, E> SessionDeleteQuery<'a, C, E>
+impl<'a, E> FluentDeleteQuery<'a, E>
 where
-    C: CanisterKind,
-    E: EntityKind<Canister = C>,
+    E: EntityKind,
 {
-    pub(crate) const fn new(session: &'a DbSession<C>, query: Query<E>) -> Self {
+    pub(crate) const fn new(session: &'a DbSession<E::Canister>, query: Query<E>) -> Self {
         Self { session, query }
     }
 
@@ -172,10 +170,9 @@ where
     }
 }
 
-impl<C, E> SessionDeleteQuery<'_, C, E>
+impl<E> FluentDeleteQuery<'_, E>
 where
-    C: CanisterKind,
-    E: EntityKind<Canister = C> + SingletonEntity,
+    E: EntityKind + SingletonEntity,
     E::Key: Default,
 {
     /// Delete the singleton entity.

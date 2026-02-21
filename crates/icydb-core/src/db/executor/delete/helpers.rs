@@ -1,7 +1,6 @@
 use crate::{
     db::{
-        data::{DataKey, DataRow, RawRow},
-        entity_decode::decode_and_validate_entity_key,
+        data::{DataKey, DataRow, RawRow, decode_and_validate_entity_key},
         executor::ExecutorError,
     },
     error::InternalError,

@@ -383,14 +383,15 @@ Code is considered non-trivial if it:
 * Write in plain, industry-friendly language: lead with the outcome and user impact, use technical terms only when they improve clarity.
 * Keep changelog writing concise and junior-friendly: use simple wording, avoid jargon, and prefer readability over exhaustive detail.
 * Keep changelog entries intentionally brief and non-technical by default; only include deep internal names when they are necessary for migration or debugging context.
+* Prefer a small number of consolidated bullets over long lists; merge related internal cleanup into one clear user-facing point.
+* Avoid deep implementation detail by default (module paths, helper names, internal routing terms) unless needed for migration/debugging.
 * Bullets should be short (1–2 sentences), avoid deep implementation details, and use inline code for API/type names.
 * Code examples are good when they help clarify behavior; include them only when relevant and keep them short.
 * Changelog bullets do not need to be single-line only; use extra sentence space when needed to preserve important context.
 * Do not add a `### 🧪 Testing` section for routine validation runs (for example `make check`, `make test`, `cargo test`); include `Testing` only when the release adds or changes tests, test coverage, or test tooling.
 * Prefer explaining **why** a change matters over listing only **what** changed.
 * Include code examples only when they are relevant to a developer (for example usage, migration, or behavior that is hard to infer from bullets alone).
-* Try and break up the text, so there's something in ``` at least once per page, whether it's a code example or a binary specification
-or whatever.
+* Use fenced code blocks only when they add clarity; do not force them into every changelog entry.
 
 ---
 

@@ -1,8 +1,10 @@
 use crate::{
     db::{
         Db,
-        data::{DataKey, DataRow, DataStore, RawDataKey, RawRow},
-        entity_decode::{decode_and_validate_entity_key, format_entity_key_for_mismatch},
+        data::{
+            DataKey, DataRow, DataStore, RawDataKey, RawRow, decode_and_validate_entity_key,
+            format_entity_key_for_mismatch,
+        },
         executor::{ExecutorError, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox},
         index::RawIndexKey,
         query::{

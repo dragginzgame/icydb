@@ -67,7 +67,7 @@ fn paged_query_rejects_invalid_hex_cursor_token() {
     assert!(
         matches!(
             reason,
-            crate::db::cursor::CursorDecodeError::InvalidHex { position: 1 }
+            crate::db::codec::cursor::CursorDecodeError::InvalidHex { position: 1 }
         ),
         "unexpected cursor decode reason: {reason}"
     );
@@ -99,7 +99,10 @@ fn paged_query_rejects_odd_length_hex_cursor_token() {
         panic!("odd-length cursor token should be classified as invalid continuation cursor");
     };
     assert!(
-        matches!(reason, crate::db::cursor::CursorDecodeError::OddLength),
+        matches!(
+            reason,
+            crate::db::codec::cursor::CursorDecodeError::OddLength
+        ),
         "unexpected cursor decode reason: {reason}"
     );
 }
@@ -130,7 +133,7 @@ fn paged_query_rejects_empty_cursor_token() {
         panic!("empty cursor token should be classified as invalid continuation cursor");
     };
     assert!(
-        matches!(reason, crate::db::cursor::CursorDecodeError::Empty),
+        matches!(reason, crate::db::codec::cursor::CursorDecodeError::Empty),
         "unexpected cursor decode reason: {reason}"
     );
 }

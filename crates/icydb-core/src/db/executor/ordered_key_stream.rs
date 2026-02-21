@@ -195,12 +195,12 @@ impl KeyOrderComparator {
 /// Keeps one pending key per side for merge/intersection stream combinators.
 ///
 
-struct OrderedPairState<L, R> {
-    left: Option<L>,
-    right: Option<R>,
+struct OrderedPairState {
+    left: Option<DataKey>,
+    right: Option<DataKey>,
 }
 
-impl<L, R> OrderedPairState<L, R> {
+impl OrderedPairState {
     const fn new() -> Self {
         Self {
             left: None,
@@ -301,7 +301,7 @@ fn validate_stream_monotonicity(
 pub(crate) struct MergeOrderedKeyStream<A, B> {
     left: A,
     right: B,
-    pair: OrderedPairState<DataKey, DataKey>,
+    pair: OrderedPairState,
     left_done: bool,
     right_done: bool,
     comparator: KeyOrderComparator,
@@ -426,7 +426,7 @@ where
 pub(crate) struct IntersectOrderedKeyStream<A, B> {
     left: A,
     right: B,
-    pair: OrderedPairState<DataKey, DataKey>,
+    pair: OrderedPairState,
     left_done: bool,
     right_done: bool,
     comparator: KeyOrderComparator,

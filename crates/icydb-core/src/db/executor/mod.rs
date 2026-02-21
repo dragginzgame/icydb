@@ -7,7 +7,6 @@ mod mutation;
 mod ordered_key_stream;
 mod physical_path;
 mod plan;
-mod save;
 #[cfg(test)]
 mod tests;
 
@@ -16,12 +15,12 @@ pub(super) use delete::DeleteExecutor;
 pub(crate) use direction::normalize_ordered_keys;
 pub(super) use load::LoadExecutor;
 pub use load::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
+pub(super) use mutation::save::SaveExecutor;
 pub(super) use ordered_key_stream::{
     BudgetedOrderedKeyStream, DistinctOrderedKeyStream, IntersectOrderedKeyStream,
     KeyOrderComparator, MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox,
     VecOrderedKeyStream,
 };
-pub(super) use save::SaveExecutor;
 
 // Design notes:
 // - SchemaInfo is the planner-visible schema (relational attributes). Executors may see

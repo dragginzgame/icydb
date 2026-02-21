@@ -10,7 +10,6 @@ use crate::{
     db::{
         query::{
             ReadConsistency,
-            enum_filter::normalize_enum_literals,
             expr::{FilterExpr, SortExpr, SortLowerError},
             plan::{
                 DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan, OrderDirection,
@@ -20,7 +19,7 @@ use crate::{
             },
             policy,
             predicate::{
-                Predicate, SchemaInfo, ValidateError, normalize,
+                Predicate, SchemaInfo, ValidateError, normalize, normalize_enum_literals,
                 validate::reject_unsupported_query_features,
             },
         },

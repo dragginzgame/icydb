@@ -6,10 +6,10 @@ use crate::{
                 AccessPath, ContinuationSignature, ContinuationToken, CursorBoundary,
                 CursorBoundarySlot, CursorPlanError, IndexRangeCursorAnchor, OrderPlanError,
                 OrderSpec, PlanError, PlannedCursor,
-                continuation::{ContinuationTokenError, decode_typed_primary_key_cursor_slot},
-                cursor_anchor::{
+                anchor::{
                     validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
                 },
+                continuation::{ContinuationTokenError, decode_typed_primary_key_cursor_slot},
             },
             predicate::{SchemaInfo, validate::literal_matches_type},
         },
@@ -241,14 +241,7 @@ fn decode_validated_cursor(
     expected_direction: Direction,
     expected_initial_offset: u32,
 ) -> Result<ContinuationToken, PlanError> {
-    let token = ContinuationToken::decode(cursor).map_err(|err| match err {
-        ContinuationTokenError::Encode(message) | ContinuationTokenError::Decode(message) => {
-            PlanError::invalid_continuation_cursor_payload(message)
-        }
-        ContinuationTokenError::UnsupportedVersion { version } => {
-            PlanError::from(CursorPlanError::ContinuationCursorVersionMismatch { version })
-        }
-    })?;
+    let token = ContinuationToken::decode(cursor).map_err(map_token_decode_error)?;
 
     // Canonical compatibility gates: signature, direction, then window shape.
     validate_cursor_signature(entity_path, &expected_signature, &token.signature())?;
@@ -256,6 +249,18 @@ fn decode_validated_cursor(
     validate_cursor_window_offset(expected_initial_offset, token.initial_offset())?;
 
     Ok(token)
+}
+
+// Map cursor token decode failures into canonical plan-surface cursor errors.
+fn map_token_decode_error(err: ContinuationTokenError) -> PlanError {
+    match err {
+        ContinuationTokenError::Encode(message) | ContinuationTokenError::Decode(message) => {
+            PlanError::invalid_continuation_cursor_payload(message)
+        }
+        ContinuationTokenError::UnsupportedVersion { version } => {
+            PlanError::from(CursorPlanError::ContinuationCursorVersionMismatch { version })
+        }
+    }
 }
 
 // Validate continuation token signature against the executable signature.

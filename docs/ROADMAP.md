@@ -43,6 +43,11 @@ Focus: finish current execution hardening and reduce drift risk before larger ar
 - Complete aggregate execution hardening (`count`, `exists`, `min`, `max`) with parity-first behavior guarantees.
 - Land `count` pushdown safely, constrained by the shared streaming eligibility gate.
 - Prioritize reverse streaming hardening in the short term (DESC traversal parity and early-stop behavior).
+- Extend streaming aggregate capability in safe, gated steps:
+  - streaming `DISTINCT` on order-safe access paths
+  - constrained streaming `GROUP BY` for ordered index-prefix shapes
+  - streaming scalar folds (`sum`, `avg`) where semantics stay deterministic
+  - broader early-termination wins (`exists`, `min`/`max`, and limit-aware streaming)
 - Keep load and aggregate safety decisions centralized to avoid rule divergence.
 - Continue cleanup passes that reduce cross-cutting complexity (error mapping, boundary handling, and test-surface maintainability).
 - Keep changelog/status docs aligned as features move from design to shipped.

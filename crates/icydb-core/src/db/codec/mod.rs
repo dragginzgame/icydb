@@ -1,3 +1,5 @@
+pub(crate) mod cursor;
+
 use crate::{
     db::data::MAX_ROW_BYTES,
     error::InternalError,

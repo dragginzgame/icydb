@@ -20,12 +20,12 @@ use crate::{
 /// per-field folding logic.
 ///
 
-pub(super) struct PreparedRowOpDelta {
-    pub(super) rows_touched: usize,
-    pub(super) index_inserts: usize,
-    pub(super) index_removes: usize,
-    pub(super) reverse_index_inserts: usize,
-    pub(super) reverse_index_removes: usize,
+pub(in crate::db::executor) struct PreparedRowOpDelta {
+    pub(in crate::db::executor) rows_touched: usize,
+    pub(in crate::db::executor) index_inserts: usize,
+    pub(in crate::db::executor) index_removes: usize,
+    pub(in crate::db::executor) reverse_index_inserts: usize,
+    pub(in crate::db::executor) reverse_index_removes: usize,
 }
 
 ///
@@ -36,15 +36,15 @@ pub(super) struct PreparedRowOpDelta {
 /// precomputed delta counters.
 ///
 
-pub(super) struct OpenCommitWindow {
-    pub(super) commit: CommitGuard,
-    pub(super) prepared_row_ops: Vec<PreparedRowCommitOp>,
-    pub(super) delta: PreparedRowOpDelta,
+pub(in crate::db::executor) struct OpenCommitWindow {
+    pub(in crate::db::executor) commit: CommitGuard,
+    pub(in crate::db::executor) prepared_row_ops: Vec<PreparedRowCommitOp>,
+    pub(in crate::db::executor) delta: PreparedRowOpDelta,
 }
 
 /// Aggregate index and reverse-index deltas across prepared row operations.
 #[must_use]
-pub(super) fn summarize_prepared_row_ops(
+pub(in crate::db::executor) fn summarize_prepared_row_ops(
     prepared_row_ops: &[PreparedRowCommitOp],
 ) -> PreparedRowOpDelta {
     let mut summary = PreparedRowOpDelta {
@@ -74,7 +74,9 @@ pub(super) fn summarize_prepared_row_ops(
 }
 
 /// Emit index and reverse-index metrics from one prepared-row delta aggregate.
-pub(super) fn emit_prepared_row_op_delta_metrics<E: EntityKind>(delta: &PreparedRowOpDelta) {
+pub(in crate::db::executor) fn emit_prepared_row_op_delta_metrics<E: EntityKind>(
+    delta: &PreparedRowOpDelta,
+) {
     emit_index_delta_metrics::<E>(
         delta.index_inserts,
         delta.index_removes,
@@ -84,7 +86,7 @@ pub(super) fn emit_prepared_row_op_delta_metrics<E: EntityKind>(delta: &Prepared
 }
 
 /// Emit index and reverse-index delta metrics with saturated diagnostics counts.
-pub(super) fn emit_index_delta_metrics<E: EntityKind>(
+pub(in crate::db::executor) fn emit_index_delta_metrics<E: EntityKind>(
     index_inserts: usize,
     index_removes: usize,
     reverse_index_inserts: usize,
@@ -107,7 +109,7 @@ pub(super) fn emit_index_delta_metrics<E: EntityKind>(
 ///
 /// This preflight ensures later row ops are prepared against the state produced
 /// by earlier row ops, then restores the original state before returning.
-pub(super) fn preflight_prepare_row_ops<E: EntityKind + EntityValue>(
+pub(in crate::db::executor) fn preflight_prepare_row_ops<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_ops: &[CommitRowOp],
 ) -> Result<Vec<PreparedRowCommitOp>, InternalError> {
@@ -135,7 +137,7 @@ pub(super) fn preflight_prepare_row_ops<E: EntityKind + EntityValue>(
 ///
 /// This is the single orchestration entry point for executor commit-window
 /// setup so save/delete paths stay behaviorally aligned.
-pub(super) fn open_commit_window<E: EntityKind + EntityValue>(
+pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     row_ops: Vec<CommitRowOp>,
 ) -> Result<OpenCommitWindow, InternalError> {
@@ -152,7 +154,7 @@ pub(super) fn open_commit_window<E: EntityKind + EntityValue>(
 }
 
 /// Apply prepared row ops under the shared commit-window guard.
-pub(super) fn apply_prepared_row_ops(
+pub(in crate::db::executor) fn apply_prepared_row_ops(
     commit: CommitGuard,
     apply_phase: &'static str,
     prepared_row_ops: Vec<PreparedRowCommitOp>,

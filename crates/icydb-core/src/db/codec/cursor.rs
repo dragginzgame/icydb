@@ -35,7 +35,7 @@ pub fn encode_cursor(bytes: &[u8]) -> String {
 /// Decode a lowercase/uppercase hex cursor token into raw bytes.
 ///
 /// The token may include surrounding whitespace, which is trimmed.
-pub(crate) fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeError> {
+pub fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeError> {
     let token = token.trim();
 
     if token.is_empty() {

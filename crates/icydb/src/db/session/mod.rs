@@ -16,7 +16,7 @@ use icydb_core as core;
 
 // re-exports
 pub use delete::SessionDeleteQuery;
-pub use load::{PagedLoadQuery, SessionLoadQuery};
+pub use load::{FluentLoadQuery, PagedLoadQuery};
 
 ///
 /// DbSession
@@ -58,11 +58,11 @@ impl<C: CanisterKind> DbSession<C> {
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub const fn load<E>(&self) -> SessionLoadQuery<'_, C, E>
+    pub const fn load<E>(&self) -> FluentLoadQuery<'_, E>
     where
         E: EntityKind<Canister = C>,
     {
-        SessionLoadQuery {
+        FluentLoadQuery {
             inner: self.inner.load::<E>(),
         }
     }
@@ -71,17 +71,17 @@ impl<C: CanisterKind> DbSession<C> {
     pub const fn load_with_consistency<E>(
         &self,
         consistency: ReadConsistency,
-    ) -> SessionLoadQuery<'_, C, E>
+    ) -> FluentLoadQuery<'_, E>
     where
         E: EntityKind<Canister = C>,
     {
-        SessionLoadQuery {
+        FluentLoadQuery {
             inner: self.inner.load_with_consistency::<E>(consistency),
         }
     }
 
     #[must_use]
-    pub fn delete<E>(&self) -> SessionDeleteQuery<'_, C, E>
+    pub fn delete<E>(&self) -> SessionDeleteQuery<'_, E>
     where
         E: EntityKind<Canister = C>,
     {
@@ -94,7 +94,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn delete_with_consistency<E>(
         &self,
         consistency: ReadConsistency,
-    ) -> SessionDeleteQuery<'_, C, E>
+    ) -> SessionDeleteQuery<'_, E>
     where
         E: EntityKind<Canister = C>,
     {

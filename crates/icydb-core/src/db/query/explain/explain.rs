@@ -744,12 +744,12 @@ mod tests {
             ),
             (
                 SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::NonAscendingDirection {
+                    SecondaryOrderPushdownRejection::MixedDirectionNotEligible {
                         field: "rank".to_string(),
                     },
                 ),
                 ExplainOrderPushdown::Rejected(
-                    SecondaryOrderPushdownRejection::NonAscendingDirection {
+                    SecondaryOrderPushdownRejection::MixedDirectionNotEligible {
                         field: "rank".to_string(),
                     },
                 ),

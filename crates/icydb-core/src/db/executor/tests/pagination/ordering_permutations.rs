@@ -150,6 +150,133 @@ fn load_mixed_direction_resume_matrix_is_boundary_complete() {
 }
 
 #[test]
+fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique() {
+    setup_pagination_test();
+
+    let rows = pushdown_rows_window(41_901);
+    seed_pushdown_rows(&rows);
+    let predicate = pushdown_group_predicate(7);
+
+    let id1 = Ulid::from_u128(41_902);
+    let id2 = Ulid::from_u128(41_903);
+    let id3 = Ulid::from_u128(41_904);
+    let expected_ids = vec![id1, id2, id3];
+
+    // Phase 1: mixed-direction shape should remain fallback-only.
+    let mixed_explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .order_by_desc("id")
+        .explain()
+        .expect("mixed-direction explain should build");
+    assert!(
+        matches!(
+            mixed_explain.order_pushdown,
+            ExplainOrderPushdown::Rejected(
+                SecondaryOrderPushdownRejection::MixedDirectionNotEligible { .. }
+            )
+        ),
+        "mixed-direction secondary ordering should remain ineligible for pushdown",
+    );
+
+    // Phase 2: equivalent uniform-direction shape should be pushdown-eligible.
+    let uniform_explain = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate.clone())
+        .order_by("rank")
+        .order_by("id")
+        .explain()
+        .expect("uniform-direction explain should build");
+    assert!(
+        matches!(
+            uniform_explain.order_pushdown,
+            ExplainOrderPushdown::EligibleSecondaryIndex { .. }
+        ),
+        "uniform secondary ordering should remain pushdown-eligible",
+    );
+
+    let build_mixed_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(predicate.clone())
+            .order_by("rank")
+            .order_by_desc("id")
+            .limit(2)
+            .plan()
+            .expect("mixed-direction plan should build")
+    };
+    let build_uniform_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(predicate.clone())
+            .order_by("rank")
+            .order_by("id")
+            .limit(2)
+            .plan()
+            .expect("uniform-direction plan should build")
+    };
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    // Phase 3: traces should confirm fallback vs pushdown split.
+    let (_seed_mixed, mixed_trace) = load
+        .execute_paged_with_cursor_traced(build_mixed_plan(), None)
+        .expect("mixed-direction seed page should execute");
+    let mixed_trace = mixed_trace.expect("debug trace should be present");
+    assert_eq!(
+        mixed_trace.optimization, None,
+        "mixed-direction execution should remain fallback-only",
+    );
+
+    let (_seed_uniform, uniform_trace) = load
+        .execute_paged_with_cursor_traced(build_uniform_plan(), None)
+        .expect("uniform-direction seed page should execute");
+    let uniform_trace = uniform_trace.expect("debug trace should be present");
+    assert_eq!(
+        uniform_trace.optimization,
+        Some(ExecutionOptimization::SecondaryOrderPushdown),
+        "uniform-direction execution should use secondary pushdown",
+    );
+
+    // Phase 4: ordering + page boundaries must match across both paths.
+    let (mixed_ids, mixed_boundaries, mixed_tokens) =
+        collect_all_pages_from_executable_plan_with_tokens(&load, build_mixed_plan, 20);
+    let (uniform_ids, uniform_boundaries, uniform_tokens) =
+        collect_all_pages_from_executable_plan_with_tokens(&load, build_uniform_plan, 20);
+    assert_eq!(
+        mixed_ids, expected_ids,
+        "mixed-direction traversal should preserve expected ordering",
+    );
+    assert_eq!(
+        uniform_ids, expected_ids,
+        "uniform-direction traversal should preserve expected ordering",
+    );
+    assert_eq!(
+        mixed_ids, uniform_ids,
+        "mixed-direction fallback and uniform pushdown should return identical IDs",
+    );
+    assert_eq!(
+        mixed_boundaries, uniform_boundaries,
+        "mixed-direction fallback and uniform pushdown should emit identical boundaries",
+    );
+
+    // Phase 5: resume from emitted tokens must be stable on both paths.
+    assert_resume_suffixes_from_tokens(
+        &load,
+        &build_mixed_plan,
+        &mixed_tokens,
+        &mixed_ids,
+        20,
+        "mixed-direction fallback resumes",
+    );
+    assert_resume_suffixes_from_tokens(
+        &load,
+        &build_uniform_plan,
+        &uniform_tokens,
+        &uniform_ids,
+        20,
+        "uniform-direction pushdown resumes",
+    );
+}
+
+#[test]
 fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries() {
     setup_pagination_test();
 

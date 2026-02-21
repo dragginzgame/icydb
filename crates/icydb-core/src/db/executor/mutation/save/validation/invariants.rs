@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        executor::save::SaveExecutor,
+        executor::mutation::save::SaveExecutor,
         query::predicate::{
             coercion::canonical_cmp,
             validate::{SchemaInfo, literal_matches_type},
@@ -20,7 +20,9 @@ use std::{
 impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     // Cache schema validation per entity type to keep invariant checks fast.
     // Note: these trait boundaries may be sealed in a future major version.
-    pub(super) fn ensure_entity_invariants(entity: &E) -> Result<(), InternalError> {
+    pub(in crate::db::executor::mutation::save) fn ensure_entity_invariants(
+        entity: &E,
+    ) -> Result<(), InternalError> {
         let schema = Self::schema_info()?;
 
         Self::validate_entity_invariants(entity, schema)
@@ -143,7 +145,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     }
 
     /// Enforce deterministic value encodings for collection-like field kinds.
-    pub(super) fn validate_deterministic_field_value(
+    pub(in crate::db::executor::mutation::save) fn validate_deterministic_field_value(
         field_name: &str,
         kind: &FieldKind,
         value: &Value,

@@ -98,7 +98,7 @@ pub enum SecondaryOrderPushdownRejection {
     PrimaryKeyDirectionNotAscending {
         field: String,
     },
-    NonAscendingDirection {
+    MixedDirectionNotEligible {
         field: String,
     },
     OrderFieldsDoNotMatchIndex {
@@ -217,7 +217,7 @@ fn match_secondary_order_pushdown_core(
     for (field, direction) in order_fields {
         if *direction != expected_direction {
             return SecondaryOrderPushdownEligibility::Rejected(
-                SecondaryOrderPushdownRejection::NonAscendingDirection {
+                SecondaryOrderPushdownRejection::MixedDirectionNotEligible {
                     field: field.clone(),
                 },
             );

@@ -6,34 +6,23 @@ use crate::{
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
     error::Error,
-    traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity, View},
+    traits::{EntityKind, EntityValue, SingletonEntity, View},
     types::Id,
 };
 use icydb_core as core;
 use std::{collections::HashMap, hash::Hash};
 
 ///
-/// SessionLoadQuery
+/// FluentLoadQuery
 ///
 /// Session-bound fluent wrapper for load queries.
 ///
 
-pub struct SessionLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
-    pub(crate) inner: core::db::SessionLoadQuery<'a, C, E>,
+pub struct FluentLoadQuery<'a, E: EntityKind> {
+    pub(crate) inner: core::db::FluentLoadQuery<'a, E>,
 }
 
-///
-/// PagedLoadQuery
-///
-/// Facade wrapper for cursor-pagination mode.
-/// Returns typed view items plus an opaque continuation cursor.
-///
-
-pub struct PagedLoadQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
-    pub(crate) inner: core::db::PagedLoadQuery<'a, C, E>,
-}
-
-impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E> {
+impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------
@@ -81,7 +70,7 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
     /// Continuation is best-effort and forward-only over live state:
     /// deterministic per request under canonical ordering, with no
     /// snapshot/version pinned across requests.
-    pub fn page(self) -> Result<PagedLoadQuery<'a, C, E>, Error> {
+    pub fn page(self) -> Result<PagedLoadQuery<'a, E>, Error> {
         Ok(PagedLoadQuery {
             inner: self.inner.page()?,
         })
@@ -138,7 +127,30 @@ impl<'a, C: CanisterKind, E: EntityKind<Canister = C>> SessionLoadQuery<'a, C, E
     }
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C>> PagedLoadQuery<'_, C, E> {
+impl<E: EntityKind + SingletonEntity> FluentLoadQuery<'_, E> {
+    /// Load the singleton entity.
+    #[must_use]
+    pub fn only(mut self) -> Self
+    where
+        E::Key: Default,
+    {
+        self.inner = self.inner.only();
+        self
+    }
+}
+
+///
+/// PagedLoadQuery
+///
+/// Facade wrapper for cursor-pagination mode.
+/// Returns typed view items plus an opaque continuation cursor.
+///
+
+pub struct PagedLoadQuery<'a, E: EntityKind> {
+    pub(crate) inner: core::db::PagedLoadQuery<'a, E>,
+}
+
+impl<E: EntityKind> PagedLoadQuery<'_, E> {
     #[must_use]
     pub const fn query(&self) -> &Query<E> {
         self.inner.query()
@@ -166,17 +178,5 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> PagedLoadQuery<'_, C, E> {
             items: items.views(),
             next_cursor: next_cursor.map(|bytes| core::db::encode_cursor(&bytes)),
         })
-    }
-}
-
-impl<C: CanisterKind, E: EntityKind<Canister = C> + SingletonEntity> SessionLoadQuery<'_, C, E> {
-    /// Load the singleton entity.
-    #[must_use]
-    pub fn only(mut self) -> Self
-    where
-        E::Key: Default,
-    {
-        self.inner = self.inner.only();
-        self
     }
 }

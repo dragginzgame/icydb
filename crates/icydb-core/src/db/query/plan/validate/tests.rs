@@ -694,7 +694,7 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
             },
         },
         RejectionCase {
-            name: "non_ascending_direction",
+            name: "mixed_direction_not_eligible",
             plan: load_plan(
                 AccessPlan::path(AccessPath::IndexPrefix {
                     index: INDEX_MODEL,
@@ -707,7 +707,7 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
                     ],
                 }),
             ),
-            expected: SecondaryOrderPushdownRejection::NonAscendingDirection {
+            expected: SecondaryOrderPushdownRejection::MixedDirectionNotEligible {
                 field: "tag".to_string(),
             },
         },

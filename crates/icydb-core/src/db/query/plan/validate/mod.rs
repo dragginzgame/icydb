@@ -18,7 +18,7 @@ mod tests;
 
 use crate::{
     db::{
-        cursor::CursorDecodeError,
+        codec::cursor::CursorDecodeError,
         query::{
             plan::LogicalPlan,
             policy::PlanPolicyError,

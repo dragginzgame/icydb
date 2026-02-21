@@ -1,7 +1,10 @@
-mod invariants;
-mod relations;
+mod mode;
+mod preflight;
 #[cfg(test)]
 mod tests;
+mod validation;
+
+pub(super) use mode::SaveMode;
 
 #[cfg(test)]
 use crate::value::Value;
@@ -9,23 +12,19 @@ use crate::{
     db::{
         Db,
         commit::{CommitRowOp, ensure_recovered_for_write},
-        data::{DataKey, RawRow},
-        entity_decode::decode_and_validate_entity_key,
+        data::{DataKey, RawRow, decode_and_validate_entity_key},
         executor::{
             Context, ExecutorError,
-            mutation::{
+            mutation::commit_window::{
                 OpenCommitWindow, apply_prepared_row_ops, emit_prepared_row_op_delta_metrics,
                 open_commit_window,
             },
         },
-        query::save::SaveMode,
     },
     error::InternalError,
     obs::sink::{ExecKind, MetricsEvent, Span, record},
-    sanitize::sanitize,
     serialize::serialize,
     traits::{EntityKind, EntityValue},
-    validate::validate,
 };
 use std::{collections::BTreeSet, marker::PhantomData};
 
@@ -178,10 +177,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
             // Validate and stage all row ops before opening the commit window.
             for mut entity in iter {
-                sanitize(&mut entity)?;
-                validate(&entity)?;
-                Self::ensure_entity_invariants(&entity)?;
-                self.validate_strong_relations(&entity)?;
+                self.preflight_entity(&mut entity)?;
 
                 let (marker_row_op, data_key) =
                     Self::prepare_logical_row_op(&ctx, save_rule, &entity)?;
@@ -362,13 +358,8 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             // Recovery is mandatory before mutations; read paths recover separately.
             ensure_recovered_for_write(&self.db)?;
 
-            // Sanitize & validate before key extraction in case PK fields are normalized
-            sanitize(&mut entity)?;
-            validate(&entity)?;
-            Self::ensure_entity_invariants(&entity)?;
-
-            // Enforce explicit strong relations before commit planning.
-            self.validate_strong_relations(&entity)?;
+            // Run the canonical save preflight before key extraction.
+            self.preflight_entity(&mut entity)?;
 
             let (marker_row_op, _data_key) =
                 Self::prepare_logical_row_op(&ctx, save_rule, &entity)?;

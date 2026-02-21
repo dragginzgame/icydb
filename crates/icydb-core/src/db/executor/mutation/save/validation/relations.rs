@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        executor::save::SaveExecutor,
+        executor::mutation::save::SaveExecutor,
         relation::{
             StrongRelationTargetInfo, build_relation_target_raw_key,
             for_each_relation_target_value, incompatible_store_error,
@@ -14,7 +14,10 @@ use crate::{
 
 impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     /// Validate strong relation references against the target data stores.
-    pub(super) fn validate_strong_relations(&self, entity: &E) -> Result<(), InternalError> {
+    pub(in crate::db::executor::mutation::save) fn validate_strong_relations(
+        &self,
+        entity: &E,
+    ) -> Result<(), InternalError> {
         // Phase 1: identify strong relation fields and read their values.
         for field in E::MODEL.fields {
             let Some(relation) = strong_relation_target_from_kind(&field.kind) else {
@@ -22,7 +25,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             };
 
             let value = entity.get_value(field.name).ok_or_else(|| {
-                InternalError::executor_internal(format!(
+                InternalError::executor_invariant(format!(
                     "entity field missing: {} field={}",
                     E::PATH,
                     field.name

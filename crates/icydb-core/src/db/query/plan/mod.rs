@@ -12,7 +12,7 @@ pub(crate) mod validate;
 pub(crate) use crate::db::{
     index::Direction,
     query::{
-        cursor::{continuation, cursor_anchor, cursor_spine},
+        cursor::{anchor, continuation, spine},
         explain,
         fingerprint::{canonical, fingerprint, hash_parts},
     },
@@ -22,9 +22,6 @@ pub(crate) use access_projection::{
 };
 pub(in crate::db) use continuation::{
     ContinuationSignature, ContinuationToken, IndexRangeCursorAnchor, decode_pk_cursor_boundary,
-};
-pub(in crate::db) use cursor_spine::{
-    KeyEnvelope, validate_planned_cursor, validate_planned_cursor_state,
 };
 ///
 /// Re-Exports
@@ -38,6 +35,9 @@ pub(crate) use explain::{
 };
 pub(crate) use fingerprint::PlanFingerprint;
 pub(crate) use logical::LogicalPlan;
+pub(in crate::db) use spine::{
+    KeyEnvelope, validate_planned_cursor, validate_planned_cursor_state,
+};
 pub use types::OrderDirection;
 pub(crate) use types::{
     AccessPath, AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec, OrderSpec,

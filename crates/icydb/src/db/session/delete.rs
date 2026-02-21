@@ -10,7 +10,7 @@ use crate::{
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
     },
     error::Error,
-    traits::{CanisterKind, EntityKind, EntityValue, SingletonEntity, View},
+    traits::{EntityKind, EntityValue, SingletonEntity, View},
     types::Id,
 };
 use icydb_core as core;
@@ -21,11 +21,11 @@ use icydb_core as core;
 /// Session-bound fluent wrapper for delete queries.
 ///
 
-pub struct SessionDeleteQuery<'a, C: CanisterKind, E: EntityKind<Canister = C>> {
-    pub(crate) inner: core::db::SessionDeleteQuery<'a, C, E>,
+pub struct SessionDeleteQuery<'a, E: EntityKind> {
+    pub(crate) inner: core::db::FluentDeleteQuery<'a, E>,
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> {
+impl<E: EntityKind> SessionDeleteQuery<'_, E> {
     // ------------------------------------------------------------------
     // Intent inspection
     // ------------------------------------------------------------------
@@ -51,7 +51,7 @@ impl<C: CanisterKind, E: EntityKind<Canister = C>> SessionDeleteQuery<'_, C, E> 
     impl_session_materialization_methods!();
 }
 
-impl<C: CanisterKind, E: EntityKind<Canister = C> + SingletonEntity> SessionDeleteQuery<'_, C, E> {
+impl<E: EntityKind + SingletonEntity> SessionDeleteQuery<'_, E> {
     /// Delete the singleton entity.
     #[must_use]
     pub fn only(mut self) -> Self
