@@ -3,15 +3,17 @@ use crate::{
         Context,
         data::DataKey,
         executor::{
-            OrderedKeyStream,
+            DistinctOrderedKeyStream, OrderedKeyStream,
             load::{LoadExecutor, execute::ExecutionInputs},
             plan::{record_plan_metrics, record_rows_scanned},
         },
         query::{
             ReadConsistency,
             plan::{
-                AccessPath, AccessPlan, Direction, ExecutablePlan, LogicalPlan,
-                validate::validate_executor_plan,
+                AccessPath, AccessPlan, Direction, ExecutablePlan, IndexPrefixSpec, LogicalPlan,
+                validate::{
+                    assess_secondary_order_pushdown_if_applicable_validated, validate_executor_plan,
+                },
             },
         },
         response::Response,
@@ -173,12 +175,22 @@ where
         // Route it through key-only fold mode, not a separate streaming engine.
         let count_pushdown_eligible = matches!(kind, AggregateKind::Count)
             && Self::is_count_pushdown_shape_supported(plan.as_inner());
+        let fold_mode = if count_pushdown_eligible {
+            AggregateFoldMode::KeysOnly
+        } else {
+            AggregateFoldMode::ExistingRows
+        };
 
         // If the logical plan requires post-access filtering, sorting,
         // or any non-stream-safe phase, fall back to canonical execution.
+        // Secondary index-prefix pushdown remains an explicit exception.
         // This preserves exact parity with materialized load semantics.
+        let secondary_pushdown_eligible =
+            assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan.as_inner())
+                .is_eligible();
         if !count_pushdown_eligible
             && !Self::is_streaming_aggregate_shape_supported(plan.as_inner())
+            && !secondary_pushdown_eligible
         {
             let response = self.execute(plan)?;
             return Ok(Self::aggregate_from_materialized(response, kind));
@@ -216,6 +228,46 @@ where
         // This mirrors the load execution path.
         record_plan_metrics(&logical_plan.access);
 
+        // Aggregate-aware fast path for primary-key point/batch access shapes.
+        // This keeps semantics identical while avoiding generic stream setup.
+        if let Some((aggregate_output, keys_scanned)) =
+            Self::try_execute_primary_key_access_aggregate(&ctx, &logical_plan, direction, kind)?
+        {
+            record_rows_scanned::<E>(keys_scanned);
+            return Ok(aggregate_output);
+        }
+
+        // Aggregate-aware fast path for secondary index-prefix plans that are
+        // eligible for canonical order pushdown.
+        if let Some((aggregate_output, rows_scanned)) = Self::try_execute_index_prefix_aggregate(
+            &ctx,
+            &logical_plan,
+            index_prefix_specs.as_slice(),
+            direction,
+            kind,
+            fold_mode,
+        )? {
+            record_rows_scanned::<E>(rows_scanned);
+            return Ok(aggregate_output);
+        }
+
+        // Aggregate-aware fast path for primary-data range/full scans.
+        // This reuses canonical fold logic while skipping generic stream routing.
+        if physical_fetch_hint.is_some()
+            && let Some((aggregate_output, rows_scanned)) =
+                Self::try_execute_primary_scan_aggregate(
+                    &ctx,
+                    &logical_plan,
+                    direction,
+                    physical_fetch_hint,
+                    kind,
+                    fold_mode,
+                )?
+        {
+            record_rows_scanned::<E>(rows_scanned);
+            return Ok(aggregate_output);
+        }
+
         // Fast exit: effective limit == 0 has an empty aggregate window and can
         // return terminal defaults without constructing or scanning key streams.
         if physical_fetch_hint == Some(0) {
@@ -244,11 +296,6 @@ where
 
         // Fold via one streaming engine. COUNT pushdown uses key-only mode;
         // other terminals use row-existence mode.
-        let fold_mode = if count_pushdown_eligible {
-            AggregateFoldMode::KeysOnly
-        } else {
-            AggregateFoldMode::ExistingRows
-        };
         let (aggregate_output, keys_scanned) = Self::fold_streaming_aggregate(
             &ctx,
             &logical_plan,
@@ -378,6 +425,184 @@ where
                 AggregateOutput::Max(response.into_iter().map(|(id, _)| id).max())
             }
         }
+    }
+
+    // Resolve aggregate terminals directly for primary-key point/batch plans.
+    // This preserves consistency + window semantics without building streams.
+    fn try_execute_primary_key_access_aggregate(
+        ctx: &Context<'_, E>,
+        plan: &LogicalPlan<E::Key>,
+        direction: Direction,
+        kind: AggregateKind,
+    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
+        let Some(path) = plan.access.as_path() else {
+            return Ok(None);
+        };
+        let ordered_keys = match path {
+            AccessPath::ByKey(key) => vec![*key],
+            AccessPath::ByKeys(keys) => {
+                let mut deduped = Context::<E>::dedup_keys(keys.clone());
+                if direction == Direction::Desc {
+                    deduped.reverse();
+                }
+
+                deduped
+            }
+            _ => return Ok(None),
+        };
+        if ordered_keys.is_empty() {
+            return Ok(None);
+        }
+        if plan.predicate.is_some() {
+            return Ok(None);
+        }
+
+        // Phase 1: apply window exhaustion before touching storage.
+        let mut window = AggregateWindowState::from_plan(plan);
+        if window.exhausted() {
+            return Ok(Some((Self::aggregate_zero_window_result(kind), 0)));
+        }
+
+        // Phase 2: iterate canonical candidate keys and enforce the same
+        // consistency + window semantics used by streaming aggregation.
+        let mut keys_scanned = 0usize;
+        let mut count = 0u32;
+        let mut exists = false;
+        let mut min_id = None::<Id<E>>;
+        let mut max_id = None::<Id<E>>;
+        for key in ordered_keys {
+            if window.exhausted() {
+                break;
+            }
+
+            keys_scanned = keys_scanned.saturating_add(1);
+            let data_key = Context::<E>::data_key_from_key(key)?;
+            if !Self::key_qualifies_for_fold(
+                ctx,
+                plan.consistency,
+                AggregateFoldMode::ExistingRows,
+                &data_key,
+            )? {
+                continue;
+            }
+            if !window.accept_existing_row() {
+                continue;
+            }
+
+            let id = Id::from_key(key);
+            match kind {
+                AggregateKind::Count => {
+                    count = count.saturating_add(1);
+                }
+                AggregateKind::Exists => {
+                    exists = true;
+                    break;
+                }
+                AggregateKind::Min => {
+                    min_id = Some(id);
+                    if direction == Direction::Asc {
+                        break;
+                    }
+                }
+                AggregateKind::Max => {
+                    max_id = Some(id);
+                    if direction == Direction::Desc {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Phase 3: project one terminal output from the reducer state.
+        let aggregate_output = match kind {
+            AggregateKind::Count => AggregateOutput::Count(count),
+            AggregateKind::Exists => AggregateOutput::Exists(exists),
+            AggregateKind::Min => AggregateOutput::Min(min_id),
+            AggregateKind::Max => AggregateOutput::Max(max_id),
+        };
+
+        Ok(Some((aggregate_output, keys_scanned)))
+    }
+
+    // Resolve aggregate terminals directly for index-prefix access plans when
+    // canonical secondary ordering is pushdown-eligible.
+    fn try_execute_index_prefix_aggregate(
+        ctx: &Context<'_, E>,
+        plan: &LogicalPlan<E::Key>,
+        index_prefix_specs: &[IndexPrefixSpec],
+        direction: Direction,
+        kind: AggregateKind,
+        fold_mode: AggregateFoldMode,
+    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
+        let secondary_pushdown_applicability =
+            assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan);
+        let Some(mut fast) = Self::try_execute_secondary_index_order_stream(
+            ctx,
+            plan,
+            index_prefix_specs.first(),
+            &secondary_pushdown_applicability,
+            // Keep secondary aggregate traversal unbounded. MissingOk can skip
+            // stale index entries, so bounded key production may under-fetch.
+            None,
+        )?
+        else {
+            return Ok(None);
+        };
+        if plan.distinct {
+            fast.ordered_key_stream =
+                Box::new(DistinctOrderedKeyStream::new(fast.ordered_key_stream));
+        }
+
+        let rows_scanned = fast.rows_scanned;
+        let (aggregate_output, _keys_scanned) = Self::fold_streaming_aggregate(
+            ctx,
+            plan,
+            plan.consistency,
+            direction,
+            fast.ordered_key_stream.as_mut(),
+            kind,
+            fold_mode,
+        )?;
+
+        Ok(Some((aggregate_output, rows_scanned)))
+    }
+
+    // Resolve aggregate terminals directly for full-scan/key-range access plans.
+    // This keeps canonical stream semantics while avoiding generic route assembly.
+    fn try_execute_primary_scan_aggregate(
+        ctx: &Context<'_, E>,
+        plan: &LogicalPlan<E::Key>,
+        direction: Direction,
+        physical_fetch_hint: Option<usize>,
+        kind: AggregateKind,
+        fold_mode: AggregateFoldMode,
+    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
+        let Some(path) = plan.access.as_path() else {
+            return Ok(None);
+        };
+        if !matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. }) {
+            return Ok(None);
+        }
+
+        let mut key_stream = ctx.ordered_key_stream_from_access_with_index_range_anchor(
+            path,
+            None,
+            None,
+            None,
+            direction,
+            physical_fetch_hint,
+        )?;
+        let (aggregate_output, keys_scanned) = Self::fold_streaming_aggregate(
+            ctx,
+            plan,
+            plan.consistency,
+            direction,
+            key_stream.as_mut(),
+            kind,
+            fold_mode,
+        )?;
+
+        Ok(Some((aggregate_output, keys_scanned)))
     }
 
     // Single streaming fold entry for all aggregate terminals.

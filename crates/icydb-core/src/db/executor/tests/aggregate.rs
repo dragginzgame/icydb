@@ -339,6 +339,206 @@ fn aggregate_parity_by_id_and_by_ids_paths() {
 }
 
 #[test]
+fn aggregate_parity_by_id_window_shape() {
+    seed_simple_entities(&[8611]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    assert_aggregate_parity_for_query(
+        &load,
+        || {
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .by_id(Ulid::from_u128(8611))
+                .order_by("id")
+                .offset(1)
+                .limit(1)
+        },
+        "by_id windowed shape",
+    );
+}
+
+#[test]
+fn aggregate_by_id_windowed_count_scans_one_candidate_key() {
+    seed_simple_entities(&[8621]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_count(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .by_id(Ulid::from_u128(8621))
+                .order_by("id")
+                .offset(1)
+                .limit(1)
+                .plan()
+                .expect("by_id windowed COUNT plan should build"),
+        )
+        .expect("by_id windowed COUNT should succeed")
+    });
+
+    assert_eq!(count, 0, "offset window should exclude the only row");
+    assert_eq!(
+        scanned, 1,
+        "single-key windowed COUNT should scan only one candidate key"
+    );
+}
+
+#[test]
+fn aggregate_by_id_strict_missing_surfaces_corruption_error() {
+    seed_simple_entities(&[8631]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let err = load
+        .aggregate_exists(
+            Query::<SimpleEntity>::new(ReadConsistency::Strict)
+                .by_id(Ulid::from_u128(8632))
+                .plan()
+                .expect("strict by_id EXISTS plan should build"),
+        )
+        .expect_err("strict by_id aggregate should fail when row is missing");
+
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Corruption,
+        "strict by_id aggregate missing row should classify as corruption"
+    );
+}
+
+#[test]
+fn aggregate_parity_by_ids_window_shape_with_duplicates() {
+    seed_simple_entities(&[8641, 8642, 8643, 8644, 8645]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    assert_aggregate_parity_for_query(
+        &load,
+        || {
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .by_ids([
+                    Ulid::from_u128(8645),
+                    Ulid::from_u128(8642),
+                    Ulid::from_u128(8642),
+                    Ulid::from_u128(8644),
+                    Ulid::from_u128(8641),
+                ])
+                .order_by("id")
+                .offset(1)
+                .limit(2)
+        },
+        "by_ids windowed + duplicates shape",
+    );
+}
+
+#[test]
+fn aggregate_by_ids_count_dedups_before_windowing() {
+    seed_simple_entities(&[8651, 8652, 8653, 8654, 8655]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_count(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .by_ids([
+                    Ulid::from_u128(8654),
+                    Ulid::from_u128(8652),
+                    Ulid::from_u128(8652),
+                    Ulid::from_u128(8651),
+                ])
+                .order_by("id")
+                .offset(1)
+                .limit(1)
+                .plan()
+                .expect("by_ids dedup COUNT plan should build"),
+        )
+        .expect("by_ids dedup COUNT should succeed")
+    });
+
+    assert_eq!(count, 1, "by_ids dedup COUNT should keep one in-window row");
+    assert_eq!(
+        scanned, 2,
+        "by_ids dedup COUNT should scan deduped candidates until the window is filled"
+    );
+}
+
+#[test]
+fn aggregate_by_ids_strict_missing_surfaces_corruption_error() {
+    seed_simple_entities(&[8661]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let err = load
+        .aggregate_count(
+            Query::<SimpleEntity>::new(ReadConsistency::Strict)
+                .by_ids([Ulid::from_u128(8662)])
+                .order_by("id")
+                .plan()
+                .expect("strict by_ids COUNT plan should build"),
+        )
+        .expect_err("strict by_ids aggregate should fail when row is missing");
+
+    assert_eq!(
+        err.class,
+        crate::error::ErrorClass::Corruption,
+        "strict by_ids aggregate missing row should classify as corruption"
+    );
+}
+
+#[test]
+fn aggregate_count_full_scan_window_scans_offset_plus_limit() {
+    seed_simple_entities(&[8671, 8672, 8673, 8674, 8675, 8676, 8677]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_count(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .offset(2)
+                .limit(2)
+                .plan()
+                .expect("full-scan COUNT plan should build"),
+        )
+        .expect("full-scan COUNT should succeed")
+    });
+
+    assert_eq!(count, 2, "full-scan COUNT should honor the page window");
+    assert_eq!(
+        scanned, 4,
+        "full-scan COUNT should scan exactly offset + limit keys"
+    );
+}
+
+#[test]
+fn aggregate_count_key_range_window_scans_offset_plus_limit() {
+    seed_simple_entities(&[8681, 8682, 8683, 8684, 8685, 8686, 8687]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
+        crate::db::query::plan::AccessPath::KeyRange {
+            start: Ulid::from_u128(8682),
+            end: Ulid::from_u128(8686),
+        },
+        ReadConsistency::MissingOk,
+    );
+    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+        fields: vec![(
+            "id".to_string(),
+            crate::db::query::plan::OrderDirection::Asc,
+        )],
+    });
+    logical_plan.page = Some(crate::db::query::plan::PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+    let key_range_plan = crate::db::query::plan::ExecutablePlan::<SimpleEntity>::new(logical_plan);
+
+    let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_count(key_range_plan)
+            .expect("key-range COUNT should succeed")
+    });
+
+    assert_eq!(count, 2, "key-range COUNT should honor the page window");
+    assert_eq!(
+        scanned, 3,
+        "key-range COUNT should scan exactly offset + limit keys"
+    );
+}
+
+#[test]
 fn aggregate_parity_distinct_asc() {
     seed_simple_entities(&[8301, 8302, 8303, 8304, 8305, 8306]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
@@ -446,6 +646,40 @@ fn aggregate_parity_secondary_index_order_shape() {
                 .limit(2)
         },
         "secondary-index order shape",
+    );
+}
+
+#[test]
+fn aggregate_exists_secondary_index_window_preserves_missing_ok_scan_safety() {
+    seed_pushdown_entities(&[
+        (8811, 7, 10),
+        (8812, 7, 20),
+        (8813, 7, 30),
+        (8814, 7, 40),
+        (8815, 8, 50),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let group_seven = u32_eq_predicate("group", 7);
+
+    let (exists, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_exists(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(group_seven.clone())
+                .order_by("rank")
+                .offset(2)
+                .plan()
+                .expect("secondary-index EXISTS window plan should build"),
+        )
+        .expect("secondary-index EXISTS window should succeed")
+    });
+
+    assert!(
+        exists,
+        "secondary-index EXISTS window should find a matching row"
+    );
+    assert_eq!(
+        scanned, 5,
+        "secondary-index EXISTS window should keep full prefix scan budget under MissingOk safety"
     );
 }
 

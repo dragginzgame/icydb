@@ -5,6 +5,24 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.23.5] – 2026-02-21 - Aggregate Access-Path Fast Paths
+
+### 📝 Summary
+
+* Added small aggregate fast paths for primary-key point, key-batch, index-prefix, and primary-data range/scan shapes.
+* Kept aggregate results unchanged while reducing work for `by_id`/`by_ids`, eligible index-prefix, and PK-ordered `KeyRange`/`FullScan` aggregate terminals.
+
+### 🔧 Changed
+
+* Aggregate execution now short-circuits `AccessPath::ByKey`, `AccessPath::ByKeys`, eligible `AccessPath::IndexPrefix`, `AccessPath::KeyRange`, and `AccessPath::FullScan` plans directly instead of building the generic ordered key stream.
+* Preserved existing consistency and window semantics for `count`, `exists`, `min`, and `max`.
+
+### 🧪 Testing
+
+* Added regressions for windowed `by_id`/`by_ids` aggregate parity, dedup-before-window behavior, secondary index-prefix `MissingOk` scan safety, `KeyRange`/`FullScan` scan budgeting, and strict missing-row classification.
+
+---
+
 ## [0.23.4] – 2026-02-21 - Boundary Hardening
 
 ### 📝 Summary
