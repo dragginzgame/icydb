@@ -51,6 +51,44 @@ impl From<OrderedValueEncodeError> for InternalError {
     }
 }
 
+///
+/// EncodedValue
+///
+/// Cached canonical index-component bytes for one logical `Value`.
+/// This wrapper keeps value + bytes together so planning/execution callsites
+/// can avoid re-encoding the same literal repeatedly.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EncodedValue {
+    raw: Value,
+    encoded: Vec<u8>,
+}
+
+impl EncodedValue {
+    /// Encode a value once into canonical index-component bytes.
+    pub(crate) fn try_new(raw: Value) -> Result<Self, OrderedValueEncodeError> {
+        let encoded = encode_canonical_index_component(&raw)?;
+
+        Ok(Self { raw, encoded })
+    }
+
+    /// Encode a borrowed value by cloning it into this cached wrapper.
+    pub(crate) fn try_from_ref(raw: &Value) -> Result<Self, OrderedValueEncodeError> {
+        Self::try_new(raw.clone())
+    }
+
+    /// Encode all values in order into cached wrappers.
+    pub(crate) fn try_encode_all(values: &[Value]) -> Result<Vec<Self>, OrderedValueEncodeError> {
+        values.iter().map(Self::try_from_ref).collect()
+    }
+
+    #[must_use]
+    pub(crate) const fn encoded(&self) -> &[u8] {
+        self.encoded.as_slice()
+    }
+}
+
 /// OrderedEncode
 ///
 /// Internal ordered-byte encoder for fixed-width value components.

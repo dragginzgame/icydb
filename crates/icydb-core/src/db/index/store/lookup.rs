@@ -3,9 +3,8 @@ use crate::{
     db::{
         data::DataKey,
         index::{
-            Direction, IndexId, IndexKey, continuation_advanced, encode_canonical_index_component,
-            envelope_is_empty, map_bound_encode_error, raw_bounds_for_index_component_range,
-            resume_bounds,
+            Direction, EncodedValue, IndexId, IndexKey, continuation_advanced, envelope_is_empty,
+            raw_bounds_for_encoded_index_component_range, resume_bounds,
             store::{IndexStore, RawIndexKey},
         },
     },
@@ -49,12 +48,12 @@ impl IndexStore {
         let index_id = IndexId::new::<E>(index);
 
         // Phase 1: encode prefix bounds once and derive the canonical index envelope.
-        let mut components = Vec::with_capacity(prefix.len());
-        for value in prefix {
-            let component = encode_canonical_index_component(value)
-                .map_err(|_| index_executor_invariant(PREFIX_NOT_INDEXABLE))?;
-            components.push(component);
-        }
+        let encoded_prefix = EncodedValue::try_encode_all(prefix)
+            .map_err(|_| index_executor_invariant(PREFIX_NOT_INDEXABLE))?;
+        let components = encoded_prefix
+            .iter()
+            .map(|value| value.encoded().to_vec())
+            .collect::<Vec<_>>();
 
         let (start, end) = IndexKey::bounds_for_prefix(&index_id, index.fields.len(), &components);
         let (start_raw, end_raw) = (start.to_raw(), end.to_raw());
@@ -132,17 +131,16 @@ impl IndexStore {
         }
 
         let (lower, upper) = bounds;
-        let (start_raw, end_raw) = raw_bounds_for_index_component_range::<E>(
-            index, prefix, lower, upper,
-        )
-        .map_err(|err| {
-            index_executor_invariant(map_bound_encode_error(
-                err,
-                RANGE_PREFIX_NOT_INDEXABLE,
-                RANGE_LOWER_NOT_INDEXABLE,
-                RANGE_UPPER_NOT_INDEXABLE,
-            ))
-        })?;
+        let encoded_prefix = EncodedValue::try_encode_all(prefix)
+            .map_err(|_| index_executor_invariant(RANGE_PREFIX_NOT_INDEXABLE))?;
+        let encoded_lower = encode_value_bound(lower, RANGE_LOWER_NOT_INDEXABLE)?;
+        let encoded_upper = encode_value_bound(upper, RANGE_UPPER_NOT_INDEXABLE)?;
+        let (start_raw, end_raw) = raw_bounds_for_encoded_index_component_range::<E>(
+            index,
+            encoded_prefix.as_slice(),
+            &encoded_lower,
+            &encoded_upper,
+        );
         let (start_raw, end_raw) = match continuation_start_exclusive {
             Some(anchor) => resume_bounds(direction, start_raw, end_raw, anchor),
             None => (start_raw, end_raw),
@@ -259,6 +257,21 @@ impl IndexStore {
         }
 
         Ok(false)
+    }
+}
+
+fn encode_value_bound(
+    bound: &Bound<Value>,
+    reason: &'static str,
+) -> Result<Bound<EncodedValue>, InternalError> {
+    match bound {
+        Bound::Unbounded => Ok(Bound::Unbounded),
+        Bound::Included(value) => EncodedValue::try_from_ref(value)
+            .map(Bound::Included)
+            .map_err(|_| index_executor_invariant(reason)),
+        Bound::Excluded(value) => EncodedValue::try_from_ref(value)
+            .map(Bound::Excluded)
+            .map_err(|_| index_executor_invariant(reason)),
     }
 }
 

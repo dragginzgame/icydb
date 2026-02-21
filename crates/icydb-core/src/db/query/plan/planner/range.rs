@@ -2,7 +2,7 @@ use crate::{
     db::query::{
         plan::{
             AccessPath,
-            planner::{index_prefix_literal_is_compatible, sorted_indexes},
+            planner::{encoded_index_literal_if_compatible, sorted_indexes},
         },
         predicate::{
             CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo, coercion::canonical_cmp,
@@ -45,6 +45,18 @@ enum IndexFieldConstraint {
     Range(RangeConstraint),
 }
 
+///
+/// CachedCompare
+///
+/// Compare predicate plus precomputed index-encoding compatibility.
+///
+
+#[derive(Clone)]
+struct CachedCompare<'a> {
+    cmp: &'a ComparePredicate,
+    encoded: Option<crate::db::index::EncodedValue>,
+}
+
 // Build one deterministic secondary-range candidate from a normalized AND-group.
 //
 // Extraction contract:
@@ -74,13 +86,15 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         ) {
             return None;
         }
-        compares.push(cmp);
+        compares.push(CachedCompare {
+            cmp,
+            encoded: encoded_index_literal_if_compatible(schema, &cmp.field, &cmp.value),
+        });
     }
 
     let mut best: Option<(usize, &'static IndexModel, Vec<Value>, RangeConstraint)> = None;
     for index in sorted_indexes(model) {
-        let Some((prefix, range)) = index_range_candidate_for_index(schema, index, &compares)
-        else {
+        let Some((prefix, range)) = index_range_candidate_for_index(index, &compares) else {
             continue;
         };
 
@@ -111,17 +125,16 @@ pub(in crate::db::query::plan::planner) fn index_range_literal_is_compatible(
     field: &str,
     value: &Value,
 ) -> bool {
-    index_prefix_literal_is_compatible(schema, field, value)
+    encoded_index_literal_if_compatible(schema, field, value).is_some()
 }
 
 // Extract an index-range candidate for one concrete index.
 fn index_range_candidate_for_index(
-    schema: &SchemaInfo,
     index: &'static IndexModel,
-    compares: &[&ComparePredicate],
+    compares: &[CachedCompare<'_>],
 ) -> Option<(Vec<Value>, RangeConstraint)> {
     // Phase 1: classify each index field as Eq/Range/None for this compare set.
-    let constraints = classify_index_field_constraints(schema, index, compares)?;
+    let constraints = classify_index_field_constraints(index, compares)?;
 
     // Phase 2: materialize deterministic prefix+range shape from constraints.
     select_prefix_and_range(index.fields.len(), &constraints)
@@ -129,13 +142,13 @@ fn index_range_candidate_for_index(
 
 // Build per-field constraint classes for one index from compare predicates.
 fn classify_index_field_constraints(
-    schema: &SchemaInfo,
     index: &'static IndexModel,
-    compares: &[&ComparePredicate],
+    compares: &[CachedCompare<'_>],
 ) -> Option<Vec<IndexFieldConstraint>> {
     let mut constraints = vec![IndexFieldConstraint::None; index.fields.len()];
 
-    for cmp in compares {
+    for cached in compares {
+        let cmp = cached.cmp;
         let Some(position) = index
             .fields
             .iter()
@@ -143,10 +156,9 @@ fn classify_index_field_constraints(
         else {
             continue;
         };
-        let field = index.fields[position];
-        if !index_range_literal_is_compatible(schema, field, &cmp.value) {
-            return None;
-        }
+
+        // return none if encoded is none
+        cached.encoded.as_ref()?;
 
         match cmp.op {
             CompareOp::Eq => match &mut constraints[position] {

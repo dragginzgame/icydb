@@ -5,6 +5,26 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.23.2] – 2026-02-21 - EncodedValue Consolidation
+
+### 📝 Summary
+
+* Consolidated index encoding around one shared `EncodedValue` path.
+* Kept query behavior the same while reducing repeated encode work in planning and lookup.
+
+### 🔧 Changed
+
+* `RawIndexKey` builders now accept only `EncodedValue`, making canonical index bytes a hard input invariant instead of a convention.
+* Added `EncodedValue` as the shared wrapper for canonical index bytes used by lookup and range bound construction.
+* Planner index prefix/range selection now caches encoded literals and reuses them across candidate evaluation instead of re-encoding.
+* Added a compile-time decimal guard so `prim = "Decimal"` now requires `item(scale = N)`.
+
+### 🧪 Testing
+
+* Added a compile-fail regression for missing decimal `scale` on `Decimal` schema fields.
+
+---
+
 ## [0.23.1] – 2026-02-21 - Decimal Scale Boundary Hardening
 
 ### 📝 Summary

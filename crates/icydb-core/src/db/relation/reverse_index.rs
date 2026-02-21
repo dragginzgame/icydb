@@ -11,8 +11,8 @@ use crate::{
         data::RawDataKey,
         identity::{EntityName, IndexName},
         index::{
-            IndexEntry, IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry, RawIndexKey,
-            encode_canonical_index_component,
+            EncodedValue, IndexEntry, IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry,
+            RawIndexKey,
         },
     },
     error::InternalError,
@@ -73,12 +73,12 @@ pub(super) fn reverse_index_key_for_target_value<S>(
 where
     S: EntityKind,
 {
-    let Ok(component) = encode_canonical_index_component(target_key_value) else {
+    let Ok(encoded_value) = EncodedValue::try_from_ref(target_key_value) else {
         return Ok(None);
     };
 
     let index_id = reverse_index_id_for_relation::<S>(relation)?;
-    let prefix = vec![component];
+    let prefix = vec![encoded_value.encoded().to_vec()];
     let (key, _) =
         IndexKey::bounds_for_prefix_with_kind(&index_id, IndexKeyKind::System, 1, &prefix);
 

@@ -3,10 +3,7 @@ use crate::{
     db::{
         data::StorageKey,
         identity::{EntityName, IndexName},
-        index::key::{
-            IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError,
-            encode_canonical_index_component,
-        },
+        index::key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
     },
     error::InternalError,
     model::index::IndexModel,
@@ -55,8 +52,8 @@ impl IndexKey {
                 return Ok(None);
             };
 
-            let component = match encode_canonical_index_component(&value) {
-                Ok(component) => component,
+            let encoded = match EncodedValue::try_from_ref(&value) {
+                Ok(encoded) => encoded,
                 Err(
                     OrderedValueEncodeError::NullNotIndexable
                     | OrderedValueEncodeError::UnsupportedValueKind { .. },
@@ -65,6 +62,7 @@ impl IndexKey {
                 }
                 Err(err) => return Err(err.into()),
             };
+            let component = encoded.encoded().to_vec();
 
             if component.len() > Self::MAX_COMPONENT_SIZE {
                 return Err(InternalError::index_unsupported(format!(

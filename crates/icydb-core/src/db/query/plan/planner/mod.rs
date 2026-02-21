@@ -9,7 +9,7 @@ mod range;
 use super::{AccessPath, AccessPlan, PlanError};
 use crate::{
     db::{
-        index::encode_canonical_index_component,
+        index::EncodedValue,
         query::predicate::{
             CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo,
             normalize as normalize_predicate, validate::literal_matches_type,
@@ -258,6 +258,8 @@ fn index_prefix_from_and(
     schema: &SchemaInfo,
     children: &[Predicate],
 ) -> Option<AccessPath<Value>> {
+    // Cache compatibility/encoded bytes once per equality literal so index
+    // candidate selection does not re-encode on every index iteration.
     let mut field_values = Vec::new();
 
     for child in children {
@@ -270,7 +272,11 @@ fn index_prefix_from_and(
         if cmp.coercion.id != CoercionId::Strict {
             continue;
         }
-        field_values.push((cmp.field.as_str(), &cmp.value));
+        field_values.push(CachedEqLiteral {
+            field: cmp.field.as_str(),
+            value: &cmp.value,
+            encoded: encoded_index_literal_if_compatible(schema, &cmp.field, &cmp.value),
+        });
     }
 
     let mut best: Option<(usize, bool, &IndexModel, Vec<Value>)> = None;
@@ -279,14 +285,14 @@ fn index_prefix_from_and(
         for field in index.fields {
             // NOTE: duplicate equality predicates on the same field are assumed
             // to have been validated upstream (no conflict). Planner picks the first.
-            let Some((_, value)) = field_values.iter().find(|(name, _)| *name == *field) else {
+            let Some(cached) = field_values.iter().find(|cached| cached.field == *field) else {
                 break;
             };
-            if !index_prefix_literal_is_compatible(schema, field, value) {
+            if cached.encoded.is_none() {
                 prefix.clear();
                 break;
             }
-            prefix.push((*value).clone());
+            prefix.push(cached.value.clone());
         }
 
         if prefix.is_empty() {
@@ -311,6 +317,18 @@ fn index_prefix_from_and(
         index: *index,
         values,
     })
+}
+
+///
+/// CachedEqLiteral
+///
+/// Equality literal plus its precomputed index-encoding compatibility.
+///
+
+struct CachedEqLiteral<'a> {
+    field: &'a str,
+    value: &'a Value,
+    encoded: Option<EncodedValue>,
 }
 
 fn better_index(
@@ -350,11 +368,20 @@ pub(in crate::db::query::plan::planner) fn index_prefix_literal_is_compatible(
     field: &str,
     value: &Value,
 ) -> bool {
-    let Some(field_type) = schema.field(field) else {
-        return false;
-    };
+    encoded_index_literal_if_compatible(schema, field, value).is_some()
+}
 
-    literal_matches_type(value, field_type) && encode_canonical_index_component(value).is_ok()
+pub(in crate::db::query::plan::planner) fn encoded_index_literal_if_compatible(
+    schema: &SchemaInfo,
+    field: &str,
+    value: &Value,
+) -> Option<EncodedValue> {
+    let field_type = schema.field(field)?;
+    if !literal_matches_type(value, field_type) {
+        return None;
+    }
+
+    EncodedValue::try_from_ref(value).ok()
 }
 
 ///

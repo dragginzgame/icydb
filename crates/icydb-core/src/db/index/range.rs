@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        index::{IndexId, IndexKey, RawIndexKey, encode_canonical_index_component},
+        index::{EncodedValue, IndexId, IndexKey, RawIndexKey},
         query::plan::KeyEnvelope,
     },
     model::index::IndexModel,
@@ -71,17 +71,40 @@ pub(in crate::db) fn raw_bounds_for_index_component_range<E: EntityKind>(
     lower: &Bound<Value>,
     upper: &Bound<Value>,
 ) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), IndexRangeBoundEncodeError> {
+    let encoded_prefix =
+        EncodedValue::try_encode_all(prefix).map_err(|_| IndexRangeBoundEncodeError::Prefix)?;
+    let encoded_lower = encode_index_component_bound(lower, IndexRangeBoundEncodeError::Lower)?;
+    let encoded_upper = encode_index_component_bound(upper, IndexRangeBoundEncodeError::Upper)?;
+
+    Ok(raw_bounds_for_encoded_index_component_range::<E>(
+        index,
+        encoded_prefix.as_slice(),
+        &encoded_lower,
+        &encoded_upper,
+    ))
+}
+
+///
+/// raw_bounds_for_encoded_index_component_range
+///
+/// Build raw key-space bounds from pre-encoded index components.
+///
+
+pub(in crate::db) fn raw_bounds_for_encoded_index_component_range<E: EntityKind>(
+    index: &IndexModel,
+    prefix: &[EncodedValue],
+    lower: &Bound<EncodedValue>,
+    upper: &Bound<EncodedValue>,
+) -> (Bound<RawIndexKey>, Bound<RawIndexKey>) {
     let index_id = IndexId::new::<E>(index);
 
     let mut prefix_components = Vec::with_capacity(prefix.len());
     for value in prefix {
-        let component = encode_canonical_index_component(value)
-            .map_err(|_| IndexRangeBoundEncodeError::Prefix)?;
-        prefix_components.push(component);
+        prefix_components.push(value.encoded().to_vec());
     }
 
-    let lower_component = encode_index_component_bound(lower, IndexRangeBoundEncodeError::Lower)?;
-    let upper_component = encode_index_component_bound(upper, IndexRangeBoundEncodeError::Upper)?;
+    let lower_component = encoded_component_bound(lower);
+    let upper_component = encoded_component_bound(upper);
     let (start, end) = IndexKey::bounds_for_prefix_component_range(
         &index_id,
         index.fields.len(),
@@ -90,7 +113,7 @@ pub(in crate::db) fn raw_bounds_for_index_component_range<E: EntityKind>(
         upper_component,
     );
 
-    Ok((raw_index_key_bound(start), raw_index_key_bound(end)))
+    (raw_index_key_bound(start), raw_index_key_bound(end))
 }
 
 ///
@@ -163,15 +186,23 @@ pub(in crate::db) fn envelope_is_empty(
 fn encode_index_component_bound(
     bound: &Bound<Value>,
     kind: IndexRangeBoundEncodeError,
-) -> Result<Bound<Vec<u8>>, IndexRangeBoundEncodeError> {
+) -> Result<Bound<EncodedValue>, IndexRangeBoundEncodeError> {
     match bound {
         Bound::Unbounded => Ok(Bound::Unbounded),
-        Bound::Included(value) => encode_canonical_index_component(value)
+        Bound::Included(value) => EncodedValue::try_from_ref(value)
             .map(Bound::Included)
             .map_err(|_| kind),
-        Bound::Excluded(value) => encode_canonical_index_component(value)
+        Bound::Excluded(value) => EncodedValue::try_from_ref(value)
             .map(Bound::Excluded)
             .map_err(|_| kind),
+    }
+}
+
+fn encoded_component_bound(bound: &Bound<EncodedValue>) -> Bound<Vec<u8>> {
+    match bound {
+        Bound::Unbounded => Bound::Unbounded,
+        Bound::Included(value) => Bound::Included(value.encoded().to_vec()),
+        Bound::Excluded(value) => Bound::Excluded(value.encoded().to_vec()),
     }
 }
 
