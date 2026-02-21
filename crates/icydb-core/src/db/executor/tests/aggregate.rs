@@ -1,4 +1,55 @@
 use super::*;
+use crate::{
+    db::{data::DataKey, query::plan::ExplainAccessPath},
+    obs::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
+};
+use std::cell::RefCell;
+
+///
+/// AggregateCaptureSink
+///
+
+#[derive(Default)]
+struct AggregateCaptureSink {
+    events: RefCell<Vec<MetricsEvent>>,
+}
+
+impl AggregateCaptureSink {
+    fn into_events(self) -> Vec<MetricsEvent> {
+        self.events.into_inner()
+    }
+}
+
+impl MetricsSink for AggregateCaptureSink {
+    fn record(&self, event: MetricsEvent) {
+        self.events.borrow_mut().push(event);
+    }
+}
+
+fn rows_scanned_for_entity(events: &[MetricsEvent], entity_path: &'static str) -> usize {
+    events.iter().fold(0usize, |acc, event| {
+        let scanned = match event {
+            MetricsEvent::RowsScanned {
+                entity_path: path,
+                rows_scanned,
+            } if *path == entity_path => usize::try_from(*rows_scanned).unwrap_or(usize::MAX),
+            _ => 0,
+        };
+
+        acc.saturating_add(scanned)
+    })
+}
+
+fn capture_rows_scanned_for_entity<R>(
+    entity_path: &'static str,
+    run: impl FnOnce() -> R,
+) -> (R, usize) {
+    let sink = AggregateCaptureSink::default();
+    let output = with_metrics_sink(&sink, run);
+    let rows_scanned = rows_scanned_for_entity(&sink.into_events(), entity_path);
+
+    (output, rows_scanned)
+}
 
 fn seed_simple_entities(ids: &[u128]) {
     init_commit_store_for_tests().expect("commit store init should succeed");
@@ -42,6 +93,38 @@ fn seed_unique_index_range_entities(rows: &[(u128, u32)]) {
         })
         .expect("seed unique-index row save should succeed");
     }
+}
+
+fn seed_phase_entities(rows: &[(u128, u32)]) {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for (id, rank) in rows {
+        save.insert(PhaseEntity {
+            id: Ulid::from_u128(*id),
+            opt_rank: Some(*rank),
+            rank: *rank,
+            tags: vec![*rank],
+            label: format!("phase-{rank}"),
+        })
+        .expect("seed phase row save should succeed");
+    }
+}
+
+fn remove_pushdown_row_data(id: u128) {
+    let raw_key = DataKey::try_new::<PushdownParityEntity>(Ulid::from_u128(id))
+        .expect("pushdown data key should build")
+        .to_raw()
+        .expect("pushdown data key should encode");
+
+    DATA_STORE.with(|store| {
+        let removed = store.borrow_mut().remove(&raw_key);
+        assert!(
+            removed.is_some(),
+            "expected row to exist before data-only removal"
+        );
+    });
 }
 
 fn assert_aggregate_parity_for_query<E>(
@@ -106,6 +189,36 @@ fn assert_aggregate_parity_for_query<E>(
     assert_eq!(actual_max, expected_max, "{context}: max parity failed");
 }
 
+fn assert_count_parity_for_query<E>(
+    load: &LoadExecutor<E>,
+    make_query: impl Fn() -> Query<E>,
+    context: &str,
+) where
+    E: EntityKind<Canister = TestCanister> + EntityValue,
+{
+    let expected_count = load
+        .execute(
+            make_query()
+                .plan()
+                .expect("baseline materialized plan should build"),
+        )
+        .expect("baseline materialized execution should succeed")
+        .count();
+
+    let actual_count = load
+        .aggregate_count(
+            make_query()
+                .plan()
+                .expect("aggregate COUNT plan should build"),
+        )
+        .expect("aggregate COUNT should succeed");
+
+    assert_eq!(
+        actual_count, expected_count,
+        "{context}: count parity failed"
+    );
+}
+
 fn id_in_predicate(ids: &[u128]) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         "id",
@@ -118,6 +231,27 @@ fn id_in_predicate(ids: &[u128]) -> Predicate {
         ),
         CoercionId::Strict,
     ))
+}
+
+fn explain_access_supports_count_pushdown(access: &ExplainAccessPath) -> bool {
+    match access {
+        ExplainAccessPath::FullScan | ExplainAccessPath::KeyRange { .. } => true,
+        ExplainAccessPath::Union(children) | ExplainAccessPath::Intersection(children) => {
+            children.iter().all(explain_access_supports_count_pushdown)
+        }
+        ExplainAccessPath::ByKey { .. }
+        | ExplainAccessPath::ByKeys { .. }
+        | ExplainAccessPath::IndexPrefix { .. }
+        | ExplainAccessPath::IndexRange { .. } => false,
+    }
+}
+
+fn count_pushdown_contract_eligible<E>(plan: &crate::db::query::plan::ExecutablePlan<E>) -> bool
+where
+    E: EntityKind<Canister = TestCanister> + EntityValue,
+{
+    plan.as_inner().is_streaming_access_shape_safe::<E>()
+        && explain_access_supports_count_pushdown(&plan.explain().access)
 }
 
 fn u32_eq_predicate(field: &str, value: u32) -> Predicate {
@@ -428,4 +562,295 @@ fn session_load_aggregate_terminals_match_execute() {
     );
     assert_eq!(actual_min, expected_min, "session min parity failed");
     assert_eq!(actual_max, expected_max, "session max parity failed");
+}
+
+#[test]
+fn aggregate_exists_desc_early_stop_matches_asc_scan_budget() {
+    seed_simple_entities(&[9201, 9202, 9203, 9204, 9205, 9206]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (exists_asc, scanned_asc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_exists(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .plan()
+                .expect("exists ASC plan should build"),
+        )
+        .expect("exists ASC should succeed")
+    });
+    let (exists_desc, scanned_desc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_exists(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by_desc("id")
+                .plan()
+                .expect("exists DESC plan should build"),
+        )
+        .expect("exists DESC should succeed")
+    });
+
+    assert!(exists_asc, "exists ASC should find at least one row");
+    assert!(exists_desc, "exists DESC should find at least one row");
+    assert_eq!(
+        scanned_asc, 1,
+        "exists ASC should early-stop after first key"
+    );
+    assert_eq!(
+        scanned_desc, 1,
+        "exists DESC should early-stop after first key"
+    );
+}
+
+#[test]
+fn aggregate_extrema_first_row_short_circuit_is_direction_symmetric() {
+    seed_simple_entities(&[9301, 9302, 9303, 9304, 9305, 9306]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (min_asc, scanned_min_asc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_min(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .plan()
+                .expect("min ASC plan should build"),
+        )
+        .expect("min ASC should succeed")
+    });
+    let (max_desc, scanned_max_desc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_max(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by_desc("id")
+                .plan()
+                .expect("max DESC plan should build"),
+        )
+        .expect("max DESC should succeed")
+    });
+
+    assert_eq!(min_asc.map(|id| id.key()), Some(Ulid::from_u128(9301)));
+    assert_eq!(max_desc.map(|id| id.key()), Some(Ulid::from_u128(9306)));
+    assert_eq!(
+        scanned_min_asc, 1,
+        "min ASC should early-stop after first in-window key"
+    );
+    assert_eq!(
+        scanned_max_desc, 1,
+        "max DESC should early-stop after first in-window key"
+    );
+}
+
+#[test]
+fn aggregate_extrema_offset_short_circuit_scans_offset_plus_one() {
+    seed_simple_entities(&[9401, 9402, 9403, 9404, 9405, 9406, 9407]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (min_asc, scanned_min_asc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_min(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .offset(3)
+                .plan()
+                .expect("min ASC with offset plan should build"),
+        )
+        .expect("min ASC with offset should succeed")
+    });
+    let (max_desc, scanned_max_desc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_max(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by_desc("id")
+                .offset(3)
+                .plan()
+                .expect("max DESC with offset plan should build"),
+        )
+        .expect("max DESC with offset should succeed")
+    });
+
+    assert_eq!(min_asc.map(|id| id.key()), Some(Ulid::from_u128(9404)));
+    assert_eq!(max_desc.map(|id| id.key()), Some(Ulid::from_u128(9404)));
+    assert_eq!(
+        scanned_min_asc, 4,
+        "min ASC should scan exactly offset + 1 keys"
+    );
+    assert_eq!(
+        scanned_max_desc, 4,
+        "max DESC should scan exactly offset + 1 keys"
+    );
+}
+
+#[test]
+fn aggregate_distinct_offset_probe_hint_suppression_preserves_parity() {
+    seed_simple_entities(&[9501, 9502]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let duplicate_front_predicate = Predicate::Or(vec![
+        id_in_predicate(&[9501]),
+        id_in_predicate(&[9501, 9502]),
+    ]);
+
+    assert_aggregate_parity_for_query(
+        &load,
+        || {
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .filter(duplicate_front_predicate.clone())
+                .distinct()
+                .order_by("id")
+                .offset(1)
+        },
+        "distinct + offset probe-hint suppression",
+    );
+}
+
+#[test]
+fn aggregate_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_max() {
+    seed_pushdown_entities(&[
+        (9601, 7, 10),
+        (9602, 7, 20),
+        (9603, 7, 30),
+        (9604, 7, 40),
+        (9605, 8, 50),
+    ]);
+    // Remove edge rows from primary data only, preserving index entries to
+    // simulate stale leading secondary keys.
+    remove_pushdown_row_data(9601);
+    remove_pushdown_row_data(9604);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let group_seven = u32_eq_predicate("group", 7);
+
+    assert_aggregate_parity_for_query(
+        &load,
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(group_seven.clone())
+                .order_by("rank")
+        },
+        "MissingOk stale-leading ASC secondary path",
+    );
+    assert_aggregate_parity_for_query(
+        &load,
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(group_seven.clone())
+                .order_by_desc("rank")
+        },
+        "MissingOk stale-leading DESC secondary path",
+    );
+
+    let (exists_asc, scanned_asc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_exists(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(group_seven.clone())
+                    .order_by("rank")
+                    .plan()
+                    .expect("exists ASC stale-leading plan should build"),
+            )
+            .expect("exists ASC stale-leading should succeed")
+        });
+    let (exists_desc, scanned_desc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_exists(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(group_seven.clone())
+                    .order_by_desc("rank")
+                    .plan()
+                    .expect("exists DESC stale-leading plan should build"),
+            )
+            .expect("exists DESC stale-leading should succeed")
+        });
+
+    assert!(
+        exists_asc,
+        "exists ASC should continue past stale leading key and find a row"
+    );
+    assert!(
+        exists_desc,
+        "exists DESC should continue past stale leading key and find a row"
+    );
+    assert!(
+        scanned_asc >= 2,
+        "exists ASC should scan beyond the first stale key"
+    );
+    assert!(
+        scanned_desc >= 2,
+        "exists DESC should scan beyond the first stale key"
+    );
+}
+
+#[test]
+fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
+    // Case A: full-scan ordered shape should be count-pushdown eligible.
+    seed_simple_entities(&[9701, 9702, 9703, 9704, 9705]);
+    let simple_load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let full_scan_query = || {
+        Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            .order_by("id")
+            .offset(1)
+            .limit(2)
+    };
+    let full_scan_plan = full_scan_query()
+        .plan()
+        .expect("full-scan count matrix plan should build");
+    assert!(
+        full_scan_plan
+            .as_inner()
+            .is_streaming_access_shape_safe::<SimpleEntity>(),
+        "full-scan matrix shape should be streaming-safe"
+    );
+    assert!(
+        count_pushdown_contract_eligible(&full_scan_plan),
+        "full-scan matrix shape should be count-pushdown eligible by contract"
+    );
+    assert_count_parity_for_query(&simple_load, full_scan_query, "count matrix full-scan");
+
+    // Case B: residual-filter full-scan is access-supported but not streaming-safe.
+    seed_phase_entities(&[(9801, 1), (9802, 2), (9803, 2), (9804, 3)]);
+    let phase_load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let residual_filter_query = || {
+        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("rank", 2))
+            .order_by("id")
+    };
+    let residual_filter_plan = residual_filter_query()
+        .plan()
+        .expect("residual-filter count matrix plan should build");
+    assert!(
+        !residual_filter_plan
+            .as_inner()
+            .is_streaming_access_shape_safe::<PhaseEntity>(),
+        "residual-filter matrix shape should be streaming-unsafe"
+    );
+    assert!(
+        explain_access_supports_count_pushdown(&residual_filter_plan.explain().access),
+        "residual-filter matrix shape should still be access-supported for pushdown paths"
+    );
+    assert!(
+        !count_pushdown_contract_eligible(&residual_filter_plan),
+        "residual-filter matrix shape must not be count-pushdown eligible"
+    );
+    assert_count_parity_for_query(
+        &phase_load,
+        residual_filter_query,
+        "count matrix residual-filter full-scan",
+    );
+
+    // Case C: secondary-order query with stale leading keys must remain ineligible
+    // for count pushdown and preserve materialized count parity.
+    seed_pushdown_entities(&[(9901, 7, 10), (9902, 7, 20), (9903, 7, 30), (9904, 7, 40)]);
+    remove_pushdown_row_data(9901);
+    let pushdown_load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let secondary_index_query = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("rank")
+    };
+    let secondary_index_plan = secondary_index_query()
+        .plan()
+        .expect("secondary-index count matrix plan should build");
+    assert!(
+        !count_pushdown_contract_eligible(&secondary_index_plan),
+        "secondary-index matrix shape must not be count-pushdown eligible"
+    );
+    assert_count_parity_for_query(
+        &pushdown_load,
+        secondary_index_query,
+        "count matrix secondary-index",
+    );
 }

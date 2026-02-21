@@ -38,6 +38,18 @@ enum AggregateOutput<E: EntityKind> {
     Max(Option<Id<E>>),
 }
 
+#[derive(Clone, Copy)]
+enum FoldControl {
+    Continue,
+    Break,
+}
+
+#[derive(Clone, Copy)]
+enum AggregateFoldMode {
+    ExistingRows,
+    KeysOnly,
+}
+
 ///
 /// AggregateWindowState
 ///
@@ -157,30 +169,36 @@ where
         plan: ExecutablePlan<E>,
         kind: AggregateKind,
     ) -> Result<AggregateOutput<E>, InternalError> {
-        // COUNT pushdown must remain a strict subset of streaming eligibility.
-        // Keep this gate centralized so future optimizations do not fork safety logic.
-        if matches!(kind, AggregateKind::Count)
-            && Self::is_count_pushdown_shape_supported(plan.as_inner())
-        {
-            return self.execute_count_pushdown(plan);
-        }
+        // COUNT pushdown remains a strict subset of streaming eligibility.
+        // Route it through key-only fold mode, not a separate streaming engine.
+        let count_pushdown_eligible = matches!(kind, AggregateKind::Count)
+            && Self::is_count_pushdown_shape_supported(plan.as_inner());
 
         // If the logical plan requires post-access filtering, sorting,
         // or any non-stream-safe phase, fall back to canonical execution.
         // This preserves exact parity with materialized load semantics.
-        if !Self::is_streaming_aggregate_shape_supported(plan.as_inner()) {
+        if !count_pushdown_eligible
+            && !Self::is_streaming_aggregate_shape_supported(plan.as_inner())
+        {
             let response = self.execute(plan)?;
             return Ok(Self::aggregate_from_materialized(response, kind));
         }
 
-        // EXISTS may provide a bounded probe hint (offset + 1) so eligible
-        // fast-paths can avoid over-producing candidates.
-        // This is only valid under streaming-safe shapes.
-        let exists_probe_fetch_hint = Self::exists_probe_fetch_hint(plan.as_inner(), kind);
-
         // Direction must be captured before consuming the ExecutablePlan.
         // After `into_inner()`, we operate purely on LogicalPlan.
         let direction = plan.direction();
+        // EXISTS/MIN/MAX may provide bounded probe hints so eligible fast paths
+        // can avoid over-producing keys. Directional hints preserve
+        // early-stop symmetry for `min ASC` and `max DESC`.
+        let aggregate_probe_fetch_hint =
+            Self::aggregate_probe_fetch_hint(plan.as_inner(), kind, direction);
+        // COUNT pushdown uses the same streaming fold entry with key-only inclusion.
+        // Other terminals use aggregate probe hints.
+        let physical_fetch_hint = if count_pushdown_eligible {
+            Self::count_pushdown_fetch_hint(plan.as_inner())
+        } else {
+            aggregate_probe_fetch_hint
+        };
 
         // Move into the underlying logical plan.
         // After this point, `plan` is consumed.
@@ -196,11 +214,11 @@ where
         // This mirrors the load execution path.
         record_plan_metrics(&logical_plan.access);
 
-        // Fast exit: EXISTS with effective limit == 0 can return false
-        // without constructing or scanning any key stream.
-        if exists_probe_fetch_hint == Some(0) {
+        // Fast exit: effective limit == 0 has an empty aggregate window and can
+        // return terminal defaults without constructing or scanning key streams.
+        if physical_fetch_hint == Some(0) {
             record_rows_scanned::<E>(0);
-            return Ok(AggregateOutput::Exists(false));
+            return Ok(Self::aggregate_zero_window_result(kind));
         }
 
         // Build canonical execution inputs. This must match the load executor
@@ -215,20 +233,26 @@ where
         // Fast-path planning must be identical to load execution so aggregate
         // folding sees the exact same ordered key stream.
         let fast_path_plan =
-            Self::build_fast_path_plan(&logical_plan, None, None, exists_probe_fetch_hint)?;
+            Self::build_fast_path_plan(&logical_plan, None, None, physical_fetch_hint)?;
 
         // Resolve the ordered key stream using canonical routing logic.
         let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, &fast_path_plan)?;
 
-        // Fold only over rows that actually exist (respecting read consistency)
-        // and apply pagination window semantics during folding.
-        let (aggregate_output, keys_scanned) = Self::fold_existing_rows(
+        // Fold via one streaming engine. COUNT pushdown uses key-only mode;
+        // other terminals use row-existence mode.
+        let fold_mode = if count_pushdown_eligible {
+            AggregateFoldMode::KeysOnly
+        } else {
+            AggregateFoldMode::ExistingRows
+        };
+        let (aggregate_output, keys_scanned) = Self::fold_streaming_aggregate(
             &ctx,
             &logical_plan,
             logical_plan.consistency,
             direction,
             resolved.key_stream.as_mut(),
             kind,
+            fold_mode,
         )?;
 
         // Preserve row-scan metrics semantics.
@@ -239,48 +263,17 @@ where
         Ok(aggregate_output)
     }
 
-    // Execute COUNT through the canonical key-stream resolver and count emitted
-    // keys directly for access shapes that guarantee key->row existence parity.
-    fn execute_count_pushdown(
-        &self,
-        plan: ExecutablePlan<E>,
-    ) -> Result<AggregateOutput<E>, InternalError> {
-        // Direction must be captured before consuming the executable wrapper.
-        let direction = plan.direction();
-        let logical_plan = plan.into_inner();
-
-        // Phase 1: validate and recover context at the same boundary as load.
-        validate_executor_plan::<E>(&logical_plan)?;
-        let ctx = self.db.recovered_context::<E>()?;
-
-        // Phase 2: resolve keys through the same fast-path/fallback router.
-        record_plan_metrics(&logical_plan.access);
-        let execution_inputs = ExecutionInputs {
-            ctx: &ctx,
-            plan: &logical_plan,
-            index_range_anchor: None,
-            direction,
-        };
-        let count_fetch_hint = Self::count_pushdown_fetch_hint(&logical_plan);
-        let fast_path_plan =
-            Self::build_fast_path_plan(&logical_plan, None, None, count_fetch_hint)?;
-        let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, &fast_path_plan)?;
-
-        // Phase 3: count keys in the effective window without per-key row reads.
-        let (count, keys_scanned) = Self::count_emitted_keys(
-            resolved.key_stream.as_mut(),
-            AggregateWindowState::from_plan(&logical_plan),
-        )?;
-        let rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
-        record_rows_scanned::<E>(rows_scanned);
-
-        Ok(AggregateOutput::Count(count))
-    }
-
-    // EXISTS probe mode can request an internal fetch hint so eligible
-    // fast-paths can stop candidate production earlier.
-    fn exists_probe_fetch_hint(plan: &LogicalPlan<E::Key>, kind: AggregateKind) -> Option<usize> {
-        if !matches!(kind, AggregateKind::Exists) {
+    // Derive bounded probe hints for aggregate terminals where first-kept-row
+    // semantics allow early termination under canonical stream order.
+    fn aggregate_probe_fetch_hint(
+        plan: &LogicalPlan<E::Key>,
+        kind: AggregateKind,
+        direction: Direction,
+    ) -> Option<usize> {
+        if !matches!(
+            kind,
+            AggregateKind::Exists | AggregateKind::Min | AggregateKind::Max
+        ) {
             return None;
         }
         if plan.page.as_ref().is_some_and(|page| page.limit == Some(0)) {
@@ -296,7 +289,22 @@ where
             return None;
         }
 
-        Some(offset.saturating_add(1))
+        match kind {
+            AggregateKind::Exists => Some(offset.saturating_add(1)),
+            AggregateKind::Min if direction == Direction::Asc => Some(offset.saturating_add(1)),
+            AggregateKind::Max if direction == Direction::Desc => Some(offset.saturating_add(1)),
+            _ => None,
+        }
+    }
+
+    // Return the aggregate terminal value for an empty effective output window.
+    const fn aggregate_zero_window_result(kind: AggregateKind) -> AggregateOutput<E> {
+        match kind {
+            AggregateKind::Count => AggregateOutput::Count(0),
+            AggregateKind::Exists => AggregateOutput::Exists(false),
+            AggregateKind::Min => AggregateOutput::Min(None),
+            AggregateKind::Max => AggregateOutput::Max(None),
+        }
     }
 
     // Conservative streaming gate that allows shapes where post-access phases
@@ -342,29 +350,6 @@ where
         Some(offset.saturating_add(limit))
     }
 
-    // Count keys emitted in the effective page window without row validation.
-    fn count_emitted_keys(
-        key_stream: &mut dyn OrderedKeyStream,
-        mut window: AggregateWindowState,
-    ) -> Result<(u32, usize), InternalError> {
-        let mut keys_scanned = 0usize;
-        let mut count = 0u32;
-
-        while !window.exhausted() {
-            let Some(_key) = key_stream.next_key()? else {
-                break;
-            };
-            keys_scanned = keys_scanned.saturating_add(1);
-            if !window.accept_existing_row() {
-                continue;
-            }
-
-            count = count.saturating_add(1);
-        }
-
-        Ok((count, keys_scanned))
-    }
-
     fn aggregate_from_materialized(
         response: Response<E>,
         kind: AggregateKind,
@@ -381,34 +366,111 @@ where
         }
     }
 
-    // Fold an already-resolved ordered key stream while preserving read-consistency
-    // semantics by validating row existence per key.
-    fn fold_existing_rows(
+    // Single streaming fold entry for all aggregate terminals.
+    // Key-only COUNT pushdown and row-aware terminals share this engine.
+    fn fold_streaming_aggregate(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
         consistency: ReadConsistency,
         direction: Direction,
         key_stream: &mut dyn OrderedKeyStream,
         kind: AggregateKind,
+        mode: AggregateFoldMode,
     ) -> Result<(AggregateOutput<E>, usize), InternalError> {
         let window = AggregateWindowState::from_plan(plan);
 
         match kind {
-            AggregateKind::Count => Self::fold_count(ctx, consistency, key_stream, window),
-            AggregateKind::Exists => Self::fold_exists(ctx, consistency, key_stream, window),
-            AggregateKind::Min => Self::fold_min(ctx, consistency, direction, key_stream, window),
-            AggregateKind::Max => Self::fold_max(ctx, consistency, direction, key_stream, window),
+            AggregateKind::Count => {
+                let (count, keys_scanned) = Self::fold_streaming(
+                    ctx,
+                    consistency,
+                    key_stream,
+                    window,
+                    mode,
+                    0u32,
+                    |count, _key| {
+                        *count = count.saturating_add(1);
+                        Ok(FoldControl::Continue)
+                    },
+                )?;
+
+                Ok((AggregateOutput::Count(count), keys_scanned))
+            }
+            AggregateKind::Exists => {
+                let (exists, keys_scanned) = Self::fold_streaming(
+                    ctx,
+                    consistency,
+                    key_stream,
+                    window,
+                    mode,
+                    false,
+                    |exists, _key| {
+                        *exists = true;
+                        Ok(FoldControl::Break)
+                    },
+                )?;
+
+                Ok((AggregateOutput::Exists(exists), keys_scanned))
+            }
+            AggregateKind::Min => {
+                let (min_id, keys_scanned) = Self::fold_streaming(
+                    ctx,
+                    consistency,
+                    key_stream,
+                    window,
+                    mode,
+                    None::<Id<E>>,
+                    |min_id, key| {
+                        *min_id = Some(Id::from_key(key.try_key::<E>()?));
+                        if direction == Direction::Asc {
+                            return Ok(FoldControl::Break);
+                        }
+
+                        Ok(FoldControl::Continue)
+                    },
+                )?;
+
+                Ok((AggregateOutput::Min(min_id), keys_scanned))
+            }
+            AggregateKind::Max => {
+                let (max_id, keys_scanned) = Self::fold_streaming(
+                    ctx,
+                    consistency,
+                    key_stream,
+                    window,
+                    mode,
+                    None::<Id<E>>,
+                    |max_id, key| {
+                        *max_id = Some(Id::from_key(key.try_key::<E>()?));
+                        if direction == Direction::Desc {
+                            return Ok(FoldControl::Break);
+                        }
+
+                        Ok(FoldControl::Continue)
+                    },
+                )?;
+
+                Ok((AggregateOutput::Max(max_id), keys_scanned))
+            }
         }
     }
 
-    fn fold_count(
+    // Generic streaming fold loop used by all aggregate terminal reducers.
+    // `mode` controls whether keys require row-existence validation.
+    fn fold_streaming<S, F>(
         ctx: &Context<'_, E>,
         consistency: ReadConsistency,
         key_stream: &mut dyn OrderedKeyStream,
-        mut window: AggregateWindowState,
-    ) -> Result<(AggregateOutput<E>, usize), InternalError> {
+        window: AggregateWindowState,
+        mode: AggregateFoldMode,
+        mut state: S,
+        mut apply: F,
+    ) -> Result<(S, usize), InternalError>
+    where
+        F: FnMut(&mut S, &DataKey) -> Result<FoldControl, InternalError>,
+    {
+        let mut window = window;
         let mut keys_scanned = 0usize;
-        let mut count = 0u32;
 
         while !window.exhausted() {
             let Some(key) = key_stream.next_key()? else {
@@ -416,147 +478,32 @@ where
             };
 
             keys_scanned = keys_scanned.saturating_add(1);
-            if Self::row_exists_for_key(ctx, consistency, &key)? {
-                if !window.accept_existing_row() {
-                    continue;
-                }
-                count = count.saturating_add(1);
-            }
-        }
-
-        Ok((AggregateOutput::Count(count), keys_scanned))
-    }
-
-    fn fold_exists(
-        ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
-        key_stream: &mut dyn OrderedKeyStream,
-        mut window: AggregateWindowState,
-    ) -> Result<(AggregateOutput<E>, usize), InternalError> {
-        let mut keys_scanned = 0usize;
-
-        while !window.exhausted() {
-            let Some(key) = key_stream.next_key()? else {
-                break;
-            };
-
-            keys_scanned = keys_scanned.saturating_add(1);
-            if Self::row_exists_for_key(ctx, consistency, &key)? {
-                if !window.accept_existing_row() {
-                    continue;
-                }
-
-                return Ok((AggregateOutput::Exists(true), keys_scanned));
-            }
-        }
-
-        Ok((AggregateOutput::Exists(false), keys_scanned))
-    }
-
-    fn fold_min(
-        ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
-        direction: Direction,
-        key_stream: &mut dyn OrderedKeyStream,
-        mut window: AggregateWindowState,
-    ) -> Result<(AggregateOutput<E>, usize), InternalError> {
-        let mut keys_scanned = 0usize;
-        let mut last_kept_id: Option<Id<E>> = None;
-
-        // For ASC streams, first kept key is the minimum.
-        if direction == Direction::Asc {
-            while !window.exhausted() {
-                let Some(key) = key_stream.next_key()? else {
-                    break;
-                };
-
-                keys_scanned = keys_scanned.saturating_add(1);
-                if !Self::row_exists_for_key(ctx, consistency, &key)? {
-                    continue;
-                }
-                if !window.accept_existing_row() {
-                    continue;
-                }
-
-                return Ok((
-                    AggregateOutput::Min(Some(Id::from_key(key.try_key::<E>()?))),
-                    keys_scanned,
-                ));
-            }
-
-            return Ok((AggregateOutput::Min(None), keys_scanned));
-        }
-
-        // For DESC streams, minimum is the last kept key in the window.
-        while !window.exhausted() {
-            let Some(key) = key_stream.next_key()? else {
-                break;
-            };
-            keys_scanned = keys_scanned.saturating_add(1);
-            if !Self::row_exists_for_key(ctx, consistency, &key)? {
+            if !Self::key_qualifies_for_fold(ctx, consistency, mode, &key)? {
                 continue;
             }
             if !window.accept_existing_row() {
                 continue;
             }
-
-            last_kept_id = Some(Id::from_key(key.try_key::<E>()?));
+            if matches!(apply(&mut state, &key)?, FoldControl::Break) {
+                break;
+            }
         }
 
-        Ok((AggregateOutput::Min(last_kept_id), keys_scanned))
+        Ok((state, keys_scanned))
     }
 
-    fn fold_max(
+    // Determine whether a key is eligible for aggregate folding in the selected mode.
+    // Key-only mode is used by COUNT pushdown and intentionally skips row reads.
+    fn key_qualifies_for_fold(
         ctx: &Context<'_, E>,
         consistency: ReadConsistency,
-        direction: Direction,
-        key_stream: &mut dyn OrderedKeyStream,
-        mut window: AggregateWindowState,
-    ) -> Result<(AggregateOutput<E>, usize), InternalError> {
-        let mut keys_scanned = 0usize;
-        let mut last_kept_id: Option<Id<E>> = None;
-
-        // For DESC streams, first kept key is the maximum.
-        if direction == Direction::Desc {
-            while !window.exhausted() {
-                let Some(key) = key_stream.next_key()? else {
-                    break;
-                };
-
-                keys_scanned = keys_scanned.saturating_add(1);
-                if !Self::row_exists_for_key(ctx, consistency, &key)? {
-                    continue;
-                }
-                if !window.accept_existing_row() {
-                    continue;
-                }
-
-                return Ok((
-                    AggregateOutput::Max(Some(Id::from_key(key.try_key::<E>()?))),
-                    keys_scanned,
-                ));
-            }
-
-            return Ok((AggregateOutput::Max(None), keys_scanned));
+        mode: AggregateFoldMode,
+        key: &DataKey,
+    ) -> Result<bool, InternalError> {
+        match mode {
+            AggregateFoldMode::KeysOnly => Ok(true),
+            AggregateFoldMode::ExistingRows => Self::row_exists_for_key(ctx, consistency, key),
         }
-
-        // For ASC streams, maximum is the last kept key in the window.
-        while !window.exhausted() {
-            let Some(key) = key_stream.next_key()? else {
-                break;
-            };
-            keys_scanned = keys_scanned.saturating_add(1);
-            if !Self::row_exists_for_key(ctx, consistency, &key)? {
-                continue;
-            }
-            if !window.accept_existing_row() {
-                continue;
-            }
-
-            last_kept_id = Some(Id::from_key(key.try_key::<E>()?));
-        }
-
-        Ok((AggregateOutput::Max(last_kept_id), keys_scanned))
     }
 
     // Keep read-consistency behavior aligned with row materialization paths.

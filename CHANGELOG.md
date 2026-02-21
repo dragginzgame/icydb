@@ -5,6 +5,26 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.22.2] – 2026-02-21 - Aggregate Sealing + DESC Early-Stop Parity
+
+### 📝 Summary
+
+* Hardened aggregate execution so DESC traversal keeps early-stop parity with ASC, and aggregate streaming now runs through one shared fold engine.
+* Kept aggregate results unchanged while reducing drift risk between `count`, `exists`, `min`, and `max` paths.
+
+### 🔧 Changed
+
+* Added directional aggregate probe hints so `max()` on DESC and `min()` on ASC can stop key production early on eligible paths.
+* Unified aggregate streaming under one fold path, including `count()` pushdown through key-only fold mode instead of a separate streaming engine.
+* Kept COUNT pushdown as a strict subset of streaming eligibility and preserved canonical fallback behavior for unsupported shapes.
+* Kept DISTINCT + offset probe safety guards aligned with aggregate streaming rules.
+
+### 🧪 Testing
+
+* Added targeted aggregate regressions for DESC early-stop scan budgets, `distinct + offset` probe-hint suppression, stale-leading-key behavior under `MissingOk`, and count-pushdown eligibility matrix parity.
+
+---
+
 ## [0.22.1] – 2026-02-20 - Aggregate Count Pushdown
 
 ### 📝 Summary

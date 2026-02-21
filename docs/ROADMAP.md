@@ -13,6 +13,7 @@ This roadmap is directional and planning-oriented, not a release contract.
 Active execution/planning references:
 
 - `docs/design/0.22-streaming-aggregates.md`
+- `docs/design/0.23-decimalisation.md`
 - `docs/status/0.22-status.md`
 - `docs/status/0.21-status.md`
 
@@ -57,9 +58,11 @@ Focus: finish current execution hardening and reduce drift risk before larger ar
 
 ## Medium-Term Goals
 
-Focus: improve execution efficiency without changing user-facing semantics.
+Focus: simplify the numeric core while preserving deterministic query semantics.
 
-- Convert physical access paths from vector materialization to iterator-backed ordered streams.
+- Execute `0.23` as numeric consolidation around an internal decimal primitive.
+- Replace `E8s`/`E18s` split paths with a single owned decimal path and schema-level scale enforcement.
+- Remove external decimal dependency as part of the `0.23` consolidation.
 - Add aggregate-aware fast paths where behavior is provably equivalent.
 - Continue cursor and continuation hardening, including stronger envelope/signature boundaries.
 - Advance data-integrity hardening for replay safety, migration safety, and corruption detection tooling.
