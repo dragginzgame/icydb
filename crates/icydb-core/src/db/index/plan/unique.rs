@@ -2,14 +2,14 @@ use crate::{
     db::{
         Db,
         data::DataKey,
-        index::{IndexEntry, IndexEntryCorruption, key::encode_canonical_index_component},
+        index::{Direction, EncodedValue, IndexEntry, IndexEntryCorruption, IndexId, IndexKey},
     },
     error::InternalError,
     model::index::IndexModel,
     obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue, FieldValue},
 };
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, ops::Bound};
 
 /// Validate unique index constraints against existing rows that share the same
 /// index-component prefix.
@@ -42,7 +42,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
 
     // Phase 1: build the semantic prefix and short-circuit when the value is
     // not canonically indexable (for example Null/unsupported kinds).
-    let mut prefix_values = Vec::with_capacity(index.fields.len());
+    let mut encoded_prefix = Vec::with_capacity(index.fields.len());
     for field in index.fields {
         let expected = new_entity.get_value(field).ok_or_else(|| {
             InternalError::index_invariant(format!(
@@ -52,20 +52,33 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
             ))
         })?;
 
-        if encode_canonical_index_component(&expected).is_err() {
+        let Ok(encoded_value) = EncodedValue::try_from_ref(&expected) else {
             return Ok(());
-        }
-
-        prefix_values.push(expected);
+        };
+        encoded_prefix.push(encoded_value);
     }
 
     // Phase 2: resolve all rows currently indexed at this unique prefix.
     let index_store = db
         .with_store_registry(|registry| registry.try_get_store(index.store))?
         .index_store();
+    let index_id = IndexId::new::<E>(index);
+    let (lower, upper) =
+        IndexKey::bounds_for_prefix(&index_id, index.fields.len(), encoded_prefix.as_slice());
+    let (lower, upper) = (
+        Bound::Included(lower.to_raw()),
+        Bound::Included(upper.to_raw()),
+    );
 
-    let matching_data_keys =
-        index_store.with_borrow(|store| store.resolve_data_values::<E>(index, &prefix_values))?;
+    let matching_data_keys = index_store.with_borrow(|store| {
+        store.resolve_data_values_in_raw_range_limited::<E>(
+            index,
+            (&lower, &upper),
+            None,
+            Direction::Asc,
+            usize::MAX,
+        )
+    })?;
 
     let mut matching_keys = BTreeSet::new();
     for data_key in matching_data_keys {

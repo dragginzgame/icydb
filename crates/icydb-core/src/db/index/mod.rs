@@ -15,8 +15,8 @@ pub(in crate::db) use key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIn
 pub(in crate::db) use plan::plan_index_mutation_for_entity;
 pub(crate) use range::Direction;
 pub(in crate::db) use range::{
-    continuation_advanced, envelope_is_empty, map_bound_encode_error,
-    raw_bounds_for_encoded_index_component_range, raw_bounds_for_index_component_range,
-    resume_bounds,
+    IndexRangeBoundEncodeError, continuation_advanced, envelope_is_empty, map_bound_encode_error,
+    raw_bounds_for_encoded_index_component_range, raw_keys_for_encoded_prefix,
+    raw_keys_for_encoded_prefix_with_kind, resume_bounds,
 };
 pub use store::IndexStore;

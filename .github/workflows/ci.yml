@@ -22,6 +22,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: bash scripts/ci/validate-workflow-packages.sh .github/workflows/ci.yml
+      - run: bash scripts/ci/check-index-range-spec-invariants.sh
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --all-targets --verbose

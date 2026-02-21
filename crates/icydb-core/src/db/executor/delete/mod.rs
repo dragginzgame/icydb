@@ -65,6 +65,8 @@ where
         (|| {
             // Recovery is mandatory before mutations; read paths recover separately.
             ensure_recovered_for_write(&self.db)?;
+            let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+            let index_range_specs = plan.index_range_specs()?.to_vec();
             let plan = plan.into_inner();
             validate_executor_plan::<E>(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;
@@ -73,7 +75,12 @@ where
             record_plan_metrics(&plan.access);
 
             // Access phase: resolve candidate rows before delete filtering.
-            let data_rows = ctx.rows_from_access_plan(&plan.access, plan.consistency)?;
+            let data_rows = ctx.rows_from_access_plan(
+                &plan.access,
+                index_prefix_specs.as_slice(),
+                index_range_specs.as_slice(),
+                plan.consistency,
+            )?;
             record_rows_scanned::<E>(data_rows.len());
 
             // Decode rows into entities before post-access filtering.

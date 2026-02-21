@@ -89,6 +89,12 @@ impl EncodedValue {
     }
 }
 
+impl AsRef<[u8]> for EncodedValue {
+    fn as_ref(&self) -> &[u8] {
+        self.encoded()
+    }
+}
+
 /// OrderedEncode
 ///
 /// Internal ordered-byte encoder for fixed-width value components.

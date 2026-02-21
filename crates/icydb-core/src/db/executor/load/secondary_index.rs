@@ -4,7 +4,7 @@ use crate::{
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{VecOrderedKeyStream, normalize_ordered_keys},
         query::plan::{
-            Direction, LogicalPlan, SlotSelectionPolicy, derive_scan_direction,
+            Direction, IndexPrefixSpec, LogicalPlan, SlotSelectionPolicy, derive_scan_direction,
             validate::PushdownApplicability,
         },
     },
@@ -21,6 +21,7 @@ where
     pub(super) fn try_execute_secondary_index_order_stream(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
+        index_prefix_spec: Option<&IndexPrefixSpec>,
         secondary_pushdown_applicability: &PushdownApplicability,
         probe_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
@@ -28,26 +29,44 @@ where
             return Ok(None);
         }
 
-        let Some((index, values)) = plan.access.as_index_prefix_path() else {
+        let Some((index, _)) = plan.access.as_index_prefix_path() else {
             return Ok(None);
         };
+        let Some(index_prefix_spec) = index_prefix_spec else {
+            return Err(InternalError::query_executor_invariant(
+                "index-prefix executable spec must be materialized for index-prefix plans",
+            ));
+        };
+        if index_prefix_spec.index() != index {
+            return Err(InternalError::query_executor_invariant(
+                "index-prefix spec does not match access path index",
+            ));
+        }
         let stream_direction = Self::secondary_index_stream_direction(plan);
 
         // Phase 1: resolve candidate keys using canonical index traversal order.
         // When a probe hint is present (EXISTS), use a bounded resolver so
         // candidate production can short-circuit earlier.
         let mut ordered_keys = ctx.db.with_store_registry(|reg| {
-            reg.try_get_store(index.store).and_then(|store| {
-                store.with_index(|index_store| match probe_fetch_hint {
-                    Some(fetch) => index_store.resolve_data_values_limited::<E>(
-                        index,
-                        values,
-                        stream_direction,
-                        fetch,
-                    ),
-                    None => index_store.resolve_data_values::<E>(index, values),
+            reg.try_get_store(index_prefix_spec.index().store)
+                .and_then(|store| {
+                    store.with_index(|index_store| match probe_fetch_hint {
+                        Some(fetch) => index_store.resolve_data_values_in_raw_range_limited::<E>(
+                            index_prefix_spec.index(),
+                            (index_prefix_spec.lower(), index_prefix_spec.upper()),
+                            None,
+                            stream_direction,
+                            fetch,
+                        ),
+                        None => index_store.resolve_data_values_in_raw_range_limited::<E>(
+                            index_prefix_spec.index(),
+                            (index_prefix_spec.lower(), index_prefix_spec.upper()),
+                            None,
+                            stream_direction,
+                            usize::MAX,
+                        ),
+                    })
                 })
-            })
         })?;
 
         // The bounded resolver already returns keys in requested order.

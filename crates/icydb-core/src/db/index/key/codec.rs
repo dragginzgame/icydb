@@ -1150,8 +1150,8 @@ mod tests {
             &index_id(),
             3,
             &[encode_component(&Value::Uint(7))],
-            RangeBound::Included(encode_component(&Value::Uint(10))),
-            RangeBound::Excluded(encode_component(&Value::Uint(20))),
+            &RangeBound::Included(encode_component(&Value::Uint(10))),
+            &RangeBound::Excluded(encode_component(&Value::Uint(20))),
         );
 
         let keys = [
@@ -1218,8 +1218,8 @@ mod tests {
             &index_id(),
             3,
             &[encode_component(&Value::Uint(7))],
-            RangeBound::Excluded(encode_component(&Value::Uint(10))),
-            RangeBound::Included(encode_component(&Value::Uint(20))),
+            &RangeBound::Excluded(encode_component(&Value::Uint(10))),
+            &RangeBound::Included(encode_component(&Value::Uint(20))),
         );
 
         let keys = [k_b10.to_raw(), k_b11.to_raw(), k_b20.to_raw()];
@@ -1280,8 +1280,8 @@ mod tests {
             &index_id(),
             3,
             &[prefix_7],
-            RangeBound::Included(encode_component(&Value::Uint(0))),
-            RangeBound::Included(encode_component(&Value::Uint(u64::from(u32::MAX)))),
+            &RangeBound::Included(encode_component(&Value::Uint(0))),
+            &RangeBound::Included(encode_component(&Value::Uint(u64::from(u32::MAX)))),
         );
 
         let keys = [
@@ -1348,8 +1348,8 @@ mod tests {
             &index_id(),
             3,
             &[encode_component(&Value::Uint(7))],
-            RangeBound::Excluded(encode_component(&Value::Uint(0))),
-            RangeBound::Excluded(encode_component(&Value::Uint(u64::from(u32::MAX)))),
+            &RangeBound::Excluded(encode_component(&Value::Uint(0))),
+            &RangeBound::Excluded(encode_component(&Value::Uint(u64::from(u32::MAX)))),
         );
 
         let keys = [

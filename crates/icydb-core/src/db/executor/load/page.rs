@@ -3,10 +3,9 @@ use crate::{
         Context,
         executor::load::{CursorPage, LoadExecutor},
         executor::{BudgetedOrderedKeyStream, OrderedKeyStream},
-        index::IndexKey,
         query::plan::{
-            ContinuationSignature, ContinuationToken, CursorBoundary, Direction,
-            IndexRangeCursorAnchor, LogicalPlan, compute_page_window, logical::PostAccessStats,
+            ContinuationSignature, CursorBoundary, Direction, LogicalPlan, compute_page_window,
+            logical::PostAccessStats,
         },
         response::Response,
     },
@@ -134,44 +133,7 @@ where
             return Ok(None);
         };
 
-        Self::encode_next_cursor_for_last_entity(plan, last_entity, direction, signature).map(Some)
-    }
-
-    // Encode the continuation token from the last returned entity.
-    fn encode_next_cursor_for_last_entity(
-        plan: &LogicalPlan<E::Key>,
-        last_entity: &E,
-        direction: Direction,
-        signature: ContinuationSignature,
-    ) -> Result<Vec<u8>, InternalError> {
-        let boundary = plan.cursor_boundary_from_entity(last_entity)?;
-        let initial_offset = plan.page.as_ref().map_or(0, |page| page.offset);
-        let token = if plan.access.cursor_support().supports_index_range_anchor() {
-            let (index, _, _, _) = plan.access.as_index_range_path().ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "index-range cursor support missing concrete index-range path",
-                )
-            })?;
-            let index_key = IndexKey::new(last_entity, index)?.ok_or_else(|| {
-                InternalError::query_executor_invariant(
-                    "cursor row is not indexable for planned index-range access",
-                )
-            })?;
-
-            ContinuationToken::new_index_range_with_direction(
-                signature,
-                boundary,
-                IndexRangeCursorAnchor::new(index_key.to_raw()),
-                direction,
-                initial_offset,
-            )
-        } else {
-            ContinuationToken::new_with_direction(signature, boundary, direction, initial_offset)
-        };
-        token.encode().map_err(|err| {
-            InternalError::serialize_internal(format!(
-                "failed to encode continuation cursor: {err}"
-            ))
-        })
+        plan.next_cursor_for_entity(last_entity, direction, signature)
+            .map(Some)
     }
 }

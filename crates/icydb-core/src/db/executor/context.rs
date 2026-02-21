@@ -9,7 +9,7 @@ use crate::{
         index::RawIndexKey,
         query::{
             ReadConsistency,
-            plan::{AccessPath, AccessPlan, Direction},
+            plan::{AccessPath, AccessPlan, Direction, IndexPrefixSpec, IndexRangeSpec},
         },
     },
     error::InternalError,
@@ -78,9 +78,11 @@ where
     // Access path analysis
     // ------------------------------------------------------------------
 
-    pub(crate) fn ordered_key_stream_from_access_with_index_range_anchor(
+    pub(in crate::db) fn ordered_key_stream_from_access_with_index_range_anchor(
         &self,
         access: &AccessPath<E::Key>,
+        index_prefix_spec: Option<&IndexPrefixSpec>,
+        index_range_spec: Option<&IndexRangeSpec>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
@@ -88,12 +90,21 @@ where
     where
         E: EntityKind,
     {
-        access.resolve_physical_key_stream(self, index_range_anchor, direction, physical_fetch_hint)
+        access.resolve_physical_key_stream(
+            self,
+            index_prefix_spec,
+            index_range_spec,
+            index_range_anchor,
+            direction,
+            physical_fetch_hint,
+        )
     }
 
-    pub(crate) fn rows_from_access_plan(
+    pub(in crate::db) fn rows_from_access_plan(
         &self,
         access: &AccessPlan<E::Key>,
+        index_prefix_specs: &[IndexPrefixSpec],
+        index_range_specs: &[IndexRangeSpec],
         consistency: ReadConsistency,
     ) -> Result<Vec<DataRow>, InternalError>
     where
@@ -101,15 +112,20 @@ where
     {
         self.rows_from_access_plan_with_index_range_anchor(
             access,
+            index_prefix_specs,
+            index_range_specs,
             consistency,
             None,
             Direction::Asc,
         )
     }
 
-    pub(crate) fn ordered_key_stream_from_access_plan_with_index_range_anchor(
+    #[expect(clippy::too_many_arguments)]
+    pub(in crate::db) fn ordered_key_stream_from_access_plan_with_index_range_anchor(
         &self,
         access: &AccessPlan<E::Key>,
+        index_prefix_specs: &[IndexPrefixSpec],
+        index_range_specs: &[IndexRangeSpec],
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
         key_comparator: KeyOrderComparator,
@@ -118,18 +134,36 @@ where
     where
         E: EntityKind,
     {
-        access.produce_key_stream(
+        let mut index_prefix_specs = index_prefix_specs.iter();
+        let mut index_range_specs = index_range_specs.iter();
+        let key_stream = access.produce_key_stream(
             self,
+            &mut index_prefix_specs,
+            &mut index_range_specs,
             index_range_anchor,
             direction,
             key_comparator,
             physical_fetch_hint,
-        )
+        )?;
+        if index_prefix_specs.next().is_some() {
+            return Err(InternalError::query_executor_invariant(
+                "unused index-prefix executable specs after access-plan traversal",
+            ));
+        }
+        if index_range_specs.next().is_some() {
+            return Err(InternalError::query_executor_invariant(
+                "unused index-range executable specs after access-plan traversal",
+            ));
+        }
+
+        Ok(key_stream)
     }
 
-    pub(crate) fn rows_from_access_plan_with_index_range_anchor(
+    pub(in crate::db) fn rows_from_access_plan_with_index_range_anchor(
         &self,
         access: &AccessPlan<E::Key>,
+        index_prefix_specs: &[IndexPrefixSpec],
+        index_range_specs: &[IndexRangeSpec],
         consistency: ReadConsistency,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
@@ -139,6 +173,8 @@ where
     {
         let mut key_stream = self.ordered_key_stream_from_access_plan_with_index_range_anchor(
             access,
+            index_prefix_specs,
+            index_range_specs,
             index_range_anchor,
             direction,
             KeyOrderComparator::from_direction(direction),
@@ -242,5 +278,253 @@ where
                 Ok((Id::from_key(expected_key), entity))
             })
             .collect()
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::{
+            Db,
+            executor::Context,
+            query::{
+                ReadConsistency,
+                plan::{AccessPath, AccessPlan, Direction, IndexPrefixSpec, IndexRangeSpec},
+            },
+            registry::StoreRegistry,
+        },
+        model::{field::FieldKind, index::IndexModel},
+        traits::Storable,
+        types::Ulid,
+        value::Value,
+    };
+    use icydb_derive::FieldValues;
+    use serde::{Deserialize, Serialize};
+    use std::{borrow::Cow, ops::Bound};
+
+    const INDEX_FIELDS: [&str; 2] = ["group", "rank"];
+    const INDEX_MODEL: IndexModel = IndexModel::new(
+        "context::idx_group_rank",
+        "context::InvariantStore",
+        &INDEX_FIELDS,
+        false,
+    );
+    const INDEX_MODEL_ALT: IndexModel = IndexModel::new(
+        "context::idx_group_rank_alt",
+        "context::InvariantStore",
+        &INDEX_FIELDS,
+        false,
+    );
+
+    #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+    struct ContextInvariantEntity {
+        id: Ulid,
+        group: u32,
+        rank: u32,
+    }
+
+    crate::test_canister! {
+        ident = ContextInvariantCanister,
+    }
+
+    crate::test_store! {
+        ident = ContextInvariantStore,
+        canister = ContextInvariantCanister,
+    }
+
+    crate::test_entity_schema! {
+        ident = ContextInvariantEntity,
+        id = Ulid,
+        id_field = id,
+        entity_name = "ContextInvariantEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", FieldKind::Ulid),
+            ("group", FieldKind::Uint),
+            ("rank", FieldKind::Uint),
+        ],
+        indexes = [&INDEX_MODEL],
+        store = ContextInvariantStore,
+        canister = ContextInvariantCanister,
+    }
+
+    thread_local! {
+        static INVARIANT_STORE_REGISTRY: StoreRegistry = StoreRegistry::new();
+    }
+
+    static INVARIANT_DB: Db<ContextInvariantCanister> = Db::new(&INVARIANT_STORE_REGISTRY);
+
+    fn raw_index_key(byte: u8) -> crate::db::index::RawIndexKey {
+        <crate::db::index::RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
+    }
+
+    fn dummy_index_range_spec() -> IndexRangeSpec {
+        IndexRangeSpec::new(
+            INDEX_MODEL,
+            Bound::Included(raw_index_key(0x01)),
+            Bound::Included(raw_index_key(0x02)),
+        )
+    }
+
+    fn dummy_index_prefix_spec() -> IndexPrefixSpec {
+        IndexPrefixSpec::new(
+            INDEX_MODEL,
+            Bound::Included(raw_index_key(0x01)),
+            Bound::Included(raw_index_key(0x02)),
+        )
+    }
+
+    #[test]
+    fn index_range_path_requires_pre_lowered_spec() {
+        let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
+        let access = AccessPath::IndexRange {
+            index: INDEX_MODEL,
+            prefix: vec![Value::Uint(7)],
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(20)),
+        };
+
+        let Err(err) = ctx.ordered_key_stream_from_access_with_index_range_anchor(
+            &access,
+            None,
+            None,
+            None,
+            Direction::Asc,
+            None,
+        ) else {
+            panic!("index-range access without lowered spec must fail")
+        };
+
+        assert!(
+            err.to_string()
+                .contains("index-range execution requires pre-lowered index-range spec"),
+            "missing-spec error must be classified as an executor invariant"
+        );
+    }
+
+    #[test]
+    fn index_prefix_path_rejects_misaligned_spec_for_direct_resolution() {
+        let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
+        let access = AccessPath::IndexPrefix {
+            index: INDEX_MODEL_ALT,
+            values: vec![Value::Uint(7)],
+        };
+        let spec = dummy_index_prefix_spec();
+
+        let Err(err) = ctx.ordered_key_stream_from_access_with_index_range_anchor(
+            &access,
+            Some(&spec),
+            None,
+            None,
+            Direction::Asc,
+            None,
+        ) else {
+            panic!("misaligned index-prefix spec must fail invariant checks")
+        };
+
+        assert!(
+            err.to_string()
+                .contains("index-prefix spec does not match access path index"),
+            "misaligned prefix spec must fail fast before touching index storage"
+        );
+    }
+
+    #[test]
+    fn index_range_path_rejects_misaligned_spec_for_direct_resolution() {
+        let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
+        let access = AccessPath::IndexRange {
+            index: INDEX_MODEL_ALT,
+            prefix: vec![Value::Uint(7)],
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(20)),
+        };
+        let spec = dummy_index_range_spec();
+
+        let Err(err) = ctx.ordered_key_stream_from_access_with_index_range_anchor(
+            &access,
+            None,
+            Some(&spec),
+            None,
+            Direction::Asc,
+            None,
+        ) else {
+            panic!("misaligned index-range spec must fail invariant checks")
+        };
+
+        assert!(
+            err.to_string()
+                .contains("index-range spec does not match access path index"),
+            "misaligned range spec must fail fast before touching index storage"
+        );
+    }
+
+    #[test]
+    fn access_plan_rejects_unused_index_range_specs() {
+        let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
+        let access = AccessPlan::path(AccessPath::ByKey(Ulid::from_u128(1)));
+        let extra_prefix_spec = dummy_index_prefix_spec();
+        let extra_spec = dummy_index_range_spec();
+
+        let err = ctx
+            .rows_from_access_plan(
+                &access,
+                &[extra_prefix_spec],
+                &[extra_spec],
+                ReadConsistency::MissingOk,
+            )
+            .expect_err("unused index-range specs must fail invariant checks");
+
+        assert!(
+            err.to_string()
+                .contains("unused index-prefix executable specs after access-plan traversal"),
+            "unused-spec error must be classified as an executor invariant"
+        );
+    }
+
+    #[test]
+    fn access_plan_rejects_misaligned_index_prefix_spec() {
+        let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
+        let access = AccessPlan::path(AccessPath::IndexPrefix {
+            index: INDEX_MODEL_ALT,
+            values: vec![Value::Uint(7)],
+        });
+        let prefix_spec = dummy_index_prefix_spec();
+
+        let err = ctx
+            .rows_from_access_plan(&access, &[prefix_spec], &[], ReadConsistency::MissingOk)
+            .expect_err("misaligned index-prefix spec must fail invariant checks");
+
+        assert!(
+            err.to_string()
+                .contains("index-prefix spec does not match access path index"),
+            "misaligned prefix spec must fail fast before execution"
+        );
+    }
+
+    #[test]
+    fn access_plan_rejects_misaligned_index_range_spec() {
+        let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
+        let access = AccessPlan::path(AccessPath::IndexRange {
+            index: INDEX_MODEL_ALT,
+            prefix: vec![Value::Uint(7)],
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(20)),
+        });
+        let range_spec = dummy_index_range_spec();
+
+        let err = ctx
+            .rows_from_access_plan(&access, &[], &[range_spec], ReadConsistency::MissingOk)
+            .expect_err("misaligned index-range spec must fail invariant checks");
+
+        assert!(
+            err.to_string()
+                .contains("index-range spec does not match access path index"),
+            "misaligned range spec must fail fast before execution"
+        );
     }
 }

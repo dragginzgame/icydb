@@ -187,6 +187,8 @@ where
         // Direction must be captured before consuming the ExecutablePlan.
         // After `into_inner()`, we operate purely on LogicalPlan.
         let direction = plan.direction();
+        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+        let index_range_specs = plan.index_range_specs()?.to_vec();
         // EXISTS/MIN/MAX may provide bounded probe hints so eligible fast paths
         // can avoid over-producing keys. Directional hints preserve
         // early-stop symmetry for `min ASC` and `max DESC`.
@@ -226,6 +228,8 @@ where
         let execution_inputs = ExecutionInputs {
             ctx: &ctx,
             plan: &logical_plan,
+            index_prefix_specs: index_prefix_specs.as_slice(),
+            index_range_specs: index_range_specs.as_slice(),
             index_range_anchor: None,
             direction,
         };

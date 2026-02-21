@@ -108,23 +108,30 @@ impl IndexKey {
     }
 
     #[must_use]
-    pub(crate) fn bounds_for_prefix(
+    pub(in crate::db::index) fn bounds_for_prefix<C: AsRef<[u8]>>(
         index_id: &IndexId,
         index_len: usize,
-        prefix: &[Vec<u8>],
+        prefix: &[C],
     ) -> (Self, Self) {
         Self::bounds_for_prefix_with_kind(index_id, IndexKeyKind::User, index_len, prefix)
     }
 
     #[must_use]
     #[expect(clippy::cast_possible_truncation)]
-    pub(crate) fn bounds_for_prefix_with_kind(
+    pub(in crate::db::index) fn bounds_for_prefix_with_kind<C: AsRef<[u8]>>(
         index_id: &IndexId,
         key_kind: IndexKeyKind,
         index_len: usize,
-        prefix: &[Vec<u8>],
+        prefix: &[C],
     ) -> (Self, Self) {
         if index_len > MAX_INDEX_FIELDS || prefix.len() > index_len {
+            debug_assert!(
+                false,
+                "invalid prefix bounds input: index_len={} prefix_len={} (max={})",
+                index_len,
+                prefix.len(),
+                MAX_INDEX_FIELDS
+            );
             let empty = Self::empty_with_kind(index_id, key_kind);
             return (empty.clone(), empty);
         }
@@ -134,13 +141,20 @@ impl IndexKey {
 
         for i in 0..index_len {
             if let Some(component) = prefix.get(i) {
+                let component = component.as_ref();
                 if component.is_empty() || component.len() > Self::MAX_COMPONENT_SIZE {
+                    debug_assert!(
+                        false,
+                        "invalid prefix component size: len={} (max={})",
+                        component.len(),
+                        Self::MAX_COMPONENT_SIZE
+                    );
                     let empty = Self::empty_with_kind(index_id, key_kind);
                     return (empty.clone(), empty);
                 }
 
-                start_components.push(component.clone());
-                end_components.push(component.clone());
+                start_components.push(component.to_vec());
+                end_components.push(component.to_vec());
                 continue;
             }
 
@@ -175,12 +189,15 @@ impl IndexKey {
     /// - bounds constrain component `prefix.len()`
     /// - remaining suffix components and PK are set to canonical min/max sentinels
     #[must_use]
-    pub(crate) fn bounds_for_prefix_component_range(
+    pub(in crate::db::index) fn bounds_for_prefix_component_range<
+        C: AsRef<[u8]>,
+        B: AsRef<[u8]>,
+    >(
         index_id: &IndexId,
         index_len: usize,
-        prefix: &[Vec<u8>],
-        lower: Bound<Vec<u8>>,
-        upper: Bound<Vec<u8>>,
+        prefix: &[C],
+        lower: &Bound<B>,
+        upper: &Bound<B>,
     ) -> (Bound<Self>, Bound<Self>) {
         Self::bounds_for_prefix_component_range_with_kind(
             index_id,
@@ -195,31 +212,53 @@ impl IndexKey {
     /// Variant of `bounds_for_prefix_component_range` with explicit key kind.
     #[must_use]
     #[expect(clippy::cast_possible_truncation)]
-    pub(crate) fn bounds_for_prefix_component_range_with_kind(
+    pub(in crate::db::index) fn bounds_for_prefix_component_range_with_kind<
+        C: AsRef<[u8]>,
+        B: AsRef<[u8]>,
+    >(
         index_id: &IndexId,
         key_kind: IndexKeyKind,
         index_len: usize,
-        prefix: &[Vec<u8>],
-        lower: Bound<Vec<u8>>,
-        upper: Bound<Vec<u8>>,
+        prefix: &[C],
+        lower: &Bound<B>,
+        upper: &Bound<B>,
     ) -> (Bound<Self>, Bound<Self>) {
         if index_len == 0 || index_len > MAX_INDEX_FIELDS || prefix.len() >= index_len {
+            debug_assert!(
+                false,
+                "invalid component-range bounds shape: index_len={} prefix_len={} (max={})",
+                index_len,
+                prefix.len(),
+                MAX_INDEX_FIELDS
+            );
             let empty = Self::empty_with_kind(index_id, key_kind);
             return (Bound::Included(empty.clone()), Bound::Included(empty));
         }
-        if prefix
-            .iter()
-            .any(|component| component.is_empty() || component.len() > Self::MAX_COMPONENT_SIZE)
-        {
+        if prefix.iter().any(|component| {
+            let component = component.as_ref();
+            component.is_empty() || component.len() > Self::MAX_COMPONENT_SIZE
+        }) {
+            debug_assert!(
+                false,
+                "invalid component-range prefix component size encountered"
+            );
             let empty = Self::empty_with_kind(index_id, key_kind);
             return (Bound::Included(empty.clone()), Bound::Included(empty));
         }
 
-        let Some(lower_component) = normalize_range_component_bound(&lower, false) else {
+        let Some(lower_component) = normalize_range_component_bound(lower, false) else {
+            debug_assert!(
+                false,
+                "invalid lower component bound payload for encoded range"
+            );
             let empty = Self::empty_with_kind(index_id, key_kind);
             return (Bound::Included(empty.clone()), Bound::Included(empty));
         };
-        let Some(upper_component) = normalize_range_component_bound(&upper, true) else {
+        let Some(upper_component) = normalize_range_component_bound(upper, true) else {
+            debug_assert!(
+                false,
+                "invalid upper component bound payload for encoded range"
+            );
             let empty = Self::empty_with_kind(index_id, key_kind);
             return (Bound::Included(empty.clone()), Bound::Included(empty));
         };
@@ -231,8 +270,9 @@ impl IndexKey {
 
         for i in 0..index_len {
             if let Some(component) = prefix.get(i) {
-                start_components.push(component.clone());
-                end_components.push(component.clone());
+                let component = component.as_ref();
+                start_components.push(component.to_vec());
+                end_components.push(component.to_vec());
                 continue;
             }
 
@@ -289,7 +329,10 @@ impl IndexKey {
     }
 }
 
-fn normalize_range_component_bound(bound: &Bound<Vec<u8>>, high: bool) -> Option<Vec<u8>> {
+fn normalize_range_component_bound<C: AsRef<[u8]>>(
+    bound: &Bound<C>,
+    high: bool,
+) -> Option<Vec<u8>> {
     match bound {
         Bound::Unbounded => Some(if high {
             IndexKey::wildcard_high_component()
@@ -297,10 +340,11 @@ fn normalize_range_component_bound(bound: &Bound<Vec<u8>>, high: bool) -> Option
             IndexKey::wildcard_low_component()
         }),
         Bound::Included(component) | Bound::Excluded(component) => {
+            let component = component.as_ref();
             if component.is_empty() || component.len() > IndexKey::MAX_COMPONENT_SIZE {
                 return None;
             }
-            Some(component.clone())
+            Some(component.to_vec())
         }
     }
 }

@@ -41,6 +41,73 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
 }
 
 #[test]
+fn load_index_prefix_spec_closed_bounds_preserve_prefix_window_end_to_end() {
+    setup_pagination_test();
+
+    let rows = [
+        (10_301, 7, 10, "g7-r10"),
+        (10_302, 7, 20, "g7-r20"),
+        (10_303, 7, u32::MAX, "g7-rmax"),
+        (10_304, 8, 5, "g8-r5"),
+        (10_305, 8, u32::MAX, "g8-rmax"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let predicate = pushdown_group_predicate(7);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let pushdown_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .filter(predicate)
+        .order_by("rank")
+        .plan()
+        .expect("pushdown plan should build");
+    let prefix_specs = pushdown_plan
+        .index_prefix_specs()
+        .expect("prefix specs should materialize");
+    assert_eq!(
+        prefix_specs.len(),
+        1,
+        "single index-prefix path should lower to exactly one prefix spec"
+    );
+    assert!(
+        matches!(prefix_specs[0].lower(), Bound::Included(_)),
+        "index-prefix lower bound should stay closed"
+    );
+    assert!(
+        matches!(prefix_specs[0].upper(), Bound::Included(_)),
+        "index-prefix upper bound should stay closed"
+    );
+    let pushdown_response = load
+        .execute(pushdown_plan)
+        .expect("pushdown execution should succeed");
+
+    let group7_ids = pushdown_group_ids(&rows, 7);
+    let fallback_response = load
+        .execute(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .by_ids(group7_ids.iter().copied())
+                .order_by("rank")
+                .plan()
+                .expect("fallback plan should build"),
+        )
+        .expect("fallback execution should succeed");
+
+    let pushdown_ids = ids_from_items(&pushdown_response.0);
+    let fallback_ids = ids_from_items(&fallback_response.0);
+    assert_eq!(
+        pushdown_ids, fallback_ids,
+        "closed prefix bounds should preserve the exact group window"
+    );
+    assert!(
+        pushdown_response
+            .0
+            .iter()
+            .all(|(_, entity)| entity.group == 7),
+        "closed prefix bounds must not leak adjacent prefix rows"
+    );
+}
+
+#[test]
 fn load_index_pushdown_desc_with_explicit_pk_desc_is_eligible_and_ordered() {
     setup_pagination_test();
 

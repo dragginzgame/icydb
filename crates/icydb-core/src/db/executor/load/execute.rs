@@ -8,7 +8,7 @@ use crate::{
         executor::plan::set_rows_from_len,
         executor::{DistinctOrderedKeyStream, OrderedKeyStreamBox},
         index::RawIndexKey,
-        query::plan::{Direction, LogicalPlan},
+        query::plan::{Direction, IndexPrefixSpec, IndexRangeSpec, LogicalPlan},
     },
     error::InternalError,
     obs::sink::Span,
@@ -25,6 +25,8 @@ use crate::{
 pub(super) struct ExecutionInputs<'a, E: EntityKind + EntityValue> {
     pub(super) ctx: &'a Context<'a, E>,
     pub(super) plan: &'a LogicalPlan<E::Key>,
+    pub(super) index_prefix_specs: &'a [IndexPrefixSpec],
+    pub(super) index_range_specs: &'a [IndexRangeSpec],
     pub(super) index_range_anchor: Option<&'a RawIndexKey>,
     pub(super) direction: Direction,
 }
@@ -75,6 +77,8 @@ where
                     .ctx
                     .ordered_key_stream_from_access_plan_with_index_range_anchor(
                         &inputs.plan.access,
+                        inputs.index_prefix_specs,
+                        inputs.index_range_specs,
                         inputs.index_range_anchor,
                         inputs.direction,
                         super::key_stream_comparator_from_plan(inputs.plan, inputs.direction),
@@ -106,19 +110,36 @@ where
             return Ok(FastPathDecision::Pk(fast));
         }
 
+        if fast_path_plan
+            .secondary_pushdown_applicability
+            .is_eligible()
+        {
+            debug_assert!(
+                inputs.index_prefix_specs.len() <= 1,
+                "secondary fast-path resolution expects at most one index-prefix spec"
+            );
+        }
         if let Some(fast) = Self::try_execute_secondary_index_order_stream(
             inputs.ctx,
             inputs.plan,
+            inputs.index_prefix_specs.first(),
             &fast_path_plan.secondary_pushdown_applicability,
             fast_path_plan.probe_fetch_hint,
         )? {
             return Ok(FastPathDecision::Secondary(fast));
         }
 
+        if fast_path_plan.index_range_limit_spec.is_some() {
+            debug_assert!(
+                inputs.index_range_specs.len() <= 1,
+                "index-range fast-path resolution expects at most one index-range spec"
+            );
+        }
         if let Some(spec) = fast_path_plan.index_range_limit_spec.as_ref()
             && let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
                 inputs.ctx,
                 inputs.plan,
+                inputs.index_range_specs.first(),
                 inputs.index_range_anchor,
                 inputs.direction,
                 spec.fetch,

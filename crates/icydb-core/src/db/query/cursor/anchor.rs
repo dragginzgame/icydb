@@ -1,12 +1,10 @@
 use crate::{
     db::{
         data::StorageKey,
-        index::{
-            Direction, IndexId, IndexKey, IndexKeyKind, map_bound_encode_error,
-            raw_bounds_for_index_component_range,
-        },
+        index::{Direction, IndexId, IndexKey, IndexKeyKind, map_bound_encode_error},
         query::plan::{
             AccessPath, CursorPlanError, IndexRangeCursorAnchor, KeyEnvelope, PlanError,
+            raw_bounds_for_semantic_index_component_range,
         },
     },
     traits::{EntityKind, FieldValue},
@@ -72,17 +70,16 @@ pub(in crate::db::query) fn validate_index_range_anchor<E: EntityKind>(
         }
 
         // Phase 2: validate envelope membership against planned range bounds.
-        let (range_start, range_end) = raw_bounds_for_index_component_range::<E>(
-            index, prefix, lower, upper,
-        )
-        .map_err(|err| {
-            invalid_continuation_cursor_payload(map_bound_encode_error(
-                err,
-                "index-range continuation anchor prefix is not indexable",
-                "index-range cursor lower continuation bound is not indexable",
-                "index-range cursor upper continuation bound is not indexable",
-            ))
-        })?;
+        let (range_start, range_end) =
+            raw_bounds_for_semantic_index_component_range::<E>(index, prefix, lower, upper)
+                .map_err(|err| {
+                    invalid_continuation_cursor_payload(map_bound_encode_error(
+                        err,
+                        "index-range continuation anchor prefix is not indexable",
+                        "index-range cursor lower continuation bound is not indexable",
+                        "index-range cursor upper continuation bound is not indexable",
+                    ))
+                })?;
 
         if !KeyEnvelope::new(direction, range_start, range_end).contains(anchor.last_raw_key()) {
             return Err(invalid_continuation_cursor_payload(

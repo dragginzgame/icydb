@@ -1,11 +1,10 @@
 use crate::{
     db::{
-        index::{EncodedValue, IndexId, IndexKey, RawIndexKey},
+        index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey},
         query::plan::KeyEnvelope,
     },
     model::index::IndexModel,
     traits::EntityKind,
-    value::Value,
 };
 use serde::{Deserialize, Serialize};
 use std::ops::Bound;
@@ -59,29 +58,36 @@ pub(in crate::db) const fn map_bound_encode_error(
 }
 
 ///
-/// raw_bounds_for_index_component_range
+/// raw_keys_for_encoded_prefix
 ///
-/// Build raw key-space bounds for one ranged component after an equality prefix.
-/// This is the canonical path shared by execution and cursor-anchor validation.
+/// Build canonical raw start/end keys for an encoded prefix in the user namespace.
 ///
 
-pub(in crate::db) fn raw_bounds_for_index_component_range<E: EntityKind>(
+#[must_use]
+pub(in crate::db) fn raw_keys_for_encoded_prefix<E: EntityKind>(
     index: &IndexModel,
-    prefix: &[Value],
-    lower: &Bound<Value>,
-    upper: &Bound<Value>,
-) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), IndexRangeBoundEncodeError> {
-    let encoded_prefix =
-        EncodedValue::try_encode_all(prefix).map_err(|_| IndexRangeBoundEncodeError::Prefix)?;
-    let encoded_lower = encode_index_component_bound(lower, IndexRangeBoundEncodeError::Lower)?;
-    let encoded_upper = encode_index_component_bound(upper, IndexRangeBoundEncodeError::Upper)?;
+    prefix: &[EncodedValue],
+) -> (RawIndexKey, RawIndexKey) {
+    let index_id = IndexId::new::<E>(index);
+    raw_keys_for_encoded_prefix_with_kind(&index_id, IndexKeyKind::User, index.fields.len(), prefix)
+}
 
-    Ok(raw_bounds_for_encoded_index_component_range::<E>(
-        index,
-        encoded_prefix.as_slice(),
-        &encoded_lower,
-        &encoded_upper,
-    ))
+///
+/// raw_keys_for_encoded_prefix_with_kind
+///
+/// Build canonical raw start/end keys for an encoded prefix in the requested key namespace.
+///
+
+#[must_use]
+pub(in crate::db) fn raw_keys_for_encoded_prefix_with_kind(
+    index_id: &IndexId,
+    key_kind: IndexKeyKind,
+    index_len: usize,
+    prefix: &[EncodedValue],
+) -> (RawIndexKey, RawIndexKey) {
+    let (start, end) = IndexKey::bounds_for_prefix_with_kind(index_id, key_kind, index_len, prefix);
+
+    (start.to_raw(), end.to_raw())
 }
 
 ///
@@ -98,19 +104,14 @@ pub(in crate::db) fn raw_bounds_for_encoded_index_component_range<E: EntityKind>
 ) -> (Bound<RawIndexKey>, Bound<RawIndexKey>) {
     let index_id = IndexId::new::<E>(index);
 
-    let mut prefix_components = Vec::with_capacity(prefix.len());
-    for value in prefix {
-        prefix_components.push(value.encoded().to_vec());
-    }
-
     let lower_component = encoded_component_bound(lower);
     let upper_component = encoded_component_bound(upper);
     let (start, end) = IndexKey::bounds_for_prefix_component_range(
         &index_id,
         index.fields.len(),
-        &prefix_components,
-        lower_component,
-        upper_component,
+        prefix,
+        &lower_component,
+        &upper_component,
     );
 
     (raw_index_key_bound(start), raw_index_key_bound(end))
@@ -183,26 +184,11 @@ pub(in crate::db) fn envelope_is_empty(
     KeyEnvelope::new(Direction::Asc, lower.clone(), upper.clone()).is_empty()
 }
 
-fn encode_index_component_bound(
-    bound: &Bound<Value>,
-    kind: IndexRangeBoundEncodeError,
-) -> Result<Bound<EncodedValue>, IndexRangeBoundEncodeError> {
-    match bound {
-        Bound::Unbounded => Ok(Bound::Unbounded),
-        Bound::Included(value) => EncodedValue::try_from_ref(value)
-            .map(Bound::Included)
-            .map_err(|_| kind),
-        Bound::Excluded(value) => EncodedValue::try_from_ref(value)
-            .map(Bound::Excluded)
-            .map_err(|_| kind),
-    }
-}
-
-fn encoded_component_bound(bound: &Bound<EncodedValue>) -> Bound<Vec<u8>> {
+const fn encoded_component_bound(bound: &Bound<EncodedValue>) -> Bound<&[u8]> {
     match bound {
         Bound::Unbounded => Bound::Unbounded,
-        Bound::Included(value) => Bound::Included(value.encoded().to_vec()),
-        Bound::Excluded(value) => Bound::Excluded(value.encoded().to_vec()),
+        Bound::Included(value) => Bound::Included(value.encoded()),
+        Bound::Excluded(value) => Bound::Excluded(value.encoded()),
     }
 }
 

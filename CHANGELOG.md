@@ -5,6 +5,29 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.23.3] – 2026-02-21 - Index Range Spec Boundary
+
+### 📝 Summary
+
+* Moved index-range execution to pre-built key-range specs.
+* Planner now prepares the range bytes up front, and execution just applies them.
+
+### 🔧 Changed
+
+* Added `IndexRangeSpec` as the concrete planner output for index range traversal.
+* Executor index-range paths now require that pre-lowered spec instead of interpreting value bounds at runtime.
+* Composite access traversal now consumes specs in order and fails fast on missing or unused specs.
+* Planner now owns index literal canonicalization for both range and prefix plans, so execution stays byte-only for index traversal.
+* Tightened index key builder boundaries so non-index modules use higher-level raw key helpers instead of calling low-level prefix/range builders directly.
+
+### 🧪 Testing
+
+* Added executor invariant regressions for missing index-range specs and unused lowered specs.
+* Added a CI and pre-push invariant check that blocks index-path executor code from drifting back to semantic `Value` handling.
+* Revalidated prefix-bound traversal behavior and kept the current closed-bound contract using canonical sentinel keys.
+
+---
+
 ## [0.23.2] – 2026-02-21 - EncodedValue Consolidation
 
 ### 📝 Summary
@@ -17,7 +40,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * `RawIndexKey` builders now accept only `EncodedValue`, making canonical index bytes a hard input invariant instead of a convention.
 * Added `EncodedValue` as the shared wrapper for canonical index bytes used by lookup and range bound construction.
 * Planner index prefix/range selection now caches encoded literals and reuses them across candidate evaluation instead of re-encoding.
-* Added a compile-time decimal guard so `prim = "Decimal"` now requires `item(scale = N)`.
+* Added a compile-time derive guard so `prim = "Decimal"` requires `item(scale = N)`.
 
 ### 🧪 Testing
 

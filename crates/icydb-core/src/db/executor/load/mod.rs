@@ -216,6 +216,8 @@ where
 
         let direction = plan.direction();
         let continuation_signature = plan.continuation_signature();
+        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+        let index_range_specs = plan.index_range_specs()?.to_vec();
         let continuation_applied = cursor_boundary.is_some() || index_range_anchor.is_some();
         let mut execution_trace = self
             .debug
@@ -230,6 +232,8 @@ where
             let execution_inputs = ExecutionInputs {
                 ctx: &ctx,
                 plan: &plan,
+                index_prefix_specs: index_prefix_specs.as_slice(),
+                index_range_specs: index_range_specs.as_slice(),
                 index_range_anchor: index_range_anchor.as_ref(),
                 direction,
             };

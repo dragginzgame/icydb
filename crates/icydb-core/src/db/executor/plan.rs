@@ -1,69 +1,27 @@
 use crate::{
-    db::query::plan::{AccessPlan, AccessPlanProjection, project_access_plan},
+    db::query::plan::{AccessPath, AccessPlan},
     obs::sink::{MetricsEvent, PlanKind, Span, record},
     traits::EntityKind,
-    value::Value,
 };
-use std::ops::Bound;
 
 /// Records metrics for the chosen execution plan.
 /// Must be called exactly once per execution.
 pub(super) fn record_plan_metrics<K>(access: &AccessPlan<K>) {
-    let mut projection = PlanKindProjection;
-    let kind = project_access_plan(access, &mut projection);
+    let kind = access_plan_kind(access);
 
     record(MetricsEvent::Plan { kind });
 }
 
-struct PlanKindProjection;
-
-impl<K> AccessPlanProjection<K> for PlanKindProjection {
-    type Output = PlanKind;
-
-    fn by_key(&mut self, _key: &K) -> Self::Output {
-        PlanKind::Keys
-    }
-
-    fn by_keys(&mut self, _keys: &[K]) -> Self::Output {
-        PlanKind::Keys
-    }
-
-    fn key_range(&mut self, _start: &K, _end: &K) -> Self::Output {
-        PlanKind::Range
-    }
-
-    fn index_prefix(
-        &mut self,
-        _index_name: &'static str,
-        _index_fields: &[&'static str],
-        _prefix_len: usize,
-        _values: &[Value],
-    ) -> Self::Output {
-        PlanKind::Index
-    }
-
-    fn index_range(
-        &mut self,
-        _index_name: &'static str,
-        _index_fields: &[&'static str],
-        _prefix_len: usize,
-        _prefix: &[Value],
-        _lower: &Bound<Value>,
-        _upper: &Bound<Value>,
-    ) -> Self::Output {
-        PlanKind::Index
-    }
-
-    fn full_scan(&mut self) -> Self::Output {
-        PlanKind::FullScan
-    }
-
-    fn union(&mut self, _children: Vec<Self::Output>) -> Self::Output {
-        PlanKind::FullScan
-    }
-
-    fn intersection(&mut self, _children: Vec<Self::Output>) -> Self::Output {
-        PlanKind::FullScan
+// This metric is intentionally coarse and only reflects the top-level access shape.
+fn access_plan_kind<K>(access: &AccessPlan<K>) -> PlanKind {
+    match access {
+        AccessPlan::Path(path) => match path.as_ref() {
+            AccessPath::ByKey(_) | AccessPath::ByKeys(_) => PlanKind::Keys,
+            AccessPath::KeyRange { .. } => PlanKind::Range,
+            AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. } => PlanKind::Index,
+            AccessPath::FullScan => PlanKind::FullScan,
+        },
+        AccessPlan::Union(_) | AccessPlan::Intersection(_) => PlanKind::FullScan,
     }
 }
 

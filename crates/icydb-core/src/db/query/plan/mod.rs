@@ -2,6 +2,7 @@
 
 mod access_projection;
 pub(crate) mod executable;
+mod index_bounds;
 pub(crate) mod logical;
 pub(crate) mod planner;
 #[cfg(test)]
@@ -26,7 +27,9 @@ pub(in crate::db) use continuation::{
 ///
 /// Re-Exports
 ///
-pub(in crate::db) use executable::{ExecutablePlan, PlannedCursor};
+pub(in crate::db) use executable::{
+    ExecutablePlan, IndexPrefixSpec, IndexRangeSpec, PlannedCursor,
+};
 #[cfg(test)]
 pub(crate) use explain::ExplainOrderPushdown;
 pub(crate) use explain::{
@@ -34,6 +37,7 @@ pub(crate) use explain::{
     ExplainPredicate,
 };
 pub(crate) use fingerprint::PlanFingerprint;
+pub(in crate::db) use index_bounds::raw_bounds_for_semantic_index_component_range;
 pub(crate) use logical::LogicalPlan;
 pub(in crate::db) use spine::{
     KeyEnvelope, validate_planned_cursor, validate_planned_cursor_state,

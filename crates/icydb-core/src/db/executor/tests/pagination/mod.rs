@@ -2,7 +2,7 @@
 use super::*;
 use crate::{
     db::{
-        index::RawIndexKey,
+        index::{Direction, EncodedValue, RawIndexKey, raw_keys_for_encoded_prefix},
         query::{
             intent::{LoadSpec, QueryMode},
             plan::{
@@ -117,14 +117,25 @@ fn assert_resume_suffixes_from_tokens<E, F>(
 
 // Resolve ids directly from the `(group, rank)` index prefix in raw index-key order.
 fn ordered_ids_from_group_rank_index(group: u32) -> Vec<Ulid> {
+    let encoded_prefix = [EncodedValue::try_new(Value::Uint(u64::from(group)))
+        .expect("group literal should be canonically index-encodable")];
+    let (lower, upper) = raw_keys_for_encoded_prefix::<PushdownParityEntity>(
+        &PUSHDOWN_PARITY_INDEX_MODELS[0],
+        encoded_prefix.as_slice(),
+    );
+    let (lower, upper) = (Bound::Included(lower), Bound::Included(upper));
+
     // Phase 1: read candidate keys from canonical index traversal order.
     let data_keys = DB
         .with_store_registry(|reg| {
             reg.try_get_store(TestDataStore::PATH).and_then(|store| {
                 store.with_index(|index_store| {
-                    index_store.resolve_data_values::<PushdownParityEntity>(
+                    index_store.resolve_data_values_in_raw_range_limited::<PushdownParityEntity>(
                         &PUSHDOWN_PARITY_INDEX_MODELS[0],
-                        &[Value::Uint(u64::from(group))],
+                        (&lower, &upper),
+                        None,
+                        Direction::Asc,
+                        usize::MAX,
                     )
                 })
             })

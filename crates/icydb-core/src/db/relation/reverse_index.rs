@@ -11,8 +11,8 @@ use crate::{
         data::RawDataKey,
         identity::{EntityName, IndexName},
         index::{
-            EncodedValue, IndexEntry, IndexId, IndexKey, IndexKeyKind, IndexStore, RawIndexEntry,
-            RawIndexKey,
+            EncodedValue, IndexEntry, IndexId, IndexKeyKind, IndexStore, RawIndexEntry,
+            RawIndexKey, raw_keys_for_encoded_prefix_with_kind,
         },
     },
     error::InternalError,
@@ -78,11 +78,14 @@ where
     };
 
     let index_id = reverse_index_id_for_relation::<S>(relation)?;
-    let prefix = vec![encoded_value.encoded().to_vec()];
-    let (key, _) =
-        IndexKey::bounds_for_prefix_with_kind(&index_id, IndexKeyKind::System, 1, &prefix);
+    let (key, _) = raw_keys_for_encoded_prefix_with_kind(
+        &index_id,
+        IndexKeyKind::System,
+        1,
+        std::slice::from_ref(&encoded_value),
+    );
 
-    Ok(Some(key.to_raw()))
+    Ok(Some(key))
 }
 
 // Extract relation-target raw keys from a field value.

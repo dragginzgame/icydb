@@ -5,17 +5,51 @@ use crate::{
             OrderedKeyStreamBox, VecOrderedKeyStream,
         },
         index::RawIndexKey,
-        query::plan::{AccessPlan, Direction},
+        query::plan::{AccessPath, AccessPlan, Direction, IndexPrefixSpec, IndexRangeSpec},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
 
 impl<K> AccessPlan<K> {
+    // Validate that a consumed prefix spec belongs to the same index path node.
+    fn validate_index_prefix_spec_alignment(
+        path: &AccessPath<K>,
+        index_prefix_spec: Option<&IndexPrefixSpec>,
+    ) -> Result<(), InternalError> {
+        if let (Some(spec), AccessPath::IndexPrefix { index, .. }) = (index_prefix_spec, path)
+            && spec.index() != index
+        {
+            return Err(InternalError::query_executor_invariant(
+                "index-prefix spec does not match access path index",
+            ));
+        }
+
+        Ok(())
+    }
+
+    // Validate that a consumed range spec belongs to the same index path node.
+    fn validate_index_range_spec_alignment(
+        path: &AccessPath<K>,
+        index_range_spec: Option<&IndexRangeSpec>,
+    ) -> Result<(), InternalError> {
+        if let (Some(spec), AccessPath::IndexRange { index, .. }) = (index_range_spec, path)
+            && spec.index() != index
+        {
+            return Err(InternalError::query_executor_invariant(
+                "index-range spec does not match access path index",
+            ));
+        }
+
+        Ok(())
+    }
+
     // Collect one child key stream for each child access plan.
     fn collect_child_key_streams<E>(
         ctx: &Context<'_, E>,
         children: &[Self],
+        index_prefix_specs: &mut std::slice::Iter<'_, IndexPrefixSpec>,
+        index_range_specs: &mut std::slice::Iter<'_, IndexRangeSpec>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
         key_comparator: KeyOrderComparator,
@@ -28,6 +62,8 @@ impl<K> AccessPlan<K> {
         for child in children {
             streams.push(child.produce_key_stream(
                 ctx,
+                index_prefix_specs,
+                index_range_specs,
                 index_range_anchor,
                 direction,
                 key_comparator,
@@ -74,9 +110,12 @@ impl<K> AccessPlan<K> {
     }
 
     // Build an ordered key stream for this access plan.
+    #[expect(clippy::too_many_arguments)]
     pub(super) fn produce_key_stream<E>(
         &self,
         ctx: &Context<'_, E>,
+        index_prefix_specs: &mut std::slice::Iter<'_, IndexPrefixSpec>,
+        index_range_specs: &mut std::slice::Iter<'_, IndexRangeSpec>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
         key_comparator: KeyOrderComparator,
@@ -87,15 +126,34 @@ impl<K> AccessPlan<K> {
         K: Copy,
     {
         match self {
-            Self::Path(path) => ctx.ordered_key_stream_from_access_with_index_range_anchor(
-                path,
-                index_range_anchor,
-                direction,
-                physical_fetch_hint,
-            ),
+            Self::Path(path) => {
+                let index_prefix_spec = if matches!(path.as_ref(), AccessPath::IndexPrefix { .. }) {
+                    index_prefix_specs.next()
+                } else {
+                    None
+                };
+                let index_range_spec = if matches!(path.as_ref(), AccessPath::IndexRange { .. }) {
+                    index_range_specs.next()
+                } else {
+                    None
+                };
+                Self::validate_index_prefix_spec_alignment(path.as_ref(), index_prefix_spec)?;
+                Self::validate_index_range_spec_alignment(path.as_ref(), index_range_spec)?;
+
+                ctx.ordered_key_stream_from_access_with_index_range_anchor(
+                    path,
+                    index_prefix_spec,
+                    index_range_spec,
+                    index_range_anchor,
+                    direction,
+                    physical_fetch_hint,
+                )
+            }
             Self::Union(children) => Self::produce_union_key_stream(
                 ctx,
                 children,
+                index_prefix_specs,
+                index_range_specs,
                 index_range_anchor,
                 direction,
                 key_comparator,
@@ -103,6 +161,8 @@ impl<K> AccessPlan<K> {
             Self::Intersection(children) => Self::produce_intersection_key_stream(
                 ctx,
                 children,
+                index_prefix_specs,
+                index_range_specs,
                 index_range_anchor,
                 direction,
                 key_comparator,
@@ -114,6 +174,8 @@ impl<K> AccessPlan<K> {
     fn produce_union_key_stream<E>(
         ctx: &Context<'_, E>,
         children: &[Self],
+        index_prefix_specs: &mut std::slice::Iter<'_, IndexPrefixSpec>,
+        index_range_specs: &mut std::slice::Iter<'_, IndexRangeSpec>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
         key_comparator: KeyOrderComparator,
@@ -125,6 +187,8 @@ impl<K> AccessPlan<K> {
         let streams = Self::collect_child_key_streams(
             ctx,
             children,
+            index_prefix_specs,
+            index_range_specs,
             index_range_anchor,
             direction,
             key_comparator,
@@ -143,6 +207,8 @@ impl<K> AccessPlan<K> {
     fn produce_intersection_key_stream<E>(
         ctx: &Context<'_, E>,
         children: &[Self],
+        index_prefix_specs: &mut std::slice::Iter<'_, IndexPrefixSpec>,
+        index_range_specs: &mut std::slice::Iter<'_, IndexRangeSpec>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
         key_comparator: KeyOrderComparator,
@@ -154,6 +220,8 @@ impl<K> AccessPlan<K> {
         let streams = Self::collect_child_key_streams(
             ctx,
             children,
+            index_prefix_specs,
+            index_range_specs,
             index_range_anchor,
             direction,
             key_comparator,

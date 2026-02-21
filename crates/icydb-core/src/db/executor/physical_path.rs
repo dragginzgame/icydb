@@ -3,7 +3,7 @@ use crate::{
         data::DataKey,
         executor::{Context, OrderedKeyStreamBox, VecOrderedKeyStream, normalize_ordered_keys},
         index::RawIndexKey,
-        query::plan::{AccessPath, Direction},
+        query::plan::{AccessPath, Direction, IndexPrefixSpec, IndexRangeSpec},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -16,6 +16,8 @@ impl<K> AccessPath<K> {
     pub(super) fn resolve_physical_key_stream<E>(
         &self,
         ctx: &Context<'_, E>,
+        index_prefix_spec: Option<&IndexPrefixSpec>,
+        index_range_spec: Option<&IndexRangeSpec>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
@@ -143,32 +145,59 @@ impl<K> AccessPath<K> {
                 }
             }
 
-            Self::IndexPrefix { index, values } => {
-                let store = ctx
-                    .db
-                    .with_store_registry(|reg| reg.try_get_store(index.store))?;
-                let keys = store.with_index(|s| s.resolve_data_values::<E>(index, values))?;
+            Self::IndexPrefix { index, values: _ } => {
+                let Some(index_prefix_spec) = index_prefix_spec else {
+                    return Err(InternalError::query_executor_invariant(
+                        "index-prefix execution requires pre-lowered index-prefix spec",
+                    ));
+                };
+                if index_prefix_spec.index() != index {
+                    return Err(InternalError::query_executor_invariant(
+                        "index-prefix spec does not match access path index",
+                    ));
+                }
+                let store = ctx.db.with_store_registry(|reg| {
+                    reg.try_get_store(index_prefix_spec.index().store)
+                })?;
+                let keys = store.with_index(|s| {
+                    s.resolve_data_values_in_raw_range_limited::<E>(
+                        index_prefix_spec.index(),
+                        (index_prefix_spec.lower(), index_prefix_spec.upper()),
+                        None,
+                        direction,
+                        usize::MAX,
+                    )
+                })?;
 
                 (keys, false)
             }
 
             Self::IndexRange {
                 index,
-                prefix,
-                lower,
-                upper,
+                prefix: _,
+                lower: _,
+                upper: _,
             } => {
+                let Some(index_range_spec) = index_range_spec else {
+                    return Err(InternalError::query_executor_invariant(
+                        "index-range execution requires pre-lowered index-range spec",
+                    ));
+                };
+                if index_range_spec.index() != index {
+                    return Err(InternalError::query_executor_invariant(
+                        "index-range spec does not match access path index",
+                    ));
+                }
                 let store = ctx
                     .db
-                    .with_store_registry(|reg| reg.try_get_store(index.store))?;
+                    .with_store_registry(|reg| reg.try_get_store(index_range_spec.index().store))?;
                 let keys = store.with_index(|s| {
-                    s.resolve_data_values_in_range_from_start_exclusive::<E>(
-                        index,
-                        prefix,
-                        lower,
-                        upper,
+                    s.resolve_data_values_in_raw_range_limited::<E>(
+                        index_range_spec.index(),
+                        (index_range_spec.lower(), index_range_spec.upper()),
                         index_range_anchor,
                         direction,
+                        usize::MAX,
                     )
                 })?;
 

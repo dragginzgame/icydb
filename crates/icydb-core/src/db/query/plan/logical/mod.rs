@@ -3,14 +3,18 @@ mod order_cursor;
 mod window;
 
 use crate::{
-    db::query::{
-        ReadConsistency,
-        intent::QueryMode,
-        plan::{
-            AccessPath, AccessPlan, CursorBoundary, DeleteLimitSpec, OrderSpec, PageSpec,
-            compute_page_window,
+    db::{
+        index::IndexKey,
+        query::{
+            ReadConsistency,
+            intent::QueryMode,
+            plan::{
+                AccessPath, AccessPlan, ContinuationSignature, ContinuationToken, CursorBoundary,
+                DeleteLimitSpec, Direction, IndexRangeCursorAnchor, OrderSpec, PageSpec,
+                compute_page_window,
+            },
+            predicate::{Predicate, eval as eval_predicate},
         },
-        predicate::{Predicate, eval as eval_predicate},
     },
     error::InternalError,
     traits::{EntityKind, EntitySchema, EntityValue},
@@ -458,6 +462,47 @@ impl<K> LogicalPlan<K> {
                 .iter()
                 .map(|(field, _)| order_cursor::field_slot(entity, field))
                 .collect(),
+        })
+    }
+
+    /// Build and encode the continuation token for one materialized entity.
+    pub(crate) fn next_cursor_for_entity<E>(
+        &self,
+        entity: &E,
+        direction: Direction,
+        signature: ContinuationSignature,
+    ) -> Result<Vec<u8>, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        let boundary = self.cursor_boundary_from_entity(entity)?;
+        let initial_offset = self.page.as_ref().map_or(0, |page| page.offset);
+        let token = if self.access.cursor_support().supports_index_range_anchor() {
+            let (index, _, _, _) = self.access.as_index_range_path().ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "index-range cursor support missing concrete index-range path",
+                )
+            })?;
+            let index_key = IndexKey::new(entity, index)?.ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "cursor row is not indexable for planned index-range access",
+                )
+            })?;
+
+            ContinuationToken::new_index_range_with_direction(
+                signature,
+                boundary,
+                IndexRangeCursorAnchor::new(index_key.to_raw()),
+                direction,
+                initial_offset,
+            )
+        } else {
+            ContinuationToken::new_with_direction(signature, boundary, direction, initial_offset)
+        };
+        token.encode().map_err(|err| {
+            InternalError::serialize_internal(format!(
+                "failed to encode continuation cursor: {err}"
+            ))
         })
     }
 
