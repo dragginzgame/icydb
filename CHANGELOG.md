@@ -5,6 +5,27 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.23.4] – 2026-02-21 - Boundary Hardening
+
+### 📝 Summary
+
+* Hardened aggregate execution parity and execution boundaries so optimized and fallback paths stay aligned.
+* Focused this release on safety and drift resistance, without introducing new query features.
+
+### 🔧 Changed
+
+* Tightened aggregate-path parity checks across `ASC`/`DESC`, `DISTINCT`, and windowed reads (`offset`/`limit`).
+* Disabled bounded COUNT probe hints for `DISTINCT + offset` aggregate windows so deduplication and offset application stay parity-safe under future access-path changes.
+* Kept planner/executor boundary hardening explicit: index traversal remains spec-driven with strict invariant enforcement against semantic fallback drift.
+* Added runtime fast-path spec-arity guards so secondary and index-range optimizations fail fast if multiple lowered specs are unexpectedly present.
+
+### 🧪 Testing
+
+* Expanded targeted regressions for aggregate parity across direction, distinctness, paging, and continuation behavior.
+* Kept drift-guard coverage in place for planner/executor boundary invariants so semantic handling does not leak back into execution index paths.
+
+---
+
 ## [0.23.3] – 2026-02-21 - Index Range Spec Boundary
 
 ### 📝 Summary

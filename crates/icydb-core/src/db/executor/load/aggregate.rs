@@ -284,14 +284,13 @@ where
             return Some(0);
         }
 
-        let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
-        // Keep probe-hint semantics explicit: DISTINCT with a positive offset
-        // can shrink raw-key windows before offset consumption.
-        // Disable bounded probing for that shape so future path changes
-        // cannot silently under-produce EXISTS windows.
-        if plan.distinct && offset > 0 {
+        // Keep bounded probe hints behind one shared safety gate.
+        // DISTINCT + offset must stay unbounded so canonical windowing runs
+        // after deduplication and cannot under-produce aggregate results.
+        if !Self::bounded_probe_hint_is_safe(plan) {
             return None;
         }
+        let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
 
         match kind {
             AggregateKind::Exists => Some(offset.saturating_add(1)),
@@ -348,10 +347,21 @@ where
     fn count_pushdown_fetch_hint(plan: &LogicalPlan<E::Key>) -> Option<usize> {
         let page = plan.page.as_ref()?;
         let limit = page.limit?;
+        if !Self::bounded_probe_hint_is_safe(plan) {
+            return None;
+        }
         let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
         let limit = usize::try_from(limit).unwrap_or(usize::MAX);
 
         Some(offset.saturating_add(limit))
+    }
+
+    // Shared bounded-probe safety gate for aggregate key-stream hints.
+    // DISTINCT + offset must remain unbounded so deduplication happens before
+    // offset consumption without risking short windows.
+    fn bounded_probe_hint_is_safe(plan: &LogicalPlan<E::Key>) -> bool {
+        let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
+        !(plan.distinct && offset > 0)
     }
 
     fn aggregate_from_materialized(

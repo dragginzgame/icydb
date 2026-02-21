@@ -698,6 +698,54 @@ fn aggregate_distinct_offset_probe_hint_suppression_preserves_parity() {
 }
 
 #[test]
+fn aggregate_count_distinct_offset_window_disables_bounded_probe_hint() {
+    seed_simple_entities(&[9511, 9512, 9513, 9514, 9515, 9516, 9517]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (count_asc, scanned_asc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_count(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .distinct()
+                .order_by("id")
+                .offset(2)
+                .limit(2)
+                .plan()
+                .expect("count distinct+offset ASC plan should build"),
+        )
+        .expect("count distinct+offset ASC should succeed")
+    });
+    let (count_desc, scanned_desc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_count(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .distinct()
+                .order_by_desc("id")
+                .offset(2)
+                .limit(2)
+                .plan()
+                .expect("count distinct+offset DESC plan should build"),
+        )
+        .expect("count distinct+offset DESC should succeed")
+    });
+
+    assert_eq!(
+        count_asc, 2,
+        "ASC distinct+offset count should respect window"
+    );
+    assert_eq!(
+        count_desc, 2,
+        "DESC distinct+offset count should respect window"
+    );
+    assert_eq!(
+        scanned_asc, 7,
+        "ASC distinct+offset count should stay unbounded at access phase"
+    );
+    assert_eq!(
+        scanned_desc, 7,
+        "DESC distinct+offset count should stay unbounded at access phase"
+    );
+}
+
+#[test]
 fn aggregate_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_max() {
     seed_pushdown_entities(&[
         (9601, 7, 10),
