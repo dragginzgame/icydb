@@ -21,6 +21,15 @@ use crate::{
 };
 use std::{marker::PhantomData, ops::Bound};
 
+// -----------------------------------------------------------------------------
+// ExecutablePlan Subdomains (Pre-Split Planning)
+// -----------------------------------------------------------------------------
+// 1) Lowered executor spec contracts (`IndexPrefixSpec`, `IndexRangeSpec`).
+// 2) Planned cursor state and continuation revalidation.
+// 3) Core executable plan API and immutable plan accessors.
+// 4) Index spec lowering collectors from semantic plan to raw-key bounds.
+// 5) Cursor/index-range regression tests.
+
 const INDEX_RANGE_SPEC_INVALID: &str =
     "validated index-range plan could not be lowered to raw bounds";
 const INDEX_PREFIX_SPEC_VALUE_NOT_INDEXABLE: &str = "validated index-prefix value is not indexable";
@@ -194,6 +203,10 @@ pub struct ExecutablePlan<E: EntityKind> {
 }
 
 impl<E: EntityKind> ExecutablePlan<E> {
+    // ------------------------------------------------------------------
+    // Core executable plan construction and accessors
+    // ------------------------------------------------------------------
+
     pub(crate) fn new(plan: LogicalPlan<E::Key>) -> Self {
         let direction = Self::derive_direction(&plan);
         let (index_prefix_specs, index_prefix_spec_invalid) =
@@ -339,6 +352,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
         .map_err(InternalError::from_cursor_plan_error)
     }
 
+    // ------------------------------------------------------------------
+    // Cursor ordering and validation spine
+    // ------------------------------------------------------------------
+
     // Resolve cursor ordering for plan-surface cursor decoding.
     // Cursor readiness is owned by policy/intent validation.
     fn validated_cursor_order_plan(&self) -> Result<&OrderSpec, CursorPlanError> {
@@ -376,6 +393,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
         Ok(order)
     }
+
+    // ------------------------------------------------------------------
+    // Semantic-to-raw spec lowering
+    // ------------------------------------------------------------------
 
     // Lower semantic index-range access into raw-key bounds once at plan materialization.
     fn build_index_prefix_specs(
@@ -483,7 +504,8 @@ mod tests {
             ReadConsistency,
             data::StorageKey,
             index::{
-                Direction, IndexId, IndexKeyKind, RawIndexKey, encode_canonical_index_component,
+                Direction, IndexId, IndexKeyKind, RawIndexKey, continuation_advanced,
+                encode_canonical_index_component,
             },
             query::plan::{
                 AccessPath, ContinuationToken, CursorBoundary, CursorBoundarySlot, CursorPlanError,
@@ -626,6 +648,29 @@ mod tests {
         executable
             .plan_cursor(Some(token.as_slice()))
             .expect("anchor inside index-range envelope should validate");
+    }
+
+    #[test]
+    fn index_range_cursor_validation_layers_remain_intentionally_redundant() {
+        let executable = build_index_range_cursor_executable();
+        let expected_id = IndexId::new::<ExecutableAnchorEntity>(&RANGE_INDEX_AB);
+        let boundary_pk = Ulid::from_u128(30_101);
+        let anchor = anchor_for_value_with_pk(&expected_id, 15, boundary_pk);
+        let token = encode_index_range_cursor(&executable, boundary_pk, anchor);
+
+        // Layer 1 (planner): envelope + boundary/anchor compatibility.
+        let planned = executable
+            .plan_cursor(Some(token.as_slice()))
+            .expect("planner layer should accept a compatible index-range cursor anchor");
+        let anchor_raw = planned
+            .index_range_anchor()
+            .expect("planned cursor should carry an index-range anchor");
+
+        // Layer 2 (store): strict advancement beyond anchor.
+        assert!(
+            !continuation_advanced(Direction::Asc, anchor_raw, anchor_raw),
+            "store layer must still enforce strict advancement even when planner accepts the anchor"
+        );
     }
 
     #[test]

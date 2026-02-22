@@ -18,6 +18,15 @@ use crate::{
 };
 use std::{collections::BTreeSet, marker::PhantomData};
 
+// -----------------------------------------------------------------------------
+// Context Subdomains (Pre-Split Planning)
+// -----------------------------------------------------------------------------
+// 1) Context handle and shared access-stream request contracts.
+// 2) Store access, row reads, and ordered key-stream construction.
+// 3) Row materialization and consistency-aware loading helpers.
+// 4) Key/spec utility helpers and invariant enforcement.
+// 5) Access-plan spec alignment and directional-order regression tests.
+
 ///
 /// Context
 ///
@@ -116,8 +125,6 @@ impl<'a> AccessSpecCursor<'a> {
 ///
 /// AccessStreamBindings
 ///
-/// AccessStreamBindings
-///
 /// Shared access-stream traversal bindings reused by execution and key-stream
 /// request wrappers so spec/anchor/direction fields stay aligned.
 ///
@@ -149,6 +156,10 @@ impl<'a, E> Context<'a, E>
 where
     E: EntityKind + EntityValue,
 {
+    // ------------------------------------------------------------------
+    // Context setup
+    // ------------------------------------------------------------------
+
     #[must_use]
     pub(crate) const fn new(db: &'a Db<E::Canister>) -> Self {
         Self {

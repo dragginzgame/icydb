@@ -21,6 +21,11 @@ fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> PlanError {
 }
 
 // Validate optional index-range cursor anchor against the planned access envelope.
+//
+// IMPORTANT CROSS-LAYER CONTRACT:
+// - This planner-layer validation checks token/envelope shape and compatibility.
+// - Store-layer lookup still performs strict continuation advancement checks.
+// - These two validations are intentionally redundant and must not be merged.
 pub(in crate::db::query) fn validate_index_range_anchor<E: EntityKind>(
     anchor: Option<&IndexRangeCursorAnchor>,
     access: Option<&AccessPath<E::Key>>,

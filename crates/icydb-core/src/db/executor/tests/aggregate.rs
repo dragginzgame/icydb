@@ -497,8 +497,8 @@ fn aggregate_by_ids_count_dedups_before_windowing() {
 
     assert_eq!(count, 1, "by_ids dedup COUNT should keep one in-window row");
     assert_eq!(
-        scanned, 2,
-        "by_ids dedup COUNT should scan deduped candidates until the window is filled"
+        scanned, 3,
+        "by_ids dedup COUNT should preserve parity via materialized fallback when COUNT pushdown is ineligible"
     );
 }
 

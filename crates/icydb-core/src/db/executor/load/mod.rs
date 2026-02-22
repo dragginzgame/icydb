@@ -259,6 +259,7 @@ where
                 &plan,
                 resolved.key_stream.as_mut(),
                 route_plan.scan_hints.load_scan_budget_hint,
+                route_plan.streaming_access_shape_safe(),
                 cursor_boundary.as_ref(),
                 direction,
                 continuation_signature,
@@ -301,7 +302,7 @@ where
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> Result<(), InternalError> {
-        if !Self::is_pk_order_stream_eligible(plan) {
+        if !Self::pk_order_stream_fast_path_shape_supported(plan) {
             return Ok(());
         }
         let _ = decode_pk_cursor_boundary::<E>(cursor_boundary)?;

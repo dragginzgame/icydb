@@ -19,11 +19,13 @@ where
     E: EntityKind + EntityValue,
 {
     // Run the shared load phases for an already-produced ordered key stream.
+    #[expect(clippy::too_many_arguments)]
     pub(super) fn materialize_key_stream_into_page(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
         key_stream: &mut dyn OrderedKeyStream,
         scan_budget_hint: Option<usize>,
+        streaming_access_shape_safe: bool,
         cursor_boundary: Option<&CursorBoundary>,
         direction: Direction,
         continuation_signature: ContinuationSignature,
@@ -36,7 +38,7 @@ where
                     "load page scan budget hint requires non-continuation execution",
                 ));
             }
-            if !plan.is_streaming_access_shape_safe::<E>() {
+            if !streaming_access_shape_safe {
                 return Err(InternalError::query_executor_invariant(
                     "load page scan budget hint requires streaming-safe access shape",
                 ));

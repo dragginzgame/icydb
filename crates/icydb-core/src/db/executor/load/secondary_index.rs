@@ -5,7 +5,6 @@ use crate::{
         executor::{VecOrderedKeyStream, normalize_ordered_keys},
         query::plan::{
             Direction, IndexPrefixSpec, LogicalPlan, SlotSelectionPolicy, derive_scan_direction,
-            validate::PushdownApplicability,
         },
     },
     error::InternalError,
@@ -22,13 +21,8 @@ where
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
         index_prefix_spec: Option<&IndexPrefixSpec>,
-        secondary_pushdown_applicability: &PushdownApplicability,
         probe_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        if !secondary_pushdown_applicability.is_eligible() {
-            return Ok(None);
-        }
-
         let Some((index, _)) = plan.access.as_index_prefix_path() else {
             return Ok(None);
         };

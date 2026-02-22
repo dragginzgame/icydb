@@ -36,6 +36,12 @@ DRY must never reduce safety or boundary clarity.
 
 If duplication increases safety, mark it as **intentional redundancy**.
 
+Route authority soft-budget policy (pre-0.25 hardening):
+
+* New aggregate/routing features should add at most +1 route capability flag.
+* New aggregate/routing features should add at most +1 execution-mode route branch/case.
+* Eligibility helper definitions (`is_*eligible`) should remain route-owned.
+
 ---
 
 # STEP 1 — Structural Duplication Scan

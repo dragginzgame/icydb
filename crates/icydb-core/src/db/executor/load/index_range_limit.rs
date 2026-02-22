@@ -60,49 +60,4 @@ where
             optimization: ExecutionOptimization::IndexRangeLimitPushdown,
         }))
     }
-
-    pub(super) fn is_index_range_limit_pushdown_shape_eligible(plan: &LogicalPlan<E::Key>) -> bool {
-        let Some((index, prefix, _, _)) = plan.access.as_index_range_path() else {
-            return false;
-        };
-        let index_fields = index.fields;
-        let prefix_len = prefix.len();
-        if plan.predicate.is_some() {
-            return false;
-        }
-
-        if let Some(order) = plan.order.as_ref()
-            && !order.fields.is_empty()
-        {
-            let Some(expected_direction) = order.fields.last().map(|(_, direction)| *direction)
-            else {
-                return false;
-            };
-            if order
-                .fields
-                .iter()
-                .any(|(_, direction)| *direction != expected_direction)
-            {
-                return false;
-            }
-
-            let mut expected =
-                Vec::with_capacity(index_fields.len().saturating_sub(prefix_len) + 1);
-            expected.extend(index_fields.iter().skip(prefix_len).copied());
-            expected.push(E::MODEL.primary_key.name);
-            if order.fields.len() != expected.len() {
-                return false;
-            }
-            if !order
-                .fields
-                .iter()
-                .map(|(field, _)| field.as_str())
-                .eq(expected)
-            {
-                return false;
-            }
-        }
-
-        true
-    }
 }

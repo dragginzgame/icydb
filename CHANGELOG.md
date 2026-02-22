@@ -5,6 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.24.6] – 2026-02-22 - Route Authority Hardening
+
+This release is an internal cleanup. It centralizes route decisions and tightens guardrails to reduce drift as new execution features are added.
+
+* Consolidated duplicated routing/eligibility checks across load and aggregate paths.
+* Simplified fast-path guard logic (spec arity and alignment checks).
+* Added targeted tests to keep route behavior, aggregate fold modes, and invariant/error classification stable.
+
+---
+
 ## [0.24.5] – 2026-02-22 - Secondary Min/Max Probe
 
 ### 📝 Summary

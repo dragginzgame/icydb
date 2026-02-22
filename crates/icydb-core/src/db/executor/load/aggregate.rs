@@ -4,7 +4,10 @@ use crate::{
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
             OrderedKeyStreamBox,
-            fold::{AggregateFoldMode, AggregateKind, AggregateOutput, AggregateWindowState},
+            fold::{
+                AggregateFoldMode, AggregateKind, AggregateOutput, AggregateReducerState,
+                AggregateWindowState, FoldControl,
+            },
             load::{
                 LoadExecutor,
                 aggregate_guard::{
@@ -12,9 +15,7 @@ use crate::{
                     ensure_secondary_aggregate_fast_path_arity,
                 },
                 execute::ExecutionInputs,
-                route::{
-                    AGGREGATE_FAST_PATH_ORDER, ExecutionMode, ExecutionRoutePlan, FastPathOrder,
-                },
+                route::{ExecutionMode, ExecutionRoutePlan, FastPathOrder},
             },
             plan::{record_plan_metrics, record_rows_scanned},
         },
@@ -31,6 +32,15 @@ use crate::{
     traits::{EntityKind, EntityValue},
     types::Id,
 };
+
+// -----------------------------------------------------------------------------
+// Aggregate Subdomains (Pre-Split Planning)
+// -----------------------------------------------------------------------------
+// 1) Terminal wrappers (`count/exists/min/max/first/last`).
+// 2) Aggregate orchestration (validation, route, stream setup).
+// 3) Fast-path dispatch via route-owned precedence.
+// 4) Fast-path implementations by access shape.
+// 5) Fallback + terminal utility helpers.
 
 ///
 /// AggregateFastPathInputs
@@ -55,6 +65,10 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // ------------------------------------------------------------------
+    // Terminal wrappers
+    // ------------------------------------------------------------------
+
     pub(in crate::db) fn aggregate_count(
         &self,
         plan: ExecutablePlan<E>,
@@ -127,6 +141,10 @@ where
         }
     }
 
+    // ------------------------------------------------------------------
+    // Aggregate orchestration
+    // ------------------------------------------------------------------
+
     // Execute one aggregate terminal. Use streaming fold for conservative-safe
     // plan shapes, otherwise fall back to canonical materialized execution.
     //
@@ -186,6 +204,9 @@ where
             kind,
             fold_mode,
         };
+        // Policy boundary: all aggregate optimizations must dispatch through the
+        // route-owned fast-path order below (no ad-hoc kind-specialized branches
+        // in executor call sites).
         if let Some((aggregate_output, rows_scanned)) =
             Self::try_fast_path_aggregate(&fast_path_inputs)?
         {
@@ -229,12 +250,16 @@ where
         Ok(aggregate_output)
     }
 
-    // Attempt aggregate fast-path execution in canonical priority order.
-    // Returns `Some` when one branch fully resolves the terminal.
+    // ------------------------------------------------------------------
+    // Fast-path dispatch
+    // ------------------------------------------------------------------
+
+    // Attempt aggregate fast-path execution strictly through route-owned
+    // fast-path order. Returns `Some` when one branch fully resolves the terminal.
     fn try_fast_path_aggregate(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
-        for route in AGGREGATE_FAST_PATH_ORDER {
+        for route in inputs.route_plan.fast_path_order().iter().copied() {
             match route {
                 FastPathOrder::PrimaryKey => {
                     // Aggregate-aware fast path for primary-key point/batch access shapes.
@@ -245,6 +270,7 @@ where
                             inputs.logical_plan,
                             inputs.direction,
                             inputs.kind,
+                            inputs.fold_mode,
                         )?
                     {
                         return Ok(Some((aggregate_output, rows_scanned)));
@@ -312,6 +338,10 @@ where
         Ok(None)
     }
 
+    // ------------------------------------------------------------------
+    // Fast-path implementations
+    // ------------------------------------------------------------------
+
     // Return the aggregate terminal value for an empty effective output window.
     const fn aggregate_zero_window_result(kind: AggregateKind) -> AggregateOutput<E> {
         match kind {
@@ -351,6 +381,7 @@ where
         plan: &LogicalPlan<E::Key>,
         direction: Direction,
         kind: AggregateKind,
+        fold_mode: AggregateFoldMode,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
         let Some(path) = plan.access.as_path() else {
             return Ok(None);
@@ -383,12 +414,7 @@ where
         // Phase 2: iterate canonical candidate keys and enforce the same
         // consistency + window semantics used by streaming aggregation.
         let mut keys_scanned = 0usize;
-        let mut count = 0u32;
-        let mut exists = false;
-        let mut min_id = None::<Id<E>>;
-        let mut max_id = None::<Id<E>>;
-        let mut first_id = None::<Id<E>>;
-        let mut last_id = None::<Id<E>>;
+        let mut state = AggregateReducerState::for_kind(kind);
         for key in ordered_keys {
             if window.exhausted() {
                 break;
@@ -396,58 +422,22 @@ where
 
             keys_scanned = keys_scanned.saturating_add(1);
             let data_key = Context::<E>::data_key_from_key(key)?;
-            if !Self::key_qualifies_for_fold(
-                ctx,
-                plan.consistency,
-                AggregateFoldMode::ExistingRows,
-                &data_key,
-            )? {
+            if !Self::key_qualifies_for_fold(ctx, plan.consistency, fold_mode, &data_key)? {
                 continue;
             }
             if !window.accept_existing_row() {
                 continue;
             }
-
-            let id = Id::from_key(key);
-            match kind {
-                AggregateKind::Count => {
-                    count = count.saturating_add(1);
-                }
-                AggregateKind::Exists => {
-                    exists = true;
-                    break;
-                }
-                AggregateKind::Min => {
-                    min_id = Some(id);
-                    if direction == Direction::Asc {
-                        break;
-                    }
-                }
-                AggregateKind::Max => {
-                    max_id = Some(id);
-                    if direction == Direction::Desc {
-                        break;
-                    }
-                }
-                AggregateKind::First => {
-                    first_id = Some(id);
-                    break;
-                }
-                AggregateKind::Last => {
-                    last_id = Some(id);
-                }
+            if matches!(
+                state.update_from_data_key(kind, direction, &data_key)?,
+                FoldControl::Break
+            ) {
+                break;
             }
         }
 
         // Phase 3: project one terminal output from the reducer state.
-        let aggregate_output = match kind {
-            AggregateKind::Count => AggregateOutput::Count(count),
-            AggregateKind::Exists => AggregateOutput::Exists(exists),
-            AggregateKind::Min => AggregateOutput::Min(min_id),
-            AggregateKind::Max => AggregateOutput::Max(max_id),
-            AggregateKind::First => AggregateOutput::First(first_id),
-            AggregateKind::Last => AggregateOutput::Last(last_id),
-        };
+        let aggregate_output = state.into_output();
 
         Ok(Some((aggregate_output, keys_scanned)))
     }
@@ -465,13 +455,15 @@ where
             inputs.route_plan.secondary_fast_path_eligible(),
             inputs.index_prefix_specs.len(),
         )?;
-        let probe_fetch_hint =
-            Self::secondary_extrema_probe_fetch_hint(kind, inputs.physical_fetch_hint);
+        if !inputs.route_plan.secondary_fast_path_eligible() {
+            return Ok(None);
+        }
+        // Probe hint selection is route-owned; executor only consumes it.
+        let probe_fetch_hint = inputs.route_plan.secondary_extrema_probe_fetch_hint();
         let Some(mut fast) = Self::try_execute_secondary_index_order_stream(
             ctx,
             inputs.logical_plan,
             inputs.index_prefix_specs.first(),
-            &inputs.route_plan.secondary_pushdown_applicability,
             probe_fetch_hint,
         )?
         else {
@@ -513,7 +505,6 @@ where
             ctx,
             inputs.logical_plan,
             inputs.index_prefix_specs.first(),
-            &inputs.route_plan.secondary_pushdown_applicability,
             // Keep native index traversal order for fallback retries.
             Some(usize::MAX),
         )?
@@ -648,8 +639,6 @@ where
             .ctx
             .ordered_key_stream_from_access_plan_with_index_range_anchor(stream_request)?;
 
-        // Composite paths must remain row-aware for COUNT in 0.24 scope.
-        let fold_mode = AggregateFoldMode::ExistingRows;
         let (aggregate_output, keys_scanned) = Self::fold_streaming_aggregate(
             inputs.ctx,
             inputs.logical_plan,
@@ -657,26 +646,15 @@ where
             inputs.direction,
             key_stream.as_mut(),
             inputs.kind,
-            fold_mode,
+            inputs.fold_mode,
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
     }
 
-    // Secondary extrema single-step probes are only meaningful when route
-    // planning computed a bounded hint for Min/Max endpoint-compatible shapes.
-    const fn secondary_extrema_probe_fetch_hint(
-        kind: AggregateKind,
-        physical_fetch_hint: Option<usize>,
-    ) -> Option<usize> {
-        match kind {
-            AggregateKind::Min | AggregateKind::Max => physical_fetch_hint,
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => None,
-        }
-    }
+    // ------------------------------------------------------------------
+    // Fallback and terminal utilities
+    // ------------------------------------------------------------------
 
     // MissingOk can skip stale leading index entries. If a bounded Min/Max
     // probe returns None exactly at the fetch boundary, the outcome is

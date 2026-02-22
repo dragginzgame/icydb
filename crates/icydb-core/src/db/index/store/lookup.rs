@@ -86,6 +86,11 @@ impl IndexStore {
     }
 
     // Validate strict continuation advancement when an anchor is present.
+    //
+    // IMPORTANT CROSS-LAYER CONTRACT:
+    // - Planner/cursor-spine validation ensures envelope/signature compatibility.
+    // - This store-layer guard independently enforces strict monotonic advancement.
+    // - Keep both layers explicit; do not collapse this into planner-only checks.
     fn ensure_continuation_advanced(
         direction: Direction,
         candidate: &RawIndexKey,
@@ -142,5 +147,53 @@ impl IndexStore {
         }
 
         Ok(false)
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::index::{Direction, store::RawIndexKey},
+        error::{ErrorClass, ErrorOrigin},
+        traits::Storable,
+    };
+    use std::borrow::Cow;
+
+    use super::IndexStore;
+
+    fn raw_key(byte: u8) -> RawIndexKey {
+        <RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
+    }
+
+    #[test]
+    fn continuation_advancement_guard_rejects_non_advanced_candidate_asc() {
+        let anchor = raw_key(0x10);
+        let candidate = raw_key(0x10);
+
+        let err =
+            IndexStore::ensure_continuation_advanced(Direction::Asc, &candidate, Some(&anchor))
+                .expect_err("ASC continuation candidate equal to anchor must be rejected");
+
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Index);
+    }
+
+    #[test]
+    fn continuation_advancement_guard_rejects_non_advanced_candidate_desc() {
+        let anchor = raw_key(0x10);
+        let candidate = raw_key(0x11);
+
+        let err =
+            IndexStore::ensure_continuation_advanced(Direction::Desc, &candidate, Some(&anchor))
+                .expect_err(
+                    "DESC continuation candidate not strictly after anchor must be rejected",
+                );
+
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Index);
     }
 }

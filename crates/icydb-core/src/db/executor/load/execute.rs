@@ -4,7 +4,7 @@ use crate::{
         executor::load::{
             CursorPage, ExecutionOptimization, ExecutionTrace, FastPathKeyResult, LoadExecutor,
             aggregate_guard::ensure_load_fast_path_spec_arity,
-            route::{ExecutionRoutePlan, FastPathOrder, LOAD_FAST_PATH_ORDER},
+            route::{ExecutionRoutePlan, FastPathOrder},
         },
         executor::plan::set_rows_from_len,
         executor::{
@@ -110,25 +110,28 @@ where
             inputs.stream_bindings.index_range_specs.len(),
         )?;
 
-        for route in LOAD_FAST_PATH_ORDER {
+        for route in route_plan.fast_path_order().iter().copied() {
             match route {
                 FastPathOrder::PrimaryKey => {
-                    if let Some(fast) = Self::try_execute_pk_order_stream(
-                        inputs.ctx,
-                        inputs.plan,
-                        route_plan.scan_hints.physical_fetch_hint,
-                    )? {
+                    if route_plan.pk_order_fast_path_eligible()
+                        && let Some(fast) = Self::try_execute_pk_order_stream(
+                            inputs.ctx,
+                            inputs.plan,
+                            route_plan.scan_hints.physical_fetch_hint,
+                        )?
+                    {
                         return Ok(FastPathDecision::Hit(fast));
                     }
                 }
                 FastPathOrder::SecondaryPrefix => {
-                    if let Some(fast) = Self::try_execute_secondary_index_order_stream(
-                        inputs.ctx,
-                        inputs.plan,
-                        inputs.stream_bindings.index_prefix_specs.first(),
-                        &route_plan.secondary_pushdown_applicability,
-                        route_plan.scan_hints.physical_fetch_hint,
-                    )? {
+                    if route_plan.secondary_fast_path_eligible()
+                        && let Some(fast) = Self::try_execute_secondary_index_order_stream(
+                            inputs.ctx,
+                            inputs.plan,
+                            inputs.stream_bindings.index_prefix_specs.first(),
+                            route_plan.scan_hints.physical_fetch_hint,
+                        )?
+                    {
                         return Ok(FastPathDecision::Hit(fast));
                     }
                 }

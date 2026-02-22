@@ -516,6 +516,7 @@ impl fmt::Display for ErrorOrigin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::query::plan::{CursorPlanError, PlanError};
 
     #[test]
     fn index_plan_index_corruption_uses_index_origin() {
@@ -545,5 +546,22 @@ mod tests {
             err.message,
             "corruption detected (serialize): decode failed"
         );
+    }
+
+    #[test]
+    fn query_executor_invariant_uses_invariant_violation_class() {
+        let err = InternalError::query_executor_invariant("route contract mismatch");
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn executor_plan_error_mapping_stays_invariant_violation() {
+        let plan_err = PlanError::from(CursorPlanError::InvalidContinuationCursorPayload {
+            reason: "bad token".to_string(),
+        });
+        let err = InternalError::from_executor_plan_error(plan_err);
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Query);
     }
 }

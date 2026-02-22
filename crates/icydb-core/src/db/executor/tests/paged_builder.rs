@@ -248,3 +248,31 @@ fn non_paged_aggregate_terminal_rejects_cursor_token() {
         "non-paged aggregate terminal should reject cursor tokens as intent misuse"
     );
 }
+
+#[test]
+fn invalid_order_field_remains_plan_error_not_execute_error() {
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .order_by("definitely_not_a_field")
+        .execute()
+        .expect_err("unknown order field should fail during planning");
+
+    let QueryError::Plan(plan_err) = err else {
+        panic!("unknown order field must be classified as plan error");
+    };
+
+    assert!(
+        matches!(
+            *plan_err,
+            crate::db::query::plan::PlanError::Order(ref inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::OrderPlanError::UnknownField { field }
+                        if field == "definitely_not_a_field"
+                )
+        ),
+        "unknown order field must preserve order-plan classification"
+    );
+}

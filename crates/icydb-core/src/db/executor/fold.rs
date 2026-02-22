@@ -16,7 +16,7 @@ use crate::{
 /// Internal aggregate terminal selector shared by aggregate routing and fold execution.
 ///
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum AggregateKind {
     Count,
     Exists,
@@ -52,13 +52,168 @@ pub(in crate::db::executor) enum FoldControl {
 }
 
 ///
+/// AggregateReducerState
+///
+/// Shared aggregate terminal reducer state used by streaming and fast-path
+/// aggregate execution so terminal update semantics stay centralized.
+///
+
+pub(in crate::db::executor) enum AggregateReducerState<E: EntityKind> {
+    Count(u32),
+    Exists(bool),
+    Min(Option<Id<E>>),
+    Max(Option<Id<E>>),
+    First(Option<Id<E>>),
+    Last(Option<Id<E>>),
+}
+
+impl<E: EntityKind> AggregateReducerState<E> {
+    /// Build the initial reducer state for one aggregate terminal.
+    #[must_use]
+    pub(in crate::db::executor) const fn for_kind(kind: AggregateKind) -> Self {
+        match kind {
+            AggregateKind::Count => Self::Count(0),
+            AggregateKind::Exists => Self::Exists(false),
+            AggregateKind::Min => Self::Min(None),
+            AggregateKind::Max => Self::Max(None),
+            AggregateKind::First => Self::First(None),
+            AggregateKind::Last => Self::Last(None),
+        }
+    }
+
+    /// Apply one candidate data key to the reducer and return fold control.
+    pub(in crate::db::executor) fn update_from_data_key(
+        &mut self,
+        kind: AggregateKind,
+        direction: Direction,
+        key: &DataKey,
+    ) -> Result<FoldControl, InternalError> {
+        let id = match kind {
+            AggregateKind::Count | AggregateKind::Exists => None,
+            AggregateKind::Min
+            | AggregateKind::Max
+            | AggregateKind::First
+            | AggregateKind::Last => Some(Id::from_key(key.try_key::<E>()?)),
+        };
+
+        self.update_with_optional_id(kind, direction, id)
+    }
+
+    /// Apply one reducer update using an optional decoded id payload.
+    pub(in crate::db::executor) fn update_with_optional_id(
+        &mut self,
+        kind: AggregateKind,
+        direction: Direction,
+        id: Option<Id<E>>,
+    ) -> Result<FoldControl, InternalError> {
+        match (kind, self) {
+            (AggregateKind::Count, Self::Count(count)) => {
+                *count = count.saturating_add(1);
+                Ok(FoldControl::Continue)
+            }
+            (AggregateKind::Exists, Self::Exists(exists)) => {
+                *exists = true;
+                Ok(FoldControl::Break)
+            }
+            (AggregateKind::Min, Self::Min(min_id)) => {
+                let Some(id) = id else {
+                    return Err(InternalError::query_executor_invariant(
+                        "aggregate reducer MIN update requires decoded id",
+                    ));
+                };
+                *min_id = Some(id);
+                if direction == Direction::Asc {
+                    return Ok(FoldControl::Break);
+                }
+
+                Ok(FoldControl::Continue)
+            }
+            (AggregateKind::Max, Self::Max(max_id)) => {
+                let Some(id) = id else {
+                    return Err(InternalError::query_executor_invariant(
+                        "aggregate reducer MAX update requires decoded id",
+                    ));
+                };
+                *max_id = Some(id);
+                if direction == Direction::Desc {
+                    return Ok(FoldControl::Break);
+                }
+
+                Ok(FoldControl::Continue)
+            }
+            (AggregateKind::First, Self::First(first_id)) => {
+                let Some(id) = id else {
+                    return Err(InternalError::query_executor_invariant(
+                        "aggregate reducer FIRST update requires decoded id",
+                    ));
+                };
+                *first_id = Some(id);
+                Ok(FoldControl::Break)
+            }
+            (AggregateKind::Last, Self::Last(last_id)) => {
+                let Some(id) = id else {
+                    return Err(InternalError::query_executor_invariant(
+                        "aggregate reducer LAST update requires decoded id",
+                    ));
+                };
+                *last_id = Some(id);
+                Ok(FoldControl::Continue)
+            }
+            _ => Err(InternalError::query_executor_invariant(
+                "aggregate reducer state/kind mismatch",
+            )),
+        }
+    }
+
+    /// Convert reducer state into the aggregate terminal output payload.
+    #[must_use]
+    pub(in crate::db::executor) const fn into_output(self) -> AggregateOutput<E> {
+        match self {
+            Self::Count(value) => AggregateOutput::Count(value),
+            Self::Exists(value) => AggregateOutput::Exists(value),
+            Self::Min(value) => AggregateOutput::Min(value),
+            Self::Max(value) => AggregateOutput::Max(value),
+            Self::First(value) => AggregateOutput::First(value),
+            Self::Last(value) => AggregateOutput::Last(value),
+        }
+    }
+}
+
+///
 /// AggregateFoldMode
 ///
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) enum AggregateFoldMode {
     ExistingRows,
     KeysOnly,
+}
+
+// Map aggregate terminals onto the canonical fold mode contract.
+const fn aggregate_expected_fold_mode(kind: AggregateKind) -> AggregateFoldMode {
+    match kind {
+        AggregateKind::Count => AggregateFoldMode::KeysOnly,
+        AggregateKind::Exists
+        | AggregateKind::Min
+        | AggregateKind::Max
+        | AggregateKind::First
+        | AggregateKind::Last => AggregateFoldMode::ExistingRows,
+    }
+}
+
+// Validate mode/terminal contract so executor callers cannot drift into
+// kind-derived mode inference outside route planning.
+fn ensure_aggregate_fold_mode_contract(
+    kind: AggregateKind,
+    mode: AggregateFoldMode,
+) -> Result<(), InternalError> {
+    if mode == aggregate_expected_fold_mode(kind) {
+        return Ok(());
+    }
+
+    Err(InternalError::query_executor_invariant(
+        "aggregate fold mode must match route fold-mode contract for aggregate terminal",
+    ))
 }
 
 ///
@@ -130,116 +285,19 @@ where
         kind: AggregateKind,
         mode: AggregateFoldMode,
     ) -> Result<(AggregateOutput<E>, usize), InternalError> {
+        ensure_aggregate_fold_mode_contract(kind, mode)?;
         let window = AggregateWindowState::from_plan(plan);
+        let (state, keys_scanned) = Self::fold_streaming(
+            ctx,
+            consistency,
+            key_stream,
+            window,
+            mode,
+            AggregateReducerState::for_kind(kind),
+            |state, key| state.update_from_data_key(kind, direction, key),
+        )?;
 
-        match kind {
-            AggregateKind::Count => {
-                let (count, keys_scanned) = Self::fold_streaming(
-                    ctx,
-                    consistency,
-                    key_stream,
-                    window,
-                    mode,
-                    0u32,
-                    |count, _key| {
-                        *count = count.saturating_add(1);
-                        Ok(FoldControl::Continue)
-                    },
-                )?;
-
-                Ok((AggregateOutput::Count(count), keys_scanned))
-            }
-            AggregateKind::Exists => {
-                let (exists, keys_scanned) = Self::fold_streaming(
-                    ctx,
-                    consistency,
-                    key_stream,
-                    window,
-                    mode,
-                    false,
-                    |exists, _key| {
-                        *exists = true;
-                        Ok(FoldControl::Break)
-                    },
-                )?;
-
-                Ok((AggregateOutput::Exists(exists), keys_scanned))
-            }
-            AggregateKind::Min => {
-                let (min_id, keys_scanned) = Self::fold_streaming(
-                    ctx,
-                    consistency,
-                    key_stream,
-                    window,
-                    mode,
-                    None::<Id<E>>,
-                    |min_id, key| {
-                        *min_id = Some(Id::from_key(key.try_key::<E>()?));
-                        if direction == Direction::Asc {
-                            return Ok(FoldControl::Break);
-                        }
-
-                        Ok(FoldControl::Continue)
-                    },
-                )?;
-
-                Ok((AggregateOutput::Min(min_id), keys_scanned))
-            }
-            AggregateKind::Max => {
-                let (max_id, keys_scanned) = Self::fold_streaming(
-                    ctx,
-                    consistency,
-                    key_stream,
-                    window,
-                    mode,
-                    None::<Id<E>>,
-                    |max_id, key| {
-                        *max_id = Some(Id::from_key(key.try_key::<E>()?));
-                        if direction == Direction::Desc {
-                            return Ok(FoldControl::Break);
-                        }
-
-                        Ok(FoldControl::Continue)
-                    },
-                )?;
-
-                Ok((AggregateOutput::Max(max_id), keys_scanned))
-            }
-            AggregateKind::First => {
-                let (first_id, keys_scanned) = Self::fold_streaming(
-                    ctx,
-                    consistency,
-                    key_stream,
-                    window,
-                    mode,
-                    None::<Id<E>>,
-                    |first_id, key| {
-                        *first_id = Some(Id::from_key(key.try_key::<E>()?));
-
-                        Ok(FoldControl::Break)
-                    },
-                )?;
-
-                Ok((AggregateOutput::First(first_id), keys_scanned))
-            }
-            AggregateKind::Last => {
-                let (last_id, keys_scanned) = Self::fold_streaming(
-                    ctx,
-                    consistency,
-                    key_stream,
-                    window,
-                    mode,
-                    None::<Id<E>>,
-                    |last_id, key| {
-                        *last_id = Some(Id::from_key(key.try_key::<E>()?));
-
-                        Ok(FoldControl::Continue)
-                    },
-                )?;
-
-                Ok((AggregateOutput::Last(last_id), keys_scanned))
-            }
-        }
+        Ok((state.into_output(), keys_scanned))
     }
 
     // Generic streaming fold loop used by all aggregate terminal reducers.
@@ -310,6 +368,74 @@ where
                 Err(err) if err.is_not_found() => Ok(false),
                 Err(err) => Err(err),
             },
+        }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AggregateFoldMode, AggregateKind, aggregate_expected_fold_mode,
+        ensure_aggregate_fold_mode_contract,
+    };
+
+    #[test]
+    fn aggregate_fold_mode_contract_maps_count_to_keys_only() {
+        assert_eq!(
+            aggregate_expected_fold_mode(AggregateKind::Count),
+            AggregateFoldMode::KeysOnly
+        );
+        assert!(
+            ensure_aggregate_fold_mode_contract(AggregateKind::Count, AggregateFoldMode::KeysOnly)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn aggregate_fold_mode_contract_maps_non_count_to_existing_rows() {
+        for kind in [
+            AggregateKind::Exists,
+            AggregateKind::Min,
+            AggregateKind::Max,
+            AggregateKind::First,
+            AggregateKind::Last,
+        ] {
+            assert_eq!(
+                aggregate_expected_fold_mode(kind),
+                AggregateFoldMode::ExistingRows
+            );
+            assert!(
+                ensure_aggregate_fold_mode_contract(kind, AggregateFoldMode::ExistingRows).is_ok()
+            );
+        }
+    }
+
+    #[test]
+    fn aggregate_fold_mode_contract_rejects_count_existing_rows() {
+        let result = ensure_aggregate_fold_mode_contract(
+            AggregateKind::Count,
+            AggregateFoldMode::ExistingRows,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn aggregate_fold_mode_contract_rejects_non_count_keys_only() {
+        for kind in [
+            AggregateKind::Exists,
+            AggregateKind::Min,
+            AggregateKind::Max,
+            AggregateKind::First,
+            AggregateKind::Last,
+        ] {
+            let result = ensure_aggregate_fold_mode_contract(kind, AggregateFoldMode::KeysOnly);
+
+            assert!(result.is_err());
         }
     }
 }

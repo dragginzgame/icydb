@@ -51,9 +51,7 @@ where
         probe_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: derive a fast-path scan config from the canonical plan.
-        let Some(config) = Self::build_pk_stream_scan_config(plan) else {
-            return Ok(None);
-        };
+        let config = Self::build_pk_stream_scan_config(plan)?;
         let stream_direction = Self::pk_stream_direction(plan);
         if Self::pk_scan_range_is_empty(config.range_start_key, config.range_end_key) {
             return Ok(Some(FastPathKeyResult {
@@ -76,17 +74,18 @@ where
     // Build the fast-path scan config for canonical PK-ordered streaming.
     fn build_pk_stream_scan_config(
         plan: &LogicalPlan<E::Key>,
-    ) -> Option<PkStreamScanConfig<E::Key>> {
-        if !Self::is_pk_order_stream_eligible(plan) {
-            return None;
-        }
-
+    ) -> Result<PkStreamScanConfig<E::Key>, InternalError> {
         let (range_start_key, range_end_key) = plan
             .access
             .as_path()
-            .and_then(AccessPath::pk_stream_bounds)?;
+            .and_then(AccessPath::pk_stream_bounds)
+            .ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "pk stream fast-path requires full-scan/key-range access path",
+                )
+            })?;
 
-        Some(PkStreamScanConfig {
+        Ok(PkStreamScanConfig {
             range_start_key,
             range_end_key,
         })
@@ -151,26 +150,6 @@ where
 
             Ok(PkStreamScanResult { keys, rows_scanned })
         })?
-    }
-
-    pub(super) fn is_pk_order_stream_eligible(plan: &LogicalPlan<E::Key>) -> bool {
-        if !plan.mode.is_load() {
-            return false;
-        }
-
-        let supports_pk_stream_access = plan
-            .access
-            .as_path()
-            .is_some_and(AccessPath::is_full_scan_or_key_range);
-        if !supports_pk_stream_access {
-            return false;
-        }
-
-        let Some(order) = plan.order.as_ref() else {
-            return false;
-        };
-
-        order.fields.len() == 1 && order.fields[0].0 == E::MODEL.primary_key.name
     }
 
     fn pk_scan_range_is_empty(
