@@ -11,16 +11,15 @@ use crate::{
                     ensure_secondary_aggregate_fast_path_arity, is_composite_access_shape,
                 },
                 execute::ExecutionInputs,
-                route::{AGGREGATE_FAST_PATH_ORDER, FastPathOrder},
+                route::{
+                    AGGREGATE_FAST_PATH_ORDER, ExecutionMode, ExecutionRoutePlan, FastPathOrder,
+                },
             },
             plan::{record_plan_metrics, record_rows_scanned},
         },
         query::plan::{
-            AccessPath, AccessPlan, Direction, ExecutablePlan, IndexPrefixSpec, IndexRangeSpec,
-            LogicalPlan,
-            validate::{
-                assess_secondary_order_pushdown_if_applicable_validated, validate_executor_plan,
-            },
+            AccessPath, Direction, ExecutablePlan, IndexPrefixSpec, IndexRangeSpec, LogicalPlan,
+            validate::validate_executor_plan,
         },
         response::Response,
     },
@@ -39,6 +38,7 @@ use crate::{
 struct AggregateFastPathInputs<'exec, 'ctx, E: EntityKind + EntityValue> {
     ctx: &'exec Context<'ctx, E>,
     logical_plan: &'exec LogicalPlan<E::Key>,
+    route_plan: &'exec ExecutionRoutePlan,
     index_prefix_specs: &'exec [IndexPrefixSpec],
     index_range_specs: &'exec [IndexRangeSpec],
     direction: Direction,
@@ -136,53 +136,22 @@ where
         plan: ExecutablePlan<E>,
         kind: AggregateKind,
     ) -> Result<AggregateOutput<E>, InternalError> {
-        // COUNT pushdown remains a strict subset of streaming eligibility.
-        // Route it through key-only fold mode, not a separate streaming engine.
-        let composite_access_shape = is_composite_access_shape(&plan.as_inner().access);
-        let count_pushdown_eligible = matches!(kind, AggregateKind::Count)
-            && !composite_access_shape
-            && Self::is_count_pushdown_shape_supported(plan.as_inner());
-        let fold_mode = if count_pushdown_eligible {
-            AggregateFoldMode::KeysOnly
-        } else {
-            AggregateFoldMode::ExistingRows
-        };
-
-        // If the logical plan requires post-access filtering, sorting,
-        // or any non-stream-safe phase, fall back to canonical execution.
-        // Secondary index-prefix pushdown remains an explicit exception.
-        // This preserves exact parity with materialized load semantics.
-        let secondary_pushdown_eligible =
-            assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan.as_inner())
-                .is_eligible();
-        let index_range_pushdown_eligible =
-            Self::is_index_range_limit_pushdown_shape_eligible(plan.as_inner());
-        if !count_pushdown_eligible
-            && !Self::is_streaming_aggregate_shape_supported(plan.as_inner())
-            && !secondary_pushdown_eligible
-            && !index_range_pushdown_eligible
-        {
+        // Route planning owns aggregate streaming/materialized decisions and
+        // bounded probe-hint derivation.
+        let direction = plan.direction();
+        let route_plan =
+            Self::build_execution_route_plan_for_aggregate(plan.as_inner(), kind, direction);
+        if matches!(route_plan.execution_mode, ExecutionMode::Materialized) {
             let response = self.execute(plan)?;
             return Ok(Self::aggregate_from_materialized(response, kind));
         }
+        let fold_mode = route_plan.aggregate_fold_mode;
+        let physical_fetch_hint = route_plan.scan_hints.physical_fetch_hint;
 
         // Direction must be captured before consuming the ExecutablePlan.
         // After `into_inner()`, we operate purely on LogicalPlan.
-        let direction = plan.direction();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        // EXISTS/MIN/MAX may provide bounded probe hints so eligible fast paths
-        // can avoid over-producing keys. Directional hints preserve
-        // early-stop symmetry for `min ASC` and `max DESC`.
-        let aggregate_probe_fetch_hint =
-            Self::aggregate_probe_fetch_hint(plan.as_inner(), kind, direction);
-        // COUNT pushdown uses the same streaming fold entry with key-only inclusion.
-        // Other terminals use aggregate probe hints.
-        let physical_fetch_hint = if count_pushdown_eligible {
-            Self::count_pushdown_fetch_hint(plan.as_inner())
-        } else {
-            aggregate_probe_fetch_hint
-        };
 
         // Move into the underlying logical plan.
         // After this point, `plan` is consumed.
@@ -201,6 +170,7 @@ where
         let fast_path_inputs = AggregateFastPathInputs {
             ctx: &ctx,
             logical_plan: &logical_plan,
+            route_plan: &route_plan,
             index_prefix_specs: index_prefix_specs.as_slice(),
             index_range_specs: index_range_specs.as_slice(),
             direction,
@@ -228,13 +198,8 @@ where
             },
         };
 
-        // Fast-path planning must be identical to load execution so aggregate
-        // folding sees the exact same ordered key stream.
-        let fast_path_plan =
-            Self::build_fast_path_plan(&logical_plan, None, None, physical_fetch_hint)?;
-
         // Resolve the ordered key stream using canonical routing logic.
-        let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, &fast_path_plan)?;
+        let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, &route_plan)?;
 
         // Fold via one streaming engine. COUNT pushdown uses key-only mode;
         // other terminals use row-existence mode.
@@ -283,8 +248,7 @@ where
                     if let Some((aggregate_output, rows_scanned)) =
                         Self::try_execute_index_prefix_aggregate(
                             inputs.ctx,
-                            inputs.logical_plan,
-                            inputs.index_prefix_specs,
+                            inputs,
                             inputs.direction,
                             inputs.kind,
                             inputs.fold_mode,
@@ -340,49 +304,6 @@ where
         Ok(None)
     }
 
-    // Derive bounded probe hints for aggregate terminals where first-kept-row
-    // semantics allow early termination under canonical stream order.
-    fn aggregate_probe_fetch_hint(
-        plan: &LogicalPlan<E::Key>,
-        kind: AggregateKind,
-        direction: Direction,
-    ) -> Option<usize> {
-        if !matches!(
-            kind,
-            AggregateKind::Exists
-                | AggregateKind::Min
-                | AggregateKind::Max
-                | AggregateKind::First
-                | AggregateKind::Last
-        ) {
-            return None;
-        }
-        if plan.page.as_ref().is_some_and(|page| page.limit == Some(0)) {
-            return Some(0);
-        }
-
-        // Keep bounded probe hints behind one shared safety gate.
-        // DISTINCT + offset must stay unbounded so canonical windowing runs
-        // after deduplication and cannot under-produce aggregate results.
-        if !Self::bounded_probe_hint_is_safe(plan) {
-            return None;
-        }
-        let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
-        let page_limit = plan
-            .page
-            .as_ref()
-            .and_then(|page| page.limit)
-            .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
-
-        match kind {
-            AggregateKind::Exists | AggregateKind::First => Some(offset.saturating_add(1)),
-            AggregateKind::Min if direction == Direction::Asc => Some(offset.saturating_add(1)),
-            AggregateKind::Max if direction == Direction::Desc => Some(offset.saturating_add(1)),
-            AggregateKind::Last => page_limit.map(|limit| offset.saturating_add(limit)),
-            _ => None,
-        }
-    }
-
     // Return the aggregate terminal value for an empty effective output window.
     const fn aggregate_zero_window_result(kind: AggregateKind) -> AggregateOutput<E> {
         match kind {
@@ -393,12 +314,6 @@ where
             AggregateKind::First => AggregateOutput::First(None),
             AggregateKind::Last => AggregateOutput::Last(None),
         }
-    }
-
-    // Conservative streaming gate that allows shapes where post-access phases
-    // are limited to missing-row handling plus optional pagination.
-    fn is_streaming_aggregate_shape_supported(plan: &LogicalPlan<E::Key>) -> bool {
-        plan.is_streaming_access_shape_safe::<E>()
     }
 
     // Composite aggregate fast-path eligibility must stay explicit and local:
@@ -420,52 +335,6 @@ where
         }
 
         true
-    }
-
-    // Pushdown safety must be narrower than general streaming safety.
-    // Any additional COUNT pushdown constraints belong here.
-    fn is_count_pushdown_shape_supported(plan: &LogicalPlan<E::Key>) -> bool {
-        if !Self::is_streaming_aggregate_shape_supported(plan) {
-            return false;
-        }
-
-        Self::count_pushdown_access_shape_supported(&plan.access)
-    }
-
-    // COUNT pushdown requires key streams backed by rows in the primary data
-    // store. Keep this intentionally narrow.
-    fn count_pushdown_access_shape_supported(access: &AccessPlan<E::Key>) -> bool {
-        match access {
-            AccessPlan::Path(path) => Self::count_pushdown_path_shape_supported(path),
-            AccessPlan::Union(_) | AccessPlan::Intersection(_) => false,
-        }
-    }
-
-    // Single-path safety rule for COUNT pushdown.
-    const fn count_pushdown_path_shape_supported(path: &AccessPath<E::Key>) -> bool {
-        matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. })
-    }
-
-    // Optional bounded fetch hint for COUNT windowing.
-    // When limit exists, we only need (offset + limit) keys.
-    fn count_pushdown_fetch_hint(plan: &LogicalPlan<E::Key>) -> Option<usize> {
-        let page = plan.page.as_ref()?;
-        let limit = page.limit?;
-        if !Self::bounded_probe_hint_is_safe(plan) {
-            return None;
-        }
-        let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
-        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-
-        Some(offset.saturating_add(limit))
-    }
-
-    // Shared bounded-probe safety gate for aggregate key-stream hints.
-    // DISTINCT + offset must remain unbounded so deduplication happens before
-    // offset consumption without risking short windows.
-    fn bounded_probe_hint_is_safe(plan: &LogicalPlan<E::Key>) -> bool {
-        let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
-        !(plan.distinct && offset > 0)
     }
 
     fn aggregate_from_materialized(
@@ -600,23 +469,23 @@ where
     // canonical secondary ordering is pushdown-eligible.
     fn try_execute_index_prefix_aggregate(
         ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
-        index_prefix_specs: &[IndexPrefixSpec],
+        inputs: &AggregateFastPathInputs<'_, '_, E>,
         direction: Direction,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
-        let secondary_pushdown_applicability =
-            assess_secondary_order_pushdown_if_applicable_validated(E::MODEL, plan);
         ensure_secondary_aggregate_fast_path_arity(
-            secondary_pushdown_applicability.is_eligible(),
-            index_prefix_specs.len(),
+            inputs
+                .route_plan
+                .secondary_pushdown_applicability
+                .is_eligible(),
+            inputs.index_prefix_specs.len(),
         )?;
         let Some(mut fast) = Self::try_execute_secondary_index_order_stream(
             ctx,
-            plan,
-            index_prefix_specs.first(),
-            &secondary_pushdown_applicability,
+            inputs.logical_plan,
+            inputs.index_prefix_specs.first(),
+            &inputs.route_plan.secondary_pushdown_applicability,
             // Keep secondary aggregate traversal unbounded. MissingOk can skip
             // stale index entries, so bounded key production may under-fetch.
             None,
@@ -624,7 +493,7 @@ where
         else {
             return Ok(None);
         };
-        if plan.distinct {
+        if inputs.logical_plan.distinct {
             fast.ordered_key_stream =
                 Box::new(DistinctOrderedKeyStream::new(fast.ordered_key_stream));
         }
@@ -632,8 +501,8 @@ where
         let rows_scanned = fast.rows_scanned;
         let (aggregate_output, _keys_scanned) = Self::fold_streaming_aggregate(
             ctx,
-            plan,
-            plan.consistency,
+            inputs.logical_plan,
+            inputs.logical_plan.consistency,
             direction,
             fast.ordered_key_stream.as_mut(),
             kind,
@@ -686,17 +555,14 @@ where
     fn try_execute_index_range_aggregate(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
-        let index_range_pushdown_eligible =
-            Self::is_index_range_limit_pushdown_shape_eligible(inputs.logical_plan);
         ensure_index_range_aggregate_fast_path_specs(
-            index_range_pushdown_eligible,
+            inputs.route_plan.index_range_limit_spec.is_some(),
             inputs.index_prefix_specs.len(),
             inputs.index_range_specs.len(),
         )?;
-        if !index_range_pushdown_eligible {
+        let Some(index_range_limit_spec) = inputs.route_plan.index_range_limit_spec.as_ref() else {
             return Ok(None);
-        }
-        let effective_fetch = inputs.physical_fetch_hint.unwrap_or(usize::MAX);
+        };
 
         let Some(mut fast) = Self::try_execute_index_range_limit_pushdown_stream(
             inputs.ctx,
@@ -704,7 +570,7 @@ where
             inputs.index_range_specs.first(),
             None,
             inputs.direction,
-            effective_fetch,
+            index_range_limit_spec.fetch,
         )?
         else {
             return Ok(None);

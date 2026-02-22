@@ -678,4 +678,27 @@ mod tests {
             "misaligned composite range spec must fail fast before execution"
         );
     }
+
+    #[test]
+    fn dedup_keys_returns_canonical_order_for_directional_consumers() {
+        let low = Ulid::from_u128(10);
+        let mid = Ulid::from_u128(11);
+        let high = Ulid::from_u128(12);
+        let deduped =
+            Context::<ContextInvariantEntity>::dedup_keys(vec![high, low, high, mid, low]);
+
+        assert_eq!(
+            deduped,
+            vec![low, mid, high],
+            "dedup_keys must emit canonical ascending key order for ByKeys consumers",
+        );
+
+        let mut desc = deduped;
+        desc.reverse();
+        assert_eq!(
+            desc,
+            vec![high, mid, low],
+            "reversing deduped keys must produce canonical descending order",
+        );
+    }
 }

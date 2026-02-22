@@ -922,6 +922,32 @@ fn aggregate_parity_secondary_index_order_shape() {
 }
 
 #[test]
+fn aggregate_parity_secondary_index_order_shape_desc_with_explicit_pk_tie_break() {
+    seed_pushdown_entities(&[
+        (8801, 7, 40),
+        (8802, 7, 10),
+        (8803, 7, 30),
+        (8804, 7, 20),
+        (8805, 8, 50),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let group_seven = u32_eq_predicate("group", 7);
+
+    assert_aggregate_parity_for_query(
+        &load,
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(group_seven.clone())
+                .order_by_desc("rank")
+                .order_by_desc("id")
+                .offset(1)
+                .limit(2)
+        },
+        "secondary-index order shape DESC with explicit PK tie-break",
+    );
+}
+
+#[test]
 fn aggregate_exists_secondary_index_window_preserves_missing_ok_scan_safety() {
     seed_pushdown_entities(&[
         (8811, 7, 10),
@@ -1753,5 +1779,168 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
         &composite_load,
         composite_query,
         "count matrix composite OR",
+    );
+}
+
+#[test]
+fn desc_cursor_resume_sequence_matches_unbounded_execution() {
+    seed_simple_entities(&[9971, 9972, 9973, 9974, 9975, 9976, 9977, 9978, 9979, 9980]);
+    let session = DbSession::new(DB);
+
+    let expected_desc_ids: Vec<Ulid> = session
+        .load::<SimpleEntity>()
+        .order_by_desc("id")
+        .execute()
+        .expect("unbounded DESC execute should succeed")
+        .ids()
+        .into_iter()
+        .map(|id| id.key())
+        .collect();
+
+    let mut resumed_desc_ids = Vec::new();
+    let mut cursor_token = None::<String>;
+    loop {
+        let mut paged_query = session.load::<SimpleEntity>().order_by_desc("id").limit(3);
+        if let Some(token) = cursor_token.as_deref() {
+            paged_query = paged_query.cursor(token);
+        }
+
+        let (page, next_cursor) = paged_query
+            .execute_paged()
+            .expect("paged DESC execute should succeed");
+        resumed_desc_ids.extend(page.ids().into_iter().map(|id| id.key()));
+
+        match next_cursor {
+            Some(bytes) => {
+                cursor_token = Some(crate::db::encode_cursor(&bytes));
+            }
+            None => break,
+        }
+    }
+
+    assert_eq!(
+        resumed_desc_ids, expected_desc_ids,
+        "DESC cursor resume sequence should match unbounded DESC execution exactly"
+    );
+    assert!(
+        resumed_desc_ids
+            .windows(2)
+            .all(|window| window[0] > window[1]),
+        "DESC cursor resume sequence should stay strictly descending without duplicates"
+    );
+}
+
+#[test]
+fn desc_cursor_resume_secondary_index_sequence_matches_unbounded_execution() {
+    seed_pushdown_entities(&[
+        (9981, 7, 40),
+        (9982, 7, 30),
+        (9983, 7, 30),
+        (9984, 7, 20),
+        (9985, 7, 20),
+        (9986, 7, 10),
+        (9987, 8, 50),
+    ]);
+    let session = DbSession::new(DB);
+    let group_seven = u32_eq_predicate("group", 7);
+
+    let expected_desc_ids: Vec<Ulid> = session
+        .load::<PushdownParityEntity>()
+        .filter(group_seven.clone())
+        .order_by_desc("rank")
+        .order_by_desc("id")
+        .execute()
+        .expect("unbounded DESC secondary-index execute should succeed")
+        .ids()
+        .into_iter()
+        .map(|id| id.key())
+        .collect();
+
+    let mut resumed_desc_ids = Vec::new();
+    let mut cursor_token = None::<String>;
+    loop {
+        let mut paged_query = session
+            .load::<PushdownParityEntity>()
+            .filter(group_seven.clone())
+            .order_by_desc("rank")
+            .order_by_desc("id")
+            .limit(2);
+        if let Some(token) = cursor_token.as_deref() {
+            paged_query = paged_query.cursor(token);
+        }
+
+        let (page, next_cursor) = paged_query
+            .execute_paged()
+            .expect("paged DESC secondary-index execute should succeed");
+        resumed_desc_ids.extend(page.ids().into_iter().map(|id| id.key()));
+
+        match next_cursor {
+            Some(bytes) => {
+                cursor_token = Some(crate::db::encode_cursor(&bytes));
+            }
+            None => break,
+        }
+    }
+
+    assert_eq!(
+        resumed_desc_ids, expected_desc_ids,
+        "DESC secondary-index cursor resume sequence should match unbounded DESC execution"
+    );
+}
+
+#[test]
+fn desc_cursor_resume_index_range_sequence_matches_unbounded_execution() {
+    seed_unique_index_range_entities(&[
+        (9991, 200),
+        (9992, 201),
+        (9993, 202),
+        (9994, 203),
+        (9995, 204),
+        (9996, 205),
+    ]);
+    let session = DbSession::new(DB);
+    let range_predicate = u32_range_predicate("code", 201, 206);
+
+    let expected_desc_ids: Vec<Ulid> = session
+        .load::<UniqueIndexRangeEntity>()
+        .filter(range_predicate.clone())
+        .order_by_desc("code")
+        .order_by_desc("id")
+        .execute()
+        .expect("unbounded DESC index-range execute should succeed")
+        .ids()
+        .into_iter()
+        .map(|id| id.key())
+        .collect();
+
+    let mut resumed_desc_ids = Vec::new();
+    let mut cursor_token = None::<String>;
+    loop {
+        let mut paged_query = session
+            .load::<UniqueIndexRangeEntity>()
+            .filter(range_predicate.clone())
+            .order_by_desc("code")
+            .order_by_desc("id")
+            .limit(2);
+        if let Some(token) = cursor_token.as_deref() {
+            paged_query = paged_query.cursor(token);
+        }
+
+        let (page, next_cursor) = paged_query
+            .execute_paged()
+            .expect("paged DESC index-range execute should succeed");
+        resumed_desc_ids.extend(page.ids().into_iter().map(|id| id.key()));
+
+        match next_cursor {
+            Some(bytes) => {
+                cursor_token = Some(crate::db::encode_cursor(&bytes));
+            }
+            None => break,
+        }
+    }
+
+    assert_eq!(
+        resumed_desc_ids, expected_desc_ids,
+        "DESC index-range cursor resume sequence should match unbounded DESC execution"
     );
 }

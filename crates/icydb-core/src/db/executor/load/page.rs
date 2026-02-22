@@ -23,13 +23,29 @@ where
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
         key_stream: &mut dyn OrderedKeyStream,
+        scan_budget_hint: Option<usize>,
         cursor_boundary: Option<&CursorBoundary>,
         direction: Direction,
         continuation_signature: ContinuationSignature,
     ) -> Result<(CursorPage<E>, usize, usize), InternalError> {
+        // Defensive boundary: bounded load scan hints are only valid for
+        // non-continuation streaming-safe shapes where access order is final.
+        if scan_budget_hint.is_some() {
+            if cursor_boundary.is_some() {
+                return Err(InternalError::query_executor_invariant(
+                    "load page scan budget hint requires non-continuation execution",
+                ));
+            }
+            if !plan.is_streaming_access_shape_safe::<E>() {
+                return Err(InternalError::query_executor_invariant(
+                    "load page scan budget hint requires streaming-safe access shape",
+                ));
+            }
+        }
+
         // Apply guarded scan budgeting only when the access stream already
         // represents final canonical ordering and no residual narrowing exists.
-        let data_rows = if let Some(scan_budget) = Self::derive_scan_budget(plan, cursor_boundary) {
+        let data_rows = if let Some(scan_budget) = scan_budget_hint {
             let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
             ctx.rows_from_ordered_key_stream(&mut budgeted, plan.consistency)?
         } else {
@@ -47,38 +63,6 @@ where
         let post_access_rows = page.items.0.len();
 
         Ok((page, rows_scanned, post_access_rows))
-    }
-
-    // Derive an optional upstream scan budget for post-access pagination.
-    // Returns `None` unless the plan shape is proven semantics-safe.
-    fn derive_scan_budget(
-        plan: &LogicalPlan<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-    ) -> Option<usize> {
-        let page = plan.page.as_ref()?;
-        let limit = page.limit?;
-        if !Self::is_budget_safe_shape(plan, cursor_boundary) {
-            return None;
-        }
-
-        Some(compute_page_window(page.offset, limit, true).fetch_count)
-    }
-
-    // Guard scan budgeting to cases where post-access phases are pure windowing.
-    fn is_budget_safe_shape(
-        plan: &LogicalPlan<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-    ) -> bool {
-        if !plan.is_streaming_access_shape_safe::<E>() {
-            return false;
-        }
-
-        Self::cursor_narrowing_is_budget_safe(cursor_boundary)
-    }
-
-    // Cursor boundary narrowing currently runs in post-access phases for these shapes.
-    const fn cursor_narrowing_is_budget_safe(cursor_boundary: Option<&CursorBoundary>) -> bool {
-        cursor_boundary.is_none()
     }
 
     // Apply canonical post-access phases to scanned rows and assemble the cursor page.

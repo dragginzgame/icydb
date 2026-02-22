@@ -6,14 +6,14 @@ use crate::{
             aggregate_guard::{
                 ensure_prefix_spec_at_most_one_if_enabled, ensure_range_spec_at_most_one_if_enabled,
             },
-            route::{FastPathOrder, FastPathPlan, LOAD_FAST_PATH_ORDER},
+            route::{ExecutionRoutePlan, FastPathOrder, LOAD_FAST_PATH_ORDER},
         },
         executor::plan::set_rows_from_len,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
             OrderedKeyStreamBox,
         },
-        query::plan::LogicalPlan,
+        query::plan::{Direction, LogicalPlan},
     },
     error::InternalError,
     obs::sink::Span,
@@ -48,9 +48,7 @@ pub(super) struct ResolvedExecutionKeyStream {
 
 // Canonical fast-path routing decision for one execution attempt.
 enum FastPathDecision {
-    Pk(FastPathKeyResult),
-    Secondary(FastPathKeyResult),
-    IndexRange(FastPathKeyResult),
+    Hit(FastPathKeyResult),
     None,
 }
 
@@ -89,19 +87,24 @@ where
     // This is the single shared load key-stream resolver boundary.
     pub(super) fn resolve_execution_key_stream(
         inputs: &ExecutionInputs<'_, E>,
-        fast_path_plan: &FastPathPlan,
+        route_plan: &ExecutionRoutePlan,
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
         // Phase 1: resolve fast-path stream if any.
-        let resolved = match Self::evaluate_fast_path(inputs, fast_path_plan)? {
-            FastPathDecision::Pk(fast)
-            | FastPathDecision::Secondary(fast)
-            | FastPathDecision::IndexRange(fast) => ResolvedExecutionKeyStream {
+        let resolved = match Self::evaluate_fast_path(inputs, route_plan)? {
+            FastPathDecision::Hit(fast) => ResolvedExecutionKeyStream {
                 key_stream: fast.ordered_key_stream,
                 optimization: Some(fast.optimization),
                 rows_scanned_override: Some(fast.rows_scanned),
             },
             FastPathDecision::None => {
                 // Phase 2: resolve canonical fallback access stream.
+                let fallback_fetch_hint = if route_plan.desc_physical_reverse_supported
+                    || !matches!(inputs.stream_bindings.direction, Direction::Desc)
+                {
+                    route_plan.scan_hints.physical_fetch_hint
+                } else {
+                    None
+                };
                 let stream_request = AccessPlanStreamRequest {
                     access: &inputs.plan.access,
                     bindings: inputs.stream_bindings,
@@ -109,7 +112,7 @@ where
                         inputs.plan,
                         inputs.stream_bindings.direction,
                     ),
-                    physical_fetch_hint: fast_path_plan.probe_fetch_hint,
+                    physical_fetch_hint: fallback_fetch_hint,
                 };
                 let key_stream = inputs
                     .ctx
@@ -130,16 +133,14 @@ where
     // Evaluate fast-path routes in canonical precedence and return one decision.
     fn evaluate_fast_path(
         inputs: &ExecutionInputs<'_, E>,
-        fast_path_plan: &FastPathPlan,
+        route_plan: &ExecutionRoutePlan,
     ) -> Result<FastPathDecision, InternalError> {
         // Guard fast-path spec arity up front so planner/executor traversal
         // drift cannot silently consume the wrong spec in release builds.
         ensure_fast_path_spec_arity(
-            fast_path_plan
-                .secondary_pushdown_applicability
-                .is_eligible(),
+            route_plan.secondary_pushdown_applicability.is_eligible(),
             inputs.stream_bindings.index_prefix_specs.len(),
-            fast_path_plan.index_range_limit_spec.is_some(),
+            route_plan.index_range_limit_spec.is_some(),
             inputs.stream_bindings.index_range_specs.len(),
         )?;
 
@@ -149,9 +150,9 @@ where
                     if let Some(fast) = Self::try_execute_pk_order_stream(
                         inputs.ctx,
                         inputs.plan,
-                        fast_path_plan.probe_fetch_hint,
+                        route_plan.scan_hints.physical_fetch_hint,
                     )? {
-                        return Ok(FastPathDecision::Pk(fast));
+                        return Ok(FastPathDecision::Hit(fast));
                     }
                 }
                 FastPathOrder::SecondaryPrefix => {
@@ -159,14 +160,14 @@ where
                         inputs.ctx,
                         inputs.plan,
                         inputs.stream_bindings.index_prefix_specs.first(),
-                        &fast_path_plan.secondary_pushdown_applicability,
-                        fast_path_plan.probe_fetch_hint,
+                        &route_plan.secondary_pushdown_applicability,
+                        route_plan.scan_hints.physical_fetch_hint,
                     )? {
-                        return Ok(FastPathDecision::Secondary(fast));
+                        return Ok(FastPathDecision::Hit(fast));
                     }
                 }
                 FastPathOrder::IndexRange => {
-                    if let Some(spec) = fast_path_plan.index_range_limit_spec.as_ref()
+                    if let Some(spec) = route_plan.index_range_limit_spec.as_ref()
                         && let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
                             inputs.ctx,
                             inputs.plan,
@@ -176,7 +177,7 @@ where
                             spec.fetch,
                         )?
                     {
-                        return Ok(FastPathDecision::IndexRange(fast));
+                        return Ok(FastPathDecision::Hit(fast));
                     }
                 }
                 FastPathOrder::PrimaryScan | FastPathOrder::Composite => {}

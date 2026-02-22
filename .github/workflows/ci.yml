@@ -21,6 +21,13 @@ jobs:
           toolchain: 1.93.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          # Restrict cache scanning to the real workspace root.
+          # trybuild generates temporary Cargo.toml files under target/tests,
+          # and scanning those can make the cache action probe missing paths
+          # like target/tests/target in post-job cleanup.
+          workspaces: |
+            . -> target
       - run: bash scripts/ci/validate-workflow-packages.sh .github/workflows/ci.yml
       - run: bash scripts/ci/check-index-range-spec-invariants.sh
       - run: cargo fmt --all -- --check
@@ -38,6 +45,9 @@ jobs:
           toolchain: 1.93.0
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
       - run: cargo build --workspace --target wasm32-unknown-unknown --release
       - run: |
           mkdir -p artifacts

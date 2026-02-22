@@ -5,6 +5,24 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.24.2] – 2026-02-22
+
+### 🔧 Changed
+
+* Unified load and aggregate execution routing so both paths follow the same decision rules.
+* Tightened descending-query handling so bounded scan hints are only used when reverse traversal is truly supported.
+* Added a safety guard to prevent bounded page scans from applying in shapes that require full post-access ordering.
+* Cleaned up route naming to make DESC physical traversal behavior clearer for maintainers.
+
+### 🧪 Testing
+
+* Added DESC parity tests for aggregate ordering and cursor resume across PK, secondary-index, and index-range paths.
+* Added route-matrix tests to lock routing behavior across direction, paging, distinct, cursor state, and aggregate terminal type.
+* Added focused regressions to ensure unsafe hints stay disabled for non-PK ordered loads and `ByKeys` DESC aggregates without reverse support.
+* Added a regression test that locks canonical key dedup ordering for directional `ByKeys` aggregate behavior.
+
+---
+
 ## [0.24.1] – 2026-02-22 - FIRST and LAST
 
 ### 📝 Summary

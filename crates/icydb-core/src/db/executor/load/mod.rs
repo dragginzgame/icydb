@@ -155,6 +155,7 @@ struct FastPathKeyResult {
 /// Encodes the bounded fetch size after all eligibility gates pass.
 ///
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct IndexRangeLimitSpec {
     fetch: usize,
 }
@@ -242,21 +243,22 @@ where
             };
 
             record_plan_metrics(&plan.access);
-            // Plan fast-path routing decisions once, then execute in canonical order.
-            let fast_path_plan = Self::build_fast_path_plan(
+            // Plan execution routing once, then execute in canonical order.
+            let route_plan = Self::build_execution_route_plan_for_load(
                 &plan,
                 cursor_boundary.as_ref(),
                 index_range_anchor.as_ref(),
                 None,
+                direction,
             )?;
 
             // Resolve one canonical key stream, then run shared page materialization/finalization.
-            let mut resolved =
-                Self::resolve_execution_key_stream(&execution_inputs, &fast_path_plan)?;
+            let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, &route_plan)?;
             let (page, keys_scanned, post_access_rows) = Self::materialize_key_stream_into_page(
                 &ctx,
                 &plan,
                 resolved.key_stream.as_mut(),
+                route_plan.scan_hints.load_scan_budget_hint,
                 cursor_boundary.as_ref(),
                 direction,
                 continuation_signature,
