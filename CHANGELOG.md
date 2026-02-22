@@ -9,20 +9,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 📝 Summary
 
-* `min()` and `max()` on eligible secondary-index ordered queries now try a small first scan (`offset + 1`) instead of always scanning the full index window.
-* If `MissingOk` hits stale leading index keys, execution now retries unbounded automatically so results stay correct.
-* This makes clean secondary extrema queries faster while preserving correctness in stale-index edge cases.
+* Eligible secondary-index `min()`/`max()` queries now start with a small bounded probe (`offset + 1`) instead of scanning the full window first.
+* When `MissingOk` encounters stale leading index keys, execution automatically retries unbounded to keep results correct.
+* Internal route and guard paths were simplified to reduce drift between load and aggregate fast paths.
 
 ### 🔧 Changed
 
-* Added a dedicated secondary extrema probe path for aggregate `min()`/`max()` on secondary index-prefix routes.
-* Added an automatic unbounded retry when a bounded `MissingOk` extrema probe is inconclusive at the fetch boundary.
-* Preserved scan accounting by including both probe and retry scans when fallback is required.
+* Added a secondary extrema probe path for aggregate `min()`/`max()` on eligible secondary index-prefix routes.
+* Added safe fallback: bounded `MissingOk` probes that return no extrema at the boundary now retry unbounded.
+* Kept scan accounting explicit by counting both probe and fallback traversal when fallback runs.
+* Consolidated shared fast-path guards and aggregate hint routing to remove duplicated executor logic.
 
 ### 🧪 Testing
 
-* Added regressions that lock `offset + 1` scan budgets for secondary `min()`/`max()` in both `Strict` and clean `MissingOk` paths.
-* Added stale-leading secondary-index regressions that verify bounded-probe fallback still matches materialized aggregate parity.
+* Added regressions that lock `offset + 1` probe budgets for secondary `min()`/`max()` in `Strict` and clean `MissingOk` paths.
+* Added stale-leading and routing-guard regressions to confirm fallback parity and shared fast-path arity/hint invariants.
 
 ---
 

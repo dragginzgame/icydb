@@ -3,9 +3,7 @@ use crate::{
         Context,
         executor::load::{
             CursorPage, ExecutionOptimization, ExecutionTrace, FastPathKeyResult, LoadExecutor,
-            aggregate_guard::{
-                ensure_prefix_spec_at_most_one_if_enabled, ensure_range_spec_at_most_one_if_enabled,
-            },
+            aggregate_guard::ensure_load_fast_path_spec_arity,
             route::{ExecutionRoutePlan, FastPathOrder, LOAD_FAST_PATH_ORDER},
         },
         executor::plan::set_rows_from_len,
@@ -50,33 +48,6 @@ pub(super) struct ResolvedExecutionKeyStream {
 enum FastPathDecision {
     Hit(FastPathKeyResult),
     None,
-}
-
-const SECONDARY_FAST_PATH_PREFIX_ARITY_MESSAGE: &str =
-    "secondary fast-path resolution expects at most one index-prefix spec";
-const INDEX_RANGE_FAST_PATH_RANGE_ARITY_MESSAGE: &str =
-    "index-range fast-path resolution expects at most one index-range spec";
-
-// Enforce fast-path arity assumptions at runtime so `.first()`-based
-// resolution remains safe under future planner/eligibility changes.
-fn ensure_fast_path_spec_arity(
-    secondary_pushdown_eligible: bool,
-    index_prefix_spec_count: usize,
-    index_range_limit_pushdown_enabled: bool,
-    index_range_spec_count: usize,
-) -> Result<(), InternalError> {
-    ensure_prefix_spec_at_most_one_if_enabled(
-        secondary_pushdown_eligible,
-        index_prefix_spec_count,
-        SECONDARY_FAST_PATH_PREFIX_ARITY_MESSAGE,
-    )?;
-    ensure_range_spec_at_most_one_if_enabled(
-        index_range_limit_pushdown_enabled,
-        index_range_spec_count,
-        INDEX_RANGE_FAST_PATH_RANGE_ARITY_MESSAGE,
-    )?;
-
-    Ok(())
 }
 
 impl<E> LoadExecutor<E>
@@ -132,7 +103,7 @@ where
     ) -> Result<FastPathDecision, InternalError> {
         // Guard fast-path spec arity up front so planner/executor traversal
         // drift cannot silently consume the wrong spec in release builds.
-        ensure_fast_path_spec_arity(
+        ensure_load_fast_path_spec_arity(
             route_plan.secondary_fast_path_eligible(),
             inputs.stream_bindings.index_prefix_specs.len(),
             route_plan.index_range_limit_fast_path_enabled(),
@@ -224,14 +195,14 @@ mod tests {
 
     #[test]
     fn fast_path_spec_arity_accepts_single_spec_shapes() {
-        let result = super::ensure_fast_path_spec_arity(true, 1, true, 1);
+        let result = super::ensure_load_fast_path_spec_arity(true, 1, true, 1);
 
         assert!(result.is_ok(), "single fast-path specs should be accepted");
     }
 
     #[test]
     fn fast_path_spec_arity_rejects_multiple_prefix_specs_for_secondary() {
-        let err = super::ensure_fast_path_spec_arity(true, 2, false, 0)
+        let err = super::ensure_load_fast_path_spec_arity(true, 2, false, 0)
             .expect_err("secondary fast-path must reject multiple index-prefix specs");
 
         assert_eq!(
@@ -248,7 +219,7 @@ mod tests {
 
     #[test]
     fn fast_path_spec_arity_rejects_multiple_range_specs_for_index_range() {
-        let err = super::ensure_fast_path_spec_arity(false, 0, true, 2)
+        let err = super::ensure_load_fast_path_spec_arity(false, 0, true, 2)
             .expect_err("index-range fast-path must reject multiple index-range specs");
 
         assert_eq!(

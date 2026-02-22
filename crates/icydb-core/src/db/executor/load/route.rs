@@ -239,18 +239,24 @@ where
             RouteIntent::Aggregate { direction, kind } => (direction, Some(kind)),
         };
         let capabilities = Self::derive_route_capabilities(plan, direction);
+        let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
+            Self::is_count_pushdown_eligible(aggregate_kind, capabilities)
+        });
 
         // Aggregate probes must not assume DESC physical reverse traversal
         // when the access shape cannot emit descending order natively.
-        let aggregate_probe_fetch_hint = kind.and_then(|aggregate_kind| {
-            if Self::is_count_pushdown_eligible(aggregate_kind, capabilities) {
-                Self::count_pushdown_fetch_hint(plan, capabilities)
-            } else {
-                Self::aggregate_probe_fetch_hint(plan, aggregate_kind, direction, capabilities)
-            }
+        let count_pushdown_probe_fetch_hint = if count_pushdown_eligible {
+            Self::count_pushdown_fetch_hint(plan, capabilities)
+        } else {
+            None
+        };
+        let aggregate_terminal_probe_fetch_hint = kind.and_then(|aggregate_kind| {
+            Self::aggregate_probe_fetch_hint(plan, aggregate_kind, direction, capabilities)
         });
+        let aggregate_physical_fetch_hint =
+            count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
         let physical_fetch_hint = match kind {
-            Some(_) => aggregate_probe_fetch_hint,
+            Some(_) => aggregate_physical_fetch_hint,
             None => probe_fetch_hint,
         };
         let load_scan_budget_hint = match intent {
@@ -272,9 +278,6 @@ where
                 || capabilities.index_range_limit_pushdown_shape_eligible,
             "route invariant: index-range limit spec requires pushdown-eligible shape",
         );
-        let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
-            Self::is_count_pushdown_eligible(aggregate_kind, capabilities)
-        });
         debug_assert!(
             !count_pushdown_eligible
                 || matches!(kind, Some(AggregateKind::Count))

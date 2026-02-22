@@ -3,6 +3,7 @@ use crate::{
         Context,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
+            OrderedKeyStreamBox,
             fold::{AggregateFoldMode, AggregateKind, AggregateOutput, AggregateWindowState},
             load::{
                 LoadExecutor,
@@ -476,10 +477,8 @@ where
         else {
             return Ok(None);
         };
-        if inputs.logical_plan.distinct {
-            fast.ordered_key_stream =
-                Box::new(DistinctOrderedKeyStream::new(fast.ordered_key_stream));
-        }
+        fast.ordered_key_stream =
+            Self::maybe_wrap_distinct_stream(fast.ordered_key_stream, inputs.logical_plan.distinct);
 
         let probe_rows_scanned = fast.rows_scanned;
         if let Some(fetch) = probe_fetch_hint {
@@ -521,10 +520,10 @@ where
         else {
             return Ok(None);
         };
-        if inputs.logical_plan.distinct {
-            fallback.ordered_key_stream =
-                Box::new(DistinctOrderedKeyStream::new(fallback.ordered_key_stream));
-        }
+        fallback.ordered_key_stream = Self::maybe_wrap_distinct_stream(
+            fallback.ordered_key_stream,
+            inputs.logical_plan.distinct,
+        );
         let fallback_rows_scanned = fallback.rows_scanned;
         let (aggregate_output, _fallback_keys_scanned) = Self::fold_streaming_aggregate(
             ctx,
@@ -605,10 +604,8 @@ where
         else {
             return Ok(None);
         };
-        if inputs.logical_plan.distinct {
-            fast.ordered_key_stream =
-                Box::new(DistinctOrderedKeyStream::new(fast.ordered_key_stream));
-        }
+        fast.ordered_key_stream =
+            Self::maybe_wrap_distinct_stream(fast.ordered_key_stream, inputs.logical_plan.distinct);
 
         let rows_scanned = fast.rows_scanned;
         let (aggregate_output, _keys_scanned) = Self::fold_streaming_aggregate(
@@ -710,5 +707,17 @@ where
             (AggregateKind::Min, AggregateOutput::Min(None))
                 | (AggregateKind::Max, AggregateOutput::Max(None))
         )
+    }
+
+    // Wrap fast-path streams with DISTINCT semantics only when requested.
+    fn maybe_wrap_distinct_stream(
+        ordered_key_stream: OrderedKeyStreamBox,
+        distinct: bool,
+    ) -> OrderedKeyStreamBox {
+        if distinct {
+            return Box::new(DistinctOrderedKeyStream::new(ordered_key_stream));
+        }
+
+        ordered_key_stream
     }
 }

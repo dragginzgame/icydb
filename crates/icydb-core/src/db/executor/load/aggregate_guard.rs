@@ -6,6 +6,10 @@ const INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE: &str =
     "index-range aggregate fast-path must not consume index-prefix specs";
 const INDEX_RANGE_AGGREGATE_EXACT_RANGE_MESSAGE: &str =
     "index-range aggregate fast-path expects exactly one index-range spec";
+const SECONDARY_LOAD_PREFIX_ARITY_MESSAGE: &str =
+    "secondary fast-path resolution expects at most one index-prefix spec";
+const INDEX_RANGE_LOAD_RANGE_ARITY_MESSAGE: &str =
+    "index-range fast-path resolution expects at most one index-range spec";
 
 // Shared arity guard: enforce at most one lowered spec when a fast path is enabled.
 fn ensure_spec_at_most_one_if_enabled(
@@ -75,12 +79,7 @@ pub(super) fn ensure_index_range_aggregate_fast_path_specs(
         return Ok(());
     }
 
-    ensure_prefix_spec_at_most_one_if_enabled(
-        true,
-        index_prefix_spec_count,
-        INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE,
-    )?;
-    if index_prefix_spec_count == 1 {
+    if index_prefix_spec_count != 0 {
         return Err(InternalError::query_executor_invariant(
             INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE,
         ));
@@ -89,6 +88,28 @@ pub(super) fn ensure_index_range_aggregate_fast_path_specs(
         true,
         index_range_spec_count,
         INDEX_RANGE_AGGREGATE_EXACT_RANGE_MESSAGE,
+    )?;
+
+    Ok(())
+}
+
+// Guard load fast-path assumptions so planner/executor spec boundaries remain
+// explicit and drift-resistant as new fast paths are introduced.
+pub(super) fn ensure_load_fast_path_spec_arity(
+    secondary_pushdown_eligible: bool,
+    index_prefix_spec_count: usize,
+    index_range_pushdown_eligible: bool,
+    index_range_spec_count: usize,
+) -> Result<(), InternalError> {
+    ensure_prefix_spec_at_most_one_if_enabled(
+        secondary_pushdown_eligible,
+        index_prefix_spec_count,
+        SECONDARY_LOAD_PREFIX_ARITY_MESSAGE,
+    )?;
+    ensure_range_spec_at_most_one_if_enabled(
+        index_range_pushdown_eligible,
+        index_range_spec_count,
+        INDEX_RANGE_LOAD_RANGE_ARITY_MESSAGE,
     )?;
 
     Ok(())
