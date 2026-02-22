@@ -1,4 +1,4 @@
-use crate::{db::query::plan::AccessPlan, error::InternalError};
+use crate::error::InternalError;
 
 const SECONDARY_AGGREGATE_PREFIX_ARITY_MESSAGE: &str =
     "secondary aggregate fast-path expects at most one index-prefix spec";
@@ -6,11 +6,6 @@ const INDEX_RANGE_AGGREGATE_NO_PREFIX_MESSAGE: &str =
     "index-range aggregate fast-path must not consume index-prefix specs";
 const INDEX_RANGE_AGGREGATE_EXACT_RANGE_MESSAGE: &str =
     "index-range aggregate fast-path expects exactly one index-range spec";
-
-// Identify composite access shapes so aggregate pushdown safety can branch cleanly.
-pub(super) const fn is_composite_access_shape<K>(access: &AccessPlan<K>) -> bool {
-    matches!(access, AccessPlan::Union(_) | AccessPlan::Intersection(_))
-}
 
 // Shared arity guard: enforce at most one lowered spec when a fast path is enabled.
 fn ensure_spec_at_most_one_if_enabled(

@@ -8,7 +8,7 @@ use crate::{
                 LoadExecutor,
                 aggregate_guard::{
                     ensure_index_range_aggregate_fast_path_specs,
-                    ensure_secondary_aggregate_fast_path_arity, is_composite_access_shape,
+                    ensure_secondary_aggregate_fast_path_arity,
                 },
                 execute::ExecutionInputs,
                 route::{
@@ -136,6 +136,10 @@ where
         plan: ExecutablePlan<E>,
         kind: AggregateKind,
     ) -> Result<AggregateOutput<E>, InternalError> {
+        // Route derivation interprets plan shape only. Re-validate first so
+        // capability snapshots are always built from a validated logical plan.
+        validate_executor_plan::<E>(plan.as_inner())?;
+
         // Route planning owns aggregate streaming/materialized decisions and
         // bounded probe-hint derivation.
         let direction = plan.direction();
@@ -316,27 +320,6 @@ where
         }
     }
 
-    // Composite aggregate fast-path eligibility must stay explicit and local:
-    // - composite access shape only (`Union` / `Intersection`)
-    // - no residual predicate filtering
-    // - no post-access reordering
-    // Unsupported shapes must fall back to canonical aggregate execution.
-    fn is_composite_aggregate_fast_path_eligible(plan: &LogicalPlan<E::Key>) -> bool {
-        if !is_composite_access_shape(&plan.access) {
-            return false;
-        }
-
-        let metadata = plan.budget_safety_metadata::<E>();
-        if metadata.has_residual_filter {
-            return false;
-        }
-        if metadata.requires_post_access_sort {
-            return false;
-        }
-
-        true
-    }
-
     fn aggregate_from_materialized(
         response: Response<E>,
         kind: AggregateKind,
@@ -475,10 +458,7 @@ where
         fold_mode: AggregateFoldMode,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
         ensure_secondary_aggregate_fast_path_arity(
-            inputs
-                .route_plan
-                .secondary_pushdown_applicability
-                .is_eligible(),
+            inputs.route_plan.secondary_fast_path_eligible(),
             inputs.index_prefix_specs.len(),
         )?;
         let Some(mut fast) = Self::try_execute_secondary_index_order_stream(
@@ -556,7 +536,7 @@ where
         inputs: &AggregateFastPathInputs<'_, '_, E>,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
         ensure_index_range_aggregate_fast_path_specs(
-            inputs.route_plan.index_range_limit_spec.is_some(),
+            inputs.route_plan.index_range_limit_fast_path_enabled(),
             inputs.index_prefix_specs.len(),
             inputs.index_range_specs.len(),
         )?;
@@ -599,7 +579,7 @@ where
     fn try_execute_composite_aggregate(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
-        if !Self::is_composite_aggregate_fast_path_eligible(inputs.logical_plan) {
+        if !inputs.route_plan.composite_aggregate_fast_path_eligible() {
             return Ok(None);
         }
 

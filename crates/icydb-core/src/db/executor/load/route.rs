@@ -53,7 +53,7 @@ pub(super) struct ExecutionRoutePlan {
     pub(super) execution_mode: ExecutionMode,
     pub(super) secondary_pushdown_applicability: PushdownApplicability,
     pub(super) index_range_limit_spec: Option<IndexRangeLimitSpec>,
-    pub(super) desc_physical_reverse_supported: bool,
+    capabilities: RouteCapabilities,
     pub(super) scan_hints: ScanHintPlan,
     pub(super) aggregate_fold_mode: AggregateFoldMode,
 }
@@ -62,11 +62,31 @@ impl ExecutionRoutePlan {
     // Return the effective physical fetch hint for fallback stream resolution.
     // DESC fallback must disable bounded hints when reverse traversal is unavailable.
     pub(super) const fn fallback_physical_fetch_hint(&self, direction: Direction) -> Option<usize> {
-        if direction_allows_physical_fetch_hint(direction, self.desc_physical_reverse_supported) {
+        if direction_allows_physical_fetch_hint(direction, self.desc_physical_reverse_supported()) {
             self.scan_hints.physical_fetch_hint
         } else {
             None
         }
+    }
+
+    // True when DESC execution can traverse the physical access path in reverse.
+    pub(super) const fn desc_physical_reverse_supported(&self) -> bool {
+        self.capabilities.desc_physical_reverse_supported
+    }
+
+    // True when secondary-prefix pushdown is enabled for this route.
+    pub(super) const fn secondary_fast_path_eligible(&self) -> bool {
+        self.secondary_pushdown_applicability.is_eligible()
+    }
+
+    // True when index-range limit pushdown is enabled for this route.
+    pub(super) const fn index_range_limit_fast_path_enabled(&self) -> bool {
+        self.index_range_limit_spec.is_some()
+    }
+
+    // True when composite aggregate fast-path execution is shape-safe.
+    pub(super) const fn composite_aggregate_fast_path_eligible(&self) -> bool {
+        self.capabilities.composite_aggregate_fast_path_eligible
     }
 }
 
@@ -114,6 +134,25 @@ enum RouteIntent {
     },
 }
 
+///
+/// RouteCapabilities
+///
+/// Canonical derived capability snapshot for one logical plan and direction.
+/// Route planning derives this once, then consumes it for eligibility and hint
+/// decisions to reduce drift across helpers.
+///
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RouteCapabilities {
+    streaming_access_shape_safe: bool,
+    desc_physical_reverse_supported: bool,
+    count_pushdown_access_shape_supported: bool,
+    index_range_limit_pushdown_shape_eligible: bool,
+    composite_aggregate_fast_path_eligible: bool,
+    bounded_probe_hint_safe: bool,
+}
+
 const fn direction_allows_physical_fetch_hint(
     direction: Direction,
     desc_physical_reverse_supported: bool,
@@ -125,6 +164,29 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // Derive a canonical route capability snapshot for one plan + direction.
+    fn derive_route_capabilities(
+        plan: &LogicalPlan<E::Key>,
+        direction: Direction,
+    ) -> RouteCapabilities {
+        RouteCapabilities {
+            streaming_access_shape_safe: plan.is_streaming_access_shape_safe::<E>(),
+            desc_physical_reverse_supported: Self::is_desc_physical_reverse_traversal_supported(
+                &plan.access,
+                direction,
+            ),
+            count_pushdown_access_shape_supported: Self::count_pushdown_access_shape_supported(
+                &plan.access,
+            ),
+            index_range_limit_pushdown_shape_eligible:
+                Self::is_index_range_limit_pushdown_shape_eligible(plan),
+            composite_aggregate_fast_path_eligible: Self::is_composite_aggregate_fast_path_eligible(
+                plan,
+            ),
+            bounded_probe_hint_safe: Self::bounded_probe_hint_is_safe(plan),
+        }
+    }
+
     // Build canonical execution routing for load execution.
     pub(super) fn build_execution_route_plan_for_load(
         plan: &LogicalPlan<E::Key>,
@@ -176,21 +238,15 @@ where
             RouteIntent::Load { direction } => (direction, None),
             RouteIntent::Aggregate { direction, kind } => (direction, Some(kind)),
         };
-        let desc_physical_reverse_supported =
-            Self::is_desc_physical_reverse_traversal_supported(&plan.access, direction);
+        let capabilities = Self::derive_route_capabilities(plan, direction);
 
         // Aggregate probes must not assume DESC physical reverse traversal
         // when the access shape cannot emit descending order natively.
         let aggregate_probe_fetch_hint = kind.and_then(|aggregate_kind| {
-            if Self::is_count_pushdown_eligible(plan, aggregate_kind) {
-                Self::count_pushdown_fetch_hint(plan)
+            if Self::is_count_pushdown_eligible(aggregate_kind, capabilities) {
+                Self::count_pushdown_fetch_hint(plan, capabilities)
             } else {
-                Self::aggregate_probe_fetch_hint(
-                    plan,
-                    aggregate_kind,
-                    direction,
-                    desc_physical_reverse_supported,
-                )
+                Self::aggregate_probe_fetch_hint(plan, aggregate_kind, direction, capabilities)
             }
         });
         let physical_fetch_hint = match kind {
@@ -198,7 +254,9 @@ where
             None => probe_fetch_hint,
         };
         let load_scan_budget_hint = match intent {
-            RouteIntent::Load { .. } => Self::load_scan_budget_hint(plan, cursor_boundary),
+            RouteIntent::Load { .. } => {
+                Self::load_scan_budget_hint(plan, cursor_boundary, capabilities)
+            }
             RouteIntent::Aggregate { .. } => None,
         };
 
@@ -207,9 +265,28 @@ where
             cursor_boundary,
             index_range_anchor,
             physical_fetch_hint,
+            capabilities,
         );
-        let count_pushdown_eligible = kind
-            .is_some_and(|aggregate_kind| Self::is_count_pushdown_eligible(plan, aggregate_kind));
+        debug_assert!(
+            index_range_limit_spec.is_none()
+                || capabilities.index_range_limit_pushdown_shape_eligible,
+            "route invariant: index-range limit spec requires pushdown-eligible shape",
+        );
+        let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
+            Self::is_count_pushdown_eligible(aggregate_kind, capabilities)
+        });
+        debug_assert!(
+            !count_pushdown_eligible
+                || matches!(kind, Some(AggregateKind::Count))
+                    && capabilities.streaming_access_shape_safe
+                    && capabilities.count_pushdown_access_shape_supported,
+            "route invariant: COUNT pushdown eligibility must match COUNT-safe capability set",
+        );
+        debug_assert!(
+            load_scan_budget_hint.is_none()
+                || cursor_boundary.is_none() && capabilities.streaming_access_shape_safe,
+            "route invariant: load scan-budget hints require non-continuation streaming-safe shape",
+        );
         let aggregate_fold_mode = if count_pushdown_eligible {
             AggregateFoldMode::KeysOnly
         } else {
@@ -217,7 +294,7 @@ where
         };
         let execution_mode = if let Some(_aggregate_kind) = kind {
             if count_pushdown_eligible
-                || plan.is_streaming_access_shape_safe::<E>()
+                || capabilities.streaming_access_shape_safe
                 || secondary_pushdown_applicability.is_eligible()
                 || index_range_limit_spec.is_some()
             {
@@ -225,17 +302,23 @@ where
             } else {
                 ExecutionMode::Materialized
             }
-        } else if plan.is_streaming_access_shape_safe::<E>() {
+        } else if capabilities.streaming_access_shape_safe {
             ExecutionMode::Streaming
         } else {
             ExecutionMode::Materialized
         };
+        debug_assert!(
+            kind.is_none()
+                || index_range_limit_spec.is_none()
+                || matches!(execution_mode, ExecutionMode::Streaming),
+            "route invariant: aggregate index-range limit pushdown must execute in streaming mode",
+        );
 
         ExecutionRoutePlan {
             execution_mode,
             secondary_pushdown_applicability,
             index_range_limit_spec,
-            desc_physical_reverse_supported,
+            capabilities,
             scan_hints: ScanHintPlan {
                 physical_fetch_hint,
                 load_scan_budget_hint,
@@ -251,8 +334,9 @@ where
         cursor_boundary: Option<&CursorBoundary>,
         index_range_anchor: Option<&RawIndexKey>,
         probe_fetch_hint: Option<usize>,
+        capabilities: RouteCapabilities,
     ) -> Option<IndexRangeLimitSpec> {
-        if !Self::is_index_range_limit_pushdown_shape_eligible(plan) {
+        if !capabilities.index_range_limit_pushdown_shape_eligible {
             return None;
         }
         if cursor_boundary.is_some() && index_range_anchor.is_none() {
@@ -277,11 +361,12 @@ where
     fn load_scan_budget_hint(
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
+        capabilities: RouteCapabilities,
     ) -> Option<usize> {
         if cursor_boundary.is_some() {
             return None;
         }
-        if !plan.is_streaming_access_shape_safe::<E>() {
+        if !capabilities.streaming_access_shape_safe {
             return None;
         }
 
@@ -307,14 +392,20 @@ where
         }
     }
 
-    fn is_count_pushdown_eligible(plan: &LogicalPlan<E::Key>, kind: AggregateKind) -> bool {
+    const fn is_count_pushdown_eligible(
+        kind: AggregateKind,
+        capabilities: RouteCapabilities,
+    ) -> bool {
         matches!(kind, AggregateKind::Count)
-            && plan.is_streaming_access_shape_safe::<E>()
-            && Self::count_pushdown_access_shape_supported(&plan.access)
+            && capabilities.streaming_access_shape_safe
+            && capabilities.count_pushdown_access_shape_supported
     }
 
-    fn count_pushdown_fetch_hint(plan: &LogicalPlan<E::Key>) -> Option<usize> {
-        if !Self::bounded_probe_hint_is_safe(plan) {
+    fn count_pushdown_fetch_hint(
+        plan: &LogicalPlan<E::Key>,
+        capabilities: RouteCapabilities,
+    ) -> Option<usize> {
+        if !capabilities.bounded_probe_hint_safe {
             return None;
         }
 
@@ -325,7 +416,7 @@ where
         plan: &LogicalPlan<E::Key>,
         kind: AggregateKind,
         direction: Direction,
-        desc_physical_reverse_supported: bool,
+        capabilities: RouteCapabilities,
     ) -> Option<usize> {
         if !matches!(
             kind,
@@ -340,10 +431,13 @@ where
         if plan.page.as_ref().is_some_and(|page| page.limit == Some(0)) {
             return Some(0);
         }
-        if !direction_allows_physical_fetch_hint(direction, desc_physical_reverse_supported) {
+        if !direction_allows_physical_fetch_hint(
+            direction,
+            capabilities.desc_physical_reverse_supported,
+        ) {
             return None;
         }
-        if !Self::bounded_probe_hint_is_safe(plan) {
+        if !capabilities.bounded_probe_hint_safe {
             return None;
         }
 
@@ -383,6 +477,26 @@ where
         }
     }
 
+    // Composite aggregate fast-path eligibility must stay explicit:
+    // - composite access shape only (`Union` / `Intersection`)
+    // - no residual predicate filtering
+    // - no post-access reordering
+    fn is_composite_aggregate_fast_path_eligible(plan: &LogicalPlan<E::Key>) -> bool {
+        if !Self::is_composite_access_shape(&plan.access) {
+            return false;
+        }
+
+        let metadata = plan.budget_safety_metadata::<E>();
+        if metadata.has_residual_filter {
+            return false;
+        }
+        if metadata.requires_post_access_sort {
+            return false;
+        }
+
+        true
+    }
+
     // Shared page-window fetch computation for bounded routing hints.
     fn page_window_fetch_count(
         plan: &LogicalPlan<E::Key>,
@@ -411,6 +525,10 @@ where
                 | AccessPath::IndexRange { .. }
                 | AccessPath::FullScan
         )
+    }
+
+    const fn is_composite_access_shape(access: &AccessPlan<E::Key>) -> bool {
+        matches!(access, AccessPlan::Union(_) | AccessPlan::Intersection(_))
     }
 }
 
@@ -514,6 +632,56 @@ mod tests {
     }
 
     #[test]
+    fn route_capabilities_full_scan_desc_pk_order_reflect_expected_flags() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        });
+        plan.page = Some(PageSpec {
+            limit: Some(3),
+            offset: 2,
+        });
+        let capabilities =
+            LoadExecutor::<RouteMatrixEntity>::derive_route_capabilities(&plan, Direction::Desc);
+
+        assert!(capabilities.streaming_access_shape_safe);
+        assert!(capabilities.desc_physical_reverse_supported);
+        assert!(capabilities.count_pushdown_access_shape_supported);
+        assert!(!capabilities.index_range_limit_pushdown_shape_eligible);
+        assert!(!capabilities.composite_aggregate_fast_path_eligible);
+        assert!(capabilities.bounded_probe_hint_safe);
+    }
+
+    #[test]
+    fn route_capabilities_by_keys_desc_distinct_offset_disable_probe_hint() {
+        let mut plan = LogicalPlan::new(
+            AccessPath::<Ulid>::ByKeys(vec![
+                Ulid::from_u128(7303),
+                Ulid::from_u128(7301),
+                Ulid::from_u128(7302),
+            ]),
+            ReadConsistency::MissingOk,
+        );
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        });
+        plan.distinct = true;
+        plan.page = Some(PageSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+        let capabilities =
+            LoadExecutor::<RouteMatrixEntity>::derive_route_capabilities(&plan, Direction::Desc);
+
+        assert!(capabilities.streaming_access_shape_safe);
+        assert!(!capabilities.desc_physical_reverse_supported);
+        assert!(!capabilities.count_pushdown_access_shape_supported);
+        assert!(!capabilities.index_range_limit_pushdown_shape_eligible);
+        assert!(!capabilities.composite_aggregate_fast_path_eligible);
+        assert!(!capabilities.bounded_probe_hint_safe);
+    }
+
+    #[test]
     fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
         let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
         plan.order = Some(OrderSpec {
@@ -533,7 +701,7 @@ mod tests {
         .expect("load route plan should build");
 
         assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
-        assert!(route_plan.desc_physical_reverse_supported);
+        assert!(route_plan.desc_physical_reverse_supported());
         assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
         assert_eq!(route_plan.scan_hints.load_scan_budget_hint, Some(6));
         assert!(route_plan.index_range_limit_spec.is_none());
@@ -571,7 +739,7 @@ mod tests {
         .expect("load route plan should build");
 
         assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
-        assert!(route_plan.desc_physical_reverse_supported);
+        assert!(route_plan.desc_physical_reverse_supported());
         assert!(route_plan.index_range_limit_spec.is_none());
         assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
     }
@@ -708,7 +876,7 @@ mod tests {
             );
 
         assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
-        assert!(!route_plan.desc_physical_reverse_supported);
+        assert!(!route_plan.desc_physical_reverse_supported());
         assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     }
 
@@ -741,7 +909,7 @@ mod tests {
             );
 
         assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
-        assert!(route_plan.desc_physical_reverse_supported);
+        assert!(route_plan.desc_physical_reverse_supported());
         assert_eq!(route_plan.scan_hints.physical_fetch_hint, Some(3));
         assert_eq!(
             route_plan.index_range_limit_spec.map(|spec| spec.fetch),

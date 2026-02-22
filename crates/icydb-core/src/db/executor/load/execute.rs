@@ -133,9 +133,9 @@ where
         // Guard fast-path spec arity up front so planner/executor traversal
         // drift cannot silently consume the wrong spec in release builds.
         ensure_fast_path_spec_arity(
-            route_plan.secondary_pushdown_applicability.is_eligible(),
+            route_plan.secondary_fast_path_eligible(),
             inputs.stream_bindings.index_prefix_specs.len(),
-            route_plan.index_range_limit_spec.is_some(),
+            route_plan.index_range_limit_fast_path_enabled(),
             inputs.stream_bindings.index_range_specs.len(),
         )?;
 

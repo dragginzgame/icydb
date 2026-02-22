@@ -5,6 +5,34 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.24.4] – 2026-02-22 - RouteCapabilities
+
+### 📝 Summary
+
+* This release cleans up how query execution decides which path to use.
+* Load and aggregate queries now follow the same routing rules instead of keeping separate copies of similar checks.
+* This reduces internal complexity and lowers the chance of inconsistent behavior in edge cases.
+
+### 🔧 Changed
+
+* Added a canonical internal `RouteCapabilities` snapshot so route planning derives key execution capabilities once per plan and direction.
+* Updated execution routing to consume that shared capability snapshot for streaming mode selection, bounded hint eligibility, and aggregate count/probe decisions.
+* Wired load and aggregate fast-path dispatch checks to route-plan capability accessors so eligibility state is carried from one route source through execution.
+* Moved composite aggregate fast-path eligibility behind the same route-derived capability path and removed the duplicate aggregate-side shape gate.
+* Added critical route `debug_assert!` invariants to fail fast on internal contradictions between capability flags and selected execution/hint outcomes.
+
+### 🧪 Testing
+
+* Added capability-focused route tests that lock expected flags for representative shapes (`FullScan` + DESC PK order, and `ByKeys` + DESC with `distinct + offset`).
+
+### 🛣️ Roadmap
+
+* Why this matters: routing decisions are now easier to reason about because eligibility logic is centralized and shared across execution paths.
+* What this unlocks: safer performance work on direction-sensitive execution (especially DESC paths) and cleaner expansion of aggregate/load fast paths.
+* What’s next: expand capability-driven routing coverage as new optimizations are added, so new features plug into the same routing boundary instead of introducing parallel gates.
+
+---
+
 ## [0.24.3] – 2026-02-22
 
 ### 🧹 Cleanup
