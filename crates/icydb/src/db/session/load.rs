@@ -88,6 +88,22 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
     // Aggregation helpers
     // ------------------------------------------------------------------
 
+    /// Return the first matching identifier in response order.
+    pub fn first(&self) -> Result<Option<Id<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.first()?)
+    }
+
+    /// Return the last matching identifier in response order.
+    pub fn last(&self) -> Result<Option<Id<E>>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.last()?)
+    }
+
     pub fn group_count_by<K>(self, key: impl Fn(&E) -> K) -> Result<HashMap<K, u32>, Error>
     where
         E: EntityValue,

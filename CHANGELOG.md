@@ -5,6 +5,53 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.24.1] – 2026-02-22 - FIRST and LAST
+
+### 📝 Summary
+
+* Added `first()` and `last()` aggregate terminals for load queries.
+* These return the first or last matching id in response order without needing full result materialization.
+
+### 🔧 Changed
+
+* Kept behavior aligned with normal query order, pagination, and consistency rules.
+* Added bounded scan hints for `first()` and limited-window `last()` to avoid extra key scans.
+* Cursor tokens are now rejected for non-paged execution terminals, so continuation tokens are only accepted via `.page().execute()`.
+
+### 📚 Example
+
+```rust
+// Aggregate terminals on ordered query results.
+let first_id = session.load::<MyEntity>().order_by("id").first()?;
+let last_id = session.load::<MyEntity>().order_by_desc("id").last()?;
+
+// Cursor tokens are only valid in paged mode.
+let (items, next_cursor) = session
+    .load::<MyEntity>()
+    .order_by("id")
+    .limit(25)
+    .page()?
+    .cursor(cursor_token)
+    .execute()?;
+
+// Non-paged cursor usage now fails fast with an intent error.
+let err = session
+    .load::<MyEntity>()
+    .order_by("id")
+    .limit(25)
+    .cursor(cursor_token)
+    .last()
+    .expect_err("cursor requires paged execution");
+```
+
+### 🧪 Testing
+
+* Added aggregate parity coverage for `first()` and `last()` against materialized execution.
+* Added scan-budget regressions for `first()` (`offset + 1`) and limited-window `last()` (`offset + limit`).
+* Added regressions that verify unbounded `last()` scans the full stream and that cursor tokens fail fast on non-paged terminals.
+
+---
+
 ## [0.24.0] – 2026-02-21 - Composite Aggregate Direct Path
 
 ### 📝 Summary

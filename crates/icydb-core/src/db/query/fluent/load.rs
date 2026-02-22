@@ -185,6 +185,8 @@ where
     where
         E: EntityValue,
     {
+        self.ensure_non_paged_mode_ready()?;
+
         self.session.execute_query(self.query())
     }
 
@@ -231,6 +233,8 @@ where
     where
         E: EntityValue,
     {
+        self.ensure_non_paged_mode_ready()?;
+
         self.session.execute_load_query_exists(self.query())
     }
 
@@ -239,6 +243,8 @@ where
     where
         E: EntityValue,
     {
+        self.ensure_non_paged_mode_ready()?;
+
         self.session.execute_load_query_count(self.query())
     }
 
@@ -247,6 +253,8 @@ where
     where
         E: EntityValue,
     {
+        self.ensure_non_paged_mode_ready()?;
+
         self.session.execute_load_query_min(self.query())
     }
 
@@ -255,7 +263,29 @@ where
     where
         E: EntityValue,
     {
+        self.ensure_non_paged_mode_ready()?;
+
         self.session.execute_load_query_max(self.query())
+    }
+
+    /// Execute and return the first matching identifier in response order, if any.
+    pub fn first(&self) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session.execute_load_query_first(self.query())
+    }
+
+    /// Execute and return the last matching identifier in response order, if any.
+    pub fn last(&self) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session.execute_load_query_last(self.query())
     }
 
     /// Execute and require exactly one matching row.
@@ -281,6 +311,12 @@ impl<E> FluentLoadQuery<'_, E>
 where
     E: EntityKind,
 {
+    fn non_paged_intent_error(&self) -> Option<IntentError> {
+        self.cursor_token
+            .as_ref()
+            .map(|_| IntentError::CursorRequiresPagedExecution)
+    }
+
     fn cursor_intent_error(&self) -> Option<IntentError> {
         self.cursor_token
             .as_ref()
@@ -297,6 +333,14 @@ where
 
     fn ensure_paged_mode_ready(&self) -> Result<(), QueryError> {
         if let Some(err) = self.paged_intent_error() {
+            return Err(QueryError::Intent(err));
+        }
+
+        Ok(())
+    }
+
+    fn ensure_non_paged_mode_ready(&self) -> Result<(), QueryError> {
+        if let Some(err) = self.non_paged_intent_error() {
             return Err(QueryError::Intent(err));
         }
 

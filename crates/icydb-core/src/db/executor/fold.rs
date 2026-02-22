@@ -22,6 +22,8 @@ pub(in crate::db::executor) enum AggregateKind {
     Exists,
     Min,
     Max,
+    First,
+    Last,
 }
 
 ///
@@ -35,6 +37,8 @@ pub(in crate::db::executor) enum AggregateOutput<E: EntityKind> {
     Exists(bool),
     Min(Option<Id<E>>),
     Max(Option<Id<E>>),
+    First(Option<Id<E>>),
+    Last(Option<Id<E>>),
 }
 
 ///
@@ -200,6 +204,40 @@ where
                 )?;
 
                 Ok((AggregateOutput::Max(max_id), keys_scanned))
+            }
+            AggregateKind::First => {
+                let (first_id, keys_scanned) = Self::fold_streaming(
+                    ctx,
+                    consistency,
+                    key_stream,
+                    window,
+                    mode,
+                    None::<Id<E>>,
+                    |first_id, key| {
+                        *first_id = Some(Id::from_key(key.try_key::<E>()?));
+
+                        Ok(FoldControl::Break)
+                    },
+                )?;
+
+                Ok((AggregateOutput::First(first_id), keys_scanned))
+            }
+            AggregateKind::Last => {
+                let (last_id, keys_scanned) = Self::fold_streaming(
+                    ctx,
+                    consistency,
+                    key_stream,
+                    window,
+                    mode,
+                    None::<Id<E>>,
+                    |last_id, key| {
+                        *last_id = Some(Id::from_key(key.try_key::<E>()?));
+
+                        Ok(FoldControl::Continue)
+                    },
+                )?;
+
+                Ok((AggregateOutput::Last(last_id), keys_scanned))
             }
         }
     }

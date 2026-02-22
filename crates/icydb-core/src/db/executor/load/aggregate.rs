@@ -99,6 +99,30 @@ where
         }
     }
 
+    pub(in crate::db) fn aggregate_first(
+        &self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<Option<Id<E>>, InternalError> {
+        match self.execute_aggregate(plan, AggregateKind::First)? {
+            AggregateOutput::First(value) => Ok(value),
+            _ => Err(InternalError::query_executor_invariant(
+                "aggregate FIRST result kind mismatch",
+            )),
+        }
+    }
+
+    pub(in crate::db) fn aggregate_last(
+        &self,
+        plan: ExecutablePlan<E>,
+    ) -> Result<Option<Id<E>>, InternalError> {
+        match self.execute_aggregate(plan, AggregateKind::Last)? {
+            AggregateOutput::Last(value) => Ok(value),
+            _ => Err(InternalError::query_executor_invariant(
+                "aggregate LAST result kind mismatch",
+            )),
+        }
+    }
+
     // Execute one aggregate terminal. Use streaming fold for conservative-safe
     // plan shapes, otherwise fall back to canonical materialized execution.
     //
@@ -325,7 +349,11 @@ where
     ) -> Option<usize> {
         if !matches!(
             kind,
-            AggregateKind::Exists | AggregateKind::Min | AggregateKind::Max
+            AggregateKind::Exists
+                | AggregateKind::Min
+                | AggregateKind::Max
+                | AggregateKind::First
+                | AggregateKind::Last
         ) {
             return None;
         }
@@ -340,11 +368,17 @@ where
             return None;
         }
         let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
+        let page_limit = plan
+            .page
+            .as_ref()
+            .and_then(|page| page.limit)
+            .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
         match kind {
-            AggregateKind::Exists => Some(offset.saturating_add(1)),
+            AggregateKind::Exists | AggregateKind::First => Some(offset.saturating_add(1)),
             AggregateKind::Min if direction == Direction::Asc => Some(offset.saturating_add(1)),
             AggregateKind::Max if direction == Direction::Desc => Some(offset.saturating_add(1)),
+            AggregateKind::Last => page_limit.map(|limit| offset.saturating_add(limit)),
             _ => None,
         }
     }
@@ -356,6 +390,8 @@ where
             AggregateKind::Exists => AggregateOutput::Exists(false),
             AggregateKind::Min => AggregateOutput::Min(None),
             AggregateKind::Max => AggregateOutput::Max(None),
+            AggregateKind::First => AggregateOutput::First(None),
+            AggregateKind::Last => AggregateOutput::Last(None),
         }
     }
 
@@ -445,6 +481,10 @@ where
             AggregateKind::Max => {
                 AggregateOutput::Max(response.into_iter().map(|(id, _)| id).max())
             }
+            AggregateKind::First => AggregateOutput::First(response.id()),
+            AggregateKind::Last => {
+                AggregateOutput::Last(response.into_iter().map(|(id, _)| id).last())
+            }
         }
     }
 
@@ -491,6 +531,8 @@ where
         let mut exists = false;
         let mut min_id = None::<Id<E>>;
         let mut max_id = None::<Id<E>>;
+        let mut first_id = None::<Id<E>>;
+        let mut last_id = None::<Id<E>>;
         for key in ordered_keys {
             if window.exhausted() {
                 break;
@@ -531,6 +573,13 @@ where
                         break;
                     }
                 }
+                AggregateKind::First => {
+                    first_id = Some(id);
+                    break;
+                }
+                AggregateKind::Last => {
+                    last_id = Some(id);
+                }
             }
         }
 
@@ -540,6 +589,8 @@ where
             AggregateKind::Exists => AggregateOutput::Exists(exists),
             AggregateKind::Min => AggregateOutput::Min(min_id),
             AggregateKind::Max => AggregateOutput::Max(max_id),
+            AggregateKind::First => AggregateOutput::First(first_id),
+            AggregateKind::Last => AggregateOutput::Last(last_id),
         };
 
         Ok(Some((aggregate_output, keys_scanned)))

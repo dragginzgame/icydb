@@ -235,6 +235,32 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::Execute)
     }
 
+    pub(crate) fn execute_load_query_first<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| self.load_executor::<E>().aggregate_first(plan))
+            .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_last<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| self.load_executor::<E>().aggregate_last(plan))
+            .map_err(QueryError::Execute)
+    }
+
     pub(crate) fn execute_load_query_paged_with_trace<E>(
         &self,
         query: &Query<E>,

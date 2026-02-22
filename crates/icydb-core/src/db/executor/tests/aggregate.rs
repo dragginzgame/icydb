@@ -146,6 +146,8 @@ fn assert_aggregate_parity_for_query<E>(
     let expected_exists = !expected_response.is_empty();
     let expected_min = expected_response.ids().into_iter().min();
     let expected_max = expected_response.ids().into_iter().max();
+    let expected_first = expected_response.id();
+    let expected_last = expected_response.ids().last().copied();
 
     // Execute aggregate terminals against the same logical query shape.
     let actual_count = load
@@ -176,6 +178,20 @@ fn assert_aggregate_parity_for_query<E>(
                 .expect("aggregate MAX plan should build"),
         )
         .expect("aggregate MAX should succeed");
+    let actual_first = load
+        .aggregate_first(
+            make_query()
+                .plan()
+                .expect("aggregate FIRST plan should build"),
+        )
+        .expect("aggregate FIRST should succeed");
+    let actual_last = load
+        .aggregate_last(
+            make_query()
+                .plan()
+                .expect("aggregate LAST plan should build"),
+        )
+        .expect("aggregate LAST should succeed");
 
     assert_eq!(
         actual_count, expected_count,
@@ -187,6 +203,11 @@ fn assert_aggregate_parity_for_query<E>(
     );
     assert_eq!(actual_min, expected_min, "{context}: min parity failed");
     assert_eq!(actual_max, expected_max, "{context}: max parity failed");
+    assert_eq!(
+        actual_first, expected_first,
+        "{context}: first parity failed"
+    );
+    assert_eq!(actual_last, expected_last, "{context}: last parity failed");
 }
 
 fn assert_count_parity_for_query<E>(
@@ -1049,6 +1070,8 @@ fn session_load_aggregate_terminals_match_execute() {
     let expected_exists = !expected.is_empty();
     let expected_min = expected.ids().into_iter().min();
     let expected_max = expected.ids().into_iter().max();
+    let expected_first = expected.id();
+    let expected_last = expected.ids().last().copied();
 
     let actual_count = session
         .load::<SimpleEntity>()
@@ -1078,6 +1101,20 @@ fn session_load_aggregate_terminals_match_execute() {
         .limit(3)
         .max()
         .expect("session max should succeed");
+    let actual_first = session
+        .load::<SimpleEntity>()
+        .order_by("id")
+        .offset(1)
+        .limit(3)
+        .first()
+        .expect("session first should succeed");
+    let actual_last = session
+        .load::<SimpleEntity>()
+        .order_by("id")
+        .offset(1)
+        .limit(3)
+        .last()
+        .expect("session last should succeed");
 
     assert_eq!(actual_count, expected_count, "session count parity failed");
     assert_eq!(
@@ -1086,6 +1123,8 @@ fn session_load_aggregate_terminals_match_execute() {
     );
     assert_eq!(actual_min, expected_min, "session min parity failed");
     assert_eq!(actual_max, expected_max, "session max parity failed");
+    assert_eq!(actual_first, expected_first, "session first parity failed");
+    assert_eq!(actual_last, expected_last, "session last parity failed");
 }
 
 #[test]
@@ -1196,6 +1235,263 @@ fn aggregate_extrema_offset_short_circuit_scans_offset_plus_one() {
         scanned_max_desc, 4,
         "max DESC should scan exactly offset + 1 keys"
     );
+}
+
+#[test]
+fn aggregate_first_offset_short_circuit_scans_offset_plus_one() {
+    seed_simple_entities(&[9451, 9452, 9453, 9454, 9455, 9456, 9457]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (first_asc, scanned_first_asc) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+            load.aggregate_first(
+                Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                    .order_by("id")
+                    .offset(3)
+                    .plan()
+                    .expect("first ASC with offset plan should build"),
+            )
+            .expect("first ASC with offset should succeed")
+        });
+    let (first_desc, scanned_first_desc) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+            load.aggregate_first(
+                Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                    .order_by_desc("id")
+                    .offset(3)
+                    .plan()
+                    .expect("first DESC with offset plan should build"),
+            )
+            .expect("first DESC with offset should succeed")
+        });
+
+    assert_eq!(first_asc.map(|id| id.key()), Some(Ulid::from_u128(9454)));
+    assert_eq!(first_desc.map(|id| id.key()), Some(Ulid::from_u128(9454)));
+    assert_eq!(
+        scanned_first_asc, 4,
+        "first ASC should scan exactly offset + 1 keys"
+    );
+    assert_eq!(
+        scanned_first_desc, 4,
+        "first DESC should scan exactly offset + 1 keys"
+    );
+}
+
+#[test]
+fn aggregate_last_limited_window_scans_offset_plus_limit() {
+    seed_simple_entities(&[9461, 9462, 9463, 9464, 9465, 9466, 9467]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (last_asc, scanned_last_asc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_last(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .offset(2)
+                .limit(3)
+                .plan()
+                .expect("last ASC with window plan should build"),
+        )
+        .expect("last ASC with window should succeed")
+    });
+    let (last_desc, scanned_last_desc) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+            load.aggregate_last(
+                Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                    .order_by_desc("id")
+                    .offset(2)
+                    .limit(3)
+                    .plan()
+                    .expect("last DESC with window plan should build"),
+            )
+            .expect("last DESC with window should succeed")
+        });
+
+    assert_eq!(last_asc.map(|id| id.key()), Some(Ulid::from_u128(9465)));
+    assert_eq!(last_desc.map(|id| id.key()), Some(Ulid::from_u128(9463)));
+    assert_eq!(
+        scanned_last_asc, 5,
+        "last ASC should scan exactly offset + limit keys"
+    );
+    assert_eq!(
+        scanned_last_desc, 5,
+        "last DESC should scan exactly offset + limit keys"
+    );
+}
+
+#[test]
+fn aggregate_last_unbounded_window_scans_full_stream() {
+    seed_simple_entities(&[9471, 9472, 9473, 9474, 9475, 9476, 9477]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (last_asc, scanned_last_asc) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+        load.aggregate_last(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .offset(2)
+                .plan()
+                .expect("last ASC unbounded plan should build"),
+        )
+        .expect("last ASC unbounded should succeed")
+    });
+    let (last_desc, scanned_last_desc) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+            load.aggregate_last(
+                Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                    .order_by_desc("id")
+                    .offset(2)
+                    .plan()
+                    .expect("last DESC unbounded plan should build"),
+            )
+            .expect("last DESC unbounded should succeed")
+        });
+
+    assert_eq!(last_asc.map(|id| id.key()), Some(Ulid::from_u128(9477)));
+    assert_eq!(last_desc.map(|id| id.key()), Some(Ulid::from_u128(9471)));
+    assert_eq!(
+        scanned_last_asc, 7,
+        "last ASC without limit should scan the full stream"
+    );
+    assert_eq!(
+        scanned_last_desc, 7,
+        "last DESC without limit should scan the full stream"
+    );
+}
+
+#[test]
+fn aggregate_last_unbounded_desc_large_dataset_scans_full_stream() {
+    let ids: Vec<u128> = (0u128..128u128)
+        .map(|i| 9701u128.saturating_add(i))
+        .collect();
+    seed_simple_entities(&ids);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let (last_desc, scanned_last_desc) =
+        capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
+            load.aggregate_last(
+                Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                    .order_by_desc("id")
+                    .plan()
+                    .expect("last DESC large unbounded plan should build"),
+            )
+            .expect("last DESC large unbounded should succeed")
+        });
+
+    assert_eq!(
+        last_desc.map(|id| id.key()),
+        Some(Ulid::from_u128(9701)),
+        "last DESC should return the last id in descending response order"
+    );
+    assert_eq!(
+        scanned_last_desc, 128,
+        "last DESC without limit should scan the full stream for large datasets"
+    );
+}
+
+#[test]
+fn aggregate_last_secondary_index_desc_mixed_direction_falls_back_safely() {
+    let mut rows = Vec::new();
+    for i in 0u32..64u32 {
+        rows.push((
+            9801u128.saturating_add(u128::from(i)),
+            if i % 2 == 0 { 7 } else { 8 },
+            i,
+        ));
+    }
+    seed_pushdown_entities(rows.as_slice());
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let group_seven = u32_eq_predicate("group", 7);
+
+    let (last_desc, scanned_desc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_last(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(group_seven.clone())
+                    .order_by_desc("rank")
+                    .plan()
+                    .expect("secondary last DESC unbounded plan should build"),
+            )
+            .expect("secondary last DESC unbounded should succeed")
+        });
+
+    assert_eq!(
+        last_desc.map(|id| id.key()),
+        Some(Ulid::from_u128(9801)),
+        "secondary last DESC should return the final row in descending rank order"
+    );
+    assert_eq!(
+        scanned_desc, 64,
+        "mixed-direction secondary order should reject pushdown and fall back without under-scanning"
+    );
+}
+
+#[test]
+fn aggregate_last_index_range_ineligible_pushdown_shape_preserves_parity() {
+    seed_unique_index_range_entities(&[
+        (9811, 200),
+        (9812, 201),
+        (9813, 202),
+        (9814, 203),
+        (9815, 204),
+        (9816, 205),
+    ]);
+    let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+    let range_predicate = u32_range_predicate("code", 201, 206);
+
+    assert_aggregate_parity_for_query(
+        &load,
+        || {
+            Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+                .filter(range_predicate.clone())
+                .order_by("label")
+                .offset(1)
+                .limit(2)
+        },
+        "index-range ineligible pushdown shape",
+    );
+}
+
+#[test]
+fn aggregate_first_and_last_respect_requested_direction() {
+    seed_simple_entities(&[9481, 9482, 9483, 9484, 9485]);
+    let load = LoadExecutor::<SimpleEntity>::new(DB, false);
+
+    let first_asc = load
+        .aggregate_first(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .plan()
+                .expect("first ASC plan should build"),
+        )
+        .expect("first ASC should succeed");
+    let first_desc = load
+        .aggregate_first(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by_desc("id")
+                .plan()
+                .expect("first DESC plan should build"),
+        )
+        .expect("first DESC should succeed");
+    let last_asc = load
+        .aggregate_last(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .plan()
+                .expect("last ASC plan should build"),
+        )
+        .expect("last ASC should succeed");
+    let last_desc = load
+        .aggregate_last(
+            Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+                .order_by_desc("id")
+                .plan()
+                .expect("last DESC plan should build"),
+        )
+        .expect("last DESC should succeed");
+
+    assert_eq!(first_asc.map(|id| id.key()), Some(Ulid::from_u128(9481)));
+    assert_eq!(first_desc.map(|id| id.key()), Some(Ulid::from_u128(9485)));
+    assert_eq!(last_asc.map(|id| id.key()), Some(Ulid::from_u128(9485)));
+    assert_eq!(last_desc.map(|id| id.key()), Some(Ulid::from_u128(9481)));
 }
 
 #[test]

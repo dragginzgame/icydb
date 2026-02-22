@@ -632,6 +632,9 @@ pub enum IntentError {
 
     #[error("cursor pagination requires an explicit limit")]
     CursorRequiresLimit,
+
+    #[error("cursor tokens can only be used with .page().execute()")]
+    CursorRequiresPagedExecution,
 }
 
 impl From<policy::CursorPagingPolicyError> for IntentError {

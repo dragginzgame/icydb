@@ -206,3 +206,45 @@ fn paged_query_execute_with_trace_is_present_in_debug_mode() {
         "execution trace should be present when session debug mode is enabled"
     );
 }
+
+#[test]
+fn non_paged_execute_rejects_cursor_token() {
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(1)
+        .cursor("00")
+        .execute()
+        .expect_err("non-paged execute should reject cursor tokens");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+        ),
+        "non-paged execute should reject cursor tokens as intent misuse"
+    );
+}
+
+#[test]
+fn non_paged_aggregate_terminal_rejects_cursor_token() {
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(1)
+        .cursor("00")
+        .last()
+        .expect_err("non-paged aggregate terminals should reject cursor tokens");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+        ),
+        "non-paged aggregate terminal should reject cursor tokens as intent misuse"
+    );
+}
