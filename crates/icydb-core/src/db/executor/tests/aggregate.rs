@@ -300,6 +300,32 @@ fn u32_range_predicate(field: &str, lower_inclusive: u32, upper_exclusive: u32) 
     ])
 }
 
+fn secondary_group_rank_order_plan(
+    consistency: ReadConsistency,
+    direction: crate::db::query::plan::OrderDirection,
+    offset: u32,
+) -> crate::db::query::plan::ExecutablePlan<PushdownParityEntity> {
+    let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
+        crate::db::query::plan::AccessPath::IndexPrefix {
+            index: PUSHDOWN_PARITY_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        consistency,
+    );
+    logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+        fields: vec![
+            ("rank".to_string(), direction),
+            ("id".to_string(), direction),
+        ],
+    });
+    logical_plan.page = Some(crate::db::query::plan::PageSpec {
+        limit: None,
+        offset,
+    });
+
+    crate::db::query::plan::ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+}
+
 #[test]
 fn aggregate_parity_ordered_page_window_asc() {
     seed_simple_entities(&[8101, 8102, 8103, 8104, 8105, 8106, 8107, 8108]);
@@ -1017,6 +1043,201 @@ fn aggregate_exists_secondary_index_strict_missing_surfaces_corruption_error() {
         err.class,
         crate::error::ErrorClass::Corruption,
         "strict secondary-index aggregate missing row should classify as corruption"
+    );
+}
+
+#[test]
+fn aggregate_secondary_index_extrema_strict_single_step_scans_offset_plus_one() {
+    seed_pushdown_entities(&[
+        (8831, 7, 10),
+        (8832, 7, 20),
+        (8833, 7, 30),
+        (8834, 7, 40),
+        (8835, 8, 50),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let (min_asc, scanned_min_asc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_min(secondary_group_rank_order_plan(
+                ReadConsistency::Strict,
+                crate::db::query::plan::OrderDirection::Asc,
+                2,
+            ))
+            .expect("strict secondary MIN ASC should succeed")
+        });
+    let (max_desc, scanned_max_desc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_max(secondary_group_rank_order_plan(
+                ReadConsistency::Strict,
+                crate::db::query::plan::OrderDirection::Desc,
+                2,
+            ))
+            .expect("strict secondary MAX DESC should succeed")
+        });
+
+    assert_eq!(min_asc.map(|id| id.key()), Some(Ulid::from_u128(8833)));
+    assert_eq!(max_desc.map(|id| id.key()), Some(Ulid::from_u128(8832)));
+    assert_eq!(
+        scanned_min_asc, 3,
+        "strict secondary MIN ASC should scan exactly offset + 1 keys"
+    );
+    assert_eq!(
+        scanned_max_desc, 3,
+        "strict secondary MAX DESC should scan exactly offset + 1 keys"
+    );
+}
+
+#[test]
+fn aggregate_secondary_index_extrema_missing_ok_clean_single_step_scans_offset_plus_one() {
+    seed_pushdown_entities(&[
+        (8841, 7, 10),
+        (8842, 7, 20),
+        (8843, 7, 30),
+        (8844, 7, 40),
+        (8845, 8, 50),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let (min_asc, scanned_min_asc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_min(secondary_group_rank_order_plan(
+                ReadConsistency::MissingOk,
+                crate::db::query::plan::OrderDirection::Asc,
+                2,
+            ))
+            .expect("missing-ok secondary MIN ASC should succeed")
+        });
+    let (max_desc, scanned_max_desc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_max(secondary_group_rank_order_plan(
+                ReadConsistency::MissingOk,
+                crate::db::query::plan::OrderDirection::Desc,
+                2,
+            ))
+            .expect("missing-ok secondary MAX DESC should succeed")
+        });
+
+    assert_eq!(min_asc.map(|id| id.key()), Some(Ulid::from_u128(8843)));
+    assert_eq!(max_desc.map(|id| id.key()), Some(Ulid::from_u128(8842)));
+    assert_eq!(
+        scanned_min_asc, 3,
+        "missing-ok secondary MIN ASC should scan exactly offset + 1 keys when leading keys are valid"
+    );
+    assert_eq!(
+        scanned_max_desc, 3,
+        "missing-ok secondary MAX DESC should scan exactly offset + 1 keys when leading keys are valid"
+    );
+}
+
+#[test]
+fn aggregate_secondary_index_extrema_missing_ok_stale_leading_probe_falls_back() {
+    seed_pushdown_entities(&[
+        (8851, 7, 10),
+        (8852, 7, 20),
+        (8853, 7, 30),
+        (8854, 7, 40),
+        (8855, 8, 50),
+    ]);
+    remove_pushdown_row_data(8851);
+    remove_pushdown_row_data(8854);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let expected_min_asc = load
+        .execute(secondary_group_rank_order_plan(
+            ReadConsistency::MissingOk,
+            crate::db::query::plan::OrderDirection::Asc,
+            0,
+        ))
+        .expect("stale-leading MIN ASC baseline execute should succeed")
+        .ids()
+        .into_iter()
+        .min();
+    let expected_max_desc = load
+        .execute(secondary_group_rank_order_plan(
+            ReadConsistency::MissingOk,
+            crate::db::query::plan::OrderDirection::Desc,
+            0,
+        ))
+        .expect("stale-leading MAX DESC baseline execute should succeed")
+        .ids()
+        .into_iter()
+        .max();
+
+    let (min_asc, scanned_min_asc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_min(secondary_group_rank_order_plan(
+                ReadConsistency::MissingOk,
+                crate::db::query::plan::OrderDirection::Asc,
+                0,
+            ))
+            .expect("stale-leading secondary MIN ASC should succeed")
+        });
+    let (max_desc, scanned_max_desc) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_max(secondary_group_rank_order_plan(
+                ReadConsistency::MissingOk,
+                crate::db::query::plan::OrderDirection::Desc,
+                0,
+            ))
+            .expect("stale-leading secondary MAX DESC should succeed")
+        });
+
+    assert_eq!(
+        min_asc, expected_min_asc,
+        "stale-leading MIN ASC should preserve materialized parity"
+    );
+    assert_eq!(
+        max_desc, expected_max_desc,
+        "stale-leading MAX DESC should preserve materialized parity"
+    );
+    assert!(
+        scanned_min_asc >= 2,
+        "stale-leading MIN ASC should scan past bounded probe and retry unbounded"
+    );
+    assert!(
+        scanned_max_desc >= 2,
+        "stale-leading MAX DESC should scan past bounded probe and retry unbounded"
+    );
+}
+
+#[test]
+fn aggregate_secondary_index_extrema_strict_stale_leading_surfaces_corruption_error() {
+    seed_pushdown_entities(&[
+        (8861, 7, 10),
+        (8862, 7, 20),
+        (8863, 7, 30),
+        (8864, 7, 40),
+        (8865, 8, 50),
+    ]);
+    remove_pushdown_row_data(8861);
+    remove_pushdown_row_data(8864);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let min_err = load
+        .aggregate_min(secondary_group_rank_order_plan(
+            ReadConsistency::Strict,
+            crate::db::query::plan::OrderDirection::Asc,
+            0,
+        ))
+        .expect_err("strict secondary MIN should fail when leading key is stale");
+    let max_err = load
+        .aggregate_max(secondary_group_rank_order_plan(
+            ReadConsistency::Strict,
+            crate::db::query::plan::OrderDirection::Desc,
+            0,
+        ))
+        .expect_err("strict secondary MAX should fail when leading key is stale");
+
+    assert_eq!(
+        min_err.class,
+        crate::error::ErrorClass::Corruption,
+        "strict secondary MIN stale-leading key should classify as corruption"
+    );
+    assert_eq!(
+        max_err.class,
+        crate::error::ErrorClass::Corruption,
+        "strict secondary MAX stale-leading key should classify as corruption"
     );
 }
 

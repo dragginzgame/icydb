@@ -17,9 +17,12 @@ use crate::{
             },
             plan::{record_plan_metrics, record_rows_scanned},
         },
-        query::plan::{
-            AccessPath, Direction, ExecutablePlan, IndexPrefixSpec, IndexRangeSpec, LogicalPlan,
-            validate::validate_executor_plan,
+        query::{
+            ReadConsistency,
+            plan::{
+                AccessPath, Direction, ExecutablePlan, IndexPrefixSpec, IndexRangeSpec,
+                LogicalPlan, validate::validate_executor_plan,
+            },
         },
         response::Response,
     },
@@ -461,14 +464,14 @@ where
             inputs.route_plan.secondary_fast_path_eligible(),
             inputs.index_prefix_specs.len(),
         )?;
+        let probe_fetch_hint =
+            Self::secondary_extrema_probe_fetch_hint(kind, inputs.physical_fetch_hint);
         let Some(mut fast) = Self::try_execute_secondary_index_order_stream(
             ctx,
             inputs.logical_plan,
             inputs.index_prefix_specs.first(),
             &inputs.route_plan.secondary_pushdown_applicability,
-            // Keep secondary aggregate traversal unbounded. MissingOk can skip
-            // stale index entries, so bounded key production may under-fetch.
-            None,
+            probe_fetch_hint,
         )?
         else {
             return Ok(None);
@@ -478,8 +481,14 @@ where
                 Box::new(DistinctOrderedKeyStream::new(fast.ordered_key_stream));
         }
 
-        let rows_scanned = fast.rows_scanned;
-        let (aggregate_output, _keys_scanned) = Self::fold_streaming_aggregate(
+        let probe_rows_scanned = fast.rows_scanned;
+        if let Some(fetch) = probe_fetch_hint {
+            debug_assert!(
+                probe_rows_scanned <= fetch,
+                "secondary extrema probe rows_scanned must not exceed bounded fetch",
+            );
+        }
+        let (probe_output, _probe_keys_scanned) = Self::fold_streaming_aggregate(
             ctx,
             inputs.logical_plan,
             inputs.logical_plan.consistency,
@@ -489,7 +498,48 @@ where
             fold_mode,
         )?;
 
-        Ok(Some((aggregate_output, rows_scanned)))
+        if !Self::secondary_extrema_probe_requires_fallback(
+            inputs.logical_plan.consistency,
+            kind,
+            probe_fetch_hint,
+            &probe_output,
+            probe_rows_scanned,
+        ) {
+            return Ok(Some((probe_output, probe_rows_scanned)));
+        }
+
+        // MissingOk + bounded secondary probe can under-fetch when leading index
+        // entries are stale. Retry unbounded to preserve terminal correctness.
+        let Some(mut fallback) = Self::try_execute_secondary_index_order_stream(
+            ctx,
+            inputs.logical_plan,
+            inputs.index_prefix_specs.first(),
+            &inputs.route_plan.secondary_pushdown_applicability,
+            // Keep native index traversal order for fallback retries.
+            Some(usize::MAX),
+        )?
+        else {
+            return Ok(None);
+        };
+        if inputs.logical_plan.distinct {
+            fallback.ordered_key_stream =
+                Box::new(DistinctOrderedKeyStream::new(fallback.ordered_key_stream));
+        }
+        let fallback_rows_scanned = fallback.rows_scanned;
+        let (aggregate_output, _fallback_keys_scanned) = Self::fold_streaming_aggregate(
+            ctx,
+            inputs.logical_plan,
+            inputs.logical_plan.consistency,
+            direction,
+            fallback.ordered_key_stream.as_mut(),
+            kind,
+            fold_mode,
+        )?;
+
+        Ok(Some((
+            aggregate_output,
+            probe_rows_scanned.saturating_add(fallback_rows_scanned),
+        )))
     }
 
     // Resolve aggregate terminals directly for full-scan/key-range access plans.
@@ -614,5 +664,51 @@ where
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
+    }
+
+    // Secondary extrema single-step probes are only meaningful when route
+    // planning computed a bounded hint for Min/Max endpoint-compatible shapes.
+    const fn secondary_extrema_probe_fetch_hint(
+        kind: AggregateKind,
+        physical_fetch_hint: Option<usize>,
+    ) -> Option<usize> {
+        match kind {
+            AggregateKind::Min | AggregateKind::Max => physical_fetch_hint,
+            AggregateKind::Count
+            | AggregateKind::Exists
+            | AggregateKind::First
+            | AggregateKind::Last => None,
+        }
+    }
+
+    // MissingOk can skip stale leading index entries. If a bounded Min/Max
+    // probe returns None exactly at the fetch boundary, the outcome is
+    // inconclusive and must retry unbounded.
+    const fn secondary_extrema_probe_requires_fallback(
+        consistency: ReadConsistency,
+        kind: AggregateKind,
+        probe_fetch_hint: Option<usize>,
+        probe_output: &AggregateOutput<E>,
+        probe_rows_scanned: usize,
+    ) -> bool {
+        if !matches!(consistency, ReadConsistency::MissingOk) {
+            return false;
+        }
+        if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
+            return false;
+        }
+
+        let Some(fetch) = probe_fetch_hint else {
+            return false;
+        };
+        if fetch == 0 || probe_rows_scanned < fetch {
+            return false;
+        }
+
+        matches!(
+            (kind, probe_output),
+            (AggregateKind::Min, AggregateOutput::Min(None))
+                | (AggregateKind::Max, AggregateOutput::Max(None))
+        )
     }
 }

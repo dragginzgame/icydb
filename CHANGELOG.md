@@ -5,6 +5,27 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.24.5] – 2026-02-22 - Secondary Min/Max Probe
+
+### 📝 Summary
+
+* `min()` and `max()` on eligible secondary-index ordered queries now try a small first scan (`offset + 1`) instead of always scanning the full index window.
+* If `MissingOk` hits stale leading index keys, execution now retries unbounded automatically so results stay correct.
+* This makes clean secondary extrema queries faster while preserving correctness in stale-index edge cases.
+
+### 🔧 Changed
+
+* Added a dedicated secondary extrema probe path for aggregate `min()`/`max()` on secondary index-prefix routes.
+* Added an automatic unbounded retry when a bounded `MissingOk` extrema probe is inconclusive at the fetch boundary.
+* Preserved scan accounting by including both probe and retry scans when fallback is required.
+
+### 🧪 Testing
+
+* Added regressions that lock `offset + 1` scan budgets for secondary `min()`/`max()` in both `Strict` and clean `MissingOk` paths.
+* Added stale-leading secondary-index regressions that verify bounded-probe fallback still matches materialized aggregate parity.
+
+---
+
 ## [0.24.4] – 2026-02-22 - RouteCapabilities
 
 ### 📝 Summary

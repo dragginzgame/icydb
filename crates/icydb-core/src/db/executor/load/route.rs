@@ -881,6 +881,59 @@ mod tests {
     }
 
     #[test]
+    fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
+        let mut plan = LogicalPlan::new(
+            AccessPath::<Ulid>::IndexPrefix {
+                index: ROUTE_MATRIX_INDEX_MODELS[0],
+                values: vec![Value::Uint(7)],
+            },
+            ReadConsistency::MissingOk,
+        );
+        plan.order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        plan.page = Some(PageSpec {
+            limit: None,
+            offset: 2,
+        });
+
+        let min_asc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &plan,
+            AggregateKind::Min,
+            Direction::Asc,
+        );
+        let max_asc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &plan,
+            AggregateKind::Max,
+            Direction::Asc,
+        );
+        assert_eq!(min_asc.scan_hints.physical_fetch_hint, Some(3));
+        assert_eq!(max_asc.scan_hints.physical_fetch_hint, None);
+
+        plan.order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Desc),
+                ("id".to_string(), OrderDirection::Desc),
+            ],
+        });
+        let max_desc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &plan,
+            AggregateKind::Max,
+            Direction::Desc,
+        );
+        let min_desc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &plan,
+            AggregateKind::Min,
+            Direction::Desc,
+        );
+        assert_eq!(max_desc.scan_hints.physical_fetch_hint, Some(3));
+        assert_eq!(min_desc.scan_hints.physical_fetch_hint, None);
+    }
+
+    #[test]
     fn route_matrix_aggregate_index_range_desc_with_window_enables_pushdown_hint() {
         let mut plan = LogicalPlan::new(
             AccessPath::<Ulid>::IndexRange {
