@@ -58,6 +58,18 @@ pub(super) struct ExecutionRoutePlan {
     pub(super) aggregate_fold_mode: AggregateFoldMode,
 }
 
+impl ExecutionRoutePlan {
+    // Return the effective physical fetch hint for fallback stream resolution.
+    // DESC fallback must disable bounded hints when reverse traversal is unavailable.
+    pub(super) const fn fallback_physical_fetch_hint(&self, direction: Direction) -> Option<usize> {
+        if direction_allows_physical_fetch_hint(direction, self.desc_physical_reverse_supported) {
+            self.scan_hints.physical_fetch_hint
+        } else {
+            None
+        }
+    }
+}
+
 ///
 /// FastPathOrder
 ///
@@ -100,6 +112,13 @@ enum RouteIntent {
         direction: Direction,
         kind: AggregateKind,
     },
+}
+
+const fn direction_allows_physical_fetch_hint(
+    direction: Direction,
+    desc_physical_reverse_supported: bool,
+) -> bool {
+    !matches!(direction, Direction::Desc) || desc_physical_reverse_supported
 }
 
 impl<E> LoadExecutor<E>
@@ -249,8 +268,7 @@ where
             return Some(IndexRangeLimitSpec { fetch: 0 });
         }
 
-        let fetch = compute_page_window(plan.effective_page_offset(cursor_boundary), limit, true)
-            .fetch_count;
+        let fetch = Self::page_window_fetch_count(plan, cursor_boundary, true)?;
 
         Some(IndexRangeLimitSpec { fetch })
     }
@@ -260,8 +278,6 @@ where
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> Option<usize> {
-        let page = plan.page.as_ref()?;
-        let limit = page.limit?;
         if cursor_boundary.is_some() {
             return None;
         }
@@ -269,10 +285,7 @@ where
             return None;
         }
 
-        Some(
-            compute_page_window(plan.effective_page_offset(cursor_boundary), limit, true)
-                .fetch_count,
-        )
+        Self::page_window_fetch_count(plan, cursor_boundary, true)
     }
 
     // Shared bounded-probe safety gate for aggregate key-stream hints.
@@ -296,21 +309,16 @@ where
 
     fn is_count_pushdown_eligible(plan: &LogicalPlan<E::Key>, kind: AggregateKind) -> bool {
         matches!(kind, AggregateKind::Count)
-            && !Self::is_composite_access_shape(&plan.access)
             && plan.is_streaming_access_shape_safe::<E>()
             && Self::count_pushdown_access_shape_supported(&plan.access)
     }
 
     fn count_pushdown_fetch_hint(plan: &LogicalPlan<E::Key>) -> Option<usize> {
-        let page = plan.page.as_ref()?;
-        let limit = page.limit?;
         if !Self::bounded_probe_hint_is_safe(plan) {
             return None;
         }
-        let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
-        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
 
-        Some(offset.saturating_add(limit))
+        Self::page_window_fetch_count(plan, None, false)
     }
 
     fn aggregate_probe_fetch_hint(
@@ -332,7 +340,7 @@ where
         if plan.page.as_ref().is_some_and(|page| page.limit == Some(0)) {
             return Some(0);
         }
-        if matches!(direction, Direction::Desc) && !desc_physical_reverse_supported {
+        if !direction_allows_physical_fetch_hint(direction, desc_physical_reverse_supported) {
             return None;
         }
         if !Self::bounded_probe_hint_is_safe(plan) {
@@ -375,6 +383,25 @@ where
         }
     }
 
+    // Shared page-window fetch computation for bounded routing hints.
+    fn page_window_fetch_count(
+        plan: &LogicalPlan<E::Key>,
+        cursor_boundary: Option<&CursorBoundary>,
+        needs_extra: bool,
+    ) -> Option<usize> {
+        let page = plan.page.as_ref()?;
+        let limit = page.limit?;
+
+        Some(
+            compute_page_window(
+                plan.effective_page_offset(cursor_boundary),
+                limit,
+                needs_extra,
+            )
+            .fetch_count,
+        )
+    }
+
     const fn path_supports_reverse_traversal(path: &AccessPath<E::Key>) -> bool {
         matches!(
             path,
@@ -384,10 +411,6 @@ where
                 | AccessPath::IndexRange { .. }
                 | AccessPath::FullScan
         )
-    }
-
-    const fn is_composite_access_shape(access: &AccessPlan<E::Key>) -> bool {
-        matches!(access, AccessPlan::Union(_) | AccessPlan::Intersection(_))
     }
 }
 
@@ -574,6 +597,39 @@ mod tests {
 
         assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
         assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
+    }
+
+    #[test]
+    fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_support() {
+        let mut plan = LogicalPlan::new(
+            AccessPath::<Ulid>::ByKeys(vec![
+                Ulid::from_u128(7203),
+                Ulid::from_u128(7201),
+                Ulid::from_u128(7202),
+            ]),
+            ReadConsistency::MissingOk,
+        );
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        });
+        let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+            &plan,
+            None,
+            None,
+            Some(4),
+            Direction::Desc,
+        )
+        .expect("load route plan should build");
+
+        assert_eq!(route_plan.scan_hints.physical_fetch_hint, Some(4));
+        assert_eq!(
+            route_plan.fallback_physical_fetch_hint(Direction::Desc),
+            None
+        );
+        assert_eq!(
+            route_plan.fallback_physical_fetch_hint(Direction::Asc),
+            Some(4)
+        );
     }
 
     #[test]

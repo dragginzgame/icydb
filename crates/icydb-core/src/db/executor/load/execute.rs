@@ -13,7 +13,7 @@ use crate::{
             AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
             OrderedKeyStreamBox,
         },
-        query::plan::{Direction, LogicalPlan},
+        query::plan::LogicalPlan,
     },
     error::InternalError,
     obs::sink::Span,
@@ -98,13 +98,8 @@ where
             },
             FastPathDecision::None => {
                 // Phase 2: resolve canonical fallback access stream.
-                let fallback_fetch_hint = if route_plan.desc_physical_reverse_supported
-                    || !matches!(inputs.stream_bindings.direction, Direction::Desc)
-                {
-                    route_plan.scan_hints.physical_fetch_hint
-                } else {
-                    None
-                };
+                let fallback_fetch_hint =
+                    route_plan.fallback_physical_fetch_hint(inputs.stream_bindings.direction);
                 let stream_request = AccessPlanStreamRequest {
                     access: &inputs.plan.access,
                     bindings: inputs.stream_bindings,

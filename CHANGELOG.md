@@ -5,6 +5,21 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.24.3] – 2026-02-22
+
+### 🧹 Cleanup
+
+* Removed a redundant `COUNT` pushdown gate in execution routing so eligibility is decided in one place.
+* Dropped an unused internal routing helper to reduce drift risk before the next feature cycle.
+* Centralized direction-based bounded-hint gating behind one shared route helper used by both aggregate probe planning and load fallback execution.
+* Consolidated page-window fetch sizing behind one internal route helper so bounded hint math is reused consistently.
+
+### 🧪 Testing
+
+* Added a route-matrix regression for `ByKeys` + DESC to lock fallback bounded-hint suppression when reverse traversal is not physically supported.
+
+---
+
 ## [0.24.2] – 2026-02-22
 
 ### 🔧 Changed
