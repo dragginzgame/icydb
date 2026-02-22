@@ -11,7 +11,3 @@ pub(crate) use crate::db::query::{
         OrderPlanError, OrderSpec, PlanError,
     },
 };
-
-pub(super) fn encode_plan_hex(bytes: &[u8]) -> String {
-    crate::db::codec::cursor::encode_cursor(bytes)
-}

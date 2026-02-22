@@ -114,6 +114,23 @@ impl<'a> AccessSpecCursor<'a> {
 }
 
 ///
+/// AccessStreamBindings
+///
+/// AccessStreamBindings
+///
+/// Shared access-stream traversal bindings reused by execution and key-stream
+/// request wrappers so spec/anchor/direction fields stay aligned.
+///
+
+#[derive(Clone, Copy)]
+pub(in crate::db::executor) struct AccessStreamBindings<'a> {
+    pub(in crate::db::executor) index_prefix_specs: &'a [IndexPrefixSpec],
+    pub(in crate::db::executor) index_range_specs: &'a [IndexRangeSpec],
+    pub(in crate::db::executor) index_range_anchor: Option<&'a RawIndexKey>,
+    pub(in crate::db::executor) direction: Direction,
+}
+
+///
 /// AccessPlanStreamRequest
 ///
 /// Canonical request payload for access-plan key-stream production.
@@ -123,10 +140,7 @@ impl<'a> AccessSpecCursor<'a> {
 
 pub(in crate::db::executor) struct AccessPlanStreamRequest<'a, K> {
     pub(in crate::db::executor) access: &'a AccessPlan<K>,
-    pub(in crate::db::executor) index_prefix_specs: &'a [IndexPrefixSpec],
-    pub(in crate::db::executor) index_range_specs: &'a [IndexRangeSpec],
-    pub(in crate::db::executor) index_range_anchor: Option<&'a RawIndexKey>,
-    pub(in crate::db::executor) direction: Direction,
+    pub(in crate::db::executor) bindings: AccessStreamBindings<'a>,
     pub(in crate::db::executor) key_comparator: KeyOrderComparator,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
 }
@@ -233,10 +247,10 @@ where
     {
         let inputs = AccessStreamInputs {
             ctx: self,
-            index_prefix_specs: request.index_prefix_specs,
-            index_range_specs: request.index_range_specs,
-            index_range_anchor: request.index_range_anchor,
-            direction: request.direction,
+            index_prefix_specs: request.bindings.index_prefix_specs,
+            index_range_specs: request.bindings.index_range_specs,
+            index_range_anchor: request.bindings.index_range_anchor,
+            direction: request.bindings.direction,
             key_comparator: request.key_comparator,
             physical_fetch_hint: request.physical_fetch_hint,
         };
@@ -261,12 +275,15 @@ where
     where
         E: EntityKind,
     {
-        let request = AccessPlanStreamRequest {
-            access,
+        let bindings = AccessStreamBindings {
             index_prefix_specs,
             index_range_specs,
             index_range_anchor,
             direction,
+        };
+        let request = AccessPlanStreamRequest {
+            access,
+            bindings,
             key_comparator: KeyOrderComparator::from_direction(direction),
             physical_fetch_hint: None,
         };
@@ -617,6 +634,48 @@ mod tests {
             err.to_string()
                 .contains("index-range spec does not match access path index"),
             "misaligned range spec must fail fast before execution"
+        );
+    }
+
+    #[test]
+    fn composite_union_rejects_misaligned_index_prefix_spec() {
+        let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
+        let access = AccessPlan::Union(vec![AccessPlan::path(AccessPath::IndexPrefix {
+            index: INDEX_MODEL_ALT,
+            values: vec![Value::Uint(7)],
+        })]);
+        let prefix_spec = dummy_index_prefix_spec();
+
+        let err = ctx
+            .rows_from_access_plan(&access, &[prefix_spec], &[], ReadConsistency::MissingOk)
+            .expect_err("misaligned composite prefix spec must fail invariant checks");
+
+        assert!(
+            err.to_string()
+                .contains("index-prefix spec does not match access path index"),
+            "misaligned composite prefix spec must fail fast before execution"
+        );
+    }
+
+    #[test]
+    fn composite_intersection_rejects_misaligned_index_range_spec() {
+        let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
+        let access = AccessPlan::Intersection(vec![AccessPlan::path(AccessPath::IndexRange {
+            index: INDEX_MODEL_ALT,
+            prefix: vec![Value::Uint(7)],
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(20)),
+        })]);
+        let range_spec = dummy_index_range_spec();
+
+        let err = ctx
+            .rows_from_access_plan(&access, &[], &[range_spec], ReadConsistency::MissingOk)
+            .expect_err("misaligned composite range spec must fail invariant checks");
+
+        assert!(
+            err.to_string()
+                .contains("index-range spec does not match access path index"),
+            "misaligned composite range spec must fail fast before execution"
         );
     }
 }

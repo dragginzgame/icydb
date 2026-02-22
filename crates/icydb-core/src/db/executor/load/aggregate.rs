@@ -1,20 +1,25 @@
 use crate::{
     db::{
         Context,
-        data::DataKey,
         executor::{
-            DistinctOrderedKeyStream, OrderedKeyStream,
-            load::{LoadExecutor, execute::ExecutionInputs},
+            AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
+            fold::{AggregateFoldMode, AggregateKind, AggregateOutput, AggregateWindowState},
+            load::{
+                LoadExecutor,
+                aggregate_guard::{
+                    ensure_index_range_aggregate_fast_path_specs,
+                    ensure_secondary_aggregate_fast_path_arity, is_composite_access_shape,
+                },
+                execute::ExecutionInputs,
+                route::{AGGREGATE_FAST_PATH_ORDER, FastPathOrder},
+            },
             plan::{record_plan_metrics, record_rows_scanned},
         },
-        query::{
-            ReadConsistency,
-            plan::{
-                AccessPath, AccessPlan, Direction, ExecutablePlan, IndexPrefixSpec, IndexRangeSpec,
-                LogicalPlan,
-                validate::{
-                    assess_secondary_order_pushdown_if_applicable_validated, validate_executor_plan,
-                },
+        query::plan::{
+            AccessPath, AccessPlan, Direction, ExecutablePlan, IndexPrefixSpec, IndexRangeSpec,
+            LogicalPlan,
+            validate::{
+                assess_secondary_order_pushdown_if_applicable_validated, validate_executor_plan,
             },
         },
         response::Response,
@@ -23,128 +28,6 @@ use crate::{
     traits::{EntityKind, EntityValue},
     types::Id,
 };
-
-// Internal aggregate operation selector for load-query terminals.
-#[derive(Clone, Copy)]
-enum AggregateKind {
-    Count,
-    Exists,
-    Min,
-    Max,
-}
-
-// Internal aggregate output carrier. This stays executor-private.
-enum AggregateOutput<E: EntityKind> {
-    Count(u32),
-    Exists(bool),
-    Min(Option<Id<E>>),
-    Max(Option<Id<E>>),
-}
-
-#[derive(Clone, Copy)]
-enum FoldControl {
-    Continue,
-    Break,
-}
-
-#[derive(Clone, Copy)]
-enum AggregateFoldMode {
-    ExistingRows,
-    KeysOnly,
-}
-
-// Guard secondary aggregate fast-path assumptions so index-prefix
-// spec consumption cannot silently drift if planner shapes evolve.
-fn ensure_secondary_aggregate_fast_path_arity(
-    secondary_pushdown_eligible: bool,
-    index_prefix_spec_count: usize,
-) -> Result<(), InternalError> {
-    if secondary_pushdown_eligible && index_prefix_spec_count > 1 {
-        return Err(InternalError::query_executor_invariant(
-            "secondary aggregate fast-path expects at most one index-prefix spec",
-        ));
-    }
-
-    Ok(())
-}
-
-// Guard index-range aggregate fast-path assumptions so planner/executor
-// spec boundaries remain explicit and drift-resistant.
-fn ensure_index_range_aggregate_fast_path_specs(
-    index_range_pushdown_eligible: bool,
-    index_prefix_spec_count: usize,
-    index_range_spec_count: usize,
-) -> Result<(), InternalError> {
-    if !index_range_pushdown_eligible {
-        return Ok(());
-    }
-    if index_prefix_spec_count > 0 {
-        return Err(InternalError::query_executor_invariant(
-            "index-range aggregate fast-path must not consume index-prefix specs",
-        ));
-    }
-    if index_range_spec_count != 1 {
-        return Err(InternalError::query_executor_invariant(
-            "index-range aggregate fast-path expects exactly one index-range spec",
-        ));
-    }
-
-    Ok(())
-}
-
-///
-/// AggregateWindowState
-///
-/// AggregateWindowState
-///
-/// Tracks effective offset/limit progression for aggregate terminals.
-/// Windowing is applied after missing-row consistency handling so
-/// aggregate cardinality matches normal load materialization semantics.
-///
-
-struct AggregateWindowState {
-    offset_remaining: usize,
-    limit_remaining: Option<usize>,
-}
-
-impl AggregateWindowState {
-    fn from_plan(plan: &LogicalPlan<impl Copy>) -> Self {
-        let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
-        let limit = plan
-            .page
-            .as_ref()
-            .and_then(|page| page.limit)
-            .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
-
-        Self {
-            offset_remaining: offset,
-            limit_remaining: limit,
-        }
-    }
-
-    const fn exhausted(&self) -> bool {
-        matches!(self.limit_remaining, Some(0))
-    }
-
-    // Advance the window by one existing row and return whether the row
-    // is part of the effective output window.
-    const fn accept_existing_row(&mut self) -> bool {
-        if self.offset_remaining > 0 {
-            self.offset_remaining = self.offset_remaining.saturating_sub(1);
-            return false;
-        }
-
-        if let Some(remaining) = self.limit_remaining.as_mut() {
-            if *remaining == 0 {
-                return false;
-            }
-
-            *remaining = remaining.saturating_sub(1);
-        }
-
-        true
-    }
-}
 
 ///
 /// AggregateFastPathInputs
@@ -231,7 +114,9 @@ where
     ) -> Result<AggregateOutput<E>, InternalError> {
         // COUNT pushdown remains a strict subset of streaming eligibility.
         // Route it through key-only fold mode, not a separate streaming engine.
+        let composite_access_shape = is_composite_access_shape(&plan.as_inner().access);
         let count_pushdown_eligible = matches!(kind, AggregateKind::Count)
+            && !composite_access_shape
             && Self::is_count_pushdown_shape_supported(plan.as_inner());
         let fold_mode = if count_pushdown_eligible {
             AggregateFoldMode::KeysOnly
@@ -311,10 +196,12 @@ where
         let execution_inputs = ExecutionInputs {
             ctx: &ctx,
             plan: &logical_plan,
-            index_prefix_specs: index_prefix_specs.as_slice(),
-            index_range_specs: index_range_specs.as_slice(),
-            index_range_anchor: None,
-            direction,
+            stream_bindings: AccessStreamBindings {
+                index_prefix_specs: index_prefix_specs.as_slice(),
+                index_range_specs: index_range_specs.as_slice(),
+                index_range_anchor: None,
+                direction,
+            },
         };
 
         // Fast-path planning must be identical to load execution so aggregate
@@ -350,54 +237,74 @@ where
     fn try_fast_path_aggregate(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
-        // Aggregate-aware fast path for primary-key point/batch access shapes.
-        // This keeps semantics identical while avoiding generic stream setup.
-        if let Some((aggregate_output, rows_scanned)) =
-            Self::try_execute_primary_key_access_aggregate(
-                inputs.ctx,
-                inputs.logical_plan,
-                inputs.direction,
-                inputs.kind,
-            )?
-        {
-            return Ok(Some((aggregate_output, rows_scanned)));
-        }
-
-        // Aggregate-aware fast path for secondary index-prefix plans that are
-        // eligible for canonical order pushdown.
-        if let Some((aggregate_output, rows_scanned)) = Self::try_execute_index_prefix_aggregate(
-            inputs.ctx,
-            inputs.logical_plan,
-            inputs.index_prefix_specs,
-            inputs.direction,
-            inputs.kind,
-            inputs.fold_mode,
-        )? {
-            return Ok(Some((aggregate_output, rows_scanned)));
-        }
-
-        // Aggregate-aware fast path for primary-data range/full scans.
-        // This reuses canonical fold logic while skipping generic stream routing.
-        if inputs.physical_fetch_hint.is_some()
-            && let Some((aggregate_output, rows_scanned)) =
-                Self::try_execute_primary_scan_aggregate(
-                    inputs.ctx,
-                    inputs.logical_plan,
-                    inputs.direction,
-                    inputs.physical_fetch_hint,
-                    inputs.kind,
-                    inputs.fold_mode,
-                )?
-        {
-            return Ok(Some((aggregate_output, rows_scanned)));
-        }
-
-        // Aggregate-aware fast path for index-range plans using lowered
-        // byte-level range specs and shared fold semantics.
-        if let Some((aggregate_output, rows_scanned)) =
-            Self::try_execute_index_range_aggregate(inputs)?
-        {
-            return Ok(Some((aggregate_output, rows_scanned)));
+        for route in AGGREGATE_FAST_PATH_ORDER {
+            match route {
+                FastPathOrder::PrimaryKey => {
+                    // Aggregate-aware fast path for primary-key point/batch access shapes.
+                    // This keeps semantics identical while avoiding generic stream setup.
+                    if let Some((aggregate_output, rows_scanned)) =
+                        Self::try_execute_primary_key_access_aggregate(
+                            inputs.ctx,
+                            inputs.logical_plan,
+                            inputs.direction,
+                            inputs.kind,
+                        )?
+                    {
+                        return Ok(Some((aggregate_output, rows_scanned)));
+                    }
+                }
+                FastPathOrder::SecondaryPrefix => {
+                    // Aggregate-aware fast path for secondary index-prefix plans that are
+                    // eligible for canonical order pushdown.
+                    if let Some((aggregate_output, rows_scanned)) =
+                        Self::try_execute_index_prefix_aggregate(
+                            inputs.ctx,
+                            inputs.logical_plan,
+                            inputs.index_prefix_specs,
+                            inputs.direction,
+                            inputs.kind,
+                            inputs.fold_mode,
+                        )?
+                    {
+                        return Ok(Some((aggregate_output, rows_scanned)));
+                    }
+                }
+                FastPathOrder::PrimaryScan => {
+                    // Aggregate-aware fast path for primary-data range/full scans.
+                    // This reuses canonical fold logic while skipping generic stream routing.
+                    if inputs.physical_fetch_hint.is_some()
+                        && let Some((aggregate_output, rows_scanned)) =
+                            Self::try_execute_primary_scan_aggregate(
+                                inputs.ctx,
+                                inputs.logical_plan,
+                                inputs.direction,
+                                inputs.physical_fetch_hint,
+                                inputs.kind,
+                                inputs.fold_mode,
+                            )?
+                    {
+                        return Ok(Some((aggregate_output, rows_scanned)));
+                    }
+                }
+                FastPathOrder::IndexRange => {
+                    // Aggregate-aware fast path for index-range plans using lowered
+                    // byte-level range specs and shared fold semantics.
+                    if let Some((aggregate_output, rows_scanned)) =
+                        Self::try_execute_index_range_aggregate(inputs)?
+                    {
+                        return Ok(Some((aggregate_output, rows_scanned)));
+                    }
+                }
+                FastPathOrder::Composite => {
+                    // Aggregate-aware fast path for composite plans. This reuses canonical
+                    // composite stream construction and keeps aggregate folding shared.
+                    if let Some((aggregate_output, rows_scanned)) =
+                        Self::try_execute_composite_aggregate(inputs)?
+                    {
+                        return Ok(Some((aggregate_output, rows_scanned)));
+                    }
+                }
+            }
         }
 
         // Fast exit: effective limit == 0 has an empty aggregate window and can
@@ -458,6 +365,27 @@ where
         plan.is_streaming_access_shape_safe::<E>()
     }
 
+    // Composite aggregate fast-path eligibility must stay explicit and local:
+    // - composite access shape only (`Union` / `Intersection`)
+    // - no residual predicate filtering
+    // - no post-access reordering
+    // Unsupported shapes must fall back to canonical aggregate execution.
+    fn is_composite_aggregate_fast_path_eligible(plan: &LogicalPlan<E::Key>) -> bool {
+        if !is_composite_access_shape(&plan.access) {
+            return false;
+        }
+
+        let metadata = plan.budget_safety_metadata::<E>();
+        if metadata.has_residual_filter {
+            return false;
+        }
+        if metadata.requires_post_access_sort {
+            return false;
+        }
+
+        true
+    }
+
     // Pushdown safety must be narrower than general streaming safety.
     // Any additional COUNT pushdown constraints belong here.
     fn is_count_pushdown_shape_supported(plan: &LogicalPlan<E::Key>) -> bool {
@@ -473,9 +401,7 @@ where
     fn count_pushdown_access_shape_supported(access: &AccessPlan<E::Key>) -> bool {
         match access {
             AccessPlan::Path(path) => Self::count_pushdown_path_shape_supported(path),
-            AccessPlan::Union(children) | AccessPlan::Intersection(children) => children
-                .iter()
-                .all(Self::count_pushdown_access_shape_supported),
+            AccessPlan::Union(_) | AccessPlan::Intersection(_) => false,
         }
     }
 
@@ -751,243 +677,45 @@ where
         Ok(Some((aggregate_output, rows_scanned)))
     }
 
-    // Single streaming fold entry for all aggregate terminals.
-    // Key-only COUNT pushdown and row-aware terminals share this engine.
-    fn fold_streaming_aggregate(
-        ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
-        consistency: ReadConsistency,
-        direction: Direction,
-        key_stream: &mut dyn OrderedKeyStream,
-        kind: AggregateKind,
-        mode: AggregateFoldMode,
-    ) -> Result<(AggregateOutput<E>, usize), InternalError> {
-        let window = AggregateWindowState::from_plan(plan);
-
-        match kind {
-            AggregateKind::Count => {
-                let (count, keys_scanned) = Self::fold_streaming(
-                    ctx,
-                    consistency,
-                    key_stream,
-                    window,
-                    mode,
-                    0u32,
-                    |count, _key| {
-                        *count = count.saturating_add(1);
-                        Ok(FoldControl::Continue)
-                    },
-                )?;
-
-                Ok((AggregateOutput::Count(count), keys_scanned))
-            }
-            AggregateKind::Exists => {
-                let (exists, keys_scanned) = Self::fold_streaming(
-                    ctx,
-                    consistency,
-                    key_stream,
-                    window,
-                    mode,
-                    false,
-                    |exists, _key| {
-                        *exists = true;
-                        Ok(FoldControl::Break)
-                    },
-                )?;
-
-                Ok((AggregateOutput::Exists(exists), keys_scanned))
-            }
-            AggregateKind::Min => {
-                let (min_id, keys_scanned) = Self::fold_streaming(
-                    ctx,
-                    consistency,
-                    key_stream,
-                    window,
-                    mode,
-                    None::<Id<E>>,
-                    |min_id, key| {
-                        *min_id = Some(Id::from_key(key.try_key::<E>()?));
-                        if direction == Direction::Asc {
-                            return Ok(FoldControl::Break);
-                        }
-
-                        Ok(FoldControl::Continue)
-                    },
-                )?;
-
-                Ok((AggregateOutput::Min(min_id), keys_scanned))
-            }
-            AggregateKind::Max => {
-                let (max_id, keys_scanned) = Self::fold_streaming(
-                    ctx,
-                    consistency,
-                    key_stream,
-                    window,
-                    mode,
-                    None::<Id<E>>,
-                    |max_id, key| {
-                        *max_id = Some(Id::from_key(key.try_key::<E>()?));
-                        if direction == Direction::Desc {
-                            return Ok(FoldControl::Break);
-                        }
-
-                        Ok(FoldControl::Continue)
-                    },
-                )?;
-
-                Ok((AggregateOutput::Max(max_id), keys_scanned))
-            }
-        }
-    }
-
-    // Generic streaming fold loop used by all aggregate terminal reducers.
-    // `mode` controls whether keys require row-existence validation.
-    fn fold_streaming<S, F>(
-        ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
-        key_stream: &mut dyn OrderedKeyStream,
-        window: AggregateWindowState,
-        mode: AggregateFoldMode,
-        mut state: S,
-        mut apply: F,
-    ) -> Result<(S, usize), InternalError>
-    where
-        F: FnMut(&mut S, &DataKey) -> Result<FoldControl, InternalError>,
-    {
-        let mut window = window;
-        let mut keys_scanned = 0usize;
-
-        while !window.exhausted() {
-            let Some(key) = key_stream.next_key()? else {
-                break;
-            };
-
-            keys_scanned = keys_scanned.saturating_add(1);
-            if !Self::key_qualifies_for_fold(ctx, consistency, mode, &key)? {
-                continue;
-            }
-            if !window.accept_existing_row() {
-                continue;
-            }
-            if matches!(apply(&mut state, &key)?, FoldControl::Break) {
-                break;
-            }
+    // Resolve aggregate terminals directly for composite access plans by
+    // reusing canonical composite stream production.
+    fn try_execute_composite_aggregate(
+        inputs: &AggregateFastPathInputs<'_, '_, E>,
+    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
+        if !Self::is_composite_aggregate_fast_path_eligible(inputs.logical_plan) {
+            return Ok(None);
         }
 
-        Ok((state, keys_scanned))
-    }
-
-    // Determine whether a key is eligible for aggregate folding in the selected mode.
-    // Key-only mode is used by COUNT pushdown and intentionally skips row reads.
-    fn key_qualifies_for_fold(
-        ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
-        mode: AggregateFoldMode,
-        key: &DataKey,
-    ) -> Result<bool, InternalError> {
-        match mode {
-            AggregateFoldMode::KeysOnly => Ok(true),
-            AggregateFoldMode::ExistingRows => Self::row_exists_for_key(ctx, consistency, key),
-        }
-    }
-
-    // Keep read-consistency behavior aligned with row materialization paths.
-    fn row_exists_for_key(
-        ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
-        key: &DataKey,
-    ) -> Result<bool, InternalError> {
-        match consistency {
-            ReadConsistency::Strict => {
-                let _ = ctx.read_strict(key)?;
-
-                Ok(true)
-            }
-            ReadConsistency::MissingOk => match ctx.read(key) {
-                Ok(_) => Ok(true),
-                Err(err) if err.is_not_found() => Ok(false),
-                Err(err) => Err(err),
+        let stream_request = AccessPlanStreamRequest {
+            access: &inputs.logical_plan.access,
+            bindings: AccessStreamBindings {
+                index_prefix_specs: inputs.index_prefix_specs,
+                index_range_specs: inputs.index_range_specs,
+                index_range_anchor: None,
+                direction: inputs.direction,
             },
-        }
-    }
-}
+            key_comparator: super::key_stream_comparator_from_plan(
+                inputs.logical_plan,
+                inputs.direction,
+            ),
+            physical_fetch_hint: inputs.physical_fetch_hint,
+        };
+        let mut key_stream = inputs
+            .ctx
+            .ordered_key_stream_from_access_plan_with_index_range_anchor(stream_request)?;
 
-///
-/// TESTS
-///
+        // Composite paths must remain row-aware for COUNT in 0.24 scope.
+        let fold_mode = AggregateFoldMode::ExistingRows;
+        let (aggregate_output, keys_scanned) = Self::fold_streaming_aggregate(
+            inputs.ctx,
+            inputs.logical_plan,
+            inputs.logical_plan.consistency,
+            inputs.direction,
+            key_stream.as_mut(),
+            inputs.kind,
+            fold_mode,
+        )?;
 
-#[cfg(test)]
-mod tests {
-    use crate::error::ErrorClass;
-
-    #[test]
-    fn secondary_aggregate_fast_path_arity_accepts_single_prefix_spec() {
-        let result = super::ensure_secondary_aggregate_fast_path_arity(true, 1);
-
-        assert!(
-            result.is_ok(),
-            "single secondary prefix spec should be accepted"
-        );
-    }
-
-    #[test]
-    fn secondary_aggregate_fast_path_arity_rejects_multiple_prefix_specs() {
-        let err = super::ensure_secondary_aggregate_fast_path_arity(true, 2)
-            .expect_err("secondary aggregate fast-path must reject multiple prefix specs");
-
-        assert_eq!(
-            err.class,
-            ErrorClass::InvariantViolation,
-            "arity violation must classify as invariant violation"
-        );
-        assert!(
-            err.message
-                .contains("secondary aggregate fast-path expects at most one index-prefix spec"),
-            "arity violation must return a clear invariant message"
-        );
-    }
-
-    #[test]
-    fn index_range_aggregate_fast_path_specs_accept_exact_arity() {
-        let result = super::ensure_index_range_aggregate_fast_path_specs(true, 0, 1);
-
-        assert!(
-            result.is_ok(),
-            "index-range aggregate fast-path should accept one range spec and no prefix specs"
-        );
-    }
-
-    #[test]
-    fn index_range_aggregate_fast_path_specs_reject_prefix_spec_presence() {
-        let err = super::ensure_index_range_aggregate_fast_path_specs(true, 1, 1)
-            .expect_err("index-range aggregate fast-path must reject prefix specs");
-
-        assert_eq!(
-            err.class,
-            ErrorClass::InvariantViolation,
-            "prefix-spec violation must classify as invariant violation"
-        );
-        assert!(
-            err.message
-                .contains("index-range aggregate fast-path must not consume index-prefix specs"),
-            "prefix-spec violation must return a clear invariant message"
-        );
-    }
-
-    #[test]
-    fn index_range_aggregate_fast_path_specs_reject_non_exact_range_arity() {
-        let err = super::ensure_index_range_aggregate_fast_path_specs(true, 0, 2)
-            .expect_err("index-range aggregate fast-path must reject non-exact range arity");
-
-        assert_eq!(
-            err.class,
-            ErrorClass::InvariantViolation,
-            "range-arity violation must classify as invariant violation"
-        );
-        assert!(
-            err.message
-                .contains("index-range aggregate fast-path expects exactly one index-range spec"),
-            "range-arity violation must return a clear invariant message"
-        );
+        Ok(Some((aggregate_output, keys_scanned)))
     }
 }

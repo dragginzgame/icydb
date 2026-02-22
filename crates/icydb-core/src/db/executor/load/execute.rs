@@ -3,12 +3,17 @@ use crate::{
         Context,
         executor::load::{
             CursorPage, ExecutionOptimization, ExecutionTrace, FastPathKeyResult, LoadExecutor,
-            route::FastPathPlan,
+            aggregate_guard::{
+                ensure_prefix_spec_at_most_one_if_enabled, ensure_range_spec_at_most_one_if_enabled,
+            },
+            route::{FastPathOrder, FastPathPlan, LOAD_FAST_PATH_ORDER},
         },
         executor::plan::set_rows_from_len,
-        executor::{AccessPlanStreamRequest, DistinctOrderedKeyStream, OrderedKeyStreamBox},
-        index::RawIndexKey,
-        query::plan::{Direction, IndexPrefixSpec, IndexRangeSpec, LogicalPlan},
+        executor::{
+            AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
+            OrderedKeyStreamBox,
+        },
+        query::plan::LogicalPlan,
     },
     error::InternalError,
     obs::sink::Span,
@@ -25,10 +30,7 @@ use crate::{
 pub(super) struct ExecutionInputs<'a, E: EntityKind + EntityValue> {
     pub(super) ctx: &'a Context<'a, E>,
     pub(super) plan: &'a LogicalPlan<E::Key>,
-    pub(super) index_prefix_specs: &'a [IndexPrefixSpec],
-    pub(super) index_range_specs: &'a [IndexRangeSpec],
-    pub(super) index_range_anchor: Option<&'a RawIndexKey>,
-    pub(super) direction: Direction,
+    pub(super) stream_bindings: AccessStreamBindings<'a>,
 }
 
 ///
@@ -52,6 +54,11 @@ enum FastPathDecision {
     None,
 }
 
+const SECONDARY_FAST_PATH_PREFIX_ARITY_MESSAGE: &str =
+    "secondary fast-path resolution expects at most one index-prefix spec";
+const INDEX_RANGE_FAST_PATH_RANGE_ARITY_MESSAGE: &str =
+    "index-range fast-path resolution expects at most one index-range spec";
+
 // Enforce fast-path arity assumptions at runtime so `.first()`-based
 // resolution remains safe under future planner/eligibility changes.
 fn ensure_fast_path_spec_arity(
@@ -60,16 +67,16 @@ fn ensure_fast_path_spec_arity(
     index_range_limit_pushdown_enabled: bool,
     index_range_spec_count: usize,
 ) -> Result<(), InternalError> {
-    if secondary_pushdown_eligible && index_prefix_spec_count > 1 {
-        return Err(InternalError::query_executor_invariant(
-            "secondary fast-path resolution expects at most one index-prefix spec",
-        ));
-    }
-    if index_range_limit_pushdown_enabled && index_range_spec_count > 1 {
-        return Err(InternalError::query_executor_invariant(
-            "index-range fast-path resolution expects at most one index-range spec",
-        ));
-    }
+    ensure_prefix_spec_at_most_one_if_enabled(
+        secondary_pushdown_eligible,
+        index_prefix_spec_count,
+        SECONDARY_FAST_PATH_PREFIX_ARITY_MESSAGE,
+    )?;
+    ensure_range_spec_at_most_one_if_enabled(
+        index_range_limit_pushdown_enabled,
+        index_range_spec_count,
+        INDEX_RANGE_FAST_PATH_RANGE_ARITY_MESSAGE,
+    )?;
 
     Ok(())
 }
@@ -97,13 +104,10 @@ where
                 // Phase 2: resolve canonical fallback access stream.
                 let stream_request = AccessPlanStreamRequest {
                     access: &inputs.plan.access,
-                    index_prefix_specs: inputs.index_prefix_specs,
-                    index_range_specs: inputs.index_range_specs,
-                    index_range_anchor: inputs.index_range_anchor,
-                    direction: inputs.direction,
+                    bindings: inputs.stream_bindings,
                     key_comparator: super::key_stream_comparator_from_plan(
                         inputs.plan,
-                        inputs.direction,
+                        inputs.stream_bindings.direction,
                     ),
                     physical_fetch_hint: fast_path_plan.probe_fetch_hint,
                 };
@@ -134,40 +138,49 @@ where
             fast_path_plan
                 .secondary_pushdown_applicability
                 .is_eligible(),
-            inputs.index_prefix_specs.len(),
+            inputs.stream_bindings.index_prefix_specs.len(),
             fast_path_plan.index_range_limit_spec.is_some(),
-            inputs.index_range_specs.len(),
+            inputs.stream_bindings.index_range_specs.len(),
         )?;
 
-        if let Some(fast) = Self::try_execute_pk_order_stream(
-            inputs.ctx,
-            inputs.plan,
-            fast_path_plan.probe_fetch_hint,
-        )? {
-            return Ok(FastPathDecision::Pk(fast));
-        }
-
-        if let Some(fast) = Self::try_execute_secondary_index_order_stream(
-            inputs.ctx,
-            inputs.plan,
-            inputs.index_prefix_specs.first(),
-            &fast_path_plan.secondary_pushdown_applicability,
-            fast_path_plan.probe_fetch_hint,
-        )? {
-            return Ok(FastPathDecision::Secondary(fast));
-        }
-
-        if let Some(spec) = fast_path_plan.index_range_limit_spec.as_ref()
-            && let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
-                inputs.ctx,
-                inputs.plan,
-                inputs.index_range_specs.first(),
-                inputs.index_range_anchor,
-                inputs.direction,
-                spec.fetch,
-            )?
-        {
-            return Ok(FastPathDecision::IndexRange(fast));
+        for route in LOAD_FAST_PATH_ORDER {
+            match route {
+                FastPathOrder::PrimaryKey => {
+                    if let Some(fast) = Self::try_execute_pk_order_stream(
+                        inputs.ctx,
+                        inputs.plan,
+                        fast_path_plan.probe_fetch_hint,
+                    )? {
+                        return Ok(FastPathDecision::Pk(fast));
+                    }
+                }
+                FastPathOrder::SecondaryPrefix => {
+                    if let Some(fast) = Self::try_execute_secondary_index_order_stream(
+                        inputs.ctx,
+                        inputs.plan,
+                        inputs.stream_bindings.index_prefix_specs.first(),
+                        &fast_path_plan.secondary_pushdown_applicability,
+                        fast_path_plan.probe_fetch_hint,
+                    )? {
+                        return Ok(FastPathDecision::Secondary(fast));
+                    }
+                }
+                FastPathOrder::IndexRange => {
+                    if let Some(spec) = fast_path_plan.index_range_limit_spec.as_ref()
+                        && let Some(fast) = Self::try_execute_index_range_limit_pushdown_stream(
+                            inputs.ctx,
+                            inputs.plan,
+                            inputs.stream_bindings.index_range_specs.first(),
+                            inputs.stream_bindings.index_range_anchor,
+                            inputs.stream_bindings.direction,
+                            spec.fetch,
+                        )?
+                    {
+                        return Ok(FastPathDecision::IndexRange(fast));
+                    }
+                }
+                FastPathOrder::PrimaryScan | FastPathOrder::Composite => {}
+            }
         }
 
         Ok(FastPathDecision::None)

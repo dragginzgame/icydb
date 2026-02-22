@@ -1,4 +1,5 @@
 mod aggregate;
+mod aggregate_guard;
 mod execute;
 mod index_range_limit;
 mod page;
@@ -15,7 +16,7 @@ use crate::{
     db::{
         Db,
         executor::{
-            KeyOrderComparator, OrderedKeyStreamBox,
+            AccessStreamBindings, KeyOrderComparator, OrderedKeyStreamBox,
             plan::{record_plan_metrics, record_rows_scanned},
         },
         query::plan::{
@@ -232,10 +233,12 @@ where
             let execution_inputs = ExecutionInputs {
                 ctx: &ctx,
                 plan: &plan,
-                index_prefix_specs: index_prefix_specs.as_slice(),
-                index_range_specs: index_range_specs.as_slice(),
-                index_range_anchor: index_range_anchor.as_ref(),
-                direction,
+                stream_bindings: AccessStreamBindings {
+                    index_prefix_specs: index_prefix_specs.as_slice(),
+                    index_range_specs: index_range_specs.as_slice(),
+                    index_range_anchor: index_range_anchor.as_ref(),
+                    direction,
+                },
             };
 
             record_plan_metrics(&plan.access);

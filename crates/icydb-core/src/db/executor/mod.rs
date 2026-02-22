@@ -2,6 +2,7 @@ mod composite_stream;
 mod context;
 mod delete;
 mod direction;
+mod fold;
 mod load;
 mod mutation;
 mod ordered_key_stream;

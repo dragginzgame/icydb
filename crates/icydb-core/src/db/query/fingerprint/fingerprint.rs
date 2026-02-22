@@ -2,7 +2,10 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use super::ExplainPlan;
-use crate::{db::query::plan::hash_parts, traits::FieldValue};
+use crate::{
+    db::{codec::cursor::encode_cursor, query::plan::hash_parts},
+    traits::FieldValue,
+};
 use sha2::{Digest, Sha256};
 
 ///
@@ -17,7 +20,7 @@ pub struct PlanFingerprint([u8; 32]);
 impl PlanFingerprint {
     #[must_use]
     pub fn as_hex(&self) -> String {
-        super::encode_plan_hex(&self.0)
+        encode_cursor(&self.0)
     }
 }
 

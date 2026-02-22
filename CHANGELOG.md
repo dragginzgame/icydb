@@ -5,6 +5,38 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.24.0] – 2026-02-21 - Composite Aggregate Direct Path
+
+### 📝 Summary
+
+* Aggregate queries over combined query shapes now use a faster execution route.
+* Query results stay the same, but these aggregate reads do less internal work.
+
+### 🔧 Changed
+
+* Added direct aggregate handling for combined query plans (such as unions and intersections).
+* Kept aggregate behavior aligned with existing fallback behavior, including count semantics.
+* Unified route priority so load and aggregate execution follow the same ordering rules.
+
+### 🧹 Cleanup
+
+* Moved aggregate fold internals into a dedicated executor module to reduce complexity.
+* Reused shared guard and binding helpers so load and aggregate paths enforce the same checks.
+* Consolidated index-range eligibility mapping behind one shared helper.
+
+### 🧪 Testing
+
+* Added regressions to confirm the direct path matches fallback aggregate results.
+* Added focused tests for route-priority ordering and aggregate guard checks.
+
+### 🛣️ Roadmap
+
+* This release opens the `0.24.x` line with a stability-first foundation for aggregate query execution.
+* The goal is to speed up common aggregate reads now while keeping behavior predictable and unchanged for users.
+* It unlocks a cleaner next step: adding more aggregate performance work on top of one shared execution path instead of growing separate code paths.
+
+---
+
 ## [0.23.6] – 2026-02-21 - IndexRange Aggregate Direct Path
 
 ### 📝 Summary

@@ -236,10 +236,9 @@ fn id_in_predicate(ids: &[u128]) -> Predicate {
 fn explain_access_supports_count_pushdown(access: &ExplainAccessPath) -> bool {
     match access {
         ExplainAccessPath::FullScan | ExplainAccessPath::KeyRange { .. } => true,
-        ExplainAccessPath::Union(children) | ExplainAccessPath::Intersection(children) => {
-            children.iter().all(explain_access_supports_count_pushdown)
-        }
-        ExplainAccessPath::ByKey { .. }
+        ExplainAccessPath::Union(_)
+        | ExplainAccessPath::Intersection(_)
+        | ExplainAccessPath::ByKey { .. }
         | ExplainAccessPath::ByKeys { .. }
         | ExplainAccessPath::IndexPrefix { .. }
         | ExplainAccessPath::IndexRange { .. } => false,
@@ -676,6 +675,203 @@ fn aggregate_parity_union_and_intersection_paths() {
                 .limit(2)
         },
         "intersection path",
+    );
+}
+
+#[test]
+fn aggregate_composite_count_direct_path_scan_does_not_exceed_fallback() {
+    seed_phase_entities(&[
+        (8751, 10),
+        (8752, 20),
+        (8753, 30),
+        (8754, 40),
+        (8755, 50),
+        (8756, 60),
+    ]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+
+    let build_composite_count_plan = |order_field: &str| {
+        let first = vec![
+            Ulid::from_u128(8751),
+            Ulid::from_u128(8752),
+            Ulid::from_u128(8753),
+            Ulid::from_u128(8754),
+        ];
+        let second = vec![
+            Ulid::from_u128(8753),
+            Ulid::from_u128(8754),
+            Ulid::from_u128(8755),
+            Ulid::from_u128(8756),
+        ];
+        let access = crate::db::query::plan::AccessPlan::Union(vec![
+            crate::db::query::plan::AccessPlan::path(crate::db::query::plan::AccessPath::ByKeys(
+                first,
+            )),
+            crate::db::query::plan::AccessPlan::path(crate::db::query::plan::AccessPath::ByKeys(
+                second,
+            )),
+        ]);
+        let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
+            crate::db::query::plan::AccessPath::FullScan,
+            ReadConsistency::MissingOk,
+        );
+        logical_plan.access = access;
+        logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+            fields: vec![(
+                order_field.to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            )],
+        });
+
+        crate::db::query::plan::ExecutablePlan::<PhaseEntity>::new(logical_plan)
+    };
+
+    let direct_plan = build_composite_count_plan("id");
+    assert!(
+        direct_plan
+            .as_inner()
+            .is_streaming_access_shape_safe::<PhaseEntity>(),
+        "direct composite COUNT shape should be streaming-safe"
+    );
+    assert!(
+        matches!(
+            direct_plan.explain().access,
+            ExplainAccessPath::Union(_) | ExplainAccessPath::Intersection(_)
+        ),
+        "direct COUNT shape should compile to a composite access path"
+    );
+
+    let fallback_plan = build_composite_count_plan("label");
+    assert!(
+        !fallback_plan
+            .as_inner()
+            .is_streaming_access_shape_safe::<PhaseEntity>(),
+        "fallback composite COUNT shape should be streaming-unsafe"
+    );
+    assert!(
+        matches!(
+            fallback_plan.explain().access,
+            ExplainAccessPath::Union(_) | ExplainAccessPath::Intersection(_)
+        ),
+        "fallback COUNT shape should still compile to a composite access path"
+    );
+
+    let (direct_count, direct_scanned) = capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
+        load.aggregate_count(direct_plan)
+            .expect("direct composite COUNT should succeed")
+    });
+    let (fallback_count, fallback_scanned) =
+        capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
+            load.aggregate_count(fallback_plan)
+                .expect("fallback composite COUNT should succeed")
+        });
+
+    assert_eq!(
+        direct_count, fallback_count,
+        "composite direct/fallback COUNT should preserve count parity"
+    );
+    assert!(
+        direct_scanned <= fallback_scanned,
+        "composite direct COUNT should not scan more rows than fallback for equivalent composite filter"
+    );
+}
+
+#[test]
+fn aggregate_composite_exists_direct_path_scan_does_not_exceed_fallback() {
+    seed_phase_entities(&[
+        (8761, 10),
+        (8762, 20),
+        (8763, 30),
+        (8764, 40),
+        (8765, 50),
+        (8766, 60),
+    ]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+
+    let build_composite_exists_plan = |order_field: &str| {
+        let first = vec![
+            Ulid::from_u128(8761),
+            Ulid::from_u128(8762),
+            Ulid::from_u128(8763),
+            Ulid::from_u128(8764),
+        ];
+        let second = vec![
+            Ulid::from_u128(8763),
+            Ulid::from_u128(8764),
+            Ulid::from_u128(8765),
+            Ulid::from_u128(8766),
+        ];
+        let access = crate::db::query::plan::AccessPlan::Union(vec![
+            crate::db::query::plan::AccessPlan::path(crate::db::query::plan::AccessPath::ByKeys(
+                first,
+            )),
+            crate::db::query::plan::AccessPlan::path(crate::db::query::plan::AccessPath::ByKeys(
+                second,
+            )),
+        ]);
+        let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
+            crate::db::query::plan::AccessPath::FullScan,
+            ReadConsistency::MissingOk,
+        );
+        logical_plan.access = access;
+        logical_plan.order = Some(crate::db::query::plan::OrderSpec {
+            fields: vec![(
+                order_field.to_string(),
+                crate::db::query::plan::OrderDirection::Asc,
+            )],
+        });
+
+        crate::db::query::plan::ExecutablePlan::<PhaseEntity>::new(logical_plan)
+    };
+
+    let direct_plan = build_composite_exists_plan("id");
+    assert!(
+        direct_plan
+            .as_inner()
+            .is_streaming_access_shape_safe::<PhaseEntity>(),
+        "direct composite EXISTS shape should be streaming-safe"
+    );
+    assert!(
+        matches!(
+            direct_plan.explain().access,
+            ExplainAccessPath::Union(_) | ExplainAccessPath::Intersection(_)
+        ),
+        "direct EXISTS shape should compile to a composite access path"
+    );
+
+    let fallback_plan = build_composite_exists_plan("label");
+    assert!(
+        !fallback_plan
+            .as_inner()
+            .is_streaming_access_shape_safe::<PhaseEntity>(),
+        "fallback composite EXISTS shape should be streaming-unsafe"
+    );
+    assert!(
+        matches!(
+            fallback_plan.explain().access,
+            ExplainAccessPath::Union(_) | ExplainAccessPath::Intersection(_)
+        ),
+        "fallback EXISTS shape should still compile to a composite access path"
+    );
+
+    let (direct_exists, direct_scanned) =
+        capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
+            load.aggregate_exists(direct_plan)
+                .expect("direct composite EXISTS should succeed")
+        });
+    let (fallback_exists, fallback_scanned) =
+        capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
+            load.aggregate_exists(fallback_plan)
+                .expect("fallback composite EXISTS should succeed")
+        });
+
+    assert_eq!(
+        direct_exists, fallback_exists,
+        "composite direct/fallback EXISTS should preserve parity"
+    );
+    assert!(
+        direct_scanned <= fallback_scanned,
+        "composite direct EXISTS should not scan more rows than fallback for equivalent composite filter"
     );
 }
 
@@ -1151,6 +1347,7 @@ fn aggregate_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_max() 
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
     // Case A: full-scan ordered shape should be count-pushdown eligible.
     seed_simple_entities(&[9701, 9702, 9703, 9704, 9705]);
@@ -1228,5 +1425,37 @@ fn aggregate_count_pushdown_contract_matrix_preserves_parity() {
         &pushdown_load,
         secondary_index_query,
         "count matrix secondary-index",
+    );
+
+    // Case D: composite (OR) shape must remain ineligible for count pushdown.
+    seed_simple_entities(&[9951, 9952, 9953, 9954, 9955, 9956]);
+    let composite_load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let composite_predicate = Predicate::Or(vec![
+        id_in_predicate(&[9951, 9952, 9953, 9954]),
+        id_in_predicate(&[9953, 9954, 9955, 9956]),
+    ]);
+    let composite_query = || {
+        Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            .filter(composite_predicate.clone())
+            .order_by("id")
+    };
+    let composite_plan = composite_query()
+        .plan()
+        .expect("composite count matrix plan should build");
+    assert!(
+        matches!(
+            composite_plan.explain().access,
+            ExplainAccessPath::Union(_) | ExplainAccessPath::Intersection(_)
+        ),
+        "composite count matrix shape should compile to a composite access plan"
+    );
+    assert!(
+        !count_pushdown_contract_eligible(&composite_plan),
+        "composite count matrix shape must not be count-pushdown eligible"
+    );
+    assert_count_parity_for_query(
+        &composite_load,
+        composite_query,
+        "count matrix composite OR",
     );
 }

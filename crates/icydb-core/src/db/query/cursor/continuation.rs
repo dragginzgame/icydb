@@ -1,10 +1,11 @@
 //! Continuation signature for cursor pagination compatibility checks.
 use super::{
     CursorBoundary, CursorBoundarySlot, CursorPlanError, Direction, ExplainPlan, OrderPlanError,
-    OrderSpec, PlanError, encode_plan_hex,
+    OrderSpec, PlanError,
 };
 use crate::{
     db::{
+        codec::cursor::encode_cursor,
         index::RawIndexKey,
         query::{plan::hash_parts, predicate::SchemaInfo},
     },
@@ -40,7 +41,7 @@ impl ContinuationSignature {
 
     #[must_use]
     pub fn as_hex(&self) -> String {
-        encode_plan_hex(&self.0)
+        encode_cursor(&self.0)
     }
 }
 

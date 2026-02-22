@@ -23,6 +23,36 @@ pub(super) struct FastPathPlan {
     pub(super) probe_fetch_hint: Option<usize>,
 }
 
+///
+/// FastPathOrder
+///
+/// Shared fast-path precedence model used by load and aggregate routing.
+/// Routing implementations remain separate, but they iterate one canonical order.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum FastPathOrder {
+    PrimaryKey,
+    SecondaryPrefix,
+    PrimaryScan,
+    IndexRange,
+    Composite,
+}
+
+pub(super) const LOAD_FAST_PATH_ORDER: [FastPathOrder; 3] = [
+    FastPathOrder::PrimaryKey,
+    FastPathOrder::SecondaryPrefix,
+    FastPathOrder::IndexRange,
+];
+
+pub(super) const AGGREGATE_FAST_PATH_ORDER: [FastPathOrder; 5] = [
+    FastPathOrder::PrimaryKey,
+    FastPathOrder::SecondaryPrefix,
+    FastPathOrder::PrimaryScan,
+    FastPathOrder::IndexRange,
+    FastPathOrder::Composite,
+];
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -37,9 +67,11 @@ where
         Self::validate_pk_fast_path_boundary_if_applicable(plan, cursor_boundary)?;
 
         Ok(FastPathPlan {
-            secondary_pushdown_applicability: Self::assess_secondary_order_pushdown_applicability(
-                plan,
-            ),
+            secondary_pushdown_applicability:
+                crate::db::query::plan::validate::assess_secondary_order_pushdown_if_applicable_validated(
+                    E::MODEL,
+                    plan,
+                ),
             index_range_limit_spec: Self::assess_index_range_limit_pushdown(
                 plan,
                 cursor_boundary,
@@ -48,17 +80,6 @@ where
             ),
             probe_fetch_hint,
         })
-    }
-
-    // Assess secondary-index ORDER BY pushdown once for this execution and
-    // map matrix outcomes to executor decisions.
-    fn assess_secondary_order_pushdown_applicability(
-        plan: &LogicalPlan<E::Key>,
-    ) -> PushdownApplicability {
-        crate::db::query::plan::validate::assess_secondary_order_pushdown_if_applicable_validated(
-            E::MODEL,
-            plan,
-        )
     }
 
     // Assess index-range limit pushdown once for this execution and produce
@@ -89,5 +110,44 @@ where
             .fetch_count;
 
         Some(IndexRangeLimitSpec { fetch })
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::db::executor::load::route::{
+        AGGREGATE_FAST_PATH_ORDER, FastPathOrder, LOAD_FAST_PATH_ORDER,
+    };
+
+    #[test]
+    fn load_fast_path_order_matches_expected_precedence() {
+        assert_eq!(
+            LOAD_FAST_PATH_ORDER,
+            [
+                FastPathOrder::PrimaryKey,
+                FastPathOrder::SecondaryPrefix,
+                FastPathOrder::IndexRange,
+            ],
+            "load fast-path precedence must stay stable"
+        );
+    }
+
+    #[test]
+    fn aggregate_fast_path_order_matches_expected_precedence() {
+        assert_eq!(
+            AGGREGATE_FAST_PATH_ORDER,
+            [
+                FastPathOrder::PrimaryKey,
+                FastPathOrder::SecondaryPrefix,
+                FastPathOrder::PrimaryScan,
+                FastPathOrder::IndexRange,
+                FastPathOrder::Composite,
+            ],
+            "aggregate fast-path precedence must stay stable"
+        );
     }
 }

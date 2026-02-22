@@ -66,6 +66,7 @@ Focus: simplify the numeric core while preserving deterministic query semantics.
 - Replace `E8s`/`E18s` split paths with a single owned decimal path and schema-level scale enforcement.
 - Remove external decimal dependency as part of the `0.23` consolidation.
 - Add aggregate-aware fast paths where behavior is provably equivalent.
+- Ship `0.24` composite aggregate direct-path routing with parity-first safeguards and canonical fallback guarantees.
 - Continue cursor and continuation hardening, including stronger envelope/signature boundaries.
 - Advance data-integrity hardening for replay safety, migration safety, and corruption detection tooling.
 

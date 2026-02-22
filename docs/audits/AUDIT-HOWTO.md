@@ -103,16 +103,30 @@ For each audit:
 3. Do not modify the prompt mid-run.
 4. Do not mix multiple audits into one output.
 5. Do not summarize findings prematurely.
+6. Immediately create or update that date folder's `summary.md` after the audit completes.
+7. Update `summary.md` after **every** audit run on that date (not only at end-of-day).
 
 For each audit date folder (once per day):
 
-6. Run a codebase size snapshot from the workspace `crates/` directory:
+8. Run codebase size snapshots from the workspace `crates/` directory, separating `tests.rs` from non-test files whenever possible:
 
 ```
-cd crates && cloc .
+cd crates
+cloc . --not-match-f='(^|/)tests\.rs$'
+cloc . --match-f='(^|/)tests\.rs$'
 ```
 
-7. Save the resulting counts in that date folder's `summary.md`.
+9. Save both snapshots in that date folder's `summary.md`:
+   - non-test snapshot (`--not-match-f='(^|/)tests\.rs$'`)
+   - `tests.rs` snapshot (`--match-f='(^|/)tests\.rs$'`)
+   - optional combined total if needed for trend continuity
+10. Capture the current Rust test count with:
+
+```
+rg -o '#\\[(tokio::)?test\\]' crates --glob '*.rs' | wc -l
+```
+
+11. Save the resulting test count in that date folder's `summary.md`.
 
 Each audit must produce:
 
@@ -161,6 +175,11 @@ Each dated directory must include:
 ```
 summary.md
 ```
+
+`summary.md` is a rolling artifact for that date folder:
+- It MUST be created on the first audit run of the day.
+- It MUST be updated after each subsequent audit run the same day.
+- It MUST always reflect the latest completed audit state for that date.
 
 Format template:
 
@@ -224,13 +243,16 @@ Taxonomy
 - Score: X/10
 - Run Context: ...
 
-Codebase Size Snapshot (`cd crates && cloc .`):
-- Rust: files=..., blank=..., comment=..., code=...
-- SUM: files=..., blank=..., comment=..., code=...
+Codebase Size Snapshot (split `cloc` runs):
+- Non-test Rust (`cd crates && cloc . --not-match-f='(^|/)tests\.rs$'`): files=..., blank=..., comment=..., code=...
+- `tests.rs` only (`cd crates && cloc . --match-f='(^|/)tests\.rs$'`): files=..., blank=..., comment=..., code=...
+- Optional combined total (if reported): files=..., blank=..., comment=..., code=...
 
 Structural Stress Metrics:
-- AccessPath fan-out count (non-test db files): ...
+- AccessPath fan-out count (non-test db files, `rg -l "AccessPath::" crates/icydb-core/src/db --glob '!**/tests/**' --glob '!**/tests.rs' | wc -l`): ...
+- AccessPath token references (non-test db files, `rg -n "AccessPath::" crates/icydb-core/src/db --glob '!**/tests/**' --glob '!**/tests.rs' | wc -l`): ...
 - PlanError variants: ...
+- Test count (`rg -o '#\\[(tokio::)?test\\]' crates --glob '*.rs' | wc -l`): ...
 
 Notable Changes Since Previous Audit:
 - +1 AccessPath variant
@@ -252,6 +274,11 @@ Drift Signals:
 `Risk Index Summary` must include both, in this order:
 - `## Risk Index Summary` (table)
 - `## Risk Index Summary (Vertical Format)` (one block per index)
+
+`Risk Index Summary` table formatting is strict:
+- Use padded spaces so raw markdown columns are visually aligned.
+- Use the exact header names (`Risk Index`, `Score`, `Run Context`).
+- Keep score cells width-aligned (`X/10` style).
 
 Vertical blocks must use this exact shape:
 - `<Risk Index Name>`

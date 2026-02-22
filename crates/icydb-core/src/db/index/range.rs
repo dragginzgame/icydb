@@ -37,6 +37,18 @@ pub(in crate::db) enum IndexRangeBoundEncodeError {
 }
 
 ///
+/// IndexRangeNotIndexableReasonScope
+///
+/// Context scopes for stable index-range "not indexable" reason strings.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum IndexRangeNotIndexableReasonScope {
+    ValidatedSpec,
+    CursorContinuationAnchor,
+}
+
+///
 /// map_bound_encode_error
 ///
 /// Map a bound-encode variant to the caller-provided reason string for that
@@ -54,6 +66,34 @@ pub(in crate::db) const fn map_bound_encode_error(
         IndexRangeBoundEncodeError::Prefix => prefix_reason,
         IndexRangeBoundEncodeError::Lower => lower_reason,
         IndexRangeBoundEncodeError::Upper => upper_reason,
+    }
+}
+
+///
+/// map_index_range_not_indexable_reason
+///
+/// Map a bound-encode variant to stable, scope-specific "not indexable" reasons.
+/// This keeps reason text aligned across planner/cursor boundaries.
+///
+
+#[must_use]
+pub(in crate::db) const fn map_index_range_not_indexable_reason(
+    scope: IndexRangeNotIndexableReasonScope,
+    err: IndexRangeBoundEncodeError,
+) -> &'static str {
+    match scope {
+        IndexRangeNotIndexableReasonScope::ValidatedSpec => map_bound_encode_error(
+            err,
+            "validated index-range prefix is not indexable",
+            "validated index-range lower bound is not indexable",
+            "validated index-range upper bound is not indexable",
+        ),
+        IndexRangeNotIndexableReasonScope::CursorContinuationAnchor => map_bound_encode_error(
+            err,
+            "index-range continuation anchor prefix is not indexable",
+            "index-range cursor lower continuation bound is not indexable",
+            "index-range cursor upper continuation bound is not indexable",
+        ),
     }
 }
 

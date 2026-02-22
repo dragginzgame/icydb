@@ -1,8 +1,8 @@
 use crate::{
     db::{
         index::{
-            Direction, EncodedValue, RawIndexKey, map_bound_encode_error,
-            raw_keys_for_encoded_prefix,
+            Direction, EncodedValue, IndexRangeNotIndexableReasonScope, RawIndexKey,
+            map_index_range_not_indexable_reason, raw_keys_for_encoded_prefix,
         },
         query::{
             intent::QueryMode,
@@ -21,11 +21,6 @@ use crate::{
 };
 use std::{marker::PhantomData, ops::Bound};
 
-const INDEX_RANGE_SPEC_PREFIX_NOT_INDEXABLE: &str = "validated index-range prefix is not indexable";
-const INDEX_RANGE_SPEC_LOWER_NOT_INDEXABLE: &str =
-    "validated index-range lower bound is not indexable";
-const INDEX_RANGE_SPEC_UPPER_NOT_INDEXABLE: &str =
-    "validated index-range upper bound is not indexable";
 const INDEX_RANGE_SPEC_INVALID: &str =
     "validated index-range plan could not be lowered to raw bounds";
 const INDEX_PREFIX_SPEC_VALUE_NOT_INDEXABLE: &str = "validated index-prefix value is not indexable";
@@ -454,12 +449,12 @@ impl<E: EntityKind> ExecutablePlan<E> {
                         index, prefix, lower, upper,
                     )
                     .map_err(|err| {
-                        InternalError::query_executor_invariant(map_bound_encode_error(
-                            err,
-                            INDEX_RANGE_SPEC_PREFIX_NOT_INDEXABLE,
-                            INDEX_RANGE_SPEC_LOWER_NOT_INDEXABLE,
-                            INDEX_RANGE_SPEC_UPPER_NOT_INDEXABLE,
-                        ))
+                        InternalError::query_executor_invariant(
+                            map_index_range_not_indexable_reason(
+                                IndexRangeNotIndexableReasonScope::ValidatedSpec,
+                                err,
+                            ),
+                        )
                     })?;
                     specs.push(IndexRangeSpec::new(*index, lower, upper));
                 }

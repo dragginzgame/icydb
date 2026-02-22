@@ -98,7 +98,7 @@ impl AccessPath<Value> {
                     );
                     return Ordering::Equal;
                 };
-                canonical_cmp_value(left_key, right_key)
+                Value::canonical_cmp(left_key, right_key)
             }
             Self::ByKeys(left_keys) => {
                 let Self::ByKeys(right_keys) = right else {
@@ -128,11 +128,11 @@ impl AccessPath<Value> {
                     return Ordering::Equal;
                 };
 
-                let cmp = canonical_cmp_value(left_start, right_start);
+                let cmp = Value::canonical_cmp(left_start, right_start);
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
-                canonical_cmp_value(left_end, right_end)
+                Value::canonical_cmp(left_end, right_end)
             }
             Self::IndexPrefix {
                 index: left_index,
@@ -268,19 +268,15 @@ fn canonical_cmp_value_list(left: &[Value], right: &[Value]) -> Ordering {
     left.len().cmp(&right.len())
 }
 
-fn canonical_cmp_value(left: &Value, right: &Value) -> Ordering {
-    Value::canonical_cmp(left, right)
-}
-
 fn canonical_cmp_value_bound(left: &Bound<Value>, right: &Bound<Value>) -> Ordering {
     match (left, right) {
         (Bound::Unbounded, Bound::Unbounded) => Ordering::Equal,
         (Bound::Unbounded, _) => Ordering::Less,
         (_, Bound::Unbounded) => Ordering::Greater,
         (Bound::Included(left), Bound::Included(right))
-        | (Bound::Excluded(left), Bound::Excluded(right)) => canonical_cmp_value(left, right),
+        | (Bound::Excluded(left), Bound::Excluded(right)) => Value::canonical_cmp(left, right),
         (Bound::Included(left), Bound::Excluded(right)) => {
-            let cmp = canonical_cmp_value(left, right);
+            let cmp = Value::canonical_cmp(left, right);
             if cmp == Ordering::Equal {
                 Ordering::Less
             } else {
@@ -288,7 +284,7 @@ fn canonical_cmp_value_bound(left: &Bound<Value>, right: &Bound<Value>) -> Order
             }
         }
         (Bound::Excluded(left), Bound::Included(right)) => {
-            let cmp = canonical_cmp_value(left, right);
+            let cmp = Value::canonical_cmp(left, right);
             if cmp == Ordering::Equal {
                 Ordering::Greater
             } else {
