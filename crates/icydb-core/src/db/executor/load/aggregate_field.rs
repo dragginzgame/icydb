@@ -1,0 +1,443 @@
+use crate::{
+    db::query::plan::Direction,
+    model::{
+        entity::EntityModel,
+        field::{FieldKind, FieldModel},
+    },
+    traits::{EntityKind, EntityValue},
+    value::Value,
+};
+use std::cmp::Ordering;
+use thiserror::Error as ThisError;
+
+///
+/// AggregateFieldValueError
+///
+/// Typed field-aggregate extraction/comparison errors used by aggregate
+/// field-value helpers. These remain internal while field aggregates are scaffolded.
+///
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Debug, ThisError)]
+pub(in crate::db::executor) enum AggregateFieldValueError {
+    #[error("unknown aggregate target field: {field}")]
+    UnknownField { field: String },
+
+    #[error("aggregate target field does not support ordering: {field} kind={kind:?}")]
+    UnsupportedFieldKind { field: String, kind: FieldKind },
+
+    #[error("aggregate target field value missing on entity: {field}")]
+    MissingFieldValue { field: String },
+
+    #[error("aggregate target field value type mismatch: {field} kind={kind:?} value={value:?}")]
+    FieldValueTypeMismatch {
+        field: String,
+        kind: FieldKind,
+        value: Box<Value>,
+    },
+
+    #[error(
+        "aggregate target field values are incomparable under strict ordering: {field} left={left:?} right={right:?}"
+    )]
+    IncomparableFieldValues {
+        field: String,
+        left: Box<Value>,
+        right: Box<Value>,
+    },
+}
+
+// Resolve one field model entry by name from an entity model.
+fn field_model_by_name<'a>(model: &'a EntityModel, field: &str) -> Option<&'a FieldModel> {
+    model
+        .fields
+        .iter()
+        .find(|candidate| candidate.name == field)
+}
+
+// Return true when one runtime value matches the declared field kind shape.
+#[allow(clippy::too_many_lines)]
+#[cfg_attr(not(test), allow(dead_code))]
+fn field_kind_matches_value(kind: &FieldKind, value: &Value) -> bool {
+    match (kind, value) {
+        (FieldKind::Account, Value::Account(_))
+        | (FieldKind::Blob, Value::Blob(_))
+        | (FieldKind::Bool, Value::Bool(_))
+        | (FieldKind::Date, Value::Date(_))
+        | (FieldKind::Decimal { .. }, Value::Decimal(_))
+        | (FieldKind::Duration, Value::Duration(_))
+        | (FieldKind::Enum { .. }, Value::Enum(_))
+        | (FieldKind::Float32, Value::Float32(_))
+        | (FieldKind::Float64, Value::Float64(_))
+        | (FieldKind::Int, Value::Int(_))
+        | (FieldKind::Int128, Value::Int128(_))
+        | (FieldKind::IntBig, Value::IntBig(_))
+        | (FieldKind::Principal, Value::Principal(_))
+        | (FieldKind::Subaccount, Value::Subaccount(_))
+        | (FieldKind::Text, Value::Text(_))
+        | (FieldKind::Timestamp, Value::Timestamp(_))
+        | (FieldKind::Uint, Value::Uint(_))
+        | (FieldKind::Uint128, Value::Uint128(_))
+        | (FieldKind::UintBig, Value::UintBig(_))
+        | (FieldKind::Ulid, Value::Ulid(_))
+        | (FieldKind::Unit, Value::Unit)
+        | (FieldKind::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
+        (FieldKind::Relation { key_kind, .. }, value) => field_kind_matches_value(key_kind, value),
+        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => items
+            .iter()
+            .all(|item| field_kind_matches_value(inner, item)),
+        (FieldKind::Map { key, value }, Value::Map(entries)) => {
+            entries.iter().all(|(entry_key, entry_value)| {
+                field_kind_matches_value(key, entry_key)
+                    && field_kind_matches_value(value, entry_value)
+            })
+        }
+        _ => false,
+    }
+}
+
+/// Return true when the field kind is eligible for deterministic aggregate ordering.
+#[must_use]
+pub(in crate::db::executor) const fn field_kind_supports_aggregate_ordering(
+    kind: &FieldKind,
+) -> bool {
+    match kind {
+        FieldKind::Account
+        | FieldKind::Bool
+        | FieldKind::Date
+        | FieldKind::Decimal { .. }
+        | FieldKind::Duration
+        | FieldKind::Enum { .. }
+        | FieldKind::Float32
+        | FieldKind::Float64
+        | FieldKind::Int
+        | FieldKind::Int128
+        | FieldKind::IntBig
+        | FieldKind::Principal
+        | FieldKind::Subaccount
+        | FieldKind::Text
+        | FieldKind::Timestamp
+        | FieldKind::Uint
+        | FieldKind::Uint128
+        | FieldKind::UintBig
+        | FieldKind::Ulid
+        | FieldKind::Unit => true,
+        FieldKind::Relation { key_kind, .. } => field_kind_supports_aggregate_ordering(key_kind),
+        FieldKind::Blob
+        | FieldKind::List(_)
+        | FieldKind::Set(_)
+        | FieldKind::Map { .. }
+        | FieldKind::Structured { .. } => false,
+    }
+}
+
+/// Validate one aggregate target field against schema/runtime ordering constraints.
+pub(in crate::db::executor) fn validate_orderable_aggregate_target_field<E: EntityKind>(
+    target_field: &str,
+) -> Result<FieldKind, AggregateFieldValueError> {
+    let Some(field) = field_model_by_name(E::MODEL, target_field) else {
+        return Err(AggregateFieldValueError::UnknownField {
+            field: target_field.to_string(),
+        });
+    };
+    if !field_kind_supports_aggregate_ordering(&field.kind) {
+        return Err(AggregateFieldValueError::UnsupportedFieldKind {
+            field: target_field.to_string(),
+            kind: field.kind,
+        });
+    }
+
+    Ok(field.kind)
+}
+
+/// Extract one field value from an entity and enforce the declared runtime field kind.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::db::executor) fn extract_orderable_field_value<E: EntityKind + EntityValue>(
+    entity: &E,
+    target_field: &str,
+    expected_kind: FieldKind,
+) -> Result<Value, AggregateFieldValueError> {
+    let Some(value) = entity.get_value(target_field) else {
+        return Err(AggregateFieldValueError::MissingFieldValue {
+            field: target_field.to_string(),
+        });
+    };
+    if !field_kind_matches_value(&expected_kind, &value) {
+        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
+            field: target_field.to_string(),
+            kind: expected_kind,
+            value: Box::new(value),
+        });
+    }
+
+    Ok(value)
+}
+
+/// Compare two extracted field values under strict same-variant ordering semantics.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::db::executor) fn compare_orderable_field_values(
+    target_field: &str,
+    left: &Value,
+    right: &Value,
+) -> Result<Ordering, AggregateFieldValueError> {
+    let Some(ordering) = Value::strict_order_cmp(left, right) else {
+        return Err(AggregateFieldValueError::IncomparableFieldValues {
+            field: target_field.to_string(),
+            left: Box::new(left.clone()),
+            right: Box::new(right.clone()),
+        });
+    };
+
+    Ok(ordering)
+}
+
+/// Compare two entities by one orderable aggregate field and return base ascending ordering.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::db::executor) fn compare_entities_by_orderable_field<E: EntityKind + EntityValue>(
+    left: &E,
+    right: &E,
+    target_field: &str,
+    expected_kind: FieldKind,
+) -> Result<Ordering, AggregateFieldValueError> {
+    let left_value = extract_orderable_field_value(left, target_field, expected_kind)?;
+    let right_value = extract_orderable_field_value(right, target_field, expected_kind)?;
+
+    compare_orderable_field_values(target_field, &left_value, &right_value)
+}
+
+/// Compare two entities for field-extrema selection with deterministic tie-break semantics.
+///
+/// Contract:
+/// - primary comparison follows aggregate `direction` over the target field value.
+/// - ties always break on canonical primary-key ascending order.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::db::executor) fn compare_entities_for_field_extrema<E: EntityKind + EntityValue>(
+    left: &E,
+    right: &E,
+    target_field: &str,
+    expected_kind: FieldKind,
+    direction: Direction,
+) -> Result<Ordering, AggregateFieldValueError> {
+    let field_order =
+        compare_entities_by_orderable_field(left, right, target_field, expected_kind)?;
+    let directional_field_order = apply_aggregate_direction(field_order, direction);
+    if directional_field_order != Ordering::Equal {
+        return Ok(directional_field_order);
+    }
+
+    let left_id = left.id().as_value();
+    let right_id = right.id().as_value();
+
+    compare_orderable_field_values(E::MODEL.primary_key.name, &left_id, &right_id)
+}
+
+/// Apply aggregate direction to one base ordering result.
+#[must_use]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::db::executor) const fn apply_aggregate_direction(
+    ordering: Ordering,
+    direction: Direction,
+) -> Ordering {
+    match direction {
+        Direction::Asc => ordering,
+        Direction::Desc => ordering.reverse(),
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AggregateFieldValueError, apply_aggregate_direction, compare_entities_by_orderable_field,
+        compare_entities_for_field_extrema, compare_orderable_field_values,
+        validate_orderable_aggregate_target_field,
+    };
+    use crate::{model::field::FieldKind, types::Ulid, value::Value};
+    use icydb_derive::FieldValues;
+    use serde::{Deserialize, Serialize};
+    use std::cmp::Ordering;
+
+    static SCORE_LIST_KIND: FieldKind = FieldKind::Uint;
+
+    crate::test_canister! {
+        ident = AggregateFieldCanister,
+    }
+
+    crate::test_store! {
+        ident = AggregateFieldStore,
+        canister = AggregateFieldCanister,
+    }
+
+    #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+    struct AggregateFieldEntity {
+        id: Ulid,
+        rank: u32,
+        label: String,
+        scores: Vec<u32>,
+    }
+
+    crate::test_entity_schema! {
+        ident = AggregateFieldEntity,
+        id = Ulid,
+        id_field = id,
+        entity_name = "AggregateFieldEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", FieldKind::Ulid),
+            ("rank", FieldKind::Uint),
+            ("label", FieldKind::Text),
+            ("scores", FieldKind::List(&SCORE_LIST_KIND)),
+        ],
+        indexes = [],
+        store = AggregateFieldStore,
+        canister = AggregateFieldCanister,
+    }
+
+    #[test]
+    fn validate_orderable_target_field_accepts_scalar_field() {
+        let kind = validate_orderable_aggregate_target_field::<AggregateFieldEntity>("rank")
+            .expect("rank should be accepted as orderable target");
+
+        assert!(matches!(kind, FieldKind::Uint));
+    }
+
+    #[test]
+    fn validate_orderable_target_field_rejects_unknown_field() {
+        let err =
+            validate_orderable_aggregate_target_field::<AggregateFieldEntity>("missing_field")
+                .expect_err("unknown target field must be rejected");
+
+        assert!(matches!(err, AggregateFieldValueError::UnknownField { .. }));
+    }
+
+    #[test]
+    fn validate_orderable_target_field_rejects_non_orderable_field_kind() {
+        let err = validate_orderable_aggregate_target_field::<AggregateFieldEntity>("scores")
+            .expect_err("list field should be rejected for field aggregates");
+
+        assert!(matches!(
+            err,
+            AggregateFieldValueError::UnsupportedFieldKind { .. }
+        ));
+    }
+
+    #[test]
+    fn compare_orderable_field_values_rejects_mismatched_variants() {
+        let err = compare_orderable_field_values("rank", &Value::Uint(7), &Value::Text("x".into()))
+            .expect_err("mismatched value variants must be rejected");
+
+        assert!(matches!(
+            err,
+            AggregateFieldValueError::IncomparableFieldValues { .. }
+        ));
+    }
+
+    #[test]
+    fn compare_entities_by_orderable_field_returns_deterministic_ordering() {
+        let low = AggregateFieldEntity {
+            id: Ulid::from_u128(1),
+            rank: 10,
+            label: "low".into(),
+            scores: vec![1, 2],
+        };
+        let high = AggregateFieldEntity {
+            id: Ulid::from_u128(2),
+            rank: 20,
+            label: "high".into(),
+            scores: vec![3, 4],
+        };
+
+        let asc = compare_entities_by_orderable_field(&low, &high, "rank", FieldKind::Uint)
+            .expect("typed field comparison should succeed");
+        let desc = apply_aggregate_direction(asc, crate::db::query::plan::Direction::Desc);
+
+        assert_eq!(asc, Ordering::Less);
+        assert_eq!(desc, Ordering::Greater);
+    }
+
+    #[test]
+    fn compare_entities_by_orderable_field_rejects_runtime_type_mismatch() {
+        let left = AggregateFieldEntity {
+            id: Ulid::from_u128(10),
+            rank: 10,
+            label: "left".into(),
+            scores: vec![1, 2],
+        };
+        let right = AggregateFieldEntity {
+            id: Ulid::from_u128(11),
+            rank: 11,
+            label: "right".into(),
+            scores: vec![3, 4],
+        };
+        let err = compare_entities_by_orderable_field(
+            &left,
+            &right,
+            "rank",
+            // Deliberate mismatch: expected Text but runtime field emits Uint.
+            FieldKind::Text,
+        )
+        .expect_err("runtime type mismatch must be rejected");
+
+        assert!(matches!(
+            err,
+            AggregateFieldValueError::FieldValueTypeMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn compare_entities_for_field_extrema_uses_pk_ascending_tie_break_in_asc() {
+        let higher_id = AggregateFieldEntity {
+            id: Ulid::from_u128(20),
+            rank: 7,
+            label: "higher".into(),
+            scores: vec![1],
+        };
+        let lower_id = AggregateFieldEntity {
+            id: Ulid::from_u128(10),
+            rank: 7,
+            label: "lower".into(),
+            scores: vec![2],
+        };
+
+        let ordering = compare_entities_for_field_extrema(
+            &higher_id,
+            &lower_id,
+            "rank",
+            FieldKind::Uint,
+            crate::db::query::plan::Direction::Asc,
+        )
+        .expect("field-extrema comparator should apply canonical PK tie-break");
+
+        assert_eq!(ordering, Ordering::Greater);
+    }
+
+    #[test]
+    fn compare_entities_for_field_extrema_uses_pk_ascending_tie_break_in_desc() {
+        let higher_id = AggregateFieldEntity {
+            id: Ulid::from_u128(20),
+            rank: 7,
+            label: "higher".into(),
+            scores: vec![1],
+        };
+        let lower_id = AggregateFieldEntity {
+            id: Ulid::from_u128(10),
+            rank: 7,
+            label: "lower".into(),
+            scores: vec![2],
+        };
+
+        let ordering = compare_entities_for_field_extrema(
+            &higher_id,
+            &lower_id,
+            "rank",
+            FieldKind::Uint,
+            crate::db::query::plan::Direction::Desc,
+        )
+        .expect("field-extrema comparator should apply canonical PK tie-break");
+
+        assert_eq!(ordering, Ordering::Greater);
+    }
+}

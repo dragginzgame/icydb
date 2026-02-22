@@ -5,6 +5,18 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.24.7] – 2026-02-22
+
+This patch continues pre-`0.25` hardening for field-based aggregates.
+
+* Added a shared aggregate spec boundary so field-targeted aggregate requests are validated in one place before execution starts.
+* Unsupported field-target aggregate shapes now fail fast with clear `Unsupported` executor errors instead of drifting into generic execution paths.
+* Locked deterministic tie-break behavior for upcoming `min(field)`/`max(field)` work: compare by field value first, then by primary key ascending.
+* Added route-level ineligibility reasons and matrix tests so it is explicit why field-extrema fast paths are currently disabled for each shape.
+* Expanded regressions to ensure unsupported field-target aggregate requests consume zero scan budget.
+
+---
+
 ## [0.24.6] – 2026-02-22 - Route Authority Hardening
 
 This release is an internal cleanup. It centralizes route decisions and tightens guardrails to reduce drift as new execution features are added.

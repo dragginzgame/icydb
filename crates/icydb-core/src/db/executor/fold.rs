@@ -9,6 +9,7 @@ use crate::{
     traits::{EntityKind, EntityValue},
     types::Id,
 };
+use thiserror::Error as ThisError;
 
 ///
 /// AggregateKind
@@ -24,6 +25,107 @@ pub(in crate::db::executor) enum AggregateKind {
     Max,
     First,
     Last,
+}
+
+impl AggregateKind {
+    /// Return whether this terminal kind supports explicit field targets.
+    #[must_use]
+    pub(in crate::db::executor) const fn supports_field_targets(self) -> bool {
+        matches!(self, Self::Min | Self::Max)
+    }
+}
+
+///
+/// AggregateSpec
+///
+/// Canonical aggregate execution specification used by route/fold boundaries.
+/// `target_field` is reserved for field-scoped aggregates (`min(field)` / `max(field)`).
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct AggregateSpec {
+    kind: AggregateKind,
+    target_field: Option<String>,
+}
+
+///
+/// AggregateSpecSupportError
+///
+/// Canonical unsupported taxonomy for aggregate spec shape validation.
+/// Keeps field-target capability errors explicit before runtime execution.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+pub(in crate::db::executor) enum AggregateSpecSupportError {
+    #[error(
+        "field-target aggregates are only supported for min/max terminals: {kind:?}({target_field})"
+    )]
+    FieldTargetRequiresExtrema {
+        kind: AggregateKind,
+        target_field: String,
+    },
+
+    #[error("field-target aggregates are not yet supported in 0.24.x: {kind:?}({target_field})")]
+    FieldTargetNotYetSupported {
+        kind: AggregateKind,
+        target_field: String,
+    },
+}
+
+impl AggregateSpec {
+    /// Build a terminal aggregate spec with no explicit field target.
+    #[must_use]
+    pub(in crate::db::executor) const fn for_terminal(kind: AggregateKind) -> Self {
+        Self {
+            kind,
+            target_field: None,
+        }
+    }
+
+    /// Build a field-targeted aggregate spec for future field aggregates.
+    #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(in crate::db::executor) fn for_target_field(
+        kind: AggregateKind,
+        target_field: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            target_field: Some(target_field.into()),
+        }
+    }
+
+    /// Return the aggregate terminal kind.
+    #[must_use]
+    pub(in crate::db::executor) const fn kind(&self) -> AggregateKind {
+        self.kind
+    }
+
+    /// Return the optional aggregate field target.
+    #[must_use]
+    pub(in crate::db::executor) fn target_field(&self) -> Option<&str> {
+        self.target_field.as_deref()
+    }
+
+    /// Validate support boundaries for this aggregate spec in the current release line.
+    pub(in crate::db::executor) fn ensure_supported_for_execution(
+        &self,
+    ) -> Result<(), AggregateSpecSupportError> {
+        let Some(target_field) = self.target_field() else {
+            return Ok(());
+        };
+        if !self.kind.supports_field_targets() {
+            return Err(AggregateSpecSupportError::FieldTargetRequiresExtrema {
+                kind: self.kind,
+                target_field: target_field.to_string(),
+            });
+        }
+
+        Err(AggregateSpecSupportError::FieldTargetNotYetSupported {
+            kind: self.kind,
+            target_field: target_field.to_string(),
+        })
+    }
 }
 
 ///
@@ -379,8 +481,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        AggregateFoldMode, AggregateKind, aggregate_expected_fold_mode,
-        ensure_aggregate_fold_mode_contract,
+        AggregateFoldMode, AggregateKind, AggregateSpec, AggregateSpecSupportError,
+        aggregate_expected_fold_mode, ensure_aggregate_fold_mode_contract,
     };
 
     #[test]
@@ -437,5 +539,38 @@ mod tests {
 
             assert!(result.is_err());
         }
+    }
+
+    #[test]
+    fn aggregate_spec_support_accepts_terminal_specs_without_field_targets() {
+        let spec = AggregateSpec::for_terminal(AggregateKind::Count);
+
+        assert!(spec.ensure_supported_for_execution().is_ok());
+    }
+
+    #[test]
+    fn aggregate_spec_support_rejects_field_target_non_extrema() {
+        let spec = AggregateSpec::for_target_field(AggregateKind::Count, "rank");
+        let err = spec
+            .ensure_supported_for_execution()
+            .expect_err("field-target COUNT should be rejected by support taxonomy");
+
+        assert!(matches!(
+            err,
+            AggregateSpecSupportError::FieldTargetRequiresExtrema { .. }
+        ));
+    }
+
+    #[test]
+    fn aggregate_spec_support_rejects_field_target_extrema_as_not_yet_supported() {
+        let spec = AggregateSpec::for_target_field(AggregateKind::Min, "rank");
+        let err = spec
+            .ensure_supported_for_execution()
+            .expect_err("field-target MIN should be gated behind unsupported taxonomy");
+
+        assert!(matches!(
+            err,
+            AggregateSpecSupportError::FieldTargetNotYetSupported { .. }
+        ));
     }
 }

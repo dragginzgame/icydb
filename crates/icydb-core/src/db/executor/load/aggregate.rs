@@ -6,7 +6,7 @@ use crate::{
             OrderedKeyStreamBox,
             fold::{
                 AggregateFoldMode, AggregateKind, AggregateOutput, AggregateReducerState,
-                AggregateWindowState, FoldControl,
+                AggregateSpec, AggregateWindowState, FoldControl,
             },
             load::{
                 LoadExecutor,
@@ -158,6 +158,21 @@ where
         plan: ExecutablePlan<E>,
         kind: AggregateKind,
     ) -> Result<AggregateOutput<E>, InternalError> {
+        self.execute_aggregate_spec(plan, AggregateSpec::for_terminal(kind))
+    }
+
+    // Execute one aggregate using an explicit aggregate spec. This keeps
+    // unsupported aggregate taxonomy and route capability selection under one
+    // shared boundary as field-target aggregates are introduced.
+    pub(in crate::db::executor) fn execute_aggregate_spec(
+        &self,
+        plan: ExecutablePlan<E>,
+        spec: AggregateSpec,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        let kind = spec.kind();
+        spec.ensure_supported_for_execution()
+            .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
+
         // Route derivation interprets plan shape only. Re-validate first so
         // capability snapshots are always built from a validated logical plan.
         validate_executor_plan::<E>(plan.as_inner())?;

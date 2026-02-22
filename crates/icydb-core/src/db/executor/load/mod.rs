@@ -1,4 +1,5 @@
 mod aggregate;
+mod aggregate_field;
 mod aggregate_guard;
 mod execute;
 mod index_range_limit;

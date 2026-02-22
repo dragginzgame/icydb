@@ -1,8 +1,8 @@
 use crate::{
     db::{
         executor::{
-            fold::{AggregateFoldMode, AggregateKind},
-            load::{IndexRangeLimitSpec, LoadExecutor},
+            fold::{AggregateFoldMode, AggregateKind, AggregateSpec},
+            load::{IndexRangeLimitSpec, LoadExecutor, aggregate_field::AggregateFieldValueError},
         },
         index::RawIndexKey,
         query::plan::{
@@ -115,6 +115,34 @@ impl ExecutionRoutePlan {
         self.capabilities.composite_aggregate_fast_path_eligible
     }
 
+    // True when route permits a future `min(field)` fast path.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) const fn field_min_fast_path_eligible(&self) -> bool {
+        self.capabilities.field_min_fast_path_eligible
+    }
+
+    // True when route permits a future `max(field)` fast path.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) const fn field_max_fast_path_eligible(&self) -> bool {
+        self.capabilities.field_max_fast_path_eligible
+    }
+
+    // Route-owned diagnostic reason for why `min(field)` fast path is ineligible.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) const fn field_min_fast_path_ineligibility_reason(
+        &self,
+    ) -> Option<FieldExtremaIneligibilityReason> {
+        self.capabilities.field_min_fast_path_ineligibility_reason
+    }
+
+    // Route-owned diagnostic reason for why `max(field)` fast path is ineligible.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) const fn field_max_fast_path_ineligibility_reason(
+        &self,
+    ) -> Option<FieldExtremaIneligibilityReason> {
+        self.capabilities.field_max_fast_path_ineligibility_reason
+    }
+
     // Route-owned fast-path dispatch order. Executors must dispatch using this
     // order instead of introducing ad-hoc aggregate/load micro fast paths.
     pub(super) const fn fast_path_order(&self) -> &'static [FastPathOrder] {
@@ -172,7 +200,7 @@ enum RouteIntent {
     },
     Aggregate {
         direction: Direction,
-        kind: AggregateKind,
+        spec: AggregateSpec,
     },
 }
 
@@ -188,6 +216,42 @@ enum ExecutionModeRouteCase {
     Load,
     AggregateCount,
     AggregateNonCount,
+}
+
+///
+/// FieldExtremaIneligibilityReason
+///
+/// Canonical route-owned reason taxonomy for field-extrema ineligibility.
+/// These reasons are stable test/explain diagnostics for future feature enablement.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum FieldExtremaIneligibilityReason {
+    SpecMissing,
+    AggregateKindMismatch,
+    TargetFieldMissing,
+    UnknownTargetField,
+    UnsupportedFieldType,
+    DistinctNotSupported,
+    OffsetNotSupported,
+    CompositePathNotSupported,
+    NoMatchingIndex,
+    StreamingAccessShapeNotSupported,
+    DescReverseTraversalNotSupported,
+    FeatureDisabled,
+}
+
+///
+/// FieldExtremaEligibility
+///
+/// Route-owned eligibility snapshot for one field-extrema aggregate shape.
+/// Carries both the boolean decision and the first ineligibility reason.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FieldExtremaEligibility {
+    eligible: bool,
+    ineligibility_reason: Option<FieldExtremaIneligibilityReason>,
 }
 
 ///
@@ -208,6 +272,10 @@ struct RouteCapabilities {
     index_range_limit_pushdown_shape_eligible: bool,
     composite_aggregate_fast_path_eligible: bool,
     bounded_probe_hint_safe: bool,
+    field_min_fast_path_eligible: bool,
+    field_max_fast_path_eligible: bool,
+    field_min_fast_path_ineligibility_reason: Option<FieldExtremaIneligibilityReason>,
+    field_max_fast_path_ineligibility_reason: Option<FieldExtremaIneligibilityReason>,
 }
 
 const fn direction_allows_physical_fetch_hint(
@@ -229,7 +297,13 @@ where
     fn derive_route_capabilities(
         plan: &LogicalPlan<E::Key>,
         direction: Direction,
+        aggregate_spec: Option<&AggregateSpec>,
     ) -> RouteCapabilities {
+        let field_min_eligibility =
+            Self::assess_field_min_fast_path_eligibility(plan, direction, aggregate_spec);
+        let field_max_eligibility =
+            Self::assess_field_max_fast_path_eligibility(plan, direction, aggregate_spec);
+
         RouteCapabilities {
             streaming_access_shape_safe: plan.is_streaming_access_shape_safe::<E>(),
             pk_order_fast_path_eligible: Self::pk_order_stream_fast_path_shape_supported(plan),
@@ -246,6 +320,10 @@ where
                 plan,
             ),
             bounded_probe_hint_safe: Self::bounded_probe_hint_is_safe(plan),
+            field_min_fast_path_eligible: field_min_eligibility.eligible,
+            field_max_fast_path_eligible: field_max_eligibility.eligible,
+            field_min_fast_path_ineligibility_reason: field_min_eligibility.ineligibility_reason,
+            field_max_fast_path_ineligibility_reason: field_max_eligibility.ineligibility_reason,
         }
     }
 
@@ -278,12 +356,25 @@ where
         kind: AggregateKind,
         direction: Direction,
     ) -> ExecutionRoutePlan {
+        Self::build_execution_route_plan_for_aggregate_spec(
+            plan,
+            AggregateSpec::for_terminal(kind),
+            direction,
+        )
+    }
+
+    // Build canonical execution routing for aggregate execution via spec.
+    pub(super) fn build_execution_route_plan_for_aggregate_spec(
+        plan: &LogicalPlan<E::Key>,
+        spec: AggregateSpec,
+        direction: Direction,
+    ) -> ExecutionRoutePlan {
         Self::build_execution_route_plan(
             plan,
             None,
             None,
             None,
-            RouteIntent::Aggregate { direction, kind },
+            RouteIntent::Aggregate { direction, spec },
         )
     }
 
@@ -301,18 +392,20 @@ where
                 E::MODEL,
                 plan,
             );
-        let (direction, kind, fast_path_order) = match intent {
-            RouteIntent::Load { direction } => (direction, None, &LOAD_FAST_PATH_ORDER[..]),
-            RouteIntent::Aggregate { direction, kind } => {
-                (direction, Some(kind), &AGGREGATE_FAST_PATH_ORDER[..])
+        let (direction, aggregate_spec, fast_path_order, is_load_intent) = match intent {
+            RouteIntent::Load { direction } => (direction, None, &LOAD_FAST_PATH_ORDER[..], true),
+            RouteIntent::Aggregate { direction, spec } => {
+                (direction, Some(spec), &AGGREGATE_FAST_PATH_ORDER[..], false)
             }
         };
+        let kind = aggregate_spec.as_ref().map(AggregateSpec::kind);
         debug_assert!(
             (kind.is_none() && fast_path_order == LOAD_FAST_PATH_ORDER.as_slice())
                 || (kind.is_some() && fast_path_order == AGGREGATE_FAST_PATH_ORDER.as_slice()),
             "route invariant: route intent must map to the canonical fast-path order contract",
         );
-        let capabilities = Self::derive_route_capabilities(plan, direction);
+        let capabilities =
+            Self::derive_route_capabilities(plan, direction, aggregate_spec.as_ref());
         let count_pushdown_eligible = kind.is_some_and(|aggregate_kind| {
             Self::is_count_pushdown_eligible(aggregate_kind, capabilities)
         });
@@ -325,9 +418,9 @@ where
         } else {
             None
         };
-        let aggregate_terminal_probe_fetch_hint = kind.and_then(|aggregate_kind| {
-            Self::aggregate_probe_fetch_hint(plan, aggregate_kind, direction, capabilities)
-        });
+        let aggregate_terminal_probe_fetch_hint = aggregate_spec
+            .as_ref()
+            .and_then(|spec| Self::aggregate_probe_fetch_hint(plan, spec, direction, capabilities));
         let aggregate_physical_fetch_hint =
             count_pushdown_probe_fetch_hint.or(aggregate_terminal_probe_fetch_hint);
         let aggregate_secondary_extrema_probe_fetch_hint = match kind {
@@ -344,11 +437,10 @@ where
             Some(_) => aggregate_physical_fetch_hint,
             None => probe_fetch_hint,
         };
-        let load_scan_budget_hint = match intent {
-            RouteIntent::Load { .. } => {
-                Self::load_scan_budget_hint(plan, cursor_boundary, capabilities)
-            }
-            RouteIntent::Aggregate { .. } => None,
+        let load_scan_budget_hint = if is_load_intent {
+            Self::load_scan_budget_hint(plan, cursor_boundary, capabilities)
+        } else {
+            None
         };
 
         let index_range_limit_spec = if count_terminal {
@@ -575,10 +667,11 @@ where
 
     fn aggregate_probe_fetch_hint(
         plan: &LogicalPlan<E::Key>,
-        kind: AggregateKind,
+        spec: &AggregateSpec,
         direction: Direction,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
+        let kind = spec.kind();
         if !matches!(
             kind,
             AggregateKind::Exists
@@ -615,6 +708,159 @@ where
             AggregateKind::Max if direction == Direction::Desc => Some(offset.saturating_add(1)),
             AggregateKind::Last => page_limit.map(|limit| offset.saturating_add(limit)),
             _ => None,
+        }
+    }
+
+    // Placeholder assessment for future `min(field)` fast paths.
+    // Intentionally ineligible in 0.24.x while field-extrema semantics are finalized.
+    fn assess_field_min_fast_path_eligibility(
+        plan: &LogicalPlan<E::Key>,
+        direction: Direction,
+        aggregate_spec: Option<&AggregateSpec>,
+    ) -> FieldExtremaEligibility {
+        Self::assess_field_extrema_fast_path_eligibility(
+            plan,
+            direction,
+            aggregate_spec,
+            AggregateKind::Min,
+        )
+    }
+
+    // Placeholder assessment for future `max(field)` fast paths.
+    // Intentionally ineligible in 0.24.x while field-extrema semantics are finalized.
+    fn assess_field_max_fast_path_eligibility(
+        plan: &LogicalPlan<E::Key>,
+        direction: Direction,
+        aggregate_spec: Option<&AggregateSpec>,
+    ) -> FieldExtremaEligibility {
+        Self::assess_field_extrema_fast_path_eligibility(
+            plan,
+            direction,
+            aggregate_spec,
+            AggregateKind::Max,
+        )
+    }
+
+    // Shared scaffolding for future field-extrema eligibility routing.
+    // Contract for 0.24.x: feature remains disabled with explicit reason diagnostics.
+    fn assess_field_extrema_fast_path_eligibility(
+        plan: &LogicalPlan<E::Key>,
+        direction: Direction,
+        aggregate_spec: Option<&AggregateSpec>,
+        extrema_kind: AggregateKind,
+    ) -> FieldExtremaEligibility {
+        let Some(spec) = aggregate_spec else {
+            return FieldExtremaEligibility {
+                eligible: false,
+                ineligibility_reason: Some(FieldExtremaIneligibilityReason::SpecMissing),
+            };
+        };
+        if spec.kind() != extrema_kind {
+            return FieldExtremaEligibility {
+                eligible: false,
+                ineligibility_reason: Some(FieldExtremaIneligibilityReason::AggregateKindMismatch),
+            };
+        }
+        let Some(target_field) = spec.target_field() else {
+            return FieldExtremaEligibility {
+                eligible: false,
+                ineligibility_reason: Some(FieldExtremaIneligibilityReason::TargetFieldMissing),
+            };
+        };
+        let field_validation =
+            crate::db::executor::load::aggregate_field::validate_orderable_aggregate_target_field::<
+                E,
+            >(target_field);
+        if let Err(err) = field_validation {
+            let reason = match err {
+                AggregateFieldValueError::UnknownField { .. } => {
+                    FieldExtremaIneligibilityReason::UnknownTargetField
+                }
+                AggregateFieldValueError::UnsupportedFieldKind { .. }
+                | AggregateFieldValueError::MissingFieldValue { .. }
+                | AggregateFieldValueError::FieldValueTypeMismatch { .. }
+                | AggregateFieldValueError::IncomparableFieldValues { .. } => {
+                    FieldExtremaIneligibilityReason::UnsupportedFieldType
+                }
+            };
+            return FieldExtremaEligibility {
+                eligible: false,
+                ineligibility_reason: Some(reason),
+            };
+        }
+        if plan.distinct {
+            return FieldExtremaEligibility {
+                eligible: false,
+                ineligibility_reason: Some(FieldExtremaIneligibilityReason::DistinctNotSupported),
+            };
+        }
+        let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
+        if offset > 0 {
+            return FieldExtremaEligibility {
+                eligible: false,
+                ineligibility_reason: Some(FieldExtremaIneligibilityReason::OffsetNotSupported),
+            };
+        }
+        if Self::is_composite_access_shape(&plan.access) {
+            return FieldExtremaEligibility {
+                eligible: false,
+                ineligibility_reason: Some(
+                    FieldExtremaIneligibilityReason::CompositePathNotSupported,
+                ),
+            };
+        }
+        if !Self::field_extrema_target_has_matching_index(plan, target_field) {
+            return FieldExtremaEligibility {
+                eligible: false,
+                ineligibility_reason: Some(FieldExtremaIneligibilityReason::NoMatchingIndex),
+            };
+        }
+        if !plan.is_streaming_access_shape_safe::<E>() {
+            return FieldExtremaEligibility {
+                eligible: false,
+                ineligibility_reason: Some(
+                    FieldExtremaIneligibilityReason::StreamingAccessShapeNotSupported,
+                ),
+            };
+        }
+        if !direction_allows_physical_fetch_hint(
+            direction,
+            Self::is_desc_physical_reverse_traversal_supported(&plan.access, direction),
+        ) {
+            return FieldExtremaEligibility {
+                eligible: false,
+                ineligibility_reason: Some(
+                    FieldExtremaIneligibilityReason::DescReverseTraversalNotSupported,
+                ),
+            };
+        }
+
+        FieldExtremaEligibility {
+            eligible: false,
+            ineligibility_reason: Some(FieldExtremaIneligibilityReason::FeatureDisabled),
+        }
+    }
+
+    fn field_extrema_target_has_matching_index(
+        plan: &LogicalPlan<E::Key>,
+        target_field: &str,
+    ) -> bool {
+        let Some(path) = plan.access.as_path() else {
+            return false;
+        };
+        if target_field == E::MODEL.primary_key.name {
+            return matches!(path, AccessPath::FullScan | AccessPath::KeyRange { .. });
+        }
+
+        match path {
+            AccessPath::IndexPrefix { index, .. } | AccessPath::IndexRange { index, .. } => index
+                .fields
+                .first()
+                .is_some_and(|field| *field == target_field),
+            AccessPath::ByKey(_)
+            | AccessPath::ByKeys(_)
+            | AccessPath::KeyRange { .. }
+            | AccessPath::FullScan => false,
         }
     }
 
@@ -747,19 +993,19 @@ where
 mod tests {
     use super::{
         AGGREGATE_FAST_PATH_ORDER, ExecutionMode, ExecutionModeRouteCase, FastPathOrder,
-        LOAD_FAST_PATH_ORDER, RouteCapabilities,
+        FieldExtremaIneligibilityReason, LOAD_FAST_PATH_ORDER, RouteCapabilities,
     };
     use crate::{
         db::{
             executor::{
-                fold::{AggregateFoldMode, AggregateKind},
+                fold::{AggregateFoldMode, AggregateKind, AggregateSpec},
                 load::LoadExecutor,
             },
             query::{
                 ReadConsistency,
                 plan::{
-                    AccessPath, CursorBoundary, Direction, LogicalPlan, OrderDirection, OrderSpec,
-                    PageSpec,
+                    AccessPath, AccessPlan, CursorBoundary, Direction, LogicalPlan, OrderDirection,
+                    OrderSpec, PageSpec,
                 },
             },
         },
@@ -773,7 +1019,7 @@ mod tests {
     use std::ops::Bound;
 
     const ROUTE_FEATURE_SOFT_BUDGET_DELTA: usize = 1;
-    const ROUTE_CAPABILITY_FLAG_BASELINE_0246: usize = 7;
+    const ROUTE_CAPABILITY_FLAG_BASELINE_0247: usize = 9;
     const ROUTE_EXECUTION_MODE_CASE_BASELINE_0246: usize = 3;
     const ROUTE_EXECUTION_MODE_CASES_0246: [ExecutionModeRouteCase; 3] = [
         ExecutionModeRouteCase::Load,
@@ -790,9 +1036,13 @@ mod tests {
             index_range_limit_pushdown_shape_eligible: false,
             composite_aggregate_fast_path_eligible: false,
             bounded_probe_hint_safe: false,
+            field_min_fast_path_eligible: false,
+            field_max_fast_path_eligible: false,
+            field_min_fast_path_ineligibility_reason: None,
+            field_max_fast_path_ineligibility_reason: None,
         };
 
-        7
+        9
     }
 
     fn route_execution_mode_case_count_guard() -> usize {
@@ -821,6 +1071,7 @@ mod tests {
         canister = RouteMatrixCanister,
     }
 
+    static ROUTE_MATRIX_SCORE_KIND: FieldKind = FieldKind::Uint;
     static ROUTE_MATRIX_INDEX_FIELDS: [&str; 1] = ["rank"];
     static ROUTE_MATRIX_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
         "rank_idx",
@@ -834,6 +1085,7 @@ mod tests {
         id: Ulid,
         rank: u32,
         label: String,
+        scores: Vec<u32>,
     }
 
     crate::test_entity_schema! {
@@ -847,10 +1099,40 @@ mod tests {
             ("id", FieldKind::Ulid),
             ("rank", FieldKind::Uint),
             ("label", FieldKind::Text),
+            ("scores", FieldKind::List(&ROUTE_MATRIX_SCORE_KIND)),
         ],
         indexes = [&ROUTE_MATRIX_INDEX_MODELS[0]],
         store = RouteMatrixStore,
         canister = RouteMatrixCanister,
+    }
+
+    fn field_extrema_index_range_plan(
+        direction: OrderDirection,
+        offset: u32,
+        distinct: bool,
+    ) -> LogicalPlan<Ulid> {
+        let mut plan = LogicalPlan::new(
+            AccessPath::<Ulid>::IndexRange {
+                index: ROUTE_MATRIX_INDEX_MODELS[0],
+                prefix: vec![],
+                lower: Bound::Included(Value::Uint(10)),
+                upper: Bound::Excluded(Value::Uint(30)),
+            },
+            ReadConsistency::MissingOk,
+        );
+        plan.order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), direction),
+                ("id".to_string(), direction),
+            ],
+        });
+        plan.page = Some(PageSpec {
+            limit: Some(4),
+            offset,
+        });
+        plan.distinct = distinct;
+
+        plan
     }
 
     #[test]
@@ -925,6 +1207,375 @@ mod tests {
     }
 
     #[test]
+    fn route_matrix_field_extrema_capability_flags_are_scaffolded_off() {
+        let plan = field_extrema_index_range_plan(OrderDirection::Asc, 0, false);
+
+        let min_route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+                Direction::Asc,
+            );
+        let max_route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Max, "rank"),
+                Direction::Asc,
+            );
+
+        assert!(!min_route.field_min_fast_path_eligible());
+        assert!(!min_route.field_max_fast_path_eligible());
+        assert!(!max_route.field_min_fast_path_eligible());
+        assert!(!max_route.field_max_fast_path_eligible());
+        assert_eq!(
+            min_route.field_min_fast_path_ineligibility_reason(),
+            Some(FieldExtremaIneligibilityReason::StreamingAccessShapeNotSupported)
+        );
+        assert_eq!(
+            max_route.field_max_fast_path_ineligibility_reason(),
+            Some(FieldExtremaIneligibilityReason::StreamingAccessShapeNotSupported)
+        );
+    }
+
+    #[test]
+    fn route_matrix_field_extrema_capability_rejects_unknown_target_field() {
+        let plan = field_extrema_index_range_plan(OrderDirection::Asc, 0, false);
+
+        let route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "missing_field"),
+                Direction::Asc,
+            );
+
+        assert!(!route.field_min_fast_path_eligible());
+        assert!(!route.field_max_fast_path_eligible());
+        assert_eq!(
+            route.field_min_fast_path_ineligibility_reason(),
+            Some(FieldExtremaIneligibilityReason::UnknownTargetField)
+        );
+    }
+
+    #[test]
+    fn route_matrix_field_extrema_reason_rejects_unsupported_field_type() {
+        let plan = field_extrema_index_range_plan(OrderDirection::Asc, 0, false);
+
+        let route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "scores"),
+                Direction::Asc,
+            );
+
+        assert_eq!(
+            route.field_min_fast_path_ineligibility_reason(),
+            Some(FieldExtremaIneligibilityReason::UnsupportedFieldType)
+        );
+    }
+
+    #[test]
+    fn route_matrix_field_extrema_reason_rejects_distinct_shape() {
+        let plan = field_extrema_index_range_plan(OrderDirection::Asc, 0, true);
+
+        let route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+                Direction::Asc,
+            );
+
+        assert_eq!(
+            route.field_min_fast_path_ineligibility_reason(),
+            Some(FieldExtremaIneligibilityReason::DistinctNotSupported)
+        );
+    }
+
+    #[test]
+    fn route_matrix_field_extrema_reason_rejects_offset_shape() {
+        let plan = field_extrema_index_range_plan(OrderDirection::Asc, 1, false);
+
+        let route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+                Direction::Asc,
+            );
+
+        assert_eq!(
+            route.field_min_fast_path_ineligibility_reason(),
+            Some(FieldExtremaIneligibilityReason::OffsetNotSupported)
+        );
+    }
+
+    #[test]
+    fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        let child_path = AccessPath::<Ulid>::IndexRange {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            prefix: vec![],
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(30)),
+        };
+        plan.access = AccessPlan::Union(vec![
+            AccessPlan::path(child_path.clone()),
+            AccessPlan::path(child_path),
+        ]);
+        plan.order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        plan.page = Some(PageSpec {
+            limit: Some(4),
+            offset: 0,
+        });
+
+        let route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+                Direction::Asc,
+            );
+
+        assert_eq!(
+            route.field_min_fast_path_ineligibility_reason(),
+            Some(FieldExtremaIneligibilityReason::CompositePathNotSupported)
+        );
+    }
+
+    #[test]
+    fn route_matrix_field_extrema_reason_rejects_no_matching_index() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+        plan.page = Some(PageSpec {
+            limit: Some(4),
+            offset: 0,
+        });
+
+        let route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+                Direction::Asc,
+            );
+
+        assert_eq!(
+            route.field_min_fast_path_ineligibility_reason(),
+            Some(FieldExtremaIneligibilityReason::NoMatchingIndex)
+        );
+    }
+
+    #[test]
+    fn route_matrix_field_extrema_reason_reports_feature_disabled_for_pk_target_shape() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+        plan.page = Some(PageSpec {
+            limit: Some(4),
+            offset: 0,
+        });
+
+        let route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "id"),
+                Direction::Asc,
+            );
+
+        assert_eq!(
+            route.field_min_fast_path_ineligibility_reason(),
+            Some(FieldExtremaIneligibilityReason::FeatureDisabled)
+        );
+    }
+
+    #[test]
+    fn route_matrix_field_target_min_fallback_route_matches_terminal_min() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+        plan.page = Some(PageSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+
+        let terminal_route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+                &plan,
+                AggregateKind::Min,
+                Direction::Asc,
+            );
+        let field_route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+                Direction::Asc,
+            );
+
+        assert_eq!(field_route.execution_mode, terminal_route.execution_mode);
+        assert_eq!(
+            field_route.scan_hints.physical_fetch_hint,
+            terminal_route.scan_hints.physical_fetch_hint
+        );
+        assert_eq!(
+            field_route.scan_hints.load_scan_budget_hint,
+            terminal_route.scan_hints.load_scan_budget_hint
+        );
+        assert_eq!(
+            field_route.index_range_limit_spec,
+            terminal_route.index_range_limit_spec
+        );
+        assert_eq!(
+            field_route.aggregate_fold_mode,
+            terminal_route.aggregate_fold_mode
+        );
+        assert!(!field_route.field_min_fast_path_eligible());
+        assert!(!field_route.field_max_fast_path_eligible());
+    }
+
+    #[test]
+    fn route_matrix_field_target_unknown_field_fallback_route_matches_terminal_min() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+        plan.page = Some(PageSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+
+        let terminal_route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+                &plan,
+                AggregateKind::Min,
+                Direction::Asc,
+            );
+        let unknown_field_route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "missing_field"),
+                Direction::Asc,
+            );
+
+        assert_eq!(
+            unknown_field_route.execution_mode,
+            terminal_route.execution_mode
+        );
+        assert_eq!(
+            unknown_field_route.scan_hints.physical_fetch_hint,
+            terminal_route.scan_hints.physical_fetch_hint
+        );
+        assert_eq!(
+            unknown_field_route.scan_hints.load_scan_budget_hint,
+            terminal_route.scan_hints.load_scan_budget_hint
+        );
+        assert_eq!(
+            unknown_field_route.index_range_limit_spec,
+            terminal_route.index_range_limit_spec
+        );
+        assert_eq!(
+            unknown_field_route.aggregate_fold_mode,
+            terminal_route.aggregate_fold_mode
+        );
+        assert!(!unknown_field_route.field_min_fast_path_eligible());
+        assert!(!unknown_field_route.field_max_fast_path_eligible());
+    }
+
+    #[test]
+    fn route_matrix_field_target_max_fallback_route_matches_terminal_max_desc() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        });
+        plan.page = Some(PageSpec {
+            limit: Some(2),
+            offset: 1,
+        });
+
+        let terminal_route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+                &plan,
+                AggregateKind::Max,
+                Direction::Desc,
+            );
+        let field_route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Max, "rank"),
+                Direction::Desc,
+            );
+
+        assert_eq!(field_route.execution_mode, terminal_route.execution_mode);
+        assert_eq!(
+            field_route.scan_hints.physical_fetch_hint,
+            terminal_route.scan_hints.physical_fetch_hint
+        );
+        assert_eq!(
+            field_route.scan_hints.load_scan_budget_hint,
+            terminal_route.scan_hints.load_scan_budget_hint
+        );
+        assert_eq!(
+            field_route.index_range_limit_spec,
+            terminal_route.index_range_limit_spec
+        );
+        assert_eq!(
+            field_route.aggregate_fold_mode,
+            terminal_route.aggregate_fold_mode
+        );
+        assert!(!field_route.field_min_fast_path_eligible());
+        assert!(!field_route.field_max_fast_path_eligible());
+    }
+
+    #[test]
+    fn route_matrix_field_target_non_extrema_fallback_route_matches_terminal_count() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+        plan.page = Some(PageSpec {
+            limit: Some(3),
+            offset: 2,
+        });
+
+        let terminal_route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+                &plan,
+                AggregateKind::Count,
+                Direction::Asc,
+            );
+        let field_route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Count, "rank"),
+                Direction::Asc,
+            );
+
+        assert_eq!(field_route.execution_mode, terminal_route.execution_mode);
+        assert_eq!(
+            field_route.scan_hints.physical_fetch_hint,
+            terminal_route.scan_hints.physical_fetch_hint
+        );
+        assert_eq!(
+            field_route.scan_hints.load_scan_budget_hint,
+            terminal_route.scan_hints.load_scan_budget_hint
+        );
+        assert_eq!(
+            field_route.index_range_limit_spec,
+            terminal_route.index_range_limit_spec
+        );
+        assert_eq!(
+            field_route.aggregate_fold_mode,
+            terminal_route.aggregate_fold_mode
+        );
+        assert!(!field_route.field_min_fast_path_eligible());
+        assert!(!field_route.field_max_fast_path_eligible());
+    }
+
+    #[test]
     fn route_capabilities_full_scan_desc_pk_order_reflect_expected_flags() {
         let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
         plan.order = Some(OrderSpec {
@@ -934,8 +1585,11 @@ mod tests {
             limit: Some(3),
             offset: 2,
         });
-        let capabilities =
-            LoadExecutor::<RouteMatrixEntity>::derive_route_capabilities(&plan, Direction::Desc);
+        let capabilities = LoadExecutor::<RouteMatrixEntity>::derive_route_capabilities(
+            &plan,
+            Direction::Desc,
+            None,
+        );
 
         assert!(capabilities.streaming_access_shape_safe);
         assert!(capabilities.desc_physical_reverse_supported);
@@ -943,6 +1597,8 @@ mod tests {
         assert!(!capabilities.index_range_limit_pushdown_shape_eligible);
         assert!(!capabilities.composite_aggregate_fast_path_eligible);
         assert!(capabilities.bounded_probe_hint_safe);
+        assert!(!capabilities.field_min_fast_path_eligible);
+        assert!(!capabilities.field_max_fast_path_eligible);
     }
 
     #[test]
@@ -963,8 +1619,11 @@ mod tests {
             limit: Some(2),
             offset: 1,
         });
-        let capabilities =
-            LoadExecutor::<RouteMatrixEntity>::derive_route_capabilities(&plan, Direction::Desc);
+        let capabilities = LoadExecutor::<RouteMatrixEntity>::derive_route_capabilities(
+            &plan,
+            Direction::Desc,
+            None,
+        );
 
         assert!(capabilities.streaming_access_shape_safe);
         assert!(!capabilities.desc_physical_reverse_supported);
@@ -972,6 +1631,8 @@ mod tests {
         assert!(!capabilities.index_range_limit_pushdown_shape_eligible);
         assert!(!capabilities.composite_aggregate_fast_path_eligible);
         assert!(!capabilities.bounded_probe_hint_safe);
+        assert!(!capabilities.field_min_fast_path_eligible);
+        assert!(!capabilities.field_max_fast_path_eligible);
     }
 
     #[test]
@@ -1609,7 +2270,7 @@ mod tests {
         let capability_flags = route_capability_flag_count_guard();
         assert!(
             capability_flags
-                <= ROUTE_CAPABILITY_FLAG_BASELINE_0246 + ROUTE_FEATURE_SOFT_BUDGET_DELTA,
+                <= ROUTE_CAPABILITY_FLAG_BASELINE_0247 + ROUTE_FEATURE_SOFT_BUDGET_DELTA,
             "route capability flags exceeded soft feature budget; consolidate before adding more flags"
         );
     }

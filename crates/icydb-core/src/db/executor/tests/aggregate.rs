@@ -1,7 +1,14 @@
 use super::*;
 use crate::{
-    db::{data::DataKey, query::plan::ExplainAccessPath},
+    db::{
+        data::DataKey,
+        executor::fold::{AggregateKind, AggregateSpec},
+        query::plan::{ExecutablePlan, ExplainAccessPath},
+        response::Response,
+    },
+    error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
+    types::Id,
 };
 use std::cell::RefCell;
 
@@ -127,6 +134,139 @@ fn remove_pushdown_row_data(id: u128) {
     });
 }
 
+///
+/// AggregateParityValue
+///
+/// Canonical parity assertion payload used by the aggregate terminal matrix.
+/// This keeps terminal result comparison uniform as the matrix expands.
+///
+
+#[derive(Eq, PartialEq)]
+enum AggregateParityValue<E: EntityKind> {
+    Count(u32),
+    Exists(bool),
+    Id(Option<Id<E>>),
+}
+
+type AggregateParityExpectedFn<E> = fn(&Response<E>) -> AggregateParityValue<E>;
+type AggregateParityActualFn<E> =
+    fn(&LoadExecutor<E>, ExecutablePlan<E>) -> Result<AggregateParityValue<E>, InternalError>;
+
+///
+/// AggregateParityCase
+///
+/// One aggregate terminal parity row used by the table-driven parity harness.
+/// Each row defines expected materialized projection + actual aggregate call.
+///
+
+struct AggregateParityCase<E: EntityKind + EntityValue> {
+    label: &'static str,
+    expected: AggregateParityExpectedFn<E>,
+    actual: AggregateParityActualFn<E>,
+}
+
+fn parity_expected_count<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
+    AggregateParityValue::Count(response.count())
+}
+
+fn parity_expected_exists<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
+    AggregateParityValue::Exists(!response.is_empty())
+}
+
+fn parity_expected_min<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
+    AggregateParityValue::Id(response.ids().into_iter().min())
+}
+
+fn parity_expected_max<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
+    AggregateParityValue::Id(response.ids().into_iter().max())
+}
+
+fn parity_expected_first<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
+    AggregateParityValue::Id(response.id())
+}
+
+fn parity_expected_last<E: EntityKind>(response: &Response<E>) -> AggregateParityValue<E> {
+    AggregateParityValue::Id(response.ids().last().copied())
+}
+
+fn parity_actual_count<E: EntityKind + EntityValue>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<AggregateParityValue<E>, InternalError> {
+    Ok(AggregateParityValue::Count(load.aggregate_count(plan)?))
+}
+
+fn parity_actual_exists<E: EntityKind + EntityValue>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<AggregateParityValue<E>, InternalError> {
+    Ok(AggregateParityValue::Exists(load.aggregate_exists(plan)?))
+}
+
+fn parity_actual_min<E: EntityKind + EntityValue>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<AggregateParityValue<E>, InternalError> {
+    Ok(AggregateParityValue::Id(load.aggregate_min(plan)?))
+}
+
+fn parity_actual_max<E: EntityKind + EntityValue>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<AggregateParityValue<E>, InternalError> {
+    Ok(AggregateParityValue::Id(load.aggregate_max(plan)?))
+}
+
+fn parity_actual_first<E: EntityKind + EntityValue>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<AggregateParityValue<E>, InternalError> {
+    Ok(AggregateParityValue::Id(load.aggregate_first(plan)?))
+}
+
+fn parity_actual_last<E: EntityKind + EntityValue>(
+    load: &LoadExecutor<E>,
+    plan: ExecutablePlan<E>,
+) -> Result<AggregateParityValue<E>, InternalError> {
+    Ok(AggregateParityValue::Id(load.aggregate_last(plan)?))
+}
+
+fn aggregate_id_terminal_parity_cases<E: EntityKind + EntityValue>() -> [AggregateParityCase<E>; 6]
+{
+    [
+        AggregateParityCase {
+            label: "count",
+            expected: parity_expected_count::<E>,
+            actual: parity_actual_count::<E>,
+        },
+        AggregateParityCase {
+            label: "exists",
+            expected: parity_expected_exists::<E>,
+            actual: parity_actual_exists::<E>,
+        },
+        AggregateParityCase {
+            label: "min",
+            expected: parity_expected_min::<E>,
+            actual: parity_actual_min::<E>,
+        },
+        AggregateParityCase {
+            label: "max",
+            expected: parity_expected_max::<E>,
+            actual: parity_actual_max::<E>,
+        },
+        AggregateParityCase {
+            label: "first",
+            expected: parity_expected_first::<E>,
+            actual: parity_actual_first::<E>,
+        },
+        AggregateParityCase {
+            label: "last",
+            expected: parity_expected_last::<E>,
+            actual: parity_actual_last::<E>,
+        },
+    ]
+}
+
 fn assert_aggregate_parity_for_query<E>(
     load: &LoadExecutor<E>,
     make_query: impl Fn() -> Query<E>,
@@ -142,72 +282,25 @@ fn assert_aggregate_parity_for_query<E>(
                 .expect("baseline materialized plan should build"),
         )
         .expect("baseline materialized execution should succeed");
-    let expected_count = expected_response.count();
-    let expected_exists = !expected_response.is_empty();
-    let expected_min = expected_response.ids().into_iter().min();
-    let expected_max = expected_response.ids().into_iter().max();
-    let expected_first = expected_response.id();
-    let expected_last = expected_response.ids().last().copied();
 
-    // Execute aggregate terminals against the same logical query shape.
-    let actual_count = load
-        .aggregate_count(
+    // Execute aggregate terminals against the same logical query shape through
+    // one matrix so parity additions remain one-row changes.
+    for case in aggregate_id_terminal_parity_cases::<E>() {
+        let expected = (case.expected)(&expected_response);
+        let actual = (case.actual)(
+            load,
             make_query()
                 .plan()
-                .expect("aggregate COUNT plan should build"),
+                .expect("aggregate parity matrix plan should build"),
         )
-        .expect("aggregate COUNT should succeed");
-    let actual_exists = load
-        .aggregate_exists(
-            make_query()
-                .plan()
-                .expect("aggregate EXISTS plan should build"),
-        )
-        .expect("aggregate EXISTS should succeed");
-    let actual_min = load
-        .aggregate_min(
-            make_query()
-                .plan()
-                .expect("aggregate MIN plan should build"),
-        )
-        .expect("aggregate MIN should succeed");
-    let actual_max = load
-        .aggregate_max(
-            make_query()
-                .plan()
-                .expect("aggregate MAX plan should build"),
-        )
-        .expect("aggregate MAX should succeed");
-    let actual_first = load
-        .aggregate_first(
-            make_query()
-                .plan()
-                .expect("aggregate FIRST plan should build"),
-        )
-        .expect("aggregate FIRST should succeed");
-    let actual_last = load
-        .aggregate_last(
-            make_query()
-                .plan()
-                .expect("aggregate LAST plan should build"),
-        )
-        .expect("aggregate LAST should succeed");
+        .expect("aggregate parity matrix terminal should succeed");
 
-    assert_eq!(
-        actual_count, expected_count,
-        "{context}: count parity failed"
-    );
-    assert_eq!(
-        actual_exists, expected_exists,
-        "{context}: exists parity failed"
-    );
-    assert_eq!(actual_min, expected_min, "{context}: min parity failed");
-    assert_eq!(actual_max, expected_max, "{context}: max parity failed");
-    assert_eq!(
-        actual_first, expected_first,
-        "{context}: first parity failed"
-    );
-    assert_eq!(actual_last, expected_last, "{context}: last parity failed");
+        assert!(
+            actual == expected,
+            "{context}: {} parity failed",
+            case.label
+        );
+    }
 }
 
 fn assert_count_parity_for_query<E>(
@@ -340,6 +433,103 @@ fn aggregate_parity_ordered_page_window_asc() {
                 .limit(3)
         },
         "ordered ASC page window",
+    );
+}
+
+#[test]
+fn aggregate_parity_matrix_harness_covers_all_id_terminals() {
+    let labels = aggregate_id_terminal_parity_cases::<SimpleEntity>().map(|case| case.label);
+
+    assert_eq!(labels, ["count", "exists", "min", "max", "first", "last"]);
+}
+
+#[test]
+fn aggregate_spec_field_target_non_extrema_surfaces_unsupported_taxonomy() {
+    seed_pushdown_entities(&[(8_021, 7, 10), (8_022, 7, 20), (8_023, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .plan()
+        .expect("field-target non-extrema aggregate plan should build");
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute_aggregate_spec(
+            plan,
+            AggregateSpec::for_target_field(AggregateKind::Count, "rank"),
+        )
+    });
+    let Err(err) = result else {
+        panic!("field-target COUNT should be rejected by unsupported taxonomy");
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        scanned, 0,
+        "unsupported field-target COUNT should fail before any scan-budget consumption"
+    );
+    assert!(
+        err.message.contains("only supported for min/max terminals"),
+        "field-target non-extrema taxonomy should be explicit: {err:?}"
+    );
+}
+
+#[test]
+fn aggregate_spec_field_target_extrema_surfaces_not_yet_supported_taxonomy() {
+    seed_pushdown_entities(&[(8_031, 7, 10), (8_032, 7, 20), (8_033, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .plan()
+        .expect("field-target extrema aggregate plan should build");
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute_aggregate_spec(
+            plan,
+            AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+        )
+    });
+    let Err(err) = result else {
+        panic!("field-target MIN should be rejected until the 0.25 capability ships");
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        scanned, 0,
+        "unsupported field-target MIN should fail before any scan-budget consumption"
+    );
+    assert!(
+        err.message.contains("not yet supported in 0.24.x"),
+        "field-target extrema taxonomy should be explicit: {err:?}"
+    );
+}
+
+#[test]
+fn aggregate_spec_field_target_unknown_field_surfaces_not_yet_supported_without_scan() {
+    seed_pushdown_entities(&[(8_041, 7, 10), (8_042, 7, 20), (8_043, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .plan()
+        .expect("field-target unknown-field aggregate plan should build");
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute_aggregate_spec(
+            plan,
+            AggregateSpec::for_target_field(AggregateKind::Min, "missing_field"),
+        )
+    });
+    let Err(err) = result else {
+        panic!("field-target unknown field should be rejected until the 0.25 capability ships");
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        scanned, 0,
+        "field-target unknown-field MIN should fail before any scan-budget consumption"
+    );
+    assert!(
+        err.message.contains("not yet supported in 0.24.x"),
+        "field-target unknown-field taxonomy should stay explicit pre-0.25: {err:?}"
     );
 }
 
