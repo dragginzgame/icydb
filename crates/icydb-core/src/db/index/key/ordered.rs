@@ -39,6 +39,9 @@ pub(crate) enum OrderedValueEncodeError {
     #[error("ordered segment exceeds max length: {len} bytes (limit {max})")]
     SegmentTooLarge { len: usize, max: usize },
 
+    #[error("account owner principal exceeds max length: {len} bytes (limit {max})")]
+    AccountOwnerTooLarge { len: usize, max: usize },
+
     #[error("decimal exponent overflow during canonical encoding")]
     DecimalExponentOverflow,
 }
@@ -95,6 +98,7 @@ impl AsRef<[u8]> for EncodedValue {
     }
 }
 
+///
 /// OrderedEncode
 ///
 /// Internal ordered-byte encoder for fixed-width value components.
@@ -156,10 +160,7 @@ fn encode_component_payload(
     value: &Value,
 ) -> Result<(), OrderedValueEncodeError> {
     match value {
-        Value::Account(v) => {
-            push_account_payload(out, v);
-            Ok(())
-        }
+        Value::Account(v) => push_account_payload(out, v),
         Value::Blob(_) | Value::List(_) | Value::Map(_) => {
             Err(OrderedValueEncodeError::UnsupportedValueKind {
                 kind: value.canonical_tag().label(),
@@ -211,17 +212,27 @@ fn encode_component_payload(
             out.extend_from_slice(&v.to_bytes());
             Ok(())
         }
+        // Unit intentionally has no payload; tag-only encoding is canonical.
         Value::Unit => Ok(()),
     }
 }
 
 // Account ordering uses the same tuple contract as `Account::cmp`.
-#[expect(clippy::cast_possible_truncation)]
-fn push_account_payload(out: &mut Vec<u8>, account: &Account) {
+fn push_account_payload(
+    out: &mut Vec<u8>,
+    account: &Account,
+) -> Result<(), OrderedValueEncodeError> {
     let owner = account.owner.as_slice();
-    let owner_len = owner.len().min(ACCOUNT_OWNER_MAX_LEN).min(u8::MAX as usize);
+    let owner_len = owner.len();
+    if owner_len > ACCOUNT_OWNER_MAX_LEN {
+        return Err(OrderedValueEncodeError::AccountOwnerTooLarge {
+            len: owner_len,
+            max: ACCOUNT_OWNER_MAX_LEN,
+        });
+    }
 
-    let mut ordering_tag = owner_len as u8;
+    let mut ordering_tag =
+        u8::try_from(owner_len).expect("account owner length should fit in one byte");
     if account.subaccount.is_some() {
         ordering_tag |= ACCOUNT_SUBACCOUNT_TAG;
     }
@@ -235,6 +246,8 @@ fn push_account_payload(out: &mut Vec<u8>, account: &Account) {
     let subaccount = account.subaccount.unwrap_or_default().to_array();
     let _ = ACCOUNT_SUBACCOUNT_LEN;
     out.extend_from_slice(&subaccount);
+
+    Ok(())
 }
 
 // Enum ordering is variant -> path option -> payload option, recursively.
@@ -298,19 +311,10 @@ fn write_u128_decimal_digits(mut value: u128, out: &mut [u8; DECIMAL_DIGIT_BUFFE
 
     loop {
         write_idx = write_idx.saturating_sub(1);
-        out[write_idx] = match value % 10 {
-            0 => b'0',
-            1 => b'1',
-            2 => b'2',
-            3 => b'3',
-            4 => b'4',
-            5 => b'5',
-            6 => b'6',
-            7 => b'7',
-            8 => b'8',
-            9 => b'9',
-            _ => unreachable!("decimal digit remainder must be in 0..=9"),
-        };
+        let remainder = value % 10;
+        debug_assert!(remainder <= 9, "decimal digit remainder must be in 0..=9");
+        out[write_idx] =
+            digit_to_ascii(u32::try_from(remainder).expect("decimal remainder should fit u32"));
         value /= 10;
 
         if value == 0 {
@@ -496,19 +500,12 @@ fn push_padded_chunk_digits(out: &mut Vec<u8>, chunk: u32) {
 }
 
 fn digit_to_ascii(value: u32) -> u8 {
-    match value {
-        0 => b'0',
-        1 => b'1',
-        2 => b'2',
-        3 => b'3',
-        4 => b'4',
-        5 => b'5',
-        6 => b'6',
-        7 => b'7',
-        8 => b'8',
-        9 => b'9',
-        _ => unreachable!("decimal digit must be in 0..=9"),
-    }
+    const DECIMAL_DIGITS: [u8; 10] = *b"0123456789";
+
+    debug_assert!(value <= 9, "decimal digit must be in 0..=9");
+    let index = usize::try_from(value).expect("decimal digit should fit usize");
+
+    DECIMAL_DIGITS.get(index).copied().unwrap_or(b'0')
 }
 
 const fn ordered_i32_bytes(value: i32) -> [u8; 4] {
@@ -684,6 +681,21 @@ mod tests {
         assert!(encode_canonical_index_component(&Value::Blob(vec![1u8, 2u8])).is_err());
         assert!(encode_canonical_index_component(&Value::List(vec![Value::Int(1)])).is_err());
         assert!(encode_canonical_index_component(&Value::Map(vec![])).is_err());
+    }
+
+    #[test]
+    #[expect(clippy::cast_possible_truncation)]
+    fn canonical_encoder_account_payload_uses_exact_owner_length_tag() {
+        let account = Account::new(Principal::max_storable(), None::<Subaccount>);
+        let value = Value::Account(account);
+
+        let encoded =
+            encode_canonical_index_component(&value).expect("max-length account should encode");
+        assert_eq!(
+            encoded[1],
+            Principal::MAX_LENGTH_IN_BYTES as u8,
+            "account payload owner-length tag should preserve the full principal length"
+        );
     }
 
     #[test]
@@ -948,7 +960,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unreadable_literal)]
+    #[expect(clippy::unreadable_literal)]
     fn canonical_encoder_decimal_large_mantissa_regression() {
         let lhs = Decimal::from_i128_with_scale(100000000000000003890313744798756555321, 2);
         let rhs = Decimal::from_i128_with_scale(158022371435723639313993729503199393550, 2);

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::{
-        commit::{ensure_recovered_for_write, init_commit_store_for_tests},
+        commit::{CommitRowOp, ensure_recovered_for_write, init_commit_store_for_tests},
         data::{DataKey, DataStore, RawRow},
         executor::DeleteExecutor,
         index::IndexStore,
@@ -610,6 +610,73 @@ fn insert_many_empty_batch_is_noop_for_atomic_and_non_atomic_lanes() {
 
     let rows = with_data_store(TargetStore::PATH, |data_store| data_store.iter().count());
     assert_eq!(rows, 0, "empty batches must not persist rows");
+}
+
+#[test]
+fn commit_window_rejects_apply_when_index_store_generation_changes() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let entity = UniqueEmailEntity {
+        id: Ulid::from_u128(90),
+        email: "guard@example.com".to_string(),
+    };
+    let data_key = DataKey::try_new::<UniqueEmailEntity>(entity.id)
+        .expect("data key should build for generation guard test")
+        .to_raw()
+        .expect("data key should encode for generation guard test");
+    let row = RawRow::try_new(
+        serialize(&entity).expect("entity serialization should succeed for guard test"),
+    )
+    .expect("row encoding should succeed for generation guard test");
+    let row_op = CommitRowOp::new(
+        UniqueEmailEntity::PATH,
+        data_key.as_bytes().to_vec(),
+        None,
+        Some(row.as_bytes().to_vec()),
+    );
+
+    let OpenCommitWindow {
+        commit,
+        prepared_row_ops,
+        index_store_guards,
+        ..
+    } = open_commit_window::<UniqueEmailEntity>(&DB, vec![row_op])
+        .expect("commit window open should succeed");
+
+    // Simulate cross-phase drift: preflight saw one generation, apply sees another.
+    with_index_store_mut(UNIQUE_INDEX_STORE_PATH, IndexStore::clear);
+
+    let err = apply_prepared_row_ops(
+        commit,
+        "save_row_apply_generation_guard_test",
+        prepared_row_ops,
+        index_store_guards,
+        || {},
+        || {},
+    )
+    .expect_err("generation mismatch must fail before apply");
+    assert_eq!(
+        err.class,
+        ErrorClass::InvariantViolation,
+        "generation mismatch should classify as invariant violation",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "generation mismatch should originate from executor apply invariants",
+    );
+    assert!(
+        err.message
+            .contains("index store generation changed between preflight and apply"),
+        "unexpected error: {err:?}",
+    );
+
+    let persisted = load_unique_email_entity(entity.id);
+    assert!(
+        persisted.is_none(),
+        "generation guard failure must prevent row persistence"
+    );
 }
 
 #[test]

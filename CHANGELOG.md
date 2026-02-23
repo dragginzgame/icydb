@@ -5,6 +5,40 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.27.4] - 2026-02-23 - Auditing db/index/
+
+### 📝 Summary
+
+* Makes index and storage internals safer and easier to reason about, with clearer diagnostics.
+
+### 🔧 Changed
+
+* Kept `Direction` internal to `crate::db` so it is less likely to be used outside DB internals by mistake.
+* Stopped silently truncating account owner bytes in index keys; invalid sizes now fail fast.
+* Map fingerprinting now sorts map entries first, so the same map hashes the same regardless of insertion order.
+* Clarified that `Value::Unit` uses tag-only index encoding and replaced fragile branches with explicit checks.
+* `IndexKey` now writes component count from `components.len()` directly and checks segment bounds up front.
+* Made index-range empty checks explicitly direction-independent.
+* Continuation anchors outside the requested range are now rejected early.
+* `RawIndexEntry::try_from_keys` now rejects duplicate keys during encoding.
+* Unique checks now clearly validate current ownership before applying index updates.
+* Unique probes now stop after 2 keys (`0`, `1`, or `more than 1`) to avoid extra scanning on bad buckets.
+* Commit apply now verifies index stores have not changed between planning and apply; if they have, apply aborts safely.
+* Storage diagnostics now collect data and index snapshots in one sorted pass and fall back to entity name when path mapping is missing.
+
+### 🧪 Testing
+
+* Added tests for account encoding at max principal length.
+* Added tests that continuation resume always excludes the anchor key.
+* Added tests that map fingerprints stay stable across insertion orders.
+* Added tests that empty-range checks behave the same in both directions.
+* Added tests that out-of-range continuation anchors are rejected.
+* Added tests that duplicate index keys are rejected during encoding.
+* Added tests that apply fails closed if index-store state changes between planning and apply.
+* Rebuilt diagnostics tests for empty stores, multi-entity counts, min/max keys, corruption counters, and system/user index totals.
+
+---
+
 ## [0.27.3] - 2026-02-23 - Auditing db/data/
 
 ### 📝 Summary

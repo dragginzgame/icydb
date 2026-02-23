@@ -112,13 +112,11 @@ pub(in crate::db) fn plan_index_mutation_for_entity<E: EntityKind + EntityValue>
             load::load_existing_entry(store, index, new)?
         };
 
-        unique::validate_unique_constraint::<E>(
-            db,
-            index,
-            new_entry.as_ref(),
-            new_entity_key.as_ref(),
-            new,
-        )?;
+        // Unique validation is evaluated against the currently committed store
+        // state for the target unique value. Commit-op synthesis then applies
+        // remove-old/add-new semantics, so valid key transitions are evaluated
+        // on the correct post-transition logical ownership model.
+        unique::validate_unique_constraint::<E>(db, index, new_entity_key.as_ref(), new)?;
 
         commit_ops::build_commit_ops_for_index::<E>(
             &mut commit_ops,

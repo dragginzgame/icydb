@@ -264,7 +264,7 @@ pub(crate) enum SlotSelectionPolicy {
 
 /// Derive a scan direction from an order spec using a selected order-field slot.
 #[must_use]
-pub(crate) fn derive_scan_direction(
+pub(in crate::db) fn derive_scan_direction(
     order: &OrderSpec,
     slot_policy: SlotSelectionPolicy,
 ) -> Direction {

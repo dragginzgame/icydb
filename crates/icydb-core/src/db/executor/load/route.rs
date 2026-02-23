@@ -266,7 +266,7 @@ struct FieldExtremaEligibility {
 /// decisions to reduce drift across helpers.
 ///
 
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct RouteCapabilities {
     streaming_access_shape_safe: bool,

@@ -18,9 +18,10 @@ pub(super) fn load_existing_entry<E: EntityKind + EntityValue>(
     let Some(key) = IndexKey::new(entity, index)? else {
         return Ok(None);
     };
+    let raw_key = key.to_raw();
 
     store
-        .with_borrow(|index_store| index_store.get(&key.to_raw()))
+        .with_borrow(|index_store| index_store.get(&raw_key))
         .map(|raw_entry| {
             raw_entry.try_decode().map_err(|err| {
                 InternalError::index_plan_index_corruption(format!(

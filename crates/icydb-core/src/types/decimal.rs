@@ -807,7 +807,7 @@ impl NumToPrimitive for Decimal {
         u128::try_from(integer).ok()
     }
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn to_f32(&self) -> Option<f32> {
         self.to_f64().and_then(|v| {
             let f = v as f32;
@@ -815,7 +815,7 @@ impl NumToPrimitive for Decimal {
         })
     }
 
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(clippy::cast_precision_loss)]
     fn to_f64(&self) -> Option<f64> {
         let divisor = 10f64.powi(i32::try_from(self.scale).ok()?);
         let value = (self.mantissa as f64) / divisor;

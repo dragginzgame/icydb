@@ -371,7 +371,6 @@ macro_rules! test_entity_schema {
         }
 
         impl $crate::traits::EntityValue for $entity {
-            #[allow(clippy::unit_arg)]
             fn id(&self) -> $crate::types::Id<Self> {
                 $crate::types::Id::from_key(self.$id_field)
             }

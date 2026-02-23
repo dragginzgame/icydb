@@ -2,7 +2,7 @@ use crate::{
     db::{
         Db,
         data::DataKey,
-        index::{Direction, EncodedValue, IndexEntry, IndexEntryCorruption, IndexId, IndexKey},
+        index::{Direction, EncodedValue, IndexEntryCorruption, IndexId, IndexKey},
     },
     error::InternalError,
     model::{entity::resolve_field_slot, index::IndexModel},
@@ -17,11 +17,14 @@ use std::{collections::BTreeSet, ops::Bound};
 /// This detects:
 /// - Index corruption (multiple existing keys for a unique value)
 /// - Uniqueness violations (conflicting key ownership)
+///
+/// Validation is performed against the current committed store state before
+/// commit-op synthesis. It allows self-ownership (`matching_keys` contains
+/// `new_key`) and rejects only conflicting ownership.
 #[expect(clippy::too_many_lines)]
 pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
     db: &Db<E::Canister>,
     index: &IndexModel,
-    _entry: Option<&IndexEntry<E>>,
     new_key: Option<&E::Key>,
     new_entity: Option<&E>,
 ) -> Result<(), InternalError> {
@@ -83,13 +86,16 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         Bound::Included(upper.to_raw()),
     );
 
+    // Unique validation only needs to distinguish 0, 1, or "more than 1".
+    // Capping this probe avoids scanning large corrupted buckets.
+    let unique_probe_limit = 2usize;
     let matching_data_keys = index_store.with_borrow(|store| {
         store.resolve_data_values_in_raw_range_limited::<E>(
             index,
             (&lower, &upper),
             None,
             Direction::Asc,
-            usize::MAX,
+            unique_probe_limit,
             None,
         )
     })?;

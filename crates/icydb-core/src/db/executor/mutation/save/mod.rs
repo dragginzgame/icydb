@@ -394,6 +394,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         let OpenCommitWindow {
             commit,
             prepared_row_ops,
+            index_store_guards,
             delta,
         } = open_commit_window::<E>(db, marker_row_ops)?;
 
@@ -402,6 +403,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             commit,
             "save_row_apply",
             prepared_row_ops,
+            index_store_guards,
             || {
                 emit_prepared_row_op_delta_metrics::<E>(&delta);
             },
@@ -422,6 +424,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         let OpenCommitWindow {
             commit,
             prepared_row_ops,
+            index_store_guards,
             delta,
         } = open_commit_window::<E>(db, marker_row_ops)?;
 
@@ -430,6 +433,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
             commit,
             "save_batch_atomic_row_apply",
             prepared_row_ops,
+            index_store_guards,
             || {
                 emit_prepared_row_op_delta_metrics::<E>(&delta);
             },

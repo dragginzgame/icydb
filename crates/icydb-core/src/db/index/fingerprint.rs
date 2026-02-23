@@ -38,6 +38,30 @@ fn test_hash_override() -> Option<[u8; 16]> {
     TEST_HASH_OVERRIDE.with(|cell| cell.get())
 }
 
+// Hash map entries under canonical key order to keep fingerprints deterministic
+// even when callers construct `Value::Map` directly in non-canonical order.
+#[expect(clippy::cast_possible_truncation)]
+fn write_map_entries_to_hasher(
+    entries: &[(Value, Value)],
+    h: &mut Xxh3,
+) -> Result<(), InternalError> {
+    let mut ordered = entries.iter().collect::<Vec<_>>();
+    ordered.sort_by(|(left_key, left_value), (right_key, right_value)| {
+        Value::canonical_cmp_key(left_key, right_key)
+            .then_with(|| Value::canonical_cmp(left_value, right_value))
+    });
+
+    feed_u32(h, ordered.len() as u32);
+    for (key, value) in ordered {
+        feed_u8(h, 0xFD);
+        write_to_hasher(key, h)?;
+        feed_u8(h, 0xFE);
+        write_to_hasher(value, h)?;
+    }
+
+    Ok(())
+}
+
 #[expect(clippy::cast_possible_truncation)]
 #[expect(clippy::too_many_lines)]
 fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
@@ -116,13 +140,9 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
             }
         }
         Value::Map(entries) => {
-            feed_u32(h, entries.len() as u32);
-            for (key, value) in entries {
-                feed_u8(h, 0xFD);
-                write_to_hasher(key, h)?;
-                feed_u8(h, 0xFE);
-                write_to_hasher(value, h)?;
-            }
+            // Map entries must hash under canonical key order.
+            // Fingerprint stability depends on deterministic iteration order.
+            write_map_entries_to_hasher(entries.as_slice(), h)?;
         }
         Value::Principal(p) => {
             let raw = p
@@ -160,7 +180,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
             feed_bytes(h, &u.to_bytes());
         }
         Value::Null | Value::Unit => {
-            // NOTE: Non-indexable values intentionally contribute no hash input.
+            // No additional payload beyond canonical tag.
         }
     }
 
@@ -323,6 +343,24 @@ mod tests {
             hash_value(&left).expect("hash value"),
             hash_value(&right).expect("hash value"),
             "blob boundaries must be length-framed to avoid collisions"
+        );
+    }
+
+    #[test]
+    fn map_hash_is_order_independent_for_non_canonical_construction_order() {
+        let left = Value::Map(vec![
+            (Value::Text("z".to_string()), Value::Uint(9)),
+            (Value::Text("a".to_string()), Value::Uint(1)),
+        ]);
+        let right = Value::Map(vec![
+            (Value::Text("a".to_string()), Value::Uint(1)),
+            (Value::Text("z".to_string()), Value::Uint(9)),
+        ]);
+
+        assert_eq!(
+            hash_value(&left).expect("hash value"),
+            hash_value(&right).expect("hash value"),
+            "map hash must be deterministic regardless of insertion order"
         );
     }
 }

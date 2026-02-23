@@ -10,7 +10,7 @@ mod tests;
 mod types;
 pub(crate) mod validate;
 
-pub(crate) use crate::db::{
+pub(in crate::db) use crate::db::{
     index::Direction,
     query::{
         cursor::{anchor, continuation, spine},
@@ -43,9 +43,10 @@ pub(in crate::db) use spine::{
     KeyEnvelope, validate_planned_cursor, validate_planned_cursor_state,
 };
 pub use types::OrderDirection;
+pub(in crate::db) use types::derive_scan_direction;
 pub(crate) use types::{
     AccessPath, AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec, OrderSpec,
-    PageSpec, SlotSelectionPolicy, compute_page_window, derive_scan_direction,
+    PageSpec, SlotSelectionPolicy, compute_page_window,
 };
 pub use validate::PlanError;
 pub(crate) use validate::{AccessPlanError, CursorPlanError, OrderPlanError};

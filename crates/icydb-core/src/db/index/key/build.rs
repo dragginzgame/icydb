@@ -91,11 +91,9 @@ impl IndexKey {
         let storage_key = StorageKey::try_from_value(&entity_key_value)?;
         let primary_key = storage_key.to_bytes()?.to_vec();
 
-        #[expect(clippy::cast_possible_truncation)]
         Ok(Some(Self {
             key_kind: IndexKeyKind::User,
             index_id: IndexId::new::<E>(index),
-            component_count: components.len() as u8,
             components,
             primary_key,
         }))
@@ -112,7 +110,6 @@ impl IndexKey {
         Self {
             key_kind,
             index_id: *index_id,
-            component_count: 0,
             components: Vec::new(),
             primary_key: Self::wildcard_low_pk(),
         }
@@ -128,7 +125,6 @@ impl IndexKey {
     }
 
     #[must_use]
-    #[expect(clippy::cast_possible_truncation)]
     pub(in crate::db::index) fn bounds_for_prefix_with_kind<C: AsRef<[u8]>>(
         index_id: &IndexId,
         key_kind: IndexKeyKind,
@@ -173,20 +169,16 @@ impl IndexKey {
             end_components.push(Self::wildcard_high_component());
         }
 
-        let component_count = index_len as u8;
-
         (
             Self {
                 key_kind,
                 index_id: *index_id,
-                component_count,
                 components: start_components,
                 primary_key: Self::wildcard_low_pk(),
             },
             Self {
                 key_kind,
                 index_id: *index_id,
-                component_count,
                 components: end_components,
                 primary_key: Self::wildcard_high_pk(),
             },
@@ -222,7 +214,6 @@ impl IndexKey {
 
     /// Variant of `bounds_for_prefix_component_range` with explicit key kind.
     #[must_use]
-    #[expect(clippy::cast_possible_truncation)]
     pub(in crate::db::index) fn bounds_for_prefix_component_range_with_kind<
         C: AsRef<[u8]>,
         B: AsRef<[u8]>,
@@ -305,11 +296,9 @@ impl IndexKey {
             });
         }
 
-        let component_count = index_len as u8;
         let lower_key = Self {
             key_kind,
             index_id: *index_id,
-            component_count,
             components: start_components,
             primary_key: match lower {
                 Bound::Excluded(_) => Self::wildcard_high_pk(),
@@ -319,7 +308,6 @@ impl IndexKey {
         let upper_key = Self {
             key_kind,
             index_id: *index_id,
-            component_count,
             components: end_components,
             primary_key: match upper {
                 Bound::Excluded(_) => Self::wildcard_low_pk(),

@@ -87,6 +87,11 @@ pub(super) fn build_commit_ops_for_index<E: EntityKind>(
                         keys
                     ))
                 }
+                IndexEntryEncodeError::DuplicateKey => InternalError::index_invariant(format!(
+                    "index entry unexpectedly contains duplicate keys: {} ({})",
+                    E::PATH,
+                    fields
+                )),
                 IndexEntryEncodeError::KeyEncoding(err) => {
                     InternalError::index_unsupported(format!(
                         "index entry key encoding failed: {} ({}) -> {err}",

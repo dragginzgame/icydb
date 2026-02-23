@@ -80,7 +80,6 @@ pub(in crate::db::executor) struct FieldSlot {
 }
 
 // Return true when one runtime value matches the declared field kind shape.
-#[allow(clippy::too_many_lines)]
 #[cfg_attr(not(test), allow(dead_code))]
 fn field_kind_matches_value(kind: &FieldKind, value: &Value) -> bool {
     match (kind, value) {

@@ -132,6 +132,7 @@ where
             let OpenCommitWindow {
                 commit,
                 prepared_row_ops,
+                index_store_guards,
                 delta,
             } = open_commit_window::<E>(&self.db, row_ops)?;
 
@@ -139,6 +140,7 @@ where
                 commit,
                 "delete_row_apply",
                 prepared_row_ops,
+                index_store_guards,
                 || {
                     emit_index_delta_metrics::<E>(
                         0,

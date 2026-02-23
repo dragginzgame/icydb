@@ -6,11 +6,13 @@ use crate::{
             begin_commit, finish_commit, prepare_row_commit_for_entity,
             rollback_prepared_row_ops_reverse, snapshot_row_rollback,
         },
+        index::IndexStore,
     },
     error::InternalError,
     obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue},
 };
+use std::{cell::RefCell, ptr, thread::LocalKey};
 
 ///
 /// PreparedRowOpDelta
@@ -39,7 +41,20 @@ pub(in crate::db::executor) struct PreparedRowOpDelta {
 pub(in crate::db::executor) struct OpenCommitWindow {
     pub(in crate::db::executor) commit: CommitGuard,
     pub(in crate::db::executor) prepared_row_ops: Vec<PreparedRowCommitOp>,
+    pub(in crate::db::executor) index_store_guards: Vec<IndexStoreGenerationGuard>,
     pub(in crate::db::executor) delta: PreparedRowOpDelta,
+}
+
+///
+/// IndexStoreGenerationGuard
+///
+/// Snapshot of one index store generation captured after preflight.
+/// Apply must observe the same generation before it starts mutating state.
+///
+
+pub(in crate::db::executor) struct IndexStoreGenerationGuard {
+    store: &'static LocalKey<RefCell<IndexStore>>,
+    expected_generation: u64,
 }
 
 /// Aggregate index and reverse-index deltas across prepared row operations.
@@ -142,6 +157,7 @@ pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
     row_ops: Vec<CommitRowOp>,
 ) -> Result<OpenCommitWindow, InternalError> {
     let prepared_row_ops = preflight_prepare_row_ops::<E>(db, &row_ops)?;
+    let index_store_guards = snapshot_index_store_generations(&prepared_row_ops);
     let delta = summarize_prepared_row_ops(&prepared_row_ops);
     let marker = CommitMarker::new(row_ops)?;
     let commit = begin_commit(marker)?;
@@ -149,6 +165,7 @@ pub(in crate::db::executor) fn open_commit_window<E: EntityKind + EntityValue>(
     Ok(OpenCommitWindow {
         commit,
         prepared_row_ops,
+        index_store_guards,
         delta,
     })
 }
@@ -158,12 +175,16 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
     commit: CommitGuard,
     apply_phase: &'static str,
     prepared_row_ops: Vec<PreparedRowCommitOp>,
+    index_store_guards: Vec<IndexStoreGenerationGuard>,
     on_index_applied: impl FnOnce(),
     on_data_applied: impl FnOnce(),
 ) -> Result<(), InternalError> {
     finish_commit(commit, |guard| {
         let mut apply_guard = CommitApplyGuard::new(apply_phase);
         let _ = guard;
+
+        // Enforce that index stores are unchanged between preflight and apply.
+        verify_index_store_generations(index_store_guards.as_slice())?;
 
         let mut rollback = Vec::with_capacity(prepared_row_ops.len());
         for row_op in &prepared_row_ops {
@@ -180,4 +201,46 @@ pub(in crate::db::executor) fn apply_prepared_row_ops(
 
         Ok(())
     })
+}
+
+// Capture unique touched index stores and their generation after preflight.
+fn snapshot_index_store_generations(
+    prepared_row_ops: &[PreparedRowCommitOp],
+) -> Vec<IndexStoreGenerationGuard> {
+    let mut guards = Vec::<IndexStoreGenerationGuard>::new();
+
+    for row_op in prepared_row_ops {
+        for index_op in &row_op.index_ops {
+            if guards
+                .iter()
+                .any(|existing| ptr::eq(existing.store, index_op.store))
+            {
+                continue;
+            }
+            let expected_generation = index_op.store.with_borrow(IndexStore::generation);
+            guards.push(IndexStoreGenerationGuard {
+                store: index_op.store,
+                expected_generation,
+            });
+        }
+    }
+
+    guards
+}
+
+// Verify index stores have not changed since preflight snapshot capture.
+fn verify_index_store_generations(
+    guards: &[IndexStoreGenerationGuard],
+) -> Result<(), InternalError> {
+    for guard in guards {
+        let observed_generation = guard.store.with_borrow(IndexStore::generation);
+        if observed_generation != guard.expected_generation {
+            return Err(InternalError::executor_invariant(format!(
+                "index store generation changed between preflight and apply: expected {}, found {}",
+                guard.expected_generation, observed_generation
+            )));
+        }
+    }
+
+    Ok(())
 }

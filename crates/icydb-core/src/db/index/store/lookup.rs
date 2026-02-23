@@ -1,9 +1,10 @@
-use super::InlineIndexValue;
 use crate::{
     db::{
         data::DataKey,
         index::{
-            Direction, IndexKey, continuation_advanced, envelope_is_empty, resume_bounds,
+            Direction, IndexKey, continuation_advanced, envelope_is_empty,
+            range::anchor_within_envelope,
+            resume_bounds,
             store::{IndexStore, RawIndexKey},
         },
         query::predicate::{IndexPredicateExecution, eval_index_execution_on_decoded_key},
@@ -15,7 +16,7 @@ use crate::{
 use std::ops::Bound;
 
 impl IndexStore {
-    pub(crate) fn resolve_data_values_in_raw_range_limited<E: EntityKind>(
+    pub(in crate::db) fn resolve_data_values_in_raw_range_limited<E: EntityKind>(
         &self,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
@@ -28,18 +29,22 @@ impl IndexStore {
             return Ok(Vec::new());
         }
 
+        Self::ensure_anchor_within_envelope(direction, continuation_start_exclusive, bounds)?;
+
         let (start_raw, end_raw) = match continuation_start_exclusive {
             Some(anchor) => resume_bounds(direction, bounds.0.clone(), bounds.1.clone(), anchor),
             None => (bounds.0.clone(), bounds.1.clone()),
         };
+
         if envelope_is_empty(&start_raw, &end_raw) {
             return Ok(Vec::new());
         }
 
         let mut out = Vec::new();
+
         match direction {
             Direction::Asc => {
-                for entry in self.entry_map().range((start_raw, end_raw)) {
+                for entry in self.map.range((start_raw, end_raw)) {
                     let raw_key = entry.key();
                     let value = entry.value();
 
@@ -48,6 +53,7 @@ impl IndexStore {
                         raw_key,
                         continuation_start_exclusive,
                     )?;
+
                     if Self::decode_index_entry_and_push::<E>(
                         index,
                         raw_key,
@@ -62,7 +68,7 @@ impl IndexStore {
                 }
             }
             Direction::Desc => {
-                for entry in self.entry_map().range((start_raw, end_raw)).rev() {
+                for entry in self.map.range((start_raw, end_raw)).rev() {
                     let raw_key = entry.key();
                     let value = entry.value();
 
@@ -71,6 +77,7 @@ impl IndexStore {
                         raw_key,
                         continuation_start_exclusive,
                     )?;
+
                     if Self::decode_index_entry_and_push::<E>(
                         index,
                         raw_key,
@@ -111,25 +118,42 @@ impl IndexStore {
         Ok(())
     }
 
+    // Validate that continuation anchor is contained by the original range envelope.
+    //
+    // Keep this guard in the store layer even though planner/cursor validation already
+    // checks containment: this is a defensive contract check against cross-layer misuse.
+    fn ensure_anchor_within_envelope(
+        direction: Direction,
+        anchor: Option<&RawIndexKey>,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+    ) -> Result<(), InternalError> {
+        if let Some(anchor) = anchor
+            && !anchor_within_envelope(direction, anchor, bounds.0, bounds.1)
+        {
+            return Err(InternalError::index_invariant(
+                "index-range continuation anchor is outside the requested range envelope",
+            ));
+        }
+
+        Ok(())
+    }
+
     fn decode_index_entry_and_push<E: EntityKind>(
         index: &IndexModel,
         raw_key: &RawIndexKey,
-        value: &InlineIndexValue,
+        value: &super::StoredIndexValue,
         out: &mut Vec<DataKey>,
         limit: Option<usize>,
         context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
         #[cfg(debug_assertions)]
-        if let Err(err) = Self::verify_entry_fingerprint(Some(index), raw_key, value) {
-            panic!(
-                "invariant violation (debug-only): index fingerprint verification failed: {err}"
-            );
-        }
+        Self::verify_if_debug(raw_key, value);
 
         let decoded_key = IndexKey::try_from_raw(raw_key).map_err(|err| {
             InternalError::index_corruption(format!("index key corrupted during {context}: {err}"))
         })?;
+
         if let Some(execution) = index_predicate_execution
             && !eval_index_execution_on_decoded_key(&decoded_key, execution)?
         {
@@ -149,6 +173,7 @@ impl IndexStore {
 
         for storage_key in storage_keys {
             out.push(DataKey::from_key::<E>(storage_key));
+
             if let Some(limit) = limit
                 && out.len() == limit
             {
@@ -160,9 +185,9 @@ impl IndexStore {
     }
 }
 
-///
-/// TESTS
-///
+//
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {
@@ -171,7 +196,7 @@ mod tests {
         error::{ErrorClass, ErrorOrigin},
         traits::Storable,
     };
-    use std::borrow::Cow;
+    use std::{borrow::Cow, ops::Bound};
 
     use super::IndexStore;
 
@@ -202,6 +227,23 @@ mod tests {
                 .expect_err(
                     "DESC continuation candidate not strictly after anchor must be rejected",
                 );
+
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Index);
+    }
+
+    #[test]
+    fn anchor_containment_guard_rejects_out_of_envelope_anchor() {
+        let lower = Bound::Included(raw_key(0x10));
+        let upper = Bound::Excluded(raw_key(0x20));
+        let anchor = raw_key(0x20);
+
+        let err = IndexStore::ensure_anchor_within_envelope(
+            Direction::Asc,
+            Some(&anchor),
+            (&lower, &upper),
+        )
+        .expect_err("out-of-envelope continuation anchor must be rejected");
 
         assert_eq!(err.class, ErrorClass::InvariantViolation);
         assert_eq!(err.origin, ErrorOrigin::Index);

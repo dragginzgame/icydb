@@ -8,7 +8,7 @@ use crate::{
     traits::Storable,
 };
 use canic_cdk::structures::storable::Bound;
-use std::borrow::Cow;
+use std::{borrow::Cow, cmp::Ordering};
 
 const KEY_KIND_TAG_SIZE: usize = 1;
 const COMPONENT_COUNT_SIZE: usize = 1;
@@ -55,13 +55,29 @@ impl IndexKeyKind {
 /// Ordering of this type must exactly match byte-level ordering.
 ///
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct IndexKey {
     pub(super) key_kind: IndexKeyKind,
     pub(super) index_id: IndexId,
-    pub(super) component_count: u8,
     pub(super) components: Vec<Vec<u8>>,
     pub(super) primary_key: Vec<u8>,
+}
+
+impl Ord for IndexKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.key_kind
+            .cmp(&other.key_kind)
+            .then_with(|| self.index_id.cmp(&other.index_id))
+            .then_with(|| self.components.len().cmp(&other.components.len()))
+            .then_with(|| compare_component_segments(&self.components, &other.components))
+            .then_with(|| compare_length_prefixed_segment(&self.primary_key, &other.primary_key))
+    }
+}
+
+impl PartialOrd for IndexKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[expect(clippy::cast_possible_truncation)]
@@ -92,15 +108,14 @@ impl IndexKey {
 
     #[must_use]
     pub(crate) fn to_raw(&self) -> RawIndexKey {
-        let component_count = usize::from(self.component_count);
-
-        debug_assert_eq!(component_count, self.components.len());
+        let component_count = self.components.len();
         debug_assert!(component_count <= MAX_INDEX_FIELDS);
+        debug_assert!(u8::try_from(component_count).is_ok());
         debug_assert!(!self.primary_key.is_empty());
         debug_assert!(self.primary_key.len() <= Self::MAX_PK_SIZE);
 
         let mut capacity = KEY_PREFIX_SIZE + SEGMENT_LEN_SIZE + self.primary_key.len();
-        for component in self.components.iter().take(component_count) {
+        for component in &self.components {
             debug_assert!(!component.is_empty());
             debug_assert!(component.len() <= Self::MAX_COMPONENT_SIZE);
             capacity += SEGMENT_LEN_SIZE + component.len();
@@ -113,9 +128,11 @@ impl IndexKey {
         let name_bytes = self.index_id.0.to_bytes();
         bytes.extend_from_slice(&name_bytes);
 
-        bytes.push(self.component_count);
+        let component_count_u8 =
+            u8::try_from(component_count).expect("component count should fit in one byte");
+        bytes.push(component_count_u8);
 
-        for component in self.components.iter().take(component_count) {
+        for component in &self.components {
             push_segment(&mut bytes, component);
         }
 
@@ -167,7 +184,6 @@ impl IndexKey {
         Ok(Self {
             key_kind,
             index_id: IndexId(index_name),
-            component_count,
             components,
             primary_key: primary_key.to_vec(),
         })
@@ -190,7 +206,7 @@ impl IndexKey {
 
     #[must_use]
     pub(in crate::db) const fn component_count(&self) -> usize {
-        self.component_count as usize
+        self.components.len()
     }
 
     #[must_use]
@@ -223,13 +239,34 @@ impl IndexKey {
     }
 }
 
+#[expect(clippy::checked_conversions)]
 fn push_segment(bytes: &mut Vec<u8>, segment: &[u8]) {
-    let Ok(len_u16) = u16::try_from(segment.len()) else {
-        unreachable!("segment length overflowed u16 despite bounded invariants")
-    };
+    assert!(
+        segment.len() <= u16::MAX as usize,
+        "segment length overflowed u16 despite bounded invariants",
+    );
+    let len_u16 =
+        u16::try_from(segment.len()).expect("segment length should fit in a u16 after assert");
 
     bytes.extend_from_slice(&len_u16.to_be_bytes());
     bytes.extend_from_slice(segment);
+}
+
+// Compare one raw segment the same way its length-prefixed bytes compare.
+fn compare_length_prefixed_segment(left: &[u8], right: &[u8]) -> Ordering {
+    left.len().cmp(&right.len()).then_with(|| left.cmp(right))
+}
+
+// Compare encoded component segments under length-prefixed ordering semantics.
+fn compare_component_segments(left: &[Vec<u8>], right: &[Vec<u8>]) -> Ordering {
+    for (left_segment, right_segment) in left.iter().zip(right.iter()) {
+        let segment_order = compare_length_prefixed_segment(left_segment, right_segment);
+        if segment_order != Ordering::Equal {
+            return segment_order;
+        }
+    }
+
+    Ordering::Equal
 }
 
 fn read_segment<'a>(
@@ -340,7 +377,6 @@ mod tests {
             .expect("component should encode")
     }
 
-    #[expect(clippy::cast_possible_truncation)]
     #[expect(clippy::large_types_passed_by_value)]
     fn key_with(
         kind: IndexKeyKind,
@@ -351,7 +387,6 @@ mod tests {
         IndexKey {
             key_kind: kind,
             index_id: id,
-            component_count: components.len() as u8,
             components,
             primary_key: pk,
         }
@@ -464,7 +499,6 @@ mod tests {
         let key = IndexKey {
             key_kind: IndexKeyKind::User,
             index_id: index_id(),
-            component_count: 1,
             components: vec![make_component(1)],
             primary_key: make_pk(2),
         };
@@ -494,7 +528,6 @@ mod tests {
         let key = IndexKey {
             key_kind: IndexKeyKind::User,
             index_id: index_id(),
-            component_count: 1,
             components: vec![make_component(1)],
             primary_key: make_pk(2),
         };
@@ -512,7 +545,6 @@ mod tests {
         let key = IndexKey {
             key_kind: IndexKeyKind::User,
             index_id: index_id(),
-            component_count: 1,
             components: vec![make_component(3)],
             primary_key: make_pk(4),
         };
@@ -534,7 +566,6 @@ mod tests {
         let key = IndexKey {
             key_kind: IndexKeyKind::User,
             index_id: index_id(),
-            component_count: 1,
             components: vec![make_component(3)],
             primary_key: make_pk(4),
         };
@@ -604,12 +635,9 @@ mod tests {
             components: Vec<Vec<u8>>,
             pk: Vec<u8>,
         ) -> IndexKey {
-            #[expect(clippy::cast_possible_truncation)]
-            let component_count = components.len() as u8;
             IndexKey {
                 key_kind: kind,
                 index_id: *index_id,
-                component_count,
                 components,
                 primary_key: pk,
             }

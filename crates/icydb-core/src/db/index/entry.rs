@@ -83,6 +83,9 @@ pub(crate) enum IndexEntryEncodeError {
     #[error("index entry exceeds max keys: {keys} (limit {MAX_INDEX_ENTRY_KEYS})")]
     TooManyKeys { keys: usize },
 
+    #[error("index entry contains duplicate key")]
+    DuplicateKey,
+
     #[error("index entry key encoding failed: {0}")]
     KeyEncoding(#[from] StorageKeyEncodeError),
 }
@@ -181,6 +184,15 @@ impl RawIndexEntry {
 
         if count > MAX_INDEX_ENTRY_KEYS {
             return Err(IndexEntryEncodeError::TooManyKeys { keys: count });
+        }
+
+        // Enforce encode/decode symmetry: duplicates are rejected at construction,
+        // not deferred to decode-time corruption validation.
+        let mut unique = BTreeSet::new();
+        for key in &keys {
+            if !unique.insert(*key) {
+                return Err(IndexEntryEncodeError::DuplicateKey);
+            }
         }
 
         let mut out =
@@ -316,7 +328,10 @@ impl Storable for RawIndexEntry {
 
 #[cfg(test)]
 mod tests {
-    use super::{IndexEntryCorruption, MAX_INDEX_ENTRY_BYTES, MAX_INDEX_ENTRY_KEYS, RawIndexEntry};
+    use super::{
+        IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, MAX_INDEX_ENTRY_KEYS,
+        RawIndexEntry,
+    };
     use crate::{db::data::StorageKey, traits::Storable};
     use std::borrow::Cow;
 
@@ -405,6 +420,16 @@ mod tests {
             raw.decode_keys(),
             Err(IndexEntryCorruption::DuplicateKey)
         ));
+    }
+
+    #[test]
+    fn raw_index_entry_try_from_keys_rejects_duplicate_keys() {
+        let key = StorageKey::Int(7);
+        let err = RawIndexEntry::try_from_keys([key, key]).expect_err(
+            "encoding should reject duplicate keys instead of deferring to decode validation",
+        );
+
+        assert!(matches!(err, IndexEntryEncodeError::DuplicateKey));
     }
 
     #[test]

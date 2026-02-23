@@ -203,7 +203,9 @@ where
         self.comparator.is_strictly_after(candidate, anchor)
     }
 
-    pub(in crate::db) fn is_empty(&self) -> bool {
+    // Envelope emptiness is defined only by raw lower/upper bound relation.
+    // This check is intentionally direction-agnostic.
+    pub(in crate::db) fn is_empty_direction_agnostic(&self) -> bool {
         let (Some(lower), Some(upper)) = (
             Self::bound_key_ref(&self.lower),
             Self::bound_key_ref(&self.upper),

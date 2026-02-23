@@ -105,8 +105,7 @@ impl<E: EntityKind> PlanRow<E> for (Id<E>, E) {
 /// Additional phase-level fields are compiled in tests for structural assertions.
 ///
 
-#[cfg_attr(test, allow(dead_code))]
-#[allow(clippy::struct_excessive_bools)]
+#[cfg_attr(test, expect(dead_code, clippy::struct_excessive_bools))]
 pub(crate) struct PostAccessStats {
     pub(crate) delete_was_limited: bool,
     pub(crate) rows_after_cursor: usize,
@@ -481,7 +480,7 @@ impl<K> LogicalPlan<K> {
     }
 
     /// Build and encode the continuation token for one materialized entity.
-    pub(crate) fn next_cursor_for_entity<E>(
+    pub(in crate::db) fn next_cursor_for_entity<E>(
         &self,
         entity: &E,
         direction: Direction,
