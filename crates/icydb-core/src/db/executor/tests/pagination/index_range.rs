@@ -1108,21 +1108,28 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
         (36_006, 8, 20, "g8-r20"),
     ];
     seed_pushdown_rows(&rows);
-    let group7_ids = pushdown_group_ids(&rows, 7);
 
-    let rank_not_20 = Predicate::Compare(ComparePredicate::with_coercion(
+    let rank_not_20_strict = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Ne,
         Value::Uint(20),
         CoercionId::Strict,
     ));
-    let predicate = Predicate::And(vec![pushdown_group_predicate(7), rank_not_20.clone()]);
+    let rank_not_20_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Ne,
+        Value::Uint(20),
+        CoercionId::NumericWiden,
+    ));
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
 
     let (fast_page, fast_trace) = load
         .execute_paged_with_cursor_traced(
             Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-                .filter(predicate)
+                .filter(Predicate::And(vec![
+                    pushdown_group_predicate(7),
+                    rank_not_20_strict,
+                ]))
                 .order_by("rank")
                 .plan()
                 .expect("index-shape plan should build"),
@@ -1134,8 +1141,10 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
     let (fallback_page, fallback_trace) = load
         .execute_paged_with_cursor_traced(
             Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-                .by_ids(group7_ids.iter().copied())
-                .filter(rank_not_20)
+                .filter(Predicate::And(vec![
+                    pushdown_group_predicate(7),
+                    rank_not_20_fallback,
+                ]))
                 .order_by("rank")
                 .plan()
                 .expect("fallback plan should build"),
@@ -1176,13 +1185,18 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
         (36_106, 8, 1, "g8-r1"),
     ];
     seed_pushdown_rows(&rows);
-    let group7_ids = pushdown_group_ids(&rows, 7);
 
-    let rank_not_20 = Predicate::Compare(ComparePredicate::with_coercion(
+    let rank_not_20_strict = Predicate::Compare(ComparePredicate::with_coercion(
         "rank",
         CompareOp::Ne,
         Value::Uint(20),
         CoercionId::Strict,
+    ));
+    let rank_not_20_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Ne,
+        Value::Uint(20),
+        CoercionId::NumericWiden,
     ));
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
 
@@ -1190,7 +1204,7 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
         Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
             .filter(Predicate::And(vec![
                 pushdown_group_predicate(7),
-                rank_not_20.clone(),
+                rank_not_20_strict.clone(),
             ]))
             .order_by("rank")
             .distinct()
@@ -1200,8 +1214,10 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
     };
     let build_fallback_plan = || {
         Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-            .by_ids(group7_ids.iter().copied())
-            .filter(rank_not_20.clone())
+            .filter(Predicate::And(vec![
+                pushdown_group_predicate(7),
+                rank_not_20_fallback.clone(),
+            ]))
             .order_by("rank")
             .distinct()
             .limit(2)
