@@ -46,6 +46,7 @@ pub(super) struct ResolvedExecutionKeyStream {
     pub(super) key_stream: OrderedKeyStreamBox,
     pub(super) optimization: Option<ExecutionOptimization>,
     pub(super) rows_scanned_override: Option<usize>,
+    pub(super) index_predicate_applied: bool,
 }
 
 // Canonical fast-path routing decision for one execution attempt.
@@ -66,6 +67,7 @@ where
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
         let index_predicate_program =
             Self::compile_index_predicate_program_for_load(inputs.plan, inputs.predicate_slots);
+        let index_predicate_applied = index_predicate_program.is_some();
 
         // Phase 1: resolve fast-path stream if any.
         let resolved =
@@ -74,6 +76,7 @@ where
                     key_stream: fast.ordered_key_stream,
                     optimization: Some(fast.optimization),
                     rows_scanned_override: Some(fast.rows_scanned),
+                    index_predicate_applied,
                 },
                 FastPathDecision::None => {
                     // Phase 2: resolve canonical fallback access stream.
@@ -99,6 +102,7 @@ where
                         key_stream,
                         optimization: None,
                         rows_scanned_override: None,
+                        index_predicate_applied,
                     }
                 }
             };
@@ -202,6 +206,7 @@ where
         optimization: Option<ExecutionOptimization>,
         rows_scanned: usize,
         post_access_rows: usize,
+        index_predicate_applied: bool,
         span: &mut Span<E>,
         execution_trace: &mut Option<ExecutionTrace>,
     ) -> CursorPage<E> {
@@ -210,6 +215,7 @@ where
             optimization,
             rows_scanned,
             post_access_rows,
+            index_predicate_applied,
         );
         set_rows_from_len(span, page.items.0.len());
 

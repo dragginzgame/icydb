@@ -92,6 +92,7 @@ pub struct ExecutionTrace {
     pub keys_scanned: u64,
     pub rows_returned: u64,
     pub continuation_applied: bool,
+    pub index_predicate_applied: bool,
 }
 
 impl ExecutionTrace {
@@ -103,6 +104,7 @@ impl ExecutionTrace {
             keys_scanned: 0,
             rows_returned: 0,
             continuation_applied,
+            index_predicate_applied: false,
         }
     }
 
@@ -111,10 +113,12 @@ impl ExecutionTrace {
         optimization: Option<ExecutionOptimization>,
         keys_scanned: usize,
         rows_returned: usize,
+        index_predicate_applied: bool,
     ) {
         self.optimization = optimization;
         self.keys_scanned = u64::try_from(keys_scanned).unwrap_or(u64::MAX);
         self.rows_returned = u64::try_from(rows_returned).unwrap_or(u64::MAX);
+        self.index_predicate_applied = index_predicate_applied;
     }
 }
 
@@ -274,6 +278,7 @@ where
                 resolved.optimization,
                 rows_scanned,
                 post_access_rows,
+                resolved.index_predicate_applied,
                 &mut span,
                 &mut execution_trace,
             ))
@@ -288,10 +293,16 @@ where
         optimization: Option<ExecutionOptimization>,
         rows_scanned: usize,
         rows_returned: usize,
+        index_predicate_applied: bool,
     ) {
         record_rows_scanned::<E>(rows_scanned);
         if let Some(execution_trace) = execution_trace.as_mut() {
-            execution_trace.set_path_outcome(optimization, rows_scanned, rows_returned);
+            execution_trace.set_path_outcome(
+                optimization,
+                rows_scanned,
+                rows_returned,
+                index_predicate_applied,
+            );
             debug_assert_eq!(
                 execution_trace.keys_scanned,
                 u64::try_from(rows_scanned).unwrap_or(u64::MAX),

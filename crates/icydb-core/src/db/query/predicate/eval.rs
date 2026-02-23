@@ -894,4 +894,93 @@ mod tests {
             &not_in_literal
         ));
     }
+
+    #[test]
+    fn compile_index_program_operator_matrix_matches_strict_subset() {
+        let eligible = [
+            (CompareOp::Eq, Value::Uint(11)),
+            (CompareOp::Ne, Value::Uint(11)),
+            (CompareOp::Lt, Value::Uint(11)),
+            (CompareOp::Lte, Value::Uint(11)),
+            (CompareOp::Gt, Value::Uint(11)),
+            (CompareOp::Gte, Value::Uint(11)),
+            (
+                CompareOp::In,
+                Value::List(vec![Value::Uint(11), Value::Uint(12)]),
+            ),
+            (
+                CompareOp::NotIn,
+                Value::List(vec![Value::Uint(11), Value::Uint(12)]),
+            ),
+        ];
+        for (op, value) in eligible {
+            let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+                field_slot: Some(1),
+                op,
+                value,
+                coercion: CoercionSpec::new(CoercionId::Strict),
+            });
+            let program = compile_index_program_from_resolved(&predicate, &[1]);
+
+            assert!(
+                program.is_some(),
+                "strict compare op {op:?} should compile into an index predicate program",
+            );
+        }
+
+        let ineligible = [
+            (CompareOp::Contains, Value::Text("x".to_string())),
+            (CompareOp::StartsWith, Value::Text("x".to_string())),
+            (CompareOp::EndsWith, Value::Text("x".to_string())),
+        ];
+        for (op, value) in ineligible {
+            let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+                field_slot: Some(1),
+                op,
+                value,
+                coercion: CoercionSpec::new(CoercionId::Strict),
+            });
+            let program = compile_index_program_from_resolved(&predicate, &[1]);
+
+            assert!(
+                program.is_none(),
+                "op {op:?} should stay on fallback execution",
+            );
+        }
+    }
+
+    #[test]
+    fn compile_index_program_rejects_non_strict_coercion_across_operator_subset() {
+        let operators = [
+            (CompareOp::Eq, Value::Uint(11)),
+            (CompareOp::Ne, Value::Uint(11)),
+            (CompareOp::Lt, Value::Uint(11)),
+            (CompareOp::Lte, Value::Uint(11)),
+            (CompareOp::Gt, Value::Uint(11)),
+            (CompareOp::Gte, Value::Uint(11)),
+            (
+                CompareOp::In,
+                Value::List(vec![Value::Uint(11), Value::Uint(12)]),
+            ),
+            (
+                CompareOp::NotIn,
+                Value::List(vec![Value::Uint(11), Value::Uint(12)]),
+            ),
+        ];
+
+        for (op, value) in operators {
+            let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+                field_slot: Some(1),
+                op,
+                value,
+                coercion: CoercionSpec::new(CoercionId::NumericWiden),
+            });
+            let program = compile_index_program_from_resolved(&predicate, &[1]);
+
+            assert!(
+                program.is_none(),
+                "non-strict coercion should reject index-only compile for op {op:?}",
+            );
+        }
+    }
 }

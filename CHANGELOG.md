@@ -5,6 +5,25 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.27.1] - 2026-02-23 - Index-Only Hardening
+
+### 📝 Summary
+
+* Hardens the new index-only predicate path with explicit trace visibility and regression coverage for fallback parity.
+
+### 🔧 Changed
+
+* `ExecutionTrace` now reports `index_predicate_applied` so debug-traced load execution can explicitly show when index-only predicate filtering was active.
+* Kept index-only fallback behavior unchanged while tightening assertions around when activation is reported.
+
+### 🧪 Testing
+
+* Added index-only row-read reduction + parity coverage against by-ids fallback for strict eligible predicate shapes.
+* Added `DISTINCT` + continuation parity coverage for index-only-enabled shapes, including trace assertions for activation and continuation state across page boundaries.
+* Added operator/coercion matrix tests for index-only predicate compilation, including strict-subset eligibility and non-strict coercion rejection across supported compare operators.
+
+---
+
 ## [0.27.0] - 2026-02-23 - Index-Only Predicates
 
 ### 📝 Summary

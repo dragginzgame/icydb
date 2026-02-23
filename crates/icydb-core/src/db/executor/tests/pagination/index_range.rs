@@ -1094,3 +1094,184 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
         "limit=0 with offset should not emit a continuation cursor",
     );
 }
+
+#[test]
+fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
+    setup_pagination_test();
+
+    let rows = [
+        (36_001, 7, 10, "g7-r10"),
+        (36_002, 7, 20, "g7-r20-a"),
+        (36_003, 7, 20, "g7-r20-b"),
+        (36_004, 7, 30, "g7-r30"),
+        (36_005, 7, 40, "g7-r40"),
+        (36_006, 8, 20, "g8-r20"),
+    ];
+    seed_pushdown_rows(&rows);
+    let group7_ids = pushdown_group_ids(&rows, 7);
+
+    let rank_not_20 = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Ne,
+        Value::Uint(20),
+        CoercionId::Strict,
+    ));
+    let predicate = Predicate::And(vec![pushdown_group_predicate(7), rank_not_20.clone()]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    let (fast_page, fast_trace) = load
+        .execute_paged_with_cursor_traced(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate)
+                .order_by("rank")
+                .plan()
+                .expect("index-shape plan should build"),
+            None,
+        )
+        .expect("index-shape execution should succeed");
+    let fast_trace = fast_trace.expect("debug trace should be present");
+
+    let (fallback_page, fallback_trace) = load
+        .execute_paged_with_cursor_traced(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .by_ids(group7_ids.iter().copied())
+                .filter(rank_not_20)
+                .order_by("rank")
+                .plan()
+                .expect("fallback plan should build"),
+            None,
+        )
+        .expect("fallback execution should succeed");
+    let fallback_trace = fallback_trace.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page.items.0),
+        ids_from_items(&fallback_page.items.0),
+        "index-only predicate path must preserve fallback result parity",
+    );
+    assert!(
+        fast_trace.index_predicate_applied,
+        "index-backed strict predicate should activate index-only evaluation"
+    );
+    assert!(
+        !fallback_trace.index_predicate_applied,
+        "by-ids fallback path must not report index-only predicate activation"
+    );
+    assert!(
+        fast_trace.keys_scanned < fallback_trace.keys_scanned,
+        "index-only predicate activation should reduce scanned rows for this shape",
+    );
+}
+
+#[test]
+fn load_index_only_predicate_distinct_continuation_matches_fallback() {
+    setup_pagination_test();
+
+    let rows = [
+        (36_101, 7, 10, "g7-r10"),
+        (36_102, 7, 20, "g7-r20-a"),
+        (36_103, 7, 20, "g7-r20-b"),
+        (36_104, 7, 30, "g7-r30"),
+        (36_105, 7, 40, "g7-r40"),
+        (36_106, 8, 1, "g8-r1"),
+    ];
+    seed_pushdown_rows(&rows);
+    let group7_ids = pushdown_group_ids(&rows, 7);
+
+    let rank_not_20 = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Ne,
+        Value::Uint(20),
+        CoercionId::Strict,
+    ));
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    let build_fast_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(Predicate::And(vec![
+                pushdown_group_predicate(7),
+                rank_not_20.clone(),
+            ]))
+            .order_by("rank")
+            .distinct()
+            .limit(2)
+            .plan()
+            .expect("fast distinct plan should build")
+    };
+    let build_fallback_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .by_ids(group7_ids.iter().copied())
+            .filter(rank_not_20.clone())
+            .order_by("rank")
+            .distinct()
+            .limit(2)
+            .plan()
+            .expect("fallback distinct plan should build")
+    };
+
+    let (fast_page1, fast_trace1) = load
+        .execute_paged_with_cursor_traced(build_fast_plan(), None)
+        .expect("fast distinct page1 should execute");
+    let fast_trace1 = fast_trace1.expect("debug trace should be present");
+    let (fallback_page1, fallback_trace1) = load
+        .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+        .expect("fallback distinct page1 should execute");
+    let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page1.items.0),
+        ids_from_items(&fallback_page1.items.0),
+        "fast and fallback distinct page1 rows should match",
+    );
+    assert!(
+        fast_trace1.index_predicate_applied && !fast_trace1.continuation_applied,
+        "first index-only page should report activation without continuation"
+    );
+    assert!(
+        !fallback_trace1.index_predicate_applied,
+        "fallback distinct page1 must not report index-only activation"
+    );
+
+    let fast_cursor = fast_page1
+        .next_cursor
+        .as_ref()
+        .expect("fast distinct page1 should emit continuation cursor");
+    let fallback_cursor = fallback_page1
+        .next_cursor
+        .as_ref()
+        .expect("fallback distinct page1 should emit continuation cursor");
+    let shared_boundary = decode_boundary(fast_cursor, "fast cursor should decode");
+    assert_eq!(
+        decode_boundary(fast_cursor, "fast cursor should decode"),
+        decode_boundary(fallback_cursor, "fallback cursor should decode"),
+        "fast and fallback distinct page1 cursors should encode the same boundary",
+    );
+
+    let (fast_page2, fast_trace2) = load
+        .execute_paged_with_cursor_traced(build_fast_plan(), Some(shared_boundary.clone()))
+        .expect("fast distinct page2 should execute");
+    let fast_trace2 = fast_trace2.expect("debug trace should be present");
+    let (fallback_page2, fallback_trace2) = load
+        .execute_paged_with_cursor_traced(build_fallback_plan(), Some(shared_boundary))
+        .expect("fallback distinct page2 should execute");
+    let fallback_trace2 = fallback_trace2.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page2.items.0),
+        ids_from_items(&fallback_page2.items.0),
+        "fast and fallback distinct page2 rows should match",
+    );
+    assert!(
+        fast_trace2.index_predicate_applied && fast_trace2.continuation_applied,
+        "continued index-only page should report both activation and continuation"
+    );
+    assert!(
+        !fallback_trace2.index_predicate_applied,
+        "fallback distinct page2 must not report index-only activation"
+    );
+    assert_eq!(
+        fast_page2.next_cursor.is_some(),
+        fallback_page2.next_cursor.is_some(),
+        "fast and fallback distinct page2 continuation presence should match",
+    );
+}
