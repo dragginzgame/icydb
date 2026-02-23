@@ -267,6 +267,202 @@ fn aggregate_id_terminal_parity_cases<E: EntityKind + EntityValue>() -> [Aggrega
     ]
 }
 
+#[derive(PartialEq)]
+enum FieldAggregateParityValue {
+    Id(Option<Id<PushdownParityEntity>>),
+    Decimal(Option<Decimal>),
+}
+
+type FieldAggregateParityExpectedFn =
+    fn(&Response<PushdownParityEntity>) -> FieldAggregateParityValue;
+type FieldAggregateParityActualFn = fn(
+    &LoadExecutor<PushdownParityEntity>,
+    ExecutablePlan<PushdownParityEntity>,
+) -> Result<FieldAggregateParityValue, InternalError>;
+
+struct FieldAggregateParityCase {
+    label: &'static str,
+    expected: FieldAggregateParityExpectedFn,
+    actual: FieldAggregateParityActualFn,
+}
+
+const FIELD_PARITY_NTH_ORDINAL: usize = 1;
+
+fn expected_min_by_rank_id(
+    response: &Response<PushdownParityEntity>,
+) -> Option<Id<PushdownParityEntity>> {
+    let mut best: Option<(Id<PushdownParityEntity>, u32)> = None;
+    for (id, entity) in &response.0 {
+        if best.is_none_or(|(best_id, best_rank)| {
+            entity.rank < best_rank || (entity.rank == best_rank && id.key() < best_id.key())
+        }) {
+            best = Some((*id, entity.rank));
+        }
+    }
+
+    best.map(|(id, _)| id)
+}
+
+fn expected_max_by_rank_id(
+    response: &Response<PushdownParityEntity>,
+) -> Option<Id<PushdownParityEntity>> {
+    let mut best: Option<(Id<PushdownParityEntity>, u32)> = None;
+    for (id, entity) in &response.0 {
+        if best.is_none_or(|(best_id, best_rank)| {
+            entity.rank > best_rank || (entity.rank == best_rank && id.key() < best_id.key())
+        }) {
+            best = Some((*id, entity.rank));
+        }
+    }
+
+    best.map(|(id, _)| id)
+}
+
+fn expected_nth_by_rank_id(
+    response: &Response<PushdownParityEntity>,
+    nth: usize,
+) -> Option<Id<PushdownParityEntity>> {
+    let mut ordered = response
+        .0
+        .iter()
+        .map(|(id, entity)| (entity.rank, *id))
+        .collect::<Vec<_>>();
+    ordered.sort_unstable_by(|(left_rank, left_id), (right_rank, right_id)| {
+        left_rank
+            .cmp(right_rank)
+            .then_with(|| left_id.key().cmp(&right_id.key()))
+    });
+
+    ordered.get(nth).map(|(_, id)| *id)
+}
+
+fn expected_sum_by_rank(response: &Response<PushdownParityEntity>) -> Option<Decimal> {
+    if response.is_empty() {
+        return None;
+    }
+
+    let mut sum = Decimal::ZERO;
+    for (_, entity) in &response.0 {
+        let rank = Decimal::from_num(u64::from(entity.rank)).expect("rank decimal conversion");
+        sum += rank;
+    }
+
+    Some(sum)
+}
+
+fn expected_avg_by_rank(response: &Response<PushdownParityEntity>) -> Option<Decimal> {
+    let sum = expected_sum_by_rank(response)?;
+    let count = Decimal::from_num(u64::from(response.count())).expect("row count decimal");
+    Some(sum / count)
+}
+
+fn field_parity_expected_min_by_rank(
+    response: &Response<PushdownParityEntity>,
+) -> FieldAggregateParityValue {
+    FieldAggregateParityValue::Id(expected_min_by_rank_id(response))
+}
+
+fn field_parity_expected_max_by_rank(
+    response: &Response<PushdownParityEntity>,
+) -> FieldAggregateParityValue {
+    FieldAggregateParityValue::Id(expected_max_by_rank_id(response))
+}
+
+fn field_parity_expected_nth_by_rank(
+    response: &Response<PushdownParityEntity>,
+) -> FieldAggregateParityValue {
+    FieldAggregateParityValue::Id(expected_nth_by_rank_id(response, FIELD_PARITY_NTH_ORDINAL))
+}
+
+fn field_parity_expected_sum_by_rank(
+    response: &Response<PushdownParityEntity>,
+) -> FieldAggregateParityValue {
+    FieldAggregateParityValue::Decimal(expected_sum_by_rank(response))
+}
+
+fn field_parity_expected_avg_by_rank(
+    response: &Response<PushdownParityEntity>,
+) -> FieldAggregateParityValue {
+    FieldAggregateParityValue::Decimal(expected_avg_by_rank(response))
+}
+
+fn field_parity_actual_min_by_rank(
+    load: &LoadExecutor<PushdownParityEntity>,
+    plan: ExecutablePlan<PushdownParityEntity>,
+) -> Result<FieldAggregateParityValue, InternalError> {
+    Ok(FieldAggregateParityValue::Id(
+        load.aggregate_min_by(plan, "rank")?,
+    ))
+}
+
+fn field_parity_actual_max_by_rank(
+    load: &LoadExecutor<PushdownParityEntity>,
+    plan: ExecutablePlan<PushdownParityEntity>,
+) -> Result<FieldAggregateParityValue, InternalError> {
+    Ok(FieldAggregateParityValue::Id(
+        load.aggregate_max_by(plan, "rank")?,
+    ))
+}
+
+fn field_parity_actual_nth_by_rank(
+    load: &LoadExecutor<PushdownParityEntity>,
+    plan: ExecutablePlan<PushdownParityEntity>,
+) -> Result<FieldAggregateParityValue, InternalError> {
+    Ok(FieldAggregateParityValue::Id(load.aggregate_nth_by(
+        plan,
+        "rank",
+        FIELD_PARITY_NTH_ORDINAL,
+    )?))
+}
+
+fn field_parity_actual_sum_by_rank(
+    load: &LoadExecutor<PushdownParityEntity>,
+    plan: ExecutablePlan<PushdownParityEntity>,
+) -> Result<FieldAggregateParityValue, InternalError> {
+    Ok(FieldAggregateParityValue::Decimal(
+        load.aggregate_sum_by(plan, "rank")?,
+    ))
+}
+
+fn field_parity_actual_avg_by_rank(
+    load: &LoadExecutor<PushdownParityEntity>,
+    plan: ExecutablePlan<PushdownParityEntity>,
+) -> Result<FieldAggregateParityValue, InternalError> {
+    Ok(FieldAggregateParityValue::Decimal(
+        load.aggregate_avg_by(plan, "rank")?,
+    ))
+}
+
+fn aggregate_field_terminal_parity_cases() -> [FieldAggregateParityCase; 5] {
+    [
+        FieldAggregateParityCase {
+            label: "min_by(rank)",
+            expected: field_parity_expected_min_by_rank,
+            actual: field_parity_actual_min_by_rank,
+        },
+        FieldAggregateParityCase {
+            label: "max_by(rank)",
+            expected: field_parity_expected_max_by_rank,
+            actual: field_parity_actual_max_by_rank,
+        },
+        FieldAggregateParityCase {
+            label: "nth_by(rank, 1)",
+            expected: field_parity_expected_nth_by_rank,
+            actual: field_parity_actual_nth_by_rank,
+        },
+        FieldAggregateParityCase {
+            label: "sum_by(rank)",
+            expected: field_parity_expected_sum_by_rank,
+            actual: field_parity_actual_sum_by_rank,
+        },
+        FieldAggregateParityCase {
+            label: "avg_by(rank)",
+            expected: field_parity_expected_avg_by_rank,
+            actual: field_parity_actual_avg_by_rank,
+        },
+    ]
+}
+
 fn assert_aggregate_parity_for_query<E>(
     load: &LoadExecutor<E>,
     make_query: impl Fn() -> Query<E>,
@@ -294,6 +490,37 @@ fn assert_aggregate_parity_for_query<E>(
                 .expect("aggregate parity matrix plan should build"),
         )
         .expect("aggregate parity matrix terminal should succeed");
+
+        assert!(
+            actual == expected,
+            "{context}: {} parity failed",
+            case.label
+        );
+    }
+}
+
+fn assert_field_aggregate_parity_for_query(
+    load: &LoadExecutor<PushdownParityEntity>,
+    make_query: impl Fn() -> Query<PushdownParityEntity>,
+    context: &str,
+) {
+    let expected_response = load
+        .execute(
+            make_query()
+                .plan()
+                .expect("baseline field aggregate parity plan should build"),
+        )
+        .expect("baseline field aggregate parity execution should succeed");
+
+    for case in aggregate_field_terminal_parity_cases() {
+        let expected = (case.expected)(&expected_response);
+        let actual = (case.actual)(
+            load,
+            make_query()
+                .plan()
+                .expect("field aggregate parity matrix plan should build"),
+        )
+        .expect("field aggregate parity matrix terminal should succeed");
 
         assert!(
             actual == expected,
@@ -1199,6 +1426,82 @@ fn aggregate_parity_distinct_desc() {
 }
 
 #[test]
+fn aggregate_field_parity_matrix_harness_covers_all_rank_terminals() {
+    let labels = aggregate_field_terminal_parity_cases().map(|case| case.label);
+
+    assert_eq!(
+        labels,
+        [
+            "min_by(rank)",
+            "max_by(rank)",
+            "nth_by(rank, 1)",
+            "sum_by(rank)",
+            "avg_by(rank)",
+        ]
+    );
+}
+
+#[test]
+fn aggregate_field_terminal_parity_distinct_asc() {
+    seed_pushdown_entities(&[
+        (8_201, 7, 40),
+        (8_202, 7, 10),
+        (8_203, 7, 20),
+        (8_204, 7, 20),
+        (8_205, 7, 30),
+        (8_206, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let predicate = Predicate::Or(vec![
+        id_in_predicate(&[8_201, 8_202, 8_203, 8_204]),
+        id_in_predicate(&[8_203, 8_204, 8_205, 8_206]),
+    ]);
+
+    assert_field_aggregate_parity_for_query(
+        &load,
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .distinct()
+                .order_by("id")
+                .offset(1)
+                .limit(4)
+        },
+        "field terminals distinct ASC",
+    );
+}
+
+#[test]
+fn aggregate_field_terminal_parity_distinct_desc() {
+    seed_pushdown_entities(&[
+        (8_211, 7, 40),
+        (8_212, 7, 10),
+        (8_213, 7, 20),
+        (8_214, 7, 20),
+        (8_215, 7, 30),
+        (8_216, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let predicate = Predicate::Or(vec![
+        id_in_predicate(&[8_211, 8_212, 8_213, 8_214]),
+        id_in_predicate(&[8_213, 8_214, 8_215, 8_216]),
+    ]);
+
+    assert_field_aggregate_parity_for_query(
+        &load,
+        || {
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(predicate.clone())
+                .distinct()
+                .order_by_desc("id")
+                .offset(1)
+                .limit(4)
+        },
+        "field terminals distinct DESC",
+    );
+}
+
+#[test]
 fn aggregate_parity_union_and_intersection_paths() {
     seed_simple_entities(&[8701, 8702, 8703, 8704, 8705, 8706]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
@@ -1749,6 +2052,127 @@ fn aggregate_secondary_index_extrema_strict_stale_leading_surfaces_corruption_er
         max_err.class,
         crate::error::ErrorClass::Corruption,
         "strict secondary MAX stale-leading key should classify as corruption"
+    );
+}
+
+#[test]
+fn aggregate_field_extrema_missing_ok_stale_leading_probe_falls_back() {
+    seed_pushdown_entities(&[
+        (8_261, 7, 10),
+        (8_262, 7, 20),
+        (8_263, 7, 30),
+        (8_264, 7, 40),
+        (8_265, 8, 50),
+    ]);
+    remove_pushdown_row_data(8_261);
+    remove_pushdown_row_data(8_264);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let expected_min_by = expected_min_by_rank_id(
+        &load
+            .execute(secondary_group_rank_order_plan(
+                ReadConsistency::MissingOk,
+                crate::db::query::plan::OrderDirection::Asc,
+                0,
+            ))
+            .expect("missing-ok field MIN baseline execute should succeed"),
+    );
+    let expected_max_by = expected_max_by_rank_id(
+        &load
+            .execute(secondary_group_rank_order_plan(
+                ReadConsistency::MissingOk,
+                crate::db::query::plan::OrderDirection::Desc,
+                0,
+            ))
+            .expect("missing-ok field MAX baseline execute should succeed"),
+    );
+
+    let (min_by, scanned_min_by) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_min_by(
+                secondary_group_rank_order_plan(
+                    ReadConsistency::MissingOk,
+                    crate::db::query::plan::OrderDirection::Asc,
+                    0,
+                ),
+                "rank",
+            )
+            .expect("missing-ok field MIN should succeed")
+        });
+    let (max_by, scanned_max_by) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_max_by(
+                secondary_group_rank_order_plan(
+                    ReadConsistency::MissingOk,
+                    crate::db::query::plan::OrderDirection::Desc,
+                    0,
+                ),
+                "rank",
+            )
+            .expect("missing-ok field MAX should succeed")
+        });
+
+    assert_eq!(
+        min_by, expected_min_by,
+        "missing-ok field MIN should preserve materialized parity under stale-leading keys"
+    );
+    assert_eq!(
+        max_by, expected_max_by,
+        "missing-ok field MAX should preserve materialized parity under stale-leading keys"
+    );
+    assert!(
+        scanned_min_by >= 2,
+        "missing-ok field MIN should scan past bounded probe and retry unbounded"
+    );
+    assert!(
+        scanned_max_by >= 2,
+        "missing-ok field MAX should scan past bounded probe and retry unbounded"
+    );
+}
+
+#[test]
+fn aggregate_field_extrema_strict_stale_leading_surfaces_corruption_error() {
+    seed_pushdown_entities(&[
+        (8_271, 7, 10),
+        (8_272, 7, 20),
+        (8_273, 7, 30),
+        (8_274, 7, 40),
+        (8_275, 8, 50),
+    ]);
+    remove_pushdown_row_data(8_271);
+    remove_pushdown_row_data(8_274);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let min_err = load
+        .aggregate_min_by(
+            secondary_group_rank_order_plan(
+                ReadConsistency::Strict,
+                crate::db::query::plan::OrderDirection::Asc,
+                0,
+            ),
+            "rank",
+        )
+        .expect_err("strict field MIN should fail when leading key is stale");
+    let max_err = load
+        .aggregate_max_by(
+            secondary_group_rank_order_plan(
+                ReadConsistency::Strict,
+                crate::db::query::plan::OrderDirection::Desc,
+                0,
+            ),
+            "rank",
+        )
+        .expect_err("strict field MAX should fail when leading key is stale");
+
+    assert_eq!(
+        min_err.class,
+        crate::error::ErrorClass::Corruption,
+        "strict field MIN stale-leading key should classify as corruption"
+    );
+    assert_eq!(
+        max_err.class,
+        crate::error::ErrorClass::Corruption,
+        "strict field MAX stale-leading key should classify as corruption"
     );
 }
 

@@ -5,23 +5,37 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.25.0] – 2026-02-22
+## [0.25.0] – 2026-02-22 - MORE AGGREGATE COMMANDS
 
-This starts the `0.25` aggregate expansion with the first field-based aggregate terminals.
+### 📝 Summary
+
+* This starts the `0.25` aggregate expansion with field-based aggregate terminals and explicit behavior boundaries.
+
+### ➕ Added
 
 * Added `min_by("field")` and `max_by("field")` on load queries to return the id of the row with the smallest or largest value for that field.
 * Added `nth_by("field", n)` to return the id at zero-based position `n` in deterministic field order (field ascending, then primary key ascending).
 * Added `sum_by("field")` and `avg_by("field")` for numeric fields, returning `Decimal` values with `None` for empty result windows.
-* Eligible index-leading shapes now execute `min_by`/`max_by` through a route-gated streaming path, while non-eligible shapes continue to use canonical fallback behavior.
-* Tie handling is deterministic: when field values are equal, selection now always uses primary key ascending.
-* Invalid field targets (unknown fields or non-orderable field kinds) now fail fast with clear `Unsupported` errors before scan work starts.
-* `nth_by` returns `None` when `n` is outside the current result window.
 
 ```rust
 let min_rank_id = session.load::<User>().order_by("id").min_by("rank")?;
 let max_rank_id = session.load::<User>().order_by("id").max_by("rank")?;
 let second_rank_id = session.load::<User>().order_by("id").nth_by("rank", 1)?;
 ```
+
+### 🔧 Changed
+
+* Eligible index-leading shapes now execute `min_by`/`max_by` through a route-gated streaming path, while non-eligible shapes use canonical fallback behavior.
+* Tie handling is deterministic: when field values are equal, selection uses primary key ascending.
+* Invalid field targets (unknown fields or non-orderable field kinds) now fail fast with clear `Unsupported` errors before scan work starts.
+* `nth_by` now returns `None` when `n` is outside the current result window.
+
+### 🧪 Testing
+
+* Added DISTINCT parity coverage for field terminals (`min_by`, `max_by`, `nth_by`, `sum_by`, `avg_by`) in both ASC and DESC windowed query shapes.
+* Added stale-leading secondary-index consistency coverage for field extrema:
+  `MissingOk` fallback parity and `Strict` corruption classification.
+* Added a field-terminal matrix harness check that locks expected aggregate terminal coverage for `rank`-target parity.
 
 ---
 
