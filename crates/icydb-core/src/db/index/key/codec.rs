@@ -189,6 +189,11 @@ impl IndexKey {
         self.component_count as usize
     }
 
+    #[must_use]
+    pub(in crate::db) fn component(&self, index: usize) -> Option<&[u8]> {
+        self.components.get(index).map(Vec::as_slice)
+    }
+
     pub(in crate::db) fn primary_storage_key(&self) -> Result<StorageKey, &'static str> {
         StorageKey::try_from_bytes(&self.primary_key)
     }

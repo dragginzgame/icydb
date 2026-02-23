@@ -5,17 +5,30 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.26.3] - 2026-02-23
+## [0.27.0] - 2026-02-23 - Index-Only Predicates
 
 ### 📝 Summary
 
-* Continues `0.26.x` slot-hardening by precompiling predicates at query-plan assembly time and reusing that compiled form during execution.
+* Introduces the first index-only predicate execution path for load queries on covered index-backed access paths.
+* Keeps query results unchanged while reducing unnecessary row reads for eligible predicate shapes.
+* Leaves expanded parity/observability hardening to `0.27.1` so `0.27.0` can ship the core path cleanly.
 
 ### 🔧 Changed
 
-* Query plan assembly now materializes one compiled predicate slot-program from the logical predicate before executor handoff.
-* Load and delete post-access filtering now consume that precompiled predicate directly, instead of recompiling predicate slots during each post-access pass.
-* Post-access filter execution keeps field access on `get_value_by_index` with no per-row field-name resolution in the runtime hot path.
+* `PredicateFieldSlots` now exposes referenced field slots via `required_slots()` and supports compiling a strict index-evaluable subset into `IndexPredicateProgram`.
+* Load execution now checks whether predicate slots are fully covered by the active index path and compiles an index predicate program only for covered shapes.
+* Index-backed traversal now evaluates eligible predicates directly on decoded `RawIndexKey` components and rejects non-matching keys before row materialization.
+* Unsupported predicate operators/coercions for index-only execution safely fall back to the existing row-based predicate path.
+* Added `IndexKey::component()` to support component-level raw-key predicate evaluation.
+* Access-plan to key-stream traversal, spec consumption, and invariant checks moved into `executor/access_stream.rs`; `Context` now focuses on store IO and row materialization.
+* Physical access-path resolution was split into focused primary-path and index-path helpers to keep execution flow explicit without changing routing behavior.
+* CI now installs `ripgrep` before invariant scripts so index-range/index-prefix guard checks run reliably on GitHub runners.
+
+### 🧪 Testing
+
+* Added predicate slot-coverage tests for index-backed vs non-index-backed access paths.
+* Added index-predicate unit tests for required-slot extraction, strict-coercion eligibility, component mapping, and encoded compare semantics.
+* Kept index-prefix/index-range invariant coverage aligned with the new `access_stream` module paths.
 
 ---
 

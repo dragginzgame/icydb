@@ -1,13 +1,17 @@
 use crate::{
-    db::query::predicate::{
-        CompareOp, ComparePredicate, Predicate,
-        coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
+    db::{
+        index::{EncodedValue, IndexKey},
+        query::predicate::{
+            CompareOp, ComparePredicate, Predicate,
+            coercion::{CoercionId, CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
+        },
     },
+    error::InternalError,
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
     value::{TextMode, Value},
 };
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::BTreeSet};
 
 ///
 /// PredicateFieldSlots
@@ -19,6 +23,7 @@ use std::cmp::Ordering;
 #[derive(Clone, Debug)]
 pub(crate) struct PredicateFieldSlots {
     resolved: ResolvedPredicate,
+    required_slots: Vec<usize>,
 }
 
 ///
@@ -75,9 +80,314 @@ impl PredicateFieldSlots {
     /// Resolve a predicate into a slot-based executable form.
     #[must_use]
     pub(crate) fn resolve<E: EntityKind>(predicate: &Predicate) -> Self {
+        let resolved = resolve_predicate_slots::<E>(predicate);
+        let required_slots = collect_required_slots(&resolved);
+
         Self {
-            resolved: resolve_predicate_slots::<E>(predicate),
+            resolved,
+            required_slots,
         }
+    }
+
+    /// Return all unique field slots referenced by this compiled predicate.
+    ///
+    /// Contract:
+    /// - sorted ascending
+    /// - deduplicated
+    /// - excludes unresolved/missing field references
+    #[must_use]
+    pub(crate) const fn required_slots(&self) -> &[usize] {
+        self.required_slots.as_slice()
+    }
+
+    // Compile this predicate into an index-component evaluator program for one
+    // concrete index field-slot ordering.
+    #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn compile_index_program(
+        &self,
+        index_slots: &[usize],
+    ) -> Option<IndexPredicateProgram> {
+        compile_index_program_from_resolved(&self.resolved, index_slots)
+    }
+}
+
+// Collect every resolved field slot referenced by one compiled predicate tree.
+fn collect_required_slots(predicate: &ResolvedPredicate) -> Vec<usize> {
+    let mut slots = BTreeSet::new();
+    collect_required_slots_into(predicate, &mut slots);
+
+    slots.into_iter().collect()
+}
+
+// Recursively gather field-slot references from one compiled predicate node.
+fn collect_required_slots_into(predicate: &ResolvedPredicate, slots: &mut BTreeSet<usize>) {
+    match predicate {
+        ResolvedPredicate::True | ResolvedPredicate::False => {}
+        ResolvedPredicate::And(children) | ResolvedPredicate::Or(children) => {
+            for child in children {
+                collect_required_slots_into(child, slots);
+            }
+        }
+        ResolvedPredicate::Not(inner) => collect_required_slots_into(inner, slots),
+        ResolvedPredicate::Compare(cmp) => {
+            if let Some(field_slot) = cmp.field_slot {
+                slots.insert(field_slot);
+            }
+        }
+        ResolvedPredicate::IsNull { field_slot }
+        | ResolvedPredicate::IsMissing { field_slot }
+        | ResolvedPredicate::IsEmpty { field_slot }
+        | ResolvedPredicate::IsNotEmpty { field_slot }
+        | ResolvedPredicate::TextContains { field_slot, .. }
+        | ResolvedPredicate::TextContainsCi { field_slot, .. } => {
+            if let Some(field_slot) = field_slot {
+                slots.insert(*field_slot);
+            }
+        }
+    }
+}
+
+///
+/// IndexPredicateProgram
+///
+/// Index-only predicate program compiled against index component positions.
+/// This is a conservative subset used for raw-index-key predicate evaluation.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) enum IndexPredicateProgram {
+    True,
+    False,
+    And(Vec<Self>),
+    Or(Vec<Self>),
+    Not(Box<Self>),
+    Compare {
+        component_index: usize,
+        op: IndexCompareOp,
+        literal: IndexLiteral,
+    },
+}
+
+///
+/// IndexCompareOp
+///
+/// Operator subset that can be evaluated directly on canonical encoded index bytes.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) enum IndexCompareOp {
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+    In,
+    NotIn,
+}
+
+///
+/// IndexLiteral
+///
+/// Encoded literal payload used by one index-only compare operation.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) enum IndexLiteral {
+    One(Vec<u8>),
+    Many(Vec<Vec<u8>>),
+}
+
+// Compile one resolved predicate tree into one index-only program.
+#[cfg_attr(not(test), allow(dead_code))]
+fn compile_index_program_from_resolved(
+    predicate: &ResolvedPredicate,
+    index_slots: &[usize],
+) -> Option<IndexPredicateProgram> {
+    match predicate {
+        ResolvedPredicate::True => Some(IndexPredicateProgram::True),
+        ResolvedPredicate::False => Some(IndexPredicateProgram::False),
+        ResolvedPredicate::And(children) => Some(IndexPredicateProgram::And(
+            children
+                .iter()
+                .map(|child| compile_index_program_from_resolved(child, index_slots))
+                .collect::<Option<Vec<_>>>()?,
+        )),
+        ResolvedPredicate::Or(children) => Some(IndexPredicateProgram::Or(
+            children
+                .iter()
+                .map(|child| compile_index_program_from_resolved(child, index_slots))
+                .collect::<Option<Vec<_>>>()?,
+        )),
+        ResolvedPredicate::Not(inner) => Some(IndexPredicateProgram::Not(Box::new(
+            compile_index_program_from_resolved(inner, index_slots)?,
+        ))),
+        ResolvedPredicate::Compare(cmp) => compile_compare_index_node(cmp, index_slots),
+        ResolvedPredicate::IsNull { .. }
+        | ResolvedPredicate::IsMissing { .. }
+        | ResolvedPredicate::IsEmpty { .. }
+        | ResolvedPredicate::IsNotEmpty { .. }
+        | ResolvedPredicate::TextContains { .. }
+        | ResolvedPredicate::TextContainsCi { .. } => None,
+    }
+}
+
+// Compile one resolved compare node into index-only compare bytes.
+#[cfg_attr(not(test), allow(dead_code))]
+fn compile_compare_index_node(
+    cmp: &ResolvedComparePredicate,
+    index_slots: &[usize],
+) -> Option<IndexPredicateProgram> {
+    if cmp.coercion.id != CoercionId::Strict {
+        return None;
+    }
+    let field_slot = cmp.field_slot?;
+    let component_index = index_slots.iter().position(|slot| *slot == field_slot)?;
+
+    match cmp.op {
+        CompareOp::Eq
+        | CompareOp::Ne
+        | CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Gt
+        | CompareOp::Gte => {
+            let literal = encode_index_literal(&cmp.value)?;
+            let op = match cmp.op {
+                CompareOp::Eq => IndexCompareOp::Eq,
+                CompareOp::Ne => IndexCompareOp::Ne,
+                CompareOp::Lt => IndexCompareOp::Lt,
+                CompareOp::Lte => IndexCompareOp::Lte,
+                CompareOp::Gt => IndexCompareOp::Gt,
+                CompareOp::Gte => IndexCompareOp::Gte,
+                CompareOp::In
+                | CompareOp::NotIn
+                | CompareOp::Contains
+                | CompareOp::StartsWith
+                | CompareOp::EndsWith => unreachable!("op branch must match index compare subset"),
+            };
+
+            Some(IndexPredicateProgram::Compare {
+                component_index,
+                op,
+                literal: IndexLiteral::One(literal),
+            })
+        }
+        CompareOp::In | CompareOp::NotIn => {
+            let Value::List(items) = &cmp.value else {
+                return None;
+            };
+            if items.is_empty() {
+                return None;
+            }
+            let encoded = items
+                .iter()
+                .map(encode_index_literal)
+                .collect::<Option<Vec<_>>>()?;
+            let op = match cmp.op {
+                CompareOp::In => IndexCompareOp::In,
+                CompareOp::NotIn => IndexCompareOp::NotIn,
+                CompareOp::Eq
+                | CompareOp::Ne
+                | CompareOp::Lt
+                | CompareOp::Lte
+                | CompareOp::Gt
+                | CompareOp::Gte
+                | CompareOp::Contains
+                | CompareOp::StartsWith
+                | CompareOp::EndsWith => unreachable!("op branch must match index compare subset"),
+            };
+
+            Some(IndexPredicateProgram::Compare {
+                component_index,
+                op,
+                literal: IndexLiteral::Many(encoded),
+            })
+        }
+        CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => None,
+    }
+}
+
+// Encode one literal to canonical index-component bytes.
+#[cfg_attr(not(test), allow(dead_code))]
+fn encode_index_literal(value: &Value) -> Option<Vec<u8>> {
+    let encoded = EncodedValue::try_from_ref(value).ok()?;
+    Some(encoded.encoded().to_vec())
+}
+
+// Evaluate one compiled index-only program against one decoded index key.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn eval_index_program_on_decoded_key(
+    key: &IndexKey,
+    program: &IndexPredicateProgram,
+) -> Result<bool, InternalError> {
+    match program {
+        IndexPredicateProgram::True => Ok(true),
+        IndexPredicateProgram::False => Ok(false),
+        IndexPredicateProgram::And(children) => {
+            for child in children {
+                if !eval_index_program_on_decoded_key(key, child)? {
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
+        }
+        IndexPredicateProgram::Or(children) => {
+            for child in children {
+                if eval_index_program_on_decoded_key(key, child)? {
+                    return Ok(true);
+                }
+            }
+
+            Ok(false)
+        }
+        IndexPredicateProgram::Not(inner) => Ok(!eval_index_program_on_decoded_key(key, inner)?),
+        IndexPredicateProgram::Compare {
+            component_index,
+            op,
+            literal,
+        } => {
+            let Some(component) = key.component(*component_index) else {
+                return Err(InternalError::query_executor_invariant(
+                    "index-only predicate program referenced missing index component",
+                ));
+            };
+
+            Ok(eval_index_compare(component, *op, literal))
+        }
+    }
+}
+
+// Compare one encoded index component against one compiled literal payload.
+#[cfg_attr(not(test), allow(dead_code))]
+fn eval_index_compare(component: &[u8], op: IndexCompareOp, literal: &IndexLiteral) -> bool {
+    match (op, literal) {
+        (IndexCompareOp::Eq, IndexLiteral::One(expected)) => component == expected.as_slice(),
+        (IndexCompareOp::Ne, IndexLiteral::One(expected)) => component != expected.as_slice(),
+        (IndexCompareOp::Lt, IndexLiteral::One(expected)) => component < expected.as_slice(),
+        (IndexCompareOp::Lte, IndexLiteral::One(expected)) => component <= expected.as_slice(),
+        (IndexCompareOp::Gt, IndexLiteral::One(expected)) => component > expected.as_slice(),
+        (IndexCompareOp::Gte, IndexLiteral::One(expected)) => component >= expected.as_slice(),
+        (IndexCompareOp::In, IndexLiteral::Many(candidates)) => {
+            candidates.iter().any(|candidate| component == candidate)
+        }
+        (IndexCompareOp::NotIn, IndexLiteral::Many(candidates)) => {
+            candidates.iter().all(|candidate| component != candidate)
+        }
+        (
+            IndexCompareOp::Eq
+            | IndexCompareOp::Ne
+            | IndexCompareOp::Lt
+            | IndexCompareOp::Lte
+            | IndexCompareOp::Gt
+            | IndexCompareOp::Gte,
+            IndexLiteral::Many(_),
+        )
+        | (IndexCompareOp::In | IndexCompareOp::NotIn, IndexLiteral::One(_)) => false,
     }
 }
 
@@ -453,4 +763,135 @@ fn contains(actual: &Value, needle: &Value, coercion: &CoercionSpec) -> bool {
         .iter()
         // Invalid comparisons are treated as non-matches.
         .any(|item| compare_eq(item, needle, coercion).unwrap_or(false))
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        IndexCompareOp, IndexLiteral, IndexPredicateProgram, PredicateFieldSlots,
+        ResolvedComparePredicate, ResolvedPredicate, collect_required_slots,
+        compile_index_program_from_resolved, eval_index_compare,
+    };
+    use crate::{
+        db::{
+            index::EncodedValue,
+            query::predicate::{
+                CompareOp,
+                coercion::{CoercionId, CoercionSpec},
+            },
+        },
+        value::Value,
+    };
+
+    #[test]
+    fn collect_required_slots_dedups_and_sorts_slots() {
+        let predicate = ResolvedPredicate::And(vec![
+            ResolvedPredicate::Compare(ResolvedComparePredicate {
+                field_slot: Some(4),
+                op: CompareOp::Eq,
+                value: Value::Uint(42),
+                coercion: CoercionSpec::default(),
+            }),
+            ResolvedPredicate::Or(vec![
+                ResolvedPredicate::IsNull {
+                    field_slot: Some(1),
+                },
+                ResolvedPredicate::IsMissing {
+                    field_slot: Some(4),
+                },
+            ]),
+            ResolvedPredicate::Not(Box::new(ResolvedPredicate::TextContains {
+                field_slot: Some(2),
+                value: Value::Text("x".to_string()),
+            })),
+            ResolvedPredicate::IsEmpty { field_slot: None },
+        ]);
+
+        let slots = collect_required_slots(&predicate);
+        assert_eq!(slots, vec![1, 2, 4]);
+    }
+
+    #[test]
+    fn required_slots_excludes_unresolved_field_references() {
+        let resolved = ResolvedPredicate::And(vec![
+            ResolvedPredicate::Compare(ResolvedComparePredicate {
+                field_slot: None,
+                op: CompareOp::Eq,
+                value: Value::Uint(9),
+                coercion: CoercionSpec::default(),
+            }),
+            ResolvedPredicate::TextContainsCi {
+                field_slot: None,
+                value: Value::Text("x".to_string()),
+            },
+        ]);
+        let required_slots = collect_required_slots(&resolved);
+        let slots = PredicateFieldSlots {
+            resolved,
+            required_slots,
+        };
+
+        assert!(slots.required_slots().is_empty());
+    }
+
+    #[test]
+    fn compile_index_program_maps_field_slot_to_component_index() {
+        let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+            field_slot: Some(7),
+            op: CompareOp::Eq,
+            value: Value::Uint(11),
+            coercion: CoercionSpec::new(CoercionId::Strict),
+        });
+
+        let program = compile_index_program_from_resolved(&predicate, &[3, 7, 9])
+            .expect("strict EQ over indexed slot should compile");
+        let expected = EncodedValue::try_from_ref(&Value::Uint(11))
+            .expect("uint literal should encode")
+            .encoded()
+            .to_vec();
+
+        assert_eq!(
+            program,
+            IndexPredicateProgram::Compare {
+                component_index: 1,
+                op: IndexCompareOp::Eq,
+                literal: IndexLiteral::One(expected),
+            }
+        );
+    }
+
+    #[test]
+    fn compile_index_program_rejects_non_strict_coercion() {
+        let predicate = ResolvedPredicate::Compare(ResolvedComparePredicate {
+            field_slot: Some(1),
+            op: CompareOp::Eq,
+            value: Value::Uint(11),
+            coercion: CoercionSpec::new(CoercionId::NumericWiden),
+        });
+
+        let program = compile_index_program_from_resolved(&predicate, &[1]);
+        assert!(program.is_none());
+    }
+
+    #[test]
+    fn eval_index_compare_applies_membership_semantics() {
+        let component = &[1_u8, 2_u8, 3_u8][..];
+        let in_literal = IndexLiteral::Many(vec![vec![9_u8], vec![1_u8, 2_u8, 3_u8]]);
+        let not_in_literal = IndexLiteral::Many(vec![vec![0_u8], vec![4_u8]]);
+
+        assert!(eval_index_compare(
+            component,
+            IndexCompareOp::In,
+            &in_literal
+        ));
+        assert!(eval_index_compare(
+            component,
+            IndexCompareOp::NotIn,
+            &not_in_literal
+        ));
+    }
 }

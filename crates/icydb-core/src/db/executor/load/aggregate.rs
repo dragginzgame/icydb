@@ -3,7 +3,7 @@ use crate::{
         Context,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
-            OrderedKeyStreamBox,
+            IndexStreamConstraints, OrderedKeyStreamBox, StreamExecutionHints,
             fold::{
                 AggregateFoldMode, AggregateKind, AggregateOutput, AggregateReducerState,
                 AggregateSpec, AggregateWindowState, FoldControl,
@@ -376,6 +376,7 @@ where
                 index_range_anchor: None,
                 direction,
             },
+            predicate_slots: None,
         };
 
         // Resolve the ordered key stream using canonical routing logic.
@@ -461,6 +462,7 @@ where
                 index_range_anchor: None,
                 direction,
             },
+            predicate_slots: None,
         };
         let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, route_plan)?;
         let (aggregate_output, keys_scanned) = Self::fold_streaming_field_extrema(
@@ -1155,6 +1157,7 @@ where
             inputs.logical_plan,
             inputs.index_prefix_specs.first(),
             probe_fetch_hint,
+            None,
         )?
         else {
             return Ok(None);
@@ -1197,6 +1200,7 @@ where
             inputs.index_prefix_specs.first(),
             // Keep native index traversal order for fallback retries.
             Some(usize::MAX),
+            None,
         )?
         else {
             return Ok(None);
@@ -1239,13 +1243,18 @@ where
             return Ok(None);
         }
 
-        let mut key_stream = ctx.ordered_key_stream_from_access_with_index_range_anchor(
+        let mut key_stream = ctx.ordered_key_stream_from_access(
             path,
-            None,
-            None,
-            None,
+            IndexStreamConstraints {
+                prefix: None,
+                range: None,
+                anchor: None,
+            },
             direction,
-            physical_fetch_hint,
+            StreamExecutionHints {
+                physical_fetch_hint,
+                predicate_program: None,
+            },
         )?;
         let (aggregate_output, keys_scanned) = Self::fold_streaming_aggregate(
             ctx,
@@ -1281,6 +1290,7 @@ where
             None,
             inputs.direction,
             index_range_limit_spec.fetch,
+            None,
         )?
         else {
             return Ok(None);
@@ -1324,6 +1334,7 @@ where
                 inputs.direction,
             ),
             physical_fetch_hint: inputs.physical_fetch_hint,
+            index_predicate_program: None,
         };
         let mut key_stream = inputs
             .ctx

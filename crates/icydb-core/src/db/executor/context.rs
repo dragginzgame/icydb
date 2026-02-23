@@ -5,12 +5,8 @@ use crate::{
             DataKey, DataRow, DataStore, RawDataKey, RawRow, decode_and_validate_entity_key,
             format_entity_key_for_mismatch,
         },
-        executor::{ExecutorError, KeyOrderComparator, OrderedKeyStream, OrderedKeyStreamBox},
-        index::RawIndexKey,
-        query::{
-            ReadConsistency,
-            plan::{AccessPath, AccessPlan, Direction, IndexPrefixSpec, IndexRangeSpec},
-        },
+        executor::{ExecutorError, OrderedKeyStream},
+        query::ReadConsistency,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue, Path},
@@ -19,13 +15,11 @@ use crate::{
 use std::{collections::BTreeSet, marker::PhantomData};
 
 // -----------------------------------------------------------------------------
-// Context Subdomains (Pre-Split Planning)
+// Context Subdomains
 // -----------------------------------------------------------------------------
-// 1) Context handle and shared access-stream request contracts.
-// 2) Store access, row reads, and ordered key-stream construction.
-// 3) Row materialization and consistency-aware loading helpers.
-// 4) Key/spec utility helpers and invariant enforcement.
-// 5) Access-plan spec alignment and directional-order regression tests.
+// 1) Context handle and store access.
+// 2) Row reads and consistency-aware materialization.
+// 3) Key/spec helper utilities and decoding invariants.
 
 ///
 /// Context
@@ -34,122 +28,6 @@ use std::{collections::BTreeSet, marker::PhantomData};
 pub(crate) struct Context<'a, E: EntityKind + EntityValue> {
     pub db: &'a Db<E::Canister>,
     _marker: PhantomData<E>,
-}
-
-///
-/// AccessStreamInputs
-///
-/// Canonical access-stream construction inputs shared across context/composite boundaries.
-/// This bundles spec slices and traversal controls to avoid argument-order drift.
-///
-
-#[derive(Clone, Copy)]
-pub(in crate::db::executor) struct AccessStreamInputs<'ctx, 'a, E: EntityKind + EntityValue> {
-    pub(in crate::db::executor) ctx: &'a Context<'ctx, E>,
-    pub(in crate::db::executor) index_prefix_specs: &'a [IndexPrefixSpec],
-    pub(in crate::db::executor) index_range_specs: &'a [IndexRangeSpec],
-    pub(in crate::db::executor) index_range_anchor: Option<&'a RawIndexKey>,
-    pub(in crate::db::executor) direction: Direction,
-    pub(in crate::db::executor) key_comparator: KeyOrderComparator,
-    pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
-}
-
-impl<'a, E> AccessStreamInputs<'_, 'a, E>
-where
-    E: EntityKind + EntityValue,
-{
-    #[must_use]
-    pub(in crate::db::executor) const fn with_physical_fetch_hint(
-        &self,
-        physical_fetch_hint: Option<usize>,
-    ) -> Self {
-        Self {
-            ctx: self.ctx,
-            index_prefix_specs: self.index_prefix_specs,
-            index_range_specs: self.index_range_specs,
-            index_range_anchor: self.index_range_anchor,
-            direction: self.direction,
-            key_comparator: self.key_comparator,
-            physical_fetch_hint,
-        }
-    }
-
-    #[must_use]
-    fn spec_cursor(&self) -> AccessSpecCursor<'a> {
-        AccessSpecCursor {
-            index_prefix_specs: self.index_prefix_specs.iter(),
-            index_range_specs: self.index_range_specs.iter(),
-        }
-    }
-}
-
-///
-/// AccessSpecCursor
-///
-/// Mutable traversal cursor for index prefix/range specs while walking an access plan.
-/// Keeps consumption order explicit and exposes one end-of-traversal invariant check.
-///
-
-pub(in crate::db::executor) struct AccessSpecCursor<'a> {
-    index_prefix_specs: std::slice::Iter<'a, IndexPrefixSpec>,
-    index_range_specs: std::slice::Iter<'a, IndexRangeSpec>,
-}
-
-impl<'a> AccessSpecCursor<'a> {
-    pub(in crate::db::executor) fn next_index_prefix_spec(
-        &mut self,
-    ) -> Option<&'a IndexPrefixSpec> {
-        self.index_prefix_specs.next()
-    }
-
-    pub(in crate::db::executor) fn next_index_range_spec(&mut self) -> Option<&'a IndexRangeSpec> {
-        self.index_range_specs.next()
-    }
-
-    pub(in crate::db::executor) fn validate_consumed(&mut self) -> Result<(), InternalError> {
-        if self.index_prefix_specs.next().is_some() {
-            return Err(InternalError::query_executor_invariant(
-                "unused index-prefix executable specs after access-plan traversal",
-            ));
-        }
-        if self.index_range_specs.next().is_some() {
-            return Err(InternalError::query_executor_invariant(
-                "unused index-range executable specs after access-plan traversal",
-            ));
-        }
-
-        Ok(())
-    }
-}
-
-///
-/// AccessStreamBindings
-///
-/// Shared access-stream traversal bindings reused by execution and key-stream
-/// request wrappers so spec/anchor/direction fields stay aligned.
-///
-
-#[derive(Clone, Copy)]
-pub(in crate::db::executor) struct AccessStreamBindings<'a> {
-    pub(in crate::db::executor) index_prefix_specs: &'a [IndexPrefixSpec],
-    pub(in crate::db::executor) index_range_specs: &'a [IndexRangeSpec],
-    pub(in crate::db::executor) index_range_anchor: Option<&'a RawIndexKey>,
-    pub(in crate::db::executor) direction: Direction,
-}
-
-///
-/// AccessPlanStreamRequest
-///
-/// Canonical request payload for access-plan key-stream production.
-/// Bundles access path, lowered specs, and traversal controls so call sites
-/// do not pass ordering and spec parameters as loose arguments.
-///
-
-pub(in crate::db::executor) struct AccessPlanStreamRequest<'a, K> {
-    pub(in crate::db::executor) access: &'a AccessPlan<K>,
-    pub(in crate::db::executor) bindings: AccessStreamBindings<'a>,
-    pub(in crate::db::executor) key_comparator: KeyOrderComparator,
-    pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
 }
 
 impl<'a, E> Context<'a, E>
@@ -201,107 +79,6 @@ where
                 ExecutorError::store_corruption(format!("missing row: {key}")).into()
             })
         })?
-    }
-
-    // ------------------------------------------------------------------
-    // Access path analysis
-    // ------------------------------------------------------------------
-
-    pub(in crate::db) fn ordered_key_stream_from_access_with_index_range_anchor(
-        &self,
-        access: &AccessPath<E::Key>,
-        index_prefix_spec: Option<&IndexPrefixSpec>,
-        index_range_spec: Option<&IndexRangeSpec>,
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-        physical_fetch_hint: Option<usize>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind,
-    {
-        access.resolve_physical_key_stream(
-            self,
-            index_prefix_spec,
-            index_range_spec,
-            index_range_anchor,
-            direction,
-            physical_fetch_hint,
-        )
-    }
-
-    pub(in crate::db) fn rows_from_access_plan(
-        &self,
-        access: &AccessPlan<E::Key>,
-        index_prefix_specs: &[IndexPrefixSpec],
-        index_range_specs: &[IndexRangeSpec],
-        consistency: ReadConsistency,
-    ) -> Result<Vec<DataRow>, InternalError>
-    where
-        E: EntityKind,
-    {
-        self.rows_from_access_plan_with_index_range_anchor(
-            access,
-            index_prefix_specs,
-            index_range_specs,
-            consistency,
-            None,
-            Direction::Asc,
-        )
-    }
-
-    pub(in crate::db::executor) fn ordered_key_stream_from_access_plan_with_index_range_anchor(
-        &self,
-        request: AccessPlanStreamRequest<'_, E::Key>,
-    ) -> Result<OrderedKeyStreamBox, InternalError>
-    where
-        E: EntityKind,
-    {
-        let inputs = AccessStreamInputs {
-            ctx: self,
-            index_prefix_specs: request.bindings.index_prefix_specs,
-            index_range_specs: request.bindings.index_range_specs,
-            index_range_anchor: request.bindings.index_range_anchor,
-            direction: request.bindings.direction,
-            key_comparator: request.key_comparator,
-            physical_fetch_hint: request.physical_fetch_hint,
-        };
-        let mut spec_cursor = inputs.spec_cursor();
-        let key_stream = request
-            .access
-            .produce_key_stream(&inputs, &mut spec_cursor)?;
-        spec_cursor.validate_consumed()?;
-
-        Ok(key_stream)
-    }
-
-    pub(in crate::db) fn rows_from_access_plan_with_index_range_anchor(
-        &self,
-        access: &AccessPlan<E::Key>,
-        index_prefix_specs: &[IndexPrefixSpec],
-        index_range_specs: &[IndexRangeSpec],
-        consistency: ReadConsistency,
-        index_range_anchor: Option<&RawIndexKey>,
-        direction: Direction,
-    ) -> Result<Vec<DataRow>, InternalError>
-    where
-        E: EntityKind,
-    {
-        let bindings = AccessStreamBindings {
-            index_prefix_specs,
-            index_range_specs,
-            index_range_anchor,
-            direction,
-        };
-        let request = AccessPlanStreamRequest {
-            access,
-            bindings,
-            key_comparator: KeyOrderComparator::from_direction(direction),
-            physical_fetch_hint: None,
-        };
-        let mut key_stream =
-            self.ordered_key_stream_from_access_plan_with_index_range_anchor(request)?;
-
-        self.rows_from_ordered_key_stream(key_stream.as_mut(), consistency)
     }
 
     // Load rows for an ordered key stream by preserving the stream order.
@@ -361,6 +138,7 @@ where
                 Err(err) => return Err(err),
             }
         }
+
         Ok(out)
     }
 
@@ -410,7 +188,7 @@ mod tests {
     use crate::{
         db::{
             Db,
-            executor::Context,
+            executor::{Context, IndexStreamConstraints, StreamExecutionHints},
             query::{
                 ReadConsistency,
                 plan::{AccessPath, AccessPlan, Direction, IndexPrefixSpec, IndexRangeSpec},
@@ -509,13 +287,18 @@ mod tests {
             upper: Bound::Excluded(Value::Uint(20)),
         };
 
-        let Err(err) = ctx.ordered_key_stream_from_access_with_index_range_anchor(
+        let Err(err) = ctx.ordered_key_stream_from_access(
             &access,
-            None,
-            None,
-            None,
+            IndexStreamConstraints {
+                prefix: None,
+                range: None,
+                anchor: None,
+            },
             Direction::Asc,
-            None,
+            StreamExecutionHints {
+                physical_fetch_hint: None,
+                predicate_program: None,
+            },
         ) else {
             panic!("index-range access without lowered spec must fail")
         };
@@ -536,13 +319,18 @@ mod tests {
         };
         let spec = dummy_index_prefix_spec();
 
-        let Err(err) = ctx.ordered_key_stream_from_access_with_index_range_anchor(
+        let Err(err) = ctx.ordered_key_stream_from_access(
             &access,
-            Some(&spec),
-            None,
-            None,
+            IndexStreamConstraints {
+                prefix: Some(&spec),
+                range: None,
+                anchor: None,
+            },
             Direction::Asc,
-            None,
+            StreamExecutionHints {
+                physical_fetch_hint: None,
+                predicate_program: None,
+            },
         ) else {
             panic!("misaligned index-prefix spec must fail invariant checks")
         };
@@ -565,13 +353,18 @@ mod tests {
         };
         let spec = dummy_index_range_spec();
 
-        let Err(err) = ctx.ordered_key_stream_from_access_with_index_range_anchor(
+        let Err(err) = ctx.ordered_key_stream_from_access(
             &access,
-            None,
-            Some(&spec),
-            None,
+            IndexStreamConstraints {
+                prefix: None,
+                range: Some(&spec),
+                anchor: None,
+            },
             Direction::Asc,
-            None,
+            StreamExecutionHints {
+                physical_fetch_hint: None,
+                predicate_program: None,
+            },
         ) else {
             panic!("misaligned index-range spec must fail invariant checks")
         };

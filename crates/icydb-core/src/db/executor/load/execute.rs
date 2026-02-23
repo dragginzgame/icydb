@@ -11,7 +11,10 @@ use crate::{
             AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
             OrderedKeyStreamBox,
         },
-        query::plan::LogicalPlan,
+        query::{
+            plan::LogicalPlan,
+            predicate::{IndexPredicateProgram, PredicateFieldSlots},
+        },
     },
     error::InternalError,
     obs::sink::Span,
@@ -29,6 +32,7 @@ pub(super) struct ExecutionInputs<'a, E: EntityKind + EntityValue> {
     pub(super) ctx: &'a Context<'a, E>,
     pub(super) plan: &'a LogicalPlan<E::Key>,
     pub(super) stream_bindings: AccessStreamBindings<'a>,
+    pub(super) predicate_slots: Option<&'a PredicateFieldSlots>,
 }
 
 ///
@@ -60,37 +64,44 @@ where
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionRoutePlan,
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
-        // Phase 1: resolve fast-path stream if any.
-        let resolved = match Self::evaluate_fast_path(inputs, route_plan)? {
-            FastPathDecision::Hit(fast) => ResolvedExecutionKeyStream {
-                key_stream: fast.ordered_key_stream,
-                optimization: Some(fast.optimization),
-                rows_scanned_override: Some(fast.rows_scanned),
-            },
-            FastPathDecision::None => {
-                // Phase 2: resolve canonical fallback access stream.
-                let fallback_fetch_hint =
-                    route_plan.fallback_physical_fetch_hint(inputs.stream_bindings.direction);
-                let stream_request = AccessPlanStreamRequest {
-                    access: &inputs.plan.access,
-                    bindings: inputs.stream_bindings,
-                    key_comparator: super::key_stream_comparator_from_plan(
-                        inputs.plan,
-                        inputs.stream_bindings.direction,
-                    ),
-                    physical_fetch_hint: fallback_fetch_hint,
-                };
-                let key_stream = inputs
-                    .ctx
-                    .ordered_key_stream_from_access_plan_with_index_range_anchor(stream_request)?;
+        let index_predicate_program =
+            Self::compile_index_predicate_program_for_load(inputs.plan, inputs.predicate_slots);
 
-                ResolvedExecutionKeyStream {
-                    key_stream,
-                    optimization: None,
-                    rows_scanned_override: None,
+        // Phase 1: resolve fast-path stream if any.
+        let resolved =
+            match Self::evaluate_fast_path(inputs, route_plan, index_predicate_program.as_ref())? {
+                FastPathDecision::Hit(fast) => ResolvedExecutionKeyStream {
+                    key_stream: fast.ordered_key_stream,
+                    optimization: Some(fast.optimization),
+                    rows_scanned_override: Some(fast.rows_scanned),
+                },
+                FastPathDecision::None => {
+                    // Phase 2: resolve canonical fallback access stream.
+                    let fallback_fetch_hint =
+                        route_plan.fallback_physical_fetch_hint(inputs.stream_bindings.direction);
+                    let stream_request = AccessPlanStreamRequest {
+                        access: &inputs.plan.access,
+                        bindings: inputs.stream_bindings,
+                        key_comparator: super::key_stream_comparator_from_plan(
+                            inputs.plan,
+                            inputs.stream_bindings.direction,
+                        ),
+                        physical_fetch_hint: fallback_fetch_hint,
+                        index_predicate_program: index_predicate_program.as_ref(),
+                    };
+                    let key_stream = inputs
+                        .ctx
+                        .ordered_key_stream_from_access_plan_with_index_range_anchor(
+                            stream_request,
+                        )?;
+
+                    ResolvedExecutionKeyStream {
+                        key_stream,
+                        optimization: None,
+                        rows_scanned_override: None,
+                    }
                 }
-            }
-        };
+            };
 
         // Phase 3: apply DISTINCT at one shared boundary.
         Ok(Self::apply_distinct_if_requested(resolved, inputs.plan))
@@ -100,6 +111,7 @@ where
     fn evaluate_fast_path(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionRoutePlan,
+        index_predicate_program: Option<&IndexPredicateProgram>,
     ) -> Result<FastPathDecision, InternalError> {
         // Guard fast-path spec arity up front so planner/executor traversal
         // drift cannot silently consume the wrong spec in release builds.
@@ -130,6 +142,7 @@ where
                             inputs.plan,
                             inputs.stream_bindings.index_prefix_specs.first(),
                             route_plan.scan_hints.physical_fetch_hint,
+                            index_predicate_program,
                         )?
                     {
                         return Ok(FastPathDecision::Hit(fast));
@@ -144,6 +157,7 @@ where
                             inputs.stream_bindings.index_range_anchor,
                             inputs.stream_bindings.direction,
                             spec.fetch,
+                            index_predicate_program,
                         )?
                     {
                         return Ok(FastPathDecision::Hit(fast));
@@ -154,6 +168,21 @@ where
         }
 
         Ok(FastPathDecision::None)
+    }
+
+    // Compile one optional index-only predicate program for load execution when
+    // the active access path is index-backed and covers all required slots.
+    fn compile_index_predicate_program_for_load(
+        plan: &LogicalPlan<E::Key>,
+        predicate_slots: Option<&PredicateFieldSlots>,
+    ) -> Option<IndexPredicateProgram> {
+        let predicate_slots = predicate_slots?;
+        if !Self::predicate_slots_fully_covered_by_index_path(&plan.access, Some(predicate_slots)) {
+            return None;
+        }
+        let index_slots = Self::resolved_index_slots_for_access_path(&plan.access)?;
+
+        predicate_slots.compile_index_program(index_slots.as_slice())
     }
     // Apply DISTINCT before post-access phases so pagination sees unique keys.
     fn apply_distinct_if_requested(

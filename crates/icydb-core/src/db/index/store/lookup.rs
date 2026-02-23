@@ -6,6 +6,7 @@ use crate::{
             Direction, IndexKey, continuation_advanced, envelope_is_empty, resume_bounds,
             store::{IndexStore, RawIndexKey},
         },
+        query::predicate::{IndexPredicateProgram, eval_index_program_on_decoded_key},
     },
     error::InternalError,
     model::index::IndexModel,
@@ -21,6 +22,7 @@ impl IndexStore {
         continuation_start_exclusive: Option<&RawIndexKey>,
         direction: Direction,
         limit: usize,
+        index_predicate_program: Option<&IndexPredicateProgram>,
     ) -> Result<Vec<DataKey>, InternalError> {
         if limit == 0 {
             return Ok(Vec::new());
@@ -53,6 +55,7 @@ impl IndexStore {
                         &mut out,
                         Some(limit),
                         "range resolve",
+                        index_predicate_program,
                     )? {
                         return Ok(out);
                     }
@@ -75,6 +78,7 @@ impl IndexStore {
                         &mut out,
                         Some(limit),
                         "range resolve",
+                        index_predicate_program,
                     )? {
                         return Ok(out);
                     }
@@ -114,6 +118,7 @@ impl IndexStore {
         out: &mut Vec<DataKey>,
         limit: Option<usize>,
         context: &'static str,
+        index_predicate_program: Option<&IndexPredicateProgram>,
     ) -> Result<bool, InternalError> {
         #[cfg(debug_assertions)]
         if let Err(err) = Self::verify_entry_fingerprint(Some(index), raw_key, value) {
@@ -122,9 +127,14 @@ impl IndexStore {
             );
         }
 
-        IndexKey::try_from_raw(raw_key).map_err(|err| {
+        let decoded_key = IndexKey::try_from_raw(raw_key).map_err(|err| {
             InternalError::index_corruption(format!("index key corrupted during {context}: {err}"))
         })?;
+        if let Some(program) = index_predicate_program
+            && !eval_index_program_on_decoded_key(&decoded_key, program)?
+        {
+            return Ok(false);
+        }
 
         let storage_keys = value
             .entry

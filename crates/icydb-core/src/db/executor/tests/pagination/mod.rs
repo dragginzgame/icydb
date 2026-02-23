@@ -136,6 +136,7 @@ fn ordered_ids_from_group_rank_index(group: u32) -> Vec<Ulid> {
                         None,
                         Direction::Asc,
                         usize::MAX,
+                        None,
                     )
                 })
             })

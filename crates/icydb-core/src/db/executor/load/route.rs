@@ -5,12 +5,16 @@ use crate::{
             load::{IndexRangeLimitSpec, LoadExecutor, aggregate_field::AggregateFieldValueError},
         },
         index::RawIndexKey,
-        query::plan::{
-            AccessPath, AccessPlan, CursorBoundary, Direction, LogicalPlan, compute_page_window,
-            validate::PushdownApplicability,
+        query::{
+            plan::{
+                AccessPath, AccessPlan, CursorBoundary, Direction, LogicalPlan,
+                compute_page_window, validate::PushdownApplicability,
+            },
+            predicate::PredicateFieldSlots,
         },
     },
     error::InternalError,
+    model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
 };
 
@@ -610,6 +614,54 @@ where
         !(plan.distinct && offset > 0)
     }
 
+    // Determine whether every compiled predicate field slot is available on
+    // the active single-path index access shape.
+    pub(super) fn predicate_slots_fully_covered_by_index_path(
+        access: &AccessPlan<E::Key>,
+        predicate_slots: Option<&PredicateFieldSlots>,
+    ) -> bool {
+        let Some(predicate_slots) = predicate_slots else {
+            return false;
+        };
+        let required = predicate_slots.required_slots();
+        if required.is_empty() {
+            return false;
+        }
+        let Some(mut index_slots) = Self::resolved_index_slots_for_access_path(access) else {
+            return false;
+        };
+        index_slots.sort_unstable();
+        index_slots.dedup();
+
+        required
+            .iter()
+            .all(|slot| index_slots.binary_search(slot).is_ok())
+    }
+
+    // Resolve index fields for a single-path index access shape to entity slots.
+    pub(super) fn resolved_index_slots_for_access_path(
+        access: &AccessPlan<E::Key>,
+    ) -> Option<Vec<usize>> {
+        let path = access.as_path()?;
+        let index_fields = match path {
+            AccessPath::IndexPrefix { index, .. } | AccessPath::IndexRange { index, .. } => {
+                index.fields
+            }
+            AccessPath::ByKey(_)
+            | AccessPath::ByKeys(_)
+            | AccessPath::KeyRange { .. }
+            | AccessPath::FullScan => return None,
+        };
+
+        let mut slots = Vec::with_capacity(index_fields.len());
+        for field_name in index_fields {
+            let slot = resolve_field_slot(E::MODEL, field_name)?;
+            slots.push(slot);
+        }
+
+        Some(slots)
+    }
+
     // ------------------------------------------------------------------
     // Access-shape eligibility helpers
     // ------------------------------------------------------------------
@@ -1020,6 +1072,7 @@ mod tests {
                     AccessPath, AccessPlan, CursorBoundary, Direction, LogicalPlan, OrderDirection,
                     OrderSpec, PageSpec,
                 },
+                predicate::{Predicate, PredicateFieldSlots},
             },
         },
         model::{field::FieldKind, index::IndexModel},
@@ -1217,6 +1270,72 @@ mod tests {
             );
 
         assert_eq!(route_plan.fast_path_order(), &AGGREGATE_FAST_PATH_ORDER);
+    }
+
+    #[test]
+    fn predicate_slot_coverage_matches_single_index_path_fields() {
+        let access = AccessPlan::path(AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        });
+        let predicate_slots = PredicateFieldSlots::resolve::<RouteMatrixEntity>(&Predicate::eq(
+            "rank".to_string(),
+            Value::Uint(7),
+        ));
+
+        let covered =
+            LoadExecutor::<RouteMatrixEntity>::predicate_slots_fully_covered_by_index_path(
+                &access,
+                Some(&predicate_slots),
+            );
+
+        assert!(
+            covered,
+            "rank predicate should be covered by rank index path"
+        );
+    }
+
+    #[test]
+    fn predicate_slot_coverage_rejects_non_indexed_predicate_fields() {
+        let access = AccessPlan::path(AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        });
+        let predicate_slots = PredicateFieldSlots::resolve::<RouteMatrixEntity>(&Predicate::eq(
+            "label".to_string(),
+            Value::Text("x".to_string()),
+        ));
+
+        let covered =
+            LoadExecutor::<RouteMatrixEntity>::predicate_slots_fully_covered_by_index_path(
+                &access,
+                Some(&predicate_slots),
+            );
+
+        assert!(
+            !covered,
+            "label predicate must not be covered by single-field rank index path"
+        );
+    }
+
+    #[test]
+    fn predicate_slot_coverage_requires_index_backed_access_path() {
+        let access = AccessPlan::path(AccessPath::<Ulid>::FullScan);
+        let predicate_slots = PredicateFieldSlots::resolve::<RouteMatrixEntity>(&Predicate::eq(
+            "rank".to_string(),
+            Value::Uint(7),
+        ));
+
+        let covered =
+            LoadExecutor::<RouteMatrixEntity>::predicate_slots_fully_covered_by_index_path(
+                &access,
+                Some(&predicate_slots),
+            );
+
+        assert!(
+            !covered,
+            "full-scan access is intentionally out of index-slot coverage scope"
+        );
     }
 
     #[test]

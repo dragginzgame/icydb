@@ -31,6 +31,10 @@ jobs:
           # Keep registry/git caching, but avoid unstable target-dir probing
           # from ephemeral trybuild workspaces under `target/tests`.
           cache-targets: "false"
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
       - run: bash scripts/ci/validate-workflow-packages.sh .github/workflows/ci.yml
       - run: bash scripts/ci/check-index-range-spec-invariants.sh
       - run: bash scripts/ci/check-field-projection-invariants.sh

@@ -90,6 +90,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
             None,
             Direction::Asc,
             usize::MAX,
+            None,
         )
     })?;
 

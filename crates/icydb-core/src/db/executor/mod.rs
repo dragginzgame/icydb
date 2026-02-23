@@ -1,4 +1,4 @@
-mod composite_stream;
+mod access_stream;
 mod context;
 mod delete;
 mod direction;
@@ -11,6 +11,7 @@ mod plan;
 #[cfg(test)]
 mod tests;
 
+pub(super) use access_stream::*;
 pub(super) use context::*;
 pub(super) use delete::DeleteExecutor;
 pub(crate) use direction::normalize_ordered_keys;

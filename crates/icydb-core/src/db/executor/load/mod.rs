@@ -241,6 +241,7 @@ where
                     index_range_anchor: index_range_anchor.as_ref(),
                     direction,
                 },
+                predicate_slots: predicate_slots.as_ref(),
             };
 
             record_plan_metrics(&plan.access);
