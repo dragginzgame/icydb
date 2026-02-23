@@ -158,23 +158,29 @@ impl<K> LogicalPlan<K> {
         }
     }
 
-    /// Apply predicate, ordering, and pagination in plan order.
-    pub(crate) fn apply_post_access<E, R>(
+    /// Apply predicate, ordering, and pagination in plan order with one precompiled predicate.
+    pub(crate) fn apply_post_access_with_compiled_predicate<E, R>(
         &self,
         rows: &mut Vec<R>,
+        compiled_predicate: Option<&PredicateFieldSlots>,
     ) -> Result<PostAccessStats, InternalError>
     where
         E: EntityKind + EntityValue,
         R: PlanRow<E>,
     {
-        self.apply_post_access_with_cursor::<E, R>(rows, None)
+        self.apply_post_access_with_cursor_and_compiled_predicate::<E, R>(
+            rows,
+            None,
+            compiled_predicate,
+        )
     }
 
-    /// Apply predicate, ordering, cursor boundary, and pagination in plan order.
-    pub(crate) fn apply_post_access_with_cursor<E, R>(
+    /// Apply predicate, ordering, cursor boundary, and pagination with a precompiled predicate.
+    pub(crate) fn apply_post_access_with_cursor_and_compiled_predicate<E, R>(
         &self,
         rows: &mut Vec<R>,
         cursor: Option<&CursorBoundary>,
+        compiled_predicate: Option<&PredicateFieldSlots>,
     ) -> Result<PostAccessStats, InternalError>
     where
         E: EntityKind + EntityValue,
@@ -184,7 +190,8 @@ impl<K> LogicalPlan<K> {
         self.validate_cursor_mode(cursor)?;
 
         // Phase 1: predicate filtering.
-        let (filtered, rows_after_filter) = self.apply_filter_phase::<E, R>(rows);
+        let (filtered, rows_after_filter) =
+            self.apply_filter_phase::<E, R>(rows, compiled_predicate)?;
 
         // Phase 2: ordering.
         let (ordered, rows_after_order) = self.apply_order_phase::<E, R>(rows, cursor, filtered)?;
@@ -275,20 +282,29 @@ impl<K> LogicalPlan<K> {
     }
 
     // Predicate phase (already normalized and validated during planning).
-    fn apply_filter_phase<E, R>(&self, rows: &mut Vec<R>) -> (bool, usize)
+    fn apply_filter_phase<E, R>(
+        &self,
+        rows: &mut Vec<R>,
+        compiled_predicate: Option<&PredicateFieldSlots>,
+    ) -> Result<(bool, usize), InternalError>
     where
         E: EntityKind + EntityValue,
         R: PlanRow<E>,
     {
-        let filtered = if let Some(predicate) = self.predicate.as_ref() {
-            let field_slots = PredicateFieldSlots::resolve::<E>(predicate);
-            rows.retain(|row| eval_predicate_with_slots(row.entity(), &field_slots));
+        let filtered = if self.predicate.is_some() {
+            let Some(compiled_predicate) = compiled_predicate else {
+                return Err(InternalError::query_executor_invariant(
+                    "post-access filtering requires precompiled predicate slots",
+                ));
+            };
+
+            rows.retain(|row| eval_predicate_with_slots(row.entity(), compiled_predicate));
             true
         } else {
             false
         };
 
-        (filtered, rows.len())
+        Ok((filtered, rows.len()))
     }
 
     // Ordering phase with bounded-load optimization for first-page load paths.

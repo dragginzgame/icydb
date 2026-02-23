@@ -67,7 +67,7 @@ where
             ensure_recovered_for_write(&self.db)?;
             let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
             let index_range_specs = plan.index_range_specs()?.to_vec();
-            let plan = plan.into_inner();
+            let (plan, predicate_slots) = plan.into_parts();
             validate_executor_plan::<E>(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;
 
@@ -87,7 +87,10 @@ where
             let mut rows = helpers::decode_rows::<E>(data_rows)?;
 
             // Post-access phase: filter, order, and apply delete limits.
-            let stats = plan.apply_post_access::<E, _>(&mut rows)?;
+            let stats = plan.apply_post_access_with_compiled_predicate::<E, _>(
+                &mut rows,
+                predicate_slots.as_ref(),
+            )?;
             let _ = stats.delete_was_limited;
 
             if rows.is_empty() {

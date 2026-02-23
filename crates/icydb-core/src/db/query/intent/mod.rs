@@ -19,8 +19,8 @@ use crate::{
             },
             policy,
             predicate::{
-                Predicate, SchemaInfo, ValidateError, normalize, normalize_enum_literals,
-                validate::reject_unsupported_query_features,
+                Predicate, PredicateFieldSlots, SchemaInfo, ValidateError, normalize,
+                normalize_enum_literals, validate::reject_unsupported_query_features,
             },
         },
         response::ResponseError,
@@ -522,8 +522,15 @@ impl<E: EntityKind> Query<E> {
     /// Plan this intent into an executor-ready plan.
     pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
         let plan = self.build_plan()?;
+        let predicate_slots = plan
+            .predicate
+            .as_ref()
+            .map(PredicateFieldSlots::resolve::<E>);
 
-        Ok(ExecutablePlan::new(plan))
+        Ok(ExecutablePlan::new_with_compiled_predicate_slots(
+            plan,
+            predicate_slots,
+        ))
     }
 
     // Build a logical plan for the current intent.

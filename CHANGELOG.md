@@ -5,6 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.26.3] - 2026-02-23
+
+### 📝 Summary
+
+* Continues `0.26.x` slot-hardening by precompiling predicates at query-plan assembly time and reusing that compiled form during execution.
+
+### 🔧 Changed
+
+* Query plan assembly now materializes one compiled predicate slot-program from the logical predicate before executor handoff.
+* Load and delete post-access filtering now consume that precompiled predicate directly, instead of recompiling predicate slots during each post-access pass.
+* Post-access filter execution keeps field access on `get_value_by_index` with no per-row field-name resolution in the runtime hot path.
+
+---
+
 ## [0.26.2] - 2026-02-23
 
 ### 📝 Summary

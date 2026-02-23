@@ -7,6 +7,7 @@ use crate::{
             ContinuationSignature, CursorBoundary, Direction, LogicalPlan, compute_page_window,
             logical::PostAccessStats,
         },
+        query::predicate::PredicateFieldSlots,
         response::Response,
     },
     error::InternalError,
@@ -23,6 +24,7 @@ where
     pub(super) fn materialize_key_stream_into_page(
         ctx: &Context<'_, E>,
         plan: &LogicalPlan<E::Key>,
+        predicate_slots: Option<&PredicateFieldSlots>,
         key_stream: &mut dyn OrderedKeyStream,
         scan_budget_hint: Option<usize>,
         streaming_access_shape_safe: bool,
@@ -57,6 +59,7 @@ where
         let mut rows = Context::deserialize_rows(data_rows)?;
         let page = Self::finalize_rows_into_page(
             plan,
+            predicate_slots,
             &mut rows,
             cursor_boundary,
             direction,
@@ -70,12 +73,17 @@ where
     // Apply canonical post-access phases to scanned rows and assemble the cursor page.
     fn finalize_rows_into_page(
         plan: &LogicalPlan<E::Key>,
+        predicate_slots: Option<&PredicateFieldSlots>,
         rows: &mut Vec<(Id<E>, E)>,
         cursor_boundary: Option<&CursorBoundary>,
         direction: Direction,
         continuation_signature: ContinuationSignature,
     ) -> Result<CursorPage<E>, InternalError> {
-        let stats = plan.apply_post_access_with_cursor::<E, _>(rows, cursor_boundary)?;
+        let stats = plan.apply_post_access_with_cursor_and_compiled_predicate::<E, _>(
+            rows,
+            cursor_boundary,
+            predicate_slots,
+        )?;
         let next_cursor = Self::build_next_cursor(
             plan,
             rows,

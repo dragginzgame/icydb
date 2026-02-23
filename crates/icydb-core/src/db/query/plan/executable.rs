@@ -13,6 +13,7 @@ use crate::{
                 raw_bounds_for_semantic_index_component_range, validate_planned_cursor,
                 validate_planned_cursor_state,
             },
+            predicate::PredicateFieldSlots,
         },
     },
     error::InternalError,
@@ -194,6 +195,7 @@ impl From<Option<CursorBoundary>> for PlannedCursor {
 #[derive(Debug)]
 pub struct ExecutablePlan<E: EntityKind> {
     plan: LogicalPlan<E::Key>,
+    predicate_slots: Option<PredicateFieldSlots>,
     direction: Direction,
     index_prefix_specs: Vec<IndexPrefixSpec>,
     index_prefix_spec_invalid: bool,
@@ -207,7 +209,20 @@ impl<E: EntityKind> ExecutablePlan<E> {
     // Core executable plan construction and accessors
     // ------------------------------------------------------------------
 
+    #[cfg(test)]
     pub(crate) fn new(plan: LogicalPlan<E::Key>) -> Self {
+        let predicate_slots = plan
+            .predicate
+            .as_ref()
+            .map(PredicateFieldSlots::resolve::<E>);
+
+        Self::new_with_compiled_predicate_slots(plan, predicate_slots)
+    }
+
+    pub(in crate::db::query) fn new_with_compiled_predicate_slots(
+        plan: LogicalPlan<E::Key>,
+        predicate_slots: Option<PredicateFieldSlots>,
+    ) -> Self {
         let direction = Self::derive_direction(&plan);
         let (index_prefix_specs, index_prefix_spec_invalid) =
             match Self::build_index_prefix_specs(&plan) {
@@ -222,6 +237,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
         Self {
             plan,
+            predicate_slots,
             direction,
             index_prefix_specs,
             index_prefix_spec_invalid,
@@ -325,6 +341,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
 
     pub(in crate::db) fn into_inner(self) -> LogicalPlan<E::Key> {
         self.plan
+    }
+
+    pub(in crate::db) fn into_parts(self) -> (LogicalPlan<E::Key>, Option<PredicateFieldSlots>) {
+        (self.plan, self.predicate_slots)
     }
 
     /// Revalidate executor-provided cursor state through the canonical cursor spine.

@@ -225,10 +225,10 @@ where
         let mut execution_trace = self
             .debug
             .then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
+        let (plan, predicate_slots) = plan.into_parts();
 
         let result = (|| {
             let mut span = Span::<E>::new(ExecKind::Load);
-            let plan = plan.into_inner();
 
             validate_executor_plan::<E>(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;
@@ -258,6 +258,7 @@ where
             let (page, keys_scanned, post_access_rows) = Self::materialize_key_stream_into_page(
                 &ctx,
                 &plan,
+                predicate_slots.as_ref(),
                 resolved.key_stream.as_mut(),
                 route_plan.scan_hints.load_scan_budget_hint,
                 route_plan.streaming_access_shape_safe(),
