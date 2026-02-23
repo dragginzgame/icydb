@@ -85,6 +85,13 @@ impl FieldValues for PlanSingleton {
             _ => None,
         }
     }
+
+    fn get_value_by_index(&self, index: usize) -> Option<Value> {
+        match index {
+            0 => Some(self.id.to_value()),
+            _ => None,
+        }
+    }
 }
 
 crate::test_canister! {

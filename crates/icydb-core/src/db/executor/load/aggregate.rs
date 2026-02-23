@@ -11,12 +11,11 @@ use crate::{
             load::{
                 LoadExecutor,
                 aggregate_field::{
-                    AggregateFieldValueError, apply_aggregate_direction,
+                    AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
                     compare_entities_by_orderable_field, compare_entities_for_field_extrema,
                     compare_orderable_field_values, extract_numeric_field_decimal,
-                    extract_orderable_field_value, validate_any_aggregate_target_field,
-                    validate_numeric_aggregate_target_field,
-                    validate_orderable_aggregate_target_field,
+                    extract_orderable_field_value, resolve_any_aggregate_target_slot,
+                    resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
                 },
                 aggregate_guard::{
                     ensure_index_range_aggregate_fast_path_specs,
@@ -37,7 +36,6 @@ use crate::{
         response::Response,
     },
     error::InternalError,
-    model::field::FieldKind,
     traits::{EntityKind, EntityValue},
     types::{Decimal, Id},
     value::Value,
@@ -428,7 +426,7 @@ where
         };
 
         // Validate user-provided field targets before any scan-budget consumption.
-        let expected_kind = validate_orderable_aggregate_target_field::<E>(target_field)
+        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
         if !field_fast_path_eligible {
             // Preserve canonical query semantics by selecting candidates from the
@@ -438,7 +436,7 @@ where
                 response,
                 kind,
                 target_field,
-                expected_kind,
+                field_slot,
             );
         }
         if !matches!(route_plan.execution_mode, ExecutionMode::Streaming) {
@@ -470,7 +468,7 @@ where
             logical_plan.consistency,
             resolved.key_stream.as_mut(),
             target_field,
-            expected_kind,
+            field_slot,
             kind,
             direction,
         )?;
@@ -488,11 +486,11 @@ where
         target_field: &str,
         kind: NumericFieldAggregateKind,
     ) -> Result<Option<Decimal>, InternalError> {
-        let expected_kind = validate_numeric_aggregate_target_field::<E>(target_field)
+        let field_slot = resolve_numeric_aggregate_target_slot::<E>(target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
         let response = self.execute(plan)?;
 
-        Self::aggregate_numeric_field_from_materialized(response, target_field, expected_kind, kind)
+        Self::aggregate_numeric_field_from_materialized(response, target_field, field_slot, kind)
     }
 
     // Execute one field-target nth aggregate (`nth(field, n)`) via canonical
@@ -503,11 +501,11 @@ where
         target_field: &str,
         nth: usize,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let expected_kind = validate_orderable_aggregate_target_field::<E>(target_field)
+        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
         let response = self.execute(plan)?;
 
-        Self::aggregate_nth_field_from_materialized(response, target_field, expected_kind, nth)
+        Self::aggregate_nth_field_from_materialized(response, target_field, field_slot, nth)
     }
 
     // Execute one field-target median aggregate (`median(field)`) via
@@ -517,11 +515,11 @@ where
         plan: ExecutablePlan<E>,
         target_field: &str,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let expected_kind = validate_orderable_aggregate_target_field::<E>(target_field)
+        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
         let response = self.execute(plan)?;
 
-        Self::aggregate_median_field_from_materialized(response, target_field, expected_kind)
+        Self::aggregate_median_field_from_materialized(response, target_field, field_slot)
     }
 
     // Execute one field-target distinct-count aggregate
@@ -531,15 +529,11 @@ where
         plan: ExecutablePlan<E>,
         target_field: &str,
     ) -> Result<u32, InternalError> {
-        let expected_kind = validate_any_aggregate_target_field::<E>(target_field)
+        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
         let response = self.execute(plan)?;
 
-        Self::aggregate_count_distinct_field_from_materialized(
-            response,
-            target_field,
-            expected_kind,
-        )
+        Self::aggregate_count_distinct_field_from_materialized(response, target_field, field_slot)
     }
 
     // Execute one field-target paired extrema aggregate (`min_max(field)`)
@@ -549,11 +543,11 @@ where
         plan: ExecutablePlan<E>,
         target_field: &str,
     ) -> Result<MinMaxByIds<E>, InternalError> {
-        let expected_kind = validate_orderable_aggregate_target_field::<E>(target_field)
+        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
         let response = self.execute(plan)?;
 
-        Self::aggregate_min_max_field_from_materialized(response, target_field, expected_kind)
+        Self::aggregate_min_max_field_from_materialized(response, target_field, field_slot)
     }
 
     // ------------------------------------------------------------------
@@ -686,7 +680,7 @@ where
         response: Response<E>,
         kind: AggregateKind,
         target_field: &str,
-        expected_kind: FieldKind,
+        field_slot: FieldSlot,
     ) -> Result<AggregateOutput<E>, InternalError> {
         if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
             return Err(InternalError::query_executor_invariant(
@@ -714,7 +708,7 @@ where
                         &entity,
                         current,
                         target_field,
-                        expected_kind,
+                        field_slot,
                         compare_direction,
                     )
                     .map_err(Self::map_aggregate_field_value_error)?
@@ -748,13 +742,13 @@ where
     fn aggregate_numeric_field_from_materialized(
         response: Response<E>,
         target_field: &str,
-        expected_kind: FieldKind,
+        field_slot: FieldSlot,
         kind: NumericFieldAggregateKind,
     ) -> Result<Option<Decimal>, InternalError> {
         let mut sum = Decimal::ZERO;
         let mut row_count = 0u64;
         for (_, entity) in response {
-            let value = extract_numeric_field_decimal(&entity, target_field, expected_kind)
+            let value = extract_numeric_field_decimal(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
             sum += value;
             row_count = row_count.saturating_add(1);
@@ -784,14 +778,11 @@ where
     fn aggregate_nth_field_from_materialized(
         response: Response<E>,
         target_field: &str,
-        expected_kind: FieldKind,
+        field_slot: FieldSlot,
         nth: usize,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let ordered_rows = Self::ordered_field_projection_from_materialized(
-            response,
-            target_field,
-            expected_kind,
-        )?;
+        let ordered_rows =
+            Self::ordered_field_projection_from_materialized(response, target_field, field_slot)?;
 
         // Phase 2: project the requested ordinal position.
         if nth >= ordered_rows.len() {
@@ -807,13 +798,10 @@ where
     fn aggregate_median_field_from_materialized(
         response: Response<E>,
         target_field: &str,
-        expected_kind: FieldKind,
+        field_slot: FieldSlot,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let ordered_rows = Self::ordered_field_projection_from_materialized(
-            response,
-            target_field,
-            expected_kind,
-        )?;
+        let ordered_rows =
+            Self::ordered_field_projection_from_materialized(response, target_field, field_slot)?;
         if ordered_rows.is_empty() {
             return Ok(None);
         }
@@ -832,12 +820,12 @@ where
     fn aggregate_count_distinct_field_from_materialized(
         response: Response<E>,
         target_field: &str,
-        expected_kind: FieldKind,
+        field_slot: FieldSlot,
     ) -> Result<u32, InternalError> {
         let mut distinct_values: Vec<Value> = Vec::new();
         let mut distinct_count = 0u32;
         for (_, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, expected_kind)
+            let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
             if distinct_values.iter().any(|existing| existing == &value) {
                 continue;
@@ -855,12 +843,12 @@ where
     fn aggregate_min_max_field_from_materialized(
         response: Response<E>,
         target_field: &str,
-        expected_kind: FieldKind,
+        field_slot: FieldSlot,
     ) -> Result<MinMaxByIds<E>, InternalError> {
         let mut min_candidate: Option<(Id<E>, Value)> = None;
         let mut max_candidate: Option<(Id<E>, Value)> = None;
         for (id, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, expected_kind)
+            let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
             let replace_min = match min_candidate.as_ref() {
                 Some((current_id, current_value)) => {
@@ -908,11 +896,11 @@ where
     fn ordered_field_projection_from_materialized(
         response: Response<E>,
         target_field: &str,
-        expected_kind: FieldKind,
+        field_slot: FieldSlot,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
         let mut ordered_rows: Vec<(Id<E>, Value)> = Vec::new();
         for (id, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, expected_kind)
+            let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
             let mut insert_index = ordered_rows.len();
             for (index, (current_id, current_value)) in ordered_rows.iter().enumerate() {
@@ -939,7 +927,7 @@ where
         consistency: ReadConsistency,
         key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
         target_field: &str,
-        expected_kind: FieldKind,
+        field_slot: FieldSlot,
         kind: AggregateKind,
         direction: Direction,
     ) -> Result<(AggregateOutput<E>, usize), InternalError> {
@@ -966,7 +954,7 @@ where
                         &entity,
                         current,
                         target_field,
-                        expected_kind,
+                        field_slot,
                         direction,
                     )
                     .map_err(Self::map_aggregate_field_value_error)?
@@ -988,7 +976,7 @@ where
                 continue;
             };
             let field_order =
-                compare_entities_by_orderable_field(&entity, current, target_field, expected_kind)
+                compare_entities_by_orderable_field(&entity, current, target_field, field_slot)
                     .map_err(Self::map_aggregate_field_value_error)?;
             let directional_field_order = apply_aggregate_direction(field_order, direction);
 

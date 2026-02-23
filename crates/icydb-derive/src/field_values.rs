@@ -30,31 +30,22 @@ pub fn derive_field_values(input: TokenStream) -> TokenStream {
         return err.to_compile_error();
     };
 
-    let match_arms = fields.iter().map(|field| {
+    let by_name_match_arms = fields.iter().map(|field| {
         let field_ident = field.ident.as_ref().expect("named field");
         let field_name = field_ident.to_string();
-        match classify_field(&field.ty) {
-            FieldCardinality::One => quote! {
-                #field_name => Some(self.#field_ident.to_value()),
-            },
-            FieldCardinality::Opt => quote! {
-                #field_name => {
-                    match self.#field_ident.as_ref() {
-                        Some(inner) => Some(FieldValue::to_value(inner)),
-                        None => Some(Value::Null),
-                    }
-                }
-            },
-            FieldCardinality::Many => quote! {
-                #field_name => {
-                    let list = self.#field_ident
-                        .iter()
-                        .map(FieldValue::to_value)
-                        .collect::<Vec<_>>();
+        let field_value_expr = field_value_expr(field_ident, &field.ty);
 
-                    Some(Value::List(list))
-                }
-            },
+        quote! {
+            #field_name => #field_value_expr,
+        }
+    });
+
+    let by_index_match_arms = fields.iter().enumerate().map(|(index, field)| {
+        let field_ident = field.ident.as_ref().expect("named field");
+        let field_value_expr = field_value_expr(field_ident, &field.ty);
+
+        quote! {
+            #index => #field_value_expr,
         }
     });
 
@@ -64,7 +55,16 @@ pub fn derive_field_values(input: TokenStream) -> TokenStream {
                 use ::icydb::{traits::FieldValue, value::Value};
 
                 match field {
-                    #(#match_arms)*
+                    #(#by_name_match_arms)*
+                    _ => None,
+                }
+            }
+
+            fn get_value_by_index(&self, index: usize) -> Option<::icydb::value::Value> {
+                use ::icydb::{traits::FieldValue, value::Value};
+
+                match index {
+                    #(#by_index_match_arms)*
                     _ => None,
                 }
             }
@@ -81,6 +81,30 @@ enum FieldCardinality {
     One,
     Opt,
     Many,
+}
+
+fn field_value_expr(field_ident: &syn::Ident, field_ty: &Type) -> TokenStream {
+    match classify_field(field_ty) {
+        FieldCardinality::One => quote! {
+            Some(self.#field_ident.to_value())
+        },
+        FieldCardinality::Opt => quote! {
+            match self.#field_ident.as_ref() {
+                Some(inner) => Some(FieldValue::to_value(inner)),
+                None => Some(Value::Null),
+            }
+        },
+        FieldCardinality::Many => quote! {
+            {
+                let list = self.#field_ident
+                    .iter()
+                    .map(FieldValue::to_value)
+                    .collect::<Vec<_>>();
+
+                Some(Value::List(list))
+            }
+        },
+    }
 }
 
 fn classify_field(ty: &Type) -> FieldCardinality {

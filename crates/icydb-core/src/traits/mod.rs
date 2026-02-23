@@ -305,7 +305,11 @@ pub trait EnumValue {
 }
 
 pub trait FieldValues {
+    /// Resolve one field value by field name.
     fn get_value(&self, field: &str) -> Option<Value>;
+
+    /// Resolve one field value by stable field slot index.
+    fn get_value_by_index(&self, index: usize) -> Option<Value>;
 }
 
 ///

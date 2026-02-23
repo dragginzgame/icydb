@@ -5,6 +5,57 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.26.0] – 2026-02-23 - Compiled Field Projection
+
+### 📝 Summary
+
+* Moves aggregate field terminals to slot-based projection so aggregate execution loops no longer do per-row string field lookup.
+
+### ⚠️ Breaking
+
+* `FieldValues` now requires `get_value_by_index(&self, index: usize) -> Option<Value>`. Manual implementations must add this method.
+
+### 🔧 Changed
+
+* Field-target aggregate terminals now resolve the target once at setup into a stable field slot and then read values by index during execution.
+* Aggregate field reducers (`min_by`, `max_by`, `nth_by`, `median_by`, `sum_by`, `avg_by`, `count_distinct_by`, `min_max_by`) now use index projection in both materialized and streaming aggregate paths.
+* Aggregate field helper paths now share slot-aware validation and extraction helpers, keeping taxonomy and semantics unchanged.
+
+### 🧭 Migration Notes
+
+* If you implement `FieldValues` manually, add `get_value_by_index` using the same declared field order as your schema model.
+
+```rust
+impl FieldValues for MyEntity {
+    fn get_value(&self, field: &str) -> Option<Value> {
+        match field {
+            "id" => Some(self.id.to_value()),
+            "name" => Some(self.name.to_value()),
+            _ => None,
+        }
+    }
+
+    fn get_value_by_index(&self, index: usize) -> Option<Value> {
+        match index {
+            0 => Some(self.id.to_value()),
+            1 => Some(self.name.to_value()),
+            _ => None,
+        }
+    }
+}
+```
+
+### 📚 Documentation
+
+* Clarified `0.26` scope as a clean aggregate slot migration, with broader non-aggregate `get_value(&str)` reduction staged for `0.26.1+`.
+
+### 🧪 Testing
+
+* Added slot-resolution regression coverage in aggregate field helpers to lock schema-order index mapping.
+* Existing aggregate field parity matrix continues to pass with slot-based projection.
+
+---
+
 ## [0.25.2] – 2026-02-23 - Field Aggregate Additions
 
 ### 📝 Summary

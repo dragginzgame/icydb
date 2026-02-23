@@ -55,6 +55,30 @@ fn field_model_by_name<'a>(model: &'a EntityModel, field: &str) -> Option<&'a Fi
         .find(|candidate| candidate.name == field)
 }
 
+// Resolve one field model entry by name and return its stable slot index.
+fn field_model_with_index<'a>(
+    model: &'a EntityModel,
+    field: &str,
+) -> Option<(usize, &'a FieldModel)> {
+    model
+        .fields
+        .iter()
+        .enumerate()
+        .find(|(_, candidate)| candidate.name == field)
+}
+
+///
+/// FieldSlot
+///
+/// Stable aggregate field projection descriptor resolved once at setup.
+///
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Copy, Debug)]
+pub(in crate::db::executor) struct FieldSlot {
+    pub index: usize,
+    pub kind: FieldKind,
+}
+
 // Return true when one runtime value matches the declared field kind shape.
 #[allow(clippy::too_many_lines)]
 #[cfg_attr(not(test), allow(dead_code))]
@@ -185,20 +209,46 @@ pub(in crate::db::executor) fn validate_orderable_aggregate_target_field<E: Enti
     Ok(field.kind)
 }
 
-/// Validate one aggregate target field exists and return its declared runtime kind.
-pub(in crate::db::executor) fn validate_any_aggregate_target_field<E: EntityKind>(
+/// Resolve one orderable aggregate target field into a stable projection slot.
+pub(in crate::db::executor) fn resolve_orderable_aggregate_target_slot<E: EntityKind>(
     target_field: &str,
-) -> Result<FieldKind, AggregateFieldValueError> {
-    let Some(field) = field_model_by_name(E::MODEL, target_field) else {
+) -> Result<FieldSlot, AggregateFieldValueError> {
+    let Some((index, field)) = field_model_with_index(E::MODEL, target_field) else {
+        return Err(AggregateFieldValueError::UnknownField {
+            field: target_field.to_string(),
+        });
+    };
+    if !field_kind_supports_aggregate_ordering(&field.kind) {
+        return Err(AggregateFieldValueError::UnsupportedFieldKind {
+            field: target_field.to_string(),
+            kind: field.kind,
+        });
+    }
+
+    Ok(FieldSlot {
+        index,
+        kind: field.kind,
+    })
+}
+
+/// Resolve one aggregate target field into a stable projection slot.
+pub(in crate::db::executor) fn resolve_any_aggregate_target_slot<E: EntityKind>(
+    target_field: &str,
+) -> Result<FieldSlot, AggregateFieldValueError> {
+    let Some((index, field)) = field_model_with_index(E::MODEL, target_field) else {
         return Err(AggregateFieldValueError::UnknownField {
             field: target_field.to_string(),
         });
     };
 
-    Ok(field.kind)
+    Ok(FieldSlot {
+        index,
+        kind: field.kind,
+    })
 }
 
 /// Validate one aggregate target field against numeric aggregate constraints.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::executor) fn validate_numeric_aggregate_target_field<E: EntityKind>(
     target_field: &str,
 ) -> Result<FieldKind, AggregateFieldValueError> {
@@ -217,22 +267,44 @@ pub(in crate::db::executor) fn validate_numeric_aggregate_target_field<E: Entity
     Ok(field.kind)
 }
 
+/// Resolve one numeric aggregate target field into a stable projection slot.
+pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot<E: EntityKind>(
+    target_field: &str,
+) -> Result<FieldSlot, AggregateFieldValueError> {
+    let Some((index, field)) = field_model_with_index(E::MODEL, target_field) else {
+        return Err(AggregateFieldValueError::UnknownField {
+            field: target_field.to_string(),
+        });
+    };
+    if !field_kind_supports_numeric_aggregation(&field.kind) {
+        return Err(AggregateFieldValueError::UnsupportedFieldKind {
+            field: target_field.to_string(),
+            kind: field.kind,
+        });
+    }
+
+    Ok(FieldSlot {
+        index,
+        kind: field.kind,
+    })
+}
+
 /// Extract one field value from an entity and enforce the declared runtime field kind.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::executor) fn extract_orderable_field_value<E: EntityKind + EntityValue>(
     entity: &E,
     target_field: &str,
-    expected_kind: FieldKind,
+    field_slot: FieldSlot,
 ) -> Result<Value, AggregateFieldValueError> {
-    let Some(value) = entity.get_value(target_field) else {
+    let Some(value) = entity.get_value_by_index(field_slot.index) else {
         return Err(AggregateFieldValueError::MissingFieldValue {
             field: target_field.to_string(),
         });
     };
-    if !field_kind_matches_value(&expected_kind, &value) {
+    if !field_kind_matches_value(&field_slot.kind, &value) {
         return Err(AggregateFieldValueError::FieldValueTypeMismatch {
             field: target_field.to_string(),
-            kind: expected_kind,
+            kind: field_slot.kind,
             value: Box::new(value),
         });
     }
@@ -244,19 +316,19 @@ pub(in crate::db::executor) fn extract_orderable_field_value<E: EntityKind + Ent
 pub(in crate::db::executor) fn extract_numeric_field_decimal<E: EntityKind + EntityValue>(
     entity: &E,
     target_field: &str,
-    expected_kind: FieldKind,
+    field_slot: FieldSlot,
 ) -> Result<Decimal, AggregateFieldValueError> {
-    let value = extract_orderable_field_value(entity, target_field, expected_kind)?;
+    let value = extract_orderable_field_value(entity, target_field, field_slot)?;
     if !value.supports_numeric_coercion() {
         return Err(AggregateFieldValueError::UnsupportedFieldKind {
             field: target_field.to_string(),
-            kind: expected_kind,
+            kind: field_slot.kind,
         });
     }
     let Some(decimal) = value.to_numeric_decimal() else {
         return Err(AggregateFieldValueError::FieldValueTypeMismatch {
             field: target_field.to_string(),
-            kind: expected_kind,
+            kind: field_slot.kind,
             value: Box::new(value),
         });
     };
@@ -288,10 +360,10 @@ pub(in crate::db::executor) fn compare_entities_by_orderable_field<E: EntityKind
     left: &E,
     right: &E,
     target_field: &str,
-    expected_kind: FieldKind,
+    field_slot: FieldSlot,
 ) -> Result<Ordering, AggregateFieldValueError> {
-    let left_value = extract_orderable_field_value(left, target_field, expected_kind)?;
-    let right_value = extract_orderable_field_value(right, target_field, expected_kind)?;
+    let left_value = extract_orderable_field_value(left, target_field, field_slot)?;
+    let right_value = extract_orderable_field_value(right, target_field, field_slot)?;
 
     compare_orderable_field_values(target_field, &left_value, &right_value)
 }
@@ -306,11 +378,10 @@ pub(in crate::db::executor) fn compare_entities_for_field_extrema<E: EntityKind 
     left: &E,
     right: &E,
     target_field: &str,
-    expected_kind: FieldKind,
+    field_slot: FieldSlot,
     direction: Direction,
 ) -> Result<Ordering, AggregateFieldValueError> {
-    let field_order =
-        compare_entities_by_orderable_field(left, right, target_field, expected_kind)?;
+    let field_order = compare_entities_by_orderable_field(left, right, target_field, field_slot)?;
     let directional_field_order = apply_aggregate_direction(field_order, direction);
     if directional_field_order != Ordering::Equal {
         return Ok(directional_field_order);
@@ -342,10 +413,11 @@ pub(in crate::db::executor) const fn apply_aggregate_direction(
 #[cfg(test)]
 mod tests {
     use super::{
-        AggregateFieldValueError, apply_aggregate_direction, compare_entities_by_orderable_field,
-        compare_entities_for_field_extrema, compare_orderable_field_values,
-        extract_numeric_field_decimal, validate_numeric_aggregate_target_field,
-        validate_orderable_aggregate_target_field,
+        AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
+        compare_entities_by_orderable_field, compare_entities_for_field_extrema,
+        compare_orderable_field_values, extract_numeric_field_decimal,
+        resolve_any_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
+        validate_numeric_aggregate_target_field, validate_orderable_aggregate_target_field,
     };
     use crate::{
         model::field::FieldKind,
@@ -402,6 +474,24 @@ mod tests {
     }
 
     #[test]
+    fn resolve_orderable_target_slot_matches_schema_index() {
+        let slot = resolve_orderable_aggregate_target_slot::<AggregateFieldEntity>("rank")
+            .expect("rank slot should resolve");
+
+        assert_eq!(slot.index, 1);
+        assert!(matches!(slot.kind, FieldKind::Uint));
+    }
+
+    #[test]
+    fn resolve_any_target_slot_supports_non_orderable_field_kind() {
+        let slot = resolve_any_aggregate_target_slot::<AggregateFieldEntity>("scores")
+            .expect("any-target slot should resolve list field");
+
+        assert_eq!(slot.index, 3);
+        assert!(matches!(slot.kind, FieldKind::List(_)));
+    }
+
+    #[test]
     fn validate_orderable_target_field_rejects_unknown_field() {
         let err =
             validate_orderable_aggregate_target_field::<AggregateFieldEntity>("missing_field")
@@ -447,8 +537,16 @@ mod tests {
             scores: vec![3, 4],
         };
 
-        let asc = compare_entities_by_orderable_field(&low, &high, "rank", FieldKind::Uint)
-            .expect("typed field comparison should succeed");
+        let asc = compare_entities_by_orderable_field(
+            &low,
+            &high,
+            "rank",
+            FieldSlot {
+                index: 1,
+                kind: FieldKind::Uint,
+            },
+        )
+        .expect("typed field comparison should succeed");
         let desc = apply_aggregate_direction(asc, crate::db::query::plan::Direction::Desc);
 
         assert_eq!(asc, Ordering::Less);
@@ -474,7 +572,10 @@ mod tests {
             &right,
             "rank",
             // Deliberate mismatch: expected Text but runtime field emits Uint.
-            FieldKind::Text,
+            FieldSlot {
+                index: 1,
+                kind: FieldKind::Text,
+            },
         )
         .expect_err("runtime type mismatch must be rejected");
 
@@ -503,7 +604,10 @@ mod tests {
             &higher_id,
             &lower_id,
             "rank",
-            FieldKind::Uint,
+            FieldSlot {
+                index: 1,
+                kind: FieldKind::Uint,
+            },
             crate::db::query::plan::Direction::Asc,
         )
         .expect("field-extrema comparator should apply canonical PK tie-break");
@@ -530,7 +634,10 @@ mod tests {
             &higher_id,
             &lower_id,
             "rank",
-            FieldKind::Uint,
+            FieldSlot {
+                index: 1,
+                kind: FieldKind::Uint,
+            },
             crate::db::query::plan::Direction::Desc,
         )
         .expect("field-extrema comparator should apply canonical PK tie-break");
@@ -566,8 +673,15 @@ mod tests {
             scores: vec![1, 2],
         };
 
-        let value = extract_numeric_field_decimal(&entity, "rank", FieldKind::Uint)
-            .expect("numeric field extraction should succeed");
+        let value = extract_numeric_field_decimal(
+            &entity,
+            "rank",
+            FieldSlot {
+                index: 1,
+                kind: FieldKind::Uint,
+            },
+        )
+        .expect("numeric field extraction should succeed");
 
         assert_eq!(value, Decimal::from_num(42u64).expect("u64 -> decimal"));
     }
