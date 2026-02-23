@@ -5,6 +5,30 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.25.1] – 2026-02-23 - Aggregate Stabilization
+
+### 📝 Summary
+
+* Patch-line stabilization for `0.25.0` field aggregates, with no new user-facing aggregate surface.
+
+### 🔧 Changed
+
+* Hardened aggregate regression contracts for field terminals without expanding API scope.
+* Locked fallback-vs-fast-path scan behavior for eligible and ineligible field-extrema shapes.
+
+### 📚 Documentation
+
+* Kept release docs synchronized across status, roadmap, and README aggregate references.
+
+### 🧪 Testing
+
+* Added eligibility negative-lock coverage for field extrema so DISTINCT/offset ineligible shapes cannot silently drift into single-step probe behavior.
+* Added deterministic `nth_by` boundary matrix coverage over windowed queries, including out-of-range and empty-window behavior.
+* Added scan-budget enforcement for an eligible secondary-index field-extrema shape to lock current traversal budget.
+* Added a field-terminal error-classification matrix (`Unsupported` vs `Corruption`) across unknown/non-orderable/non-numeric/stale-leading cases.
+
+---
+
 ## [0.25.0] – 2026-02-22 - MORE AGGREGATE COMMANDS
 
 ### 📝 Summary

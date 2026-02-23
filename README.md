@@ -26,7 +26,7 @@ If you are new to this space: think of IcyDB as a way to get "database-like" str
 
 ## Current Release
 
-- Workspace version: `0.18.1`
+- Workspace version: `0.24.7`
 - Changelog: `CHANGELOG.md`
 
 ---
@@ -57,7 +57,7 @@ Use a pinned git tag so builds are repeatable:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.18.1" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.24.7" }
 ```
 
 ---
@@ -114,17 +114,17 @@ For deeper rules and behavior:
 - `docs/contracts/IDENTITY_CONTRACT.md`
 - `docs/contracts/TRANSACTION_SEMANTICS.md`
 
-### Execution & Pagination Guarantees (0.18.x)
+### Execution & Aggregate Guarantees (0.25 milestone line)
 
-- Composite `Union` and `Intersection` execution is stream-native and deterministic.
-- Guarded scan budgeting (`offset + limit + 1`) is applied only for safe plan shapes.
-- Composite continuation uses a single anchor with strict forward progress in ASC/DESC traversal.
-- Budgeted and fallback execution paths are verified for continuation-boundary parity.
+- Aggregate terminals include field-based operations (`min_by`, `max_by`, `nth_by`, `sum_by`, `avg_by`) with explicit capability boundaries.
+- Field-extrema tie-break behavior is deterministic: `(field_value, primary_key_asc)`.
+- Field terminal continuation behavior is explicit: non-paged terminals reject cursor tokens.
+- DISTINCT behavior is explicit per terminal, with canonical fallback where field-extrema fast paths are ineligible.
 
 Reference docs:
 
-- `docs/design/0.18-composite-limit-pushdown.md`
-- `docs/status/0.18-status.md`
+- `docs/design/0.25-aggregate-expansion.md`
+- `docs/status/0.25-status.md`
 
 ### Batch Writes: Choose Your Lane
 
@@ -218,9 +218,9 @@ git ls-remote --tags https://github.com/dragginzgame/icydb.git
 
 ## Current Focus
 
-- Stabilize and ship `0.18.x` execution/pagination guarantees.
+- Finalize `0.25.0` aggregate-expansion release alignment (version cut + publish metadata).
+- Keep aggregate terminal parity/consistency coverage green as follow-up patches land.
 - Continue docs consolidation and runnable examples.
-- Expand query/index matrix coverage where contracts were recently tightened.
 - Track upcoming work in `docs/ROADMAP.md` and active design docs under `docs/design/`.
 
 ---
