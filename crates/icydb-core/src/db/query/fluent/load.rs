@@ -211,7 +211,7 @@ where
     /// Execute this query as cursor pagination and return items + next cursor.
     ///
     /// The returned cursor token is opaque and must be passed back via `.cursor(...)`.
-    pub fn execute_paged(self) -> Result<(Response<E>, Option<Vec<u8>>), QueryError>
+    pub fn execute_paged(self) -> Result<PagedLoadExecution<E>, QueryError>
     where
         E: EntityValue,
     {
@@ -498,7 +498,7 @@ where
         E: EntityValue,
     {
         self.execute_with_trace()
-            .map(|(items, next_cursor, _)| (items, next_cursor))
+            .map(PagedLoadExecutionWithTrace::into_execution)
     }
 
     /// Execute in cursor-pagination mode and return items, next cursor,

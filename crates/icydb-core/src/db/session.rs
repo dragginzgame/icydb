@@ -426,7 +426,11 @@ impl<C: CanisterKind> DbSession<C> {
             })
             .map_err(QueryError::Execute)?;
 
-        Ok((page.items, page.next_cursor, trace))
+        Ok(PagedLoadExecutionWithTrace::new(
+            page.items,
+            page.next_cursor,
+            trace,
+        ))
     }
 
     // ---------------------------------------------------------------------

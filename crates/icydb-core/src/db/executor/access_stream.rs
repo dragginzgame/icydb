@@ -8,7 +8,7 @@ use crate::{
         query::{
             ReadConsistency,
             plan::{AccessPath, AccessPlan, Direction, IndexPrefixSpec, IndexRangeSpec},
-            predicate::IndexPredicateProgram,
+            predicate::IndexPredicateExecution,
         },
     },
     error::InternalError,
@@ -31,7 +31,7 @@ pub(in crate::db::executor) struct AccessStreamInputs<'ctx, 'a, E: EntityKind + 
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) key_comparator: KeyOrderComparator,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
-    pub(in crate::db::executor) index_predicate_program: Option<&'a IndexPredicateProgram>,
+    pub(in crate::db::executor) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
 }
 
 impl<'a, E> AccessStreamInputs<'_, 'a, E>
@@ -51,7 +51,7 @@ where
             direction: self.direction,
             key_comparator: self.key_comparator,
             physical_fetch_hint,
-            index_predicate_program: self.index_predicate_program,
+            index_predicate_execution: self.index_predicate_execution,
         }
     }
 
@@ -131,7 +131,7 @@ pub(in crate::db::executor) struct AccessPlanStreamRequest<'a, K> {
     pub(in crate::db::executor) bindings: AccessStreamBindings<'a>,
     pub(in crate::db::executor) key_comparator: KeyOrderComparator,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
-    pub(in crate::db::executor) index_predicate_program: Option<&'a IndexPredicateProgram>,
+    pub(in crate::db::executor) index_predicate_execution: Option<IndexPredicateExecution<'a>>,
 }
 
 ///
@@ -157,7 +157,7 @@ pub(in crate::db) struct IndexStreamConstraints<'a> {
 
 pub(in crate::db) struct StreamExecutionHints<'a> {
     pub physical_fetch_hint: Option<usize>,
-    pub predicate_program: Option<&'a IndexPredicateProgram>,
+    pub predicate_execution: Option<IndexPredicateExecution<'a>>,
 }
 
 impl<E> Context<'_, E>
@@ -183,7 +183,7 @@ where
             constraints.anchor,
             direction,
             hints.physical_fetch_hint,
-            hints.predicate_program,
+            hints.predicate_execution,
         )
     }
 
@@ -225,7 +225,7 @@ where
             direction: request.bindings.direction,
             key_comparator: request.key_comparator,
             physical_fetch_hint: request.physical_fetch_hint,
-            index_predicate_program: request.index_predicate_program,
+            index_predicate_execution: request.index_predicate_execution,
         };
         let mut spec_cursor = inputs.spec_cursor();
         let key_stream = AccessPlanStreamResolver::produce_key_stream(
@@ -262,7 +262,7 @@ where
             bindings,
             key_comparator: KeyOrderComparator::from_direction(direction),
             physical_fetch_hint: None,
-            index_predicate_program: None,
+            index_predicate_execution: None,
         };
         let mut key_stream =
             self.ordered_key_stream_from_access_plan_with_index_range_anchor(request)?;
@@ -404,7 +404,7 @@ impl AccessPlanStreamResolver {
                     inputs.direction,
                     StreamExecutionHints {
                         physical_fetch_hint: inputs.physical_fetch_hint,
-                        predicate_program: inputs.index_predicate_program,
+                        predicate_execution: inputs.index_predicate_execution,
                     },
                 )
             }

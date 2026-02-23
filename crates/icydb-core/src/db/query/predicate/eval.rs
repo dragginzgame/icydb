@@ -11,7 +11,7 @@ use crate::{
     traits::{EntityKind, EntityValue},
     value::{TextMode, Value},
 };
-use std::{cmp::Ordering, collections::BTreeSet};
+use std::{cell::Cell, cmp::Ordering, collections::BTreeSet};
 
 ///
 /// PredicateFieldSlots
@@ -168,6 +168,20 @@ pub(crate) enum IndexPredicateProgram {
         op: IndexCompareOp,
         literal: IndexLiteral,
     },
+}
+
+///
+/// IndexPredicateExecution
+///
+/// Execution-time wrapper for one compiled index predicate program.
+/// Carries optional observability counters used by load execution tracing.
+///
+
+#[derive(Clone, Copy)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct IndexPredicateExecution<'a> {
+    pub(crate) program: &'a IndexPredicateProgram,
+    pub(crate) rejected_keys_counter: Option<&'a Cell<u64>>,
 }
 
 ///
@@ -360,6 +374,20 @@ pub(crate) fn eval_index_program_on_decoded_key(
             Ok(eval_index_compare(component, *op, literal))
         }
     }
+}
+
+/// Evaluate one compiled index-only execution request and update observability
+/// counters when a key is rejected by index-only filtering.
+pub(crate) fn eval_index_execution_on_decoded_key(
+    key: &IndexKey,
+    execution: IndexPredicateExecution<'_>,
+) -> Result<bool, InternalError> {
+    let passed = eval_index_program_on_decoded_key(key, execution.program)?;
+    if !passed && let Some(counter) = execution.rejected_keys_counter {
+        counter.set(counter.get().saturating_add(1));
+    }
+
+    Ok(passed)
 }
 
 // Compare one encoded index component against one compiled literal payload.

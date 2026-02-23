@@ -5,7 +5,7 @@ use crate::{
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         index::RawIndexKey,
         query::plan::{Direction, IndexRangeSpec, LogicalPlan},
-        query::predicate::IndexPredicateProgram,
+        query::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -23,7 +23,7 @@ where
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
         effective_fetch: usize,
-        index_predicate_program: Option<&IndexPredicateProgram>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         let Some((index, _, _, _)) = plan.access.as_index_range_path() else {
             return Ok(None);
@@ -50,7 +50,7 @@ where
                             index_range_anchor,
                             direction,
                             effective_fetch,
-                            index_predicate_program,
+                            index_predicate_execution,
                         )
                     })
                 })

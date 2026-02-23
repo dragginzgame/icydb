@@ -1162,8 +1162,12 @@ where
         else {
             return Ok(None);
         };
-        fast.ordered_key_stream =
-            Self::maybe_wrap_distinct_stream(fast.ordered_key_stream, inputs.logical_plan.distinct);
+        let key_comparator = super::key_stream_comparator_from_plan(inputs.logical_plan, direction);
+        fast.ordered_key_stream = Self::maybe_wrap_distinct_stream(
+            fast.ordered_key_stream,
+            inputs.logical_plan.distinct,
+            key_comparator,
+        );
 
         let probe_rows_scanned = fast.rows_scanned;
         if let Some(fetch) = probe_fetch_hint {
@@ -1208,6 +1212,7 @@ where
         fallback.ordered_key_stream = Self::maybe_wrap_distinct_stream(
             fallback.ordered_key_stream,
             inputs.logical_plan.distinct,
+            key_comparator,
         );
         let fallback_rows_scanned = fallback.rows_scanned;
         let (aggregate_output, _fallback_keys_scanned) = Self::fold_streaming_aggregate(
@@ -1253,7 +1258,7 @@ where
             direction,
             StreamExecutionHints {
                 physical_fetch_hint,
-                predicate_program: None,
+                predicate_execution: None,
             },
         )?;
         let (aggregate_output, keys_scanned) = Self::fold_streaming_aggregate(
@@ -1295,8 +1300,13 @@ where
         else {
             return Ok(None);
         };
-        fast.ordered_key_stream =
-            Self::maybe_wrap_distinct_stream(fast.ordered_key_stream, inputs.logical_plan.distinct);
+        let key_comparator =
+            super::key_stream_comparator_from_plan(inputs.logical_plan, inputs.direction);
+        fast.ordered_key_stream = Self::maybe_wrap_distinct_stream(
+            fast.ordered_key_stream,
+            inputs.logical_plan.distinct,
+            key_comparator,
+        );
 
         let rows_scanned = fast.rows_scanned;
         let (aggregate_output, _keys_scanned) = Self::fold_streaming_aggregate(
@@ -1334,7 +1344,7 @@ where
                 inputs.direction,
             ),
             physical_fetch_hint: inputs.physical_fetch_hint,
-            index_predicate_program: None,
+            index_predicate_execution: None,
         };
         let mut key_stream = inputs
             .ctx
@@ -1392,9 +1402,13 @@ where
     fn maybe_wrap_distinct_stream(
         ordered_key_stream: OrderedKeyStreamBox,
         distinct: bool,
+        key_comparator: super::KeyOrderComparator,
     ) -> OrderedKeyStreamBox {
         if distinct {
-            return Box::new(DistinctOrderedKeyStream::new(ordered_key_stream));
+            return Box::new(DistinctOrderedKeyStream::new(
+                ordered_key_stream,
+                key_comparator,
+            ));
         }
 
         ordered_key_stream

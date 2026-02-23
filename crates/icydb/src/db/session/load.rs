@@ -188,11 +188,12 @@ impl<E: EntityKind> PagedLoadQuery<'_, E> {
     where
         E: EntityValue,
     {
-        let (items, next_cursor) = self.inner.execute()?;
+        let execution = self.inner.execute()?;
+        let next_cursor = execution.continuation_cursor().map(core::db::encode_cursor);
 
         Ok(PagedResponse {
-            items: items.views(),
-            next_cursor: next_cursor.map(|bytes| core::db::encode_cursor(&bytes)),
+            items: execution.response().views(),
+            next_cursor,
         })
     }
 }

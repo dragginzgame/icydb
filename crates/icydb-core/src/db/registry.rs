@@ -10,19 +10,27 @@ use thiserror::Error as ThisError;
 ///
 
 #[derive(Debug, ThisError)]
+#[expect(clippy::enum_variant_names)]
 pub enum StoreRegistryError {
     #[error("store '{0}' not found")]
     StoreNotFound(String),
 
     #[error("store '{0}' already registered")]
     StoreAlreadyRegistered(String),
+
+    #[error(
+        "store '{name}' reuses the same row/index store pair already registered as '{existing_name}'"
+    )]
+    StoreHandlePairAlreadyRegistered { name: String, existing_name: String },
 }
 
 impl StoreRegistryError {
     pub(crate) const fn class(&self) -> ErrorClass {
         match self {
             Self::StoreNotFound(_) => ErrorClass::Internal,
-            Self::StoreAlreadyRegistered(_) => ErrorClass::InvariantViolation,
+            Self::StoreAlreadyRegistered(_) | Self::StoreHandlePairAlreadyRegistered { .. } => {
+                ErrorClass::InvariantViolation
+            }
         }
     }
 }
@@ -122,6 +130,23 @@ impl StoreRegistry {
             return Err(StoreRegistryError::StoreAlreadyRegistered(name.to_string()).into());
         }
 
+        // Keep one canonical logical store name per physical row/index store pair.
+        if let Some(existing_name) =
+            self.stores
+                .iter()
+                .find_map(|(existing_name, existing_handle)| {
+                    (std::ptr::eq(existing_handle.data_store(), data)
+                        && std::ptr::eq(existing_handle.index_store(), index))
+                    .then_some(*existing_name)
+                })
+        {
+            return Err(StoreRegistryError::StoreHandlePairAlreadyRegistered {
+                name: name.to_string(),
+                existing_name: existing_name.to_string(),
+            }
+            .into());
+        }
+
         self.stores.insert(name, StoreHandle::new(data, index));
         Ok(())
     }
@@ -145,6 +170,7 @@ mod tests {
     use std::{cell::RefCell, ptr};
 
     const STORE_PATH: &str = "store_registry_tests::Store";
+    const ALIAS_STORE_PATH: &str = "store_registry_tests::StoreAlias";
 
     thread_local! {
         static TEST_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init(test_memory(151)));
@@ -214,6 +240,31 @@ mod tests {
             err.message
                 .contains("store 'store_registry_tests::Store' already registered"),
             "duplicate registration should include the conflicting path"
+        );
+    }
+
+    #[test]
+    fn alias_store_registration_reusing_same_store_pair_is_rejected() {
+        let mut registry = StoreRegistry::new();
+        registry
+            .register_store(STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE)
+            .expect("initial store registration should succeed");
+
+        let err = registry
+            .register_store(ALIAS_STORE_PATH, &TEST_DATA_STORE, &TEST_INDEX_STORE)
+            .expect_err("alias registration reusing the same store pair should fail");
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message.contains(
+                "store 'store_registry_tests::StoreAlias' reuses the same row/index store pair"
+            ),
+            "alias registration should include conflicting alias path"
+        );
+        assert!(
+            err.message
+                .contains("registered as 'store_registry_tests::Store'"),
+            "alias registration should include original path"
         );
     }
 }

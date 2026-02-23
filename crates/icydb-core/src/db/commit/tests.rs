@@ -135,6 +135,42 @@ static MISWIRED_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>
 static MISWIRED_DB: Db<RecoveryTestCanister> =
     Db::new_with_hooks(&STORE_REGISTRY, MISWIRED_ENTITY_RUNTIME_HOOKS);
 
+static DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
+    EntityRuntimeHooks::new(
+        RecoveryTestEntity::ENTITY_NAME,
+        RecoveryTestEntity::PATH,
+        prepare_row_commit_for_entity::<RecoveryTestEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        RecoveryTestEntity::ENTITY_NAME,
+        RecoveryIndexedEntity::PATH,
+        prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
+    ),
+];
+
+static DUPLICATE_NAME_DB: Db<RecoveryTestCanister> =
+    Db::new_with_hooks(&STORE_REGISTRY, DUPLICATE_NAME_ENTITY_RUNTIME_HOOKS);
+
+static DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<RecoveryTestCanister>] = &[
+    EntityRuntimeHooks::new(
+        RecoveryTestEntity::ENTITY_NAME,
+        RecoveryTestEntity::PATH,
+        prepare_row_commit_for_entity::<RecoveryTestEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryTestEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        RecoveryIndexedEntity::ENTITY_NAME,
+        RecoveryTestEntity::PATH,
+        prepare_row_commit_for_entity::<RecoveryIndexedEntity>,
+        validate_delete_strong_relations_for_source::<RecoveryIndexedEntity>,
+    ),
+];
+
+static DUPLICATE_PATH_DB: Db<RecoveryTestCanister> =
+    Db::new_with_hooks(&STORE_REGISTRY, DUPLICATE_PATH_ENTITY_RUNTIME_HOOKS);
+
 fn with_recovery_store<R>(f: impl FnOnce(StoreHandle) -> R) -> R {
     DB.with_store_registry(|reg| reg.try_get_store(RecoveryTestDataStore::PATH).map(f))
         .expect("recovery test store access should succeed")
@@ -410,6 +446,44 @@ fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
+}
+
+#[test]
+fn runtime_hook_lookup_rejects_duplicate_entity_names() {
+    let Err(err) = DUPLICATE_NAME_DB.runtime_hook_for_entity_name(RecoveryTestEntity::ENTITY_NAME)
+    else {
+        panic!("duplicate entity names must fail runtime-hook lookup")
+    };
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message
+            .contains("duplicate runtime hooks for entity name"),
+        "duplicate-name runtime-hook lookup should include invariant context: {err:?}"
+    );
+    assert!(
+        err.message.contains(RecoveryTestEntity::ENTITY_NAME),
+        "duplicate-name runtime-hook lookup should include conflicting name: {err:?}"
+    );
+}
+
+#[test]
+fn prepare_row_commit_rejects_duplicate_entity_paths() {
+    let op = CommitRowOp::new(RecoveryTestEntity::PATH, vec![0xAA], None, None);
+    let Err(err) = DUPLICATE_PATH_DB.prepare_row_commit_op(&op) else {
+        panic!("duplicate entity paths must fail prepare dispatch")
+    };
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message
+            .contains("duplicate runtime hooks for entity path"),
+        "duplicate-path prepare dispatch should include invariant context: {err:?}"
+    );
+    assert!(
+        err.message.contains(RecoveryTestEntity::PATH),
+        "duplicate-path prepare dispatch should include conflicting path: {err:?}"
+    );
 }
 
 #[test]

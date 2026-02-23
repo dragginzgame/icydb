@@ -5,7 +5,7 @@ use crate::{
         index::RawIndexKey,
         query::{
             plan::{AccessPath, Direction, IndexPrefixSpec, IndexRangeSpec},
-            predicate::IndexPredicateProgram,
+            predicate::IndexPredicateExecution,
         },
     },
     error::InternalError,
@@ -25,7 +25,7 @@ impl<K> AccessPath<K> {
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
-        index_predicate_program: Option<&IndexPredicateProgram>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
@@ -51,7 +51,7 @@ impl<K> AccessPath<K> {
                 index,
                 index_prefix_spec,
                 direction,
-                index_predicate_program,
+                index_predicate_execution,
             )?,
             Self::IndexRange { index, .. } => Self::resolve_index_range::<E>(
                 ctx,
@@ -59,7 +59,7 @@ impl<K> AccessPath<K> {
                 index_range_spec,
                 index_range_anchor,
                 direction,
-                index_predicate_program,
+                index_predicate_execution,
             )?,
         };
 
@@ -229,7 +229,7 @@ impl<K> AccessPath<K> {
         index: &IndexModel,
         index_prefix_spec: Option<&IndexPrefixSpec>,
         direction: Direction,
-        index_predicate_program: Option<&IndexPredicateProgram>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DataKey>, bool), InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
@@ -256,7 +256,7 @@ impl<K> AccessPath<K> {
                 None,
                 direction,
                 usize::MAX,
-                index_predicate_program,
+                index_predicate_execution,
             )
         })?;
 
@@ -270,7 +270,7 @@ impl<K> AccessPath<K> {
         index_range_spec: Option<&IndexRangeSpec>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
-        index_predicate_program: Option<&IndexPredicateProgram>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DataKey>, bool), InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
@@ -297,7 +297,7 @@ impl<K> AccessPath<K> {
                 index_range_anchor,
                 direction,
                 usize::MAX,
-                index_predicate_program,
+                index_predicate_execution,
             )
         })?;
 

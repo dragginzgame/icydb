@@ -93,6 +93,8 @@ pub struct ExecutionTrace {
     pub rows_returned: u64,
     pub continuation_applied: bool,
     pub index_predicate_applied: bool,
+    pub index_predicate_keys_rejected: u64,
+    pub distinct_keys_deduped: u64,
 }
 
 impl ExecutionTrace {
@@ -105,6 +107,8 @@ impl ExecutionTrace {
             rows_returned: 0,
             continuation_applied,
             index_predicate_applied: false,
+            index_predicate_keys_rejected: 0,
+            distinct_keys_deduped: 0,
         }
     }
 
@@ -114,11 +118,15 @@ impl ExecutionTrace {
         keys_scanned: usize,
         rows_returned: usize,
         index_predicate_applied: bool,
+        index_predicate_keys_rejected: u64,
+        distinct_keys_deduped: u64,
     ) {
         self.optimization = optimization;
         self.keys_scanned = u64::try_from(keys_scanned).unwrap_or(u64::MAX);
         self.rows_returned = u64::try_from(rows_returned).unwrap_or(u64::MAX);
         self.index_predicate_applied = index_predicate_applied;
+        self.index_predicate_keys_rejected = index_predicate_keys_rejected;
+        self.distinct_keys_deduped = distinct_keys_deduped;
     }
 }
 
@@ -272,6 +280,10 @@ where
                 continuation_signature,
             )?;
             let rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
+            let distinct_keys_deduped = resolved
+                .distinct_keys_deduped_counter
+                .as_ref()
+                .map_or(0, |counter| counter.get());
 
             Ok(Self::finalize_execution(
                 page,
@@ -279,6 +291,8 @@ where
                 rows_scanned,
                 post_access_rows,
                 resolved.index_predicate_applied,
+                resolved.index_predicate_keys_rejected,
+                distinct_keys_deduped,
                 &mut span,
                 &mut execution_trace,
             ))
@@ -294,6 +308,8 @@ where
         rows_scanned: usize,
         rows_returned: usize,
         index_predicate_applied: bool,
+        index_predicate_keys_rejected: u64,
+        distinct_keys_deduped: u64,
     ) {
         record_rows_scanned::<E>(rows_scanned);
         if let Some(execution_trace) = execution_trace.as_mut() {
@@ -302,6 +318,8 @@ where
                 rows_scanned,
                 rows_returned,
                 index_predicate_applied,
+                index_predicate_keys_rejected,
+                distinct_keys_deduped,
             );
             debug_assert_eq!(
                 execution_trace.keys_scanned,

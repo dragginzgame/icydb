@@ -6,7 +6,7 @@ use crate::{
         query::plan::{
             Direction, IndexPrefixSpec, LogicalPlan, SlotSelectionPolicy, derive_scan_direction,
         },
-        query::predicate::IndexPredicateProgram,
+        query::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -23,7 +23,7 @@ where
         plan: &LogicalPlan<E::Key>,
         index_prefix_spec: Option<&IndexPrefixSpec>,
         probe_fetch_hint: Option<usize>,
-        index_predicate_program: Option<&IndexPredicateProgram>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         let Some((index, _)) = plan.access.as_index_prefix_path() else {
             return Ok(None);
@@ -53,7 +53,7 @@ where
                             None,
                             stream_direction,
                             fetch,
-                            index_predicate_program,
+                            index_predicate_execution,
                         ),
                         None => index_store.resolve_data_values_in_raw_range_limited::<E>(
                             index_prefix_spec.index(),
@@ -61,7 +61,7 @@ where
                             None,
                             stream_direction,
                             usize::MAX,
-                            index_predicate_program,
+                            index_predicate_execution,
                         ),
                     })
                 })

@@ -13,13 +13,14 @@ use crate::{
         },
         query::{
             plan::LogicalPlan,
-            predicate::{IndexPredicateProgram, PredicateFieldSlots},
+            predicate::{IndexPredicateExecution, IndexPredicateProgram, PredicateFieldSlots},
         },
     },
     error::InternalError,
     obs::sink::Span,
     traits::{EntityKind, EntityValue},
 };
+use std::{cell::Cell, rc::Rc};
 
 ///
 /// ExecutionInputs
@@ -47,6 +48,8 @@ pub(super) struct ResolvedExecutionKeyStream {
     pub(super) optimization: Option<ExecutionOptimization>,
     pub(super) rows_scanned_override: Option<usize>,
     pub(super) index_predicate_applied: bool,
+    pub(super) index_predicate_keys_rejected: u64,
+    pub(super) distinct_keys_deduped_counter: Option<Rc<Cell<u64>>>,
 }
 
 // Canonical fast-path routing decision for one execution attempt.
@@ -68,15 +71,25 @@ where
         let index_predicate_program =
             Self::compile_index_predicate_program_for_load(inputs.plan, inputs.predicate_slots);
         let index_predicate_applied = index_predicate_program.is_some();
+        let index_predicate_rejected_counter = Cell::new(0u64);
+        let index_predicate_execution =
+            index_predicate_program
+                .as_ref()
+                .map(|program| IndexPredicateExecution {
+                    program,
+                    rejected_keys_counter: Some(&index_predicate_rejected_counter),
+                });
 
         // Phase 1: resolve fast-path stream if any.
         let resolved =
-            match Self::evaluate_fast_path(inputs, route_plan, index_predicate_program.as_ref())? {
+            match Self::evaluate_fast_path(inputs, route_plan, index_predicate_execution)? {
                 FastPathDecision::Hit(fast) => ResolvedExecutionKeyStream {
                     key_stream: fast.ordered_key_stream,
                     optimization: Some(fast.optimization),
                     rows_scanned_override: Some(fast.rows_scanned),
                     index_predicate_applied,
+                    index_predicate_keys_rejected: index_predicate_rejected_counter.get(),
+                    distinct_keys_deduped_counter: None,
                 },
                 FastPathDecision::None => {
                     // Phase 2: resolve canonical fallback access stream.
@@ -90,7 +103,7 @@ where
                             inputs.stream_bindings.direction,
                         ),
                         physical_fetch_hint: fallback_fetch_hint,
-                        index_predicate_program: index_predicate_program.as_ref(),
+                        index_predicate_execution,
                     };
                     let key_stream = inputs
                         .ctx
@@ -103,19 +116,28 @@ where
                         optimization: None,
                         rows_scanned_override: None,
                         index_predicate_applied,
+                        index_predicate_keys_rejected: index_predicate_rejected_counter.get(),
+                        distinct_keys_deduped_counter: None,
                     }
                 }
             };
 
         // Phase 3: apply DISTINCT at one shared boundary.
-        Ok(Self::apply_distinct_if_requested(resolved, inputs.plan))
+        let key_comparator =
+            super::key_stream_comparator_from_plan(inputs.plan, inputs.stream_bindings.direction);
+
+        Ok(Self::apply_distinct_if_requested(
+            resolved,
+            inputs.plan,
+            key_comparator,
+        ))
     }
 
     // Evaluate fast-path routes in canonical precedence and return one decision.
     fn evaluate_fast_path(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionRoutePlan,
-        index_predicate_program: Option<&IndexPredicateProgram>,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<FastPathDecision, InternalError> {
         // Guard fast-path spec arity up front so planner/executor traversal
         // drift cannot silently consume the wrong spec in release builds.
@@ -146,7 +168,7 @@ where
                             inputs.plan,
                             inputs.stream_bindings.index_prefix_specs.first(),
                             route_plan.scan_hints.physical_fetch_hint,
-                            index_predicate_program,
+                            index_predicate_execution,
                         )?
                     {
                         return Ok(FastPathDecision::Hit(fast));
@@ -161,7 +183,7 @@ where
                             inputs.stream_bindings.index_range_anchor,
                             inputs.stream_bindings.direction,
                             spec.fetch,
-                            index_predicate_program,
+                            index_predicate_execution,
                         )?
                     {
                         return Ok(FastPathDecision::Hit(fast));
@@ -192,21 +214,31 @@ where
     fn apply_distinct_if_requested(
         mut resolved: ResolvedExecutionKeyStream,
         plan: &LogicalPlan<E::Key>,
+        key_comparator: super::KeyOrderComparator,
     ) -> ResolvedExecutionKeyStream {
         if plan.distinct {
-            resolved.key_stream = Box::new(DistinctOrderedKeyStream::new(resolved.key_stream));
+            let dedup_counter = Rc::new(Cell::new(0u64));
+            resolved.key_stream = Box::new(DistinctOrderedKeyStream::new_with_dedup_counter(
+                resolved.key_stream,
+                key_comparator,
+                dedup_counter.clone(),
+            ));
+            resolved.distinct_keys_deduped_counter = Some(dedup_counter);
         }
 
         resolved
     }
 
     // Apply shared path finalization hooks after page materialization.
+    #[expect(clippy::too_many_arguments)]
     pub(super) fn finalize_execution(
         page: CursorPage<E>,
         optimization: Option<ExecutionOptimization>,
         rows_scanned: usize,
         post_access_rows: usize,
         index_predicate_applied: bool,
+        index_predicate_keys_rejected: u64,
+        distinct_keys_deduped: u64,
         span: &mut Span<E>,
         execution_trace: &mut Option<ExecutionTrace>,
     ) -> CursorPage<E> {
@@ -216,6 +248,8 @@ where
             rows_scanned,
             post_access_rows,
             index_predicate_applied,
+            index_predicate_keys_rejected,
+            distinct_keys_deduped,
         );
         set_rows_from_len(span, page.items.0.len());
 

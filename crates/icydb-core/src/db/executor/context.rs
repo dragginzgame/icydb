@@ -297,7 +297,7 @@ mod tests {
             Direction::Asc,
             StreamExecutionHints {
                 physical_fetch_hint: None,
-                predicate_program: None,
+                predicate_execution: None,
             },
         ) else {
             panic!("index-range access without lowered spec must fail")
@@ -329,7 +329,7 @@ mod tests {
             Direction::Asc,
             StreamExecutionHints {
                 physical_fetch_hint: None,
-                predicate_program: None,
+                predicate_execution: None,
             },
         ) else {
             panic!("misaligned index-prefix spec must fail invariant checks")
@@ -363,7 +363,7 @@ mod tests {
             Direction::Asc,
             StreamExecutionHints {
                 physical_fetch_hint: None,
-                predicate_program: None,
+                predicate_execution: None,
             },
         ) else {
             panic!("misaligned index-range spec must fail invariant checks")

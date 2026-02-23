@@ -5,6 +5,26 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.27.2] - 2026-02-23 - Auditing db/
+
+### 📝 Summary
+
+* Tightens runtime hook dispatch invariants and makes paged load result semantics explicit.
+
+### 🔧 Changed
+
+* Cursor-paged load return values now use named result structs (`PagedLoadExecution` and `PagedLoadExecutionWithTrace`) instead of positional tuples, making response/cursor/trace semantics explicit and safer to evolve.
+* Runtime hook dispatch now fails closed when hooks are ambiguously registered for the same `entity_path`, preventing first-match behavior from hiding configuration errors.
+* `StoreRegistry` now rejects alias registrations that reuse the same underlying row/index store pair under a second store name, preventing ambiguous logical store wiring.
+* `IndexName::as_str()` now uses safe UTF-8 decoding (`from_utf8(...).expect(...)`) instead of `from_utf8_unchecked`, keeping behavior unchanged while removing unnecessary unsafe code.
+
+### 🧪 Testing
+
+* Added regression coverage that duplicate runtime hook registrations by entity name or entity path are rejected as invariant violations.
+* Added registry coverage that reusing one row/index store pair under multiple store names is rejected as an invariant violation.
+
+---
+
 ## [0.27.1] - 2026-02-23 - Index-Only Hardening
 
 ### 📝 Summary
@@ -14,13 +34,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🔧 Changed
 
 * `ExecutionTrace` now reports `index_predicate_applied` so debug-traced load execution can explicitly show when index-only predicate filtering was active.
+* `ExecutionTrace` now also reports `index_predicate_keys_rejected` and `distinct_keys_deduped` to make index-only filtering impact and DISTINCT dedup activity directly visible per traced execution.
+* `DistinctOrderedKeyStream` now performs duplicate suppression through `KeyOrderComparator` equality, making DISTINCT semantics explicitly comparator-driven instead of relying on structural key equality alone.
 * Kept index-only fallback behavior unchanged while tightening assertions around when activation is reported.
 
 ### 🧪 Testing
 
 * Added index-only row-read reduction + parity coverage against by-ids fallback for strict eligible predicate shapes.
 * Added `DISTINCT` + continuation parity coverage for index-only-enabled shapes, including trace assertions for activation and continuation state across page boundaries.
+* Added descending `DISTINCT` + continuation parity coverage for index-only-enabled shapes to lock boundary/cursor stability in both directions.
 * Added operator/coercion matrix tests for index-only predicate compilation, including strict-subset eligibility and non-strict coercion rejection across supported compare operators.
+* Added stream-level regression coverage that `DistinctOrderedKeyStream` increments dedup counters for every suppressed adjacent duplicate key.
 
 ---
 

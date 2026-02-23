@@ -5,6 +5,8 @@
 //! - Identities are ASCII, non-empty, and bounded by MAX_* limits.
 //! - All construction paths validate invariants.
 //! - Stored byte representation is canonical and order-preserving.
+//! - Ordering semantics follow the length-prefixed stored-byte layout, not
+//!   lexicographic string ordering.
 
 use crate::MAX_INDEX_FIELDS;
 use std::{
@@ -23,6 +25,7 @@ pub(super) const MAX_INDEX_NAME_LEN: usize =
     MAX_ENTITY_NAME_LEN + (MAX_INDEX_FIELDS * (MAX_INDEX_FIELD_NAME_LEN + 1));
 
 ///
+/// IdentityDecodeError
 /// Decode errors (storage / corruption boundary)
 ///
 
@@ -185,6 +188,8 @@ impl EntityName {
 
 impl Ord for EntityName {
     fn cmp(&self, other: &Self) -> Ordering {
+        // Keep ordering consistent with `to_bytes()` (length prefix first).
+        // This is deterministic protocol/storage ordering, not lexical string order.
         self.len.cmp(&other.len).then(self.bytes.cmp(&other.bytes))
     }
 }
@@ -275,20 +280,9 @@ impl IndexName {
 
     #[must_use]
     pub fn as_str(&self) -> &str {
-        // SAFETY:
-        // Preconditions:
-        // - `try_from_parts` validates all segments are ASCII.
-        // - `from_bytes` rejects non-ASCII payloads and malformed lengths.
-        // - `as_bytes` returns only initialized bytes within `len`.
-        //
-        // Aliasing:
-        // - We expose a shared `&str` over immutable storage; no mutable alias
-        //   is created while the reference is live.
-        //
-        // What would break this:
-        // - Accepting non-ASCII bytes in any construction/decoding path.
-        // - Mutating the underlying `bytes` without re-validating invariants.
-        unsafe { std::str::from_utf8_unchecked(self.as_bytes()) }
+        // Invariant: construction and decoding enforce ASCII-only storage,
+        // so UTF-8 decoding cannot fail.
+        std::str::from_utf8(self.as_bytes()).expect("IndexName invariant: ASCII-only storage")
     }
 
     #[must_use]
@@ -519,6 +513,16 @@ mod tests {
 
         assert_eq!(a.cmp(&b), a.to_bytes().cmp(&b.to_bytes()));
         assert_eq!(a.cmp(&c), a.to_bytes().cmp(&c.to_bytes()));
+    }
+
+    #[test]
+    fn entity_ordering_is_not_lexicographic() {
+        let z = EntityName::try_from_str("z").unwrap();
+        let aa = EntityName::try_from_str("aa").unwrap();
+
+        assert_eq!(z.cmp(&aa), Ordering::Less);
+        assert_eq!(z.to_bytes().cmp(&aa.to_bytes()), Ordering::Less);
+        assert_eq!(z.as_str().cmp(aa.as_str()), Ordering::Greater);
     }
 
     #[test]

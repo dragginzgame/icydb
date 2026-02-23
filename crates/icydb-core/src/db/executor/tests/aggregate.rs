@@ -4034,14 +4034,14 @@ fn desc_cursor_resume_sequence_matches_unbounded_execution() {
             paged_query = paged_query.cursor(token);
         }
 
-        let (page, next_cursor) = paged_query
+        let execution = paged_query
             .execute_paged()
             .expect("paged DESC execute should succeed");
-        resumed_desc_ids.extend(page.ids().into_iter().map(|id| id.key()));
+        resumed_desc_ids.extend(execution.response().ids().into_iter().map(|id| id.key()));
 
-        match next_cursor {
+        match execution.continuation_cursor() {
             Some(bytes) => {
-                cursor_token = Some(crate::db::encode_cursor(&bytes));
+                cursor_token = Some(crate::db::encode_cursor(bytes));
             }
             None => break,
         }
@@ -4098,14 +4098,14 @@ fn desc_cursor_resume_secondary_index_sequence_matches_unbounded_execution() {
             paged_query = paged_query.cursor(token);
         }
 
-        let (page, next_cursor) = paged_query
+        let execution = paged_query
             .execute_paged()
             .expect("paged DESC secondary-index execute should succeed");
-        resumed_desc_ids.extend(page.ids().into_iter().map(|id| id.key()));
+        resumed_desc_ids.extend(execution.response().ids().into_iter().map(|id| id.key()));
 
-        match next_cursor {
+        match execution.continuation_cursor() {
             Some(bytes) => {
-                cursor_token = Some(crate::db::encode_cursor(&bytes));
+                cursor_token = Some(crate::db::encode_cursor(bytes));
             }
             None => break,
         }
@@ -4155,14 +4155,14 @@ fn desc_cursor_resume_index_range_sequence_matches_unbounded_execution() {
             paged_query = paged_query.cursor(token);
         }
 
-        let (page, next_cursor) = paged_query
+        let execution = paged_query
             .execute_paged()
             .expect("paged DESC index-range execute should succeed");
-        resumed_desc_ids.extend(page.ids().into_iter().map(|id| id.key()));
+        resumed_desc_ids.extend(execution.response().ids().into_iter().map(|id| id.key()));
 
-        match next_cursor {
+        match execution.continuation_cursor() {
             Some(bytes) => {
-                cursor_token = Some(crate::db::encode_cursor(&bytes));
+                cursor_token = Some(crate::db::encode_cursor(bytes));
             }
             None => break,
         }
