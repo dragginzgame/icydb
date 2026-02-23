@@ -8,7 +8,7 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
     obs::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
-    types::Id,
+    types::{Decimal, Id},
 };
 use std::cell::RefCell;
 
@@ -474,37 +474,48 @@ fn aggregate_spec_field_target_non_extrema_surfaces_unsupported_taxonomy() {
 }
 
 #[test]
-fn aggregate_spec_field_target_extrema_surfaces_not_yet_supported_taxonomy() {
-    seed_pushdown_entities(&[(8_031, 7, 10), (8_032, 7, 20), (8_033, 7, 30)]);
+fn aggregate_spec_field_target_extrema_selects_deterministic_ids() {
+    seed_pushdown_entities(&[
+        (8_031, 7, 20),
+        (8_032, 7, 10),
+        (8_033, 7, 10),
+        (8_034, 7, 30),
+    ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
-        .order_by("id")
-        .plan()
-        .expect("field-target extrema aggregate plan should build");
-    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
-        load.execute_aggregate_spec(
-            plan,
-            AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
-        )
-    });
-    let Err(err) = result else {
-        panic!("field-target MIN should be rejected until the 0.25 capability ships");
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .order_by("id")
+            .plan()
+            .expect("field-target extrema aggregate plan should build")
     };
 
-    assert_eq!(err.class, ErrorClass::Unsupported);
-    assert_eq!(err.origin, ErrorOrigin::Executor);
+    let (min_id, scanned_min) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_min_by(build_plan(), "rank")
+            .expect("field-target MIN should execute")
+    });
+    let (max_id, scanned_max) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_max_by(build_plan(), "rank")
+            .expect("field-target MAX should execute")
+    });
+
     assert_eq!(
-        scanned, 0,
-        "unsupported field-target MIN should fail before any scan-budget consumption"
+        min_id.map(|id| id.key()),
+        Some(Ulid::from_u128(8_032)),
+        "field-target MIN should select the smallest field value with pk-asc tie-break"
+    );
+    assert_eq!(
+        max_id.map(|id| id.key()),
+        Some(Ulid::from_u128(8_034)),
+        "field-target MAX should select the largest field value"
     );
     assert!(
-        err.message.contains("not yet supported in 0.24.x"),
-        "field-target extrema taxonomy should be explicit: {err:?}"
+        scanned_min > 0 && scanned_max > 0,
+        "field-target extrema execution should consume scan budget once supported"
     );
 }
 
 #[test]
-fn aggregate_spec_field_target_unknown_field_surfaces_not_yet_supported_without_scan() {
+fn aggregate_spec_field_target_unknown_field_surfaces_unsupported_without_scan() {
     seed_pushdown_entities(&[(8_041, 7, 10), (8_042, 7, 20), (8_043, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -528,8 +539,318 @@ fn aggregate_spec_field_target_unknown_field_surfaces_not_yet_supported_without_
         "field-target unknown-field MIN should fail before any scan-budget consumption"
     );
     assert!(
-        err.message.contains("not yet supported in 0.24.x"),
-        "field-target unknown-field taxonomy should stay explicit pre-0.25: {err:?}"
+        err.message.contains("unknown aggregate target field"),
+        "unknown field taxonomy should remain explicit: {err:?}"
+    );
+}
+
+#[test]
+fn aggregate_spec_field_target_non_orderable_field_surfaces_unsupported_without_scan() {
+    seed_phase_entities(&[(8_051, 10), (8_052, 20), (8_053, 30)]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .plan()
+        .expect("field-target non-orderable aggregate plan should build");
+    let (result, scanned) = capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
+        load.execute_aggregate_spec(
+            plan,
+            AggregateSpec::for_target_field(AggregateKind::Min, "tags"),
+        )
+    });
+    let Err(err) = result else {
+        panic!("field-target MIN on list field should be rejected");
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        scanned, 0,
+        "field-target non-orderable MIN should fail before any scan-budget consumption"
+    );
+    assert!(
+        err.message.contains("does not support ordering"),
+        "non-orderable field taxonomy should remain explicit: {err:?}"
+    );
+}
+
+#[test]
+fn aggregate_spec_field_target_tie_breaks_on_primary_key_ascending() {
+    seed_pushdown_entities(&[
+        (8_061, 7, 10),
+        (8_062, 7, 10),
+        (8_063, 7, 20),
+        (8_064, 7, 20),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let min_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .order_by_desc("id")
+        .plan()
+        .expect("field-target MIN tie-break plan should build");
+    let max_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .order_by_desc("id")
+        .plan()
+        .expect("field-target MAX tie-break plan should build");
+
+    let min_id = load
+        .aggregate_min_by(min_plan, "rank")
+        .expect("field-target MIN tie-break should succeed");
+    let max_id = load
+        .aggregate_max_by(max_plan, "rank")
+        .expect("field-target MAX tie-break should succeed");
+
+    assert_eq!(
+        min_id.map(|id| id.key()),
+        Some(Ulid::from_u128(8_061)),
+        "field-target MIN tie-break should pick primary key ascending when values tie"
+    );
+    assert_eq!(
+        max_id.map(|id| id.key()),
+        Some(Ulid::from_u128(8_063)),
+        "field-target MAX tie-break should pick primary key ascending when values tie"
+    );
+}
+
+#[test]
+fn aggregate_field_target_secondary_index_min_uses_index_leading_order() {
+    seed_pushdown_entities(&[
+        (8_071, 7, 30),
+        (8_072, 7, 10),
+        (8_073, 7, 20),
+        (8_074, 8, 5),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = secondary_group_rank_order_plan(
+        ReadConsistency::MissingOk,
+        crate::db::query::plan::OrderDirection::Asc,
+        0,
+    );
+
+    let min_id = load
+        .aggregate_min_by(plan, "rank")
+        .expect("secondary-index field-target MIN should succeed");
+
+    assert_eq!(
+        min_id.map(|id| id.key()),
+        Some(Ulid::from_u128(8_072)),
+        "secondary-index field-target MIN should return the lowest rank id"
+    );
+}
+
+#[test]
+fn aggregate_field_target_secondary_index_max_tie_breaks_primary_key_ascending() {
+    seed_pushdown_entities(&[
+        (8_081, 7, 20),
+        (8_082, 7, 40),
+        (8_083, 7, 40),
+        (8_084, 7, 10),
+        (8_085, 8, 50),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = secondary_group_rank_order_plan(
+        ReadConsistency::MissingOk,
+        crate::db::query::plan::OrderDirection::Desc,
+        0,
+    );
+
+    let max_id = load
+        .aggregate_max_by(plan, "rank")
+        .expect("secondary-index field-target MAX should succeed");
+
+    assert_eq!(
+        max_id.map(|id| id.key()),
+        Some(Ulid::from_u128(8_082)),
+        "secondary-index field-target MAX should pick primary key ascending within max-value ties"
+    );
+}
+
+#[test]
+fn aggregate_field_target_nth_selects_deterministic_position() {
+    seed_pushdown_entities(&[
+        (8_142, 7, 10),
+        (8_141, 7, 10),
+        (8_144, 7, 30),
+        (8_143, 7, 20),
+        (8_145, 8, 5),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .plan()
+            .expect("field-target nth plan should build")
+    };
+
+    let nth_0 = load
+        .aggregate_nth_by(build_plan(), "rank", 0)
+        .expect("nth_by(rank, 0) should succeed");
+    let nth_1 = load
+        .aggregate_nth_by(build_plan(), "rank", 1)
+        .expect("nth_by(rank, 1) should succeed");
+    let nth_2 = load
+        .aggregate_nth_by(build_plan(), "rank", 2)
+        .expect("nth_by(rank, 2) should succeed");
+    let nth_3 = load
+        .aggregate_nth_by(build_plan(), "rank", 3)
+        .expect("nth_by(rank, 3) should succeed");
+    let nth_4 = load
+        .aggregate_nth_by(build_plan(), "rank", 4)
+        .expect("nth_by(rank, 4) should succeed");
+
+    assert_eq!(
+        nth_0.map(|id| id.key()),
+        Some(Ulid::from_u128(8_141)),
+        "nth_by(rank, 0) should select the smallest rank with pk-asc tie-break"
+    );
+    assert_eq!(
+        nth_1.map(|id| id.key()),
+        Some(Ulid::from_u128(8_142)),
+        "nth_by(rank, 1) should advance through equal-rank ties using pk-asc order"
+    );
+    assert_eq!(
+        nth_2.map(|id| id.key()),
+        Some(Ulid::from_u128(8_143)),
+        "nth_by(rank, 2) should select the next field-ordered candidate"
+    );
+    assert_eq!(
+        nth_3.map(|id| id.key()),
+        Some(Ulid::from_u128(8_144)),
+        "nth_by(rank, 3) should select the highest rank in-window candidate"
+    );
+    assert_eq!(
+        nth_4, None,
+        "nth_by(rank, 4) should return None when ordinal is outside the result window"
+    );
+}
+
+#[test]
+fn aggregate_field_target_nth_unknown_field_fails_without_scan() {
+    seed_pushdown_entities(&[(8_151, 7, 10), (8_152, 7, 20)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .plan()
+        .expect("field-target nth unknown-field plan should build");
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_nth_by(plan, "missing_field", 0)
+    });
+    let Err(err) = result else {
+        panic!("nth_by(missing_field, 0) should be rejected");
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        scanned, 0,
+        "unknown nth target should fail before scan-budget consumption"
+    );
+}
+
+#[test]
+fn aggregate_field_target_nth_non_orderable_field_fails_without_scan() {
+    seed_phase_entities(&[(8_161, 10), (8_162, 20)]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .plan()
+        .expect("field-target nth non-orderable plan should build");
+    let (result, scanned) = capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
+        load.aggregate_nth_by(plan, "tags", 0)
+    });
+    let Err(err) = result else {
+        panic!("nth_by(tags, 0) should be rejected");
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        scanned, 0,
+        "non-orderable nth target should fail before scan-budget consumption"
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_sum_and_avg_use_decimal_projection() {
+    seed_pushdown_entities(&[
+        (8_091, 7, 10),
+        (8_092, 7, 20),
+        (8_093, 7, 35),
+        (8_094, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("rank")
+            .plan()
+            .expect("numeric field aggregate plan should build")
+    };
+
+    let sum = load
+        .aggregate_sum_by(build_plan(), "rank")
+        .expect("sum_by(rank) should succeed");
+    let avg = load
+        .aggregate_avg_by(build_plan(), "rank")
+        .expect("avg_by(rank) should succeed");
+    let expected_avg = Decimal::from_num(65u64).expect("sum decimal")
+        / Decimal::from_num(3u64).expect("count decimal");
+
+    assert_eq!(
+        sum,
+        Decimal::from_num(65u64),
+        "sum_by(rank) should match row set"
+    );
+    assert_eq!(
+        avg,
+        Some(expected_avg),
+        "avg_by(rank) should use decimal division semantics"
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_unknown_target_fails_without_scan() {
+    seed_pushdown_entities(&[(8_101, 7, 10), (8_102, 7, 20)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .plan()
+        .expect("numeric field unknown-target plan should build");
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_sum_by(plan, "missing_field")
+    });
+    let Err(err) = result else {
+        panic!("sum_by(missing_field) should be rejected");
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        scanned, 0,
+        "unknown numeric target should fail before scan-budget consumption"
+    );
+}
+
+#[test]
+fn aggregate_numeric_field_non_numeric_target_fails_without_scan() {
+    seed_pushdown_entities(&[(8_111, 7, 10), (8_112, 7, 20)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+        .order_by("id")
+        .plan()
+        .expect("numeric field non-numeric target plan should build");
+    let (result, scanned) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_avg_by(plan, "label")
+    });
+    let Err(err) = result else {
+        panic!("avg_by(label) should be rejected");
+    };
+
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        scanned, 0,
+        "non-numeric target should fail before scan-budget consumption"
     );
 }
 
@@ -1495,63 +1816,46 @@ fn aggregate_parity_limit_zero_window() {
 fn session_load_aggregate_terminals_match_execute() {
     seed_simple_entities(&[8501, 8502, 8503, 8504, 8505]);
     let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<SimpleEntity>()
+            .order_by("id")
+            .offset(1)
+            .limit(3)
+    };
 
-    let expected = session
-        .load::<SimpleEntity>()
-        .order_by("id")
-        .offset(1)
-        .limit(3)
+    let expected = load_window()
         .execute()
         .expect("baseline session execute should succeed");
     let expected_count = expected.count();
     let expected_exists = !expected.is_empty();
     let expected_min = expected.ids().into_iter().min();
     let expected_max = expected.ids().into_iter().max();
+    let expected_min_by_id = expected.ids().into_iter().min();
+    let expected_max_by_id = expected.ids().into_iter().max();
+    let mut expected_ordered_ids = expected.ids();
+    expected_ordered_ids.sort_unstable();
+    let expected_nth_by_id = expected_ordered_ids.get(1).copied();
     let expected_first = expected.id();
     let expected_last = expected.ids().last().copied();
 
-    let actual_count = session
-        .load::<SimpleEntity>()
-        .order_by("id")
-        .offset(1)
-        .limit(3)
-        .count()
-        .expect("session count should succeed");
-    let actual_exists = session
-        .load::<SimpleEntity>()
-        .order_by("id")
-        .offset(1)
-        .limit(3)
+    let actual_count = load_window().count().expect("session count should succeed");
+    let actual_exists = load_window()
         .exists()
         .expect("session exists should succeed");
-    let actual_min = session
-        .load::<SimpleEntity>()
-        .order_by("id")
-        .offset(1)
-        .limit(3)
-        .min()
-        .expect("session min should succeed");
-    let actual_max = session
-        .load::<SimpleEntity>()
-        .order_by("id")
-        .offset(1)
-        .limit(3)
-        .max()
-        .expect("session max should succeed");
-    let actual_first = session
-        .load::<SimpleEntity>()
-        .order_by("id")
-        .offset(1)
-        .limit(3)
-        .first()
-        .expect("session first should succeed");
-    let actual_last = session
-        .load::<SimpleEntity>()
-        .order_by("id")
-        .offset(1)
-        .limit(3)
-        .last()
-        .expect("session last should succeed");
+    let actual_min = load_window().min().expect("session min should succeed");
+    let actual_max = load_window().max().expect("session max should succeed");
+    let actual_min_by_id = load_window()
+        .min_by("id")
+        .expect("session min_by(id) should succeed");
+    let actual_max_by_id = load_window()
+        .max_by("id")
+        .expect("session max_by(id) should succeed");
+    let actual_nth_by_id = load_window()
+        .nth_by("id", 1)
+        .expect("session nth_by(id, 1) should succeed");
+    let actual_first = load_window().first().expect("session first should succeed");
+    let actual_last = load_window().last().expect("session last should succeed");
 
     assert_eq!(actual_count, expected_count, "session count parity failed");
     assert_eq!(
@@ -1560,8 +1864,74 @@ fn session_load_aggregate_terminals_match_execute() {
     );
     assert_eq!(actual_min, expected_min, "session min parity failed");
     assert_eq!(actual_max, expected_max, "session max parity failed");
+    assert_eq!(
+        actual_min_by_id, expected_min_by_id,
+        "session min_by(id) parity failed"
+    );
+    assert_eq!(
+        actual_max_by_id, expected_max_by_id,
+        "session max_by(id) parity failed"
+    );
+    assert_eq!(
+        actual_nth_by_id, expected_nth_by_id,
+        "session nth_by(id, 1) parity failed"
+    );
     assert_eq!(actual_first, expected_first, "session first parity failed");
     assert_eq!(actual_last, expected_last, "session last parity failed");
+}
+
+#[test]
+fn session_load_numeric_field_aggregates_match_execute() {
+    seed_pushdown_entities(&[
+        (8_121, 7, 10),
+        (8_122, 7, 20),
+        (8_123, 7, 35),
+        (8_124, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+
+    let expected_response = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .execute()
+        .expect("baseline execute for numeric field aggregates should succeed");
+    let mut expected_sum = Decimal::ZERO;
+    let mut expected_count = 0u64;
+    for (_, entity) in expected_response {
+        let rank = Decimal::from_num(u64::from(entity.rank)).expect("rank decimal");
+        expected_sum += rank;
+        expected_count = expected_count.saturating_add(1);
+    }
+    let expected_sum_decimal = expected_sum;
+    let expected_sum = Some(expected_sum_decimal);
+    let expected_avg = if expected_count == 0 {
+        None
+    } else {
+        Some(expected_sum_decimal / Decimal::from_num(expected_count).expect("count decimal"))
+    };
+
+    let actual_sum = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .sum_by("rank")
+        .expect("session sum_by(rank) should succeed");
+    let actual_avg = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("rank")
+        .avg_by("rank")
+        .expect("session avg_by(rank) should succeed");
+
+    assert_eq!(
+        actual_sum, expected_sum,
+        "session sum_by(rank) parity failed"
+    );
+    assert_eq!(
+        actual_avg, expected_avg,
+        "session avg_by(rank) parity failed"
+    );
 }
 
 #[test]

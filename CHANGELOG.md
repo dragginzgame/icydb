@@ -5,6 +5,26 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.25.0] – 2026-02-22
+
+This starts the `0.25` aggregate expansion with the first field-based aggregate terminals.
+
+* Added `min_by("field")` and `max_by("field")` on load queries to return the id of the row with the smallest or largest value for that field.
+* Added `nth_by("field", n)` to return the id at zero-based position `n` in deterministic field order (field ascending, then primary key ascending).
+* Added `sum_by("field")` and `avg_by("field")` for numeric fields, returning `Decimal` values with `None` for empty result windows.
+* Eligible index-leading shapes now execute `min_by`/`max_by` through a route-gated streaming path, while non-eligible shapes continue to use canonical fallback behavior.
+* Tie handling is deterministic: when field values are equal, selection now always uses primary key ascending.
+* Invalid field targets (unknown fields or non-orderable field kinds) now fail fast with clear `Unsupported` errors before scan work starts.
+* `nth_by` returns `None` when `n` is outside the current result window.
+
+```rust
+let min_rank_id = session.load::<User>().order_by("id").min_by("rank")?;
+let max_rank_id = session.load::<User>().order_by("id").max_by("rank")?;
+let second_rank_id = session.load::<User>().order_by("id").nth_by("rank", 1)?;
+```
+
+---
+
 ## [0.24.7] – 2026-02-22
 
 This patch continues pre-`0.25` hardening for field-based aggregates.

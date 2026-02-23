@@ -478,6 +478,11 @@ impl Value {
         }
     }
 
+    // Internal numeric coercion helper for aggregate arithmetic.
+    pub(crate) fn to_numeric_decimal(&self) -> Option<Decimal> {
+        self.to_decimal()
+    }
+
     // it's lossless, trust me bro
     #[expect(clippy::cast_precision_loss)]
     fn to_f64_lossless(&self) -> Option<f64> {

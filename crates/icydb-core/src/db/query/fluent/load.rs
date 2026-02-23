@@ -11,7 +11,7 @@ use crate::{
         response::Response,
     },
     traits::{EntityKind, EntityValue, SingletonEntity},
-    types::Id,
+    types::{Decimal, Id},
 };
 
 ///
@@ -258,6 +258,19 @@ where
         self.session.execute_load_query_min(self.query())
     }
 
+    /// Execute and return the id of the row with the smallest value for `field`.
+    ///
+    /// Ties are deterministic: equal field values resolve by primary key ascending.
+    pub fn min_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_min_by(self.query(), field.as_ref())
+    }
+
     /// Execute and return the largest matching identifier, if any.
     pub fn max(&self) -> Result<Option<Id<E>>, QueryError>
     where
@@ -266,6 +279,53 @@ where
         self.ensure_non_paged_mode_ready()?;
 
         self.session.execute_load_query_max(self.query())
+    }
+
+    /// Execute and return the id of the row with the largest value for `field`.
+    ///
+    /// Ties are deterministic: equal field values resolve by primary key ascending.
+    pub fn max_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_max_by(self.query(), field.as_ref())
+    }
+
+    /// Execute and return the id at zero-based ordinal `nth` when rows are
+    /// ordered by `field` ascending, with primary-key ascending tie-breaks.
+    pub fn nth_by(&self, field: impl AsRef<str>, nth: usize) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_nth_by(self.query(), field.as_ref(), nth)
+    }
+
+    /// Execute and return the sum of `field` over matching rows.
+    pub fn sum_by(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_sum_by(self.query(), field.as_ref())
+    }
+
+    /// Execute and return the average of `field` over matching rows.
+    pub fn avg_by(&self, field: impl AsRef<str>) -> Result<Option<Decimal>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_avg_by(self.query(), field.as_ref())
     }
 
     /// Execute and return the first matching identifier in response order, if any.

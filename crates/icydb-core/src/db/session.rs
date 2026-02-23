@@ -11,7 +11,7 @@ use crate::{
     error::InternalError,
     obs::sink::{MetricsSink, with_metrics_sink},
     traits::{CanisterKind, EntityKind, EntityValue},
-    types::Id,
+    types::{Decimal, Id},
 };
 
 ///
@@ -233,6 +233,92 @@ impl<C: CanisterKind> DbSession<C> {
 
         self.with_metrics(|| self.load_executor::<E>().aggregate_max(plan))
             .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_min_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .aggregate_min_by(plan, target_field)
+        })
+        .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_max_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .aggregate_max_by(plan, target_field)
+        })
+        .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_nth_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+        nth: usize,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .aggregate_nth_by(plan, target_field, nth)
+        })
+        .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_sum_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<Option<Decimal>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .aggregate_sum_by(plan, target_field)
+        })
+        .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_avg_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<Option<Decimal>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .aggregate_avg_by(plan, target_field)
+        })
+        .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_first<E>(

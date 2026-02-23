@@ -10,6 +10,12 @@ use crate::{
             },
             load::{
                 LoadExecutor,
+                aggregate_field::{
+                    AggregateFieldValueError, apply_aggregate_direction,
+                    compare_entities_by_orderable_field, compare_entities_for_field_extrema,
+                    extract_numeric_field_decimal, validate_numeric_aggregate_target_field,
+                    validate_orderable_aggregate_target_field,
+                },
                 aggregate_guard::{
                     ensure_index_range_aggregate_fast_path_specs,
                     ensure_secondary_aggregate_fast_path_arity,
@@ -29,9 +35,11 @@ use crate::{
         response::Response,
     },
     error::InternalError,
+    model::field::FieldKind,
     traits::{EntityKind, EntityValue},
-    types::Id,
+    types::{Decimal, Id},
 };
+use std::cmp::Ordering;
 
 // -----------------------------------------------------------------------------
 // Aggregate Subdomains (Pre-Split Planning)
@@ -41,6 +49,18 @@ use crate::{
 // 3) Fast-path dispatch via route-owned precedence.
 // 4) Fast-path implementations by access shape.
 // 5) Fallback + terminal utility helpers.
+
+///
+/// NumericFieldAggregateKind
+///
+/// Internal selector for field-target numeric aggregate terminals.
+///
+
+#[derive(Clone, Copy)]
+enum NumericFieldAggregateKind {
+    Sum,
+    Avg,
+}
 
 ///
 /// AggregateFastPathInputs
@@ -117,6 +137,75 @@ where
         }
     }
 
+    pub(in crate::db) fn aggregate_min_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+    ) -> Result<Option<Id<E>>, InternalError> {
+        let target_field = target_field.into();
+        match self.execute_aggregate_spec(
+            plan,
+            AggregateSpec::for_target_field(AggregateKind::Min, target_field),
+        )? {
+            AggregateOutput::Min(value) => Ok(value),
+            _ => Err(InternalError::query_executor_invariant(
+                "aggregate MIN(field) result kind mismatch",
+            )),
+        }
+    }
+
+    pub(in crate::db) fn aggregate_max_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+    ) -> Result<Option<Id<E>>, InternalError> {
+        let target_field = target_field.into();
+        match self.execute_aggregate_spec(
+            plan,
+            AggregateSpec::for_target_field(AggregateKind::Max, target_field),
+        )? {
+            AggregateOutput::Max(value) => Ok(value),
+            _ => Err(InternalError::query_executor_invariant(
+                "aggregate MAX(field) result kind mismatch",
+            )),
+        }
+    }
+
+    pub(in crate::db) fn aggregate_nth_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+        nth: usize,
+    ) -> Result<Option<Id<E>>, InternalError> {
+        let target_field = target_field.into();
+
+        self.execute_nth_field_aggregate(plan, target_field.as_str(), nth)
+    }
+
+    pub(in crate::db) fn aggregate_sum_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+    ) -> Result<Option<Decimal>, InternalError> {
+        self.execute_numeric_field_aggregate(
+            plan,
+            target_field.into().as_str(),
+            NumericFieldAggregateKind::Sum,
+        )
+    }
+
+    pub(in crate::db) fn aggregate_avg_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+    ) -> Result<Option<Decimal>, InternalError> {
+        self.execute_numeric_field_aggregate(
+            plan,
+            target_field.into().as_str(),
+            NumericFieldAggregateKind::Avg,
+        )
+    }
+
     pub(in crate::db) fn aggregate_first(
         &self,
         plan: ExecutablePlan<E>,
@@ -170,6 +259,7 @@ where
         spec: AggregateSpec,
     ) -> Result<AggregateOutput<E>, InternalError> {
         let kind = spec.kind();
+        let target_field = spec.target_field().map(str::to_string);
         spec.ensure_supported_for_execution()
             .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
 
@@ -179,9 +269,22 @@ where
 
         // Route planning owns aggregate streaming/materialized decisions and
         // bounded probe-hint derivation.
-        let direction = plan.direction();
+        let direction = if target_field.is_some() {
+            Self::field_extrema_aggregate_direction(kind)?
+        } else {
+            plan.direction()
+        };
         let route_plan =
-            Self::build_execution_route_plan_for_aggregate(plan.as_inner(), kind, direction);
+            Self::build_execution_route_plan_for_aggregate_spec(plan.as_inner(), spec, direction);
+        if let Some(target_field) = target_field {
+            return self.execute_field_target_extrema_aggregate(
+                plan,
+                kind,
+                target_field.as_str(),
+                direction,
+                &route_plan,
+            );
+        }
         if matches!(route_plan.execution_mode, ExecutionMode::Materialized) {
             let response = self.execute(plan)?;
             return Ok(Self::aggregate_from_materialized(response, kind));
@@ -263,6 +366,113 @@ where
         record_rows_scanned::<E>(rows_scanned);
 
         Ok(aggregate_output)
+    }
+
+    // Execute `min(field)` / `max(field)` via canonical materialized fallback.
+    // Route still owns eligibility and hint derivation; this branch currently
+    // keeps field-target semantics correctness-first until fast paths are enabled.
+    fn execute_field_target_extrema_aggregate(
+        &self,
+        plan: ExecutablePlan<E>,
+        kind: AggregateKind,
+        target_field: &str,
+        direction: Direction,
+        route_plan: &ExecutionRoutePlan,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        let field_fast_path_eligible = match kind {
+            AggregateKind::Min => route_plan.field_min_fast_path_eligible(),
+            AggregateKind::Max => route_plan.field_max_fast_path_eligible(),
+            AggregateKind::Count
+            | AggregateKind::Exists
+            | AggregateKind::First
+            | AggregateKind::Last => {
+                return Err(InternalError::query_executor_invariant(
+                    "field-target aggregate execution requires MIN/MAX terminal",
+                ));
+            }
+        };
+
+        // Validate user-provided field targets before any scan-budget consumption.
+        let expected_kind = validate_orderable_aggregate_target_field::<E>(target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+        if !field_fast_path_eligible {
+            // Preserve canonical query semantics by selecting candidates from the
+            // fully materialized response window and then applying field-extrema rules.
+            let response = self.execute(plan)?;
+            return Self::aggregate_field_extrema_from_materialized(
+                response,
+                kind,
+                target_field,
+                expected_kind,
+            );
+        }
+        if !matches!(route_plan.execution_mode, ExecutionMode::Streaming) {
+            return Err(InternalError::query_executor_invariant(
+                "field-extrema fast path requires streaming execution mode",
+            ));
+        }
+
+        // Route-planned streaming path for index-leading field extrema.
+        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+        let index_range_specs = plan.index_range_specs()?.to_vec();
+        let logical_plan = plan.into_inner();
+        validate_executor_plan::<E>(&logical_plan)?;
+        let ctx = self.db.recovered_context::<E>()?;
+        record_plan_metrics(&logical_plan.access);
+        let execution_inputs = ExecutionInputs {
+            ctx: &ctx,
+            plan: &logical_plan,
+            stream_bindings: AccessStreamBindings {
+                index_prefix_specs: index_prefix_specs.as_slice(),
+                index_range_specs: index_range_specs.as_slice(),
+                index_range_anchor: None,
+                direction,
+            },
+        };
+        let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, route_plan)?;
+        let (aggregate_output, keys_scanned) = Self::fold_streaming_field_extrema(
+            &ctx,
+            logical_plan.consistency,
+            resolved.key_stream.as_mut(),
+            target_field,
+            expected_kind,
+            kind,
+            direction,
+        )?;
+        let rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
+        record_rows_scanned::<E>(rows_scanned);
+
+        Ok(aggregate_output)
+    }
+
+    // Execute one field-target numeric aggregate (`sum(field)` / `avg(field)`)
+    // via canonical materialized fallback semantics.
+    fn execute_numeric_field_aggregate(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: &str,
+        kind: NumericFieldAggregateKind,
+    ) -> Result<Option<Decimal>, InternalError> {
+        let expected_kind = validate_numeric_aggregate_target_field::<E>(target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+        let response = self.execute(plan)?;
+
+        Self::aggregate_numeric_field_from_materialized(response, target_field, expected_kind, kind)
+    }
+
+    // Execute one field-target nth aggregate (`nth(field, n)`) via canonical
+    // materialized fallback semantics.
+    fn execute_nth_field_aggregate(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: &str,
+        nth: usize,
+    ) -> Result<Option<Id<E>>, InternalError> {
+        let expected_kind = validate_orderable_aggregate_target_field::<E>(target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+        let response = self.execute(plan)?;
+
+        Self::aggregate_nth_field_from_materialized(response, target_field, expected_kind, nth)
     }
 
     // ------------------------------------------------------------------
@@ -385,6 +595,288 @@ where
             AggregateKind::First => AggregateOutput::First(response.id()),
             AggregateKind::Last => {
                 AggregateOutput::Last(response.into_iter().map(|(id, _)| id).last())
+            }
+        }
+    }
+
+    // Reduce one materialized response into a field-target extrema id with the
+    // deterministic tie-break contract `(field_value, primary_key_asc)`.
+    fn aggregate_field_extrema_from_materialized(
+        response: Response<E>,
+        kind: AggregateKind,
+        target_field: &str,
+        expected_kind: FieldKind,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
+            return Err(InternalError::query_executor_invariant(
+                "materialized field-extrema reduction requires MIN/MAX terminal",
+            ));
+        }
+        let compare_direction = match kind {
+            AggregateKind::Min => Direction::Asc,
+            AggregateKind::Max => Direction::Desc,
+            AggregateKind::Count
+            | AggregateKind::Exists
+            | AggregateKind::First
+            | AggregateKind::Last => {
+                return Err(InternalError::query_executor_invariant(
+                    "materialized field-extrema reduction reached non-extrema terminal",
+                ));
+            }
+        };
+
+        let mut selected: Option<(Id<E>, E)> = None;
+        for (id, entity) in response {
+            let should_replace = match selected.as_ref() {
+                Some((_, current)) => {
+                    compare_entities_for_field_extrema(
+                        &entity,
+                        current,
+                        target_field,
+                        expected_kind,
+                        compare_direction,
+                    )
+                    .map_err(Self::map_aggregate_field_value_error)?
+                        == Ordering::Less
+                }
+                None => true,
+            };
+            if should_replace {
+                selected = Some((id, entity));
+            }
+        }
+
+        let selected_id = selected.map(|(id, _)| id);
+
+        Ok(match kind {
+            AggregateKind::Min => AggregateOutput::Min(selected_id),
+            AggregateKind::Max => AggregateOutput::Max(selected_id),
+            AggregateKind::Count
+            | AggregateKind::Exists
+            | AggregateKind::First
+            | AggregateKind::Last => {
+                return Err(InternalError::query_executor_invariant(
+                    "materialized field-extrema reduction reached non-extrema terminal",
+                ));
+            }
+        })
+    }
+
+    // Reduce one materialized response into `sum(field)` / `avg(field)` over
+    // numeric field values coerced to Decimal.
+    fn aggregate_numeric_field_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        expected_kind: FieldKind,
+        kind: NumericFieldAggregateKind,
+    ) -> Result<Option<Decimal>, InternalError> {
+        let mut sum = Decimal::ZERO;
+        let mut row_count = 0u64;
+        for (_, entity) in response {
+            let value = extract_numeric_field_decimal(&entity, target_field, expected_kind)
+                .map_err(Self::map_aggregate_field_value_error)?;
+            sum += value;
+            row_count = row_count.saturating_add(1);
+        }
+        if row_count == 0 {
+            return Ok(None);
+        }
+
+        let output = match kind {
+            NumericFieldAggregateKind::Sum => sum,
+            NumericFieldAggregateKind::Avg => {
+                let Some(divisor) = Decimal::from_num(row_count) else {
+                    return Err(InternalError::query_executor_invariant(
+                        "numeric field AVG divisor conversion overflowed decimal bounds",
+                    ));
+                };
+
+                sum / divisor
+            }
+        };
+
+        Ok(Some(output))
+    }
+
+    // Reduce one materialized response into `nth(field, n)` using deterministic
+    // ordering `(field_value_asc, primary_key_asc)`.
+    fn aggregate_nth_field_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        expected_kind: FieldKind,
+        nth: usize,
+    ) -> Result<Option<Id<E>>, InternalError> {
+        // Phase 1: materialize rows into deterministic field ordering so
+        // position selection is stable under ties.
+        let mut ordered_rows: Vec<(Id<E>, E)> = Vec::new();
+        for candidate in response {
+            let mut insert_index = ordered_rows.len();
+            for (index, (_, current)) in ordered_rows.iter().enumerate() {
+                let ordering = compare_entities_for_field_extrema(
+                    &candidate.1,
+                    current,
+                    target_field,
+                    expected_kind,
+                    Direction::Asc,
+                )
+                .map_err(Self::map_aggregate_field_value_error)?;
+                if ordering == Ordering::Less {
+                    insert_index = index;
+                    break;
+                }
+            }
+
+            ordered_rows.insert(insert_index, candidate);
+        }
+
+        // Phase 2: project the requested ordinal position.
+        if nth >= ordered_rows.len() {
+            return Ok(None);
+        }
+
+        Ok(ordered_rows.into_iter().nth(nth).map(|(id, _)| id))
+    }
+
+    // Streaming reducer for index-leading field extrema. This keeps execution in
+    // key-stream mode and stops once the first non-tie worse field value appears.
+    fn fold_streaming_field_extrema(
+        ctx: &Context<'_, E>,
+        consistency: ReadConsistency,
+        key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
+        target_field: &str,
+        expected_kind: FieldKind,
+        kind: AggregateKind,
+        direction: Direction,
+    ) -> Result<(AggregateOutput<E>, usize), InternalError> {
+        if direction != Self::field_extrema_aggregate_direction(kind)? {
+            return Err(InternalError::query_executor_invariant(
+                "field-extrema fold direction must match aggregate terminal semantics",
+            ));
+        }
+
+        let mut keys_scanned = 0usize;
+        let mut selected: Option<(Id<E>, E)> = None;
+
+        while let Some(data_key) = key_stream.next_key()? {
+            keys_scanned = keys_scanned.saturating_add(1);
+            let Some(entity) = Self::read_entity_for_field_extrema(ctx, consistency, &data_key)?
+            else {
+                continue;
+            };
+            let id = Id::from_key(data_key.try_key::<E>()?);
+            let selected_was_empty = selected.is_none();
+            let candidate_replaces = match selected.as_ref() {
+                Some((_, current)) => {
+                    compare_entities_for_field_extrema(
+                        &entity,
+                        current,
+                        target_field,
+                        expected_kind,
+                        direction,
+                    )
+                    .map_err(Self::map_aggregate_field_value_error)?
+                        == Ordering::Less
+                }
+                None => true,
+            };
+            if candidate_replaces {
+                selected = Some((id, entity));
+                if selected_was_empty && matches!(kind, AggregateKind::Min) {
+                    // MIN(field) under ascending index-leading traversal is resolved
+                    // by the first in-window existing row.
+                    break;
+                }
+                continue;
+            }
+
+            let Some((_, current)) = selected.as_ref() else {
+                continue;
+            };
+            let field_order =
+                compare_entities_by_orderable_field(&entity, current, target_field, expected_kind)
+                    .map_err(Self::map_aggregate_field_value_error)?;
+            let directional_field_order = apply_aggregate_direction(field_order, direction);
+
+            // Once traversal leaves the winning field-value group, the ordered
+            // stream cannot produce a better extrema candidate.
+            if directional_field_order == Ordering::Greater {
+                break;
+            }
+        }
+
+        let selected_id = selected.map(|(id, _)| id);
+        let output = match kind {
+            AggregateKind::Min => AggregateOutput::Min(selected_id),
+            AggregateKind::Max => AggregateOutput::Max(selected_id),
+            AggregateKind::Count
+            | AggregateKind::Exists
+            | AggregateKind::First
+            | AggregateKind::Last => {
+                return Err(InternalError::query_executor_invariant(
+                    "field-extrema fold reached non-extrema terminal",
+                ));
+            }
+        };
+
+        Ok((output, keys_scanned))
+    }
+
+    // Load one entity for field-extrema stream folding while preserving read
+    // consistency classification behavior.
+    fn read_entity_for_field_extrema(
+        ctx: &Context<'_, E>,
+        consistency: ReadConsistency,
+        key: &crate::db::data::DataKey,
+    ) -> Result<Option<E>, InternalError> {
+        let decode_row = |row| {
+            let mut decoded = Context::<E>::deserialize_rows(vec![(key.clone(), row)])?;
+            let Some((_, entity)) = decoded.pop() else {
+                return Err(InternalError::query_executor_invariant(
+                    "field-extrema row decode expected one decoded entity",
+                ));
+            };
+
+            Ok(entity)
+        };
+        match consistency {
+            ReadConsistency::Strict => {
+                let row = ctx.read_strict(key)?;
+                Ok(Some(decode_row(row)?))
+            }
+            ReadConsistency::MissingOk => match ctx.read(key) {
+                Ok(row) => Ok(Some(decode_row(row)?)),
+                Err(err) if err.is_not_found() => Ok(None),
+                Err(err) => Err(err),
+            },
+        }
+    }
+
+    fn field_extrema_aggregate_direction(kind: AggregateKind) -> Result<Direction, InternalError> {
+        match kind {
+            AggregateKind::Min => Ok(Direction::Asc),
+            AggregateKind::Max => Ok(Direction::Desc),
+            AggregateKind::Count
+            | AggregateKind::Exists
+            | AggregateKind::First
+            | AggregateKind::Last => Err(InternalError::query_executor_invariant(
+                "field-target aggregate direction requires MIN/MAX terminal",
+            )),
+        }
+    }
+
+    // Map field-target aggregate extraction/comparison failures into taxonomy-correct
+    // execution errors.
+    fn map_aggregate_field_value_error(err: AggregateFieldValueError) -> InternalError {
+        let message = err.to_string();
+        match err {
+            AggregateFieldValueError::UnknownField { .. }
+            | AggregateFieldValueError::UnsupportedFieldKind { .. } => {
+                InternalError::executor_unsupported(message)
+            }
+            AggregateFieldValueError::MissingFieldValue { .. }
+            | AggregateFieldValueError::FieldValueTypeMismatch { .. }
+            | AggregateFieldValueError::IncomparableFieldValues { .. } => {
+                InternalError::query_executor_invariant(message)
             }
         }
     }

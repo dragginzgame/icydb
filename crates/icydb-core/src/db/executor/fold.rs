@@ -64,12 +64,6 @@ pub(in crate::db::executor) enum AggregateSpecSupportError {
         kind: AggregateKind,
         target_field: String,
     },
-
-    #[error("field-target aggregates are not yet supported in 0.24.x: {kind:?}({target_field})")]
-    FieldTargetNotYetSupported {
-        kind: AggregateKind,
-        target_field: String,
-    },
 }
 
 impl AggregateSpec {
@@ -120,11 +114,7 @@ impl AggregateSpec {
                 target_field: target_field.to_string(),
             });
         }
-
-        Err(AggregateSpecSupportError::FieldTargetNotYetSupported {
-            kind: self.kind,
-            target_field: target_field.to_string(),
-        })
+        Ok(())
     }
 }
 
@@ -562,15 +552,8 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_spec_support_rejects_field_target_extrema_as_not_yet_supported() {
+    fn aggregate_spec_support_accepts_field_target_extrema() {
         let spec = AggregateSpec::for_target_field(AggregateKind::Min, "rank");
-        let err = spec
-            .ensure_supported_for_execution()
-            .expect_err("field-target MIN should be gated behind unsupported taxonomy");
-
-        assert!(matches!(
-            err,
-            AggregateSpecSupportError::FieldTargetNotYetSupported { .. }
-        ));
+        assert!(spec.ensure_supported_for_execution().is_ok());
     }
 }

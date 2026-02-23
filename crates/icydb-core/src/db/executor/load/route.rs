@@ -233,12 +233,12 @@ pub(super) enum FieldExtremaIneligibilityReason {
     UnknownTargetField,
     UnsupportedFieldType,
     DistinctNotSupported,
+    PageLimitNotSupported,
     OffsetNotSupported,
     CompositePathNotSupported,
     NoMatchingIndex,
     StreamingAccessShapeNotSupported,
     DescReverseTraversalNotSupported,
-    FeatureDisabled,
 }
 
 ///
@@ -351,6 +351,7 @@ where
     }
 
     // Build canonical execution routing for aggregate execution.
+    #[cfg(test)]
     pub(super) fn build_execution_route_plan_for_aggregate(
         plan: &LogicalPlan<E::Key>,
         kind: AggregateKind,
@@ -671,6 +672,9 @@ where
         direction: Direction,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
+        if spec.target_field().is_some() {
+            return None;
+        }
         let kind = spec.kind();
         if !matches!(
             kind,
@@ -742,7 +746,10 @@ where
     }
 
     // Shared scaffolding for future field-extrema eligibility routing.
-    // Contract for 0.24.x: feature remains disabled with explicit reason diagnostics.
+    // Contract:
+    // - field-extrema fast path is enabled only for streaming-safe index-leading
+    //   access shapes with full-window semantics.
+    // - unsupported shapes return explicit route-owned reasons.
     fn assess_field_extrema_fast_path_eligibility(
         plan: &LogicalPlan<E::Key>,
         direction: Direction,
@@ -834,10 +841,16 @@ where
                 ),
             };
         }
+        if plan.page.as_ref().is_some_and(|page| page.limit.is_some()) {
+            return FieldExtremaEligibility {
+                eligible: false,
+                ineligibility_reason: Some(FieldExtremaIneligibilityReason::PageLimitNotSupported),
+            };
+        }
 
         FieldExtremaEligibility {
-            eligible: false,
-            ineligibility_reason: Some(FieldExtremaIneligibilityReason::FeatureDisabled),
+            eligible: true,
+            ineligibility_reason: None,
         }
     }
 
@@ -1207,34 +1220,37 @@ mod tests {
     }
 
     #[test]
-    fn route_matrix_field_extrema_capability_flags_are_scaffolded_off() {
-        let plan = field_extrema_index_range_plan(OrderDirection::Asc, 0, false);
+    fn route_matrix_field_extrema_capability_flags_enable_for_eligible_shapes() {
+        let mut min_plan =
+            LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        min_plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+        let mut max_plan =
+            LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        max_plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Desc)],
+        });
 
         let min_route =
             LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
-                &plan,
-                AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+                &min_plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "id"),
                 Direction::Asc,
             );
         let max_route =
             LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
-                &plan,
-                AggregateSpec::for_target_field(AggregateKind::Max, "rank"),
-                Direction::Asc,
+                &max_plan,
+                AggregateSpec::for_target_field(AggregateKind::Max, "id"),
+                Direction::Desc,
             );
 
-        assert!(!min_route.field_min_fast_path_eligible());
+        assert!(min_route.field_min_fast_path_eligible());
         assert!(!min_route.field_max_fast_path_eligible());
         assert!(!max_route.field_min_fast_path_eligible());
-        assert!(!max_route.field_max_fast_path_eligible());
-        assert_eq!(
-            min_route.field_min_fast_path_ineligibility_reason(),
-            Some(FieldExtremaIneligibilityReason::StreamingAccessShapeNotSupported)
-        );
-        assert_eq!(
-            max_route.field_max_fast_path_ineligibility_reason(),
-            Some(FieldExtremaIneligibilityReason::StreamingAccessShapeNotSupported)
-        );
+        assert!(max_route.field_max_fast_path_eligible());
+        assert_eq!(min_route.field_min_fast_path_ineligibility_reason(), None);
+        assert_eq!(max_route.field_max_fast_path_ineligibility_reason(), None);
     }
 
     #[test]
@@ -1369,7 +1385,7 @@ mod tests {
     }
 
     #[test]
-    fn route_matrix_field_extrema_reason_reports_feature_disabled_for_pk_target_shape() {
+    fn route_matrix_field_extrema_reason_rejects_page_limit_shape() {
         let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
         plan.order = Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
@@ -1388,7 +1404,7 @@ mod tests {
 
         assert_eq!(
             route.field_min_fast_path_ineligibility_reason(),
-            Some(FieldExtremaIneligibilityReason::FeatureDisabled)
+            Some(FieldExtremaIneligibilityReason::PageLimitNotSupported)
         );
     }
 
@@ -1417,10 +1433,7 @@ mod tests {
             );
 
         assert_eq!(field_route.execution_mode, terminal_route.execution_mode);
-        assert_eq!(
-            field_route.scan_hints.physical_fetch_hint,
-            terminal_route.scan_hints.physical_fetch_hint
-        );
+        assert_eq!(field_route.scan_hints.physical_fetch_hint, None);
         assert_eq!(
             field_route.scan_hints.load_scan_budget_hint,
             terminal_route.scan_hints.load_scan_budget_hint
@@ -1465,10 +1478,7 @@ mod tests {
             unknown_field_route.execution_mode,
             terminal_route.execution_mode
         );
-        assert_eq!(
-            unknown_field_route.scan_hints.physical_fetch_hint,
-            terminal_route.scan_hints.physical_fetch_hint
-        );
+        assert_eq!(unknown_field_route.scan_hints.physical_fetch_hint, None);
         assert_eq!(
             unknown_field_route.scan_hints.load_scan_budget_hint,
             terminal_route.scan_hints.load_scan_budget_hint
@@ -1510,10 +1520,7 @@ mod tests {
             );
 
         assert_eq!(field_route.execution_mode, terminal_route.execution_mode);
-        assert_eq!(
-            field_route.scan_hints.physical_fetch_hint,
-            terminal_route.scan_hints.physical_fetch_hint
-        );
+        assert_eq!(field_route.scan_hints.physical_fetch_hint, None);
         assert_eq!(
             field_route.scan_hints.load_scan_budget_hint,
             terminal_route.scan_hints.load_scan_budget_hint

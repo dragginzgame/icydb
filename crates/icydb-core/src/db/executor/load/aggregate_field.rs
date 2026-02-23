@@ -5,6 +5,7 @@ use crate::{
         field::{FieldKind, FieldModel},
     },
     traits::{EntityKind, EntityValue},
+    types::Decimal,
     value::Value,
 };
 use std::cmp::Ordering;
@@ -130,6 +131,41 @@ pub(in crate::db::executor) const fn field_kind_supports_aggregate_ordering(
     }
 }
 
+/// Return true when the field kind supports numeric aggregate arithmetic.
+#[must_use]
+pub(in crate::db::executor) const fn field_kind_supports_numeric_aggregation(
+    kind: &FieldKind,
+) -> bool {
+    match kind {
+        FieldKind::Decimal { .. }
+        | FieldKind::Duration
+        | FieldKind::Float32
+        | FieldKind::Float64
+        | FieldKind::Int
+        | FieldKind::Int128
+        | FieldKind::IntBig
+        | FieldKind::Timestamp
+        | FieldKind::Uint
+        | FieldKind::Uint128
+        | FieldKind::UintBig => true,
+        FieldKind::Relation { key_kind, .. } => field_kind_supports_numeric_aggregation(key_kind),
+        FieldKind::Account
+        | FieldKind::Blob
+        | FieldKind::Bool
+        | FieldKind::Date
+        | FieldKind::Enum { .. }
+        | FieldKind::List(_)
+        | FieldKind::Map { .. }
+        | FieldKind::Principal
+        | FieldKind::Set(_)
+        | FieldKind::Structured { .. }
+        | FieldKind::Subaccount
+        | FieldKind::Text
+        | FieldKind::Ulid
+        | FieldKind::Unit => false,
+    }
+}
+
 /// Validate one aggregate target field against schema/runtime ordering constraints.
 pub(in crate::db::executor) fn validate_orderable_aggregate_target_field<E: EntityKind>(
     target_field: &str,
@@ -140,6 +176,25 @@ pub(in crate::db::executor) fn validate_orderable_aggregate_target_field<E: Enti
         });
     };
     if !field_kind_supports_aggregate_ordering(&field.kind) {
+        return Err(AggregateFieldValueError::UnsupportedFieldKind {
+            field: target_field.to_string(),
+            kind: field.kind,
+        });
+    }
+
+    Ok(field.kind)
+}
+
+/// Validate one aggregate target field against numeric aggregate constraints.
+pub(in crate::db::executor) fn validate_numeric_aggregate_target_field<E: EntityKind>(
+    target_field: &str,
+) -> Result<FieldKind, AggregateFieldValueError> {
+    let Some(field) = field_model_by_name(E::MODEL, target_field) else {
+        return Err(AggregateFieldValueError::UnknownField {
+            field: target_field.to_string(),
+        });
+    };
+    if !field_kind_supports_numeric_aggregation(&field.kind) {
         return Err(AggregateFieldValueError::UnsupportedFieldKind {
             field: target_field.to_string(),
             kind: field.kind,
@@ -170,6 +225,30 @@ pub(in crate::db::executor) fn extract_orderable_field_value<E: EntityKind + Ent
     }
 
     Ok(value)
+}
+
+/// Extract one numeric field value as `Decimal` for aggregate arithmetic.
+pub(in crate::db::executor) fn extract_numeric_field_decimal<E: EntityKind + EntityValue>(
+    entity: &E,
+    target_field: &str,
+    expected_kind: FieldKind,
+) -> Result<Decimal, AggregateFieldValueError> {
+    let value = extract_orderable_field_value(entity, target_field, expected_kind)?;
+    if !value.supports_numeric_coercion() {
+        return Err(AggregateFieldValueError::UnsupportedFieldKind {
+            field: target_field.to_string(),
+            kind: expected_kind,
+        });
+    }
+    let Some(decimal) = value.to_numeric_decimal() else {
+        return Err(AggregateFieldValueError::FieldValueTypeMismatch {
+            field: target_field.to_string(),
+            kind: expected_kind,
+            value: Box::new(value),
+        });
+    };
+
+    Ok(decimal)
 }
 
 /// Compare two extracted field values under strict same-variant ordering semantics.
@@ -252,9 +331,14 @@ mod tests {
     use super::{
         AggregateFieldValueError, apply_aggregate_direction, compare_entities_by_orderable_field,
         compare_entities_for_field_extrema, compare_orderable_field_values,
+        extract_numeric_field_decimal, validate_numeric_aggregate_target_field,
         validate_orderable_aggregate_target_field,
     };
-    use crate::{model::field::FieldKind, types::Ulid, value::Value};
+    use crate::{
+        model::field::FieldKind,
+        types::{Decimal, Ulid},
+        value::Value,
+    };
     use icydb_derive::FieldValues;
     use serde::{Deserialize, Serialize};
     use std::cmp::Ordering;
@@ -439,5 +523,39 @@ mod tests {
         .expect("field-extrema comparator should apply canonical PK tie-break");
 
         assert_eq!(ordering, Ordering::Greater);
+    }
+
+    #[test]
+    fn validate_numeric_target_field_accepts_numeric_field() {
+        let kind = validate_numeric_aggregate_target_field::<AggregateFieldEntity>("rank")
+            .expect("numeric target field should be accepted");
+
+        assert!(matches!(kind, FieldKind::Uint));
+    }
+
+    #[test]
+    fn validate_numeric_target_field_rejects_non_numeric_field() {
+        let err = validate_numeric_aggregate_target_field::<AggregateFieldEntity>("label")
+            .expect_err("text field should be rejected for numeric aggregates");
+
+        assert!(matches!(
+            err,
+            AggregateFieldValueError::UnsupportedFieldKind { .. }
+        ));
+    }
+
+    #[test]
+    fn extract_numeric_field_decimal_coerces_numeric_values() {
+        let entity = AggregateFieldEntity {
+            id: Ulid::from_u128(30),
+            rank: 42,
+            label: "num".into(),
+            scores: vec![1, 2],
+        };
+
+        let value = extract_numeric_field_decimal(&entity, "rank", FieldKind::Uint)
+            .expect("numeric field extraction should succeed");
+
+        assert_eq!(value, Decimal::from_num(42u64).expect("u64 -> decimal"));
     }
 }
