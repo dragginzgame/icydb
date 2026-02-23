@@ -185,6 +185,19 @@ pub(in crate::db::executor) fn validate_orderable_aggregate_target_field<E: Enti
     Ok(field.kind)
 }
 
+/// Validate one aggregate target field exists and return its declared runtime kind.
+pub(in crate::db::executor) fn validate_any_aggregate_target_field<E: EntityKind>(
+    target_field: &str,
+) -> Result<FieldKind, AggregateFieldValueError> {
+    let Some(field) = field_model_by_name(E::MODEL, target_field) else {
+        return Err(AggregateFieldValueError::UnknownField {
+            field: target_field.to_string(),
+        });
+    };
+
+    Ok(field.kind)
+}
+
 /// Validate one aggregate target field against numeric aggregate constraints.
 pub(in crate::db::executor) fn validate_numeric_aggregate_target_field<E: EntityKind>(
     target_field: &str,

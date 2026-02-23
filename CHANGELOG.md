@@ -5,6 +5,52 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.25.2] – 2026-02-23 - Field Aggregate Additions
+
+### 📝 Summary
+
+* Adds three new field aggregate terminals in the `0.25.x` line: `median_by`, `count_distinct_by`, and `min_max_by`.
+
+### ➕ Added
+
+* Added `median_by("field")` to return the entity id at the median position in deterministic field order (`field asc`, then primary key asc). For even-length windows, this release uses the lower-median policy.
+* Added `count_distinct_by("field")` to count unique field values in the effective result window. This terminal supports non-orderable fields (for example list/structured values) because it relies on value equality, not ordering; unknown fields remain explicit `Unsupported` errors.
+* Added `min_max_by("field")` to return `Option<(Id<E>, Id<E>)>` in one terminal call (`None` for empty windows), with deterministic primary-key tie-breaks.
+
+```rust
+let median_rank_id = session
+    .load::<User>()
+    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
+    .order_by("id")
+    .median_by("rank")?;
+
+let distinct_ranks = session
+    .load::<User>()
+    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
+    .order_by("id")
+    .count_distinct_by("rank")?;
+
+let min_max_rank_ids = session
+    .load::<User>()
+    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
+    .order_by("id")
+    .min_max_by("rank")?;
+```
+
+### 🔧 Changed
+
+* These new terminals execute via canonical window scan and do not introduce new fast-path eligibility.
+* The query `DISTINCT` modifier remains ineligible for field-extrema fast paths. For `count_distinct_by`, `DISTINCT` only changes the effective window row set; field-distinct counting semantics are unchanged.
+
+### 🧪 Testing
+
+* Expanded the field-terminal parity matrix to include all three new terminals across DISTINCT/windowed ASC and DESC query shapes.
+* Added focused regressions for lower-median even-window behavior, distinct counting on non-orderable fields, unknown-field rejection before scan-budget consumption, and session-level parity.
+* Added a metamorphic `min_max_by(field) == min_by(field).zip(max_by(field))` matrix across DISTINCT/direction/window variants, plus explicit `count_distinct_by` effective-window semantics and expanded error-classification coverage for new terminals.
+* Added invariant tests for `min_max_by` return shape (`None` on empty windows, same id pair for single-row windows) and a median direction-invariance parity check.
+
+---
+
 ## [0.25.1] – 2026-02-23 - Aggregate Stabilization
 
 ### 📝 Summary

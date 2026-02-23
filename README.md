@@ -116,7 +116,7 @@ For deeper rules and behavior:
 
 ### Execution & Aggregate Guarantees (0.25 milestone line)
 
-- Aggregate terminals include field-based operations (`min_by`, `max_by`, `nth_by`, `sum_by`, `avg_by`) with explicit capability boundaries.
+- Aggregate terminals include field-based operations (`min_by`, `max_by`, `nth_by`, `sum_by`, `avg_by`, `median_by`, `count_distinct_by`, `min_max_by`) with explicit capability boundaries.
 - Field-extrema tie-break behavior is deterministic: `(field_value, primary_key_asc)`.
 - Field terminal continuation behavior is explicit: non-paged terminals reject cursor tokens.
 - DISTINCT behavior is explicit per terminal, with canonical fallback where field-extrema fast paths are ineligible.
@@ -125,6 +125,31 @@ Reference docs:
 
 - `docs/design/0.25-aggregate-expansion.md`
 - `docs/status/0.25-status.md`
+
+Field aggregate examples:
+
+```rust
+use icydb::db;
+use icydb::prelude::*;
+
+let median_rank_id = db!()
+    .load::<User>()
+    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
+    .order_by("id")
+    .median_by("rank")?;
+
+let distinct_ranks = db!()
+    .load::<User>()
+    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
+    .order_by("id")
+    .count_distinct_by("rank")?;
+
+let min_max_rank_ids = db!()
+    .load::<User>()
+    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
+    .order_by("id")
+    .min_max_by("rank")?;
+```
 
 ### Batch Writes: Choose Your Lane
 

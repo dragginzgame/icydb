@@ -13,7 +13,9 @@ use crate::{
                 aggregate_field::{
                     AggregateFieldValueError, apply_aggregate_direction,
                     compare_entities_by_orderable_field, compare_entities_for_field_extrema,
-                    extract_numeric_field_decimal, validate_numeric_aggregate_target_field,
+                    compare_orderable_field_values, extract_numeric_field_decimal,
+                    extract_orderable_field_value, validate_any_aggregate_target_field,
+                    validate_numeric_aggregate_target_field,
                     validate_orderable_aggregate_target_field,
                 },
                 aggregate_guard::{
@@ -38,6 +40,7 @@ use crate::{
     model::field::FieldKind,
     traits::{EntityKind, EntityValue},
     types::{Decimal, Id},
+    value::Value,
 };
 use std::cmp::Ordering;
 
@@ -61,6 +64,8 @@ enum NumericFieldAggregateKind {
     Sum,
     Avg,
 }
+
+type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
 
 ///
 /// AggregateFastPathInputs
@@ -204,6 +209,36 @@ where
             target_field.into().as_str(),
             NumericFieldAggregateKind::Avg,
         )
+    }
+
+    pub(in crate::db) fn aggregate_median_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+    ) -> Result<Option<Id<E>>, InternalError> {
+        let target_field = target_field.into();
+
+        self.execute_median_field_aggregate(plan, target_field.as_str())
+    }
+
+    pub(in crate::db) fn aggregate_count_distinct_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+    ) -> Result<u32, InternalError> {
+        let target_field = target_field.into();
+
+        self.execute_count_distinct_field_aggregate(plan, target_field.as_str())
+    }
+
+    pub(in crate::db) fn aggregate_min_max_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+    ) -> Result<MinMaxByIds<E>, InternalError> {
+        let target_field = target_field.into();
+
+        self.execute_min_max_field_aggregate(plan, target_field.as_str())
     }
 
     pub(in crate::db) fn aggregate_first(
@@ -475,6 +510,52 @@ where
         Self::aggregate_nth_field_from_materialized(response, target_field, expected_kind, nth)
     }
 
+    // Execute one field-target median aggregate (`median(field)`) via
+    // canonical materialized fallback semantics.
+    fn execute_median_field_aggregate(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: &str,
+    ) -> Result<Option<Id<E>>, InternalError> {
+        let expected_kind = validate_orderable_aggregate_target_field::<E>(target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+        let response = self.execute(plan)?;
+
+        Self::aggregate_median_field_from_materialized(response, target_field, expected_kind)
+    }
+
+    // Execute one field-target distinct-count aggregate
+    // (`count_distinct(field)`) via canonical materialized fallback semantics.
+    fn execute_count_distinct_field_aggregate(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: &str,
+    ) -> Result<u32, InternalError> {
+        let expected_kind = validate_any_aggregate_target_field::<E>(target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+        let response = self.execute(plan)?;
+
+        Self::aggregate_count_distinct_field_from_materialized(
+            response,
+            target_field,
+            expected_kind,
+        )
+    }
+
+    // Execute one field-target paired extrema aggregate (`min_max(field)`)
+    // via canonical materialized fallback semantics.
+    fn execute_min_max_field_aggregate(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: &str,
+    ) -> Result<MinMaxByIds<E>, InternalError> {
+        let expected_kind = validate_orderable_aggregate_target_field::<E>(target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+        let response = self.execute(plan)?;
+
+        Self::aggregate_min_max_field_from_materialized(response, target_field, expected_kind)
+    }
+
     // ------------------------------------------------------------------
     // Fast-path dispatch
     // ------------------------------------------------------------------
@@ -706,28 +787,11 @@ where
         expected_kind: FieldKind,
         nth: usize,
     ) -> Result<Option<Id<E>>, InternalError> {
-        // Phase 1: materialize rows into deterministic field ordering so
-        // position selection is stable under ties.
-        let mut ordered_rows: Vec<(Id<E>, E)> = Vec::new();
-        for candidate in response {
-            let mut insert_index = ordered_rows.len();
-            for (index, (_, current)) in ordered_rows.iter().enumerate() {
-                let ordering = compare_entities_for_field_extrema(
-                    &candidate.1,
-                    current,
-                    target_field,
-                    expected_kind,
-                    Direction::Asc,
-                )
-                .map_err(Self::map_aggregate_field_value_error)?;
-                if ordering == Ordering::Less {
-                    insert_index = index;
-                    break;
-                }
-            }
-
-            ordered_rows.insert(insert_index, candidate);
-        }
+        let ordered_rows = Self::ordered_field_projection_from_materialized(
+            response,
+            target_field,
+            expected_kind,
+        )?;
 
         // Phase 2: project the requested ordinal position.
         if nth >= ordered_rows.len() {
@@ -735,6 +799,137 @@ where
         }
 
         Ok(ordered_rows.into_iter().nth(nth).map(|(id, _)| id))
+    }
+
+    // Reduce one materialized response into `median(field)` using deterministic
+    // ordering `(field_value_asc, primary_key_asc)`.
+    // Even-length windows select the lower median for type-agnostic stability.
+    fn aggregate_median_field_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        expected_kind: FieldKind,
+    ) -> Result<Option<Id<E>>, InternalError> {
+        let ordered_rows = Self::ordered_field_projection_from_materialized(
+            response,
+            target_field,
+            expected_kind,
+        )?;
+        if ordered_rows.is_empty() {
+            return Ok(None);
+        }
+
+        let median_index = if ordered_rows.len() % 2 == 0 {
+            ordered_rows.len() / 2 - 1
+        } else {
+            ordered_rows.len() / 2
+        };
+
+        Ok(ordered_rows.into_iter().nth(median_index).map(|(id, _)| id))
+    }
+
+    // Reduce one materialized response into `count_distinct(field)` by
+    // counting unique typed field values across the effective response window.
+    fn aggregate_count_distinct_field_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        expected_kind: FieldKind,
+    ) -> Result<u32, InternalError> {
+        let mut distinct_values: Vec<Value> = Vec::new();
+        let mut distinct_count = 0u32;
+        for (_, entity) in response {
+            let value = extract_orderable_field_value(&entity, target_field, expected_kind)
+                .map_err(Self::map_aggregate_field_value_error)?;
+            if distinct_values.iter().any(|existing| existing == &value) {
+                continue;
+            }
+
+            distinct_values.push(value);
+            distinct_count = distinct_count.saturating_add(1);
+        }
+
+        Ok(distinct_count)
+    }
+
+    // Reduce one materialized response into `(min_by(field), max_by(field))`
+    // using one pass over the response window.
+    fn aggregate_min_max_field_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        expected_kind: FieldKind,
+    ) -> Result<MinMaxByIds<E>, InternalError> {
+        let mut min_candidate: Option<(Id<E>, Value)> = None;
+        let mut max_candidate: Option<(Id<E>, Value)> = None;
+        for (id, entity) in response {
+            let value = extract_orderable_field_value(&entity, target_field, expected_kind)
+                .map_err(Self::map_aggregate_field_value_error)?;
+            let replace_min = match min_candidate.as_ref() {
+                Some((current_id, current_value)) => {
+                    let ordering =
+                        compare_orderable_field_values(target_field, &value, current_value)
+                            .map_err(Self::map_aggregate_field_value_error)?;
+                    ordering == Ordering::Less
+                        || (ordering == Ordering::Equal && id.key() < current_id.key())
+                }
+                None => true,
+            };
+            if replace_min {
+                min_candidate = Some((id, value.clone()));
+            }
+
+            let replace_max = match max_candidate.as_ref() {
+                Some((current_id, current_value)) => {
+                    let ordering =
+                        compare_orderable_field_values(target_field, &value, current_value)
+                            .map_err(Self::map_aggregate_field_value_error)?;
+                    ordering == Ordering::Greater
+                        || (ordering == Ordering::Equal && id.key() < current_id.key())
+                }
+                None => true,
+            };
+            if replace_max {
+                max_candidate = Some((id, value));
+            }
+        }
+
+        let Some((min_id, _)) = min_candidate else {
+            return Ok(None);
+        };
+        let Some((max_id, _)) = max_candidate else {
+            return Err(InternalError::query_executor_invariant(
+                "min_max(field) reduction produced a min id without a max id",
+            ));
+        };
+
+        Ok(Some((min_id, max_id)))
+    }
+
+    // Project one response window into deterministic field ordering
+    // `(field_value_asc, primary_key_asc)`.
+    fn ordered_field_projection_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        expected_kind: FieldKind,
+    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
+        let mut ordered_rows: Vec<(Id<E>, Value)> = Vec::new();
+        for (id, entity) in response {
+            let value = extract_orderable_field_value(&entity, target_field, expected_kind)
+                .map_err(Self::map_aggregate_field_value_error)?;
+            let mut insert_index = ordered_rows.len();
+            for (index, (current_id, current_value)) in ordered_rows.iter().enumerate() {
+                let ordering = compare_orderable_field_values(target_field, &value, current_value)
+                    .map_err(Self::map_aggregate_field_value_error)?;
+                if ordering == Ordering::Less
+                    || (ordering == Ordering::Equal && id.key() < current_id.key())
+                {
+                    insert_index = index;
+                    break;
+                }
+            }
+
+            ordered_rows.insert(insert_index, (id, value));
+        }
+
+        Ok(ordered_rows)
     }
 
     // Streaming reducer for index-leading field extrema. This keeps execution in

@@ -14,6 +14,8 @@ use crate::{
     types::{Decimal, Id},
 };
 
+type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
+
 ///
 /// DbSession
 ///
@@ -317,6 +319,57 @@ impl<C: CanisterKind> DbSession<C> {
         self.with_metrics(|| {
             self.load_executor::<E>()
                 .aggregate_avg_by(plan, target_field)
+        })
+        .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_median_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .aggregate_median_by(plan, target_field)
+        })
+        .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_count_distinct_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<u32, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .aggregate_count_distinct_by(plan, target_field)
+        })
+        .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_min_max_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<MinMaxByIds<E>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .aggregate_min_max_by(plan, target_field)
         })
         .map_err(QueryError::Execute)
     }

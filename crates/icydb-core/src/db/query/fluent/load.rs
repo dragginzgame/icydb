@@ -14,6 +14,8 @@ use crate::{
     types::{Decimal, Id},
 };
 
+type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
+
 ///
 /// FluentLoadQuery
 ///
@@ -326,6 +328,45 @@ where
 
         self.session
             .execute_load_query_avg_by(self.query(), field.as_ref())
+    }
+
+    /// Execute and return the median id by `field` using deterministic ordering
+    /// `(field asc, primary key asc)`.
+    ///
+    /// Even-length windows select the lower median.
+    pub fn median_by(&self, field: impl AsRef<str>) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_median_by(self.query(), field.as_ref())
+    }
+
+    /// Execute and return the number of distinct values for `field` over the
+    /// effective result window.
+    pub fn count_distinct_by(&self, field: impl AsRef<str>) -> Result<u32, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_count_distinct_by(self.query(), field.as_ref())
+    }
+
+    /// Execute and return both `(min_by(field), max_by(field))` in one terminal.
+    ///
+    /// Tie handling is deterministic for both extrema: primary key ascending.
+    pub fn min_max_by(&self, field: impl AsRef<str>) -> Result<MinMaxByIds<E>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_min_max_by(self.query(), field.as_ref())
     }
 
     /// Execute and return the first matching identifier in response order, if any.

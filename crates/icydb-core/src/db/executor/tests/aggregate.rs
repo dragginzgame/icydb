@@ -119,6 +119,17 @@ fn seed_phase_entities(rows: &[(u128, u32)]) {
     }
 }
 
+fn seed_phase_entities_custom(rows: Vec<PhaseEntity>) {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<PhaseEntity>::new(DB, false);
+    for row in rows {
+        save.insert(row)
+            .expect("seed custom phase row save should succeed");
+    }
+}
+
 fn remove_pushdown_row_data(id: u128) {
     let raw_key = DataKey::try_new::<PushdownParityEntity>(Ulid::from_u128(id))
         .expect("pushdown data key should build")
@@ -271,6 +282,8 @@ fn aggregate_id_terminal_parity_cases<E: EntityKind + EntityValue>() -> [Aggrega
 enum FieldAggregateParityValue {
     Id(Option<Id<PushdownParityEntity>>),
     Decimal(Option<Decimal>),
+    Count(u32),
+    IdPair(Option<(Id<PushdownParityEntity>, Id<PushdownParityEntity>)>),
 }
 
 type FieldAggregateParityExpectedFn =
@@ -322,6 +335,50 @@ fn expected_nth_by_rank_id(
     response: &Response<PushdownParityEntity>,
     nth: usize,
 ) -> Option<Id<PushdownParityEntity>> {
+    let ordered = ordered_rank_ids(response);
+
+    ordered.get(nth).copied()
+}
+
+fn expected_median_by_rank_id(
+    response: &Response<PushdownParityEntity>,
+) -> Option<Id<PushdownParityEntity>> {
+    let ordered = ordered_rank_ids(response);
+    if ordered.is_empty() {
+        return None;
+    }
+
+    let median_index = if ordered.len().is_multiple_of(2) {
+        ordered.len() / 2 - 1
+    } else {
+        ordered.len() / 2
+    };
+
+    ordered.get(median_index).copied()
+}
+
+fn expected_count_distinct_by_rank(response: &Response<PushdownParityEntity>) -> u32 {
+    let mut seen_ranks: Vec<u32> = Vec::new();
+    let mut count = 0u32;
+    for (_, entity) in &response.0 {
+        if seen_ranks.iter().any(|existing| existing == &entity.rank) {
+            continue;
+        }
+
+        seen_ranks.push(entity.rank);
+        count = count.saturating_add(1);
+    }
+
+    count
+}
+
+fn expected_min_max_by_rank_ids(
+    response: &Response<PushdownParityEntity>,
+) -> Option<(Id<PushdownParityEntity>, Id<PushdownParityEntity>)> {
+    expected_min_by_rank_id(response).zip(expected_max_by_rank_id(response))
+}
+
+fn ordered_rank_ids(response: &Response<PushdownParityEntity>) -> Vec<Id<PushdownParityEntity>> {
     let mut ordered = response
         .0
         .iter()
@@ -333,7 +390,7 @@ fn expected_nth_by_rank_id(
             .then_with(|| left_id.key().cmp(&right_id.key()))
     });
 
-    ordered.get(nth).map(|(_, id)| *id)
+    ordered.into_iter().map(|(_, id)| id).collect()
 }
 
 fn expected_sum_by_rank(response: &Response<PushdownParityEntity>) -> Option<Decimal> {
@@ -386,6 +443,24 @@ fn field_parity_expected_avg_by_rank(
     FieldAggregateParityValue::Decimal(expected_avg_by_rank(response))
 }
 
+fn field_parity_expected_median_by_rank(
+    response: &Response<PushdownParityEntity>,
+) -> FieldAggregateParityValue {
+    FieldAggregateParityValue::Id(expected_median_by_rank_id(response))
+}
+
+fn field_parity_expected_count_distinct_by_rank(
+    response: &Response<PushdownParityEntity>,
+) -> FieldAggregateParityValue {
+    FieldAggregateParityValue::Count(expected_count_distinct_by_rank(response))
+}
+
+fn field_parity_expected_min_max_by_rank(
+    response: &Response<PushdownParityEntity>,
+) -> FieldAggregateParityValue {
+    FieldAggregateParityValue::IdPair(expected_min_max_by_rank_ids(response))
+}
+
 fn field_parity_actual_min_by_rank(
     load: &LoadExecutor<PushdownParityEntity>,
     plan: ExecutablePlan<PushdownParityEntity>,
@@ -433,7 +508,34 @@ fn field_parity_actual_avg_by_rank(
     ))
 }
 
-fn aggregate_field_terminal_parity_cases() -> [FieldAggregateParityCase; 5] {
+fn field_parity_actual_median_by_rank(
+    load: &LoadExecutor<PushdownParityEntity>,
+    plan: ExecutablePlan<PushdownParityEntity>,
+) -> Result<FieldAggregateParityValue, InternalError> {
+    Ok(FieldAggregateParityValue::Id(
+        load.aggregate_median_by(plan, "rank")?,
+    ))
+}
+
+fn field_parity_actual_count_distinct_by_rank(
+    load: &LoadExecutor<PushdownParityEntity>,
+    plan: ExecutablePlan<PushdownParityEntity>,
+) -> Result<FieldAggregateParityValue, InternalError> {
+    Ok(FieldAggregateParityValue::Count(
+        load.aggregate_count_distinct_by(plan, "rank")?,
+    ))
+}
+
+fn field_parity_actual_min_max_by_rank(
+    load: &LoadExecutor<PushdownParityEntity>,
+    plan: ExecutablePlan<PushdownParityEntity>,
+) -> Result<FieldAggregateParityValue, InternalError> {
+    Ok(FieldAggregateParityValue::IdPair(
+        load.aggregate_min_max_by(plan, "rank")?,
+    ))
+}
+
+fn aggregate_field_terminal_parity_cases() -> [FieldAggregateParityCase; 8] {
     [
         FieldAggregateParityCase {
             label: "min_by(rank)",
@@ -459,6 +561,21 @@ fn aggregate_field_terminal_parity_cases() -> [FieldAggregateParityCase; 5] {
             label: "avg_by(rank)",
             expected: field_parity_expected_avg_by_rank,
             actual: field_parity_actual_avg_by_rank,
+        },
+        FieldAggregateParityCase {
+            label: "median_by(rank)",
+            expected: field_parity_expected_median_by_rank,
+            actual: field_parity_actual_median_by_rank,
+        },
+        FieldAggregateParityCase {
+            label: "count_distinct_by(rank)",
+            expected: field_parity_expected_count_distinct_by_rank,
+            actual: field_parity_actual_count_distinct_by_rank,
+        },
+        FieldAggregateParityCase {
+            label: "min_max_by(rank)",
+            expected: field_parity_expected_min_max_by_rank,
+            actual: field_parity_actual_min_max_by_rank,
         },
     ]
 }
@@ -1062,6 +1179,496 @@ fn aggregate_field_target_nth_boundary_matrix_respects_window_and_out_of_range()
 }
 
 #[test]
+fn aggregate_field_target_median_even_window_uses_lower_policy() {
+    seed_pushdown_entities(&[
+        (8_181, 7, 10),
+        (8_182, 7, 20),
+        (8_183, 7, 30),
+        (8_184, 7, 40),
+        (8_185, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .limit(4)
+            .plan()
+            .expect("field-target median plan should build")
+    };
+
+    let expected_response = load
+        .execute(build_plan())
+        .expect("field-target median baseline execute should succeed");
+    let median = load
+        .aggregate_median_by(build_plan(), "rank")
+        .expect("median_by(rank) should succeed");
+
+    assert_eq!(
+        median,
+        expected_median_by_rank_id(&expected_response),
+        "median_by(rank) should match deterministic parity projection"
+    );
+    assert_eq!(
+        median.map(|id| id.key()),
+        Some(Ulid::from_u128(8_182)),
+        "median_by(rank) should use lower-median policy for even-length windows"
+    );
+}
+
+#[test]
+fn aggregate_field_target_count_distinct_counts_window_values() {
+    seed_pushdown_entities(&[
+        (8_191, 7, 10),
+        (8_192, 7, 10),
+        (8_193, 7, 20),
+        (8_194, 7, 30),
+        (8_195, 7, 30),
+        (8_196, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .limit(5)
+            .plan()
+            .expect("field-target count-distinct plan should build")
+    };
+
+    let expected_response = load
+        .execute(build_plan())
+        .expect("field-target count-distinct baseline execute should succeed");
+    let distinct_count = load
+        .aggregate_count_distinct_by(build_plan(), "rank")
+        .expect("count_distinct_by(rank) should succeed");
+    let empty_window_count = load
+        .aggregate_count_distinct_by(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by_desc("id")
+                .offset(50)
+                .limit(5)
+                .plan()
+                .expect("empty-window count-distinct plan should build"),
+            "rank",
+        )
+        .expect("empty-window count_distinct_by(rank) should succeed");
+
+    assert_eq!(
+        distinct_count,
+        expected_count_distinct_by_rank(&expected_response),
+        "count_distinct_by(rank) should match distinct values in the effective window"
+    );
+    assert_eq!(
+        empty_window_count, 0,
+        "count_distinct_by(rank) should return zero for empty windows"
+    );
+}
+
+#[test]
+fn aggregate_field_target_count_distinct_supports_non_orderable_fields() {
+    seed_phase_entities(&[(8_197, 10), (8_198, 20), (8_199, 10)]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+
+    let distinct_count = load
+        .aggregate_count_distinct_by(
+            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .plan()
+                .expect("non-orderable count-distinct plan should build"),
+            "tags",
+        )
+        .expect("count_distinct_by(tags) should succeed");
+
+    assert_eq!(
+        distinct_count, 2,
+        "count_distinct_by(tags) should support structured field equality"
+    );
+}
+
+#[test]
+fn aggregate_field_target_count_distinct_list_order_semantics_are_stable() {
+    seed_phase_entities_custom(vec![
+        PhaseEntity {
+            id: Ulid::from_u128(819_701),
+            opt_rank: Some(10),
+            rank: 10,
+            tags: vec![1, 2],
+            label: "a".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(819_702),
+            opt_rank: Some(20),
+            rank: 20,
+            tags: vec![2, 1],
+            label: "b".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(819_703),
+            opt_rank: Some(30),
+            rank: 30,
+            tags: vec![1, 2],
+            label: "c".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(819_704),
+            opt_rank: Some(40),
+            rank: 40,
+            tags: vec![1, 2, 3],
+            label: "d".to_string(),
+        },
+    ]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+
+    let distinct_count = load
+        .aggregate_count_distinct_by(
+            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .plan()
+                .expect("list-order count-distinct plan should build"),
+            "tags",
+        )
+        .expect("count_distinct_by(tags) should succeed");
+
+    assert_eq!(
+        distinct_count, 3,
+        "count_distinct_by(tags) should preserve list-order equality semantics"
+    );
+}
+
+#[test]
+fn aggregate_field_target_count_distinct_distinct_modifier_tracks_effective_window_rows() {
+    seed_pushdown_entities(&[
+        (8_1971, 7, 10),
+        (8_1972, 7, 20),
+        (8_1973, 7, 30),
+        (8_1974, 7, 40),
+        (8_1975, 8, 50),
+        (8_1976, 8, 60),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let overlapping_predicate = Predicate::Or(vec![
+        id_in_predicate(&[8_1971, 8_1972, 8_1973, 8_1974]),
+        id_in_predicate(&[8_1972, 8_1973, 8_1975, 8_1976]),
+    ]);
+    let build_query = |distinct: bool| {
+        let mut query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(overlapping_predicate.clone());
+        if distinct {
+            query = query.distinct();
+        }
+
+        query.order_by_desc("id").offset(1).limit(4)
+    };
+
+    let non_distinct_response = load
+        .execute(
+            build_query(false)
+                .plan()
+                .expect("non-distinct count-distinct baseline plan should build"),
+        )
+        .expect("non-distinct count-distinct baseline execute should succeed");
+    let distinct_response = load
+        .execute(
+            build_query(true)
+                .plan()
+                .expect("distinct count-distinct baseline plan should build"),
+        )
+        .expect("distinct count-distinct baseline execute should succeed");
+
+    let non_distinct_count = load
+        .aggregate_count_distinct_by(
+            build_query(false)
+                .plan()
+                .expect("non-distinct count-distinct plan should build"),
+            "rank",
+        )
+        .expect("non-distinct count_distinct_by(rank) should succeed");
+    let distinct_count = load
+        .aggregate_count_distinct_by(
+            build_query(true)
+                .plan()
+                .expect("distinct count-distinct plan should build"),
+            "rank",
+        )
+        .expect("distinct count_distinct_by(rank) should succeed");
+
+    assert_eq!(
+        non_distinct_count,
+        expected_count_distinct_by_rank(&non_distinct_response),
+        "non-distinct count_distinct_by(rank) should match effective-window field distinct count"
+    );
+    assert_eq!(
+        distinct_count,
+        expected_count_distinct_by_rank(&distinct_response),
+        "distinct count_distinct_by(rank) should match effective-window field distinct count"
+    );
+}
+
+#[test]
+fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
+    seed_pushdown_entities(&[(8_1981, 7, 10), (8_1982, 7, 20), (8_1983, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .order_by("id")
+            .plan()
+            .expect("unknown-field terminal plan should build")
+    };
+
+    let (median_result, median_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_median_by(build_plan(), "missing_field")
+        });
+    let Err(median_err) = median_result else {
+        panic!("median_by(missing_field) should be rejected");
+    };
+    assert_eq!(median_err.class, ErrorClass::Unsupported);
+    assert_eq!(median_err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        median_scanned, 0,
+        "median_by unknown-field target should fail before scan-budget consumption"
+    );
+
+    let (count_result, count_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_count_distinct_by(build_plan(), "missing_field")
+        });
+    let Err(count_err) = count_result else {
+        panic!("count_distinct_by(missing_field) should be rejected");
+    };
+    assert_eq!(count_err.class, ErrorClass::Unsupported);
+    assert_eq!(count_err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        count_scanned, 0,
+        "count_distinct_by unknown-field target should fail before scan-budget consumption"
+    );
+
+    let (min_max_result, min_max_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_min_max_by(build_plan(), "missing_field")
+        });
+    let Err(min_max_err) = min_max_result else {
+        panic!("min_max_by(missing_field) should be rejected");
+    };
+    assert_eq!(min_max_err.class, ErrorClass::Unsupported);
+    assert_eq!(min_max_err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        min_max_scanned, 0,
+        "min_max_by unknown-field target should fail before scan-budget consumption"
+    );
+}
+
+#[test]
+fn aggregate_field_target_min_max_matches_individual_extrema() {
+    seed_pushdown_entities(&[
+        (8_2011, 7, 10),
+        (8_2012, 7, 10),
+        (8_2013, 7, 40),
+        (8_2014, 7, 40),
+        (8_2015, 7, 25),
+        (8_2016, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .plan()
+            .expect("field-target min-max plan should build")
+    };
+
+    let min_max = load
+        .aggregate_min_max_by(build_plan(), "rank")
+        .expect("min_max_by(rank) should succeed");
+    let min_by = load
+        .aggregate_min_by(build_plan(), "rank")
+        .expect("min_by(rank) should succeed");
+    let max_by = load
+        .aggregate_max_by(build_plan(), "rank")
+        .expect("max_by(rank) should succeed");
+    let expected_pair = min_by.zip(max_by);
+
+    assert_eq!(
+        min_max, expected_pair,
+        "min_max_by(rank) should match individual min_by/max_by terminals"
+    );
+    assert_eq!(
+        min_max.map(|(min_id, _)| min_id.key()),
+        Some(Ulid::from_u128(8_2011)),
+        "min_max_by(rank) min tie-break should use primary key ascending"
+    );
+    assert_eq!(
+        min_max.map(|(_, max_id)| max_id.key()),
+        Some(Ulid::from_u128(8_2013)),
+        "min_max_by(rank) max tie-break should use primary key ascending"
+    );
+}
+
+#[test]
+fn aggregate_field_target_min_max_metamorphic_matrix_matches_individual_extrema() {
+    seed_pushdown_entities(&[
+        (8_2021, 7, 10),
+        (8_2022, 7, 10),
+        (8_2023, 7, 20),
+        (8_2024, 7, 30),
+        (8_2025, 7, 40),
+        (8_2026, 7, 40),
+        (8_2027, 8, 15),
+        (8_2028, 8, 25),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let overlapping_predicate = Predicate::Or(vec![
+        id_in_predicate(&[8_2021, 8_2022, 8_2023, 8_2024, 8_2025, 8_2026]),
+        id_in_predicate(&[8_2022, 8_2023, 8_2026, 8_2027, 8_2028]),
+    ]);
+
+    for (label, distinct, desc, offset, limit) in [
+        ("asc/no-distinct/unbounded", false, false, 0u32, None),
+        ("asc/no-distinct/windowed", false, false, 1u32, Some(4u32)),
+        ("asc/distinct/windowed", true, false, 1u32, Some(4u32)),
+        ("desc/no-distinct/windowed", false, true, 1u32, Some(4u32)),
+        ("desc/distinct/windowed", true, true, 2u32, Some(3u32)),
+        ("desc/distinct/empty-window", true, true, 50u32, Some(3u32)),
+    ] {
+        let build_query = || {
+            let mut query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(overlapping_predicate.clone());
+            if distinct {
+                query = query.distinct();
+            }
+            query = if desc {
+                query.order_by_desc("id")
+            } else {
+                query.order_by("id")
+            };
+            query = query.offset(offset);
+            if let Some(limit) = limit {
+                query = query.limit(limit);
+            }
+
+            query
+        };
+
+        let min_max = load
+            .aggregate_min_max_by(
+                build_query()
+                    .plan()
+                    .expect("metamorphic min_max plan should build"),
+                "rank",
+            )
+            .expect("metamorphic min_max_by(rank) should succeed");
+        let min_by = load
+            .aggregate_min_by(
+                build_query()
+                    .plan()
+                    .expect("metamorphic min plan should build"),
+                "rank",
+            )
+            .expect("metamorphic min_by(rank) should succeed");
+        let max_by = load
+            .aggregate_max_by(
+                build_query()
+                    .plan()
+                    .expect("metamorphic max plan should build"),
+                "rank",
+            )
+            .expect("metamorphic max_by(rank) should succeed");
+
+        assert_eq!(
+            min_max,
+            min_by.zip(max_by),
+            "metamorphic min_max parity failed for case={label}"
+        );
+    }
+}
+
+#[test]
+fn aggregate_field_target_min_max_empty_window_returns_none() {
+    seed_pushdown_entities(&[(8_2031, 7, 10), (8_2032, 7, 20), (8_2033, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let min_max = load
+        .aggregate_min_max_by(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by("id")
+                .offset(50)
+                .limit(2)
+                .plan()
+                .expect("empty-window min_max plan should build"),
+            "rank",
+        )
+        .expect("empty-window min_max_by(rank) should succeed");
+
+    assert_eq!(min_max, None, "empty-window min_max_by should return None");
+}
+
+#[test]
+fn aggregate_field_target_min_max_single_row_returns_same_id_pair() {
+    seed_pushdown_entities(&[(8_2041, 7, 10), (8_2042, 7, 20), (8_2043, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let min_max = load
+        .aggregate_min_max_by(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by("id")
+                .offset(1)
+                .limit(1)
+                .plan()
+                .expect("single-row min_max plan should build"),
+            "rank",
+        )
+        .expect("single-row min_max_by(rank) should succeed");
+
+    assert_eq!(
+        min_max.map(|(min_id, max_id)| (min_id.key(), max_id.key())),
+        Some((Ulid::from_u128(8_2042), Ulid::from_u128(8_2042))),
+        "single-row min_max_by should return the same id for both extrema"
+    );
+}
+
+#[test]
+fn aggregate_field_target_median_order_direction_invariant_on_same_window() {
+    seed_pushdown_entities(&[
+        (8_2051, 7, 10),
+        (8_2052, 7, 20),
+        (8_2053, 7, 20),
+        (8_2054, 7, 40),
+        (8_2055, 7, 50),
+        (8_2056, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let asc_median = load
+        .aggregate_median_by(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by("id")
+                .plan()
+                .expect("median ASC plan should build"),
+            "rank",
+        )
+        .expect("median_by(rank) ASC should succeed");
+    let desc_median = load
+        .aggregate_median_by(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by_desc("id")
+                .plan()
+                .expect("median DESC plan should build"),
+            "rank",
+        )
+        .expect("median_by(rank) DESC should succeed");
+
+    assert_eq!(
+        asc_median, desc_median,
+        "median_by(rank) should be invariant to query order direction on the same row window"
+    );
+}
+
+#[test]
 fn aggregate_numeric_field_sum_and_avg_use_decimal_projection() {
     seed_pushdown_entities(&[
         (8_091, 7, 10),
@@ -1501,6 +2108,9 @@ fn aggregate_field_parity_matrix_harness_covers_all_rank_terminals() {
             "nth_by(rank, 1)",
             "sum_by(rank)",
             "avg_by(rank)",
+            "median_by(rank)",
+            "count_distinct_by(rank)",
+            "min_max_by(rank)",
         ]
     );
 }
@@ -2297,10 +2907,11 @@ fn aggregate_field_extrema_strict_stale_leading_surfaces_corruption_error() {
 }
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn aggregate_field_terminal_error_classification_matrix() {
     seed_pushdown_entities(&[(8_291, 7, 10), (8_292, 7, 20), (8_293, 7, 30)]);
     let pushdown_load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let unknown_field_error = pushdown_load
+    let unknown_field_min_error = pushdown_load
         .aggregate_min_by(
             Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
                 .order_by("id")
@@ -2309,6 +2920,33 @@ fn aggregate_field_terminal_error_classification_matrix() {
             "missing_field",
         )
         .expect_err("unknown field MIN(field) should fail");
+    let unknown_field_median_error = pushdown_load
+        .aggregate_median_by(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .plan()
+                .expect("unknown-field MEDIAN(field) plan should build"),
+            "missing_field",
+        )
+        .expect_err("unknown field MEDIAN(field) should fail");
+    let unknown_field_count_distinct_error = pushdown_load
+        .aggregate_count_distinct_by(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .plan()
+                .expect("unknown-field COUNT_DISTINCT(field) plan should build"),
+            "missing_field",
+        )
+        .expect_err("unknown field COUNT_DISTINCT(field) should fail");
+    let unknown_field_min_max_error = pushdown_load
+        .aggregate_min_max_by(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .plan()
+                .expect("unknown-field MIN_MAX(field) plan should build"),
+            "missing_field",
+        )
+        .expect_err("unknown field MIN_MAX(field) should fail");
     let non_numeric_error = pushdown_load
         .aggregate_sum_by(
             Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
@@ -2329,10 +2967,40 @@ fn aggregate_field_terminal_error_classification_matrix() {
             "rank",
         )
         .expect_err("strict stale-leading MIN(field) should fail");
+    let strict_stale_median_error = pushdown_load
+        .aggregate_median_by(
+            secondary_group_rank_order_plan(
+                ReadConsistency::Strict,
+                crate::db::query::plan::OrderDirection::Asc,
+                0,
+            ),
+            "rank",
+        )
+        .expect_err("strict stale-leading MEDIAN(field) should fail");
+    let strict_stale_count_distinct_error = pushdown_load
+        .aggregate_count_distinct_by(
+            secondary_group_rank_order_plan(
+                ReadConsistency::Strict,
+                crate::db::query::plan::OrderDirection::Asc,
+                0,
+            ),
+            "rank",
+        )
+        .expect_err("strict stale-leading COUNT_DISTINCT(field) should fail");
+    let strict_stale_min_max_error = pushdown_load
+        .aggregate_min_max_by(
+            secondary_group_rank_order_plan(
+                ReadConsistency::Strict,
+                crate::db::query::plan::OrderDirection::Asc,
+                0,
+            ),
+            "rank",
+        )
+        .expect_err("strict stale-leading MIN_MAX(field) should fail");
 
     seed_phase_entities(&[(8_294, 10), (8_295, 20)]);
     let phase_load = LoadExecutor::<PhaseEntity>::new(DB, false);
-    let non_orderable_error = phase_load
+    let non_orderable_min_error = phase_load
         .aggregate_min_by(
             Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
                 .order_by("id")
@@ -2341,16 +3009,59 @@ fn aggregate_field_terminal_error_classification_matrix() {
             "tags",
         )
         .expect_err("non-orderable MIN(field) should fail");
+    let non_orderable_median_error = phase_load
+        .aggregate_median_by(
+            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .plan()
+                .expect("non-orderable MEDIAN(field) plan should build"),
+            "tags",
+        )
+        .expect_err("non-orderable MEDIAN(field) should fail");
+    let non_orderable_min_max_error = phase_load
+        .aggregate_min_max_by(
+            Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+                .order_by("id")
+                .plan()
+                .expect("non-orderable MIN_MAX(field) plan should build"),
+            "tags",
+        )
+        .expect_err("non-orderable MIN_MAX(field) should fail");
 
     assert_eq!(
-        unknown_field_error.class,
+        unknown_field_min_error.class,
         ErrorClass::Unsupported,
         "unknown field MIN(field) should classify as Unsupported"
     );
     assert_eq!(
-        non_orderable_error.class,
+        unknown_field_median_error.class,
+        ErrorClass::Unsupported,
+        "unknown field MEDIAN(field) should classify as Unsupported"
+    );
+    assert_eq!(
+        unknown_field_count_distinct_error.class,
+        ErrorClass::Unsupported,
+        "unknown field COUNT_DISTINCT(field) should classify as Unsupported"
+    );
+    assert_eq!(
+        unknown_field_min_max_error.class,
+        ErrorClass::Unsupported,
+        "unknown field MIN_MAX(field) should classify as Unsupported"
+    );
+    assert_eq!(
+        non_orderable_min_error.class,
         ErrorClass::Unsupported,
         "non-orderable MIN(field) should classify as Unsupported"
+    );
+    assert_eq!(
+        non_orderable_median_error.class,
+        ErrorClass::Unsupported,
+        "non-orderable MEDIAN(field) should classify as Unsupported"
+    );
+    assert_eq!(
+        non_orderable_min_max_error.class,
+        ErrorClass::Unsupported,
+        "non-orderable MIN_MAX(field) should classify as Unsupported"
     );
     assert_eq!(
         non_numeric_error.class,
@@ -2361,6 +3072,21 @@ fn aggregate_field_terminal_error_classification_matrix() {
         strict_stale_error.class,
         ErrorClass::Corruption,
         "strict stale-leading MIN(field) should classify as Corruption"
+    );
+    assert_eq!(
+        strict_stale_median_error.class,
+        ErrorClass::Corruption,
+        "strict stale-leading MEDIAN(field) should classify as Corruption"
+    );
+    assert_eq!(
+        strict_stale_count_distinct_error.class,
+        ErrorClass::Corruption,
+        "strict stale-leading COUNT_DISTINCT(field) should classify as Corruption"
+    );
+    assert_eq!(
+        strict_stale_min_max_error.class,
+        ErrorClass::Corruption,
+        "strict stale-leading MIN_MAX(field) should classify as Corruption"
     );
 }
 
@@ -2602,6 +3328,57 @@ fn session_load_numeric_field_aggregates_match_execute() {
     assert_eq!(
         actual_avg, expected_avg,
         "session avg_by(rank) parity failed"
+    );
+}
+
+#[test]
+fn session_load_new_field_aggregates_match_execute() {
+    seed_pushdown_entities(&[
+        (8_311, 7, 10),
+        (8_312, 7, 10),
+        (8_313, 7, 20),
+        (8_314, 7, 30),
+        (8_315, 7, 40),
+        (8_316, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(1)
+            .limit(4)
+    };
+
+    let expected = load_window()
+        .execute()
+        .expect("baseline execute for new field aggregates should succeed");
+    let expected_median = expected_median_by_rank_id(&expected);
+    let expected_count_distinct = expected_count_distinct_by_rank(&expected);
+    let expected_min_max = expected_min_max_by_rank_ids(&expected);
+
+    let actual_median = load_window()
+        .median_by("rank")
+        .expect("session median_by(rank) should succeed");
+    let actual_count_distinct = load_window()
+        .count_distinct_by("rank")
+        .expect("session count_distinct_by(rank) should succeed");
+    let actual_min_max = load_window()
+        .min_max_by("rank")
+        .expect("session min_max_by(rank) should succeed");
+
+    assert_eq!(
+        actual_median, expected_median,
+        "session median_by(rank) parity failed"
+    );
+    assert_eq!(
+        actual_count_distinct, expected_count_distinct,
+        "session count_distinct_by(rank) parity failed"
+    );
+    assert_eq!(
+        actual_min_max, expected_min_max,
+        "session min_max_by(rank) parity failed"
     );
 }
 
