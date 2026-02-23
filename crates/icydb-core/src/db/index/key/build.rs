@@ -6,7 +6,7 @@ use crate::{
         index::key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, OrderedValueEncodeError},
     },
     error::InternalError,
-    model::index::IndexModel,
+    model::{entity::resolve_field_slot, index::IndexModel},
     traits::{EntityKind, EntityValue, FieldValue},
 };
 use std::ops::Bound;
@@ -30,7 +30,7 @@ impl IndexId {
 }
 
 impl IndexKey {
-    /// Build an index key; returns `Ok(None)` if any indexed field is missing or non-indexable.
+    /// Build an index key; returns `Ok(None)` when indexed values are non-indexable.
     /// `Value::Null` and unsupported canonical kinds are treated as non-indexable.
     pub(crate) fn new<E: EntityKind + EntityValue>(
         entity: &E,
@@ -48,11 +48,19 @@ impl IndexKey {
         let mut components = Vec::with_capacity(index.fields.len());
 
         for field in index.fields {
-            let Some(field_index) = E::MODEL.field_index(field) else {
-                return Ok(None);
+            let Some(field_index) = resolve_field_slot(E::MODEL, field) else {
+                return Err(InternalError::index_invariant(format!(
+                    "index field missing on entity model: {} ({})",
+                    E::PATH,
+                    field
+                )));
             };
             let Some(value) = entity.get_value_by_index(field_index) else {
-                return Ok(None);
+                return Err(InternalError::index_invariant(format!(
+                    "index field missing on lookup entity: {} ({})",
+                    E::PATH,
+                    field
+                )));
             };
 
             let encoded = match EncodedValue::try_from_ref(&value) {

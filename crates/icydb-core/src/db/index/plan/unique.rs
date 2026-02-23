@@ -5,7 +5,7 @@ use crate::{
         index::{Direction, EncodedValue, IndexEntry, IndexEntryCorruption, IndexId, IndexKey},
     },
     error::InternalError,
-    model::index::IndexModel,
+    model::{entity::resolve_field_slot, index::IndexModel},
     obs::sink::{MetricsEvent, record},
     traits::{EntityKind, EntityValue, FieldValue},
 };
@@ -42,7 +42,7 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
 
     let mut indexed_field_slots = Vec::with_capacity(index.fields.len());
     for field in index.fields {
-        let Some(field_index) = E::MODEL.field_index(field) else {
+        let Some(field_index) = resolve_field_slot(E::MODEL, field) else {
             return Err(InternalError::index_invariant(format!(
                 "index field missing on entity model: {} ({})",
                 E::PATH,

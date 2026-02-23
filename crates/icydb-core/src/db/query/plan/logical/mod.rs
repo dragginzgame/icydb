@@ -13,7 +13,9 @@ use crate::{
                 DeleteLimitSpec, Direction, IndexRangeCursorAnchor, OrderSpec, PageSpec,
                 compute_page_window,
             },
-            predicate::{Predicate, eval as eval_predicate},
+            predicate::{
+                Predicate, PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots,
+            },
         },
     },
     error::InternalError,
@@ -279,7 +281,8 @@ impl<K> LogicalPlan<K> {
         R: PlanRow<E>,
     {
         let filtered = if let Some(predicate) = self.predicate.as_ref() {
-            rows.retain(|row| eval_predicate(row.entity(), predicate));
+            let field_slots = PredicateFieldSlots::resolve::<E>(predicate);
+            rows.retain(|row| eval_predicate_with_slots(row.entity(), &field_slots));
             true
         } else {
             false
@@ -457,11 +460,7 @@ impl<K> LogicalPlan<K> {
         };
 
         Ok(CursorBoundary {
-            slots: order
-                .fields
-                .iter()
-                .map(|(field, _)| order_cursor::field_slot(entity, field))
-                .collect(),
+            slots: order_cursor::boundary_slots_from_entity(entity, order),
         })
     }
 

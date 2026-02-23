@@ -115,20 +115,15 @@ pub(super) fn relation_target_keys_for_source<S>(
 where
     S: EntityKind + EntityValue,
 {
-    let Some(field_index) = S::MODEL.field_index(relation.field_name) else {
-        return Err(InternalError::executor_internal(format!(
-            "entity field missing during strong relation processing: source={} field={}",
-            S::PATH,
-            relation.field_name,
-        )));
-    };
-    let value = source.get_value_by_index(field_index).ok_or_else(|| {
-        InternalError::executor_internal(format!(
-            "entity field missing during strong relation processing: source={} field={}",
-            S::PATH,
-            relation.field_name,
-        ))
-    })?;
+    let value = source
+        .get_value_by_index(relation.field_index)
+        .ok_or_else(|| {
+            InternalError::executor_internal(format!(
+                "entity field missing during strong relation processing: source={} field={}",
+                S::PATH,
+                relation.field_name,
+            ))
+        })?;
 
     relation_target_keys_from_value::<S>(relation.field_name, relation, &value)
 }

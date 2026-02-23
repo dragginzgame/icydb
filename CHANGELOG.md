@@ -5,6 +5,41 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.26.2] - 2026-02-23
+
+### 📝 Summary
+
+* Finishes `0.26.x` runtime slot hardening by removing remaining field-name lookups from critical execution paths.
+
+### 🔧 Changed
+
+* Predicate filtering now compiles predicates into a slot-resolved runtime form once per query filter phase, then evaluates rows with `get_value_by_index` only.
+* Removed remaining shared `field_index` lookup usage in runtime paths and consolidated slot resolution behind shared model helpers.
+* Ordering, cursor-boundary comparison, and predicate filtering now consistently operate on pre-resolved field slots in hot loops.
+
+---
+
+## [0.26.1] - 2026-02-23
+
+### 📝 Summary
+
+* Hardens the post-`0.26.0` field-slot rollout with stronger index invariants and CI guardrails.
+
+### 🔧 Changed
+
+* `IndexKey::new` now classifies missing declared index fields as explicit invariant violations instead of silently skipping index-key materialization.
+* CI now enforces a string-free runtime field projection contract with a dedicated invariant script that rejects `.get_value(` and `fn get_value(...)` in runtime modules.
+* CI Rust toolchain is pinned to `1.93.1` in workflow jobs to match `rust-toolchain.toml` and avoid local-vs-CI drift.
+* Order execution now resolves order-field names to schema slots once per phase and uses slot reads during sort and cursor-boundary comparisons.
+* Predicate execution now resolves referenced field names to schema slots once per filter phase and evaluates rows through pre-resolved slot reads.
+
+### 🧪 Testing
+
+* Added a commit/index regression test that locks missing-index-field behavior to `InvariantViolation`/`Index`.
+* Added cross-crate field-projection invariants that assert `EntityModel.fields` order matches `get_value_by_index` slot output across scalar, optional, and list fields.
+
+---
+
 ## [0.26.0] – 2026-02-23 - Compiled Field Projection
 
 ### 📝 Summary
@@ -38,10 +73,6 @@ impl FieldProjection for MyEntity {
     }
 }
 ```
-
-### 📚 Documentation
-
-* Updated `0.26` release notes to reflect slot/index-only field projection with no name-based `FieldProjection` compatibility layer.
 
 ### 🧪 Testing
 

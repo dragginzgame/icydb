@@ -74,6 +74,13 @@ static RECOVERY_INDEXED_INDEX_MODELS: [IndexModel; 1] = [IndexModel::new(
     &RECOVERY_INDEXED_INDEX_FIELDS,
     false,
 )];
+static RECOVERY_INDEXED_MISSING_FIELD_INDEX_FIELDS: [&str; 1] = ["missing_group"];
+static RECOVERY_INDEXED_MISSING_FIELD_INDEX_MODEL: IndexModel = IndexModel::new(
+    "missing_group",
+    RecoveryTestDataStore::PATH,
+    &RECOVERY_INDEXED_MISSING_FIELD_INDEX_FIELDS,
+    false,
+);
 
 crate::test_entity_schema! {
     ident = RecoveryIndexedEntity,
@@ -186,6 +193,19 @@ fn index_key_bytes_snapshot() -> Vec<Vec<u8>> {
     });
     keys.sort();
     keys
+}
+
+#[test]
+fn index_key_new_rejects_missing_index_field_on_entity_model() {
+    let entity = RecoveryIndexedEntity {
+        id: Ulid::from_u128(9901),
+        group: 7,
+    };
+
+    let err = IndexKey::new(&entity, &RECOVERY_INDEXED_MISSING_FIELD_INDEX_MODEL)
+        .expect_err("index fields missing from the entity model must fail as invariants");
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Index);
 }
 
 #[test]

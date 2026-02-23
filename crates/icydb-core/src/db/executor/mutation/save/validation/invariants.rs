@@ -7,7 +7,7 @@ use crate::{
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    model::field::FieldKind,
+    model::{entity::resolve_primary_key_slot, field::FieldKind},
     traits::{EntityKind, EntityValue},
     value::Value,
 };
@@ -58,7 +58,7 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     // Enforce trait boundary invariants for user-provided entities.
     fn validate_entity_invariants(entity: &E, schema: &SchemaInfo) -> Result<(), InternalError> {
         // Phase 1: validate primary key field presence and *shape*.
-        let Some(pk_field_index) = E::MODEL.field_index(E::PRIMARY_KEY) else {
+        let Some(pk_field_index) = resolve_primary_key_slot(E::MODEL) else {
             return Err(InternalError::executor_invariant(format!(
                 "entity primary key field missing: {} field={}",
                 E::PATH,

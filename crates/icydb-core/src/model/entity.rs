@@ -45,15 +45,20 @@ pub struct EntityModel {
     pub indexes: &'static [&'static IndexModel],
 }
 
-impl EntityModel {
-    /// Resolve one field name to its stable index in `fields`.
-    ///
-    /// This index is the canonical slot used by `FieldProjection::get_value_by_index`.
-    #[must_use]
-    pub fn field_index(&self, field_name: &str) -> Option<usize> {
-        self.fields
-            .iter()
-            .enumerate()
-            .find_map(|(index, field)| (field.name == field_name).then_some(index))
-    }
+/// Resolve one schema field name into its stable slot index.
+#[must_use]
+pub(crate) fn resolve_field_slot(model: &EntityModel, field_name: &str) -> Option<usize> {
+    model
+        .fields
+        .iter()
+        .position(|field| field.name == field_name)
+}
+
+/// Resolve the primary-key field into its stable slot index.
+#[must_use]
+pub(crate) fn resolve_primary_key_slot(model: &EntityModel) -> Option<usize> {
+    model
+        .fields
+        .iter()
+        .position(|field| std::ptr::eq(field, model.primary_key))
 }

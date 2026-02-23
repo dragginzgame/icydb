@@ -11,6 +11,7 @@ use crate::{
 
 #[derive(Clone, Copy)]
 pub(super) struct StrongRelationInfo {
+    pub(super) field_index: usize,
     pub(super) field_name: &'static str,
     pub(super) target_path: &'static str,
     pub(super) target_entity_name: &'static str,
@@ -67,6 +68,7 @@ pub(crate) const fn strong_relation_target_from_kind(
 
 // Resolve a model field into strong relation metadata (if applicable).
 const fn strong_relation_from_field(
+    field_index: usize,
     field_name: &'static str,
     kind: &FieldKind,
 ) -> Option<StrongRelationInfo> {
@@ -75,6 +77,7 @@ const fn strong_relation_from_field(
     };
 
     Some(StrongRelationInfo {
+        field_index,
         field_name,
         target_path: target.target_path,
         target_entity_name: target.target_entity_name,
@@ -92,7 +95,10 @@ where
     S::MODEL
         .fields
         .iter()
-        .filter_map(|field| strong_relation_from_field(field.name, &field.kind))
+        .enumerate()
+        .filter_map(|(field_index, field)| {
+            strong_relation_from_field(field_index, field.name, &field.kind)
+        })
         .filter(|relation| {
             target_path_filter.is_none_or(|target_path| relation.target_path == target_path)
         })
