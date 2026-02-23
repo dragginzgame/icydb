@@ -21,7 +21,7 @@ use crate::{
                     ensure_index_range_aggregate_fast_path_specs,
                     ensure_secondary_aggregate_fast_path_arity,
                 },
-                execute::ExecutionInputs,
+                execute::{ExecutionInputs, IndexPredicateCompileMode},
                 route::{ExecutionMode, ExecutionRoutePlan, FastPathOrder},
             },
             plan::{record_plan_metrics, record_rows_scanned},
@@ -32,6 +32,7 @@ use crate::{
                 AccessPath, Direction, ExecutablePlan, IndexPrefixSpec, IndexRangeSpec,
                 LogicalPlan, validate::validate_executor_plan,
             },
+            predicate::{IndexPredicateExecution, IndexPredicateProgram},
         },
         response::Response,
     },
@@ -78,6 +79,7 @@ struct AggregateFastPathInputs<'exec, 'ctx, E: EntityKind + EntityValue> {
     route_plan: &'exec ExecutionRoutePlan,
     index_prefix_specs: &'exec [IndexPrefixSpec],
     index_range_specs: &'exec [IndexRangeSpec],
+    index_predicate_program: Option<&'exec IndexPredicateProgram>,
     direction: Direction,
     physical_fetch_hint: Option<usize>,
     kind: AggregateKind,
@@ -307,6 +309,20 @@ where
         } else {
             plan.direction()
         };
+        let strict_index_predicate_program = Self::compile_index_predicate_program(
+            plan.as_inner(),
+            plan.predicate_slots(),
+            IndexPredicateCompileMode::StrictAllOrNone,
+        );
+        let force_materialized_due_to_predicate_uncertainty = plan.as_inner().predicate.is_some()
+            && Self::resolved_index_slots_for_access_path(&plan.as_inner().access).is_some()
+            && strict_index_predicate_program.is_none();
+        let extrema_streaming_attempt_eligible = Self::extrema_streaming_attempt_eligible(
+            plan.as_inner(),
+            &spec,
+            strict_index_predicate_program.as_ref(),
+            force_materialized_due_to_predicate_uncertainty,
+        );
         let route_plan =
             Self::build_execution_route_plan_for_aggregate_spec(plan.as_inner(), spec, direction);
         if let Some(target_field) = target_field {
@@ -316,9 +332,16 @@ where
                 target_field.as_str(),
                 direction,
                 &route_plan,
+                extrema_streaming_attempt_eligible,
+                force_materialized_due_to_predicate_uncertainty,
             );
         }
-        if matches!(route_plan.execution_mode, ExecutionMode::Materialized) {
+        let first_last_streaming_attempt_eligible = extrema_streaming_attempt_eligible
+            && matches!(kind, AggregateKind::First | AggregateKind::Last);
+        if matches!(route_plan.execution_mode, ExecutionMode::Materialized)
+            && !first_last_streaming_attempt_eligible
+            || force_materialized_due_to_predicate_uncertainty
+        {
             let response = self.execute(plan)?;
             return Ok(Self::aggregate_from_materialized(response, kind));
         }
@@ -326,13 +349,13 @@ where
         let physical_fetch_hint = route_plan.scan_hints.physical_fetch_hint;
 
         // Direction must be captured before consuming the ExecutablePlan.
-        // After `into_inner()`, we operate purely on LogicalPlan.
+        // After `into_parts()`, execution uses only logical + compiled predicate state.
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
 
-        // Move into the underlying logical plan.
+        // Move into logical + compiled predicate state.
         // After this point, `plan` is consumed.
-        let logical_plan = plan.into_inner();
+        let (logical_plan, predicate_slots) = plan.into_parts();
 
         // Re-validate executor invariants at the logical boundary.
         validate_executor_plan::<E>(&logical_plan)?;
@@ -350,6 +373,7 @@ where
             route_plan: &route_plan,
             index_prefix_specs: index_prefix_specs.as_slice(),
             index_range_specs: index_range_specs.as_slice(),
+            index_predicate_program: strict_index_predicate_program.as_ref(),
             direction,
             physical_fetch_hint,
             kind,
@@ -376,11 +400,15 @@ where
                 index_range_anchor: None,
                 direction,
             },
-            predicate_slots: None,
+            predicate_slots: predicate_slots.as_ref(),
         };
 
         // Resolve the ordered key stream using canonical routing logic.
-        let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, &route_plan)?;
+        let mut resolved = Self::resolve_execution_key_stream(
+            &execution_inputs,
+            &route_plan,
+            IndexPredicateCompileMode::StrictAllOrNone,
+        )?;
 
         // Fold via one streaming engine. COUNT pushdown uses key-only mode;
         // other terminals use row-existence mode.
@@ -405,6 +433,7 @@ where
     // Execute `min(field)` / `max(field)` via canonical materialized fallback.
     // Route still owns eligibility and hint derivation; this branch currently
     // keeps field-target semantics correctness-first until fast paths are enabled.
+    #[expect(clippy::too_many_arguments)]
     fn execute_field_target_extrema_aggregate(
         &self,
         plan: ExecutablePlan<E>,
@@ -412,6 +441,8 @@ where
         target_field: &str,
         direction: Direction,
         route_plan: &ExecutionRoutePlan,
+        extrema_streaming_attempt_eligible: bool,
+        force_materialized_due_to_predicate_uncertainty: bool,
     ) -> Result<AggregateOutput<E>, InternalError> {
         let field_fast_path_eligible = match kind {
             AggregateKind::Min => route_plan.field_min_fast_path_eligible(),
@@ -429,7 +460,10 @@ where
         // Validate user-provided field targets before any scan-budget consumption.
         let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
             .map_err(Self::map_aggregate_field_value_error)?;
-        if !field_fast_path_eligible {
+        if force_materialized_due_to_predicate_uncertainty
+            || !field_fast_path_eligible
+            || !extrema_streaming_attempt_eligible
+        {
             // Preserve canonical query semantics by selecting candidates from the
             // fully materialized response window and then applying field-extrema rules.
             let response = self.execute(plan)?;
@@ -440,16 +474,11 @@ where
                 field_slot,
             );
         }
-        if !matches!(route_plan.execution_mode, ExecutionMode::Streaming) {
-            return Err(InternalError::query_executor_invariant(
-                "field-extrema fast path requires streaming execution mode",
-            ));
-        }
 
         // Route-planned streaming path for index-leading field extrema.
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let logical_plan = plan.into_inner();
+        let (logical_plan, predicate_slots) = plan.into_parts();
         validate_executor_plan::<E>(&logical_plan)?;
         let ctx = self.db.recovered_context::<E>()?;
         record_plan_metrics(&logical_plan.access);
@@ -462,9 +491,13 @@ where
                 index_range_anchor: None,
                 direction,
             },
-            predicate_slots: None,
+            predicate_slots: predicate_slots.as_ref(),
         };
-        let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, route_plan)?;
+        let mut resolved = Self::resolve_execution_key_stream(
+            &execution_inputs,
+            route_plan,
+            IndexPredicateCompileMode::StrictAllOrNone,
+        )?;
         let (aggregate_output, keys_scanned) = Self::fold_streaming_field_extrema(
             &ctx,
             logical_plan.consistency,
@@ -478,6 +511,41 @@ where
         record_rows_scanned::<E>(rows_scanned);
 
         Ok(aggregate_output)
+    }
+
+    // Keep ordered-extrema streaming coverage explicit and conservative.
+    // This gate normalizes when extrema terminals can attempt streaming while
+    // preserving fallback-first behavior for DISTINCT, post-sort, and residual
+    // predicate uncertainty.
+    fn extrema_streaming_attempt_eligible(
+        plan: &LogicalPlan<E::Key>,
+        spec: &AggregateSpec,
+        strict_index_predicate_program: Option<&IndexPredicateProgram>,
+        force_materialized_due_to_predicate_uncertainty: bool,
+    ) -> bool {
+        let first_last_terminal = matches!(
+            (spec.kind(), spec.target_field()),
+            (AggregateKind::First | AggregateKind::Last, None)
+        );
+        let field_extrema_terminal = matches!(
+            (spec.kind(), spec.target_field()),
+            (AggregateKind::Min | AggregateKind::Max, Some(_))
+        );
+        if !first_last_terminal && !field_extrema_terminal {
+            return false;
+        }
+        if force_materialized_due_to_predicate_uncertainty || plan.distinct {
+            return false;
+        }
+
+        if plan.predicate.is_some() && strict_index_predicate_program.is_none() {
+            return false;
+        }
+        if first_last_terminal && plan.budget_safety_metadata::<E>().requires_post_access_sort {
+            return false;
+        }
+
+        true
     }
 
     // Execute one field-target numeric aggregate (`sum(field)` / `avg(field)`)
@@ -1152,12 +1220,14 @@ where
         }
         // Probe hint selection is route-owned; executor only consumes it.
         let probe_fetch_hint = inputs.route_plan.secondary_extrema_probe_fetch_hint();
+        let index_predicate_execution =
+            Self::aggregate_index_predicate_execution(inputs.index_predicate_program);
         let Some(mut fast) = Self::try_execute_secondary_index_order_stream(
             ctx,
             inputs.logical_plan,
             inputs.index_prefix_specs.first(),
             probe_fetch_hint,
-            None,
+            index_predicate_execution,
         )?
         else {
             return Ok(None);
@@ -1204,7 +1274,7 @@ where
             inputs.index_prefix_specs.first(),
             // Keep native index traversal order for fallback retries.
             Some(usize::MAX),
-            None,
+            index_predicate_execution,
         )?
         else {
             return Ok(None);
@@ -1295,7 +1365,7 @@ where
             None,
             inputs.direction,
             index_range_limit_spec.fetch,
-            None,
+            Self::aggregate_index_predicate_execution(inputs.index_predicate_program),
         )?
         else {
             return Ok(None);
@@ -1344,7 +1414,9 @@ where
                 inputs.direction,
             ),
             physical_fetch_hint: inputs.physical_fetch_hint,
-            index_predicate_execution: None,
+            index_predicate_execution: Self::aggregate_index_predicate_execution(
+                inputs.index_predicate_program,
+            ),
         };
         let mut key_stream = inputs
             .ctx
@@ -1361,6 +1433,18 @@ where
         )?;
 
         Ok(Some((aggregate_output, keys_scanned)))
+    }
+
+    // Build one optional index-only predicate execution request for aggregate
+    // stream producers from a strict-compiled index predicate program.
+    #[expect(clippy::single_option_map)]
+    fn aggregate_index_predicate_execution(
+        program: Option<&IndexPredicateProgram>,
+    ) -> Option<IndexPredicateExecution<'_>> {
+        program.map(|program| IndexPredicateExecution {
+            program,
+            rejected_keys_counter: None,
+        })
     }
 
     // ------------------------------------------------------------------

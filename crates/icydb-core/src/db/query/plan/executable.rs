@@ -314,6 +314,10 @@ impl<E: EntityKind> ExecutablePlan<E> {
         &self.plan
     }
 
+    pub(in crate::db) const fn predicate_slots(&self) -> Option<&PredicateFieldSlots> {
+        self.predicate_slots.as_ref()
+    }
+
     #[must_use]
     pub(in crate::db) const fn direction(&self) -> Direction {
         self.direction
@@ -339,6 +343,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
         Ok(self.index_range_specs.as_slice())
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db) fn into_inner(self) -> LogicalPlan<E::Key> {
         self.plan
     }

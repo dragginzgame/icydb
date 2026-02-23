@@ -241,7 +241,6 @@ pub(super) enum FieldExtremaIneligibilityReason {
     OffsetNotSupported,
     CompositePathNotSupported,
     NoMatchingIndex,
-    StreamingAccessShapeNotSupported,
     DescReverseTraversalNotSupported,
 }
 
@@ -573,6 +572,10 @@ where
             return None;
         }
         if let Some(fetch) = probe_fetch_hint {
+            if plan.predicate.is_some() && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
+                return None;
+            }
+
             return Some(IndexRangeLimitSpec { fetch });
         }
 
@@ -583,6 +586,9 @@ where
         }
 
         let fetch = Self::page_window_fetch_count(plan, cursor_boundary, true)?;
+        if plan.predicate.is_some() && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
+            return None;
+        }
 
         Some(IndexRangeLimitSpec { fetch })
     }
@@ -614,8 +620,20 @@ where
         !(plan.distinct && offset > 0)
     }
 
+    // Residual predicates are allowed for index-range limit pushdown only when
+    // the bounded fetch remains small. This caps amplification risk when the
+    // post-access residual filter rejects many bounded candidates.
+    const fn residual_predicate_pushdown_fetch_is_safe(fetch: usize) -> bool {
+        fetch <= Self::residual_predicate_pushdown_fetch_cap()
+    }
+
+    const fn residual_predicate_pushdown_fetch_cap() -> usize {
+        256
+    }
+
     // Determine whether every compiled predicate field slot is available on
     // the active single-path index access shape.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn predicate_slots_fully_covered_by_index_path(
         access: &AccessPlan<E::Key>,
         predicate_slots: Option<&PredicateFieldSlots>,
@@ -799,7 +817,7 @@ where
 
     // Shared scaffolding for future field-extrema eligibility routing.
     // Contract:
-    // - field-extrema fast path is enabled only for streaming-safe index-leading
+    // - field-extrema fast path is enabled only for index-leading
     //   access shapes with full-window semantics.
     // - unsupported shapes return explicit route-owned reasons.
     fn assess_field_extrema_fast_path_eligibility(
@@ -872,14 +890,6 @@ where
             return FieldExtremaEligibility {
                 eligible: false,
                 ineligibility_reason: Some(FieldExtremaIneligibilityReason::NoMatchingIndex),
-            };
-        }
-        if !plan.is_streaming_access_shape_safe::<E>() {
-            return FieldExtremaEligibility {
-                eligible: false,
-                ineligibility_reason: Some(
-                    FieldExtremaIneligibilityReason::StreamingAccessShapeNotSupported,
-                ),
             };
         }
         if !direction_allows_physical_fetch_hint(
@@ -1010,9 +1020,6 @@ where
         };
         let index_fields = index.fields;
         let prefix_len = prefix.len();
-        if plan.predicate.is_some() {
-            return false;
-        }
 
         if let Some(order) = plan.order.as_ref()
             && !order.fields.is_empty()
@@ -1426,6 +1433,43 @@ mod tests {
     }
 
     #[test]
+    fn route_matrix_field_extrema_capability_allows_index_predicate_covered_shape() {
+        let mut plan = LogicalPlan::new(
+            AccessPath::<Ulid>::IndexRange {
+                index: ROUTE_MATRIX_INDEX_MODELS[0],
+                prefix: vec![],
+                lower: Bound::Included(Value::Uint(10)),
+                upper: Bound::Excluded(Value::Uint(30)),
+            },
+            ReadConsistency::MissingOk,
+        );
+        plan.predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
+        plan.order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        plan.page = Some(PageSpec {
+            limit: None,
+            offset: 0,
+        });
+
+        let route =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
+                &plan,
+                AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
+                Direction::Asc,
+            );
+
+        assert!(
+            route.field_min_fast_path_eligible(),
+            "strict index-covered predicate shapes should remain eligible for field-extrema streaming"
+        );
+        assert_eq!(route.field_min_fast_path_ineligibility_reason(), None);
+    }
+
+    #[test]
     fn route_matrix_field_extrema_reason_rejects_offset_shape() {
         let plan = field_extrema_index_range_plan(OrderDirection::Asc, 1, false);
 
@@ -1822,6 +1866,93 @@ mod tests {
         assert!(route_plan.desc_physical_reverse_supported());
         assert!(route_plan.index_range_limit_spec.is_none());
         assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
+    }
+
+    #[test]
+    fn route_matrix_load_index_range_residual_predicate_allows_small_window_pushdown() {
+        let mut plan = LogicalPlan::new(
+            AccessPath::<Ulid>::IndexRange {
+                index: ROUTE_MATRIX_INDEX_MODELS[0],
+                prefix: vec![],
+                lower: Bound::Included(Value::Uint(10)),
+                upper: Bound::Excluded(Value::Uint(20)),
+            },
+            ReadConsistency::MissingOk,
+        );
+        plan.predicate = Some(Predicate::eq(
+            "label".to_string(),
+            Value::Text("keep".to_string()),
+        ));
+        plan.order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        plan.page = Some(PageSpec {
+            limit: Some(2),
+            offset: 0,
+        });
+
+        let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+            &plan,
+            None,
+            None,
+            None,
+            Direction::Asc,
+        )
+        .expect("load route plan should build");
+
+        assert_eq!(
+            route_plan.index_range_limit_spec.map(|spec| spec.fetch),
+            Some(3),
+            "small residual-filter windows should retain index-range limit pushdown",
+        );
+    }
+
+    #[test]
+    fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdown() {
+        let fetch_cap = LoadExecutor::<RouteMatrixEntity>::residual_predicate_pushdown_fetch_cap();
+        let limit =
+            u32::try_from(fetch_cap).expect("residual pushdown fetch cap should fit within u32");
+
+        let mut plan = LogicalPlan::new(
+            AccessPath::<Ulid>::IndexRange {
+                index: ROUTE_MATRIX_INDEX_MODELS[0],
+                prefix: vec![],
+                lower: Bound::Included(Value::Uint(10)),
+                upper: Bound::Excluded(Value::Uint(20)),
+            },
+            ReadConsistency::MissingOk,
+        );
+        plan.predicate = Some(Predicate::eq(
+            "label".to_string(),
+            Value::Text("keep".to_string()),
+        ));
+        plan.order = Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        plan.page = Some(PageSpec {
+            limit: Some(limit),
+            offset: 0,
+        });
+
+        let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+            &plan,
+            None,
+            None,
+            None,
+            Direction::Asc,
+        )
+        .expect("load route plan should build");
+
+        assert!(
+            route_plan.index_range_limit_spec.is_none(),
+            "residual-filter windows above the fetch cap must disable index-range limit pushdown",
+        );
     }
 
     #[test]

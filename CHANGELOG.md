@@ -5,6 +5,84 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.27.7] - 2026-02-23 - Pushdown Coverage
+
+### 📝 Summary
+
+* Improves aggregate query performance on index-backed filters while keeping results and pagination behavior the same.
+* Keeps behavior safe by falling back to the existing row-based path whenever index filtering cannot be proven safe.
+
+### 🔧 Changed
+
+* Aggregate fast paths now pass safe index-predicate filters into secondary, index-range, and composite key streams before fold execution.
+* Aggregate streaming now uses strict all-or-none index predicate compilation; if a predicate is uncertain, execution falls back to materialized aggregation.
+* Field-target extrema streaming (`min_by` and `max_by`) now uses the same strict predicate policy as other aggregate fast paths.
+* `first`, `last`, `min_by`, and `max_by` now consistently try streaming execution on compatible non-`DISTINCT` shapes when predicates are fully index-covered.
+* Index-range `LIMIT` pushdown now supports queries that still have a residual filter, as long as the requested page window stays small.
+* When a bounded residual-filter pass might under-fill a page, execution now automatically retries without index-range `LIMIT` pushdown so returned rows and cursors stay exact.
+
+### 🧪 Testing
+
+* Added aggregate parity coverage for strict index-prefilter shapes across ASC/DESC, `DISTINCT`, `offset`, and `limit`.
+* Added scan-reduction coverage proving strict index-prefilter paths scan fewer rows than uncertainty fallback for equivalent filters.
+* Added aggregate coverage for strict index-covered `first`/`last` and `min_by`/`max_by`, including parity and scan-reduction checks versus uncertain fallback.
+* Added route coverage confirming field-extrema fast-path eligibility is retained for index-covered predicate shapes.
+* Added route-level tests that lock residual-filter index-range pushdown eligibility for small windows and automatic disablement above the configured safety cap.
+* Added pagination/execution tests that lock both residual-filter scan reduction and retry-on-underfill parity behavior.
+
+---
+
+## [0.27.6] - 2026-02-23
+
+### 📝 Summary
+
+* Expands index-only filtering to cover more safe predicate shapes while keeping query results unchanged.
+
+### 🔧 Changed
+
+* Index-only compilation now keeps safe parts of `AND` predicates, instead of requiring every term to be index-compilable.
+* This now covers more practical filters on indexed fields, including strict `IN` constant lists and bounded ranges (`>=` with `<=`), even when other filter terms still need row checks.
+* Fallback behavior stays conservative: if a predicate is not safe to compile, execution keeps using the existing row-based path.
+* No API or tooling changes in this release.
+
+### 🧪 Testing
+
+* Added parity and read-reduction coverage for strict `IN` filters combined with residual row-only predicates.
+* Added bounded-range (`>=` + `<=`) parity coverage across ASC and DESC with `DISTINCT` and continuation pagination.
+* Updated existing fallback-control tests so non-strict coercion paths still keep index-only filtering disabled intentionally after safe `AND`-subset support.
+
+---
+
+## [0.27.5] - 2026-02-23 - Auditing db/commit
+
+### 📝 Summary
+
+* Follow-up hardening and tests added after `0.27.4`.
+
+### 🔧 Changed
+
+* Cursor decode now rejects very large tokens up front, so malformed client input cannot trigger large decode allocations.
+* Bounded deserialization now returns a dedicated size-limit error variant, and DB row decode maps that case explicitly as persisted-payload corruption.
+* DB codec decode errors now use stable serializer error-kind labels instead of embedding backend deserialize message text in generic corruption messages.
+* Commit-marker persisted decode now uses the shared `db::codec` bounded-decode policy entry point, reducing policy drift.
+* Commit marker storage now reuses its existing memory slot after restarts/upgrades instead of allocating a new slot each boot.
+* Startup now fails clearly if multiple memory slots are registered for the commit marker label, instead of picking one silently.
+* Commit range detection now uses internal IcyDB registry labels, so user-defined store names no longer affect how commit memory is located.
+* Commit prepare now reuses decoded data-key validation output instead of validating the same key twice.
+* Commit prepare now avoids an extra `before` row allocation while keeping the same size and decode checks.
+* Commit prepare now classifies impossible index-store mapping drift as an internal invariant error.
+
+### 🧪 Testing
+
+* Added tests that oversized cursor tokens are rejected at both codec and paged-query API boundaries.
+* Added tests that lock the DB codec classification for bounded-size decode failures.
+* Added tests that lock stable DB codec error labels for deserialize/serialize decode failures.
+* Added a commit-marker regression test that rejects oversized marker payloads before persist, matching read-time bound enforcement.
+* Updated shared executor/save test reset helpers to initialize commit-store bootstrap internally before recovery and store clearing.
+* Added commit-memory scan tests that lock reuse behavior and duplicate-label detection.
+
+---
+
 ## [0.27.4] - 2026-02-23 - Auditing db/index/
 
 ### 📝 Summary
@@ -25,13 +103,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Unique probes now stop after 2 keys (`0`, `1`, or `more than 1`) to avoid extra scanning on bad buckets.
 * Commit apply now verifies index stores have not changed between planning and apply; if they have, apply aborts safely.
 * Storage diagnostics now collect data and index snapshots in one sorted pass and fall back to entity name when path mapping is missing.
-* Cursor decode now rejects very large tokens up front, so malformed client input cannot trigger large decode allocations.
-* Bounded deserialization now returns a dedicated size-limit error variant, and DB row decode maps that case explicitly as persisted-payload corruption.
-* DB codec decode errors now use stable serializer error-kind labels instead of embedding backend deserialize message text in generic corruption messages.
-* Commit-marker persisted decode now uses the shared `db::codec` bounded-decode policy entry point, reducing policy drift.
-* Commit marker storage now reuses its existing memory slot after restarts/upgrades instead of allocating a new slot each boot.
-* Startup now fails clearly if multiple memory slots are registered for the commit marker label, instead of picking one silently.
-* Commit range detection now uses internal IcyDB registry labels, so user-defined store names no longer affect how commit memory is located.
 
 ### 🧪 Testing
 
@@ -43,12 +114,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Added tests that duplicate index keys are rejected during encoding.
 * Added tests that apply fails closed if index-store state changes between planning and apply.
 * Rebuilt diagnostics tests for empty stores, multi-entity counts, min/max keys, corruption counters, and system/user index totals.
-* Added tests that oversized cursor tokens are rejected at both codec and paged-query API boundaries.
-* Added tests that lock the DB codec classification for bounded-size decode failures.
-* Added tests that lock stable DB codec error labels for deserialize/serialize decode failures.
-* Added a commit-marker regression test that rejects oversized marker payloads before persist, matching read-time bound enforcement.
-* Updated shared executor/save test reset helpers to initialize commit-store bootstrap internally before recovery and store clearing.
-* Added commit-memory scan tests that lock reuse behavior and duplicate-label detection.
 
 ---
 

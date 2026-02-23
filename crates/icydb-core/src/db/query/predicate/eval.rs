@@ -23,6 +23,7 @@ use std::{cell::Cell, cmp::Ordering, collections::BTreeSet};
 #[derive(Clone, Debug)]
 pub(crate) struct PredicateFieldSlots {
     resolved: ResolvedPredicate,
+    #[cfg_attr(not(test), allow(dead_code))]
     required_slots: Vec<usize>,
 }
 
@@ -96,6 +97,7 @@ impl PredicateFieldSlots {
     /// - deduplicated
     /// - excludes unresolved/missing field references
     #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const fn required_slots(&self) -> &[usize] {
         self.required_slots.as_slice()
     }
@@ -109,6 +111,17 @@ impl PredicateFieldSlots {
         index_slots: &[usize],
     ) -> Option<IndexPredicateProgram> {
         compile_index_program_from_resolved(&self.resolved, index_slots)
+    }
+
+    // Compile this predicate into an index-component evaluator program only
+    // when every predicate node is supported by index-only evaluation.
+    #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn compile_index_program_strict(
+        &self,
+        index_slots: &[usize],
+    ) -> Option<IndexPredicateProgram> {
+        compile_index_program_from_resolved_full(&self.resolved, index_slots)
     }
 }
 
@@ -222,23 +235,67 @@ fn compile_index_program_from_resolved(
     predicate: &ResolvedPredicate,
     index_slots: &[usize],
 ) -> Option<IndexPredicateProgram> {
+    // Compile a safe AND-subset: unsupported AND children are dropped so
+    // index-only filtering remains conservative (no false negatives).
+    if let ResolvedPredicate::And(children) = predicate {
+        return compile_index_program_and_subset(children, index_slots);
+    }
+
+    compile_index_program_from_resolved_full(predicate, index_slots)
+}
+
+// Compile an AND node by retaining only safely compilable children.
+fn compile_index_program_and_subset(
+    children: &[ResolvedPredicate],
+    index_slots: &[usize],
+) -> Option<IndexPredicateProgram> {
+    let mut compiled = Vec::new();
+    for child in children {
+        let child_program = match child {
+            // Nested AND nodes can also be safely reduced to a conjunction subset.
+            ResolvedPredicate::And(nested) => compile_index_program_and_subset(nested, index_slots),
+            _ => compile_index_program_from_resolved_full(child, index_slots),
+        };
+
+        let Some(child_program) = child_program else {
+            continue;
+        };
+        match child_program {
+            IndexPredicateProgram::True => {}
+            IndexPredicateProgram::False => return Some(IndexPredicateProgram::False),
+            other => compiled.push(other),
+        }
+    }
+
+    match compiled.len() {
+        0 => None,
+        1 => compiled.pop(),
+        _ => Some(IndexPredicateProgram::And(compiled)),
+    }
+}
+
+// Compile one resolved predicate tree only when every node is supported.
+fn compile_index_program_from_resolved_full(
+    predicate: &ResolvedPredicate,
+    index_slots: &[usize],
+) -> Option<IndexPredicateProgram> {
     match predicate {
         ResolvedPredicate::True => Some(IndexPredicateProgram::True),
         ResolvedPredicate::False => Some(IndexPredicateProgram::False),
         ResolvedPredicate::And(children) => Some(IndexPredicateProgram::And(
             children
                 .iter()
-                .map(|child| compile_index_program_from_resolved(child, index_slots))
+                .map(|child| compile_index_program_from_resolved_full(child, index_slots))
                 .collect::<Option<Vec<_>>>()?,
         )),
         ResolvedPredicate::Or(children) => Some(IndexPredicateProgram::Or(
             children
                 .iter()
-                .map(|child| compile_index_program_from_resolved(child, index_slots))
+                .map(|child| compile_index_program_from_resolved_full(child, index_slots))
                 .collect::<Option<Vec<_>>>()?,
         )),
         ResolvedPredicate::Not(inner) => Some(IndexPredicateProgram::Not(Box::new(
-            compile_index_program_from_resolved(inner, index_slots)?,
+            compile_index_program_from_resolved_full(inner, index_slots)?,
         ))),
         ResolvedPredicate::Compare(cmp) => compile_compare_index_node(cmp, index_slots),
         ResolvedPredicate::IsNull { .. }
@@ -1010,5 +1067,55 @@ mod tests {
                 "non-strict coercion should reject index-only compile for op {op:?}",
             );
         }
+    }
+
+    #[test]
+    fn compile_index_program_keeps_safe_and_subset_when_residual_is_uncompilable() {
+        let predicate = ResolvedPredicate::And(vec![
+            ResolvedPredicate::Compare(ResolvedComparePredicate {
+                field_slot: Some(1),
+                op: CompareOp::Eq,
+                value: Value::Uint(7),
+                coercion: CoercionSpec::new(CoercionId::Strict),
+            }),
+            ResolvedPredicate::TextContains {
+                field_slot: Some(9),
+                value: Value::Text("residual".to_string()),
+            },
+            ResolvedPredicate::Compare(ResolvedComparePredicate {
+                field_slot: Some(2),
+                op: CompareOp::In,
+                value: Value::List(vec![Value::Uint(10), Value::Uint(20)]),
+                coercion: CoercionSpec::new(CoercionId::Strict),
+            }),
+        ]);
+
+        let program = compile_index_program_from_resolved(&predicate, &[1, 2]);
+        assert!(
+            program.is_some(),
+            "AND predicates should keep index-only-safe children as a subset",
+        );
+    }
+
+    #[test]
+    fn compile_index_program_rejects_or_with_uncompilable_child() {
+        let predicate = ResolvedPredicate::Or(vec![
+            ResolvedPredicate::Compare(ResolvedComparePredicate {
+                field_slot: Some(1),
+                op: CompareOp::Eq,
+                value: Value::Uint(7),
+                coercion: CoercionSpec::new(CoercionId::Strict),
+            }),
+            ResolvedPredicate::TextContains {
+                field_slot: Some(9),
+                value: Value::Text("residual".to_string()),
+            },
+        ]);
+
+        let program = compile_index_program_from_resolved(&predicate, &[1, 2]);
+        assert!(
+            program.is_none(),
+            "OR predicates must fail closed when any child is not index-only-safe",
+        );
     }
 }

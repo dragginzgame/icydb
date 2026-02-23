@@ -711,13 +711,45 @@ where
         && explain_access_supports_count_pushdown(&plan.explain().access)
 }
 
-fn u32_eq_predicate(field: &str, value: u32) -> Predicate {
+fn u32_eq_predicate_with_coercion(field: &str, value: u32, coercion: CoercionId) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
         field,
         CompareOp::Eq,
         Value::Uint(u64::from(value)),
-        CoercionId::NumericWiden,
+        coercion,
     ))
+}
+
+fn u32_in_predicate_with_coercion(field: &str, values: &[u32], coercion: CoercionId) -> Predicate {
+    Predicate::Compare(ComparePredicate::with_coercion(
+        field,
+        CompareOp::In,
+        Value::List(
+            values
+                .iter()
+                .copied()
+                .map(u64::from)
+                .map(Value::Uint)
+                .collect(),
+        ),
+        coercion,
+    ))
+}
+
+fn u32_eq_predicate(field: &str, value: u32) -> Predicate {
+    u32_eq_predicate_with_coercion(field, value, CoercionId::NumericWiden)
+}
+
+fn u32_eq_predicate_strict(field: &str, value: u32) -> Predicate {
+    u32_eq_predicate_with_coercion(field, value, CoercionId::Strict)
+}
+
+fn u32_in_predicate(field: &str, values: &[u32]) -> Predicate {
+    u32_in_predicate_with_coercion(field, values, CoercionId::NumericWiden)
+}
+
+fn u32_in_predicate_strict(field: &str, values: &[u32]) -> Predicate {
+    u32_in_predicate_with_coercion(field, values, CoercionId::Strict)
 }
 
 fn u32_range_predicate(field: &str, lower_inclusive: u32, upper_exclusive: u32) -> Predicate {
@@ -3817,6 +3849,273 @@ fn aggregate_count_distinct_offset_window_disables_bounded_probe_hint() {
     assert_eq!(
         scanned_desc, 7,
         "DESC distinct+offset count should stay unbounded at access phase"
+    );
+}
+
+#[test]
+fn aggregate_secondary_index_strict_prefilter_preserves_parity_across_window_shapes() {
+    let mut rows = Vec::new();
+    for rank in 0u32..48u32 {
+        rows.push((10_101u128.saturating_add(u128::from(rank)), 7, rank));
+    }
+    for rank in 0u32..24u32 {
+        rows.push((10_301u128.saturating_add(u128::from(rank)), 8, rank));
+    }
+    seed_pushdown_entities(rows.as_slice());
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let strict_filter = Predicate::And(vec![
+        u32_eq_predicate_strict("group", 7),
+        u32_in_predicate_strict("rank", &[3, 7, 19, 23, 41]),
+    ]);
+
+    for (direction_desc, distinct) in [(false, false), (false, true), (true, false), (true, true)] {
+        assert_aggregate_parity_for_query(
+            &load,
+            || {
+                let mut query = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(strict_filter.clone());
+                if distinct {
+                    query = query.distinct();
+                }
+                if direction_desc {
+                    query.order_by_desc("rank").offset(1).limit(3)
+                } else {
+                    query.order_by("rank").offset(1).limit(3)
+                }
+            },
+            "secondary strict index-predicate prefilter parity",
+        );
+    }
+}
+
+#[test]
+fn aggregate_secondary_index_strict_prefilter_reduces_scan_vs_uncertain_fallback() {
+    let mut rows = Vec::new();
+    for rank in 0u32..160u32 {
+        rows.push((10_601u128.saturating_add(u128::from(rank)), 7, rank));
+    }
+    for rank in 0u32..40u32 {
+        rows.push((10_901u128.saturating_add(u128::from(rank)), 8, rank));
+    }
+    seed_pushdown_entities(rows.as_slice());
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let strict_filter = Predicate::And(vec![
+        u32_eq_predicate_strict("group", 7),
+        u32_in_predicate_strict("rank", &[151, 152, 153]),
+    ]);
+    let widen_filter = Predicate::And(vec![
+        u32_eq_predicate("group", 7),
+        u32_in_predicate("rank", &[151, 152, 153]),
+    ]);
+
+    let (strict_exists, strict_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_exists(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(strict_filter.clone())
+                    .order_by("rank")
+                    .plan()
+                    .expect("strict prefilter exists plan should build"),
+            )
+            .expect("strict prefilter exists should succeed")
+        });
+    let (fallback_exists, fallback_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_exists(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(widen_filter.clone())
+                    .order_by("rank")
+                    .plan()
+                    .expect("uncertain fallback exists plan should build"),
+            )
+            .expect("uncertain fallback exists should succeed")
+        });
+
+    assert_eq!(
+        strict_exists, fallback_exists,
+        "strict prefilter and uncertain fallback should preserve EXISTS parity"
+    );
+    assert!(
+        strict_scanned < fallback_scanned,
+        "strict aggregate prefilter should scan fewer rows than uncertain materialized fallback"
+    );
+    assert!(
+        strict_scanned <= 3,
+        "strict aggregate prefilter should bound scans to matching index candidates"
+    );
+}
+
+#[test]
+fn aggregate_field_extrema_strict_prefilter_reduces_scan_vs_uncertain_fallback() {
+    let mut rows = Vec::new();
+    for rank in 0u32..160u32 {
+        rows.push((11_001u128.saturating_add(u128::from(rank)), 7, rank));
+    }
+    for rank in 0u32..40u32 {
+        rows.push((11_401u128.saturating_add(u128::from(rank)), 8, rank));
+    }
+    seed_pushdown_entities(rows.as_slice());
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let strict_filter = Predicate::And(vec![
+        u32_eq_predicate_strict("group", 7),
+        u32_in_predicate_strict("rank", &[151, 152, 153]),
+    ]);
+    let widen_filter = Predicate::And(vec![
+        u32_eq_predicate("group", 7),
+        u32_in_predicate("rank", &[151, 152, 153]),
+    ]);
+
+    let (strict_min_by, strict_min_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_min_by(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(strict_filter.clone())
+                    .order_by("rank")
+                    .plan()
+                    .expect("strict prefilter min_by plan should build"),
+                "rank",
+            )
+            .expect("strict prefilter min_by should succeed")
+        });
+    let (fallback_min_by, fallback_min_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_min_by(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(widen_filter.clone())
+                    .order_by("rank")
+                    .plan()
+                    .expect("uncertain fallback min_by plan should build"),
+                "rank",
+            )
+            .expect("uncertain fallback min_by should succeed")
+        });
+    assert_eq!(
+        strict_min_by, fallback_min_by,
+        "strict prefilter and uncertain fallback should preserve min_by parity"
+    );
+    assert!(
+        strict_min_scanned < fallback_min_scanned,
+        "strict field-extrema prefilter should scan fewer rows than uncertain materialized fallback"
+    );
+
+    let (strict_max_by, strict_max_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_max_by(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(strict_filter.clone())
+                    .order_by_desc("rank")
+                    .plan()
+                    .expect("strict prefilter max_by plan should build"),
+                "rank",
+            )
+            .expect("strict prefilter max_by should succeed")
+        });
+    let (fallback_max_by, fallback_max_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_max_by(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(widen_filter.clone())
+                    .order_by_desc("rank")
+                    .plan()
+                    .expect("uncertain fallback max_by plan should build"),
+                "rank",
+            )
+            .expect("uncertain fallback max_by should succeed")
+        });
+    assert_eq!(
+        strict_max_by, fallback_max_by,
+        "strict prefilter and uncertain fallback should preserve max_by parity"
+    );
+    assert!(
+        strict_max_scanned < fallback_max_scanned,
+        "strict field-extrema prefilter should scan fewer rows than uncertain materialized fallback"
+    );
+}
+
+#[test]
+fn aggregate_first_last_strict_prefilter_reduces_scan_vs_uncertain_fallback() {
+    let mut rows = Vec::new();
+    for rank in 0u32..160u32 {
+        rows.push((11_801u128.saturating_add(u128::from(rank)), 7, rank));
+    }
+    for rank in 0u32..40u32 {
+        rows.push((12_201u128.saturating_add(u128::from(rank)), 8, rank));
+    }
+    seed_pushdown_entities(rows.as_slice());
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+
+    let strict_filter = Predicate::And(vec![
+        u32_eq_predicate_strict("group", 7),
+        u32_in_predicate_strict("rank", &[151, 152, 153]),
+    ]);
+    let widen_filter = Predicate::And(vec![
+        u32_eq_predicate("group", 7),
+        u32_in_predicate("rank", &[151, 152, 153]),
+    ]);
+
+    let (strict_first, strict_first_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_first(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(strict_filter.clone())
+                    .order_by("rank")
+                    .plan()
+                    .expect("strict prefilter first plan should build"),
+            )
+            .expect("strict prefilter first should succeed")
+        });
+    let (fallback_first, fallback_first_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_first(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(widen_filter.clone())
+                    .order_by("rank")
+                    .plan()
+                    .expect("uncertain fallback first plan should build"),
+            )
+            .expect("uncertain fallback first should succeed")
+        });
+    assert_eq!(
+        strict_first, fallback_first,
+        "strict prefilter and uncertain fallback should preserve first parity"
+    );
+    assert!(
+        strict_first_scanned < fallback_first_scanned,
+        "strict first prefilter should scan fewer rows than uncertain materialized fallback"
+    );
+
+    let (strict_last, strict_last_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_last(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(strict_filter.clone())
+                    .order_by("rank")
+                    .plan()
+                    .expect("strict prefilter last plan should build"),
+            )
+            .expect("strict prefilter last should succeed")
+        });
+    let (fallback_last, fallback_last_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.aggregate_last(
+                Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                    .filter(widen_filter.clone())
+                    .order_by("rank")
+                    .plan()
+                    .expect("uncertain fallback last plan should build"),
+            )
+            .expect("uncertain fallback last should succeed")
+        });
+    assert_eq!(
+        strict_last, fallback_last,
+        "strict prefilter and uncertain fallback should preserve last parity"
+    );
+    assert!(
+        strict_last_scanned < fallback_last_scanned,
+        "strict last prefilter should scan fewer rows than uncertain materialized fallback"
     );
 }
 

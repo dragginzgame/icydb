@@ -52,6 +52,20 @@ pub(super) struct ResolvedExecutionKeyStream {
     pub(super) distinct_keys_deduped_counter: Option<Rc<Cell<u64>>>,
 }
 
+///
+/// IndexPredicateCompileMode
+///
+/// Predicate compile policy for index-only prefilter programs.
+/// `ConservativeSubset` keeps load behavior by compiling safe AND-subsets.
+/// `StrictAllOrNone` compiles only when every predicate node is supported.
+///
+
+#[derive(Clone, Copy)]
+pub(in crate::db::executor::load) enum IndexPredicateCompileMode {
+    ConservativeSubset,
+    StrictAllOrNone,
+}
+
 // Canonical fast-path routing decision for one execution attempt.
 enum FastPathDecision {
     Hit(FastPathKeyResult),
@@ -67,9 +81,13 @@ where
     pub(super) fn resolve_execution_key_stream(
         inputs: &ExecutionInputs<'_, E>,
         route_plan: &ExecutionRoutePlan,
+        predicate_compile_mode: IndexPredicateCompileMode,
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
-        let index_predicate_program =
-            Self::compile_index_predicate_program_for_load(inputs.plan, inputs.predicate_slots);
+        let index_predicate_program = Self::compile_index_predicate_program(
+            inputs.plan,
+            inputs.predicate_slots,
+            predicate_compile_mode,
+        );
         let index_predicate_applied = index_predicate_program.is_some();
         let index_predicate_rejected_counter = Cell::new(0u64);
         let index_predicate_execution =
@@ -197,18 +215,24 @@ where
     }
 
     // Compile one optional index-only predicate program for load execution when
-    // the active access path is index-backed and covers all required slots.
-    fn compile_index_predicate_program_for_load(
+    // the active access path is index-backed and at least one safe predicate
+    // subset can run on index components alone.
+    pub(in crate::db::executor::load) fn compile_index_predicate_program(
         plan: &LogicalPlan<E::Key>,
         predicate_slots: Option<&PredicateFieldSlots>,
+        mode: IndexPredicateCompileMode,
     ) -> Option<IndexPredicateProgram> {
         let predicate_slots = predicate_slots?;
-        if !Self::predicate_slots_fully_covered_by_index_path(&plan.access, Some(predicate_slots)) {
-            return None;
-        }
         let index_slots = Self::resolved_index_slots_for_access_path(&plan.access)?;
 
-        predicate_slots.compile_index_program(index_slots.as_slice())
+        match mode {
+            IndexPredicateCompileMode::ConservativeSubset => {
+                predicate_slots.compile_index_program(index_slots.as_slice())
+            }
+            IndexPredicateCompileMode::StrictAllOrNone => {
+                predicate_slots.compile_index_program_strict(index_slots.as_slice())
+            }
+        }
     }
     // Apply DISTINCT before post-access phases so pagination sees unique keys.
     fn apply_distinct_if_requested(

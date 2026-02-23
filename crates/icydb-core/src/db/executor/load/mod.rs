@@ -10,7 +10,8 @@ mod secondary_index;
 mod trace;
 
 use self::{
-    execute::ExecutionInputs,
+    execute::{ExecutionInputs, IndexPredicateCompileMode},
+    route::ExecutionRoutePlan,
     trace::{access_path_variant, execution_order_direction},
 };
 use crate::{
@@ -22,8 +23,8 @@ use crate::{
         },
         query::plan::{
             AccessPlan, CursorBoundary, Direction, ExecutablePlan, LogicalPlan, OrderDirection,
-            PlannedCursor, SlotSelectionPolicy, decode_pk_cursor_boundary, derive_scan_direction,
-            validate::validate_executor_plan,
+            PlannedCursor, SlotSelectionPolicy, compute_page_window, decode_pk_cursor_boundary,
+            derive_scan_direction, validate::validate_executor_plan,
         },
         response::Response,
     },
@@ -214,6 +215,7 @@ where
             .map(|(page, _)| page)
     }
 
+    #[expect(clippy::too_many_lines)]
     pub(in crate::db) fn execute_paged_with_cursor_traced(
         &self,
         plan: ExecutablePlan<E>,
@@ -267,31 +269,86 @@ where
             )?;
 
             // Resolve one canonical key stream, then run shared page materialization/finalization.
-            let mut resolved = Self::resolve_execution_key_stream(&execution_inputs, &route_plan)?;
-            let (page, keys_scanned, post_access_rows) = Self::materialize_key_stream_into_page(
-                &ctx,
-                &plan,
-                predicate_slots.as_ref(),
-                resolved.key_stream.as_mut(),
-                route_plan.scan_hints.load_scan_budget_hint,
-                route_plan.streaming_access_shape_safe(),
-                cursor_boundary.as_ref(),
-                direction,
-                continuation_signature,
+            let mut resolved = Self::resolve_execution_key_stream(
+                &execution_inputs,
+                &route_plan,
+                IndexPredicateCompileMode::ConservativeSubset,
             )?;
-            let rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
-            let distinct_keys_deduped = resolved
+            let (mut page, keys_scanned, mut post_access_rows) =
+                Self::materialize_key_stream_into_page(
+                    &ctx,
+                    &plan,
+                    predicate_slots.as_ref(),
+                    resolved.key_stream.as_mut(),
+                    route_plan.scan_hints.load_scan_budget_hint,
+                    route_plan.streaming_access_shape_safe(),
+                    cursor_boundary.as_ref(),
+                    direction,
+                    continuation_signature,
+                )?;
+            let mut rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
+            let mut optimization = resolved.optimization;
+            let mut index_predicate_applied = resolved.index_predicate_applied;
+            let mut index_predicate_keys_rejected = resolved.index_predicate_keys_rejected;
+            let mut distinct_keys_deduped = resolved
                 .distinct_keys_deduped_counter
                 .as_ref()
                 .map_or(0, |counter| counter.get());
 
-            Ok(Self::finalize_execution(
-                page,
-                resolved.optimization,
+            if Self::index_range_limited_residual_retry_required(
+                &plan,
+                cursor_boundary.as_ref(),
+                &route_plan,
                 rows_scanned,
                 post_access_rows,
-                resolved.index_predicate_applied,
-                resolved.index_predicate_keys_rejected,
+            ) {
+                let mut fallback_route_plan = route_plan;
+                fallback_route_plan.index_range_limit_spec = None;
+                let mut fallback_resolved = Self::resolve_execution_key_stream(
+                    &execution_inputs,
+                    &fallback_route_plan,
+                    IndexPredicateCompileMode::ConservativeSubset,
+                )?;
+                let (fallback_page, fallback_keys_scanned, fallback_post_access_rows) =
+                    Self::materialize_key_stream_into_page(
+                        &ctx,
+                        &plan,
+                        predicate_slots.as_ref(),
+                        fallback_resolved.key_stream.as_mut(),
+                        fallback_route_plan.scan_hints.load_scan_budget_hint,
+                        fallback_route_plan.streaming_access_shape_safe(),
+                        cursor_boundary.as_ref(),
+                        direction,
+                        continuation_signature,
+                    )?;
+                let fallback_rows_scanned = fallback_resolved
+                    .rows_scanned_override
+                    .unwrap_or(fallback_keys_scanned);
+                let fallback_distinct_keys_deduped = fallback_resolved
+                    .distinct_keys_deduped_counter
+                    .as_ref()
+                    .map_or(0, |counter| counter.get());
+
+                // Retry accounting keeps observability faithful to actual work.
+                rows_scanned = rows_scanned.saturating_add(fallback_rows_scanned);
+                optimization = fallback_resolved.optimization;
+                index_predicate_applied =
+                    index_predicate_applied || fallback_resolved.index_predicate_applied;
+                index_predicate_keys_rejected = index_predicate_keys_rejected
+                    .saturating_add(fallback_resolved.index_predicate_keys_rejected);
+                distinct_keys_deduped =
+                    distinct_keys_deduped.saturating_add(fallback_distinct_keys_deduped);
+                page = fallback_page;
+                post_access_rows = fallback_post_access_rows;
+            }
+
+            Ok(Self::finalize_execution(
+                page,
+                optimization,
+                rows_scanned,
+                post_access_rows,
+                index_predicate_applied,
+                index_predicate_keys_rejected,
                 distinct_keys_deduped,
                 &mut span,
                 &mut execution_trace,
@@ -299,6 +356,40 @@ where
         })();
 
         result.map(|page| (page, execution_trace))
+    }
+
+    // Retry index-range limit pushdown when a bounded residual-filter pass may
+    // have under-filled the requested page window.
+    fn index_range_limited_residual_retry_required(
+        plan: &LogicalPlan<E::Key>,
+        cursor_boundary: Option<&CursorBoundary>,
+        route_plan: &ExecutionRoutePlan,
+        rows_scanned: usize,
+        post_access_rows: usize,
+    ) -> bool {
+        let Some(limit_spec) = route_plan.index_range_limit_spec else {
+            return false;
+        };
+        if plan.predicate.is_none() {
+            return false;
+        }
+        if limit_spec.fetch == 0 {
+            return false;
+        }
+        let Some(limit) = plan.page.as_ref().and_then(|page| page.limit) else {
+            return false;
+        };
+        let keep_count =
+            compute_page_window(plan.effective_page_offset(cursor_boundary), limit, false)
+                .keep_count;
+        if keep_count == 0 {
+            return false;
+        }
+        if rows_scanned < limit_spec.fetch {
+            return false;
+        }
+
+        post_access_rows < keep_count
     }
 
     // Record shared observability outcome for any execution path.

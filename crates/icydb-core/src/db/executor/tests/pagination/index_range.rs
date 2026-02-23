@@ -1096,6 +1096,185 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
 }
 
 #[test]
+fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_301, 10, "keep-t10"),
+        (35_302, 12, "keep-t12"),
+        (35_303, 14, "drop-t14"),
+        (35_304, 16, "keep-t16"),
+        (35_305, 18, "keep-t18"),
+        (35_306, 20, "drop-t20"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let label_contains_keep = Predicate::TextContainsCi {
+        field: "label".to_string(),
+        value: Value::Text("keep".to_string()),
+    };
+    let mut fast_logical = LogicalPlan::new(
+        AccessPath::IndexRange {
+            index: INDEXED_METRICS_INDEX_MODELS[0],
+            prefix: Vec::new(),
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(21)),
+        },
+        ReadConsistency::MissingOk,
+    );
+    fast_logical.predicate = Some(label_contains_keep.clone());
+    fast_logical.order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    fast_logical.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
+
+    let mut fallback_logical = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+    fallback_logical.predicate = Some(Predicate::And(vec![
+        strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
+        strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(21)),
+        label_contains_keep,
+    ]));
+    fallback_logical.order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    fallback_logical.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let fallback_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fallback_logical);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+
+    let (fast_page, fast_trace) = load
+        .execute_paged_with_cursor_traced(fast_plan, None)
+        .expect("fast residual limit execution should succeed");
+    let fast_trace = fast_trace.expect("debug trace should be present");
+
+    let (fallback_page, fallback_trace) = load
+        .execute_paged_with_cursor_traced(fallback_plan, None)
+        .expect("fallback residual limit execution should succeed");
+    let fallback_trace = fallback_trace.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page.items.0),
+        ids_from_items(&fallback_page.items.0),
+        "residual-filter index-range pushdown must preserve fallback row parity",
+    );
+    assert!(
+        fast_trace.keys_scanned <= 3,
+        "residual-filter fast path should remain within the bounded fetch window when it can satisfy the page (fast={fast_trace:?}, fallback={fallback_trace:?})",
+    );
+    assert_eq!(
+        fast_trace.optimization,
+        Some(ExecutionOptimization::IndexRangeLimitPushdown),
+        "residual-filter fast path should report index-range limit pushdown when no retry is needed",
+    );
+    assert!(
+        fast_trace.keys_scanned < fallback_trace.keys_scanned,
+        "residual-filter index-range pushdown should reduce scanned rows when early bounded candidates satisfy the page (fast={fast_trace:?}, fallback={fallback_trace:?})",
+    );
+}
+
+#[test]
+fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_401, 10, "drop-t10"),
+        (35_402, 11, "drop-t11"),
+        (35_403, 12, "drop-t12"),
+        (35_404, 13, "keep-t13"),
+        (35_405, 14, "keep-t14"),
+        (35_406, 15, "keep-t15"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let label_contains_keep = Predicate::TextContainsCi {
+        field: "label".to_string(),
+        value: Value::Text("keep".to_string()),
+    };
+    let mut fast_logical = LogicalPlan::new(
+        AccessPath::IndexRange {
+            index: INDEXED_METRICS_INDEX_MODELS[0],
+            prefix: Vec::new(),
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(16)),
+        },
+        ReadConsistency::MissingOk,
+    );
+    fast_logical.predicate = Some(label_contains_keep.clone());
+    fast_logical.order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    fast_logical.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
+
+    let mut fallback_logical = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+    fallback_logical.predicate = Some(Predicate::And(vec![
+        strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
+        strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(16)),
+        label_contains_keep,
+    ]));
+    fallback_logical.order = Some(OrderSpec {
+        fields: vec![
+            ("tag".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    fallback_logical.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let fallback_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fallback_logical);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+
+    let (fast_page, fast_trace) = load
+        .execute_paged_with_cursor_traced(fast_plan, None)
+        .expect("fast residual underfill execution should succeed");
+    let fast_trace = fast_trace.expect("debug trace should be present");
+
+    let (fallback_page, fallback_trace) = load
+        .execute_paged_with_cursor_traced(fallback_plan, None)
+        .expect("fallback residual underfill execution should succeed");
+    let fallback_trace = fallback_trace.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page.items.0),
+        ids_from_items(&fallback_page.items.0),
+        "residual underfill retry path must preserve fallback row parity",
+    );
+    assert_eq!(
+        fast_trace.optimization, None,
+        "residual underfill should retry without index-range limit pushdown and report fallback optimization outcome",
+    );
+    assert!(
+        fast_trace.keys_scanned > 3,
+        "residual underfill should rescan beyond the initial bounded fetch window",
+    );
+    assert!(
+        fast_trace.keys_scanned > fallback_trace.keys_scanned,
+        "residual underfill retry should report additional scan work beyond canonical fallback (fast={fast_trace:?}, fallback={fallback_trace:?})",
+    );
+}
+
+#[test]
 fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
     setup_pagination_test();
 
@@ -1121,6 +1300,12 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
         Value::Uint(20),
         CoercionId::NumericWiden,
     ));
+    let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::NumericWiden,
+    ));
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
 
     let (fast_page, fast_trace) = load
@@ -1142,7 +1327,7 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
         .execute_paged_with_cursor_traced(
             Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
                 .filter(Predicate::And(vec![
-                    pushdown_group_predicate(7),
+                    group_eq_fallback,
                     rank_not_20_fallback,
                 ]))
                 .order_by("rank")
@@ -1214,6 +1399,12 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
         Value::Uint(20),
         CoercionId::NumericWiden,
     ));
+    let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::NumericWiden,
+    ));
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
 
     let build_fast_plan = || {
@@ -1231,7 +1422,7 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
     let build_fallback_plan = || {
         Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
             .filter(Predicate::And(vec![
-                pushdown_group_predicate(7),
+                group_eq_fallback.clone(),
                 rank_not_20_fallback.clone(),
             ]))
             .order_by("rank")
@@ -1354,6 +1545,12 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
         Value::Uint(20),
         CoercionId::NumericWiden,
     ));
+    let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::NumericWiden,
+    ));
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
 
     let build_fast_plan = || {
@@ -1371,7 +1568,7 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
     let build_fallback_plan = || {
         Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
             .filter(Predicate::And(vec![
-                pushdown_group_predicate(7),
+                group_eq_fallback.clone(),
                 rank_not_20_fallback.clone(),
             ]))
             .order_by_desc("rank")
@@ -1446,4 +1643,315 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
         fallback_page2.next_cursor.is_some(),
         "fast and fallback descending distinct page2 continuation presence should match",
     );
+}
+
+#[test]
+fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
+    setup_pagination_test();
+
+    // Phase 1: seed rows where strict IN and residual text filtering reject multiple candidates.
+    let rows = [
+        (36_301, 7, 10, "keep-g7-r10"),
+        (36_302, 7, 20, "drop-g7-r20"),
+        (36_303, 7, 20, "keep-g7-r20"),
+        (36_304, 7, 30, "keep-g7-r30"),
+        (36_305, 7, 40, "keep-g7-r40"),
+        (36_306, 7, 50, "keep-g7-r50"),
+        (36_307, 7, 60, "drop-g7-r60"),
+        (36_308, 8, 20, "keep-g8-r20"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    let rank_in_strict = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::In,
+        Value::List(vec![Value::Uint(20), Value::Uint(40), Value::Uint(50)]),
+        CoercionId::Strict,
+    ));
+    let rank_in_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::In,
+        Value::List(vec![Value::Uint(20), Value::Uint(40), Value::Uint(50)]),
+        CoercionId::NumericWiden,
+    ));
+    let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+        "group",
+        CompareOp::Eq,
+        Value::Uint(7),
+        CoercionId::NumericWiden,
+    ));
+    let label_contains_keep = Predicate::TextContainsCi {
+        field: "label".to_string(),
+        value: Value::Text("keep".to_string()),
+    };
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    // Phase 2: execute fast and fallback plans with equivalent row semantics.
+    let (fast_page, fast_trace) = load
+        .execute_paged_with_cursor_traced(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(Predicate::And(vec![
+                    pushdown_group_predicate(7),
+                    rank_in_strict,
+                    label_contains_keep.clone(),
+                ]))
+                .order_by("rank")
+                .plan()
+                .expect("strict IN fast plan should build"),
+            None,
+        )
+        .expect("strict IN fast execution should succeed");
+    let fast_trace = fast_trace.expect("debug trace should be present");
+
+    let (fallback_page, fallback_trace) = load
+        .execute_paged_with_cursor_traced(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(Predicate::And(vec![
+                    group_eq_fallback,
+                    rank_in_fallback,
+                    label_contains_keep,
+                ]))
+                .order_by("rank")
+                .plan()
+                .expect("fallback IN plan should build"),
+            None,
+        )
+        .expect("fallback IN execution should succeed");
+    let fallback_trace = fallback_trace.expect("debug trace should be present");
+
+    // Phase 3: assert parity and read-reduction behavior.
+    assert_eq!(
+        ids_from_items(&fast_page.items.0),
+        ids_from_items(&fallback_page.items.0),
+        "strict IN index-only execution must preserve fallback row parity",
+    );
+    assert!(
+        fast_trace.index_predicate_applied,
+        "strict IN predicate should activate index-only filtering"
+    );
+    assert!(
+        !fallback_trace.index_predicate_applied,
+        "fallback IN path must keep index-only filtering disabled",
+    );
+    assert!(
+        fast_trace.index_predicate_keys_rejected > 0,
+        "strict IN index-only path should reject non-matching index keys",
+    );
+    assert_eq!(
+        fallback_trace.index_predicate_keys_rejected, 0,
+        "fallback IN path must not report index-only rejected-key counts",
+    );
+    assert!(
+        fast_trace.keys_scanned < fallback_trace.keys_scanned,
+        "strict IN index-only filtering should reduce scanned rows for this shape",
+    );
+}
+
+#[test]
+#[expect(clippy::similar_names)]
+fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallback_for_asc_and_desc()
+{
+    setup_pagination_test();
+
+    // Phase 1: seed rows that require both range bounds and residual text checks.
+    let rows = [
+        (36_401, 7, 10, "keep-g7-r10"),
+        (36_402, 7, 20, "drop-g7-r20"),
+        (36_403, 7, 20, "keep-g7-r20"),
+        (36_404, 7, 30, "keep-g7-r30"),
+        (36_405, 7, 40, "drop-g7-r40"),
+        (36_406, 7, 40, "keep-g7-r40"),
+        (36_407, 7, 50, "keep-g7-r50"),
+        (36_408, 8, 30, "keep-g8-r30"),
+    ];
+    seed_pushdown_rows(&rows);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    for descending in [false, true] {
+        let rank_gte_20_strict = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Gte,
+            Value::Uint(20),
+            CoercionId::Strict,
+        ));
+        let rank_lte_40_strict = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Lte,
+            Value::Uint(40),
+            CoercionId::Strict,
+        ));
+        let rank_gte_20_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Gte,
+            Value::Uint(20),
+            CoercionId::NumericWiden,
+        ));
+        let rank_lte_40_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            CompareOp::Lte,
+            Value::Uint(40),
+            CoercionId::NumericWiden,
+        ));
+        let group_eq_fallback = Predicate::Compare(ComparePredicate::with_coercion(
+            "group",
+            CompareOp::Eq,
+            Value::Uint(7),
+            CoercionId::NumericWiden,
+        ));
+        let label_contains_keep = Predicate::TextContainsCi {
+            field: "label".to_string(),
+            value: Value::Text("keep".to_string()),
+        };
+
+        let build_fast_plan = || {
+            let base = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(Predicate::And(vec![
+                    pushdown_group_predicate(7),
+                    rank_gte_20_strict.clone(),
+                    rank_lte_40_strict.clone(),
+                    label_contains_keep.clone(),
+                ]))
+                .distinct()
+                .limit(2);
+
+            if descending {
+                base.order_by_desc("rank")
+                    .plan()
+                    .expect("fast bounded-range descending plan should build")
+            } else {
+                base.order_by("rank")
+                    .plan()
+                    .expect("fast bounded-range ascending plan should build")
+            }
+        };
+        let build_fallback_plan = || {
+            let base = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(Predicate::And(vec![
+                    group_eq_fallback.clone(),
+                    rank_gte_20_fallback.clone(),
+                    rank_lte_40_fallback.clone(),
+                    label_contains_keep.clone(),
+                ]))
+                .distinct()
+                .limit(2);
+
+            if descending {
+                base.order_by_desc("rank")
+                    .plan()
+                    .expect("fallback bounded-range descending plan should build")
+            } else {
+                base.order_by("rank")
+                    .plan()
+                    .expect("fallback bounded-range ascending plan should build")
+            }
+        };
+
+        // Phase 2: compare first page and continuation boundary parity.
+        let (fast_page1, fast_trace1) = load
+            .execute_paged_with_cursor_traced(build_fast_plan(), None)
+            .expect("fast bounded-range page1 should execute");
+        let fast_trace1 = fast_trace1.expect("debug trace should be present");
+        let (fallback_page1, fallback_trace1) = load
+            .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+            .expect("fallback bounded-range page1 should execute");
+        let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
+
+        assert_eq!(
+            ids_from_items(&fast_page1.items.0),
+            ids_from_items(&fallback_page1.items.0),
+            "fast and fallback bounded-range page1 rows should match for descending={descending}",
+        );
+        assert!(
+            fast_trace1.index_predicate_applied && !fast_trace1.continuation_applied,
+            "fast bounded-range page1 should report index-only activation for descending={descending}",
+        );
+        assert!(
+            !fallback_trace1.index_predicate_applied,
+            "fallback bounded-range page1 must not report index-only activation for descending={descending}",
+        );
+        assert!(
+            fast_trace1.index_predicate_keys_rejected > 0,
+            "fast bounded-range page1 should reject non-matching index keys for descending={descending}",
+        );
+        assert_eq!(
+            fallback_trace1.index_predicate_keys_rejected, 0,
+            "fallback bounded-range page1 must not report index-only rejected-key counts for descending={descending}",
+        );
+
+        let fast_cursor = fast_page1
+            .next_cursor
+            .as_ref()
+            .expect("fast bounded-range page1 should emit continuation cursor");
+        let fallback_cursor = fallback_page1
+            .next_cursor
+            .as_ref()
+            .expect("fallback bounded-range page1 should emit continuation cursor");
+        let shared_boundary = decode_boundary(
+            fast_cursor,
+            "fast bounded-range page1 continuation cursor should decode",
+        );
+        assert_eq!(
+            decode_boundary(
+                fast_cursor,
+                "fast bounded-range page1 continuation cursor should decode",
+            ),
+            decode_boundary(
+                fallback_cursor,
+                "fallback bounded-range page1 continuation cursor should decode",
+            ),
+            "fast and fallback bounded-range page1 cursors should match for descending={descending}",
+        );
+
+        // Phase 3: compare continuation page parity and aggregate scan reduction.
+        let (fast_page2, fast_trace2) = load
+            .execute_paged_with_cursor_traced(build_fast_plan(), Some(shared_boundary.clone()))
+            .expect("fast bounded-range page2 should execute");
+        let fast_trace2 = fast_trace2.expect("debug trace should be present");
+        let (fallback_page2, fallback_trace2) = load
+            .execute_paged_with_cursor_traced(build_fallback_plan(), Some(shared_boundary))
+            .expect("fallback bounded-range page2 should execute");
+        let fallback_trace2 = fallback_trace2.expect("debug trace should be present");
+
+        assert_eq!(
+            ids_from_items(&fast_page2.items.0),
+            ids_from_items(&fallback_page2.items.0),
+            "fast and fallback bounded-range page2 rows should match for descending={descending}",
+        );
+        assert!(
+            fast_trace2.index_predicate_applied && fast_trace2.continuation_applied,
+            "fast bounded-range page2 should report activation with continuation for descending={descending}",
+        );
+        assert!(
+            !fallback_trace2.index_predicate_applied,
+            "fallback bounded-range page2 must not report index-only activation for descending={descending}",
+        );
+        assert_eq!(
+            fallback_trace2.index_predicate_keys_rejected, 0,
+            "fallback bounded-range page2 must not report index-only rejected-key counts for descending={descending}",
+        );
+        assert_eq!(
+            fast_trace1.distinct_keys_deduped, fallback_trace1.distinct_keys_deduped,
+            "fast and fallback bounded-range page1 distinct counts should match for descending={descending}",
+        );
+        assert_eq!(
+            fast_trace2.distinct_keys_deduped, fallback_trace2.distinct_keys_deduped,
+            "fast and fallback bounded-range page2 distinct counts should match for descending={descending}",
+        );
+        assert_eq!(
+            fast_page2.next_cursor.is_some(),
+            fallback_page2.next_cursor.is_some(),
+            "fast and fallback bounded-range page2 continuation presence should match for descending={descending}",
+        );
+
+        let fast_scanned_total = fast_trace1
+            .keys_scanned
+            .saturating_add(fast_trace2.keys_scanned);
+        let fallback_scanned_total = fallback_trace1
+            .keys_scanned
+            .saturating_add(fallback_trace2.keys_scanned);
+        assert!(
+            fast_scanned_total < fallback_scanned_total,
+            "fast bounded-range index-only filtering should reduce total scanned rows for descending={descending}",
+        );
+    }
 }
