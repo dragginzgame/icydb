@@ -72,7 +72,7 @@ mod tests {
         traits::EntityValue,
         types::Ulid,
     };
-    use icydb_derive::FieldValues;
+    use icydb_derive::FieldProjection;
     use serde::{Deserialize, Serialize};
 
     crate::test_canister! {
@@ -84,7 +84,7 @@ mod tests {
         canister = TestCanister,
     }
 
-    #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
     struct ProbeEntity {
         id: Ulid,
     }

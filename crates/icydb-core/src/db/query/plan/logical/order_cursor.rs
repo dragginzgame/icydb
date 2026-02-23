@@ -52,7 +52,11 @@ pub(in crate::db::query::plan::logical) fn field_slot<E: EntityKind + EntityValu
     entity: &E,
     field: &str,
 ) -> CursorBoundarySlot {
-    match entity.get_value(field) {
+    let value = E::MODEL
+        .field_index(field)
+        .and_then(|field_index| entity.get_value_by_index(field_index));
+
+    match value {
         Some(value) => CursorBoundarySlot::Present(value),
         None => CursorBoundarySlot::Missing,
     }

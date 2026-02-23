@@ -48,7 +48,10 @@ impl IndexKey {
         let mut components = Vec::with_capacity(index.fields.len());
 
         for field in index.fields {
-            let Some(value) = entity.get_value(field) else {
+            let Some(field_index) = E::MODEL.field_index(field) else {
+                return Ok(None);
+            };
+            let Some(value) = entity.get_value_by_index(field_index) else {
                 return Ok(None);
             };
 

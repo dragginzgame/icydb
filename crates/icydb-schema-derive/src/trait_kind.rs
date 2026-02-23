@@ -64,7 +64,7 @@ pub enum TraitKind {
     EntityValue,
     EnumValue,
     FieldValue,
-    FieldValues,
+    FieldProjection,
 
     // orm
     AsView,
@@ -137,7 +137,9 @@ impl TraitKind {
             Self::Div => Some(quote!(::icydb::__reexports::icydb_derive::Div)),
             Self::DivAssign => Some(quote!(::icydb::__reexports::icydb_derive::DivAssign)),
             Self::Eq => Some(quote!(Eq)),
-            Self::FieldValues => Some(quote!(::icydb::__reexports::icydb_derive::FieldValues)),
+            Self::FieldProjection => {
+                Some(quote!(::icydb::__reexports::icydb_derive::FieldProjection))
+            }
             Self::Hash => Some(quote!(Hash)),
             Self::Inner => Some(quote!(::icydb::__reexports::icydb_derive::Inner)),
             Self::Mul => Some(quote!(::icydb::__reexports::icydb_derive::Mul)),

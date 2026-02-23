@@ -424,7 +424,7 @@ mod tests {
         types::{Decimal, Ulid},
         value::Value,
     };
-    use icydb_derive::FieldValues;
+    use icydb_derive::FieldProjection;
     use serde::{Deserialize, Serialize};
     use std::cmp::Ordering;
 
@@ -439,7 +439,7 @@ mod tests {
         canister = AggregateFieldCanister,
     }
 
-    #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
     struct AggregateFieldEntity {
         id: Ulid,
         rank: u32,

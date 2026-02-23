@@ -18,7 +18,7 @@ use crate::{
     traits::{EntityIdentity, EntitySchema, FieldValue, Path},
     types::Ulid,
 };
-use icydb_derive::FieldValues;
+use icydb_derive::FieldProjection;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, collections::BTreeSet};
 
@@ -43,7 +43,7 @@ crate::test_store! {
 /// RecoveryTestEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct RecoveryTestEntity {
     id: Ulid,
 }
@@ -61,7 +61,7 @@ crate::test_entity_schema! {
     canister = RecoveryTestCanister,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct RecoveryIndexedEntity {
     id: Ulid,
     group: u32,

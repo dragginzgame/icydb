@@ -189,7 +189,7 @@ pub trait EntityKind: EntitySchema + EntityPlacement + Kind + TypeKind {}
 /// The returned `Id<Self>` is a public identifier, not proof of authority.
 ///
 
-pub trait EntityValue: EntityIdentity + FieldValues + Sized {
+pub trait EntityValue: EntityIdentity + FieldProjection + Sized {
     fn id(&self) -> Id<Self>;
 }
 
@@ -304,10 +304,7 @@ pub trait EnumValue {
     fn to_value_enum(&self) -> ValueEnum;
 }
 
-pub trait FieldValues {
-    /// Resolve one field value by field name.
-    fn get_value(&self, field: &str) -> Option<Value>;
-
+pub trait FieldProjection {
     /// Resolve one field value by stable field slot index.
     fn get_value_by_index(&self, index: usize) -> Option<Value>;
 }

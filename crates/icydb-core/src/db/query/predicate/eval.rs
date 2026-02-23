@@ -3,7 +3,7 @@ use crate::{
         CompareOp, ComparePredicate, Predicate,
         coercion::{CoercionSpec, TextOp, compare_eq, compare_order, compare_text},
     },
-    traits::FieldValues,
+    traits::{EntityKind, EntityValue},
     value::{TextMode, Value},
 };
 use std::cmp::Ordering;
@@ -36,13 +36,16 @@ pub(crate) trait Row {
 }
 
 ///
-/// Default `Row` implementation for any type that exposes
-/// `FieldValues`, which is the standard runtime entity interface.
+/// Default `Row` implementation for runtime entity values.
 ///
 
-impl<T: FieldValues> Row for T {
+impl<T: EntityKind + EntityValue> Row for T {
     fn field(&self, name: &str) -> FieldPresence {
-        match self.get_value(name) {
+        let value = T::MODEL
+            .field_index(name)
+            .and_then(|field_index| self.get_value_by_index(field_index));
+
+        match value {
             Some(value) => FieldPresence::Present(value),
             None => FieldPresence::Missing,
         }

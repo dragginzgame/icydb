@@ -19,7 +19,7 @@ use crate::{
     traits::{EntityIdentity, Path},
     types::{Decimal, Ulid},
 };
-use icydb_derive::FieldValues;
+use icydb_derive::FieldProjection;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 
@@ -94,7 +94,7 @@ fn reset_store() {
 /// TargetEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct TargetEntity {
     id: Ulid,
 }
@@ -116,7 +116,7 @@ crate::test_entity_schema! {
 /// SourceEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct SourceEntity {
     id: Ulid,
     target: Ulid,
@@ -151,7 +151,7 @@ crate::test_entity_schema! {
 /// InvalidRelationMetadataEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct InvalidRelationMetadataEntity {
     id: Ulid,
     target: Ulid,
@@ -186,7 +186,7 @@ crate::test_entity_schema! {
 /// SourceSetEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct SourceSetEntity {
     id: Ulid,
     targets: Vec<Ulid>,
@@ -220,7 +220,7 @@ crate::test_entity_schema! {
 /// UniqueEmailEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct UniqueEmailEntity {
     id: Ulid,
     email: String,
@@ -279,7 +279,7 @@ fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
 /// MismatchedPkEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct MismatchedPkEntity {
     id: Ulid,
     actual_id: Ulid,
@@ -302,7 +302,7 @@ crate::test_entity_schema! {
 /// DecimalScaleEntity
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
 struct DecimalScaleEntity {
     id: Ulid,
     amount: Decimal,

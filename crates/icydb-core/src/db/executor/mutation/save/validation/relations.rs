@@ -19,12 +19,12 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
         entity: &E,
     ) -> Result<(), InternalError> {
         // Phase 1: identify strong relation fields and read their values.
-        for field in E::MODEL.fields {
+        for (field_index, field) in E::MODEL.fields.iter().enumerate() {
             let Some(relation) = strong_relation_target_from_kind(&field.kind) else {
                 continue;
             };
 
-            let value = entity.get_value(field.name).ok_or_else(|| {
+            let value = entity.get_value_by_index(field_index).ok_or_else(|| {
                 InternalError::executor_invariant(format!(
                     "entity field missing: {} field={}",
                     E::PATH,

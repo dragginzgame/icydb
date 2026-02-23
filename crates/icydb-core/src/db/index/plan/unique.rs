@@ -40,11 +40,24 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         ));
     };
 
+    let mut indexed_field_slots = Vec::with_capacity(index.fields.len());
+    for field in index.fields {
+        let Some(field_index) = E::MODEL.field_index(field) else {
+            return Err(InternalError::index_invariant(format!(
+                "index field missing on entity model: {} ({})",
+                E::PATH,
+                field
+            )));
+        };
+
+        indexed_field_slots.push((*field, field_index));
+    }
+
     // Phase 1: build the semantic prefix and short-circuit when the value is
     // not canonically indexable (for example Null/unsupported kinds).
     let mut encoded_prefix = Vec::with_capacity(index.fields.len());
-    for field in index.fields {
-        let expected = new_entity.get_value(field).ok_or_else(|| {
+    for (field, field_index) in indexed_field_slots.iter().copied() {
+        let expected = new_entity.get_value_by_index(field_index).ok_or_else(|| {
             InternalError::index_invariant(format!(
                 "index field missing on lookup entity: {} ({})",
                 E::PATH,
@@ -135,15 +148,15 @@ pub(super) fn validate_unique_constraint<E: EntityKind + EntityValue>(
         )));
     }
 
-    for field in index.fields {
-        let expected = new_entity.get_value(field).ok_or_else(|| {
+    for (field, field_index) in indexed_field_slots.iter().copied() {
+        let expected = new_entity.get_value_by_index(field_index).ok_or_else(|| {
             InternalError::index_invariant(format!(
                 "index field missing on lookup entity: {} ({})",
                 E::PATH,
                 field
             ))
         })?;
-        let actual = stored.get_value(field).ok_or_else(|| {
+        let actual = stored.get_value_by_index(field_index).ok_or_else(|| {
             InternalError::index_plan_index_corruption(format!(
                 "index corrupted: {} ({}) -> stored entity missing field",
                 E::PATH,

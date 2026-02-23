@@ -12,7 +12,7 @@ use crate::{
         index::IndexModel,
     },
     test_support::entity_model_from_static,
-    traits::{EntitySchema, FieldValue, FieldValues},
+    traits::{EntitySchema, FieldProjection, FieldValue},
     types::{Ulid, Unit},
     value::{Value, ValueEnum},
 };
@@ -78,14 +78,7 @@ struct PlanSingleton {
     id: Unit,
 }
 
-impl FieldValues for PlanSingleton {
-    fn get_value(&self, field: &str) -> Option<Value> {
-        match field {
-            "id" => Some(self.id.to_value()),
-            _ => None,
-        }
-    }
-
+impl FieldProjection for PlanSingleton {
     fn get_value_by_index(&self, index: usize) -> Option<Value> {
         match index {
             0 => Some(self.id.to_value()),

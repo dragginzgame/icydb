@@ -382,7 +382,7 @@ impl HasTraits for Entity {
             TraitKind::CreateView,
             TraitKind::EntityKind,
             TraitKind::EntityValue,
-            TraitKind::FieldValues,
+            TraitKind::FieldProjection,
         ]);
 
         traits.into_vec()

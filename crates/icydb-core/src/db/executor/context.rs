@@ -422,7 +422,7 @@ mod tests {
         types::Ulid,
         value::Value,
     };
-    use icydb_derive::FieldValues;
+    use icydb_derive::FieldProjection;
     use serde::{Deserialize, Serialize};
     use std::{borrow::Cow, ops::Bound};
 
@@ -440,7 +440,7 @@ mod tests {
         false,
     );
 
-    #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
     struct ContextInvariantEntity {
         id: Ulid,
         group: u32,

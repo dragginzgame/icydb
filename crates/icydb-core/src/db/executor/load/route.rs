@@ -1027,7 +1027,7 @@ mod tests {
         types::Ulid,
         value::Value,
     };
-    use icydb_derive::FieldValues;
+    use icydb_derive::FieldProjection;
     use serde::{Deserialize, Serialize};
     use std::ops::Bound;
 
@@ -1093,7 +1093,7 @@ mod tests {
         false,
     )];
 
-    #[derive(Clone, Debug, Default, Deserialize, FieldValues, PartialEq, Serialize)]
+    #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, Serialize)]
     struct RouteMatrixEntity {
         id: Ulid,
         rank: u32,

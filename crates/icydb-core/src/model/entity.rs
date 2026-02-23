@@ -44,3 +44,16 @@ pub struct EntityModel {
     /// Index definitions (field order is significant).
     pub indexes: &'static [&'static IndexModel],
 }
+
+impl EntityModel {
+    /// Resolve one field name to its stable index in `fields`.
+    ///
+    /// This index is the canonical slot used by `FieldProjection::get_value_by_index`.
+    #[must_use]
+    pub fn field_index(&self, field_name: &str) -> Option<usize> {
+        self.fields
+            .iter()
+            .enumerate()
+            .find_map(|(index, field)| (field.name == field_name).then_some(index))
+    }
+}

@@ -1,5 +1,5 @@
 mod display;
-mod field_values;
+mod field_projection;
 mod inner;
 mod newtype;
 mod ops;
@@ -56,9 +56,9 @@ pub fn derive_sum(input: TokenStream) -> TokenStream {
     ops::derive_sum(input.into()).into()
 }
 
-#[proc_macro_derive(FieldValues)]
-pub fn derive_field_values(input: TokenStream) -> TokenStream {
-    field_values::derive_field_values(input.into()).into()
+#[proc_macro_derive(FieldProjection)]
+pub fn derive_field_projection(input: TokenStream) -> TokenStream {
+    field_projection::derive_field_projection(input.into()).into()
 }
 
 #[proc_macro_derive(Display)]

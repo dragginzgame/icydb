@@ -58,7 +58,14 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
     // Enforce trait boundary invariants for user-provided entities.
     fn validate_entity_invariants(entity: &E, schema: &SchemaInfo) -> Result<(), InternalError> {
         // Phase 1: validate primary key field presence and *shape*.
-        let pk_value = entity.get_value(E::PRIMARY_KEY).ok_or_else(|| {
+        let Some(pk_field_index) = E::MODEL.field_index(E::PRIMARY_KEY) else {
+            return Err(InternalError::executor_invariant(format!(
+                "entity primary key field missing: {} field={}",
+                E::PATH,
+                E::PRIMARY_KEY
+            )));
+        };
+        let pk_value = entity.get_value_by_index(pk_field_index).ok_or_else(|| {
             InternalError::executor_invariant(format!(
                 "entity primary key field missing: {} field={}",
                 E::PATH,
@@ -99,8 +106,8 @@ impl<E: EntityKind + EntityValue> SaveExecutor<E> {
 
         // Phase 2: validate field presence and runtime value shapes.
         let indexed_fields = indexed_field_set::<E>();
-        for field in E::MODEL.fields {
-            let value = entity.get_value(field.name).ok_or_else(|| {
+        for (field_index, field) in E::MODEL.fields.iter().enumerate() {
+            let value = entity.get_value_by_index(field_index).ok_or_else(|| {
                 let note = if indexed_fields.contains(field.name) {
                     " (indexed)"
                 } else {

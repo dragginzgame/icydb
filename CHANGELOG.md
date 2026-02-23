@@ -9,32 +9,26 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 📝 Summary
 
-* Moves aggregate field terminals to slot-based projection so aggregate execution loops no longer do per-row string field lookup.
+* Moves runtime field projection to slot/index access and removes name-based `FieldProjection` lookup.
 
 ### ⚠️ Breaking
 
-* `FieldValues` now requires `get_value_by_index(&self, index: usize) -> Option<Value>`. Manual implementations must add this method.
+* `FieldProjection::get_value(&self, field: &str)` was removed.
+* `FieldProjection` now only requires `get_value_by_index(&self, index: usize) -> Option<Value>`.
 
 ### 🔧 Changed
 
 * Field-target aggregate terminals now resolve the target once at setup into a stable field slot and then read values by index during execution.
 * Aggregate field reducers (`min_by`, `max_by`, `nth_by`, `median_by`, `sum_by`, `avg_by`, `count_distinct_by`, `min_max_by`) now use index projection in both materialized and streaming aggregate paths.
 * Aggregate field helper paths now share slot-aware validation and extraction helpers, keeping taxonomy and semantics unchanged.
+* Additional runtime paths now use index projection (`index` key build/unique validation, save-time invariant/relation validation, reverse-relation key extraction, order cursor field slot extraction, and predicate row field reads for entity rows).
 
 ### 🧭 Migration Notes
 
-* If you implement `FieldValues` manually, add `get_value_by_index` using the same declared field order as your schema model.
+* If you implement `FieldProjection` manually, implement `get_value_by_index` using the same declared field order as your schema model.
 
 ```rust
-impl FieldValues for MyEntity {
-    fn get_value(&self, field: &str) -> Option<Value> {
-        match field {
-            "id" => Some(self.id.to_value()),
-            "name" => Some(self.name.to_value()),
-            _ => None,
-        }
-    }
-
+impl FieldProjection for MyEntity {
     fn get_value_by_index(&self, index: usize) -> Option<Value> {
         match index {
             0 => Some(self.id.to_value()),
@@ -47,7 +41,7 @@ impl FieldValues for MyEntity {
 
 ### 📚 Documentation
 
-* Clarified `0.26` scope as a clean aggregate slot migration, with broader non-aggregate `get_value(&str)` reduction staged for `0.26.1+`.
+* Updated `0.26` release notes to reflect slot/index-only field projection with no name-based `FieldProjection` compatibility layer.
 
 ### 🧪 Testing
 
@@ -1895,7 +1889,7 @@ This release is the 0.7 baseline for deterministic behavior, compile-time schema
 
 * Newtype arithmetic derives now route through `icydb-derive` (including `Div`/`DivAssign`) instead of `derive_more`.
 * `test_entity!` now requires an explicit `struct` block and derives `EntityKind::Id` from the primary key field’s Rust type, failing at compile time if the PK is missing from the struct or `fields {}`.
-* `FieldValues` is now derived via `icydb-derive` and no longer implemented by schema-specific `imp` code.
+* `FieldProjection` is now derived via `icydb-derive` and no longer implemented by schema-specific `imp` code.
 * `DbSession::diagnose_query` now requires `EntityKind` only, keeping diagnostics schema-level.
 * Public query builders now accept `EntityKind` for intent construction; execution continues to require `EntityValue`.
 * Updated `canic` to `0.9.17`.

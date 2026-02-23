@@ -2,8 +2,8 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Error, Fields, Type};
 
-// derive_field_values
-pub fn derive_field_values(input: TokenStream) -> TokenStream {
+// derive_field_projection
+pub fn derive_field_projection(input: TokenStream) -> TokenStream {
     let input: DeriveInput = match syn::parse2(input) {
         Ok(input) => input,
         Err(err) => return err.to_compile_error(),
@@ -18,27 +18,17 @@ pub fn derive_field_values(input: TokenStream) -> TokenStream {
         } else {
             let err = Error::new_spanned(
                 &data.fields,
-                "FieldValues can only be derived for structs with named fields",
+                "FieldProjection can only be derived for structs with named fields",
             );
             return err.to_compile_error();
         }
     } else {
         let err = Error::new_spanned(
             &input.ident,
-            "FieldValues can only be derived for structs with named fields",
+            "FieldProjection can only be derived for structs with named fields",
         );
         return err.to_compile_error();
     };
-
-    let by_name_match_arms = fields.iter().map(|field| {
-        let field_ident = field.ident.as_ref().expect("named field");
-        let field_name = field_ident.to_string();
-        let field_value_expr = field_value_expr(field_ident, &field.ty);
-
-        quote! {
-            #field_name => #field_value_expr,
-        }
-    });
 
     let by_index_match_arms = fields.iter().enumerate().map(|(index, field)| {
         let field_ident = field.ident.as_ref().expect("named field");
@@ -50,16 +40,7 @@ pub fn derive_field_values(input: TokenStream) -> TokenStream {
     });
 
     quote! {
-        impl #impl_generics ::icydb::traits::FieldValues for #ident #ty_generics #where_clause {
-            fn get_value(&self, field: &str) -> Option<::icydb::value::Value> {
-                use ::icydb::{traits::FieldValue, value::Value};
-
-                match field {
-                    #(#by_name_match_arms)*
-                    _ => None,
-                }
-            }
-
+        impl #impl_generics ::icydb::traits::FieldProjection for #ident #ty_generics #where_clause {
             fn get_value_by_index(&self, index: usize) -> Option<::icydb::value::Value> {
                 use ::icydb::{traits::FieldValue, value::Value};
 
