@@ -1,12 +1,15 @@
 //! Commit marker storage and access.
 
 use crate::{
-    db::commit::{
-        CommitMarker, MAX_COMMIT_BYTES, commit_corruption_message, memory::commit_memory_id,
-        validate_commit_marker_shape,
+    db::{
+        codec::deserialize_persisted_payload,
+        commit::{
+            CommitMarker, MAX_COMMIT_BYTES, commit_corruption_message, memory::commit_memory_id,
+            validate_commit_marker_shape,
+        },
     },
     error::InternalError,
-    serialize::{deserialize_bounded, serialize},
+    serialize::serialize,
 };
 use canic_cdk::structures::{
     Cell as StableCell, DefaultMemoryImpl, Storable,
@@ -57,8 +60,12 @@ impl RawCommitMarker {
             )));
         }
 
-        let marker = deserialize_bounded::<CommitMarker>(&self.0, MAX_COMMIT_BYTES as usize)
-            .map_err(|err| InternalError::store_corruption(commit_corruption_message(err)))?;
+        let marker = deserialize_persisted_payload::<CommitMarker>(
+            &self.0,
+            MAX_COMMIT_BYTES as usize,
+            "commit marker",
+        )
+        .map_err(|err| InternalError::store_corruption(commit_corruption_message(err)))?;
         validate_commit_marker_shape(&marker)?;
 
         Ok(Some(marker))
@@ -173,7 +180,7 @@ mod tests {
     use crate::{
         db::{
             commit::{CommitMarker, CommitRowOp, MAX_COMMIT_BYTES},
-            data::MAX_ROW_BYTES,
+            data::{DataKey, MAX_ROW_BYTES},
         },
         error::{ErrorClass, ErrorOrigin},
         serialize::{SerializeError, deserialize_bounded, serialize},
@@ -213,10 +220,10 @@ mod tests {
             .expect_err("invalid CBOR should fail decode");
 
         match err {
-            SerializeError::Deserialize(message) => assert!(
-                !message.contains("payload exceeds maximum allowed size"),
-                "size gate should allow commit marker payloads under MAX_COMMIT_BYTES"
-            ),
+            SerializeError::DeserializeSizeLimitExceeded { .. } => {
+                panic!("size gate should allow commit marker payloads under MAX_COMMIT_BYTES")
+            }
+            SerializeError::Deserialize(_) => {}
             SerializeError::Serialize(_) => panic!("unexpected serialize error"),
         }
     }
@@ -229,6 +236,30 @@ mod tests {
             .expect_err("oversized persisted marker should be rejected");
 
         assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message.contains("commit marker exceeds max size"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn commit_marker_rejects_oversized_payload_before_persist() {
+        let oversized_after = vec![0u8; MAX_COMMIT_BYTES as usize + 1];
+        let marker = CommitMarker {
+            id: [2u8; 16],
+            row_ops: vec![CommitRowOp::new(
+                "test::Entity",
+                vec![1u8],
+                None,
+                Some(oversized_after),
+            )],
+        };
+
+        let err = RawCommitMarker::try_from_marker(&marker)
+            .expect_err("oversized marker payload must be rejected before persist");
+
+        assert_eq!(err.class, ErrorClass::Unsupported);
         assert_eq!(err.origin, ErrorOrigin::Store);
         assert!(
             err.message.contains("commit marker exceeds max size"),
@@ -253,6 +284,101 @@ mod tests {
         assert!(
             err.message
                 .contains("row op has neither before nor after payload"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn commit_marker_rejects_row_op_with_empty_entity_path() {
+        let marker = CommitMarker {
+            id: [3u8; 16],
+            row_ops: vec![CommitRowOp::new("", vec![9u8], Some(vec![1u8]), None)],
+        };
+
+        let bytes = serialize(&marker).expect("serialize malformed marker");
+        let err = RawCommitMarker(bytes)
+            .try_decode()
+            .expect_err("row op with empty entity path should be rejected");
+
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message.contains("row op has empty entity_path"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn commit_marker_rejects_row_op_with_invalid_key_length() {
+        let marker = CommitMarker {
+            id: [4u8; 16],
+            row_ops: vec![CommitRowOp::new(
+                "test::Entity",
+                vec![9u8],
+                Some(vec![1u8]),
+                None,
+            )],
+        };
+
+        let bytes = serialize(&marker).expect("serialize malformed marker");
+        let err = RawCommitMarker(bytes)
+            .try_decode()
+            .expect_err("row op with invalid key length should be rejected");
+
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message.contains("row op key has invalid length"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn commit_marker_rejects_row_op_with_invalid_key_shape() {
+        let marker = CommitMarker {
+            id: [5u8; 16],
+            row_ops: vec![CommitRowOp::new(
+                "test::Entity",
+                vec![0u8; DataKey::STORED_SIZE_USIZE],
+                Some(vec![1u8]),
+                None,
+            )],
+        };
+
+        let bytes = serialize(&marker).expect("serialize malformed marker");
+        let err = RawCommitMarker(bytes)
+            .try_decode()
+            .expect_err("row op with invalid key shape should be rejected");
+
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message.contains("row op key decode failed"),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn commit_marker_rejects_row_op_with_oversized_payload() {
+        let marker = CommitMarker {
+            id: [6u8; 16],
+            row_ops: vec![CommitRowOp::new(
+                "test::Entity",
+                vec![9u8],
+                Some(vec![0u8; MAX_ROW_BYTES as usize + 1]),
+                None,
+            )],
+        };
+
+        let bytes = serialize(&marker).expect("serialize malformed marker");
+        let err = RawCommitMarker(bytes)
+            .try_decode()
+            .expect_err("row op with oversized payload should be rejected");
+
+        assert_eq!(err.class, ErrorClass::Corruption);
+        assert_eq!(err.origin, ErrorOrigin::Store);
+        assert!(
+            err.message.contains("payload exceeds max size"),
             "unexpected error: {err:?}"
         );
     }

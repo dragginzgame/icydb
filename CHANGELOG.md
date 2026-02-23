@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Unique probes now stop after 2 keys (`0`, `1`, or `more than 1`) to avoid extra scanning on bad buckets.
 * Commit apply now verifies index stores have not changed between planning and apply; if they have, apply aborts safely.
 * Storage diagnostics now collect data and index snapshots in one sorted pass and fall back to entity name when path mapping is missing.
+* Cursor decode now rejects very large tokens up front, so malformed client input cannot trigger large decode allocations.
+* Bounded deserialization now returns a dedicated size-limit error variant, and DB row decode maps that case explicitly as persisted-payload corruption.
+* DB codec decode errors now use stable serializer error-kind labels instead of embedding backend deserialize message text in generic corruption messages.
+* Commit-marker persisted decode now uses the shared `db::codec` bounded-decode policy entry point, reducing policy drift.
+* Commit marker storage now reuses its existing memory slot after restarts/upgrades instead of allocating a new slot each boot.
+* Startup now fails clearly if multiple memory slots are registered for the commit marker label, instead of picking one silently.
+* Commit range detection now uses internal IcyDB registry labels, so user-defined store names no longer affect how commit memory is located.
 
 ### 🧪 Testing
 
@@ -36,6 +43,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 * Added tests that duplicate index keys are rejected during encoding.
 * Added tests that apply fails closed if index-store state changes between planning and apply.
 * Rebuilt diagnostics tests for empty stores, multi-entity counts, min/max keys, corruption counters, and system/user index totals.
+* Added tests that oversized cursor tokens are rejected at both codec and paged-query API boundaries.
+* Added tests that lock the DB codec classification for bounded-size decode failures.
+* Added tests that lock stable DB codec error labels for deserialize/serialize decode failures.
+* Added a commit-marker regression test that rejects oversized marker payloads before persist, matching read-time bound enforcement.
+* Updated shared executor/save test reset helpers to initialize commit-store bootstrap internally before recovery and store clearing.
+* Added commit-memory scan tests that lock reuse behavior and duplicate-label detection.
 
 ---
 

@@ -55,8 +55,7 @@ impl CommitRowOp {
 /// Not persisted in commit markers.
 ///
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub(crate) struct CommitIndexOp {
     pub(crate) store: String,
     pub(crate) key: Vec<u8>,

@@ -2,6 +2,7 @@ mod cbor;
 
 use crate::error::InternalError;
 use serde::{Serialize, de::DeserializeOwned};
+use std::fmt;
 use thiserror::Error as ThisError;
 
 /// Generic CBOR serialization infrastructure.
@@ -22,6 +23,53 @@ pub enum SerializeError {
 
     #[error("deserialize error: {0}")]
     Deserialize(String),
+
+    #[error("deserialize size limit exceeded: {len} bytes (limit {max_bytes})")]
+    DeserializeSizeLimitExceeded { len: usize, max_bytes: usize },
+}
+
+///
+/// SerializeErrorKind
+///
+/// Stable error-kind taxonomy for serializer failures.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SerializeErrorKind {
+    Serialize,
+    Deserialize,
+    DeserializeSizeLimitExceeded,
+}
+
+impl SerializeErrorKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Serialize => "serialize",
+            Self::Deserialize => "deserialize",
+            Self::DeserializeSizeLimitExceeded => "deserialize_size_limit_exceeded",
+        }
+    }
+}
+
+impl fmt::Display for SerializeErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl SerializeError {
+    /// Return a stable error kind independent of backend error-message text.
+    #[must_use]
+    pub const fn kind(&self) -> SerializeErrorKind {
+        match self {
+            Self::Serialize(_) => SerializeErrorKind::Serialize,
+            Self::Deserialize(_) => SerializeErrorKind::Deserialize,
+            Self::DeserializeSizeLimitExceeded { .. } => {
+                SerializeErrorKind::DeserializeSizeLimitExceeded
+            }
+        }
+    }
 }
 
 impl From<SerializeError> for InternalError {

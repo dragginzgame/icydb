@@ -61,17 +61,17 @@ pub(in crate::db) fn commit_component_corruption_message(
     format!("commit marker {component} corrupted: {detail}")
 }
 
-#[cfg(test)]
 /// Return true if a commit marker is currently persisted.
+#[cfg(test)]
 pub(in crate::db) fn commit_marker_present() -> Result<bool, InternalError> {
     store::commit_marker_present()
 }
 
-#[cfg(test)]
 /// Initialize commit marker storage for tests.
 ///
 /// This registers a placeholder data-store entry if none exists so the commit
 /// memory allocator can select the correct reserved range.
+#[cfg(test)]
 pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> {
     // Phase 1: ensure the memory registry has at least one reserved range.
     let init_result = MemoryRegistryRuntime::init(Some(("icydb_test", 1, 200)));
@@ -89,7 +89,7 @@ pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> 
         }
     }
 
-    // Phase 2: ensure a DB-store entry exists so commit memory can be allocated.
+    // Phase 2: ensure a DB-range anchor exists so commit memory can be allocated.
     let snapshots = MemoryRegistryRuntime::snapshot_ids_by_range();
     if snapshots.is_empty() {
         return Err(InternalError::store_internal(
@@ -97,9 +97,10 @@ pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> 
         ));
     }
     let has_store_entry = snapshots.iter().any(|snapshot| {
-        snapshot.entries.iter().any(|(_, entry)| {
-            entry.label.ends_with("DataStore") || entry.label.ends_with("IndexStore")
-        })
+        snapshot
+            .entries
+            .iter()
+            .any(|(_, entry)| memory::is_db_store_entry(entry))
     });
 
     if !has_store_entry {
@@ -120,13 +121,12 @@ pub(in crate::db) fn init_commit_store_for_tests() -> Result<(), InternalError> 
                 ))
             })?;
 
-        MemoryRegistry::register(dummy_id, &snapshot.owner, "commit_test::DataStore").map_err(
-            |err| {
+        MemoryRegistry::register(dummy_id, &snapshot.owner, memory::REGISTRY_DATA_STORE_LABEL)
+            .map_err(|err| {
                 InternalError::store_internal(format!(
                     "commit test memory registration failed: {err}"
                 ))
-            },
-        )?;
+            })?;
     }
 
     // Phase 3: initialize the commit store in the production slot.

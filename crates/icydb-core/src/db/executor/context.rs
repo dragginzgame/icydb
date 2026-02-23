@@ -127,6 +127,8 @@ where
     ) -> Result<Vec<DataRow>, InternalError> {
         let mut out = Vec::with_capacity(keys.len());
         for key in keys {
+            // Row storage is authoritative. Index-backed access paths only supply
+            // candidate keys and must always be validated by a data-store read.
             let row = match consistency {
                 ReadConsistency::Strict => self.read_strict(key),
                 ReadConsistency::MissingOk => self.read(key),

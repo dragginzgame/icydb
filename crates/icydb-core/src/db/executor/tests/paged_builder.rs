@@ -139,6 +139,41 @@ fn paged_query_rejects_empty_cursor_token() {
 }
 
 #[test]
+fn paged_query_rejects_oversized_cursor_token() {
+    let session = DbSession::new(DB);
+    let oversized = "aa".repeat(5_000);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(1)
+        .page()
+        .expect("paged builder should accept order+limit")
+        .cursor(&oversized)
+        .execute()
+        .expect_err("oversized cursor token should fail at API boundary");
+
+    let QueryError::Plan(plan_err) = err else {
+        panic!("oversized cursor token should map to plan error");
+    };
+    let crate::db::query::plan::PlanError::Cursor(inner) = &*plan_err else {
+        panic!("oversized cursor token should be classified as invalid continuation cursor");
+    };
+    let crate::db::query::plan::CursorPlanError::InvalidContinuationCursor { reason } =
+        inner.as_ref()
+    else {
+        panic!("oversized cursor token should be classified as invalid continuation cursor");
+    };
+    assert!(
+        matches!(
+            reason,
+            crate::db::codec::cursor::CursorDecodeError::TooLong { .. }
+        ),
+        "unexpected cursor decode reason: {reason}"
+    );
+}
+
+#[test]
 fn paged_query_rejects_non_token_cursor_payload_as_payload_error() {
     let session = DbSession::new(DB);
 

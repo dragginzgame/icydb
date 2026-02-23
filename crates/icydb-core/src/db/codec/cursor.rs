@@ -5,6 +5,9 @@
 /// It intentionally contains only token encoding/decoding logic and no query semantics.
 ///
 
+// Defensive decode bound for untrusted cursor token input.
+const MAX_CURSOR_TOKEN_HEX_LEN: usize = 8 * 1024;
+
 ///
 /// CursorDecodeError
 ///
@@ -13,6 +16,9 @@
 pub enum CursorDecodeError {
     #[error("cursor token is empty")]
     Empty,
+
+    #[error("cursor token exceeds max length: {len} hex chars (max {max})")]
+    TooLong { len: usize, max: usize },
 
     #[error("cursor token must have an even number of hex characters")]
     OddLength,
@@ -40,6 +46,13 @@ pub fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeError> {
 
     if token.is_empty() {
         return Err(CursorDecodeError::Empty);
+    }
+
+    if token.len() > MAX_CURSOR_TOKEN_HEX_LEN {
+        return Err(CursorDecodeError::TooLong {
+            len: token.len(),
+            max: MAX_CURSOR_TOKEN_HEX_LEN,
+        });
     }
 
     if !token.len().is_multiple_of(2) {
@@ -77,7 +90,7 @@ const fn decode_hex_nibble(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CursorDecodeError, decode_cursor, encode_cursor};
+    use super::{CursorDecodeError, MAX_CURSOR_TOKEN_HEX_LEN, decode_cursor, encode_cursor};
 
     #[test]
     fn decode_cursor_rejects_empty_and_whitespace_tokens() {
@@ -92,6 +105,23 @@ mod tests {
     fn decode_cursor_rejects_odd_length_tokens() {
         let err = decode_cursor("abc").expect_err("odd-length token should be rejected");
         assert_eq!(err, CursorDecodeError::OddLength);
+    }
+
+    #[test]
+    fn decode_cursor_enforces_max_token_length() {
+        let accepted = "aa".repeat(MAX_CURSOR_TOKEN_HEX_LEN / 2);
+        let accepted_bytes = decode_cursor(&accepted).expect("max-sized token should decode");
+        assert_eq!(accepted_bytes.len(), MAX_CURSOR_TOKEN_HEX_LEN / 2);
+
+        let rejected = format!("{accepted}aa");
+        let err = decode_cursor(&rejected).expect_err("oversized token should be rejected");
+        assert_eq!(
+            err,
+            CursorDecodeError::TooLong {
+                len: MAX_CURSOR_TOKEN_HEX_LEN + 2,
+                max: MAX_CURSOR_TOKEN_HEX_LEN
+            }
+        );
     }
 
     #[test]

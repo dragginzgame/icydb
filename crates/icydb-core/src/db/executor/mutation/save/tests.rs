@@ -83,6 +83,7 @@ fn with_index_store_mut<R>(path: &'static str, f: impl FnOnce(&mut IndexStore) -
 
 // Clear test stores and ensure recovery has completed before each test mutation.
 fn reset_store() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
     ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
     with_data_store_mut(SourceStore::PATH, DataStore::clear);
     with_data_store_mut(TargetStore::PATH, DataStore::clear);

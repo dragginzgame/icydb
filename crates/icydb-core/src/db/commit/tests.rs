@@ -264,6 +264,33 @@ fn commit_marker_round_trip_clears_after_finish() {
 }
 
 #[test]
+fn finish_commit_error_keeps_marker_for_recovery() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    let marker = CommitMarker::new(Vec::new()).expect("commit marker creation should succeed");
+
+    let guard = begin_commit(marker).expect("begin_commit should persist marker");
+    let err = finish_commit(guard, |_| {
+        Err(crate::error::InternalError::executor_invariant(
+            "simulated apply failure",
+        ))
+    })
+    .expect_err("failed finish_commit should surface apply error");
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "failed finish_commit should keep marker persisted for recovery replay"
+    );
+
+    // Cleanup so unrelated tests do not observe this intentionally-persisted marker.
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
+}
+
+#[test]
 fn recovery_replay_is_idempotent() {
     reset_recovery_state();
 
@@ -326,8 +353,10 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
         ensure_recovered_for_write(&DB).expect_err("recovery should reject corrupt marker bytes");
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
+    let marker_still_present = store::with_commit_store(|store| Ok(!store.is_empty()))
+        .expect("raw commit marker presence check should succeed");
     assert!(
-        commit_marker_present().expect("commit marker check should succeed"),
+        marker_still_present,
         "marker should remain present when recovery prevalidation fails"
     );
 

@@ -1,12 +1,12 @@
 use crate::{
     db::{
         Db,
+        codec::deserialize_row,
         commit::{
             CommitRowOp, PreparedIndexMutation, PreparedRowCommitOp,
-            commit_component_corruption_message,
             decode::{decode_data_key, decode_index_entry, decode_index_key},
         },
-        data::{DataKey, RawRow, decode_and_validate_entity_key},
+        data::{RawRow, decode_and_validate_entity_key},
         index::{IndexKey, plan_index_mutation_for_entity},
         relation::prepare_reverse_relation_index_mutations_for_source,
     },
@@ -32,17 +32,14 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
         )));
     }
 
-    let raw_key = decode_data_key(&op.key)?;
-    let data_key = DataKey::try_from_raw(&raw_key).map_err(|err| {
-        InternalError::store_corruption(commit_component_corruption_message("data key", err))
-    })?;
+    let (raw_key, data_key) = decode_data_key(&op.key)?;
     let expected_key = data_key.try_key::<E>()?;
 
-    let decode_entity = |bytes: &[u8], label: &str| -> Result<(RawRow, E), InternalError> {
-        let row = RawRow::try_new(bytes.to_vec())?;
-        let entity = decode_and_validate_entity_key::<E, _, _, _, _>(
+    let decode_entity_from_marker_row = |bytes: &[u8], label: &str| -> Result<E, InternalError> {
+        RawRow::ensure_size(bytes)?;
+        decode_and_validate_entity_key::<E, _, _, _, _>(
             expected_key,
-            || row.try_decode::<E>(),
+            || deserialize_row::<E>(bytes),
             |err| {
                 InternalError::serialize_corruption(format!(
                     "commit marker {label} row decode failed: {err}"
@@ -53,23 +50,25 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
                     "commit marker row key mismatch: expected {expected:?}, found {actual:?}"
                 ))
             },
-        )?;
-
-        Ok((row, entity))
+        )
     };
 
-    let old_pair = op
+    let old_entity = op
         .before
         .as_ref()
-        .map(|bytes| decode_entity(bytes, "before"))
+        .map(|bytes| decode_entity_from_marker_row(bytes, "before"))
         .transpose()?;
     let new_pair = op
         .after
         .as_ref()
-        .map(|bytes| decode_entity(bytes, "after"))
+        .map(|bytes| {
+            let row = RawRow::try_new(bytes.clone())?;
+            let entity = decode_entity_from_marker_row(bytes, "after")?;
+            Ok::<(RawRow, E), InternalError>((row, entity))
+        })
         .transpose()?;
 
-    if old_pair.is_none() && new_pair.is_none() {
+    if old_entity.is_none() && new_pair.is_none() {
         return Err(InternalError::store_corruption(
             "commit marker row op is a no-op (before/after both missing)",
         ));
@@ -77,15 +76,15 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
 
     let index_plan = plan_index_mutation_for_entity::<E>(
         db,
-        old_pair.as_ref().map(|(_, entity)| entity),
+        old_entity.as_ref(),
         new_pair.as_ref().map(|(_, entity)| entity),
     )?;
     let mut index_remove_count = 0usize;
     let mut index_insert_count = 0usize;
     for index in E::INDEXES {
-        let old_key = old_pair
+        let old_key = old_entity
             .as_ref()
-            .map(|(_, old_entity)| IndexKey::new(old_entity, index))
+            .map(|entity| IndexKey::new(entity, index))
             .transpose()?
             .flatten()
             .map(|key| key.to_raw());
@@ -116,8 +115,8 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
             .get(index_op.store.as_str())
             .copied()
             .ok_or_else(|| {
-                InternalError::index_corruption(format!(
-                    "missing index store '{}' for entity '{}'",
+                InternalError::executor_invariant(format!(
+                    "commit prepare missing index store mapping: store='{}' entity='{}'",
                     index_op.store,
                     E::PATH
                 ))
@@ -133,7 +132,7 @@ pub(in crate::db) fn prepare_row_commit_for_entity<E: EntityKind + EntityValue>(
     let (reverse_index_ops, reverse_remove_count, reverse_insert_count) =
         prepare_reverse_relation_index_mutations_for_source::<E>(
             db,
-            old_pair.as_ref().map(|(_, entity)| entity),
+            old_entity.as_ref(),
             new_pair.as_ref().map(|(_, entity)| entity),
         )?;
     index_ops.extend(reverse_index_ops);

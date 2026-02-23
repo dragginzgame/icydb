@@ -258,6 +258,7 @@ crate::test_entity_schema! {
 
 // Clear the test data store and any pending commit marker between runs.
 fn reset_store() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
     ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
     DATA_STORE.with(|store| store.borrow_mut().clear());
     INDEX_STORE.with(|store| store.borrow_mut().clear());
@@ -507,6 +508,7 @@ crate::test_entity_schema! {
 
 // Clear relation test stores and any pending commit marker between runs.
 fn reset_relation_stores() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
     ensure_recovered_for_write(&REL_DB).expect("relation write-side recovery should succeed");
     REL_DB.with_store_registry(|reg| {
         reg.try_get_store(RelationSourceStore::PATH)

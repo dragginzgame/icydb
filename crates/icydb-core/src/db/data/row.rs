@@ -56,11 +56,18 @@ pub(crate) const MAX_ROW_BYTES: u32 = 4 * 1024 * 1024;
 pub struct RawRow(Vec<u8>);
 
 impl RawRow {
-    /// Construct a raw row from serialized bytes.
-    pub(crate) fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
+    /// Validate serialized row size against protocol bounds.
+    pub(crate) const fn ensure_size(bytes: &[u8]) -> Result<(), RawRowError> {
         if bytes.len() > MAX_ROW_BYTES as usize {
             return Err(RawRowError::TooLarge { len: bytes.len() });
         }
+
+        Ok(())
+    }
+
+    /// Construct a raw row from serialized bytes.
+    pub(crate) fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
+        Self::ensure_size(&bytes)?;
         Ok(Self(bytes))
     }
 

@@ -30,10 +30,10 @@ where
     T: DeserializeOwned,
 {
     if bytes.len() > max_bytes {
-        return Err(SerializeError::Deserialize(format!(
-            "payload exceeds maximum allowed size: {} bytes (limit {max_bytes})",
-            bytes.len()
-        )));
+        return Err(SerializeError::DeserializeSizeLimitExceeded {
+            len: bytes.len(),
+            max_bytes,
+        });
     }
 
     let result = catch_unwind(AssertUnwindSafe(|| from_slice(bytes)));

@@ -36,8 +36,47 @@ pub(in crate::db) struct PreparedRowCommitOp {
 }
 
 impl PreparedRowCommitOp {
+    /// Debug-only sanity checks for logical delta counters carried with this op.
+    ///
+    /// Counters represent logical insert/remove deltas, not raw write-op count.
+    pub(crate) fn debug_assert_delta_count_bounds(&self) {
+        let index_op_count = self.index_ops.len();
+        let total_delta_count = self
+            .index_remove_count
+            .saturating_add(self.index_insert_count)
+            .saturating_add(self.reverse_index_remove_count)
+            .saturating_add(self.reverse_index_insert_count);
+
+        debug_assert!(
+            self.index_remove_count <= index_op_count,
+            "index_remove_count exceeds prepared index-op count: removes={} ops={index_op_count}",
+            self.index_remove_count
+        );
+        debug_assert!(
+            self.index_insert_count <= index_op_count,
+            "index_insert_count exceeds prepared index-op count: inserts={} ops={index_op_count}",
+            self.index_insert_count
+        );
+        debug_assert!(
+            self.reverse_index_remove_count <= index_op_count,
+            "reverse_index_remove_count exceeds prepared index-op count: removes={} ops={index_op_count}",
+            self.reverse_index_remove_count
+        );
+        debug_assert!(
+            self.reverse_index_insert_count <= index_op_count,
+            "reverse_index_insert_count exceeds prepared index-op count: inserts={} ops={index_op_count}",
+            self.reverse_index_insert_count
+        );
+        debug_assert!(
+            total_delta_count <= index_op_count,
+            "logical delta counters exceed prepared index-op envelope: deltas={total_delta_count} ops={index_op_count}",
+        );
+    }
+
     /// Apply the prepared row operation infallibly.
     pub(crate) fn apply(self) {
+        self.debug_assert_delta_count_bounds();
+
         for index_op in self.index_ops {
             index_op.store.with_borrow_mut(|store| {
                 if let Some(value) = index_op.value {

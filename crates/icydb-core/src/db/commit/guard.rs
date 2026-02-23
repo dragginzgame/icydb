@@ -112,11 +112,15 @@ pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, Internal
     })
 }
 
-/// Apply commit ops and clear the marker regardless of outcome.
+/// Apply commit ops and clear the marker only on successful completion.
 ///
 /// The apply closure performs mechanical marker application only.
 /// Any in-process rollback guard used by the closure is non-authoritative
 /// transitional cleanup; durable authority remains the commit marker protocol.
+///
+/// Durability rule:
+/// - `Ok(())` => marker is cleared.
+/// - `Err(_)` => marker remains persisted for recovery replay.
 pub(crate) fn finish_commit(
     mut guard: CommitGuard,
     apply: impl FnOnce(&mut CommitGuard) -> Result<(), InternalError>,
@@ -124,16 +128,24 @@ pub(crate) fn finish_commit(
     // COMMIT WINDOW:
     // Apply mutates stores from a prevalidated marker payload.
     // Marker durability + recovery replay remain the atomicity authority.
-    // We clear the marker on any outcome so recovery does not reapply an
-    // already-attempted marker in this process.
+    // We only clear on success; failures keep the marker durable so recovery can
+    // re-run the marker payload instead of losing commit authority.
     let result = apply(&mut guard);
     let commit_id = guard.marker.id;
-    guard.clear();
-    // Internal invariant: commit markers must not persist after a finished mutation.
-    assert!(
-        with_commit_store_infallible(|store| store.is_empty()),
-        "commit marker must be cleared after finish_commit (commit_id={commit_id:?})"
-    );
+    if result.is_ok() {
+        guard.clear();
+        // Internal invariant: successful commit windows must clear the marker.
+        assert!(
+            with_commit_store_infallible(|store| store.is_empty()),
+            "commit marker must be cleared after successful finish_commit (commit_id={commit_id:?})"
+        );
+    } else {
+        // Internal invariant: failed commit windows must preserve marker authority.
+        assert!(
+            with_commit_store_infallible(|store| !store.is_empty()),
+            "commit marker must remain persisted after failed finish_commit (commit_id={commit_id:?})"
+        );
+    }
 
     result
 }
