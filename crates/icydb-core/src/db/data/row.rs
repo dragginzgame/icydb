@@ -22,7 +22,7 @@ pub(crate) type DataRow = (DataKey, RawRow);
 #[derive(Debug, ThisError)]
 pub(crate) enum RawRowError {
     #[error("row exceeds max size: {len} bytes (limit {MAX_ROW_BYTES})")]
-    TooLarge { len: u32 },
+    TooLarge { len: usize },
 }
 
 impl From<RawRowError> for InternalError {
@@ -57,11 +57,9 @@ pub struct RawRow(Vec<u8>);
 
 impl RawRow {
     /// Construct a raw row from serialized bytes.
-    #[expect(clippy::cast_possible_truncation)]
     pub(crate) fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
-        let len = bytes.len() as u32;
-        if len > MAX_ROW_BYTES {
-            return Err(RawRowError::TooLarge { len });
+        if bytes.len() > MAX_ROW_BYTES as usize {
+            return Err(RawRowError::TooLarge { len: bytes.len() });
         }
         Ok(Self(bytes))
     }
@@ -127,7 +125,7 @@ mod tests {
     #[test]
     fn raw_row_error_maps_to_store_unsupported() {
         let err: InternalError = RawRowError::TooLarge {
-            len: MAX_ROW_BYTES + 1,
+            len: MAX_ROW_BYTES as usize + 1,
         }
         .into();
         assert_eq!(err.class, ErrorClass::Unsupported);

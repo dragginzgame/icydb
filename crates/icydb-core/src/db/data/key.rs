@@ -1,7 +1,7 @@
 #![expect(clippy::cast_possible_truncation)]
 use crate::{
     db::{
-        data::storage_key::{StorageKey, StorageKeyEncodeError},
+        data::storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError},
         identity::{EntityName, IdentityDecodeError},
     },
     error::InternalError,
@@ -41,13 +41,16 @@ impl From<DataKeyEncodeError> for InternalError {
 
 #[derive(Debug, ThisError)]
 pub(crate) enum KeyDecodeError {
-    #[error("invalid primary key encoding")]
-    InvalidEncoding,
+    #[error("invalid primary key encoding: {source}")]
+    InvalidEncoding {
+        #[source]
+        source: StorageKeyDecodeError,
+    },
 }
 
-impl From<&'static str> for KeyDecodeError {
-    fn from(_: &'static str) -> Self {
-        Self::InvalidEncoding
+impl From<StorageKeyDecodeError> for KeyDecodeError {
+    fn from(source: StorageKeyDecodeError) -> Self {
+        Self::InvalidEncoding { source }
     }
 }
 
@@ -272,10 +275,21 @@ impl Storable for RawDataKey {
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        let mut out = [0u8; DataKey::STORED_SIZE_USIZE];
-        if bytes.len() == out.len() {
-            out.copy_from_slice(bytes.as_ref());
+        // Fixed-size storable contract: callers must provide exact-sized bytes.
+        // Fail closed on any mismatch so malformed payloads cannot materialize
+        // into a potentially valid-looking key.
+        debug_assert_eq!(
+            bytes.len(),
+            DataKey::STORED_SIZE_USIZE,
+            "RawDataKey::from_bytes received unexpected byte length",
+        );
+
+        if bytes.len() != DataKey::STORED_SIZE_USIZE {
+            return Self([0u8; DataKey::STORED_SIZE_USIZE]);
         }
+
+        let mut out = [0u8; DataKey::STORED_SIZE_USIZE];
+        out.copy_from_slice(bytes.as_ref());
         Self(out)
     }
 
@@ -381,5 +395,23 @@ mod tests {
         let bytes = key.to_bytes();
         let decoded = RawDataKey::from_bytes(Cow::Borrowed(&bytes));
         assert_eq!(key, decoded);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "RawDataKey::from_bytes received unexpected byte length")]
+    fn raw_data_key_from_bytes_wrong_length_debug_asserts() {
+        let _ = RawDataKey::from_bytes(Cow::Borrowed(&[1u8, 2u8, 3u8]));
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn raw_data_key_from_bytes_wrong_length_fails_closed() {
+        let decoded = RawDataKey::from_bytes(Cow::Borrowed(&[1u8, 2u8, 3u8]));
+
+        assert!(
+            DataKey::try_from_raw(&decoded).is_err(),
+            "wrong-length raw bytes must not decode into a valid DataKey"
+        );
     }
 }

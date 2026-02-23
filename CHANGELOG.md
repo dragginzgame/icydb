@@ -5,6 +5,27 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.27.3] - 2026-02-23 - Auditing db/data/
+
+### 📝 Summary
+
+* Hardens low-level data decode boundaries with typed corruption errors and tighter row-size validation.
+
+### 🔧 Changed
+
+* `StorageKey::try_from_bytes` now returns a structured `StorageKeyDecodeError` taxonomy instead of raw string errors, while preserving corruption semantics at decode boundaries.
+* `RawRow::try_new` now compares `bytes.len()` against `MAX_ROW_BYTES as usize`, removing theoretical truncation risk from intermediate integer casts.
+* `RawDataKey::from_bytes` now enforces fixed-size decode expectations with a debug assertion and fail-closed fallback, instead of silently accepting mismatched byte lengths.
+* Removed `Deref` from `DataStore` as it's dangerous
+
+### 🧪 Testing
+
+* Added structured decode regression coverage for invalid-size, invalid-tag, and non-zero-padding `StorageKey` payload failures.
+* Kept `RawRow` size-bound enforcement coverage passing with the updated `usize` guard path.
+* Added `RawDataKey` decode regression coverage for wrong-length payloads, including explicit debug-build assertion behavior.
+
+---
+
 ## [0.27.2] - 2026-02-23 - Auditing db/
 
 ### 📝 Summary

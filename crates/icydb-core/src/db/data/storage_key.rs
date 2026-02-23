@@ -44,6 +44,29 @@ impl From<StorageKeyEncodeError> for InternalError {
 }
 
 ///
+/// StorageKeyDecodeError
+/// Errors returned when decoding a persisted storage key payload.
+///
+
+#[derive(Debug, ThisError)]
+pub enum StorageKeyDecodeError {
+    #[error("corrupted StorageKey: invalid size")]
+    InvalidSize,
+
+    #[error("corrupted StorageKey: invalid tag")]
+    InvalidTag,
+
+    #[error("corrupted StorageKey: invalid principal length")]
+    InvalidPrincipalLength,
+
+    #[error("corrupted StorageKey: non-zero {field} padding")]
+    NonZeroPadding { field: &'static str },
+
+    #[error("corrupted StorageKey: invalid account payload ({reason})")]
+    InvalidAccountPayload { reason: &'static str },
+}
+
+///
 /// StorageKey
 ///
 /// Storage-normalized scalar key used by persistence and indexing.
@@ -265,29 +288,19 @@ impl StorageKey {
         Ok(buf)
     }
 
-    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
+    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, StorageKeyDecodeError> {
         if bytes.len() != Self::STORED_SIZE_USIZE {
-            return Err("corrupted StorageKey: invalid size");
+            return Err(StorageKeyDecodeError::InvalidSize);
         }
 
         let tag = bytes[Self::TAG_OFFSET];
         let payload = &bytes[Self::PAYLOAD_OFFSET..=Self::PAYLOAD_SIZE];
 
-        let ensure_zero_padding = |used: usize, ctx: &str| {
+        let ensure_zero_padding = |used: usize, ctx: &'static str| {
             if payload[used..].iter().all(|&b| b == 0) {
                 Ok(())
             } else {
-                Err(match ctx {
-                    "account" => "corrupted StorageKey: non-zero account padding",
-                    "int" => "corrupted StorageKey: non-zero int padding",
-                    "principal" => "corrupted StorageKey: non-zero principal padding",
-                    "subaccount" => "corrupted StorageKey: non-zero subaccount padding",
-                    "timestamp" => "corrupted StorageKey: non-zero timestamp padding",
-                    "uint" => "corrupted StorageKey: non-zero uint padding",
-                    "ulid" => "corrupted StorageKey: non-zero ulid padding",
-                    "unit" => "corrupted StorageKey: non-zero unit padding",
-                    _ => "corrupted StorageKey: non-zero padding",
-                })
+                Err(StorageKeyDecodeError::NonZeroPadding { field: ctx })
             }
         };
 
@@ -295,7 +308,11 @@ impl StorageKey {
             Self::TAG_ACCOUNT => {
                 let end = Account::STORED_SIZE as usize;
                 ensure_zero_padding(end, "account")?;
-                Ok(Self::Account(Account::try_from_bytes(&payload[..end])?))
+                Ok(Self::Account(
+                    Account::try_from_bytes(&payload[..end]).map_err(|reason| {
+                        StorageKeyDecodeError::InvalidAccountPayload { reason }
+                    })?,
+                ))
             }
             Self::TAG_INT => {
                 let mut buf = [0u8; Self::INT_SIZE];
@@ -308,7 +325,7 @@ impl StorageKey {
             Self::TAG_PRINCIPAL => {
                 let len = payload[0] as usize;
                 if len > Principal::MAX_LENGTH_IN_BYTES as usize {
-                    return Err("corrupted StorageKey: invalid principal length");
+                    return Err(StorageKeyDecodeError::InvalidPrincipalLength);
                 }
                 ensure_zero_padding(1 + len, "principal")?;
                 Ok(Self::Principal(Principal::from_slice(&payload[1..=len])))
@@ -343,7 +360,7 @@ impl StorageKey {
                 ensure_zero_padding(0, "unit")?;
                 Ok(Self::Unit)
             }
-            _ => Err("corrupted StorageKey: invalid tag"),
+            _ => Err(StorageKeyDecodeError::InvalidTag),
         }
     }
 
@@ -388,7 +405,7 @@ impl PartialOrd for StorageKey {
 }
 
 impl TryFrom<&[u8]> for StorageKey {
-    type Error = &'static str;
+    type Error = StorageKeyDecodeError;
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Self::try_from_bytes(bytes)
     }
@@ -400,7 +417,7 @@ impl TryFrom<&[u8]> for StorageKey {
 
 #[cfg(test)]
 mod tests {
-    use super::{StorageKey, StorageKeyEncodeError};
+    use super::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
     use crate::{
         types::{
             Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
@@ -556,5 +573,35 @@ mod tests {
         ];
 
         assert_eq!(keys, expected);
+    }
+
+    #[test]
+    fn storage_key_decode_rejects_invalid_size_as_structured_error() {
+        let err =
+            StorageKey::try_from_bytes(&[]).expect_err("decode should reject invalid key size");
+        assert!(matches!(err, StorageKeyDecodeError::InvalidSize));
+    }
+
+    #[test]
+    fn storage_key_decode_rejects_invalid_tag_as_structured_error() {
+        let mut bytes = [0u8; StorageKey::STORED_SIZE_USIZE];
+        bytes[StorageKey::TAG_OFFSET] = 0xFF;
+
+        let err = StorageKey::try_from_bytes(&bytes).expect_err("decode should reject invalid tag");
+        assert!(matches!(err, StorageKeyDecodeError::InvalidTag));
+    }
+
+    #[test]
+    fn storage_key_decode_rejects_non_zero_padding_with_segment_context() {
+        let mut bytes = [0u8; StorageKey::STORED_SIZE_USIZE];
+        bytes[StorageKey::TAG_OFFSET] = StorageKey::TAG_UNIT;
+        bytes[StorageKey::PAYLOAD_OFFSET] = 1;
+
+        let err = StorageKey::try_from_bytes(&bytes)
+            .expect_err("decode should reject non-zero padding for unit payload");
+        assert!(matches!(
+            err,
+            StorageKeyDecodeError::NonZeroPadding { field } if field == "unit"
+        ));
     }
 }

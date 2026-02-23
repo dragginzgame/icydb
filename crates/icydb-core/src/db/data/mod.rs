@@ -10,5 +10,5 @@ pub(in crate::db) use entity_decode::{
 };
 pub(crate) use key::{DataKey, RawDataKey};
 pub(crate) use row::{DataRow, MAX_ROW_BYTES, RawRow};
-pub(crate) use storage_key::{StorageKey, StorageKeyEncodeError};
+pub(crate) use storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
 pub use store::DataStore;

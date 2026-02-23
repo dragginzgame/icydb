@@ -1,6 +1,10 @@
 use crate::{
     MAX_INDEX_FIELDS,
-    db::{data::StorageKey, identity::IndexName, index::key::IndexId},
+    db::{
+        data::{StorageKey, StorageKeyDecodeError},
+        identity::IndexName,
+        index::key::IndexId,
+    },
     traits::Storable,
 };
 use canic_cdk::structures::storable::Bound;
@@ -194,7 +198,7 @@ impl IndexKey {
         self.components.get(index).map(Vec::as_slice)
     }
 
-    pub(in crate::db) fn primary_storage_key(&self) -> Result<StorageKey, &'static str> {
+    pub(in crate::db) fn primary_storage_key(&self) -> Result<StorageKey, StorageKeyDecodeError> {
         StorageKey::try_from_bytes(&self.primary_key)
     }
 
