@@ -149,20 +149,17 @@ dependencies = [
 
 [[package]]
 name = "canic-cdk"
-version = "0.9.32"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "590ac2051cdf584989f7fce6b51623bb4b92b59cdb185fc8f6ba655aca093932"
+checksum = "ee44c51c1e1a5743b6d53d641305d5304f04c6907ea57e7ab2e44a4215f031cc"
 dependencies = [
  "base32 0.5.1",
  "candid",
  "crc32fast",
  "derive_more",
  "hex",
- "ic-canister-sig-creation",
  "ic-cdk",
  "ic-cdk-timers",
- "ic-certified-map",
- "ic-signature-verification",
  "ic-stable-structures 0.7.2",
  "icrc-ledger-types",
  "num-traits",
@@ -173,9 +170,9 @@ dependencies = [
 
 [[package]]
 name = "canic-memory"
-version = "0.9.32"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2e8e4a91321e6ecb4fc01e40299fb6240f565699711e3b1f3f803f96ed3d274"
+checksum = "8c2294a7afd94d7240151bfab4e5acd1b786907ba2fad818c1eee5b16b373a0d"
 dependencies = [
  "candid",
  "canic-cdk",
@@ -187,9 +184,9 @@ dependencies = [
 
 [[package]]
 name = "canic-utils"
-version = "0.9.32"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa822d638d80511ef3e9bf2a79c13113c618717300fcf1ceb52600b9b04ef880"
+checksum = "08d157e47b0a0074cf59ca9dea2f1406f2f1b3b455d61948d6d3e7fb978eda72"
 dependencies = [
  "candid",
  "convert_case 0.11.0",
@@ -448,16 +445,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
-name = "ff"
-version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0b50bfb653653f9ca9095b427bed08ab8d75a137839d9ad64eb11810d5b6393"
-dependencies = [
- "rand_core 0.6.4",
- "subtle",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -517,17 +504,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
-name = "group"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
-dependencies = [
- "ff",
- "rand_core 0.6.4",
- "subtle",
-]
-
-[[package]]
 name = "half"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -561,25 +537,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "ic-canister-sig-creation"
-version = "1.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8b2a507d1bebb111fc8c76098468e4de9c745e9b9ef160a079568ae1d6f7fef"
-dependencies = [
- "candid",
- "hex",
- "ic-certification 3.1.0",
- "ic-representation-independent-hash",
- "ic0",
- "lazy_static",
- "serde",
- "serde_bytes",
- "serde_cbor",
- "sha2",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -637,42 +594,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ic-certification"
-version = "2.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e64ee3d8b6e81b51f245716d3e0badb63c283c00f3c9fb5d5219afc30b5bf821"
-dependencies = [
- "hex",
- "serde",
- "serde_bytes",
- "sha2",
-]
-
-[[package]]
-name = "ic-certification"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c11273a40f8d67926ee423b0bd21381ae8419db809b42f33c5cb3319549b40f"
-dependencies = [
- "hex",
- "serde",
- "serde_bytes",
- "sha2",
-]
-
-[[package]]
-name = "ic-certified-map"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d0eda0fb997cce8b2661d456eec1e5eca8617a0947602c9e0d13fef062a24dc"
-dependencies = [
- "candid",
- "serde",
- "serde_bytes",
- "sha2",
-]
-
-[[package]]
 name = "ic-error-types"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -695,32 +616,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ic-representation-independent-hash"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52fde1026b8f48c17fdfd102d4c39b0d1660ad8f5789a3258bd748240434f7d6"
-dependencies = [
- "leb128",
- "sha2",
-]
-
-[[package]]
-name = "ic-signature-verification"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9de5065430a9b1a61934f7e4a65474a7a11658db84a8b5b0c42baced6c33752"
-dependencies = [
- "ic-canister-sig-creation",
- "ic-certification 2.6.0",
- "ic-verify-bls-signature",
- "ic_principal",
- "serde",
- "serde_bytes",
- "serde_cbor",
- "sha2",
-]
-
-[[package]]
 name = "ic-stable-structures"
 version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -739,37 +634,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "ic-verify-bls-signature"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd6c4261586eb473fe1219de63186a98e554985d5fd6f3488036c8fb82452e27"
-dependencies = [
- "hex",
- "ic_bls12_381",
- "lazy_static",
- "pairing",
- "sha2",
-]
-
-[[package]]
 name = "ic0"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1499d08fd5be8f790d477e1865d63bab6a8d748300e141270c4296e6d5fdd6bc"
-
-[[package]]
-name = "ic_bls12_381"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1e828f9e804ccefe4b9b15b2195f474c60fd4f95ccd14fcb554eb6d7dfafde3"
-dependencies = [
- "digest",
- "ff",
- "group",
- "pairing",
- "rand_core 0.6.4",
- "subtle",
-]
 
 [[package]]
 name = "ic_principal"
@@ -1102,15 +970,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
-name = "pairing"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81fec4625e73cf41ef4bb6846cafa6d44736525f442ba45e407c4a000a13996f"
-dependencies = [
- "group",
-]
-
-[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1246,12 +1105,6 @@ dependencies = [
  "ppv-lite86",
  "rand_core 0.10.0",
 ]
-
-[[package]]
-name = "rand_core"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 
 [[package]]
 name = "rand_core"
@@ -1484,12 +1337,6 @@ dependencies = [
  "rustversion",
  "syn 2.0.117",
 ]
-
-[[package]]
-name = "subtle"
-version = "2.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
