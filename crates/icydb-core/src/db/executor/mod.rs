@@ -8,6 +8,7 @@ mod mutation;
 mod ordered_key_stream;
 mod physical_path;
 mod plan;
+mod route;
 #[cfg(test)]
 mod tests;
 

@@ -1,18 +1,16 @@
 mod aggregate;
-mod aggregate_field;
+pub(in crate::db::executor) mod aggregate_field;
 mod aggregate_guard;
 mod execute;
 mod fast_stream;
 mod index_range_limit;
 mod page;
 mod pk_stream;
-mod route;
 mod secondary_index;
 mod trace;
 
 use self::{
     execute::{ExecutionInputs, IndexPredicateCompileMode},
-    route::ExecutionRoutePlan,
     trace::{access_path_variant, execution_order_direction},
 };
 use crate::{
@@ -21,6 +19,7 @@ use crate::{
         executor::{
             AccessStreamBindings, KeyOrderComparator, OrderedKeyStreamBox,
             plan::{record_plan_metrics, record_rows_scanned},
+            route::ExecutionRoutePlan,
         },
         query::plan::{
             AccessPlan, CursorBoundary, Direction, ExecutablePlan, LogicalPlan, OrderDirection,
@@ -161,18 +160,6 @@ struct FastPathKeyResult {
     ordered_key_stream: OrderedKeyStreamBox,
     rows_scanned: usize,
     optimization: ExecutionOptimization,
-}
-
-///
-/// IndexRangeLimitSpec
-///
-/// Canonical executor decision payload for index-range limit pushdown.
-/// Encodes the bounded fetch size after all eligibility gates pass.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct IndexRangeLimitSpec {
-    fetch: usize,
 }
 
 ///
@@ -422,7 +409,7 @@ where
     }
 
     // Preserve PK fast-path cursor-boundary error classification at the executor boundary.
-    fn validate_pk_fast_path_boundary_if_applicable(
+    pub(in crate::db::executor) fn validate_pk_fast_path_boundary_if_applicable(
         plan: &LogicalPlan<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> Result<(), InternalError> {

@@ -108,17 +108,17 @@ For each audit:
 
 For each audit date folder (once per day):
 
-8. Run codebase size snapshots from the workspace `crates/` directory, separating `tests.rs` from non-test files whenever possible:
+8. Run codebase size snapshots from the workspace `crates/` directory, separating test files (`tests.rs` and anything under `tests/`) from non-test files whenever possible:
 
 ```
 cd crates
-cloc . --not-match-f='(^|/)tests\.rs$'
-cloc . --match-f='(^|/)tests\.rs$'
+cloc . --not-match-f='(^|/)(tests\.rs$|tests/)'
+cloc . --match-f='(^|/)(tests\.rs$|tests/)'
 ```
 
 9. Save both snapshots in that date folder's `summary.md`:
-   - non-test snapshot (`--not-match-f='(^|/)tests\.rs$'`)
-   - `tests.rs` snapshot (`--match-f='(^|/)tests\.rs$'`)
+   - non-test snapshot (`--not-match-f='(^|/)(tests\.rs$|tests/)'`)
+   - test snapshot (`--match-f='(^|/)(tests\.rs$|tests/)'`)
    - optional combined total if needed for trend continuity
 10. Capture the current Rust test count with:
 
@@ -244,8 +244,8 @@ Taxonomy
 - Run Context: ...
 
 Codebase Size Snapshot (split `cloc` runs):
-- Non-test Rust (`cd crates && cloc . --not-match-f='(^|/)tests\.rs$'`): files=..., blank=..., comment=..., code=...
-- `tests.rs` only (`cd crates && cloc . --match-f='(^|/)tests\.rs$'`): files=..., blank=..., comment=..., code=...
+- Non-test Rust (`cd crates && cloc . --not-match-f='(^|/)(tests\.rs$|tests/)'`): files=..., blank=..., comment=..., code=...
+- Test files only (`cd crates && cloc . --match-f='(^|/)(tests\.rs$|tests/)'`): files=..., blank=..., comment=..., code=...
 - Optional combined total (if reported): files=..., blank=..., comment=..., code=...
 
 Structural Stress Metrics:

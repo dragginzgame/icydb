@@ -1,0 +1,463 @@
+use super::*;
+
+#[test]
+fn route_plan_aggregate_uses_route_owned_fast_path_order() {
+    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    plan.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Exists,
+        Direction::Asc,
+    );
+
+    assert_eq!(route_plan.fast_path_order(), &AGGREGATE_FAST_PATH_ORDER);
+}
+
+#[test]
+fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
+    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    plan.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    plan.page = Some(PageSpec {
+        limit: Some(4),
+        offset: 2,
+    });
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Count,
+        Direction::Asc,
+    );
+
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert!(matches!(
+        route_plan.aggregate_fold_mode,
+        AggregateFoldMode::KeysOnly
+    ));
+    assert_eq!(route_plan.scan_hints.physical_fetch_hint, Some(6));
+}
+
+#[test]
+fn route_matrix_aggregate_fold_mode_contract_maps_non_count_to_existing_rows() {
+    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    plan.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    for kind in [
+        AggregateKind::Exists,
+        AggregateKind::Min,
+        AggregateKind::Max,
+        AggregateKind::First,
+        AggregateKind::Last,
+    ] {
+        let route_plan =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+                &plan,
+                kind,
+                Direction::Asc,
+            );
+
+        assert!(matches!(
+            route_plan.aggregate_fold_mode,
+            AggregateFoldMode::ExistingRows
+        ));
+    }
+}
+
+#[test]
+fn route_matrix_aggregate_count_secondary_shape_materializes() {
+    let mut plan = LogicalPlan::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        ReadConsistency::MissingOk,
+    );
+    plan.order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Count,
+        Direction::Asc,
+    );
+
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert!(matches!(
+        route_plan.aggregate_fold_mode,
+        AggregateFoldMode::KeysOnly
+    ));
+}
+
+#[test]
+fn route_matrix_aggregate_distinct_offset_last_disables_probe_hint() {
+    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    plan.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Desc)],
+    });
+    plan.distinct = true;
+    plan.page = Some(PageSpec {
+        limit: Some(3),
+        offset: 1,
+    });
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Last,
+        Direction::Desc,
+    );
+
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert!(matches!(
+        route_plan.aggregate_fold_mode,
+        AggregateFoldMode::ExistingRows
+    ));
+    assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
+}
+
+#[test]
+fn route_matrix_aggregate_distinct_offset_disables_bounded_probe_hints_for_terminals() {
+    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    plan.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    plan.distinct = true;
+    plan.page = Some(PageSpec {
+        limit: Some(3),
+        offset: 1,
+    });
+
+    for kind in [
+        AggregateKind::Count,
+        AggregateKind::Exists,
+        AggregateKind::Min,
+        AggregateKind::Max,
+        AggregateKind::First,
+        AggregateKind::Last,
+    ] {
+        let route_plan =
+            LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+                &plan,
+                kind,
+                Direction::Asc,
+            );
+
+        assert_eq!(
+            route_plan.scan_hints.physical_fetch_hint, None,
+            "DISTINCT+offset must disable bounded aggregate hints for {kind:?}"
+        );
+        assert_eq!(
+            route_plan.secondary_extrema_probe_fetch_hint(),
+            None,
+            "DISTINCT+offset must disable secondary extrema probe hints for {kind:?}"
+        );
+    }
+}
+
+#[test]
+fn route_matrix_aggregate_by_keys_desc_disables_probe_hint_without_reverse_support() {
+    let mut plan = LogicalPlan::new(
+        AccessPath::<Ulid>::ByKeys(vec![
+            Ulid::from_u128(7103),
+            Ulid::from_u128(7101),
+            Ulid::from_u128(7102),
+        ]),
+        ReadConsistency::MissingOk,
+    );
+    plan.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Desc)],
+    });
+    plan.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::First,
+        Direction::Desc,
+    );
+
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert!(!route_plan.desc_physical_reverse_supported());
+    assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
+}
+
+#[test]
+fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
+    let mut plan = LogicalPlan::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        ReadConsistency::MissingOk,
+    );
+    plan.order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    plan.page = Some(PageSpec {
+        limit: None,
+        offset: 2,
+    });
+
+    let min_asc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Min,
+        Direction::Asc,
+    );
+    let max_asc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Max,
+        Direction::Asc,
+    );
+    assert_eq!(min_asc.scan_hints.physical_fetch_hint, Some(3));
+    assert_eq!(max_asc.scan_hints.physical_fetch_hint, None);
+    assert_eq!(min_asc.secondary_extrema_probe_fetch_hint(), Some(3));
+    assert_eq!(max_asc.secondary_extrema_probe_fetch_hint(), None);
+
+    let first_asc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::First,
+        Direction::Asc,
+    );
+    assert_eq!(
+        first_asc.secondary_extrema_probe_fetch_hint(),
+        None,
+        "secondary extrema probe hints must stay route-owned and Min/Max-only"
+    );
+
+    plan.order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    let max_desc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Max,
+        Direction::Desc,
+    );
+    let min_desc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Min,
+        Direction::Desc,
+    );
+    assert_eq!(max_desc.scan_hints.physical_fetch_hint, Some(3));
+    assert_eq!(min_desc.scan_hints.physical_fetch_hint, None);
+    assert_eq!(max_desc.secondary_extrema_probe_fetch_hint(), Some(3));
+    assert_eq!(min_desc.secondary_extrema_probe_fetch_hint(), None);
+}
+
+#[test]
+fn route_matrix_aggregate_index_range_desc_with_window_enables_pushdown_hint() {
+    let mut plan = LogicalPlan::new(
+        AccessPath::<Ulid>::IndexRange {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            prefix: vec![],
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(30)),
+        },
+        ReadConsistency::MissingOk,
+    );
+    plan.order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    plan.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+    let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Last,
+        Direction::Desc,
+    );
+
+    assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert!(route_plan.desc_physical_reverse_supported());
+    assert_eq!(route_plan.scan_hints.physical_fetch_hint, Some(3));
+    assert_eq!(
+        route_plan.index_range_limit_spec.map(|spec| spec.fetch),
+        Some(3)
+    );
+}
+
+#[test]
+fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
+    let mut full_scan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    full_scan.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    let full_scan_route =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &full_scan,
+            AggregateKind::Count,
+            Direction::Asc,
+        );
+    assert_eq!(full_scan_route.execution_mode, ExecutionMode::Streaming);
+    assert!(matches!(
+        full_scan_route.aggregate_fold_mode,
+        AggregateFoldMode::KeysOnly
+    ));
+
+    let mut key_range = LogicalPlan::new(
+        AccessPath::<Ulid>::KeyRange {
+            start: Ulid::from_u128(1),
+            end: Ulid::from_u128(9),
+        },
+        ReadConsistency::MissingOk,
+    );
+    key_range.order = Some(OrderSpec {
+        fields: vec![("id".to_string(), OrderDirection::Asc)],
+    });
+    let key_range_route =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &key_range,
+            AggregateKind::Count,
+            Direction::Asc,
+        );
+    assert_eq!(key_range_route.execution_mode, ExecutionMode::Streaming);
+    assert!(matches!(
+        key_range_route.aggregate_fold_mode,
+        AggregateFoldMode::KeysOnly
+    ));
+
+    let mut secondary = LogicalPlan::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        ReadConsistency::MissingOk,
+    );
+    secondary.order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    let secondary_route =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &secondary,
+            AggregateKind::Count,
+            Direction::Asc,
+        );
+    assert_eq!(secondary_route.execution_mode, ExecutionMode::Materialized);
+    assert!(matches!(
+        secondary_route.aggregate_fold_mode,
+        AggregateFoldMode::KeysOnly
+    ));
+
+    let mut index_range = LogicalPlan::new(
+        AccessPath::<Ulid>::IndexRange {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            prefix: vec![],
+            lower: Bound::Included(Value::Uint(10)),
+            upper: Bound::Excluded(Value::Uint(30)),
+        },
+        ReadConsistency::MissingOk,
+    );
+    index_range.order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    index_range.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+    let index_range_route =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &index_range,
+            AggregateKind::Count,
+            Direction::Asc,
+        );
+    assert_eq!(
+        index_range_route.execution_mode,
+        ExecutionMode::Materialized
+    );
+    assert!(index_range_route.index_range_limit_spec.is_none());
+    assert!(matches!(
+        index_range_route.aggregate_fold_mode,
+        AggregateFoldMode::KeysOnly
+    ));
+}
+
+#[test]
+fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
+    let mut plan = LogicalPlan::new(
+        AccessPath::<Ulid>::IndexPrefix {
+            index: ROUTE_MATRIX_INDEX_MODELS[0],
+            values: vec![Value::Uint(7)],
+        },
+        ReadConsistency::MissingOk,
+    );
+    plan.order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    plan.page = Some(PageSpec {
+        limit: None,
+        offset: 2,
+    });
+
+    let min_asc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Min,
+        Direction::Asc,
+    );
+    let max_asc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Max,
+        Direction::Asc,
+    );
+    let first_asc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::First,
+        Direction::Asc,
+    );
+    let exists_asc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Exists,
+        Direction::Asc,
+    );
+    let last_asc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Last,
+        Direction::Asc,
+    );
+    assert_eq!(min_asc.secondary_extrema_probe_fetch_hint(), Some(3));
+    assert_eq!(max_asc.secondary_extrema_probe_fetch_hint(), None);
+    assert_eq!(first_asc.secondary_extrema_probe_fetch_hint(), None);
+    assert_eq!(exists_asc.secondary_extrema_probe_fetch_hint(), None);
+    assert_eq!(last_asc.secondary_extrema_probe_fetch_hint(), None);
+
+    plan.order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Desc),
+            ("id".to_string(), OrderDirection::Desc),
+        ],
+    });
+    let min_desc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Min,
+        Direction::Desc,
+    );
+    let max_desc = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+        &plan,
+        AggregateKind::Max,
+        Direction::Desc,
+    );
+    assert_eq!(min_desc.secondary_extrema_probe_fetch_hint(), None);
+    assert_eq!(max_desc.secondary_extrema_probe_fetch_hint(), Some(3));
+}

@@ -585,34 +585,6 @@ mod tests {
     }
 
     #[test]
-    fn access_boundary_outside_resolver_has_no_direct_store_registry_access() {
-        let outside_resolver_sources = [
-            ("load/mod.rs", include_str!("load/mod.rs")),
-            ("load/execute.rs", include_str!("load/execute.rs")),
-            ("load/fast_stream.rs", include_str!("load/fast_stream.rs")),
-            ("load/page.rs", include_str!("load/page.rs")),
-            ("load/pk_stream.rs", include_str!("load/pk_stream.rs")),
-            (
-                "load/secondary_index.rs",
-                include_str!("load/secondary_index.rs"),
-            ),
-            (
-                "load/index_range_limit.rs",
-                include_str!("load/index_range_limit.rs"),
-            ),
-            ("load/aggregate.rs", include_str!("load/aggregate.rs")),
-            ("load/route.rs", include_str!("load/route.rs")),
-        ];
-
-        for (path, source) in outside_resolver_sources {
-            assert!(
-                !source_uses_direct_store_or_registry_access(source),
-                "{path} must route store access through resolver-owned boundaries",
-            );
-        }
-    }
-
-    #[test]
     fn load_module_has_no_direct_store_traversal() {
         let load_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load");
         let mut sources = Vec::new();

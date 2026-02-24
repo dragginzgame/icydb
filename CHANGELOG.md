@@ -5,6 +5,24 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.27.9] - 2026-02-23 - Route Ownership Unification
+
+### 📝 Summary
+
+* Unifies execution routing ownership so load, aggregate, and delete go through the same route boundary.
+
+### 🔧 Changed
+
+* Moved execution routing out of `load/route.rs` into an executor-level route module so load, aggregate, and delete now share one routing ownership boundary.
+* Added an explicit mutation route stage (`Materialized` only for now) and routed delete execution through it to remove parallel topology drift.
+* Added a single route-owned stream-construction facade for load and aggregate execution (`RoutedKeyStreamRequest`), so fast paths no longer call context stream builders directly.
+
+### 🧪 Testing
+
+* Added route-level guard coverage to enforce route-owned stream-construction entrypoints for load fast paths.
+
+---
+
 ## [0.27.8] - 2026-02-23 - Execution Boundary Fix
 
 ### 📝 Summary

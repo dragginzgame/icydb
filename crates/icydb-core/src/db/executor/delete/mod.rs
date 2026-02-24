@@ -5,6 +5,7 @@ use crate::{
         Db,
         commit::{CommitRowOp, ensure_recovered_for_write},
         executor::{
+            load::LoadExecutor,
             mutation::{
                 OpenCommitWindow, apply_prepared_row_ops, emit_index_delta_metrics,
                 open_commit_window,
@@ -69,6 +70,7 @@ where
             let index_range_specs = plan.index_range_specs()?.to_vec();
             let (plan, predicate_slots) = plan.into_parts();
             validate_executor_plan::<E>(&plan)?;
+            LoadExecutor::<E>::validate_mutation_route_stage(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;
 
             let mut span = Span::<E>::new(ExecKind::Delete);

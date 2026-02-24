@@ -4,12 +4,12 @@ use crate::{
         executor::load::{
             CursorPage, ExecutionOptimization, ExecutionTrace, FastPathKeyResult, LoadExecutor,
             aggregate_guard::ensure_load_fast_path_spec_arity,
-            route::{ExecutionRoutePlan, FastPathOrder},
         },
         executor::plan::set_rows_from_len,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
             OrderedKeyStreamBox,
+            route::{ExecutionRoutePlan, FastPathOrder, RoutedKeyStreamRequest},
         },
         query::{
             plan::LogicalPlan,
@@ -123,11 +123,10 @@ where
                         physical_fetch_hint: fallback_fetch_hint,
                         index_predicate_execution,
                     };
-                    let key_stream = inputs
-                        .ctx
-                        .ordered_key_stream_from_access_plan_with_index_range_anchor(
-                            stream_request,
-                        )?;
+                    let key_stream = Self::resolve_routed_key_stream(
+                        inputs.ctx,
+                        RoutedKeyStreamRequest::AccessPlan(stream_request),
+                    )?;
 
                     ResolvedExecutionKeyStream {
                         key_stream,

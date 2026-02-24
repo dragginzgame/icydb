@@ -22,9 +22,9 @@ use crate::{
                     ensure_secondary_aggregate_fast_path_arity,
                 },
                 execute::{ExecutionInputs, IndexPredicateCompileMode},
-                route::{ExecutionMode, ExecutionRoutePlan, FastPathOrder},
             },
             plan::{record_plan_metrics, record_rows_scanned},
+            route::{ExecutionMode, ExecutionRoutePlan, FastPathOrder, RoutedKeyStreamRequest},
         },
         query::{
             ReadConsistency,
@@ -1318,17 +1318,20 @@ where
             return Ok(None);
         }
 
-        let mut key_stream = ctx.ordered_key_stream_from_access(
-            path,
-            IndexStreamConstraints {
-                prefix: None,
-                range: None,
-                anchor: None,
-            },
-            direction,
-            StreamExecutionHints {
-                physical_fetch_hint,
-                predicate_execution: None,
+        let mut key_stream = Self::resolve_routed_key_stream(
+            ctx,
+            RoutedKeyStreamRequest::AccessPath {
+                access: path,
+                constraints: IndexStreamConstraints {
+                    prefix: None,
+                    range: None,
+                    anchor: None,
+                },
+                direction,
+                hints: StreamExecutionHints {
+                    physical_fetch_hint,
+                    predicate_execution: None,
+                },
             },
         )?;
         let (aggregate_output, keys_scanned) = Self::fold_streaming_aggregate(
@@ -1418,9 +1421,10 @@ where
                 inputs.index_predicate_program,
             ),
         };
-        let mut key_stream = inputs
-            .ctx
-            .ordered_key_stream_from_access_plan_with_index_range_anchor(stream_request)?;
+        let mut key_stream = Self::resolve_routed_key_stream(
+            inputs.ctx,
+            RoutedKeyStreamRequest::AccessPlan(stream_request),
+        )?;
 
         let (aggregate_output, keys_scanned) = Self::fold_streaming_aggregate(
             inputs.ctx,

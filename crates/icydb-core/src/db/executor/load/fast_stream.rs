@@ -2,7 +2,7 @@ use crate::{
     db::{
         Context,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
-        executor::{AccessPlanStreamRequest, VecOrderedKeyStream},
+        executor::{AccessPlanStreamRequest, VecOrderedKeyStream, route::RoutedKeyStreamRequest},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -19,8 +19,10 @@ where
         stream_request: AccessPlanStreamRequest<'_, E::Key>,
         optimization: ExecutionOptimization,
     ) -> Result<FastPathKeyResult, InternalError> {
-        let mut key_stream =
-            ctx.ordered_key_stream_from_access_plan_with_index_range_anchor(stream_request)?;
+        let mut key_stream = Self::resolve_routed_key_stream(
+            ctx,
+            RoutedKeyStreamRequest::AccessPlan(stream_request),
+        )?;
         let mut ordered_keys = Vec::new();
         while let Some(key) = key_stream.next_key()? {
             ordered_keys.push(key);
