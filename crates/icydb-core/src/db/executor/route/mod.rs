@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
         executor::{
@@ -1158,10 +1161,3 @@ where
         true
     }
 }
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

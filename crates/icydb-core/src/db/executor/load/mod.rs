@@ -53,6 +53,7 @@ pub(crate) struct CursorPage<E: EntityKind> {
 ///
 /// Coarse access path shape used by the load execution trace surface.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionAccessPathVariant {
     ByKey,
@@ -156,6 +157,7 @@ fn key_stream_comparator_from_plan<K>(
 /// Internal fast-path access result.
 /// Carries ordered keys plus observability metadata for shared execution phases.
 ///
+
 struct FastPathKeyResult {
     ordered_key_stream: OrderedKeyStreamBox,
     rows_scanned: usize,
