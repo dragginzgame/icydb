@@ -5,6 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.28.3] - 2026-02-24 - TOP_K_BY and TAKE
+
+### 📝 Summary
+
+* Adds deterministic top-k query terminals with low semantic risk and clear practical utility.
+
+### ➕ Added
+
+* Added `top_k_by("field", k)` and `take(k)` terminals that operate on canonical ordered execution and return deterministic results.
+* Kept semantics simple: ordered stream selection first, then effective window trimming, then terminal materialization/reduction.
+* This release intentionally avoids new continuation behavior; cursor semantics remain unchanged.
+
+---
+
 ## [0.28.2] - 2026-02-24
 
 ### 📝 Summary

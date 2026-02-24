@@ -5,6 +5,7 @@ mod index_range_limit;
 mod page;
 mod pk_stream;
 mod secondary_index;
+mod terminal;
 mod trace;
 
 use self::{

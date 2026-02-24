@@ -381,6 +381,37 @@ where
             .execute_load_query_values_by(self.query(), field.as_ref())
     }
 
+    /// Execute and return the first `k` rows from the effective response window.
+    pub fn take(&self, take_count: u32) -> Result<Response<E>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_take(self.query(), take_count)
+    }
+
+    /// Execute and return the top `k` rows by `field` under deterministic
+    /// ordering `(field desc, primary_key asc)` over the effective response
+    /// window.
+    ///
+    /// This terminal applies its own ordering and does not preserve query
+    /// `order_by(...)` row order in the returned rows.
+    pub fn top_k_by(
+        &self,
+        field: impl AsRef<str>,
+        take_count: u32,
+    ) -> Result<Response<E>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_top_k_by(self.query(), field.as_ref(), take_count)
+    }
+
     /// Execute and return distinct projected field values for the effective
     /// result window, preserving first-observed value order.
     pub fn distinct_values_by(&self, field: impl AsRef<str>) -> Result<Vec<Value>, QueryError>

@@ -1628,6 +1628,104 @@ fn aggregate_field_target_count_distinct_optional_field_null_values_are_rejected
 }
 
 #[test]
+fn aggregate_field_target_top_k_by_optional_field_null_values_match_projection_errors() {
+    seed_phase_entities_custom(vec![
+        PhaseEntity {
+            id: Ulid::from_u128(8_3301),
+            opt_rank: None,
+            rank: 1,
+            tags: vec![1],
+            label: "phase-1".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3302),
+            opt_rank: Some(10),
+            rank: 2,
+            tags: vec![2],
+            label: "phase-2".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3303),
+            opt_rank: Some(20),
+            rank: 3,
+            tags: vec![3],
+            label: "phase-3".to_string(),
+        },
+    ]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            .order_by("rank")
+            .plan()
+            .expect("optional-field projection/top-k null-semantics plan should build")
+    };
+    let values_err = load
+        .values_by(build_plan(), "opt_rank")
+        .expect_err("values_by(opt_rank) should reject null field values");
+    let top_k_err = load
+        .top_k_by(build_plan(), "opt_rank", 2)
+        .expect_err("top_k_by(opt_rank, 2) should reject null field values");
+
+    assert_eq!(
+        values_err.class,
+        ErrorClass::InvariantViolation,
+        "values_by(opt_rank) should classify null-value mismatch as invariant violation"
+    );
+    assert_eq!(
+        top_k_err.class,
+        ErrorClass::InvariantViolation,
+        "top_k_by(opt_rank, 2) should classify null-value mismatch as invariant violation"
+    );
+    assert!(
+        values_err
+            .message
+            .contains("aggregate target field value type mismatch"),
+        "values_by(opt_rank) should expose type-mismatch reason for null values"
+    );
+    assert!(
+        top_k_err
+            .message
+            .contains("aggregate target field value type mismatch"),
+        "top_k_by(opt_rank, 2) should expose type-mismatch reason for null values"
+    );
+    assert!(
+        values_err.message.contains("value=Null") && top_k_err.message.contains("value=Null"),
+        "top_k_by(opt_rank, 2) should report null payload mismatch consistently with values_by(opt_rank)"
+    );
+}
+
+#[test]
+fn aggregate_field_target_top_k_by_missing_field_parity_matches_values_by() {
+    seed_pushdown_entities(&[(8_3381, 7, 10), (8_3382, 7, 20), (8_3383, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .order_by("id")
+            .plan()
+            .expect("missing-field parity plan should build")
+    };
+    let values_err = load
+        .values_by(build_plan(), "missing_field")
+        .expect_err("values_by(missing_field) should be rejected");
+    let top_k_err = load
+        .top_k_by(build_plan(), "missing_field", 2)
+        .expect_err("top_k_by(missing_field, 2) should be rejected");
+
+    assert_eq!(
+        top_k_err.class, values_err.class,
+        "top_k_by(missing_field, 2) should classify unknown-field failures the same way as values_by(missing_field)"
+    );
+    assert_eq!(
+        top_k_err.origin, values_err.origin,
+        "top_k_by(missing_field, 2) should preserve unknown-field origin parity with values_by(missing_field)"
+    );
+    assert!(
+        top_k_err.message.contains("unknown aggregate target field"),
+        "top_k_by(missing_field, 2) should surface the same unknown-field reason"
+    );
+}
+
+#[test]
 fn aggregate_field_target_count_distinct_distinct_modifier_tracks_effective_window_rows() {
     seed_pushdown_entities(&[
         (8_1971, 7, 10),
@@ -1930,6 +2028,20 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
     assert_eq!(
         last_value_scanned, 0,
         "last_value_by unknown-field target should fail before scan-budget consumption"
+    );
+
+    let (top_k_result, top_k_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.top_k_by(build_plan(), "missing_field", 2)
+        });
+    let Err(top_k_err) = top_k_result else {
+        panic!("top_k_by(missing_field, k) should be rejected");
+    };
+    assert_eq!(top_k_err.class, ErrorClass::Unsupported);
+    assert_eq!(top_k_err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        top_k_scanned, 0,
+        "top_k_by unknown-field target should fail before scan-budget consumption"
     );
 }
 
@@ -3890,6 +4002,130 @@ fn session_load_values_by_matches_execute_projection() {
 }
 
 #[test]
+fn session_load_take_matches_execute_prefix() {
+    seed_pushdown_entities(&[
+        (8_3601, 7, 10),
+        (8_3602, 7, 20),
+        (8_3603, 7, 30),
+        (8_3604, 7, 40),
+        (8_3605, 7, 50),
+        (8_3606, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(1)
+            .limit(4)
+    };
+
+    let expected = load_window()
+        .execute()
+        .expect("baseline execute for take should succeed");
+    let actual_take_two = load_window()
+        .take(2)
+        .expect("session take(2) should succeed");
+    let actual_take_ten = load_window()
+        .take(10)
+        .expect("session take(10) should succeed");
+    let expected_take_two_ids: Vec<Id<PushdownParityEntity>> =
+        expected.ids().into_iter().take(2).collect();
+
+    assert_eq!(
+        actual_take_two.ids(),
+        expected_take_two_ids,
+        "session take(2) should match first two execute() rows in effective response order"
+    );
+    assert_eq!(
+        actual_take_ten.ids(),
+        expected.ids(),
+        "session take(k) with k above response size should preserve full effective response"
+    );
+}
+
+#[test]
+fn session_load_top_k_by_matches_execute_field_ordering() {
+    seed_pushdown_entities(&[
+        (8_3701, 7, 20),
+        (8_3702, 7, 40),
+        (8_3703, 7, 40),
+        (8_3704, 7, 10),
+        (8_3705, 7, 30),
+        (8_3706, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(0)
+            .limit(5)
+    };
+
+    let expected = load_window()
+        .execute()
+        .expect("baseline execute for top_k_by should succeed");
+    let actual_top_three = load_window()
+        .top_k_by("rank", 3)
+        .expect("session top_k_by(rank, 3) should succeed");
+    let mut expected_rank_order = expected
+        .0
+        .iter()
+        .map(|(id, entity)| (entity.rank, *id))
+        .collect::<Vec<_>>();
+    expected_rank_order.sort_unstable_by(|(left_rank, left_id), (right_rank, right_id)| {
+        right_rank
+            .cmp(left_rank)
+            .then_with(|| left_id.key().cmp(&right_id.key()))
+    });
+    let expected_top_three_ids: Vec<Id<PushdownParityEntity>> = expected_rank_order
+        .into_iter()
+        .take(3)
+        .map(|(_, id)| id)
+        .collect();
+
+    assert_eq!(
+        actual_top_three.ids(),
+        expected_top_three_ids,
+        "session top_k_by(rank, 3) should match execute() reduced by deterministic (rank desc, id asc) ordering"
+    );
+}
+
+#[test]
+fn session_load_top_k_by_is_direction_invariant_for_same_effective_window() {
+    seed_pushdown_entities(&[
+        (8_3711, 7, 10),
+        (8_3712, 7, 40),
+        (8_3713, 7, 20),
+        (8_3714, 7, 30),
+        (8_3715, 7, 40),
+        (8_3716, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let asc = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("id")
+        .top_k_by("rank", 3)
+        .expect("session top_k_by(rank, 3) ASC base order should succeed");
+    let desc = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by_desc("id")
+        .top_k_by("rank", 3)
+        .expect("session top_k_by(rank, 3) DESC base order should succeed");
+
+    assert_eq!(
+        asc.ids(),
+        desc.ids(),
+        "top_k_by(rank, k) should be invariant to ASC/DESC base scan direction over the same effective row set"
+    );
+}
+
+#[test]
 fn session_load_values_by_with_ids_matches_execute_projection() {
     seed_pushdown_entities(&[
         (8_3311, 7, 10),
@@ -4155,6 +4391,78 @@ fn aggregate_field_target_values_by_with_ids_preserves_scan_budget_parity_with_e
     assert_eq!(
         scanned_values_by_with_ids, scanned_execute,
         "values_by_with_ids must preserve scan-budget consumption parity with execute()"
+    );
+}
+
+#[test]
+fn aggregate_field_target_top_k_by_uses_bounded_execute_window_and_scan_budget_parity() {
+    seed_pushdown_entities(&[
+        (8_3811, 7, 10),
+        (8_3812, 7, 20),
+        (8_3813, 7, 30),
+        (8_3814, 7, 100),
+        (8_3815, 7, 90),
+        (8_3816, 7, 80),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_bounded_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .limit(3)
+            .plan()
+            .expect("top_k_by bounded-window scan-budget parity plan should build")
+    };
+    let build_unbounded_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .plan()
+            .expect("top_k_by unbounded-window plan should build")
+    };
+
+    let (bounded_execute, scanned_execute) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.execute(build_bounded_plan())
+                .expect("top_k_by bounded-window execute baseline should succeed")
+        });
+    let (bounded_top_k, scanned_top_k) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.top_k_by(build_bounded_plan(), "rank", 2)
+                .expect("top_k_by(rank, 2) bounded-window query should succeed")
+        });
+    let unbounded_top_k = load
+        .top_k_by(build_unbounded_plan(), "rank", 2)
+        .expect("top_k_by(rank, 2) unbounded-window query should succeed");
+    let mut expected_rank_order = bounded_execute
+        .0
+        .iter()
+        .map(|(id, entity)| (entity.rank, *id))
+        .collect::<Vec<_>>();
+    expected_rank_order.sort_unstable_by(|(left_rank, left_id), (right_rank, right_id)| {
+        right_rank
+            .cmp(left_rank)
+            .then_with(|| left_id.key().cmp(&right_id.key()))
+    });
+    let expected_bounded_top_ids: Vec<Id<PushdownParityEntity>> = expected_rank_order
+        .into_iter()
+        .take(2)
+        .map(|(_, id)| id)
+        .collect();
+
+    assert_eq!(
+        bounded_top_k.ids(),
+        expected_bounded_top_ids,
+        "top_k_by(rank, 2) should rank only within the bounded effective execute() window"
+    );
+    assert_eq!(
+        scanned_top_k, scanned_execute,
+        "top_k_by must preserve scan-budget consumption parity with execute() for bounded windows"
+    );
+    assert_ne!(
+        bounded_top_k.ids(),
+        unbounded_top_k.ids(),
+        "top_k_by bounded-window behavior should differ from unbounded query behavior on the same dataset"
     );
 }
 
