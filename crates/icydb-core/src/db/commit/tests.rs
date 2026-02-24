@@ -4,7 +4,8 @@ use crate::{
         commit::{
             CommitMarker, CommitRowOp, begin_commit, commit_marker_present,
             ensure_recovered_for_write, finish_commit, init_commit_store_for_tests,
-            prepare_row_commit_for_entity, store,
+            prepare_row_commit_for_entity, rollback_prepared_row_ops_reverse,
+            snapshot_row_rollback, store,
         },
         data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
         index::{IndexKey, IndexStore, RawIndexEntry},
@@ -291,6 +292,76 @@ fn finish_commit_error_keeps_marker_for_recovery() {
 }
 
 #[test]
+fn finish_commit_mixed_state_failure_rolls_back_index_prefix_without_row_visibility() {
+    reset_recovery_state();
+
+    let entity = RecoveryIndexedEntity {
+        id: Ulid::from_u128(915),
+        group: 19,
+    };
+    let data_key = DataKey::try_new::<RecoveryIndexedEntity>(entity.id)
+        .expect("data key should build")
+        .to_raw()
+        .expect("data key should encode");
+    let row_bytes = serialize(&entity).expect("entity serialization should succeed");
+    let row_op = CommitRowOp::new(
+        RecoveryIndexedEntity::PATH,
+        data_key.as_bytes().to_vec(),
+        None,
+        Some(row_bytes),
+    );
+    let marker =
+        CommitMarker::new(vec![row_op.clone()]).expect("commit marker creation should succeed");
+    let guard = begin_commit(marker).expect("begin_commit should persist marker");
+
+    // Simulate a mixed-state apply edge:
+    // - apply index mutations
+    // - fail before row write
+    // - rollback must remove the applied index mutation
+    let err = finish_commit(guard, |_| {
+        let prepared = prepare_row_commit_for_entity::<RecoveryIndexedEntity>(&DB, &row_op)?;
+        let rollback = snapshot_row_rollback(&prepared);
+        for index_op in prepared.index_ops {
+            index_op.store.with_borrow_mut(|store| {
+                if let Some(value) = index_op.value {
+                    store.insert(index_op.key, value);
+                } else {
+                    store.remove(&index_op.key);
+                }
+            });
+        }
+        rollback_prepared_row_ops_reverse(vec![rollback]);
+
+        Err(crate::error::InternalError::executor_invariant(
+            "simulated mixed-state row-stage failure after index apply",
+        ))
+    })
+    .expect_err("mixed-state finish_commit path should surface apply error");
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "failed mixed-state apply must keep marker persisted for recovery replay"
+    );
+    assert_eq!(
+        row_bytes_for(&data_key),
+        None,
+        "mixed-state apply failure must not leave row bytes visible"
+    );
+    assert!(
+        indexed_ids_for(&entity).is_none(),
+        "mixed-state apply failure must not leave index membership visible"
+    );
+
+    // Cleanup so unrelated tests do not observe this intentionally-persisted marker.
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
+}
+
+#[test]
 fn recovery_replay_is_idempotent() {
     reset_recovery_state();
 
@@ -358,6 +429,75 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
     assert!(
         marker_still_present,
         "marker should remain present when recovery prevalidation fails"
+    );
+
+    // Cleanup so unrelated tests do not observe this intentionally-corrupt marker.
+    store::with_commit_store(|store| {
+        store.clear_infallible();
+        Ok(())
+    })
+    .expect("commit marker cleanup should succeed");
+}
+
+#[test]
+fn recovery_replay_rolls_back_applied_prefix_when_later_marker_op_fails_prepare() {
+    reset_recovery_state();
+
+    let first = RecoveryIndexedEntity {
+        id: Ulid::from_u128(913),
+        group: 17,
+    };
+    let first_key = DataKey::try_new::<RecoveryIndexedEntity>(first.id)
+        .expect("first data key should build")
+        .to_raw()
+        .expect("first data key should encode");
+    let first_row = serialize(&first).expect("first row serialization should succeed");
+
+    let second = RecoveryIndexedEntity {
+        id: Ulid::from_u128(914),
+        group: 18,
+    };
+    let second_key = DataKey::try_new::<RecoveryIndexedEntity>(second.id)
+        .expect("second data key should build")
+        .to_raw()
+        .expect("second data key should encode");
+    let second_row = serialize(&second).expect("second row serialization should succeed");
+    let unsupported_path = "commit_tests::UnknownEntity";
+    let marker = CommitMarker::new(vec![
+        CommitRowOp::new(
+            RecoveryIndexedEntity::PATH,
+            first_key.as_bytes().to_vec(),
+            None,
+            Some(first_row),
+        ),
+        CommitRowOp::new(
+            unsupported_path,
+            second_key.as_bytes().to_vec(),
+            None,
+            Some(second_row),
+        ),
+    ])
+    .expect("commit marker creation should succeed");
+
+    begin_commit(marker).expect("begin_commit should persist marker");
+
+    let err = ensure_recovered_for_write(&DB).expect_err(
+        "recovery should fail when a later marker op has an unsupported entity path during replay",
+    );
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        commit_marker_present().expect("commit marker check should succeed"),
+        "failed replay should keep marker persisted for later recovery attempts"
+    );
+    assert_eq!(
+        row_bytes_for(&first_key),
+        None,
+        "recovery must roll back the already-applied prefix row when a later marker op fails"
+    );
+    assert!(
+        indexed_ids_for(&first).is_none(),
+        "recovery must roll back the already-applied prefix index mutation when a later marker op fails"
     );
 
     // Cleanup so unrelated tests do not observe this intentionally-corrupt marker.

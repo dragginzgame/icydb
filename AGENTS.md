@@ -348,6 +348,7 @@ Code is considered non-trivial if it:
 * Leave exactly one blank line before and one blank line after that banner block.
 * Run all tests with `make test`.
 * In `icydb-core` tests, do not create ad-hoc `DummyEntity` types; macro-driven entity and index tests belong in `crates/icydb-schema-tests`.
+* If test execution fails due to cross-filesystem errors (for example `Invalid cross-device link (os error 18)`), notify the user and stop retrying; those tests must be run manually by the user in a working environment.
 
 ---
 

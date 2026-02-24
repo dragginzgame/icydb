@@ -10,8 +10,8 @@ use crate::{
             AccessPlanStreamRequest, AccessStreamBindings, IndexStreamConstraints,
             StreamExecutionHints,
             aggregate::field::{
-                FieldSlot, apply_aggregate_direction, compare_entities_by_orderable_field,
-                compare_entities_for_field_extrema, resolve_orderable_aggregate_target_slot,
+                AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
+                compare_entities_by_orderable_field, compare_entities_for_field_extrema,
             },
             fold::{
                 AggregateFoldMode, AggregateKind, AggregateOutput, AggregateReducerState,
@@ -74,6 +74,34 @@ struct AggregateFastPathInputs<'exec, 'ctx, E: EntityKind + EntityValue> {
     fold_mode: AggregateFoldMode,
 }
 
+///
+/// VerifiedAggregateFastPathRoute
+///
+/// Capability marker returned only by aggregate fast-path eligibility verification.
+/// Fast-path branch dispatch requires this marker so branch execution cannot skip
+/// the shared gate by accident.
+///
+
+struct VerifiedAggregateFastPathRoute {
+    route: FastPathOrder,
+}
+
+///
+/// AggregateExecutionDescriptor
+///
+/// Canonical aggregate execution descriptor constructed once from a terminal
+/// aggregate spec and validated plan shape before execution branching.
+///
+
+struct AggregateExecutionDescriptor {
+    spec: AggregateSpec,
+    direction: Direction,
+    route_plan: ExecutionRoutePlan,
+    strict_index_predicate_program: Option<IndexPredicateProgram>,
+    force_materialized_due_to_predicate_uncertainty: bool,
+    extrema_streaming_attempt_eligible: bool,
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -86,7 +114,9 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<u32, InternalError> {
-        match self.execute_aggregate(plan, AggregateKind::Count)? {
+        match self
+            .execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::Count))?
+        {
             AggregateOutput::Count(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate COUNT result kind mismatch",
@@ -98,7 +128,9 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<bool, InternalError> {
-        match self.execute_aggregate(plan, AggregateKind::Exists)? {
+        match self
+            .execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::Exists))?
+        {
             AggregateOutput::Exists(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate EXISTS result kind mismatch",
@@ -110,7 +142,7 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        match self.execute_aggregate(plan, AggregateKind::Min)? {
+        match self.execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::Min))? {
             AggregateOutput::Min(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate MIN result kind mismatch",
@@ -122,7 +154,7 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        match self.execute_aggregate(plan, AggregateKind::Max)? {
+        match self.execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::Max))? {
             AggregateOutput::Max(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate MAX result kind mismatch",
@@ -199,7 +231,9 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        match self.execute_aggregate(plan, AggregateKind::First)? {
+        match self
+            .execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::First))?
+        {
             AggregateOutput::First(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate FIRST result kind mismatch",
@@ -211,7 +245,7 @@ where
         &self,
         plan: ExecutablePlan<E>,
     ) -> Result<Option<Id<E>>, InternalError> {
-        match self.execute_aggregate(plan, AggregateKind::Last)? {
+        match self.execute_aggregate_spec(plan, AggregateSpec::for_terminal(AggregateKind::Last))? {
             AggregateOutput::Last(value) => Ok(value),
             _ => Err(InternalError::query_executor_invariant(
                 "aggregate LAST result kind mismatch",
@@ -223,32 +257,12 @@ where
     // Aggregate orchestration
     // ------------------------------------------------------------------
 
-    // Execute one aggregate terminal. Use streaming fold for conservative-safe
-    // plan shapes, otherwise fall back to canonical materialized execution.
-    //
-    // IMPORTANT:
-    // - Streaming eligibility must remain aligned with load fast-path routing.
-    // - COUNT pushdown (0.22.1+) must remain a strict subset of streaming safety.
-    // - This function must reuse the same key-stream construction path as `execute()`
-    //   to preserve ordering, DISTINCT, and pagination semantics.
-    fn execute_aggregate(
-        &self,
-        plan: ExecutablePlan<E>,
-        kind: AggregateKind,
-    ) -> Result<AggregateOutput<E>, InternalError> {
-        self.execute_aggregate_spec(plan, AggregateSpec::for_terminal(kind))
-    }
-
-    // Execute one aggregate using an explicit aggregate spec. This keeps
-    // unsupported aggregate taxonomy and route capability selection under one
-    // shared boundary as field-target aggregates are introduced.
-    pub(in crate::db::executor) fn execute_aggregate_spec(
-        &self,
-        plan: ExecutablePlan<E>,
+    // Build the canonical aggregate execution descriptor so route/fold
+    // boundaries consume one internal aggregate spec shape only.
+    fn build_aggregate_execution_descriptor(
+        plan: &ExecutablePlan<E>,
         spec: AggregateSpec,
-    ) -> Result<AggregateOutput<E>, InternalError> {
-        let kind = spec.kind();
-        let target_field = spec.target_field().map(str::to_string);
+    ) -> Result<AggregateExecutionDescriptor, InternalError> {
         spec.ensure_supported_for_execution()
             .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
 
@@ -258,8 +272,8 @@ where
 
         // Route planning owns aggregate streaming/materialized decisions and
         // bounded probe-hint derivation.
-        let direction = if target_field.is_some() {
-            Self::field_extrema_aggregate_direction(kind)?
+        let direction = if spec.target_field().is_some() {
+            Self::field_extrema_aggregate_direction(spec.kind())?
         } else {
             plan.direction()
         };
@@ -277,30 +291,58 @@ where
             strict_index_predicate_program.as_ref(),
             force_materialized_due_to_predicate_uncertainty,
         );
-        let route_plan =
-            Self::build_execution_route_plan_for_aggregate_spec(plan.as_inner(), spec, direction);
-        if let Some(target_field) = target_field {
+        let route_plan = Self::build_execution_route_plan_for_aggregate_spec(
+            plan.as_inner(),
+            spec.clone(),
+            direction,
+        );
+
+        Ok(AggregateExecutionDescriptor {
+            spec,
+            direction,
+            route_plan,
+            strict_index_predicate_program,
+            force_materialized_due_to_predicate_uncertainty,
+            extrema_streaming_attempt_eligible,
+        })
+    }
+
+    // Execute one aggregate using an explicit aggregate spec. This keeps
+    // unsupported aggregate taxonomy and route capability selection under one
+    // shared boundary as field-target aggregates are introduced.
+    pub(in crate::db::executor) fn execute_aggregate_spec(
+        &self,
+        plan: ExecutablePlan<E>,
+        spec: AggregateSpec,
+    ) -> Result<AggregateOutput<E>, InternalError> {
+        let descriptor = Self::build_aggregate_execution_descriptor(&plan, spec)?;
+        let kind = descriptor.spec.kind();
+
+        // Snapshot route-owned execution mode at the orchestration boundary.
+        // This remains immutable for the full aggregate execution lifecycle.
+        let execution_mode = descriptor.route_plan.execution_mode;
+        if let Some(target_field) = descriptor.spec.target_field() {
             return self.execute_field_target_extrema_aggregate(
                 plan,
                 kind,
-                target_field.as_str(),
-                direction,
-                &route_plan,
-                extrema_streaming_attempt_eligible,
-                force_materialized_due_to_predicate_uncertainty,
+                target_field,
+                descriptor.direction,
+                &descriptor.route_plan,
+                descriptor.extrema_streaming_attempt_eligible,
+                descriptor.force_materialized_due_to_predicate_uncertainty,
             );
         }
-        let first_last_streaming_attempt_eligible = extrema_streaming_attempt_eligible
+        let first_last_streaming_attempt_eligible = descriptor.extrema_streaming_attempt_eligible
             && matches!(kind, AggregateKind::First | AggregateKind::Last);
-        if matches!(route_plan.execution_mode, ExecutionMode::Materialized)
+        if matches!(execution_mode, ExecutionMode::Materialized)
             && !first_last_streaming_attempt_eligible
-            || force_materialized_due_to_predicate_uncertainty
+            || descriptor.force_materialized_due_to_predicate_uncertainty
         {
             let response = self.execute(plan)?;
             return Ok(Self::aggregate_from_materialized(response, kind));
         }
-        let fold_mode = route_plan.aggregate_fold_mode;
-        let physical_fetch_hint = route_plan.scan_hints.physical_fetch_hint;
+        let fold_mode = descriptor.route_plan.aggregate_fold_mode;
+        let physical_fetch_hint = descriptor.route_plan.scan_hints.physical_fetch_hint;
 
         // Direction must be captured before consuming the ExecutablePlan.
         // After `into_parts()`, execution uses only logical + compiled predicate state.
@@ -324,11 +366,11 @@ where
         let fast_path_inputs = AggregateFastPathInputs {
             ctx: &ctx,
             logical_plan: &logical_plan,
-            route_plan: &route_plan,
+            route_plan: &descriptor.route_plan,
             index_prefix_specs: index_prefix_specs.as_slice(),
             index_range_specs: index_range_specs.as_slice(),
-            index_predicate_program: strict_index_predicate_program.as_ref(),
-            direction,
+            index_predicate_program: descriptor.strict_index_predicate_program.as_ref(),
+            direction: descriptor.direction,
             physical_fetch_hint,
             kind,
             fold_mode,
@@ -352,7 +394,7 @@ where
                 index_prefix_specs: index_prefix_specs.as_slice(),
                 index_range_specs: index_range_specs.as_slice(),
                 index_range_anchor: None,
-                direction,
+                direction: descriptor.direction,
             },
             predicate_slots: predicate_slots.as_ref(),
         };
@@ -360,7 +402,7 @@ where
         // Resolve the ordered key stream using canonical routing logic.
         let mut resolved = Self::resolve_execution_key_stream(
             &execution_inputs,
-            &route_plan,
+            &descriptor.route_plan,
             IndexPredicateCompileMode::StrictAllOrNone,
         )?;
 
@@ -370,7 +412,7 @@ where
             &ctx,
             &logical_plan,
             logical_plan.consistency,
-            direction,
+            descriptor.direction,
             resolved.key_stream.as_mut(),
             kind,
             fold_mode,
@@ -412,8 +454,7 @@ where
         };
 
         // Validate user-provided field targets before any scan-budget consumption.
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
+        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         if force_materialized_due_to_predicate_uncertainty
             || !field_fast_path_eligible
             || !extrema_streaming_attempt_eligible
@@ -514,32 +555,96 @@ where
     fn verify_aggregate_fast_path_eligibility(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
         route: FastPathOrder,
-    ) -> Result<bool, InternalError> {
+    ) -> Result<Option<VerifiedAggregateFastPathRoute>, InternalError> {
         match route {
             // Primary-key point/batch aggregate fast path is branch-local and
             // intentionally independent of route capability flags.
-            FastPathOrder::PrimaryKey => Ok(true),
+            FastPathOrder::PrimaryKey => Ok(Some(VerifiedAggregateFastPathRoute { route })),
             FastPathOrder::SecondaryPrefix => {
                 ensure_secondary_aggregate_fast_path_arity(
                     inputs.route_plan.secondary_fast_path_eligible(),
                     inputs.index_prefix_specs.len(),
                 )?;
-                Ok(inputs.route_plan.secondary_fast_path_eligible())
+                if inputs.route_plan.secondary_fast_path_eligible() {
+                    Ok(Some(VerifiedAggregateFastPathRoute { route }))
+                } else {
+                    Ok(None)
+                }
             }
             // Primary-scan aggregate fast path is only attempted when route
             // planning provided a bounded probe hint for this terminal.
-            FastPathOrder::PrimaryScan => Ok(inputs.physical_fetch_hint.is_some()),
+            FastPathOrder::PrimaryScan => {
+                if inputs.physical_fetch_hint.is_some() {
+                    Ok(Some(VerifiedAggregateFastPathRoute { route }))
+                } else {
+                    Ok(None)
+                }
+            }
             FastPathOrder::IndexRange => {
                 ensure_index_range_aggregate_fast_path_specs(
                     inputs.route_plan.index_range_limit_fast_path_enabled(),
                     inputs.index_prefix_specs.len(),
                     inputs.index_range_specs.len(),
                 )?;
-                Ok(inputs.route_plan.index_range_limit_fast_path_enabled())
+                if inputs.route_plan.index_range_limit_fast_path_enabled() {
+                    Ok(Some(VerifiedAggregateFastPathRoute { route }))
+                } else {
+                    Ok(None)
+                }
             }
             FastPathOrder::Composite => {
-                Ok(inputs.route_plan.composite_aggregate_fast_path_eligible())
+                if inputs.route_plan.composite_aggregate_fast_path_eligible() {
+                    Ok(Some(VerifiedAggregateFastPathRoute { route }))
+                } else {
+                    Ok(None)
+                }
             }
+        }
+    }
+
+    // Execute one aggregate fast-path branch only after route verification has
+    // produced a capability marker from the shared eligibility gate.
+    fn try_execute_verified_aggregate_fast_path(
+        inputs: &AggregateFastPathInputs<'_, '_, E>,
+        verified_route: VerifiedAggregateFastPathRoute,
+    ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
+        match verified_route.route {
+            FastPathOrder::PrimaryKey => {
+                // Aggregate-aware fast path for primary-key point/batch access shapes.
+                // This keeps semantics identical while avoiding generic stream setup.
+                Self::try_execute_primary_key_access_aggregate(
+                    inputs.ctx,
+                    inputs.logical_plan,
+                    inputs.direction,
+                    inputs.kind,
+                    inputs.fold_mode,
+                )
+            }
+            FastPathOrder::SecondaryPrefix => {
+                // Aggregate-aware fast path for secondary index-prefix plans that are
+                // eligible for canonical order pushdown.
+                Self::try_execute_index_prefix_aggregate(
+                    inputs.ctx,
+                    inputs,
+                    inputs.direction,
+                    inputs.kind,
+                    inputs.fold_mode,
+                )
+            }
+            FastPathOrder::PrimaryScan => {
+                // Aggregate-aware fast path for primary-data range/full scans.
+                // This reuses canonical fold logic while skipping generic stream routing.
+                Self::try_execute_primary_scan_aggregate(
+                    inputs.ctx,
+                    inputs.logical_plan,
+                    inputs.direction,
+                    inputs.physical_fetch_hint,
+                    inputs.kind,
+                    inputs.fold_mode,
+                )
+            }
+            FastPathOrder::IndexRange => Self::try_execute_index_range_aggregate(inputs),
+            FastPathOrder::Composite => Self::try_execute_composite_aggregate(inputs),
         }
     }
 
@@ -549,75 +654,15 @@ where
         inputs: &AggregateFastPathInputs<'_, '_, E>,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
         for route in inputs.route_plan.fast_path_order().iter().copied() {
-            if !Self::verify_aggregate_fast_path_eligibility(inputs, route)? {
+            let Some(verified_route) = Self::verify_aggregate_fast_path_eligibility(inputs, route)?
+            else {
                 continue;
-            }
+            };
 
-            match route {
-                FastPathOrder::PrimaryKey => {
-                    // Aggregate-aware fast path for primary-key point/batch access shapes.
-                    // This keeps semantics identical while avoiding generic stream setup.
-                    if let Some((aggregate_output, rows_scanned)) =
-                        Self::try_execute_primary_key_access_aggregate(
-                            inputs.ctx,
-                            inputs.logical_plan,
-                            inputs.direction,
-                            inputs.kind,
-                            inputs.fold_mode,
-                        )?
-                    {
-                        return Ok(Some((aggregate_output, rows_scanned)));
-                    }
-                }
-                FastPathOrder::SecondaryPrefix => {
-                    // Aggregate-aware fast path for secondary index-prefix plans that are
-                    // eligible for canonical order pushdown.
-                    if let Some((aggregate_output, rows_scanned)) =
-                        Self::try_execute_index_prefix_aggregate(
-                            inputs.ctx,
-                            inputs,
-                            inputs.direction,
-                            inputs.kind,
-                            inputs.fold_mode,
-                        )?
-                    {
-                        return Ok(Some((aggregate_output, rows_scanned)));
-                    }
-                }
-                FastPathOrder::PrimaryScan => {
-                    // Aggregate-aware fast path for primary-data range/full scans.
-                    // This reuses canonical fold logic while skipping generic stream routing.
-                    if let Some((aggregate_output, rows_scanned)) =
-                        Self::try_execute_primary_scan_aggregate(
-                            inputs.ctx,
-                            inputs.logical_plan,
-                            inputs.direction,
-                            inputs.physical_fetch_hint,
-                            inputs.kind,
-                            inputs.fold_mode,
-                        )?
-                    {
-                        return Ok(Some((aggregate_output, rows_scanned)));
-                    }
-                }
-                FastPathOrder::IndexRange => {
-                    // Aggregate-aware fast path for index-range plans using lowered
-                    // byte-level range specs and shared fold semantics.
-                    if let Some((aggregate_output, rows_scanned)) =
-                        Self::try_execute_index_range_aggregate(inputs)?
-                    {
-                        return Ok(Some((aggregate_output, rows_scanned)));
-                    }
-                }
-                FastPathOrder::Composite => {
-                    // Aggregate-aware fast path for composite plans. This reuses canonical
-                    // composite stream construction and keeps aggregate folding shared.
-                    if let Some((aggregate_output, rows_scanned)) =
-                        Self::try_execute_composite_aggregate(inputs)?
-                    {
-                        return Ok(Some((aggregate_output, rows_scanned)));
-                    }
-                }
+            if let Some((aggregate_output, rows_scanned)) =
+                Self::try_execute_verified_aggregate_fast_path(inputs, verified_route)?
+            {
+                return Ok(Some((aggregate_output, rows_scanned)));
             }
         }
 
@@ -671,7 +716,7 @@ where
                         field_slot,
                         direction,
                     )
-                    .map_err(Self::map_aggregate_field_value_error)?
+                    .map_err(AggregateFieldValueError::into_internal_error)?
                         == Ordering::Less
                 }
                 None => true,
@@ -691,7 +736,7 @@ where
             };
             let field_order =
                 compare_entities_by_orderable_field(&entity, current, target_field, field_slot)
-                    .map_err(Self::map_aggregate_field_value_error)?;
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
             let directional_field_order = apply_aggregate_direction(field_order, direction);
 
             // Once traversal leaves the winning field-value group, the ordered

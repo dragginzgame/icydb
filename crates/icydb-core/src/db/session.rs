@@ -767,6 +767,8 @@ impl<C: CanisterKind> DbSession<C> {
     #[doc(hidden)]
     pub fn clear_stores_for_tests(&self) {
         self.db.with_store_registry(|reg| {
+            // Test cleanup only: clearing all stores is set-like and does not
+            // depend on registry iteration order.
             for (_, store) in reg.iter() {
                 store.with_data_mut(DataStore::clear);
                 store.with_index_mut(IndexStore::clear);

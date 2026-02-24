@@ -249,3 +249,123 @@ fn load_cursor_v1_token_rejects_non_zero_offset_plan() {
         "legacy v1 cursors should map to offset mismatch when offset is non-zero"
     );
 }
+
+#[test]
+fn load_cursor_rejects_order_field_signature_mismatch_at_plan_time() {
+    let source_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .expect("source plan should build");
+    let boundary = CursorBoundary {
+        slots: vec![
+            CursorBoundarySlot::Present(Value::Uint(10)),
+            CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(5001))),
+        ],
+    };
+    let cursor = ContinuationToken::new_with_direction(
+        source_plan.continuation_signature(),
+        boundary,
+        Direction::Asc,
+        0,
+    )
+    .encode()
+    .expect("order-field mismatch cursor should encode");
+
+    let target_plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("label")
+        .limit(1)
+        .plan()
+        .expect("target plan should build");
+    let err = target_plan
+        .plan_cursor(Some(cursor.as_slice()))
+        .expect_err("cursor from a different order spec must be rejected");
+    assert!(
+        matches!(
+            err,
+            crate::db::query::plan::PlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::CursorPlanError::ContinuationCursorSignatureMismatch { .. }
+                )
+        ),
+        "planning should reject order-spec signature mismatch"
+    );
+}
+
+#[test]
+fn load_cursor_rejects_direction_mismatch_at_plan_time() {
+    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .plan()
+        .expect("direction-mismatch plan should build");
+    let boundary = CursorBoundary {
+        slots: vec![
+            CursorBoundarySlot::Present(Value::Uint(10)),
+            CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(5002))),
+        ],
+    };
+    let cursor = ContinuationToken::new_with_direction(
+        plan.continuation_signature(),
+        boundary,
+        Direction::Desc,
+        0,
+    )
+    .encode()
+    .expect("direction-mismatch cursor should encode");
+
+    let err = plan
+        .plan_cursor(Some(cursor.as_slice()))
+        .expect_err("cursor with mismatched direction must be rejected");
+    assert!(
+        matches!(
+            err,
+            crate::db::query::plan::PlanError::Cursor(inner)
+                if matches!(
+                    inner.as_ref(),
+                    crate::db::query::plan::CursorPlanError::InvalidContinuationCursorPayload {
+                        reason
+                    } if reason.contains("direction does not match executable plan direction")
+                )
+        ),
+        "planning should reject continuation cursor direction mismatches"
+    );
+}
+
+#[test]
+fn load_cursor_accepts_matching_offset_window_at_plan_time() {
+    let plan = Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+        .order_by("rank")
+        .limit(1)
+        .offset(2)
+        .plan()
+        .expect("offset plan should build");
+    let boundary = CursorBoundary {
+        slots: vec![
+            CursorBoundarySlot::Present(Value::Uint(10)),
+            CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(5003))),
+        ],
+    };
+    let cursor = ContinuationToken::new_with_direction(
+        plan.continuation_signature(),
+        boundary,
+        Direction::Asc,
+        2,
+    )
+    .encode()
+    .expect("matching-offset cursor should encode");
+
+    let planned = plan
+        .plan_cursor(Some(cursor.as_slice()))
+        .expect("cursor with matching offset should pass plan-time validation");
+    assert!(
+        !planned.is_empty(),
+        "matching-offset cursor should produce planned cursor state"
+    );
+    assert_eq!(
+        planned.initial_offset(),
+        2,
+        "planned cursor should preserve the validated initial offset"
+    );
+}

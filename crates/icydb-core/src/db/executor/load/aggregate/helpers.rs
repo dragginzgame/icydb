@@ -5,7 +5,6 @@ use crate::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_entities_for_field_extrema,
                 compare_orderable_field_values, extract_orderable_field_value,
-                resolve_orderable_aggregate_target_slot,
             },
             fold::{AggregateKind, AggregateOutput},
             load::{LoadExecutor, aggregate::MinMaxByIds},
@@ -27,6 +26,26 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // Canonical precedence predicate for field projections under deterministic
+    // field ordering with primary-key ascending tie-break.
+    fn field_projection_candidate_precedes(
+        target_field: &str,
+        candidate_id: &Id<E>,
+        candidate_value: &Value,
+        current_id: &Id<E>,
+        current_value: &Value,
+        field_preference: Ordering,
+    ) -> Result<bool, InternalError> {
+        let field_order =
+            compare_orderable_field_values(target_field, candidate_value, current_value)
+                .map_err(Self::map_aggregate_field_value_error)?;
+        if field_order == field_preference {
+            return Ok(true);
+        }
+
+        Ok(field_order == Ordering::Equal && candidate_id.key() < current_id.key())
+    }
+
     // Return the aggregate terminal value for an empty effective output window.
     pub(in crate::db::executor::load::aggregate) const fn aggregate_zero_window_result(
         kind: AggregateKind,
@@ -69,8 +88,7 @@ where
         target_field: &str,
         nth: usize,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
+        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::aggregate_nth_field_from_materialized(response, target_field, field_slot, nth)
@@ -83,8 +101,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: &str,
     ) -> Result<Option<Id<E>>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
+        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::aggregate_median_field_from_materialized(response, target_field, field_slot)
@@ -97,8 +114,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: &str,
     ) -> Result<MinMaxByIds<E>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
+        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::aggregate_min_max_field_from_materialized(response, target_field, field_slot)
@@ -141,7 +157,7 @@ where
                         field_slot,
                         compare_direction,
                     )
-                    .map_err(Self::map_aggregate_field_value_error)?
+                    .map_err(AggregateFieldValueError::into_internal_error)?
                         == Ordering::Less
                 }
                 None => true,
@@ -220,15 +236,16 @@ where
         let mut max_candidate: Option<(Id<E>, Value)> = None;
         for (id, entity) in response {
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
+                .map_err(AggregateFieldValueError::into_internal_error)?;
             let replace_min = match min_candidate.as_ref() {
-                Some((current_id, current_value)) => {
-                    let ordering =
-                        compare_orderable_field_values(target_field, &value, current_value)
-                            .map_err(Self::map_aggregate_field_value_error)?;
-                    ordering == Ordering::Less
-                        || (ordering == Ordering::Equal && id.key() < current_id.key())
-                }
+                Some((current_id, current_value)) => Self::field_projection_candidate_precedes(
+                    target_field,
+                    &id,
+                    &value,
+                    current_id,
+                    current_value,
+                    Ordering::Less,
+                )?,
                 None => true,
             };
             if replace_min {
@@ -236,13 +253,14 @@ where
             }
 
             let replace_max = match max_candidate.as_ref() {
-                Some((current_id, current_value)) => {
-                    let ordering =
-                        compare_orderable_field_values(target_field, &value, current_value)
-                            .map_err(Self::map_aggregate_field_value_error)?;
-                    ordering == Ordering::Greater
-                        || (ordering == Ordering::Equal && id.key() < current_id.key())
-                }
+                Some((current_id, current_value)) => Self::field_projection_candidate_precedes(
+                    target_field,
+                    &id,
+                    &value,
+                    current_id,
+                    current_value,
+                    Ordering::Greater,
+                )?,
                 None => true,
             };
             if replace_max {
@@ -272,14 +290,18 @@ where
         let mut ordered_rows: Vec<(Id<E>, Value)> = Vec::new();
         for (id, entity) in response {
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
+                .map_err(AggregateFieldValueError::into_internal_error)?;
             let mut insert_index = ordered_rows.len();
             for (index, (current_id, current_value)) in ordered_rows.iter().enumerate() {
-                let ordering = compare_orderable_field_values(target_field, &value, current_value)
-                    .map_err(Self::map_aggregate_field_value_error)?;
-                if ordering == Ordering::Less
-                    || (ordering == Ordering::Equal && id.key() < current_id.key())
-                {
+                let candidate_precedes = Self::field_projection_candidate_precedes(
+                    target_field,
+                    &id,
+                    &value,
+                    current_id,
+                    current_value,
+                    Ordering::Less,
+                )?;
+                if candidate_precedes {
                     insert_index = index;
                     break;
                 }
@@ -336,23 +358,12 @@ where
         }
     }
 
-    // Map field-target aggregate extraction/comparison failures into taxonomy-correct
-    // execution errors.
+    // Adapter so aggregate submodules keep one internal mapping entrypoint while
+    // taxonomy mapping ownership remains centralized in aggregate field semantics.
     pub(in crate::db::executor::load::aggregate) fn map_aggregate_field_value_error(
         err: AggregateFieldValueError,
     ) -> InternalError {
-        let message = err.to_string();
-        match err {
-            AggregateFieldValueError::UnknownField { .. }
-            | AggregateFieldValueError::UnsupportedFieldKind { .. } => {
-                InternalError::executor_unsupported(message)
-            }
-            AggregateFieldValueError::MissingFieldValue { .. }
-            | AggregateFieldValueError::FieldValueTypeMismatch { .. }
-            | AggregateFieldValueError::IncomparableFieldValues { .. } => {
-                InternalError::query_executor_invariant(message)
-            }
-        }
+        err.into_internal_error()
     }
 
     // MissingOk can skip stale leading index entries. If a bounded Min/Max

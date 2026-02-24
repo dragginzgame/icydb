@@ -68,3 +68,116 @@ fn load_stream_construction_routes_through_route_facade() {
         );
     }
 }
+
+#[test]
+fn aggregate_fast_path_dispatch_requires_verified_gate_marker() {
+    let aggregate_source = include_str!("../../load/aggregate/mod.rs");
+    assert!(
+        aggregate_source.contains("struct VerifiedAggregateFastPathRoute"),
+        "aggregate fast-path dispatch must define a verified route marker type",
+    );
+    assert!(
+        aggregate_source.contains("fn verify_aggregate_fast_path_eligibility("),
+        "aggregate fast-path dispatch must include one shared eligibility verifier",
+    );
+    assert!(
+        aggregate_source.contains("Result<Option<VerifiedAggregateFastPathRoute>, InternalError>"),
+        "aggregate fast-path eligibility verifier must return a verified route marker",
+    );
+    assert!(
+        aggregate_source.contains("fn try_execute_verified_aggregate_fast_path("),
+        "aggregate fast-path branch execution must flow through a verified-dispatch helper",
+    );
+    assert!(
+        aggregate_source.contains(
+            "let Some(verified_route) = Self::verify_aggregate_fast_path_eligibility(inputs, route)?"
+        ),
+        "aggregate fast-path loop must obtain a verified marker before branch execution",
+    );
+}
+
+#[test]
+fn ranked_terminal_families_share_one_ranked_row_helper() {
+    let terminal_source = include_str!("../../load/terminal/mod.rs");
+    assert!(
+        terminal_source.contains("fn rank_k_rows_from_materialized("),
+        "ranked terminals must expose one shared ranked-row helper",
+    );
+    assert!(
+        terminal_source.contains("Self::rank_k_rows_from_materialized("),
+        "top/bottom terminal helpers must route through the shared ranked-row helper",
+    );
+    assert!(
+        terminal_source.contains("RankedFieldDirection::Descending"),
+        "top-k ranking must route through descending field direction",
+    );
+    assert!(
+        terminal_source.contains("RankedFieldDirection::Ascending"),
+        "bottom-k ranking must route through ascending field direction",
+    );
+}
+
+#[test]
+fn ranked_terminals_remain_materialized_without_heap_streaming_path() {
+    let terminal_source = include_str!("../../load/terminal/mod.rs");
+
+    assert!(
+        terminal_source.contains("let response = self.execute(plan)?;"),
+        "ranked terminals must run over canonical materialized execute() responses in 0.29",
+    );
+    assert!(
+        !terminal_source.contains("BinaryHeap"),
+        "0.29 must defer heap-streaming top-k optimization to preserve current ranking semantics",
+    );
+}
+
+#[test]
+fn aggregate_execution_mode_selection_is_route_owned_and_explicit() {
+    let aggregate_source = include_str!("../../load/aggregate/mod.rs");
+    let distinct_source = include_str!("../../load/aggregate/distinct.rs");
+    let fold_source = include_str!("../../fold.rs");
+
+    assert!(
+        aggregate_source.contains("build_execution_route_plan_for_aggregate_spec"),
+        "aggregate execution mode must be derived by route planning",
+    );
+    assert!(
+        aggregate_source.contains("let execution_mode = descriptor.route_plan.execution_mode;"),
+        "aggregate orchestration must snapshot route-owned execution mode explicitly",
+    );
+    assert!(
+        distinct_source.contains("build_execution_route_plan_for_load"),
+        "count_distinct execution mode must be derived by route planning",
+    );
+    assert!(
+        distinct_source.contains("let execution_mode = route_plan.execution_mode;"),
+        "count_distinct orchestration must snapshot route-owned execution mode explicitly",
+    );
+    assert!(
+        !fold_source.contains("ExecutionMode"),
+        "fold internals must not own or branch on execution mode",
+    );
+}
+
+#[test]
+fn cursor_spine_validates_signature_direction_and_window_shape() {
+    let cursor_spine_source = include_str!("../../../query/cursor/spine.rs");
+
+    assert!(
+        cursor_spine_source.contains(
+            "validate_cursor_signature(entity_path, &expected_signature, &token.signature())"
+        ),
+        "cursor spine must validate continuation signatures before boundary materialization",
+    );
+    assert!(
+        cursor_spine_source
+            .contains("validate_cursor_direction(expected_direction, actual_direction)?;"),
+        "cursor spine must validate cursor direction against executable direction",
+    );
+    assert!(
+        cursor_spine_source.contains(
+            "validate_cursor_window_offset(expected_initial_offset, actual_initial_offset)?;"
+        ),
+        "cursor spine must validate cursor window shape (initial offset) before boundary decode",
+    );
+}

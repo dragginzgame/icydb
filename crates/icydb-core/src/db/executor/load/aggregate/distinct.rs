@@ -4,9 +4,7 @@ use crate::{
         executor::{
             AccessStreamBindings, DistinctOrderedKeyStream, KeyOrderComparator,
             OrderedKeyStreamBox,
-            aggregate::field::{
-                FieldSlot, extract_orderable_field_value, resolve_any_aggregate_target_slot,
-            },
+            aggregate::field::{FieldSlot, extract_orderable_field_value},
             fold::AggregateWindowState,
             load::LoadExecutor,
             load::execute::{ExecutionInputs, IndexPredicateCompileMode},
@@ -45,8 +43,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: &str,
     ) -> Result<u32, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
+        let field_slot = Self::resolve_any_field_slot(target_field)?;
         validate_executor_plan::<E>(plan.as_inner())?;
         let direction = plan.direction();
         let route_plan = Self::build_execution_route_plan_for_load(
@@ -56,7 +53,10 @@ where
             None,
             direction,
         )?;
-        if matches!(route_plan.execution_mode, ExecutionMode::Materialized) {
+        // Snapshot route-owned execution mode at the orchestration boundary.
+        // This remains immutable for the full terminal execution lifecycle.
+        let execution_mode = route_plan.execution_mode;
+        if matches!(execution_mode, ExecutionMode::Materialized) {
             let response = self.execute(plan)?;
             return Self::aggregate_count_distinct_field_from_materialized(
                 response,

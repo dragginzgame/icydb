@@ -5,6 +5,7 @@ use crate::{
         },
         query::plan::Direction,
     },
+    error::InternalError,
     model::{
         entity::EntityModel,
         field::{FieldKind, FieldModel},
@@ -50,6 +51,24 @@ pub(in crate::db::executor) enum AggregateFieldValueError {
         left: Box<Value>,
         right: Box<Value>,
     },
+}
+
+impl AggregateFieldValueError {
+    // Map field-target extraction/comparison failures into taxonomy-correct
+    // execution errors.
+    pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
+        let message = self.to_string();
+        match self {
+            Self::UnknownField { .. } | Self::UnsupportedFieldKind { .. } => {
+                InternalError::executor_unsupported(message)
+            }
+            Self::MissingFieldValue { .. }
+            | Self::FieldValueTypeMismatch { .. }
+            | Self::IncomparableFieldValues { .. } => {
+                InternalError::query_executor_invariant(message)
+            }
+        }
+    }
 }
 
 // Resolve one field model entry by name from an entity model.

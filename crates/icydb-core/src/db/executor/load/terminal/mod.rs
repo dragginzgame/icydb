@@ -3,7 +3,7 @@ use crate::{
         executor::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
-                extract_orderable_field_value, resolve_orderable_aggregate_target_slot,
+                extract_orderable_field_value,
             },
             load::LoadExecutor,
         },
@@ -16,6 +16,24 @@ use crate::{
     value::Value,
 };
 use std::cmp::Ordering;
+
+// Field ranking direction for k-selection terminals.
+#[derive(Clone, Copy)]
+enum RankedFieldDirection {
+    Descending,
+    Ascending,
+}
+
+impl RankedFieldDirection {
+    // Determine whether the candidate value outranks the current value under
+    // the selected direction contract.
+    const fn candidate_precedes(self, candidate_vs_current: Ordering) -> bool {
+        match self {
+            Self::Descending => matches!(candidate_vs_current, Ordering::Greater),
+            Self::Ascending => matches!(candidate_vs_current, Ordering::Less),
+        }
+    }
+}
 
 impl<E> LoadExecutor<E>
 where
@@ -123,8 +141,7 @@ where
         target_field: &str,
         take_count: u32,
     ) -> Result<Response<E>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_terminal_field_value_error)?;
+        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::top_k_field_from_materialized(response, target_field, field_slot, take_count)
@@ -138,8 +155,7 @@ where
         target_field: &str,
         take_count: u32,
     ) -> Result<Response<E>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_terminal_field_value_error)?;
+        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::bottom_k_field_from_materialized(response, target_field, field_slot, take_count)
@@ -153,8 +169,7 @@ where
         target_field: &str,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_terminal_field_value_error)?;
+        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::top_k_field_values_from_materialized(response, target_field, field_slot, take_count)
@@ -168,8 +183,7 @@ where
         target_field: &str,
         take_count: u32,
     ) -> Result<Vec<Value>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_terminal_field_value_error)?;
+        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::bottom_k_field_values_from_materialized(
@@ -188,8 +202,7 @@ where
         target_field: &str,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_terminal_field_value_error)?;
+        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::top_k_field_values_with_ids_from_materialized(
@@ -208,8 +221,7 @@ where
         target_field: &str,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_terminal_field_value_error)?;
+        let field_slot = Self::resolve_orderable_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::bottom_k_field_values_with_ids_from_materialized(
@@ -228,29 +240,13 @@ where
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, E, Value)>, InternalError> {
-        let mut ordered_rows: Vec<(Id<E>, E, Value)> = Vec::new();
-        for (id, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_terminal_field_value_error)?;
-            let mut insert_index = ordered_rows.len();
-            for (index, (current_id, _, current_value)) in ordered_rows.iter().enumerate() {
-                let ordering = compare_orderable_field_values(target_field, &value, current_value)
-                    .map_err(Self::map_terminal_field_value_error)?;
-                if ordering == Ordering::Greater
-                    || (ordering == Ordering::Equal && id.key() < current_id.key())
-                {
-                    insert_index = index;
-                    break;
-                }
-            }
-            ordered_rows.insert(insert_index, (id, entity, value));
-        }
-        let take_len = usize::try_from(take_count).unwrap_or(usize::MAX);
-        if ordered_rows.len() > take_len {
-            ordered_rows.truncate(take_len);
-        }
-
-        Ok(ordered_rows)
+        Self::rank_k_rows_from_materialized(
+            response,
+            target_field,
+            field_slot,
+            take_count,
+            RankedFieldDirection::Descending,
+        )
     }
 
     // Reduce one materialized response into deterministic bottom-k ranked rows
@@ -261,17 +257,38 @@ where
         field_slot: FieldSlot,
         take_count: u32,
     ) -> Result<Vec<(Id<E>, E, Value)>, InternalError> {
+        Self::rank_k_rows_from_materialized(
+            response,
+            target_field,
+            field_slot,
+            take_count,
+            RankedFieldDirection::Ascending,
+        )
+    }
+
+    // Shared ranked-row helper for all top/bottom k terminal families.
+    // Memory contract:
+    // - Ranking is applied to the materialized effective response window only.
+    // - Memory growth is bounded by the effective execute() response size.
+    // - No streaming heap optimization is used in 0.29 by design.
+    fn rank_k_rows_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        field_slot: FieldSlot,
+        take_count: u32,
+        direction: RankedFieldDirection,
+    ) -> Result<Vec<(Id<E>, E, Value)>, InternalError> {
         let mut ordered_rows: Vec<(Id<E>, E, Value)> = Vec::new();
         for (id, entity) in response {
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_terminal_field_value_error)?;
+                .map_err(AggregateFieldValueError::into_internal_error)?;
             let mut insert_index = ordered_rows.len();
             for (index, (current_id, _, current_value)) in ordered_rows.iter().enumerate() {
                 let ordering = compare_orderable_field_values(target_field, &value, current_value)
-                    .map_err(Self::map_terminal_field_value_error)?;
-                if ordering == Ordering::Less
-                    || (ordering == Ordering::Equal && id.key() < current_id.key())
-                {
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
+                let outranks_current = direction.candidate_precedes(ordering);
+                let tie_breaks_by_pk = ordering == Ordering::Equal && id.key() < current_id.key();
+                if outranks_current || tie_breaks_by_pk {
                     insert_index = index;
                     break;
                 }
@@ -416,22 +433,5 @@ where
             .collect();
 
         Ok(projected_values)
-    }
-
-    // Map row-terminal field extraction/comparison failures into taxonomy-correct
-    // execution errors.
-    fn map_terminal_field_value_error(err: AggregateFieldValueError) -> InternalError {
-        let message = err.to_string();
-        match err {
-            AggregateFieldValueError::UnknownField { .. }
-            | AggregateFieldValueError::UnsupportedFieldKind { .. } => {
-                InternalError::executor_unsupported(message)
-            }
-            AggregateFieldValueError::MissingFieldValue { .. }
-            | AggregateFieldValueError::FieldValueTypeMismatch { .. }
-            | AggregateFieldValueError::IncomparableFieldValues { .. } => {
-                InternalError::query_executor_invariant(message)
-            }
-        }
     }
 }

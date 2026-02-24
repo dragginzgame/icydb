@@ -1,9 +1,7 @@
 use crate::{
     db::{
         executor::{
-            aggregate::field::{
-                FieldSlot, extract_numeric_field_decimal, resolve_numeric_aggregate_target_slot,
-            },
+            aggregate::field::{FieldSlot, extract_numeric_field_decimal},
             load::LoadExecutor,
         },
         query::plan::ExecutablePlan,
@@ -62,8 +60,7 @@ where
         target_field: &str,
         kind: NumericFieldAggregateKind,
     ) -> Result<Option<Decimal>, InternalError> {
-        let field_slot = resolve_numeric_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
+        let field_slot = Self::resolve_numeric_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::aggregate_numeric_field_from_materialized(response, target_field, field_slot, kind)

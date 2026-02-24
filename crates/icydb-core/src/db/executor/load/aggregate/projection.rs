@@ -2,10 +2,8 @@ use crate::{
     db::{
         data::DataKey,
         executor::{
-            aggregate::field::{
-                FieldSlot, extract_orderable_field_value, resolve_any_aggregate_target_slot,
-            },
-            fold::{AggregateKind, AggregateOutput},
+            aggregate::field::{FieldSlot, extract_orderable_field_value},
+            fold::{AggregateKind, AggregateOutput, AggregateSpec},
             load::LoadExecutor,
         },
         query::plan::ExecutablePlan,
@@ -86,8 +84,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: &str,
     ) -> Result<Vec<Value>, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
+        let field_slot = Self::resolve_any_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::project_field_values_from_materialized(response, target_field, field_slot)
@@ -100,8 +97,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: &str,
     ) -> Result<Vec<Value>, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
+        let field_slot = Self::resolve_any_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::project_distinct_field_values_from_materialized(response, target_field, field_slot)
@@ -114,8 +110,7 @@ where
         plan: ExecutablePlan<E>,
         target_field: &str,
     ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
+        let field_slot = Self::resolve_any_field_slot(target_field)?;
         let response = self.execute(plan)?;
 
         Self::project_field_values_with_ids_from_materialized(response, target_field, field_slot)
@@ -135,11 +130,10 @@ where
             ));
         }
 
-        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
+        let field_slot = Self::resolve_any_field_slot(target_field)?;
         let consistency = plan.as_inner().consistency;
         let (AggregateOutput::First(selected_id) | AggregateOutput::Last(selected_id)) =
-            self.execute_aggregate(plan, terminal_kind)?
+            self.execute_aggregate_spec(plan, AggregateSpec::for_terminal(terminal_kind))?
         else {
             return Err(InternalError::query_executor_invariant(
                 "terminal value projection result kind mismatch",

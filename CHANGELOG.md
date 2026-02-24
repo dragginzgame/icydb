@@ -5,6 +5,45 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.29.0] - 2026-02-24 - Pre-GROUP BY Hardening Kickoff
+
+### 📝 Summary
+
+* Starts the `0.29` stabilization cycle focused on structural hardening before `GROUP BY`, with no new query features.
+* Locks the milestone on invariant enforcement, determinism checks, cursor-signature safety, and commit/recovery failure-boundary coverage.
+
+### 🧹 Cleanup
+
+* Finalized the `0.29` hardening plan and phase tracker so work stays contraction-only through this milestone.
+* Set the first execution priority to aggregate fast-path eligibility centralization and mandatory gate enforcement.
+
+### 🔧 Changed
+
+* Aggregate fast-path execution now uses a verified-route marker from one shared eligibility gate before any branch-specific execution can run, reducing drift risk across fast-path callsites without changing query behavior.
+* Ranked `top/bottom k` terminal families now share one internal ranked-row helper with the same deterministic direction/tie-break semantics, reducing comparator drift risk without changing results.
+* Aggregate execution now snapshots route-owned execution mode at terminal orchestration boundaries, with guard coverage that keeps execution-mode ownership in route planning and out of fold internals.
+* Consolidated duplicate aggregate field-error taxonomy mapping into one shared mapper in aggregate field semantics, keeping terminal and aggregate paths behaviorally identical while reducing drift risk.
+* Consolidated repeated aggregate field-slot resolution checks (`orderable` / `any` / `numeric`) behind one shared load-executor helper path, reducing validation drift risk without changing terminal behavior.
+* Consolidated mirrored field-order comparator usage in aggregate projection/min-max reductions into one canonical helper, keeping deterministic tie-break semantics aligned across those terminals.
+* Consolidated aggregate planning metadata construction into one internal execution descriptor built from `AggregateSpec` before execution branching, reducing planner/descriptor drift risk without changing aggregate semantics.
+* Removed the last non-spec aggregate dispatch shim so aggregate terminal execution now lowers through one `AggregateSpec` boundary end-to-end.
+* Added an internal aggregate fold-state container boundary over the existing reducer state, preserving current behavior while preparing fold plumbing for grouped multi-state expansion.
+
+### 🧪 Testing
+
+* Added cursor-lock coverage for order-spec signature mismatch, explicit cursor direction mismatch, and matching window-offset acceptance, plus architecture guards that keep signature/direction/window validation centralized in the cursor spine.
+* Added determinism-audit coverage notes around `StoreRegistry` iteration usage, explicitly documenting the remaining order-irrelevant clear-all sweeps in test-only paths.
+* Added ranked determinism matrix tests that force both `FullScan` and `IndexRange` access shapes across ASC/DESC base ordering, plus randomized insertion-order invariance checks for ranked terminal outputs.
+* Expanded recovery failure-injection coverage with a replay test that applies one marker op, fails on a later op, and asserts rollback leaves no visible partial row/index state.
+* Added mixed-state commit-window failure injection coverage for the edge where index mutations are applied before a simulated row-stage failure, asserting rollback leaves no visible row or index state.
+* Added a hardening guard that keeps ranked terminals materialized-only in `0.29` and blocks accidental heap-streaming top-k introduction before `GROUP BY`.
+
+### 📚 Documentation
+
+* Added a dedicated `0.29` design/status baseline covering execution-mode ownership, replay failure injection, and memory-boundary readiness for grouped execution.
+
+---
+
 ## [0.28.6] - 2026-02-24 - TOP/BOTTOM K With Id Projection
 
 ### 📝 Summary

@@ -17,6 +17,10 @@ use crate::{
         Db,
         executor::{
             AccessStreamBindings, KeyOrderComparator, OrderedKeyStreamBox,
+            aggregate::field::{
+                AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
+                resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
+            },
             plan::{record_plan_metrics, record_rows_scanned},
             route::ExecutionRoutePlan,
         },
@@ -188,6 +192,27 @@ where
             debug,
             _marker: PhantomData,
         }
+    }
+
+    // Resolve one orderable aggregate target field into a stable slot with
+    // canonical field-error taxonomy mapping.
+    fn resolve_orderable_field_slot(target_field: &str) -> Result<FieldSlot, InternalError> {
+        resolve_orderable_aggregate_target_slot::<E>(target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)
+    }
+
+    // Resolve one aggregate target field into a stable slot with canonical
+    // field-error taxonomy mapping.
+    fn resolve_any_field_slot(target_field: &str) -> Result<FieldSlot, InternalError> {
+        resolve_any_aggregate_target_slot::<E>(target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)
+    }
+
+    // Resolve one numeric aggregate target field into a stable slot with
+    // canonical field-error taxonomy mapping.
+    fn resolve_numeric_field_slot(target_field: &str) -> Result<FieldSlot, InternalError> {
+        resolve_numeric_aggregate_target_slot::<E>(target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)
     }
 
     pub(crate) fn execute(&self, plan: ExecutablePlan<E>) -> Result<Response<E>, InternalError> {

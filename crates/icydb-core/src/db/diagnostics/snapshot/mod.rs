@@ -208,6 +208,12 @@ pub(crate) fn storage_report<C: CanisterKind>(
         }
     });
 
+    // Keep entity snapshot emission deterministic as an explicit contract,
+    // independent of outer store traversal implementation details.
+    entity_storage.sort_by(|left, right| {
+        (left.store.as_str(), left.path.as_str()).cmp(&(right.store.as_str(), right.path.as_str()))
+    });
+
     Ok(StorageReport {
         storage_data: data,
         storage_index: index,
@@ -297,6 +303,8 @@ mod tests {
         init_commit_store_for_tests().expect("commit store init should succeed");
         ensure_recovered_for_write(&DB).expect("write-side recovery should succeed");
         DB.with_store_registry(|registry| {
+            // Test cleanup only: this clear-all sweep has set semantics, so
+            // `StoreRegistry` HashMap iteration order is intentionally irrelevant.
             for (_, store_handle) in registry.iter() {
                 store_handle.with_data_mut(DataStore::clear);
                 store_handle.with_index_mut(IndexStore::clear);
@@ -374,6 +382,14 @@ mod tests {
             .collect()
     }
 
+    fn entity_store_paths(report: &StorageReport) -> Vec<(&str, &str)> {
+        report
+            .entity_storage
+            .iter()
+            .map(|snapshot| (snapshot.store.as_str(), snapshot.path.as_str()))
+            .collect()
+    }
+
     #[test]
     fn storage_report_empty_store_snapshot() {
         reset_stores();
@@ -444,6 +460,29 @@ mod tests {
 
         assert_eq!(first.entries, 2);
         assert_eq!(second.entries, 1);
+    }
+
+    #[test]
+    fn storage_report_entity_snapshots_are_sorted_by_store_then_path() {
+        reset_stores();
+
+        insert_data_row(STORE_Z_PATH, FIRST_ENTITY_NAME, StorageKey::Int(1), 1);
+        insert_data_row(STORE_A_PATH, SECOND_ENTITY_NAME, StorageKey::Int(2), 1);
+        insert_data_row(STORE_A_PATH, FIRST_ENTITY_NAME, StorageKey::Int(3), 1);
+
+        let report = diagnostics_report(&[
+            (FIRST_ENTITY_NAME, "diagnostics_tests::entity::z_first"),
+            (SECOND_ENTITY_NAME, "diagnostics_tests::entity::a_second"),
+        ]);
+
+        assert_eq!(
+            entity_store_paths(&report),
+            vec![
+                (STORE_A_PATH, "diagnostics_tests::entity::a_second"),
+                (STORE_A_PATH, "diagnostics_tests::entity::z_first"),
+                (STORE_Z_PATH, "diagnostics_tests::entity::z_first"),
+            ]
+        );
     }
 
     #[test]

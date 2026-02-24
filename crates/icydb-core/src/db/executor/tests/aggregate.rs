@@ -5084,6 +5084,126 @@ fn session_load_bottom_k_by_with_ids_is_direction_invariant_for_same_effective_w
 }
 
 #[test]
+fn aggregate_field_target_top_k_by_direction_invariance_across_forced_access_shapes() {
+    // Phase 1: force a full-scan shape and assert ASC/DESC base-order invariance.
+    seed_simple_entities(&[8_3941, 8_3942, 8_3943, 8_3944, 8_3945, 8_3946]);
+    let simple_load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let full_scan_top_ids_for = |direction: OrderDirection| {
+        let query = Query::<SimpleEntity>::new(ReadConsistency::MissingOk);
+        let query = match direction {
+            OrderDirection::Asc => query.order_by("id"),
+            OrderDirection::Desc => query.order_by_desc("id"),
+        };
+        let plan = query
+            .plan()
+            .expect("top_k_by full-scan direction-invariance plan should build");
+        assert!(
+            matches!(plan.explain().access, ExplainAccessPath::FullScan),
+            "top_k_by full-scan direction invariance test must force FullScan"
+        );
+
+        simple_load
+            .top_k_by(plan, "id", 3)
+            .expect("top_k_by(id, 3) should succeed for full-scan direction matrix")
+            .ids()
+    };
+    let full_scan_asc = full_scan_top_ids_for(OrderDirection::Asc);
+    let full_scan_desc = full_scan_top_ids_for(OrderDirection::Desc);
+    assert_eq!(
+        full_scan_asc, full_scan_desc,
+        "top_k_by(id, k) should be invariant to ASC/DESC base order under forced FullScan"
+    );
+
+    // Phase 2: force an index-range shape and assert ASC/DESC base-order invariance.
+    seed_unique_index_range_entities(&[
+        (8_3951, 100),
+        (8_3952, 101),
+        (8_3953, 102),
+        (8_3954, 103),
+        (8_3955, 104),
+        (8_3956, 105),
+    ]);
+    let range_load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+    let code_range = u32_range_predicate("code", 101, 106);
+    let index_range_top_ids_for = |direction: OrderDirection| {
+        let query = Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+            .filter(code_range.clone());
+        let query = match direction {
+            OrderDirection::Asc => query.order_by("code"),
+            OrderDirection::Desc => query.order_by_desc("code"),
+        };
+        let plan = query
+            .plan()
+            .expect("top_k_by index-range direction-invariance plan should build");
+        assert!(
+            matches!(plan.explain().access, ExplainAccessPath::IndexRange { .. }),
+            "top_k_by index-range direction invariance test must force IndexRange"
+        );
+
+        range_load
+            .top_k_by(plan, "code", 3)
+            .expect("top_k_by(code, 3) should succeed for index-range direction matrix")
+            .ids()
+    };
+    let index_range_asc = index_range_top_ids_for(OrderDirection::Asc);
+    let index_range_desc = index_range_top_ids_for(OrderDirection::Desc);
+    assert_eq!(
+        index_range_asc, index_range_desc,
+        "top_k_by(code, k) should be invariant to ASC/DESC base order under forced IndexRange"
+    );
+}
+
+#[test]
+fn session_load_ranked_rows_are_invariant_to_insertion_order() {
+    let rows_a = [
+        (8_3961, 7, 10),
+        (8_3962, 7, 40),
+        (8_3963, 7, 20),
+        (8_3964, 7, 30),
+        (8_3965, 7, 40),
+    ];
+    let rows_b = [
+        (8_3965, 7, 40),
+        (8_3963, 7, 20),
+        (8_3961, 7, 10),
+        (8_3964, 7, 30),
+        (8_3962, 7, 40),
+    ];
+    let ranked_ids_for = |rows: &[(u128, u32, u32)]| {
+        seed_pushdown_entities(rows);
+        let session = DbSession::new(DB);
+        let top_ids = session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .top_k_by("rank", 3)
+            .expect("top_k_by(rank, 3) insertion-order invariance query should succeed")
+            .ids();
+        let bottom_ids = session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .bottom_k_by("rank", 3)
+            .expect("bottom_k_by(rank, 3) insertion-order invariance query should succeed")
+            .ids();
+
+        (top_ids, bottom_ids)
+    };
+
+    let (top_a, bottom_a) = ranked_ids_for(&rows_a);
+    let (top_b, bottom_b) = ranked_ids_for(&rows_b);
+
+    assert_eq!(
+        top_a, top_b,
+        "top_k_by(rank, k) should be invariant to seed insertion order for equivalent rows"
+    );
+    assert_eq!(
+        bottom_a, bottom_b,
+        "bottom_k_by(rank, k) should be invariant to seed insertion order for equivalent rows"
+    );
+}
+
+#[test]
 fn aggregate_field_target_top_k_by_k_one_matches_max_by_ids_with_ties() {
     seed_pushdown_entities(&[
         (8_3741, 7, 90),

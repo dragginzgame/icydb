@@ -589,6 +589,26 @@ mod tests {
     }
 
     #[test]
+    fn signature_changes_when_order_field_set_changes() {
+        let mut plan_a: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: LogicalPlan<Value> =
+            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+
+        plan_a.order = Some(OrderSpec {
+            fields: vec![("name".to_string(), OrderDirection::Asc)],
+        });
+        plan_b.order = Some(OrderSpec {
+            fields: vec![("rank".to_string(), OrderDirection::Asc)],
+        });
+
+        assert_ne!(
+            plan_a.continuation_signature("tests::Entity"),
+            plan_b.continuation_signature("tests::Entity")
+        );
+    }
+
+    #[test]
     fn signature_changes_when_distinct_flag_changes() {
         let plan_a: LogicalPlan<Value> =
             LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);

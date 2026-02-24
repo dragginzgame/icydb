@@ -272,6 +272,44 @@ impl<E: EntityKind> AggregateReducerState<E> {
 }
 
 ///
+/// AggregateFoldStateContainer
+///
+/// Internal fold-state boundary wrapper for aggregate streaming execution.
+/// This keeps the fold engine ready for grouped multi-state expansion while
+/// preserving single-state reducer behavior in the current release line.
+///
+
+pub(in crate::db::executor) struct AggregateFoldStateContainer<E: EntityKind> {
+    reducer: AggregateReducerState<E>,
+}
+
+impl<E: EntityKind> AggregateFoldStateContainer<E> {
+    /// Build one aggregate fold-state container for the selected terminal kind.
+    #[must_use]
+    pub(in crate::db::executor) const fn for_kind(kind: AggregateKind) -> Self {
+        Self {
+            reducer: AggregateReducerState::for_kind(kind),
+        }
+    }
+
+    /// Apply one candidate data key update to the inner aggregate reducer.
+    pub(in crate::db::executor) fn update_from_data_key(
+        &mut self,
+        kind: AggregateKind,
+        direction: Direction,
+        key: &DataKey,
+    ) -> Result<FoldControl, InternalError> {
+        self.reducer.update_from_data_key(kind, direction, key)
+    }
+
+    /// Convert the wrapped reducer state into one aggregate output payload.
+    #[must_use]
+    pub(in crate::db::executor) const fn into_output(self) -> AggregateOutput<E> {
+        self.reducer.into_output()
+    }
+}
+
+///
 /// AggregateFoldMode
 ///
 
@@ -379,21 +417,24 @@ where
     ) -> Result<(AggregateOutput<E>, usize), InternalError> {
         ensure_aggregate_fold_mode_contract(kind, mode)?;
         let window = AggregateWindowState::from_plan(plan);
-        let (state, keys_scanned) = Self::fold_streaming(
+        let (state_container, keys_scanned) = Self::fold_streaming(
             ctx,
             consistency,
             key_stream,
             window,
             mode,
-            AggregateReducerState::for_kind(kind),
-            |state, key| state.update_from_data_key(kind, direction, key),
+            AggregateFoldStateContainer::for_kind(kind),
+            |state_container, key| state_container.update_from_data_key(kind, direction, key),
         )?;
 
-        Ok((state.into_output(), keys_scanned))
+        Ok((state_container.into_output(), keys_scanned))
     }
 
     // Generic streaming fold loop used by all aggregate terminal reducers.
     // `mode` controls whether keys require row-existence validation.
+    // Lifetime/retention contract:
+    // - Fold state is scoped to one execution call and dropped at return.
+    // - State updates consume only key metadata; no row references are retained.
     fn fold_streaming<S, F>(
         ctx: &Context<'_, E>,
         consistency: ReadConsistency,
