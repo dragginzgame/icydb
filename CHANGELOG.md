@@ -9,22 +9,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🔧 Changed
 
-- Centralized executor-facing plan-shape defensive checks on `policy::validate_plan_shape` so shape invariants now come from one canonical policy source.
-- Added debug-only executor boundary assertions (load, delete, aggregate) to catch internal paths that bypass planning validation during development.
-- Added explicit `PlanPolicyError` to `InternalError` mapping for executor invariant translation, removing string-based conversion at that boundary.
-- Split predicate evaluation internals into dedicated `resolve`, `runtime`, and `index_compile` modules so AST slot resolution, runtime filtering, and index pushdown compilation evolve independently.
-- Moved post-access runtime semantics (filter/order/cursor/pagination/delete-limit and budget-safety checks) out of `query::plan::logical` into `executor::query_bridge`, keeping `LogicalPlan` as a structural contract.
+- Put plan-shape checks behind one shared policy gate and added debug checks in load/delete/aggregate executors to catch invalid internal plans early in development.
+- Replaced string-based policy error conversion at the executor boundary with explicit `PlanPolicyError` mapping.
+- Split predicate evaluation into clearer internal modules (`resolve`, `runtime`, `index_compile`) so each stage has one job.
+- Moved runtime row-processing steps (filtering, sorting, cursor handling, paging, delete limits, and scan-budget safety checks) from `query::plan::logical` into `executor::query_bridge`.
 
 ### 🩹 Fixed
 
-- ORDER validation now rejects duplicate non-primary fields (for example repeated `created_at`) to keep canonical ordering semantics and comparator surfaces deterministic.
-- Canonicalized `Set` predicate literals during normalization by recursively normalizing members, sorting deterministically, and deduplicating duplicates; `List` literal behavior remains unchanged.
+- `ORDER BY` now rejects duplicate non-primary fields (for example, `created_at` listed twice) to keep ordering stable and predictable.
+- `Set` literals are now normalized consistently by normalizing members, sorting deterministically, and removing duplicates; `List` behavior is unchanged.
 
 ### 🧹 Cleanup
 
-- Removed query cursor anchor dependency on storage-layer key types by introducing an index-layer primary-key equivalence contract, preserving cursor validation behavior while tightening layering.
-- Removed non-owning `query/contracts` facades for explain/fingerprint and switched call sites to import from real owner modules directly.
-- Moved shared cursor contract types (`CursorBoundary*`, continuation token/signature, index-range anchor) into `query/contracts/cursor`, and removed those type re-exports from `query::plan`.
+- Removed the cursor anchor dependency on storage key types by switching to an index-layer primary-key equivalence contract.
+- Removed `query/contracts` facades that only re-exported explain/fingerprint types, and updated call sites to import from their real owner modules.
+- Moved shared cursor protocol types (`CursorBoundary*`, continuation token/signature, index-range anchor) into `query/contracts/cursor` and stopped exporting them through `query::plan`.
 
 ---
 
