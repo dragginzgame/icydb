@@ -12,6 +12,7 @@ use crate::{
     obs::sink::{MetricsSink, with_metrics_sink},
     traits::{CanisterKind, EntityKind, EntityValue},
     types::{Decimal, Id},
+    value::Value,
 };
 
 type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
@@ -372,6 +373,20 @@ impl<C: CanisterKind> DbSession<C> {
                 .aggregate_min_max_by(plan, target_field)
         })
         .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_values_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<Vec<Value>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| self.load_executor::<E>().values_by(plan, target_field))
+            .map_err(QueryError::Execute)
     }
 
     pub(crate) fn execute_load_query_first<E>(

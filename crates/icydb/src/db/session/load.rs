@@ -8,6 +8,7 @@ use crate::{
     error::Error,
     traits::{EntityKind, EntityValue, SingletonEntity, View},
     types::Id,
+    value::Value,
 };
 use icydb_core as core;
 use std::{collections::HashMap, hash::Hash};
@@ -102,6 +103,14 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
         E: EntityValue,
     {
         Ok(self.inner.last()?)
+    }
+
+    /// Return projected field values for the effective result window.
+    pub fn values_by(&self, field: impl AsRef<str>) -> Result<Vec<Value>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.values_by(field)?)
     }
 
     pub fn group_count_by<K>(self, key: impl Fn(&E) -> K) -> Result<HashMap<K, u32>, Error>

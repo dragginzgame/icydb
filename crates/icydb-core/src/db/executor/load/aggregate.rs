@@ -241,6 +241,16 @@ where
         self.execute_min_max_field_aggregate(plan, target_field.as_str())
     }
 
+    pub(in crate::db) fn values_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+    ) -> Result<Vec<Value>, InternalError> {
+        let target_field = target_field.into();
+
+        self.execute_values_field_projection(plan, target_field.as_str())
+    }
+
     pub(in crate::db) fn aggregate_first(
         &self,
         plan: ExecutablePlan<E>,
@@ -620,6 +630,20 @@ where
         Self::aggregate_min_max_field_from_materialized(response, target_field, field_slot)
     }
 
+    // Execute one field-target value projection (`values_by(field)`) via
+    // canonical materialized fallback semantics.
+    fn execute_values_field_projection(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: &str,
+    ) -> Result<Vec<Value>, InternalError> {
+        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+        let response = self.execute(plan)?;
+
+        Self::project_field_values_from_materialized(response, target_field, field_slot)
+    }
+
     // ------------------------------------------------------------------
     // Fast-path dispatch
     // ------------------------------------------------------------------
@@ -959,6 +983,23 @@ where
         };
 
         Ok(Some((min_id, max_id)))
+    }
+
+    // Project one materialized response into one field value vector while
+    // preserving the effective response row order.
+    fn project_field_values_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<Vec<Value>, InternalError> {
+        let mut projected_values = Vec::new();
+        for (_, entity) in response {
+            let value = extract_orderable_field_value(&entity, target_field, field_slot)
+                .map_err(Self::map_aggregate_field_value_error)?;
+            projected_values.push(value);
+        }
+
+        Ok(projected_values)
     }
 
     // Project one response window into deterministic field ordering

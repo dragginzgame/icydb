@@ -372,6 +372,14 @@ fn expected_count_distinct_by_rank(response: &Response<PushdownParityEntity>) ->
     count
 }
 
+fn expected_values_by_rank(response: &Response<PushdownParityEntity>) -> Vec<Value> {
+    response
+        .0
+        .iter()
+        .map(|(_, entity)| Value::Uint(u64::from(entity.rank)))
+        .collect()
+}
+
 fn expected_min_max_by_rank_ids(
     response: &Response<PushdownParityEntity>,
 ) -> Option<(Id<PushdownParityEntity>, Id<PushdownParityEntity>)> {
@@ -1439,6 +1447,34 @@ fn aggregate_field_target_count_distinct_distinct_modifier_tracks_effective_wind
 }
 
 #[test]
+fn aggregate_field_target_values_by_distinct_remains_row_level() {
+    seed_pushdown_entities(&[
+        (8_1971, 7, 10),
+        (8_1972, 7, 10),
+        (8_1973, 7, 20),
+        (8_1974, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let values = load
+        .values_by(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(u32_eq_predicate("group", 7))
+                .distinct()
+                .order_by("id")
+                .plan()
+                .expect("values_by distinct plan should build"),
+            "rank",
+        )
+        .expect("values_by(rank) should succeed");
+
+    assert_eq!(
+        values,
+        vec![Value::Uint(10), Value::Uint(10), Value::Uint(20)],
+        "query-level DISTINCT must remain row-level; equal projected values may repeat"
+    );
+}
+
+#[test]
 fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
     seed_pushdown_entities(&[(8_1981, 7, 10), (8_1982, 7, 20), (8_1983, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
@@ -1489,6 +1525,20 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
     assert_eq!(
         min_max_scanned, 0,
         "min_max_by unknown-field target should fail before scan-budget consumption"
+    );
+
+    let (values_result, values_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.values_by(build_plan(), "missing_field")
+        });
+    let Err(values_err) = values_result else {
+        panic!("values_by(missing_field) should be rejected");
+    };
+    assert_eq!(values_err.class, ErrorClass::Unsupported);
+    assert_eq!(values_err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        values_scanned, 0,
+        "values_by unknown-field target should fail before scan-budget consumption"
     );
 }
 
@@ -3411,6 +3461,77 @@ fn session_load_new_field_aggregates_match_execute() {
     assert_eq!(
         actual_min_max, expected_min_max,
         "session min_max_by(rank) parity failed"
+    );
+}
+
+#[test]
+fn session_load_values_by_matches_execute_projection() {
+    seed_pushdown_entities(&[
+        (8_321, 7, 10),
+        (8_322, 7, 10),
+        (8_323, 7, 20),
+        (8_324, 7, 30),
+        (8_325, 7, 40),
+        (8_326, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(1)
+            .limit(4)
+    };
+
+    let expected = load_window()
+        .execute()
+        .expect("baseline execute for values_by should succeed");
+    let actual = load_window()
+        .values_by("rank")
+        .expect("session values_by(rank) should succeed");
+
+    assert_eq!(
+        actual,
+        expected_values_by_rank(&expected),
+        "session values_by(rank) parity failed"
+    );
+}
+
+#[test]
+fn aggregate_field_target_values_by_preserves_scan_budget_parity_with_execute() {
+    seed_pushdown_entities(&[
+        (8_331, 7, 10),
+        (8_332, 7, 10),
+        (8_333, 7, 20),
+        (8_334, 7, 30),
+        (8_335, 7, 40),
+        (8_336, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(1)
+            .limit(4)
+            .plan()
+            .expect("values_by scan-budget parity plan should build")
+    };
+
+    let (_, scanned_execute) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute(build_plan())
+            .expect("execute baseline for values_by scan-budget parity should succeed")
+    });
+    let (_, scanned_values_by) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.values_by(build_plan(), "rank")
+                .expect("values_by(rank) should succeed")
+        });
+
+    assert_eq!(
+        scanned_values_by, scanned_execute,
+        "values_by must preserve scan-budget consumption parity with execute()"
     );
 }
 

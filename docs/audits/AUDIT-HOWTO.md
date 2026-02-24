@@ -1,5 +1,3 @@
-# `docs/audits/AUDIT_HOWTO.md`
-
 # IcyDB Audit How-To
 
 This document defines the operational procedure for running, recording, and interpreting architectural audits for `icydb-core`.

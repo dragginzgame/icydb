@@ -12,6 +12,7 @@ use crate::{
     },
     traits::{EntityKind, EntityValue, SingletonEntity},
     types::{Decimal, Id},
+    value::Value,
 };
 
 type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
@@ -367,6 +368,17 @@ where
 
         self.session
             .execute_load_query_min_max_by(self.query(), field.as_ref())
+    }
+
+    /// Execute and return projected field values for the effective result window.
+    pub fn values_by(&self, field: impl AsRef<str>) -> Result<Vec<Value>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_values_by(self.query(), field.as_ref())
     }
 
     /// Execute and return the first matching identifier in response order, if any.

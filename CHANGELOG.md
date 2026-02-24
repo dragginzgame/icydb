@@ -5,6 +5,26 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.28.0] - 2026-02-24 - Field Value Projection
+
+### 📝 Summary
+
+* Adds a new load terminal for field-value projection so callers can fetch one field across the effective result window without manual row mapping.
+
+### 🔧 Changed
+
+* Added `values_by("field")` on load queries, returning `Vec<Value>` in effective response order.
+* `values_by` runs after canonical row selection (post-access filtering, row-level `DISTINCT`, and page-window application) and reuses the existing load execution pipeline.
+* Unknown projection fields fail with typed `Unsupported` errors before scan work begins.
+* `0.28.0` intentionally keeps projection scope structural: no typed projection signatures, no value-level distinct terminal, and no projection pushdown or partial-row decode changes.
+
+### 🧪 Testing
+
+* Added parity tests that `values_by("rank")` matches `execute()` projection mapping.
+* Added regression coverage for row-level `DISTINCT` behavior, unknown-field fail-before-scan, and scan-budget parity versus `execute()`.
+
+---
+
 ## [0.27.9] - 2026-02-23 - Route Ownership Unification
 
 ### 📝 Summary
