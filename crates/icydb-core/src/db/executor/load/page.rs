@@ -5,7 +5,7 @@ use crate::{
         executor::{BudgetedOrderedKeyStream, OrderedKeyStream, query_bridge::PostAccessStats},
         query::predicate::PredicateFieldSlots,
         query::{
-            contracts::cursor::{ContinuationSignature, CursorBoundary},
+            contracts::cursor::{ContinuationSignature, ContinuationToken, CursorBoundary},
             plan::{Direction, LogicalPlan, compute_page_window},
         },
         response::Response,
@@ -104,7 +104,7 @@ where
         cursor_boundary: Option<&CursorBoundary>,
         direction: Direction,
         signature: ContinuationSignature,
-    ) -> Result<Option<Vec<u8>>, InternalError> {
+    ) -> Result<Option<ContinuationToken>, InternalError> {
         let Some(page) = plan.page.as_ref() else {
             return Ok(None);
         };

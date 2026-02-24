@@ -360,15 +360,19 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
         let Some(next_cursor) = page.next_cursor else {
             break;
         };
+        let next_cursor_bytes = encode_token(
+            &next_cursor,
+            "continuation cursor should serialize for anchor checks",
+        );
 
         assert_anchor_monotonic(
             &mut page_anchors,
-            next_cursor.as_slice(),
+            next_cursor_bytes.as_slice(),
             "continuation cursor should decode",
             "index-range cursor should include a raw-key anchor",
             "index-range continuation anchors must progress strictly monotonically",
         );
-        cursor = Some(next_cursor);
+        cursor = Some(next_cursor_bytes);
     }
 
     assert!(
@@ -463,14 +467,18 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
         let Some(next_cursor) = page.next_cursor else {
             break;
         };
+        let next_cursor_bytes = encode_token(
+            &next_cursor,
+            "continuation cursor should serialize for anchor checks",
+        );
         assert_anchor_monotonic(
             &mut anchors,
-            next_cursor.as_slice(),
+            next_cursor_bytes.as_slice(),
             "unique continuation cursor should decode",
             "unique index-range cursor should include a raw-key anchor",
             "unique index-range continuation anchors must advance strictly",
         );
-        cursor = Some(next_cursor);
+        cursor = Some(next_cursor_bytes);
     }
 
     let unique_paged_ids: BTreeSet<Ulid> = paged_ids.iter().copied().collect();
@@ -603,7 +611,12 @@ fn load_single_field_desc_range_resume_from_upper_anchor_returns_remaining_rows(
         .plan()
         .expect("single-field desc upper-anchor resume plan should build");
     let resume_boundary = resume_plan
-        .plan_cursor(Some(cursor.as_slice()))
+        .plan_cursor(Some(
+            cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
         .expect("single-field desc upper-anchor resume boundary should plan");
     let resume = load
         .execute_paged_with_cursor(resume_plan, resume_boundary)
@@ -748,7 +761,12 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .plan()
         .expect("multi-page desc page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(page1_cursor.as_slice()))
+        .plan_cursor(Some(
+            page1_cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
         .expect("multi-page desc page2 boundary should plan");
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
@@ -770,7 +788,12 @@ fn load_single_field_desc_range_multi_page_has_no_duplicate_or_omission() {
         .plan()
         .expect("multi-page desc page3 plan should build");
     let page3_boundary = page3_plan
-        .plan_cursor(Some(page2_cursor.as_slice()))
+        .plan_cursor(Some(
+            page2_cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
         .expect("multi-page desc page3 boundary should plan");
     let page3 = load
         .execute_paged_with_cursor(page3_plan, page3_boundary)

@@ -624,10 +624,20 @@ impl<C: CanisterKind> DbSession<C> {
                     .execute_paged_with_cursor_traced(plan, cursor)
             })
             .map_err(QueryError::Execute)?;
+        let next_cursor = page
+            .next_cursor
+            .map(|token| {
+                token.encode().map_err(|err| {
+                    QueryError::Execute(InternalError::serialize_internal(format!(
+                        "failed to serialize continuation cursor: {err}"
+                    )))
+                })
+            })
+            .transpose()?;
 
         Ok(PagedLoadExecutionWithTrace::new(
             page.items,
-            page.next_cursor,
+            next_cursor,
             trace,
         ))
     }

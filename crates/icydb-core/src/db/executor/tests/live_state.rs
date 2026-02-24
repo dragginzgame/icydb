@@ -1,6 +1,7 @@
 use super::*;
 
 #[test]
+#[expect(clippy::too_many_lines)]
 fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
@@ -77,7 +78,12 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .plan()
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(cursor.as_slice()))
+        .plan_cursor(Some(
+            cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
         .expect("page2 boundary should plan");
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
@@ -184,7 +190,12 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
         .plan()
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(cursor.as_slice()))
+        .plan_cursor(Some(
+            cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
         .expect("page2 boundary should plan");
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
@@ -279,7 +290,12 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .plan()
         .expect("page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(cursor.as_slice()))
+        .plan_cursor(Some(
+            cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
         .expect("page2 boundary should plan");
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)

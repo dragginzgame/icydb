@@ -472,8 +472,7 @@ fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
         let Some(next_cursor) = page.next_cursor else {
             break;
         };
-        let token = ContinuationToken::decode(&next_cursor)
-            .expect("intersection desc continuation should decode");
+        let token = next_cursor;
         cursor = Some(token.boundary().clone());
     }
 
@@ -578,8 +577,7 @@ fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
         let Some(next_cursor) = page.next_cursor else {
             break;
         };
-        let token =
-            ContinuationToken::decode(&next_cursor).expect("union desc continuation should decode");
+        let token = next_cursor;
         cursor = Some(token.boundary().clone());
     }
 
@@ -696,8 +694,7 @@ fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omissio
         let Some(next_cursor) = page.next_cursor else {
             break;
         };
-        let token = ContinuationToken::decode(&next_cursor)
-            .expect("three-child continuation should decode");
+        let token = next_cursor;
         cursor = Some(token.boundary().clone());
     }
 

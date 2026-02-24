@@ -451,14 +451,8 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
         .as_ref()
         .expect("fallback path should emit continuation cursor");
     assert_eq!(
-        decode_boundary(
-            budgeted_cursor,
-            "budgeted continuation cursor should decode"
-        ),
-        decode_boundary(
-            fallback_cursor,
-            "fallback continuation cursor should decode"
-        ),
+        budgeted_cursor.boundary().clone(),
+        fallback_cursor.boundary().clone(),
         "budgeted and fallback paths should encode the same continuation boundary"
     );
 }

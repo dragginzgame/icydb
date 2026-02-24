@@ -536,6 +536,10 @@ fn decode_boundary(cursor: &[u8], decode_message: &'static str) -> CursorBoundar
         .clone()
 }
 
+fn encode_token(token: &ContinuationToken, encode_message: &'static str) -> Vec<u8> {
+    token.encode().expect(encode_message)
+}
+
 fn assert_pushdown_parity<E, I, O>(
     build_pushdown_query: impl Fn() -> Query<E>,
     fallback_ids: I,
@@ -605,7 +609,12 @@ where
         );
 
         match page.next_cursor {
-            Some(next) => cursor = Some(next),
+            Some(next) => {
+                cursor = Some(encode_token(
+                    &next,
+                    "continuation cursor should serialize for loop resume",
+                ));
+            }
             None => break,
         }
     }
@@ -642,8 +651,7 @@ where
             break;
         };
 
-        let next_boundary =
-            decode_boundary(next_cursor.as_slice(), "continuation cursor should decode");
+        let next_boundary = next_cursor.boundary().clone();
         cursor = Some(next_boundary.clone());
         boundaries.push(next_boundary);
     }
@@ -684,12 +692,16 @@ where
             break;
         };
 
+        let next_cursor_bytes = encode_token(
+            &next_cursor,
+            "continuation cursor should serialize for token collection",
+        );
         boundaries.push(decode_boundary(
-            next_cursor.as_slice(),
+            next_cursor_bytes.as_slice(),
             "continuation cursor should decode",
         ));
-        tokens.push(next_cursor.clone());
-        cursor_bytes = Some(next_cursor);
+        tokens.push(next_cursor_bytes.clone());
+        cursor_bytes = Some(next_cursor_bytes);
     }
 
     (ids, boundaries, tokens)
@@ -721,10 +733,7 @@ where
         let Some(next_cursor) = page.next_cursor else {
             break;
         };
-        cursor = Some(decode_boundary(
-            next_cursor.as_slice(),
-            "continuation cursor should decode",
-        ));
+        cursor = Some(next_cursor.boundary().clone());
     }
 
     ids
@@ -760,7 +769,10 @@ where
         let Some(next_cursor) = page.next_cursor else {
             break;
         };
-        cursor = Some(next_cursor);
+        cursor = Some(encode_token(
+            &next_cursor,
+            "continuation cursor should serialize for token-start resume",
+        ));
     }
 
     ids

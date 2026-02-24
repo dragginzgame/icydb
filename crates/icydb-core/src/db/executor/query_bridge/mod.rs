@@ -376,13 +376,13 @@ impl<K> LogicalPlan<K> {
         })
     }
 
-    /// Build and encode the continuation token for one materialized entity.
+    /// Build a continuation token for one materialized entity.
     pub(in crate::db) fn next_cursor_for_entity<E>(
         &self,
         entity: &E,
         direction: Direction,
         signature: ContinuationSignature,
-    ) -> Result<Vec<u8>, InternalError>
+    ) -> Result<ContinuationToken, InternalError>
     where
         E: EntityKind + EntityValue,
     {
@@ -410,11 +410,8 @@ impl<K> LogicalPlan<K> {
         } else {
             ContinuationToken::new_with_direction(signature, boundary, direction, initial_offset)
         };
-        token.encode().map_err(|err| {
-            InternalError::serialize_internal(format!(
-                "failed to encode continuation cursor: {err}"
-            ))
-        })
+
+        Ok(token)
     }
 
     /// Build budget-safety metadata used by guarded execution scan budgeting.

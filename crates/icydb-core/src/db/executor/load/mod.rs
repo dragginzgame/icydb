@@ -26,7 +26,7 @@ use crate::{
         },
         query::policy,
         query::{
-            contracts::cursor::CursorBoundary,
+            contracts::cursor::{ContinuationToken, CursorBoundary},
             cursor::continuation::decode_pk_cursor_boundary,
             plan::{
                 AccessPlan, Direction, ExecutablePlan, LogicalPlan, OrderDirection, PlannedCursor,
@@ -53,7 +53,7 @@ use std::marker::PhantomData;
 pub(crate) struct CursorPage<E: EntityKind> {
     pub(crate) items: Response<E>,
 
-    pub(crate) next_cursor: Option<Vec<u8>>,
+    pub(crate) next_cursor: Option<ContinuationToken>,
 }
 
 ///

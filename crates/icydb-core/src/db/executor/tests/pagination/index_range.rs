@@ -195,7 +195,12 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
         .plan()
         .expect("page2 parity plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(page2_cursor.as_slice()))
+        .plan_cursor(Some(
+            page2_cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
         .expect("page2 parity boundary should plan");
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
@@ -255,10 +260,8 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .next_cursor
         .as_ref()
         .expect("fallback page should emit continuation cursor");
-    let pushdown_boundary =
-        decode_boundary(pushdown_cursor.as_slice(), "pushdown cursor should decode");
-    let fallback_boundary =
-        decode_boundary(fallback_cursor.as_slice(), "fallback cursor should decode");
+    let pushdown_boundary = pushdown_cursor.boundary().clone();
+    let fallback_boundary = fallback_cursor.boundary().clone();
     assert_eq!(
         &pushdown_boundary, &fallback_boundary,
         "pushdown and fallback cursors should encode the same continuation boundary"
@@ -289,7 +292,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .next_cursor
         .as_ref()
         .expect("seed page should emit continuation cursor");
-    let shared_boundary = decode_boundary(seed_cursor.as_slice(), "seed cursor should decode");
+    let shared_boundary = seed_cursor.boundary().clone();
 
     let pushdown_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
         .filter(predicate)
@@ -326,10 +329,8 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .next_cursor
         .as_ref()
         .expect("fallback page2 should emit continuation cursor");
-    let pushdown_next_boundary =
-        decode_boundary(pushdown_next.as_slice(), "pushdown next should decode");
-    let fallback_next_boundary =
-        decode_boundary(fallback_next.as_slice(), "fallback next should decode");
+    let pushdown_next_boundary = pushdown_next.boundary().clone();
+    let fallback_next_boundary = fallback_next.boundary().clone();
     assert_eq!(
         &pushdown_next_boundary, &fallback_next_boundary,
         "pushdown and fallback page2 cursors should encode identical boundaries"
@@ -388,14 +389,12 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         "descending page1 should match across index-prefix and by-ids paths"
     );
 
-    let shared_boundary = decode_boundary(
-        index_path_page1
-            .next_cursor
-            .as_ref()
-            .expect("index-path desc page1 should emit cursor")
-            .as_slice(),
-        "index-path desc cursor should decode",
-    );
+    let shared_boundary = index_path_page1
+        .next_cursor
+        .as_ref()
+        .expect("index-path desc page1 should emit cursor")
+        .boundary()
+        .clone();
     let index_path_page2_plan = Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
         .filter(predicate)
         .order_by_desc("rank")
@@ -455,7 +454,12 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .plan()
         .expect("prefix window page2 plan should build");
     let page2_boundary = page2_plan
-        .plan_cursor(Some(page1_cursor.as_slice()))
+        .plan_cursor(Some(
+            page1_cursor
+                .encode()
+                .expect("continuation cursor should serialize")
+                .as_slice(),
+        ))
         .expect("prefix window page2 boundary should plan");
     let page2 = load
         .execute_paged_with_cursor(page2_plan, page2_boundary)
@@ -884,7 +888,10 @@ fn load_composite_range_limit_terminal_page_suppresses_cursor() {
         let Some(next_cursor) = page.next_cursor else {
             break;
         };
-        cursor = Some(next_cursor);
+        cursor = Some(encode_token(
+            &next_cursor,
+            "continuation cursor should serialize for terminal-page resume",
+        ));
     }
 
     assert_eq!(
@@ -1365,14 +1372,8 @@ fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_f
             (&fast_page.next_cursor, &fallback_page.next_cursor)
         {
             assert_eq!(
-                decode_boundary(
-                    fast_cursor.as_slice(),
-                    "fast residual matrix cursor should decode"
-                ),
-                decode_boundary(
-                    fallback_cursor.as_slice(),
-                    "fallback residual matrix cursor should decode",
-                ),
+                fast_cursor.boundary().clone(),
+                fallback_cursor.boundary().clone(),
                 "residual range matrix case should preserve continuation boundary parity: case={case_name}",
             );
         }
@@ -1580,10 +1581,10 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
         .next_cursor
         .as_ref()
         .expect("fallback distinct page1 should emit continuation cursor");
-    let shared_boundary = decode_boundary(fast_cursor, "fast cursor should decode");
+    let shared_boundary = fast_cursor.boundary().clone();
     assert_eq!(
-        decode_boundary(fast_cursor, "fast cursor should decode"),
-        decode_boundary(fallback_cursor, "fallback cursor should decode"),
+        fast_cursor.boundary().clone(),
+        fallback_cursor.boundary().clone(),
         "fast and fallback distinct page1 cursors should encode the same boundary",
     );
 
@@ -1714,10 +1715,10 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
         .next_cursor
         .as_ref()
         .expect("fallback descending distinct page1 should emit continuation cursor");
-    let shared_boundary = decode_boundary(fast_cursor, "fast descending cursor should decode");
+    let shared_boundary = fast_cursor.boundary().clone();
     assert_eq!(
-        decode_boundary(fast_cursor, "fast descending cursor should decode"),
-        decode_boundary(fallback_cursor, "fallback descending cursor should decode"),
+        fast_cursor.boundary().clone(),
+        fallback_cursor.boundary().clone(),
         "fast and fallback descending distinct page1 cursors should encode the same boundary",
     );
 
@@ -1991,19 +1992,10 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
             .next_cursor
             .as_ref()
             .expect("fallback bounded-range page1 should emit continuation cursor");
-        let shared_boundary = decode_boundary(
-            fast_cursor,
-            "fast bounded-range page1 continuation cursor should decode",
-        );
+        let shared_boundary = fast_cursor.boundary().clone();
         assert_eq!(
-            decode_boundary(
-                fast_cursor,
-                "fast bounded-range page1 continuation cursor should decode",
-            ),
-            decode_boundary(
-                fallback_cursor,
-                "fallback bounded-range page1 continuation cursor should decode",
-            ),
+            fast_cursor.boundary().clone(),
+            fallback_cursor.boundary().clone(),
             "fast and fallback bounded-range page1 cursors should match for descending={descending}",
         );
 
