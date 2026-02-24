@@ -61,9 +61,12 @@ impl PlanPolicyError {
 /// Canonical policy failures for cursor-pagination readiness.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
 pub enum CursorPagingPolicyError {
+    #[error("cursor pagination requires an explicit ordering")]
     CursorRequiresOrder,
+
+    #[error("cursor pagination requires a limit")]
     CursorRequiresLimit,
 }
 

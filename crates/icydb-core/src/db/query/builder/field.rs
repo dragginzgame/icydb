@@ -3,6 +3,7 @@ use crate::{
     traits::FieldValue,
     value::Value,
 };
+use derive_more::Deref;
 
 ///
 /// FieldRef
@@ -12,7 +13,7 @@ use crate::{
 /// Carries only a `&'static str` and derefs to `str`.
 ///
 
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Deref, Eq, Hash, PartialEq)]
 pub struct FieldRef(&'static str);
 
 impl FieldRef {
@@ -185,14 +186,6 @@ impl FieldRef {
 
 impl AsRef<str> for FieldRef {
     fn as_ref(&self) -> &str {
-        self.0
-    }
-}
-
-impl std::ops::Deref for FieldRef {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
         self.0
     }
 }

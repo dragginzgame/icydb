@@ -2,7 +2,7 @@ use crate::{
     db::{
         Context,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
-        executor::{VecOrderedKeyStream, normalize_ordered_keys},
+        executor::{AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator},
         query::plan::{
             Direction, IndexPrefixSpec, LogicalPlan, SlotSelectionPolicy, derive_scan_direction,
         },
@@ -33,51 +33,40 @@ where
                 "index-prefix executable spec must be materialized for index-prefix plans",
             ));
         };
-        if index_prefix_spec.index() != index {
-            return Err(InternalError::query_executor_invariant(
-                "index-prefix spec does not match access path index",
-            ));
-        }
+        debug_assert_eq!(
+            index_prefix_spec.index(),
+            index,
+            "secondary fast-path spec/index alignment must be validated by resolver",
+        );
         let stream_direction = Self::secondary_index_stream_direction(plan);
 
-        // Phase 1: resolve candidate keys using canonical index traversal order.
-        // When a probe hint is present (EXISTS), use a bounded resolver so
-        // candidate production can short-circuit earlier.
-        let mut ordered_keys = ctx.db.with_store_registry(|reg| {
-            reg.try_get_store(index_prefix_spec.index().store)
-                .and_then(|store| {
-                    store.with_index(|index_store| match probe_fetch_hint {
-                        Some(fetch) => index_store.resolve_data_values_in_raw_range_limited::<E>(
-                            index_prefix_spec.index(),
-                            (index_prefix_spec.lower(), index_prefix_spec.upper()),
-                            None,
-                            stream_direction,
-                            fetch,
-                            index_predicate_execution,
-                        ),
-                        None => index_store.resolve_data_values_in_raw_range_limited::<E>(
-                            index_prefix_spec.index(),
-                            (index_prefix_spec.lower(), index_prefix_spec.upper()),
-                            None,
-                            stream_direction,
-                            usize::MAX,
-                            index_predicate_execution,
-                        ),
-                    })
-                })
-        })?;
+        let stream_request = AccessPlanStreamRequest {
+            access: &plan.access,
+            bindings: AccessStreamBindings {
+                index_prefix_specs: std::slice::from_ref(index_prefix_spec),
+                index_range_specs: &[],
+                index_range_anchor: None,
+                direction: stream_direction,
+            },
+            key_comparator: KeyOrderComparator::from_direction(stream_direction),
+            physical_fetch_hint: probe_fetch_hint,
+            index_predicate_execution,
+        };
 
-        // The bounded resolver already returns keys in requested order.
-        if probe_fetch_hint.is_none() {
-            normalize_ordered_keys(&mut ordered_keys, stream_direction, true);
+        let fast = Self::execute_fast_stream_request(
+            ctx,
+            stream_request,
+            ExecutionOptimization::SecondaryOrderPushdown,
+        )?;
+
+        if let Some(fetch) = probe_fetch_hint {
+            debug_assert!(
+                fast.rows_scanned <= fetch,
+                "secondary fast-path rows_scanned must not exceed bounded fetch",
+            );
         }
-        let rows_scanned = ordered_keys.len();
 
-        Ok(Some(FastPathKeyResult {
-            ordered_key_stream: Box::new(VecOrderedKeyStream::new(ordered_keys)),
-            rows_scanned,
-            optimization: ExecutionOptimization::SecondaryOrderPushdown,
-        }))
+        Ok(Some(fast))
     }
 
     fn secondary_index_stream_direction(plan: &LogicalPlan<E::Key>) -> Direction {

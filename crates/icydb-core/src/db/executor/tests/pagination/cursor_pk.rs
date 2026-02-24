@@ -847,6 +847,102 @@ fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page(
 }
 
 #[test]
+fn load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan() {
+    setup_pagination_test();
+
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [1_u128, 2_u128, 3_u128, 4_u128] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, true);
+    for (case_name, direction) in [("asc", OrderDirection::Asc), ("desc", OrderDirection::Desc)] {
+        let mut logical = LogicalPlan::<Ulid>::new(
+            AccessPath::KeyRange {
+                start: Ulid::from_u128(4),
+                end: Ulid::from_u128(2),
+            },
+            ReadConsistency::MissingOk,
+        );
+        logical.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), direction)],
+        });
+        logical.page = Some(PageSpec {
+            limit: Some(2),
+            offset: 0,
+        });
+        let plan = ExecutablePlan::<SimpleEntity>::new(logical);
+
+        let (page, trace) = load
+            .execute_paged_with_cursor_traced(plan, None)
+            .expect("inverted pk-range execution should succeed");
+        let trace = trace.expect("debug trace should be present");
+
+        assert_exhausted_continuation_page!(
+            page,
+            format!("inverted pk-range should return an empty page for case={case_name}"),
+            format!("inverted pk-range should not emit a continuation cursor for case={case_name}"),
+        );
+        assert_eq!(
+            trace.optimization,
+            Some(ExecutionOptimization::PrimaryKey),
+            "inverted pk-range should remain on PK fast path for case={case_name}",
+        );
+        assert_eq!(
+            trace.keys_scanned, 0,
+            "inverted pk-range should not scan any keys for case={case_name}",
+        );
+    }
+}
+
+#[test]
+fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates() {
+    setup_pagination_test();
+
+    let seeded_count = 6_u64;
+    let save = SaveExecutor::<SimpleEntity>::new(DB, false);
+    for id in [6_u128, 1_u128, 5_u128, 2_u128, 4_u128, 3_u128] {
+        save.insert(SimpleEntity {
+            id: Ulid::from_u128(id),
+        })
+        .expect("save should succeed");
+    }
+
+    let load = LoadExecutor::<SimpleEntity>::new(DB, true);
+    for (case_name, descending) in [("asc", false), ("desc", true)] {
+        let base = Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            .limit(2)
+            .offset(1);
+        let plan = if descending {
+            base.order_by_desc("id")
+        } else {
+            base.order_by("id")
+        }
+        .plan()
+        .expect("pk fast-path budget plan should build");
+
+        let (_page, trace) = load
+            .execute_paged_with_cursor_traced(plan, None)
+            .expect("pk fast-path budget execution should succeed");
+        let trace = trace.expect("debug trace should be present");
+
+        assert_eq!(
+            trace.optimization,
+            Some(ExecutionOptimization::PrimaryKey),
+            "pk trace should report PK fast path for case={case_name}",
+        );
+        // PK fast-path trace accounting reports access-phase candidate count.
+        assert_eq!(
+            trace.keys_scanned, seeded_count,
+            "pk fast-path trace should count all access candidates for case={case_name}",
+        );
+    }
+}
+
+#[test]
 fn load_cursor_pagination_pk_order_missing_slot_is_invariant_violation() {
     setup_pagination_test();
 

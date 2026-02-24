@@ -64,9 +64,10 @@ where
     ) -> Result<(), PlanError> {
         validate_pk_key(schema, model, start)?;
         validate_pk_key(schema, model, end)?;
-        if start > end {
-            return Err(PlanError::from(AccessPlanError::InvalidKeyRange));
-        }
+
+        // Executor-boundary validation is defensive and must not reject
+        // planner-level key-range semantics. Inverted ranges are allowed here
+        // and execute as empty scans.
 
         Ok(())
     }

@@ -2,6 +2,7 @@ mod aggregate;
 mod aggregate_field;
 mod aggregate_guard;
 mod execute;
+mod fast_stream;
 mod index_range_limit;
 mod page;
 mod pk_stream;

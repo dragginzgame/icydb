@@ -5,6 +5,27 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.27.8] - 2026-02-23 - Execution Boundary Fix
+
+### 📝 Summary
+
+* Fixes the execution boundary so access planning and store/index traversal go through one shared path.
+
+### 🔧 Changed
+
+* Moved fast-path key stream building behind the shared access resolver so load paths no longer build direct store/index streams on the side.
+* Kept index-spec alignment validation in one place (the resolver) and removed duplicate checks lower in physical resolution.
+* Added boundary guardrails so load modules cannot bypass the resolver with direct store/registry traversal.
+* Added a debug safety check for bounded secondary fast-path scans to prevent accidental over-scanning.
+
+### 🧪 Testing
+
+* Added architecture-level tests that fail if load modules perform direct store traversal outside the resolver boundary.
+* Updated executor/context invariant coverage so resolver-owned validation remains the only index-spec alignment gate.
+* Added pagination regression coverage for inverted PK ranges and PK fast-path scan-accounting behavior.
+
+---
+
 ## [0.27.7] - 2026-02-23 - Pushdown Coverage
 
 ### 📝 Summary

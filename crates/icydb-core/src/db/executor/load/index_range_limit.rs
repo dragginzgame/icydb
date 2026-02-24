@@ -1,8 +1,8 @@
 use crate::{
     db::{
         Context,
-        executor::VecOrderedKeyStream,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
+        executor::{AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator},
         index::RawIndexKey,
         query::plan::{Direction, IndexRangeSpec, LogicalPlan},
         query::predicate::IndexPredicateExecution,
@@ -33,34 +33,28 @@ where
                 "index-range executable spec must be materialized for index-range plans",
             ));
         };
-        if index_range_spec.index() != index {
-            return Err(InternalError::query_executor_invariant(
-                "index-range spec does not match access path index",
-            ));
-        }
+        debug_assert_eq!(
+            index_range_spec.index(),
+            index,
+            "index-range fast-path spec/index alignment must be validated by resolver",
+        );
+        let stream_request = AccessPlanStreamRequest {
+            access: &plan.access,
+            bindings: AccessStreamBindings {
+                index_prefix_specs: &[],
+                index_range_specs: std::slice::from_ref(index_range_spec),
+                index_range_anchor,
+                direction,
+            },
+            key_comparator: KeyOrderComparator::from_direction(direction),
+            physical_fetch_hint: Some(effective_fetch),
+            index_predicate_execution,
+        };
 
-        // Phase 1: resolve candidate keys via bounded range traversal with early termination.
-        let ordered_keys = ctx.db.with_store_registry(|reg| {
-            reg.try_get_store(index_range_spec.index().store)
-                .and_then(|store| {
-                    store.with_index(|index_store| {
-                        index_store.resolve_data_values_in_raw_range_limited::<E>(
-                            index_range_spec.index(),
-                            (index_range_spec.lower(), index_range_spec.upper()),
-                            index_range_anchor,
-                            direction,
-                            effective_fetch,
-                            index_predicate_execution,
-                        )
-                    })
-                })
-        })?;
-        let rows_scanned = ordered_keys.len();
-
-        Ok(Some(FastPathKeyResult {
-            ordered_key_stream: Box::new(VecOrderedKeyStream::new(ordered_keys)),
-            rows_scanned,
-            optimization: ExecutionOptimization::IndexRangeLimitPushdown,
-        }))
+        Ok(Some(Self::execute_fast_stream_request(
+            ctx,
+            stream_request,
+            ExecutionOptimization::IndexRangeLimitPushdown,
+        )?))
     }
 }

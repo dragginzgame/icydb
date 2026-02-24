@@ -313,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn index_prefix_path_rejects_misaligned_spec_for_direct_resolution() {
+    fn index_prefix_path_direct_resolution_skips_alignment_invariant_check() {
         let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
         let access = AccessPath::IndexPrefix {
             index: INDEX_MODEL_ALT,
@@ -321,7 +321,7 @@ mod tests {
         };
         let spec = dummy_index_prefix_spec();
 
-        let Err(err) = ctx.ordered_key_stream_from_access(
+        let result = ctx.ordered_key_stream_from_access(
             &access,
             IndexStreamConstraints {
                 prefix: Some(&spec),
@@ -333,19 +333,19 @@ mod tests {
                 physical_fetch_hint: None,
                 predicate_execution: None,
             },
-        ) else {
-            panic!("misaligned index-prefix spec must fail invariant checks")
-        };
-
-        assert!(
-            err.to_string()
-                .contains("index-prefix spec does not match access path index"),
-            "misaligned prefix spec must fail fast before touching index storage"
         );
+
+        if let Err(err) = result {
+            assert!(
+                !err.to_string()
+                    .contains("index-prefix spec does not match access path index"),
+                "direct physical resolution must not enforce resolver-owned prefix-spec alignment",
+            );
+        }
     }
 
     #[test]
-    fn index_range_path_rejects_misaligned_spec_for_direct_resolution() {
+    fn index_range_path_direct_resolution_skips_alignment_invariant_check() {
         let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
         let access = AccessPath::IndexRange {
             index: INDEX_MODEL_ALT,
@@ -355,7 +355,7 @@ mod tests {
         };
         let spec = dummy_index_range_spec();
 
-        let Err(err) = ctx.ordered_key_stream_from_access(
+        let result = ctx.ordered_key_stream_from_access(
             &access,
             IndexStreamConstraints {
                 prefix: None,
@@ -367,15 +367,15 @@ mod tests {
                 physical_fetch_hint: None,
                 predicate_execution: None,
             },
-        ) else {
-            panic!("misaligned index-range spec must fail invariant checks")
-        };
-
-        assert!(
-            err.to_string()
-                .contains("index-range spec does not match access path index"),
-            "misaligned range spec must fail fast before touching index storage"
         );
+
+        if let Err(err) = result {
+            assert!(
+                !err.to_string()
+                    .contains("index-range spec does not match access path index"),
+                "direct physical resolution must not enforce resolver-owned range-spec alignment",
+            );
+        }
     }
 
     #[test]

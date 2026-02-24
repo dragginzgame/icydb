@@ -15,6 +15,8 @@ use crate::{
 use std::ops::Bound;
 
 impl<K> AccessPath<K> {
+    // Physical access lowering for one access path.
+    // Direct store/index traversal here is intentional and resolver-owned.
     /// Build an ordered key stream for this access path.
     #[expect(clippy::too_many_arguments)]
     pub(super) fn resolve_physical_key_stream<E>(
@@ -51,6 +53,7 @@ impl<K> AccessPath<K> {
                 index,
                 index_prefix_spec,
                 direction,
+                physical_fetch_hint,
                 index_predicate_execution,
             )?,
             Self::IndexRange { index, .. } => Self::resolve_index_range::<E>(
@@ -59,6 +62,7 @@ impl<K> AccessPath<K> {
                 index_range_spec,
                 index_range_anchor,
                 direction,
+                physical_fetch_hint,
                 index_predicate_execution,
             )?,
         };
@@ -226,9 +230,10 @@ impl<K> AccessPath<K> {
     // Resolve one index-prefix traversal using a pre-lowered index-prefix spec.
     fn resolve_index_prefix<E>(
         ctx: &Context<'_, E>,
-        index: &IndexModel,
+        _index: &IndexModel,
         index_prefix_spec: Option<&IndexPrefixSpec>,
         direction: Direction,
+        index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DataKey>, bool), InternalError>
     where
@@ -240,36 +245,33 @@ impl<K> AccessPath<K> {
                 "index-prefix execution requires pre-lowered index-prefix spec",
             ));
         };
-        if spec.index() != index {
-            return Err(InternalError::query_executor_invariant(
-                "index-prefix spec does not match access path index",
-            ));
-        }
 
         let store = ctx
             .db
             .with_store_registry(|reg| reg.try_get_store(spec.index().store))?;
+        let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
         let keys = store.with_index(|s| {
             s.resolve_data_values_in_raw_range_limited::<E>(
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 None,
                 direction,
-                usize::MAX,
+                fetch_limit,
                 index_predicate_execution,
             )
         })?;
 
-        Ok((keys, false))
+        Ok((keys, index_fetch_hint.is_some()))
     }
 
     // Resolve one index-range traversal using a pre-lowered index-range spec.
     fn resolve_index_range<E>(
         ctx: &Context<'_, E>,
-        index: &IndexModel,
+        _index: &IndexModel,
         index_range_spec: Option<&IndexRangeSpec>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,
+        index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DataKey>, bool), InternalError>
     where
@@ -281,26 +283,22 @@ impl<K> AccessPath<K> {
                 "index-range execution requires pre-lowered index-range spec",
             ));
         };
-        if spec.index() != index {
-            return Err(InternalError::query_executor_invariant(
-                "index-range spec does not match access path index",
-            ));
-        }
 
         let store = ctx
             .db
             .with_store_registry(|reg| reg.try_get_store(spec.index().store))?;
+        let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
         let keys = store.with_index(|s| {
             s.resolve_data_values_in_raw_range_limited::<E>(
                 spec.index(),
                 (spec.lower(), spec.upper()),
                 index_range_anchor,
                 direction,
-                usize::MAX,
+                fetch_limit,
                 index_predicate_execution,
             )
         })?;
 
-        Ok((keys, false))
+        Ok((keys, index_fetch_hint.is_some()))
     }
 }

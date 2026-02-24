@@ -15,6 +15,13 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
+// -----------------------------------------------------------------------------
+// Access Boundary Contract
+// -----------------------------------------------------------------------------
+// This module is the exclusive physical access boundary.
+// All store/index iteration MUST route through this layer.
+// Load/query execution modules must not directly traverse store/index state.
+
 ///
 /// AccessStreamInputs
 ///
@@ -281,7 +288,94 @@ where
 
 struct AccessPlanStreamResolver;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PhysicalAccessKind {
+    PrimaryKeyFullScan,
+    PrimaryKeyRange,
+    SecondaryIndex,
+}
+
 impl AccessPlanStreamResolver {
+    // Classify one path into the coarse physical lowering shape used by resolver internals.
+    const fn physical_access_kind<K>(path: &AccessPath<K>) -> Option<PhysicalAccessKind> {
+        match path {
+            AccessPath::FullScan => Some(PhysicalAccessKind::PrimaryKeyFullScan),
+            AccessPath::KeyRange { .. } => Some(PhysicalAccessKind::PrimaryKeyRange),
+            AccessPath::IndexPrefix { .. } | AccessPath::IndexRange { .. } => {
+                Some(PhysicalAccessKind::SecondaryIndex)
+            }
+            AccessPath::ByKey(_) | AccessPath::ByKeys(_) => None,
+        }
+    }
+
+    // Lower one path through the canonical physical resolver boundary.
+    fn lower_path_access<E, K>(
+        path: &AccessPath<K>,
+        inputs: &AccessStreamInputs<'_, '_, E>,
+        index_prefix_spec: Option<&IndexPrefixSpec>,
+        index_range_spec: Option<&IndexRangeSpec>,
+    ) -> Result<OrderedKeyStreamBox, InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+        K: Copy,
+    {
+        let constraints = IndexStreamConstraints {
+            prefix: index_prefix_spec,
+            range: index_range_spec,
+            anchor: inputs.index_range_anchor,
+        };
+        let hints = StreamExecutionHints {
+            physical_fetch_hint: inputs.physical_fetch_hint,
+            predicate_execution: inputs.index_predicate_execution,
+        };
+        match Self::physical_access_kind(path) {
+            Some(PhysicalAccessKind::PrimaryKeyFullScan | PhysicalAccessKind::PrimaryKeyRange) => {
+                Self::lower_primary_key_access(path, inputs, constraints, hints)
+            }
+            Some(PhysicalAccessKind::SecondaryIndex) => {
+                Self::lower_secondary_index_access(path, inputs, constraints, hints)
+            }
+            None => inputs.ctx.ordered_key_stream_from_access(
+                path,
+                constraints,
+                inputs.direction,
+                hints,
+            ),
+        }
+    }
+
+    // Lower one primary-key physical path through context-owned store resolution.
+    fn lower_primary_key_access<'a, E, K>(
+        path: &AccessPath<K>,
+        inputs: &AccessStreamInputs<'_, 'a, E>,
+        constraints: IndexStreamConstraints<'a>,
+        hints: StreamExecutionHints<'a>,
+    ) -> Result<OrderedKeyStreamBox, InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+        K: Copy,
+    {
+        inputs
+            .ctx
+            .ordered_key_stream_from_access(path, constraints, inputs.direction, hints)
+    }
+
+    // Lower one secondary-index physical path through context-owned index resolution.
+    fn lower_secondary_index_access<'a, E, K>(
+        path: &AccessPath<K>,
+        inputs: &AccessStreamInputs<'_, 'a, E>,
+        constraints: IndexStreamConstraints<'a>,
+        hints: StreamExecutionHints<'a>,
+    ) -> Result<OrderedKeyStreamBox, InternalError>
+    where
+        E: EntityKind<Key = K> + EntityValue,
+        K: Copy,
+    {
+        inputs
+            .ctx
+            .ordered_key_stream_from_access(path, constraints, inputs.direction, hints)
+    }
+
     // Validate that a consumed prefix spec belongs to the same index path node.
     fn validate_index_prefix_spec_alignment<K>(
         path: &AccessPath<K>,
@@ -394,19 +488,7 @@ impl AccessPlanStreamResolver {
                 Self::validate_index_prefix_spec_alignment(path.as_ref(), index_prefix_spec)?;
                 Self::validate_index_range_spec_alignment(path.as_ref(), index_range_spec)?;
 
-                inputs.ctx.ordered_key_stream_from_access(
-                    path,
-                    IndexStreamConstraints {
-                        prefix: index_prefix_spec,
-                        range: index_range_spec,
-                        anchor: inputs.index_range_anchor,
-                    },
-                    inputs.direction,
-                    StreamExecutionHints {
-                        physical_fetch_hint: inputs.physical_fetch_hint,
-                        predicate_execution: inputs.index_predicate_execution,
-                    },
-                )
+                Self::lower_path_access(path, inputs, index_prefix_spec, index_range_spec)
             }
             AccessPlan::Union(children) => {
                 Self::produce_union_key_stream(children, inputs, spec_cursor)
@@ -459,5 +541,92 @@ impl AccessPlanStreamResolver {
                 key_comparator,
             ))
         }))
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
+
+    // Detect direct store-registry traversal hooks in source text.
+    fn source_uses_direct_store_or_registry_access(source: &str) -> bool {
+        source.contains(".with_store(") || source.contains(".with_store_registry(")
+    }
+
+    // Walk one source tree and collect every Rust source path deterministically.
+    fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
+        let entries = fs::read_dir(root).unwrap_or_else(|err| {
+            panic!("failed to read source directory {}: {err}", root.display())
+        });
+
+        for entry in entries {
+            let entry = entry.unwrap_or_else(|err| {
+                panic!(
+                    "failed to read source directory entry under {}: {err}",
+                    root.display()
+                )
+            });
+            let path = entry.path();
+            if path.is_dir() {
+                collect_rust_sources(path.as_path(), out);
+                continue;
+            }
+            if path.extension().is_some_and(|ext| ext == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    #[test]
+    fn access_boundary_outside_resolver_has_no_direct_store_registry_access() {
+        let outside_resolver_sources = [
+            ("load/mod.rs", include_str!("load/mod.rs")),
+            ("load/execute.rs", include_str!("load/execute.rs")),
+            ("load/fast_stream.rs", include_str!("load/fast_stream.rs")),
+            ("load/page.rs", include_str!("load/page.rs")),
+            ("load/pk_stream.rs", include_str!("load/pk_stream.rs")),
+            (
+                "load/secondary_index.rs",
+                include_str!("load/secondary_index.rs"),
+            ),
+            (
+                "load/index_range_limit.rs",
+                include_str!("load/index_range_limit.rs"),
+            ),
+            ("load/aggregate.rs", include_str!("load/aggregate.rs")),
+            ("load/route.rs", include_str!("load/route.rs")),
+        ];
+
+        for (path, source) in outside_resolver_sources {
+            assert!(
+                !source_uses_direct_store_or_registry_access(source),
+                "{path} must route store access through resolver-owned boundaries",
+            );
+        }
+    }
+
+    #[test]
+    fn load_module_has_no_direct_store_traversal() {
+        let load_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/db/executor/load");
+        let mut sources = Vec::new();
+        collect_rust_sources(load_root.as_path(), &mut sources);
+        sources.sort();
+
+        for source_path in sources {
+            let source = fs::read_to_string(&source_path)
+                .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+            assert!(
+                !source_uses_direct_store_or_registry_access(source.as_str()),
+                "load module file {} must not directly traverse store/registry; route through resolver",
+                source_path.display(),
+            );
+        }
     }
 }

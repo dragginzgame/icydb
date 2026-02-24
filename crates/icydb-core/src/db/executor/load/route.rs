@@ -460,6 +460,15 @@ where
                 capabilities,
             )
         };
+        if is_load_intent
+            && let (Some(index_range_limit_spec), Some(load_scan_budget_hint)) =
+                (index_range_limit_spec, load_scan_budget_hint)
+        {
+            debug_assert_eq!(
+                index_range_limit_spec.fetch, load_scan_budget_hint,
+                "route invariant: load index-range fetch hint and load scan budget must remain aligned"
+            );
+        }
         debug_assert!(
             index_range_limit_spec.is_none()
                 || capabilities.index_range_limit_pushdown_shape_eligible,

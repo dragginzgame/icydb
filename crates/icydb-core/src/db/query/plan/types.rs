@@ -219,18 +219,6 @@ impl<K> AccessPath<K> {
     }
 }
 
-impl<K: Copy> AccessPath<K> {
-    /// Return canonical PK-stream bounds for `FullScan` or `KeyRange` paths.
-    #[must_use]
-    pub(crate) const fn pk_stream_bounds(&self) -> Option<(Option<K>, Option<K>)> {
-        match self {
-            Self::FullScan => Some((None, None)),
-            Self::KeyRange { start, end } => Some((Some(*start), Some(*end))),
-            _ => None,
-        }
-    }
-}
-
 ///
 /// OrderDirection
 /// Executor-facing ordering direction (applied after filtering).
