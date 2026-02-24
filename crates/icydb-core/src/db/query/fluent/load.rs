@@ -397,7 +397,8 @@ where
     /// window.
     ///
     /// This terminal applies its own ordering and does not preserve query
-    /// `order_by(...)` row order in the returned rows.
+    /// `order_by(...)` row order in the returned rows. For `k = 1`, this
+    /// matches `max_by(field)` selection semantics.
     pub fn top_k_by(
         &self,
         field: impl AsRef<str>,
@@ -410,6 +411,27 @@ where
 
         self.session
             .execute_load_query_top_k_by(self.query(), field.as_ref(), take_count)
+    }
+
+    /// Execute and return the bottom `k` rows by `field` under deterministic
+    /// ordering `(field asc, primary_key asc)` over the effective response
+    /// window.
+    ///
+    /// This terminal applies its own ordering and does not preserve query
+    /// `order_by(...)` row order in the returned rows. For `k = 1`, this
+    /// matches `min_by(field)` selection semantics.
+    pub fn bottom_k_by(
+        &self,
+        field: impl AsRef<str>,
+        take_count: u32,
+    ) -> Result<Response<E>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_bottom_k_by(self.query(), field.as_ref(), take_count)
     }
 
     /// Execute and return distinct projected field values for the effective

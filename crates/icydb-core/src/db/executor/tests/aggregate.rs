@@ -1695,6 +1695,73 @@ fn aggregate_field_target_top_k_by_optional_field_null_values_match_projection_e
 }
 
 #[test]
+fn aggregate_field_target_bottom_k_by_optional_field_null_values_match_projection_errors() {
+    seed_phase_entities_custom(vec![
+        PhaseEntity {
+            id: Ulid::from_u128(8_3301),
+            opt_rank: None,
+            rank: 1,
+            tags: vec![1],
+            label: "phase-1".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3302),
+            opt_rank: Some(10),
+            rank: 2,
+            tags: vec![2],
+            label: "phase-2".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3303),
+            opt_rank: Some(20),
+            rank: 3,
+            tags: vec![3],
+            label: "phase-3".to_string(),
+        },
+    ]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            .order_by("rank")
+            .plan()
+            .expect("optional-field projection/bottom-k null-semantics plan should build")
+    };
+    let values_err = load
+        .values_by(build_plan(), "opt_rank")
+        .expect_err("values_by(opt_rank) should reject null field values");
+    let bottom_k_err = load
+        .bottom_k_by(build_plan(), "opt_rank", 2)
+        .expect_err("bottom_k_by(opt_rank, 2) should reject null field values");
+
+    assert_eq!(
+        values_err.class,
+        ErrorClass::InvariantViolation,
+        "values_by(opt_rank) should classify null-value mismatch as invariant violation"
+    );
+    assert_eq!(
+        bottom_k_err.class,
+        ErrorClass::InvariantViolation,
+        "bottom_k_by(opt_rank, 2) should classify null-value mismatch as invariant violation"
+    );
+    assert!(
+        values_err
+            .message
+            .contains("aggregate target field value type mismatch"),
+        "values_by(opt_rank) should expose type-mismatch reason for null values"
+    );
+    assert!(
+        bottom_k_err
+            .message
+            .contains("aggregate target field value type mismatch"),
+        "bottom_k_by(opt_rank, 2) should expose type-mismatch reason for null values"
+    );
+    assert!(
+        values_err.message.contains("value=Null") && bottom_k_err.message.contains("value=Null"),
+        "bottom_k_by(opt_rank, 2) should report null payload mismatch consistently with values_by(opt_rank)"
+    );
+}
+
+#[test]
 fn aggregate_field_target_top_k_by_missing_field_parity_matches_values_by() {
     seed_pushdown_entities(&[(8_3381, 7, 10), (8_3382, 7, 20), (8_3383, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
@@ -1722,6 +1789,39 @@ fn aggregate_field_target_top_k_by_missing_field_parity_matches_values_by() {
     assert!(
         top_k_err.message.contains("unknown aggregate target field"),
         "top_k_by(missing_field, 2) should surface the same unknown-field reason"
+    );
+}
+
+#[test]
+fn aggregate_field_target_bottom_k_by_missing_field_parity_matches_values_by() {
+    seed_pushdown_entities(&[(8_3381, 7, 10), (8_3382, 7, 20), (8_3383, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .order_by("id")
+            .plan()
+            .expect("missing-field parity plan should build")
+    };
+    let values_err = load
+        .values_by(build_plan(), "missing_field")
+        .expect_err("values_by(missing_field) should be rejected");
+    let bottom_k_err = load
+        .bottom_k_by(build_plan(), "missing_field", 2)
+        .expect_err("bottom_k_by(missing_field, 2) should be rejected");
+
+    assert_eq!(
+        bottom_k_err.class, values_err.class,
+        "bottom_k_by(missing_field, 2) should classify unknown-field failures the same way as values_by(missing_field)"
+    );
+    assert_eq!(
+        bottom_k_err.origin, values_err.origin,
+        "bottom_k_by(missing_field, 2) should preserve unknown-field origin parity with values_by(missing_field)"
+    );
+    assert!(
+        bottom_k_err
+            .message
+            .contains("unknown aggregate target field"),
+        "bottom_k_by(missing_field, 2) should surface the same unknown-field reason"
     );
 }
 
@@ -2042,6 +2142,67 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
     assert_eq!(
         top_k_scanned, 0,
         "top_k_by unknown-field target should fail before scan-budget consumption"
+    );
+
+    let (bottom_k_result, bottom_k_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.bottom_k_by(build_plan(), "missing_field", 2)
+        });
+    let Err(bottom_k_err) = bottom_k_result else {
+        panic!("bottom_k_by(missing_field, k) should be rejected");
+    };
+    assert_eq!(bottom_k_err.class, ErrorClass::Unsupported);
+    assert_eq!(bottom_k_err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        bottom_k_scanned, 0,
+        "bottom_k_by unknown-field target should fail before scan-budget consumption"
+    );
+}
+
+#[test]
+fn aggregate_field_target_top_and_bottom_k_by_non_orderable_field_fail_without_scan() {
+    seed_phase_entities(&[(8_1991, 10), (8_1992, 20), (8_1993, 30)]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            .order_by("id")
+            .plan()
+            .expect("top/bottom non-orderable target plan should build")
+    };
+
+    let (top_k_result, top_k_scanned) = capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
+        load.top_k_by(build_plan(), "tags", 2)
+    });
+    let Err(top_k_err) = top_k_result else {
+        panic!("top_k_by(tags, 2) should be rejected");
+    };
+    assert_eq!(top_k_err.class, ErrorClass::Unsupported);
+    assert_eq!(top_k_err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        top_k_scanned, 0,
+        "top_k_by non-orderable field target should fail before scan-budget consumption"
+    );
+    assert!(
+        top_k_err.message.contains("does not support ordering"),
+        "top_k_by(tags, 2) should preserve non-orderable field taxonomy: {top_k_err:?}"
+    );
+
+    let (bottom_k_result, bottom_k_scanned) =
+        capture_rows_scanned_for_entity(PhaseEntity::PATH, || {
+            load.bottom_k_by(build_plan(), "tags", 2)
+        });
+    let Err(bottom_k_err) = bottom_k_result else {
+        panic!("bottom_k_by(tags, 2) should be rejected");
+    };
+    assert_eq!(bottom_k_err.class, ErrorClass::Unsupported);
+    assert_eq!(bottom_k_err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        bottom_k_scanned, 0,
+        "bottom_k_by non-orderable field target should fail before scan-budget consumption"
+    );
+    assert!(
+        bottom_k_err.message.contains("does not support ordering"),
+        "bottom_k_by(tags, 2) should preserve non-orderable field taxonomy: {bottom_k_err:?}"
     );
 }
 
@@ -4095,6 +4256,55 @@ fn session_load_top_k_by_matches_execute_field_ordering() {
 }
 
 #[test]
+fn session_load_bottom_k_by_matches_execute_field_ordering() {
+    seed_pushdown_entities(&[
+        (8_3721, 7, 20),
+        (8_3722, 7, 40),
+        (8_3723, 7, 40),
+        (8_3724, 7, 10),
+        (8_3725, 7, 30),
+        (8_3726, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(0)
+            .limit(5)
+    };
+
+    let expected = load_window()
+        .execute()
+        .expect("baseline execute for bottom_k_by should succeed");
+    let actual_bottom_three = load_window()
+        .bottom_k_by("rank", 3)
+        .expect("session bottom_k_by(rank, 3) should succeed");
+    let mut expected_rank_order = expected
+        .0
+        .iter()
+        .map(|(id, entity)| (entity.rank, *id))
+        .collect::<Vec<_>>();
+    expected_rank_order.sort_unstable_by(|(left_rank, left_id), (right_rank, right_id)| {
+        left_rank
+            .cmp(right_rank)
+            .then_with(|| left_id.key().cmp(&right_id.key()))
+    });
+    let expected_bottom_three_ids: Vec<Id<PushdownParityEntity>> = expected_rank_order
+        .into_iter()
+        .take(3)
+        .map(|(_, id)| id)
+        .collect();
+
+    assert_eq!(
+        actual_bottom_three.ids(),
+        expected_bottom_three_ids,
+        "session bottom_k_by(rank, 3) should match execute() reduced by deterministic (rank asc, id asc) ordering"
+    );
+}
+
+#[test]
 fn session_load_top_k_by_is_direction_invariant_for_same_effective_window() {
     seed_pushdown_entities(&[
         (8_3711, 7, 10),
@@ -4122,6 +4332,195 @@ fn session_load_top_k_by_is_direction_invariant_for_same_effective_window() {
         asc.ids(),
         desc.ids(),
         "top_k_by(rank, k) should be invariant to ASC/DESC base scan direction over the same effective row set"
+    );
+}
+
+#[test]
+fn session_load_bottom_k_by_is_direction_invariant_for_same_effective_window() {
+    seed_pushdown_entities(&[
+        (8_3731, 7, 10),
+        (8_3732, 7, 40),
+        (8_3733, 7, 20),
+        (8_3734, 7, 30),
+        (8_3735, 7, 40),
+        (8_3736, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let asc = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("id")
+        .bottom_k_by("rank", 3)
+        .expect("session bottom_k_by(rank, 3) ASC base order should succeed");
+    let desc = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by_desc("id")
+        .bottom_k_by("rank", 3)
+        .expect("session bottom_k_by(rank, 3) DESC base order should succeed");
+
+    assert_eq!(
+        asc.ids(),
+        desc.ids(),
+        "bottom_k_by(rank, k) should be invariant to ASC/DESC base scan direction over the same effective row set"
+    );
+}
+
+#[test]
+fn aggregate_field_target_top_k_by_k_one_matches_max_by_ids_with_ties() {
+    seed_pushdown_entities(&[
+        (8_3741, 7, 90),
+        (8_3742, 7, 40),
+        (8_3743, 7, 90),
+        (8_3744, 7, 20),
+        (8_3745, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .limit(4)
+            .plan()
+            .expect("top_k_by(rank, 1) equivalence plan should build")
+    };
+
+    let (top_one, scanned_top) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.top_k_by(build_plan(), "rank", 1)
+                .expect("top_k_by(rank, 1) should succeed")
+        });
+    let (max_id, scanned_max) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_max_by(build_plan(), "rank")
+            .expect("max_by(rank) should succeed")
+    });
+    let top_one_ids = top_one.ids();
+    let expected_max_ids: Vec<Id<PushdownParityEntity>> = max_id.into_iter().collect();
+
+    assert_eq!(
+        top_one_ids, expected_max_ids,
+        "top_k_by(rank, 1) should match max_by(rank) over the same effective response window"
+    );
+    assert_eq!(
+        top_one_ids.first().map(|id| id.key()),
+        Some(Ulid::from_u128(8_3741)),
+        "top_k_by(rank, 1) should preserve deterministic pk-ascending tie-breaks"
+    );
+    assert!(
+        scanned_top >= scanned_max,
+        "top_k_by(rank, 1) may scan equal or more rows than max_by(rank), but must not scan fewer"
+    );
+}
+
+#[test]
+fn aggregate_field_target_bottom_k_by_k_one_matches_min_by_ids_with_ties() {
+    seed_pushdown_entities(&[
+        (8_3751, 7, 10),
+        (8_3752, 7, 30),
+        (8_3753, 7, 10),
+        (8_3754, 7, 40),
+        (8_3755, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .limit(4)
+            .plan()
+            .expect("bottom_k_by(rank, 1) equivalence plan should build")
+    };
+
+    let (bottom_one, scanned_bottom) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.bottom_k_by(build_plan(), "rank", 1)
+                .expect("bottom_k_by(rank, 1) should succeed")
+        });
+    let (min_id, scanned_min) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_min_by(build_plan(), "rank")
+            .expect("min_by(rank) should succeed")
+    });
+    let bottom_one_ids = bottom_one.ids();
+    let expected_min_ids: Vec<Id<PushdownParityEntity>> = min_id.into_iter().collect();
+
+    assert_eq!(
+        bottom_one_ids, expected_min_ids,
+        "bottom_k_by(rank, 1) should match min_by(rank) over the same effective response window"
+    );
+    assert_eq!(
+        bottom_one_ids.first().map(|id| id.key()),
+        Some(Ulid::from_u128(8_3751)),
+        "bottom_k_by(rank, 1) should preserve deterministic pk-ascending tie-breaks"
+    );
+    assert!(
+        scanned_bottom >= scanned_min,
+        "bottom_k_by(rank, 1) may scan equal or more rows than min_by(rank), but must not scan fewer"
+    );
+}
+
+#[test]
+fn aggregate_field_target_take_and_rank_terminals_k_zero_return_empty_with_execute_scan_parity() {
+    seed_pushdown_entities(&[
+        (8_3761, 7, 10),
+        (8_3762, 7, 20),
+        (8_3763, 7, 30),
+        (8_3764, 7, 40),
+        (8_3765, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(1)
+            .limit(3)
+            .plan()
+            .expect("k-zero terminal plan should build")
+    };
+
+    let (_, scanned_execute) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.execute(build_plan())
+            .expect("execute baseline for k-zero terminal parity should succeed")
+    });
+    let (take_zero, scanned_take_zero) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.take(build_plan(), 0)
+                .expect("take(0) should succeed and return an empty response")
+        });
+    let (top_k_zero, scanned_top_k_zero) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.top_k_by(build_plan(), "rank", 0)
+                .expect("top_k_by(rank, 0) should succeed and return an empty response")
+        });
+    let (bottom_k_zero, scanned_bottom_k_zero) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.bottom_k_by(build_plan(), "rank", 0)
+                .expect("bottom_k_by(rank, 0) should succeed and return an empty response")
+        });
+
+    assert!(
+        take_zero.is_empty(),
+        "take(0) should return an empty response"
+    );
+    assert!(
+        top_k_zero.is_empty(),
+        "top_k_by(rank, 0) should return an empty response"
+    );
+    assert!(
+        bottom_k_zero.is_empty(),
+        "bottom_k_by(rank, 0) should return an empty response"
+    );
+    assert_eq!(
+        scanned_take_zero, scanned_execute,
+        "take(0) should preserve execute() scan-budget consumption before truncation"
+    );
+    assert_eq!(
+        scanned_top_k_zero, scanned_execute,
+        "top_k_by(rank, 0) should preserve execute() scan-budget consumption before truncation"
+    );
+    assert_eq!(
+        scanned_bottom_k_zero, scanned_execute,
+        "bottom_k_by(rank, 0) should preserve execute() scan-budget consumption before truncation"
     );
 }
 
@@ -4463,6 +4862,262 @@ fn aggregate_field_target_top_k_by_uses_bounded_execute_window_and_scan_budget_p
         bounded_top_k.ids(),
         unbounded_top_k.ids(),
         "top_k_by bounded-window behavior should differ from unbounded query behavior on the same dataset"
+    );
+}
+
+#[test]
+fn aggregate_field_target_bottom_k_by_uses_bounded_execute_window_and_scan_budget_parity() {
+    seed_pushdown_entities(&[
+        (8_3821, 7, 100),
+        (8_3822, 7, 90),
+        (8_3823, 7, 80),
+        (8_3824, 7, 10),
+        (8_3825, 7, 20),
+        (8_3826, 7, 30),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_bounded_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .limit(3)
+            .plan()
+            .expect("bottom_k_by bounded-window scan-budget parity plan should build")
+    };
+    let build_unbounded_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by("id")
+            .plan()
+            .expect("bottom_k_by unbounded-window plan should build")
+    };
+
+    let (bounded_execute, scanned_execute) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.execute(build_bounded_plan())
+                .expect("bottom_k_by bounded-window execute baseline should succeed")
+        });
+    let (bounded_bottom_k, scanned_bottom_k) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.bottom_k_by(build_bounded_plan(), "rank", 2)
+                .expect("bottom_k_by(rank, 2) bounded-window query should succeed")
+        });
+    let unbounded_bottom_k = load
+        .bottom_k_by(build_unbounded_plan(), "rank", 2)
+        .expect("bottom_k_by(rank, 2) unbounded-window query should succeed");
+    let mut expected_rank_order = bounded_execute
+        .0
+        .iter()
+        .map(|(id, entity)| (entity.rank, *id))
+        .collect::<Vec<_>>();
+    expected_rank_order.sort_unstable_by(|(left_rank, left_id), (right_rank, right_id)| {
+        left_rank
+            .cmp(right_rank)
+            .then_with(|| left_id.key().cmp(&right_id.key()))
+    });
+    let expected_bounded_bottom_ids: Vec<Id<PushdownParityEntity>> = expected_rank_order
+        .into_iter()
+        .take(2)
+        .map(|(_, id)| id)
+        .collect();
+
+    assert_eq!(
+        bounded_bottom_k.ids(),
+        expected_bounded_bottom_ids,
+        "bottom_k_by(rank, 2) should rank only within the bounded effective execute() window"
+    );
+    assert_eq!(
+        scanned_bottom_k, scanned_execute,
+        "bottom_k_by must preserve scan-budget consumption parity with execute() for bounded windows"
+    );
+    assert_ne!(
+        bounded_bottom_k.ids(),
+        unbounded_bottom_k.ids(),
+        "bottom_k_by bounded-window behavior should differ from unbounded query behavior on the same dataset"
+    );
+}
+
+#[test]
+fn aggregate_field_target_top_k_by_forced_full_scan_and_index_range_match_execute_oracle() {
+    seed_simple_entities(&[8_3901, 8_3902, 8_3903, 8_3904, 8_3905, 8_3906]);
+    let simple_load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let build_full_scan_plan = || {
+        Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            .order_by("id")
+            .offset(1)
+            .limit(4)
+            .plan()
+            .expect("top_k_by full-scan plan should build")
+    };
+    let full_scan_plan = build_full_scan_plan();
+    assert!(
+        matches!(full_scan_plan.explain().access, ExplainAccessPath::FullScan),
+        "top_k_by full-scan test must force a FullScan access shape"
+    );
+
+    let full_scan_execute = simple_load
+        .execute(build_full_scan_plan())
+        .expect("top_k_by full-scan execute baseline should succeed");
+    let full_scan_top = simple_load
+        .top_k_by(build_full_scan_plan(), "id", 2)
+        .expect("top_k_by(id, 2) should succeed for full-scan shape");
+    let mut expected_full_scan_top_ids = full_scan_execute.ids();
+    expected_full_scan_top_ids.sort_unstable_by(|left, right| right.key().cmp(&left.key()));
+    expected_full_scan_top_ids.truncate(2);
+    assert_eq!(
+        full_scan_top.ids(),
+        expected_full_scan_top_ids,
+        "top_k_by(id, 2) should match execute() oracle under forced FullScan"
+    );
+
+    seed_unique_index_range_entities(&[
+        (8_3911, 100),
+        (8_3912, 101),
+        (8_3913, 102),
+        (8_3914, 103),
+        (8_3915, 104),
+        (8_3916, 105),
+    ]);
+    let range_load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+    let code_range = u32_range_predicate("code", 101, 106);
+    let build_index_range_plan = || {
+        Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+            .filter(code_range.clone())
+            .order_by_desc("code")
+            .offset(1)
+            .limit(3)
+            .plan()
+            .expect("top_k_by index-range plan should build")
+    };
+    let index_range_plan = build_index_range_plan();
+    assert!(
+        matches!(
+            index_range_plan.explain().access,
+            ExplainAccessPath::IndexRange { .. }
+        ),
+        "top_k_by index-range test must force an IndexRange access shape"
+    );
+
+    let index_range_execute = range_load
+        .execute(build_index_range_plan())
+        .expect("top_k_by index-range execute baseline should succeed");
+    let index_range_top = range_load
+        .top_k_by(build_index_range_plan(), "code", 2)
+        .expect("top_k_by(code, 2) should succeed for index-range shape");
+    let mut expected_index_range_top_ids = index_range_execute
+        .0
+        .iter()
+        .map(|(id, entity)| (entity.code, *id))
+        .collect::<Vec<_>>();
+    expected_index_range_top_ids.sort_unstable_by(
+        |(left_code, left_id), (right_code, right_id)| {
+            right_code
+                .cmp(left_code)
+                .then_with(|| left_id.key().cmp(&right_id.key()))
+        },
+    );
+    let expected_index_range_top_ids: Vec<Id<UniqueIndexRangeEntity>> =
+        expected_index_range_top_ids
+            .into_iter()
+            .take(2)
+            .map(|(_, id)| id)
+            .collect();
+    assert_eq!(
+        index_range_top.ids(),
+        expected_index_range_top_ids,
+        "top_k_by(code, 2) should match execute() oracle under forced IndexRange"
+    );
+}
+
+#[test]
+fn aggregate_field_target_bottom_k_by_forced_full_scan_and_index_range_match_execute_oracle() {
+    seed_simple_entities(&[8_3921, 8_3922, 8_3923, 8_3924, 8_3925, 8_3926]);
+    let simple_load = LoadExecutor::<SimpleEntity>::new(DB, false);
+    let build_full_scan_plan = || {
+        Query::<SimpleEntity>::new(ReadConsistency::MissingOk)
+            .order_by("id")
+            .offset(1)
+            .limit(4)
+            .plan()
+            .expect("bottom_k_by full-scan plan should build")
+    };
+    let full_scan_plan = build_full_scan_plan();
+    assert!(
+        matches!(full_scan_plan.explain().access, ExplainAccessPath::FullScan),
+        "bottom_k_by full-scan test must force a FullScan access shape"
+    );
+
+    let full_scan_execute = simple_load
+        .execute(build_full_scan_plan())
+        .expect("bottom_k_by full-scan execute baseline should succeed");
+    let full_scan_bottom = simple_load
+        .bottom_k_by(build_full_scan_plan(), "id", 2)
+        .expect("bottom_k_by(id, 2) should succeed for full-scan shape");
+    let mut expected_full_scan_bottom_ids = full_scan_execute.ids();
+    expected_full_scan_bottom_ids.sort_unstable_by(|left, right| left.key().cmp(&right.key()));
+    expected_full_scan_bottom_ids.truncate(2);
+    assert_eq!(
+        full_scan_bottom.ids(),
+        expected_full_scan_bottom_ids,
+        "bottom_k_by(id, 2) should match execute() oracle under forced FullScan"
+    );
+
+    seed_unique_index_range_entities(&[
+        (8_3931, 100),
+        (8_3932, 101),
+        (8_3933, 102),
+        (8_3934, 103),
+        (8_3935, 104),
+        (8_3936, 105),
+    ]);
+    let range_load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
+    let code_range = u32_range_predicate("code", 101, 106);
+    let build_index_range_plan = || {
+        Query::<UniqueIndexRangeEntity>::new(ReadConsistency::MissingOk)
+            .filter(code_range.clone())
+            .order_by_desc("code")
+            .offset(1)
+            .limit(3)
+            .plan()
+            .expect("bottom_k_by index-range plan should build")
+    };
+    let index_range_plan = build_index_range_plan();
+    assert!(
+        matches!(
+            index_range_plan.explain().access,
+            ExplainAccessPath::IndexRange { .. }
+        ),
+        "bottom_k_by index-range test must force an IndexRange access shape"
+    );
+
+    let index_range_execute = range_load
+        .execute(build_index_range_plan())
+        .expect("bottom_k_by index-range execute baseline should succeed");
+    let index_range_bottom = range_load
+        .bottom_k_by(build_index_range_plan(), "code", 2)
+        .expect("bottom_k_by(code, 2) should succeed for index-range shape");
+    let mut expected_index_range_bottom_ids = index_range_execute
+        .0
+        .iter()
+        .map(|(id, entity)| (entity.code, *id))
+        .collect::<Vec<_>>();
+    expected_index_range_bottom_ids.sort_unstable_by(
+        |(left_code, left_id), (right_code, right_id)| {
+            left_code
+                .cmp(right_code)
+                .then_with(|| left_id.key().cmp(&right_id.key()))
+        },
+    );
+    let expected_index_range_bottom_ids: Vec<Id<UniqueIndexRangeEntity>> =
+        expected_index_range_bottom_ids
+            .into_iter()
+            .take(2)
+            .map(|(_, id)| id)
+            .collect();
+    assert_eq!(
+        index_range_bottom.ids(),
+        expected_index_range_bottom_ids,
+        "bottom_k_by(code, 2) should match execute() oracle under forced IndexRange"
     );
 }
 

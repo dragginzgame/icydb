@@ -40,6 +40,17 @@ where
         self.execute_top_k_field_terminal(plan, target_field.as_str(), take_count)
     }
 
+    pub(in crate::db) fn bottom_k_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+        take_count: u32,
+    ) -> Result<Response<E>, InternalError> {
+        let target_field = target_field.into();
+
+        self.execute_bottom_k_field_terminal(plan, target_field.as_str(), take_count)
+    }
+
     // Execute one row-terminal take (`take(k)`) via canonical materialized
     // response semantics.
     fn execute_take_terminal(
@@ -71,6 +82,21 @@ where
         Self::top_k_field_from_materialized(response, target_field, field_slot, take_count)
     }
 
+    // Execute one row terminal (`bottom_k_by(field, k)`) over the effective
+    // materialized response window.
+    fn execute_bottom_k_field_terminal(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: &str,
+        take_count: u32,
+    ) -> Result<Response<E>, InternalError> {
+        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
+            .map_err(Self::map_terminal_field_value_error)?;
+        let response = self.execute(plan)?;
+
+        Self::bottom_k_field_from_materialized(response, target_field, field_slot, take_count)
+    }
+
     // Reduce one materialized response into a deterministic top-k response
     // ordered by `(field_value_desc, primary_key_asc)`.
     fn top_k_field_from_materialized(
@@ -88,6 +114,43 @@ where
                 let ordering = compare_orderable_field_values(target_field, &value, current_value)
                     .map_err(Self::map_terminal_field_value_error)?;
                 if ordering == Ordering::Greater
+                    || (ordering == Ordering::Equal && id.key() < current_id.key())
+                {
+                    insert_index = index;
+                    break;
+                }
+            }
+            ordered_rows.insert(insert_index, (id, entity, value));
+        }
+        let take_len = usize::try_from(take_count).unwrap_or(usize::MAX);
+        if ordered_rows.len() > take_len {
+            ordered_rows.truncate(take_len);
+        }
+        let output_rows = ordered_rows
+            .into_iter()
+            .map(|(id, entity, _)| (id, entity))
+            .collect();
+
+        Ok(Response(output_rows))
+    }
+
+    // Reduce one materialized response into a deterministic bottom-k response
+    // ordered by `(field_value_asc, primary_key_asc)`.
+    fn bottom_k_field_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        field_slot: FieldSlot,
+        take_count: u32,
+    ) -> Result<Response<E>, InternalError> {
+        let mut ordered_rows: Vec<(Id<E>, E, Value)> = Vec::new();
+        for (id, entity) in response {
+            let value = extract_orderable_field_value(&entity, target_field, field_slot)
+                .map_err(Self::map_terminal_field_value_error)?;
+            let mut insert_index = ordered_rows.len();
+            for (index, (current_id, _, current_value)) in ordered_rows.iter().enumerate() {
+                let ordering = compare_orderable_field_values(target_field, &value, current_value)
+                    .map_err(Self::map_terminal_field_value_error)?;
+                if ordering == Ordering::Less
                     || (ordering == Ordering::Equal && id.key() < current_id.key())
                 {
                     insert_index = index;

@@ -5,6 +5,24 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.28.4] - 2026-02-24 - BOTTOM_K_BY
+
+### 📝 Summary
+
+* Adds deterministic bottom-k row selection and rounds out top/bottom terminal parity.
+
+### ➕ Added
+
+* Added `bottom_k_by("field", k)` as the ascending counterpart to `top_k_by`, with deterministic `(field asc, primary_key asc)` ordering.
+* Kept terminal semantics aligned with canonical execution: top/bottom ranking is applied over the effective response window.
+* Documented `k = 1` equivalence for row terminals with existing `max_by(field)` / `min_by(field)` selection semantics.
+
+### 🧪 Testing
+
+* Added parity coverage for `bottom_k_by` ordering, ASC/DESC direction invariance, null/missing-field behavior, and bounded-window scan-budget semantics.
+
+---
+
 ## [0.28.3] - 2026-02-24 - TOP_K_BY and TAKE
 
 ### 📝 Summary

@@ -421,6 +421,24 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::Execute)
     }
 
+    pub(crate) fn execute_load_query_bottom_k_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+        take_count: u32,
+    ) -> Result<Response<E>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .bottom_k_by(plan, target_field, take_count)
+        })
+        .map_err(QueryError::Execute)
+    }
+
     pub(crate) fn execute_load_query_distinct_values_by<E>(
         &self,
         query: &Query<E>,
