@@ -18,7 +18,6 @@ use crate::{
     traits::{EntityKind, FieldValue},
     value::Value,
 };
-use std::{cmp::Ordering, ops::Bound};
 
 /// Validate and materialize an executable cursor through the canonical spine.
 #[expect(clippy::too_many_arguments)]
@@ -40,13 +39,7 @@ where
         return Ok(PlannedCursor::none());
     };
 
-    let token = decode_validated_cursor(
-        cursor,
-        entity_path,
-        expected_signature,
-        direction,
-        expected_initial_offset,
-    )?;
+    let token = decode_validated_cursor(cursor, entity_path, expected_signature)?;
     validate_structured_cursor::<E>(
         token.boundary().clone(),
         token.index_range_anchor().cloned(),
@@ -55,6 +48,8 @@ where
         model,
         order,
         direction,
+        token.direction(),
+        expected_initial_offset,
         true,
     )
 }
@@ -76,9 +71,6 @@ where
         return Ok(PlannedCursor::none());
     }
 
-    // Reuse the canonical cursor window compatibility check.
-    validate_cursor_window_offset(expected_initial_offset, cursor.initial_offset())?;
-
     let boundary = cursor.boundary().cloned().ok_or_else(|| {
         PlanError::invalid_continuation_cursor_payload("continuation cursor boundary is missing")
     })?;
@@ -95,6 +87,8 @@ where
         model,
         order,
         direction,
+        direction,
+        expected_initial_offset,
         false,
     )
 }
@@ -108,147 +102,17 @@ impl PlanError {
     }
 }
 
-///
-/// DirectionComparator
-///
-/// Direction-aware key comparator used by cursor resume and continuation checks.
-/// Keeps strict "after anchor" semantics in one place.
-///
-
-struct DirectionComparator {
-    direction: Direction,
-}
-
-impl DirectionComparator {
-    const fn new(direction: Direction) -> Self {
-        Self { direction }
-    }
-
-    fn compare<K: Ord>(&self, left: &K, right: &K) -> Ordering {
-        match self.direction {
-            Direction::Asc => left.cmp(right),
-            Direction::Desc => right.cmp(left),
-        }
-    }
-
-    fn is_strictly_after<K: Ord>(&self, candidate: &K, anchor: &K) -> bool {
-        self.compare(candidate, anchor).is_gt()
-    }
-
-    fn apply_anchor<K: Clone>(
-        &self,
-        lower: Bound<K>,
-        upper: Bound<K>,
-        anchor: &K,
-    ) -> (Bound<K>, Bound<K>) {
-        match self.direction {
-            Direction::Asc => (Bound::Excluded(anchor.clone()), upper),
-            Direction::Desc => (lower, Bound::Excluded(anchor.clone())),
-        }
-    }
-}
-
-///
-/// KeyEnvelope
-///
-/// Canonical raw-key envelope with direction-aware continuation semantics.
-/// Centralizes anchor rewrite, containment checks, monotonic advancement, and
-/// empty-envelope detection for cursor continuation paths.
-///
-
-pub(in crate::db) struct KeyEnvelope<K> {
-    comparator: DirectionComparator,
-    lower: Bound<K>,
-    upper: Bound<K>,
-}
-
-impl<K> KeyEnvelope<K>
-where
-    K: Ord + Clone,
-{
-    pub(in crate::db) const fn new(direction: Direction, lower: Bound<K>, upper: Bound<K>) -> Self {
-        Self {
-            comparator: DirectionComparator::new(direction),
-            lower,
-            upper,
-        }
-    }
-
-    // Rewrite the directional continuation edge to strict "after anchor".
-    pub(in crate::db) fn apply_anchor(self, anchor: &K) -> Self {
-        let (lower, upper) = self.comparator.apply_anchor(self.lower, self.upper, anchor);
-        Self {
-            comparator: self.comparator,
-            lower,
-            upper,
-        }
-    }
-
-    pub(in crate::db) fn contains(&self, key: &K) -> bool {
-        let lower_ok = match &self.lower {
-            Bound::Unbounded => true,
-            Bound::Included(boundary) => key >= boundary,
-            Bound::Excluded(boundary) => key > boundary,
-        };
-        let upper_ok = match &self.upper {
-            Bound::Unbounded => true,
-            Bound::Included(boundary) => key <= boundary,
-            Bound::Excluded(boundary) => key < boundary,
-        };
-
-        lower_ok && upper_ok
-    }
-
-    pub(in crate::db) fn continuation_advanced(&self, candidate: &K, anchor: &K) -> bool {
-        self.comparator.is_strictly_after(candidate, anchor)
-    }
-
-    // Envelope emptiness is defined only by raw lower/upper bound relation.
-    // This check is intentionally direction-agnostic.
-    pub(in crate::db) fn is_empty_direction_agnostic(&self) -> bool {
-        let (Some(lower), Some(upper)) = (
-            Self::bound_key_ref(&self.lower),
-            Self::bound_key_ref(&self.upper),
-        ) else {
-            return false;
-        };
-
-        if lower < upper {
-            return false;
-        }
-        if lower > upper {
-            return true;
-        }
-
-        !matches!(&self.lower, Bound::Included(_)) || !matches!(&self.upper, Bound::Included(_))
-    }
-
-    pub(in crate::db) fn into_bounds(self) -> (Bound<K>, Bound<K>) {
-        (self.lower, self.upper)
-    }
-
-    const fn bound_key_ref(bound: &Bound<K>) -> Option<&K> {
-        match bound {
-            Bound::Included(value) | Bound::Excluded(value) => Some(value),
-            Bound::Unbounded => None,
-        }
-    }
-}
-
 // Decode and validate one continuation cursor against a canonical plan surface.
 fn decode_validated_cursor(
     cursor: &[u8],
     entity_path: &'static str,
     expected_signature: ContinuationSignature,
-    expected_direction: Direction,
-    expected_initial_offset: u32,
 ) -> Result<ContinuationToken, PlanError> {
     let token = ContinuationToken::decode(cursor).map_err(map_token_decode_error)?;
 
-    // Canonical compatibility gates: signature, direction, then window shape.
+    // Signature is validated at token-decode boundary. Direction/window and
+    // boundary/anchor invariants are validated together in one shared gate.
     validate_cursor_signature(entity_path, &expected_signature, &token.signature())?;
-    validate_cursor_direction(expected_direction, token.direction())?;
-    validate_cursor_window_offset(expected_initial_offset, token.initial_offset())?;
 
     Ok(token)
 }
@@ -324,30 +188,26 @@ fn validate_structured_cursor<E: EntityKind>(
     access: Option<&AccessPath<E::Key>>,
     model: &EntityModel,
     order: &OrderSpec,
-    direction: Direction,
+    expected_direction: Direction,
+    actual_direction: Direction,
+    expected_initial_offset: u32,
     require_index_range_anchor: bool,
 ) -> Result<PlannedCursor, PlanError>
 where
     E::Key: FieldValue,
 {
-    if boundary.slots.len() != order.fields.len() {
-        return Err(PlanError::from(
-            CursorPlanError::ContinuationCursorBoundaryArityMismatch {
-                expected: order.fields.len(),
-                found: boundary.slots.len(),
-            },
-        ));
-    }
-    validate_cursor_boundary_types(model, order, &boundary)?;
-    validate_index_range_anchor::<E>(
+    validate_cursor_boundary_anchor_invariants::<E>(
+        &boundary,
         index_range_anchor.as_ref(),
         access,
-        direction,
+        model,
+        order,
+        expected_direction,
+        actual_direction,
+        expected_initial_offset,
+        initial_offset,
         require_index_range_anchor,
     )?;
-
-    let pk_key = decode_typed_primary_key_cursor_slot::<E::Key>(model, order, &boundary)?;
-    validate_index_range_boundary_anchor_consistency(index_range_anchor.as_ref(), access, pk_key)?;
 
     let index_range_anchor = index_range_anchor.map(|anchor| anchor.last_raw_key().clone());
 
@@ -356,6 +216,51 @@ where
         index_range_anchor,
         initial_offset,
     ))
+}
+
+// Shared invariant gate for decoded cursor boundary + optional index-range anchor.
+//
+// This is the single cursor-spine boundary for direction, window-shape,
+// boundary arity/type, and index-range anchor compatibility checks.
+#[expect(clippy::too_many_arguments)]
+fn validate_cursor_boundary_anchor_invariants<E: EntityKind>(
+    boundary: &CursorBoundary,
+    index_range_anchor: Option<&IndexRangeCursorAnchor>,
+    access: Option<&AccessPath<E::Key>>,
+    model: &EntityModel,
+    order: &OrderSpec,
+    expected_direction: Direction,
+    actual_direction: Direction,
+    expected_initial_offset: u32,
+    actual_initial_offset: u32,
+    require_index_range_anchor: bool,
+) -> Result<(), PlanError>
+where
+    E::Key: FieldValue,
+{
+    validate_cursor_direction(expected_direction, actual_direction)?;
+    validate_cursor_window_offset(expected_initial_offset, actual_initial_offset)?;
+
+    if boundary.slots.len() != order.fields.len() {
+        return Err(PlanError::from(
+            CursorPlanError::ContinuationCursorBoundaryArityMismatch {
+                expected: order.fields.len(),
+                found: boundary.slots.len(),
+            },
+        ));
+    }
+    validate_cursor_boundary_types(model, order, boundary)?;
+    validate_index_range_anchor::<E>(
+        index_range_anchor,
+        access,
+        actual_direction,
+        require_index_range_anchor,
+    )?;
+
+    let pk_key = decode_typed_primary_key_cursor_slot::<E::Key>(model, order, boundary)?;
+    validate_index_range_boundary_anchor_consistency(index_range_anchor, access, pk_key)?;
+
+    Ok(())
 }
 
 // Validate decoded cursor boundary slot types against canonical order fields.

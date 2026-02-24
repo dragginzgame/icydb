@@ -38,7 +38,7 @@ fn ensure_spec_exactly_one_if_enabled(
 }
 
 // Shared helper for prefix-spec arity checks used by load and aggregate routes.
-pub(super) fn ensure_prefix_spec_at_most_one_if_enabled(
+pub(in crate::db::executor) fn ensure_prefix_spec_at_most_one_if_enabled(
     fast_path_enabled: bool,
     index_prefix_spec_count: usize,
     message: &'static str,
@@ -47,7 +47,7 @@ pub(super) fn ensure_prefix_spec_at_most_one_if_enabled(
 }
 
 // Shared helper for range-spec arity checks used by load and aggregate routes.
-pub(super) fn ensure_range_spec_at_most_one_if_enabled(
+pub(in crate::db::executor) fn ensure_range_spec_at_most_one_if_enabled(
     fast_path_enabled: bool,
     index_range_spec_count: usize,
     message: &'static str,
@@ -57,7 +57,7 @@ pub(super) fn ensure_range_spec_at_most_one_if_enabled(
 
 // Guard secondary aggregate fast-path assumptions so index-prefix
 // spec consumption cannot silently drift if planner shapes evolve.
-pub(super) fn ensure_secondary_aggregate_fast_path_arity(
+pub(in crate::db::executor) fn ensure_secondary_aggregate_fast_path_arity(
     secondary_pushdown_eligible: bool,
     index_prefix_spec_count: usize,
 ) -> Result<(), InternalError> {
@@ -70,7 +70,7 @@ pub(super) fn ensure_secondary_aggregate_fast_path_arity(
 
 // Guard index-range aggregate fast-path assumptions so planner/executor
 // spec boundaries remain explicit and drift-resistant.
-pub(super) fn ensure_index_range_aggregate_fast_path_specs(
+pub(in crate::db::executor) fn ensure_index_range_aggregate_fast_path_specs(
     index_range_pushdown_eligible: bool,
     index_prefix_spec_count: usize,
     index_range_spec_count: usize,
@@ -95,7 +95,7 @@ pub(super) fn ensure_index_range_aggregate_fast_path_specs(
 
 // Guard load fast-path assumptions so planner/executor spec boundaries remain
 // explicit and drift-resistant as new fast paths are introduced.
-pub(super) fn ensure_load_fast_path_spec_arity(
+pub(in crate::db::executor) fn ensure_load_fast_path_spec_arity(
     secondary_pushdown_eligible: bool,
     index_prefix_spec_count: usize,
     index_range_pushdown_eligible: bool,

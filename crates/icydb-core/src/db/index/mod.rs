@@ -1,13 +1,16 @@
 mod entry;
+pub(in crate::db) mod envelope;
 mod fingerprint;
 mod key;
 mod plan;
+pub(in crate::db) mod predicate;
 mod range;
 mod store;
 
 pub(in crate::db) use entry::{
     IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,
 };
+pub(in crate::db) use envelope::{KeyEnvelope, continuation_advances_from_ordering};
 pub(crate) use fingerprint::hash_value;
 #[cfg(test)]
 pub(in crate::db) use key::encode_canonical_index_component;

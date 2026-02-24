@@ -20,6 +20,32 @@ fn invalid_continuation_cursor_payload(reason: impl Into<String>) -> PlanError {
     })
 }
 
+// Decode one index-range anchor raw key and enforce canonical round-trip encoding.
+// This defends against future token-shape drift where decode might accept a
+// representation that does not serialize back to identical raw bytes.
+fn decode_canonical_index_range_anchor_key(
+    anchor: &IndexRangeCursorAnchor,
+) -> Result<IndexKey, PlanError> {
+    let decoded_key = IndexKey::try_from_raw(anchor.last_raw_key()).map_err(|err| {
+        invalid_continuation_cursor_payload(format!(
+            "index-range continuation anchor decode failed: {err}"
+        ))
+    })?;
+    let canonical_raw = decoded_key.to_raw();
+    debug_assert_eq!(
+        canonical_raw.as_bytes(),
+        anchor.last_raw_key().as_bytes(),
+        "index-range continuation anchor must round-trip to identical raw bytes",
+    );
+    if canonical_raw.as_bytes() != anchor.last_raw_key().as_bytes() {
+        return Err(invalid_continuation_cursor_payload(
+            "index-range continuation anchor canonical encoding mismatch",
+        ));
+    }
+
+    Ok(decoded_key)
+}
+
 // Validate optional index-range cursor anchor against the planned access envelope.
 //
 // IMPORTANT CROSS-LAYER CONTRACT:
@@ -54,11 +80,7 @@ pub(in crate::db::query) fn validate_index_range_anchor<E: EntityKind>(
         };
 
         // Phase 1: decode and classify anchor key-space shape.
-        let decoded_key = IndexKey::try_from_raw(anchor.last_raw_key()).map_err(|err| {
-            invalid_continuation_cursor_payload(format!(
-                "index-range continuation anchor decode failed: {err}"
-            ))
-        })?;
+        let decoded_key = decode_canonical_index_range_anchor_key(anchor)?;
         let expected_index_id = IndexId::new::<E>(index);
 
         if decoded_key.index_id() != &expected_index_id {
@@ -117,11 +139,7 @@ pub(in crate::db::query) fn validate_index_range_boundary_anchor_consistency<K: 
         return Ok(());
     }
 
-    let anchor_key = IndexKey::try_from_raw(anchor.last_raw_key()).map_err(|err| {
-        invalid_continuation_cursor_payload(format!(
-            "index-range continuation anchor decode failed: {err}"
-        ))
-    })?;
+    let anchor_key = decode_canonical_index_range_anchor_key(anchor)?;
     let anchor_storage_key = anchor_key.primary_storage_key().map_err(|err| {
         invalid_continuation_cursor_payload(format!(
             "index-range continuation anchor primary key decode failed: {err}"

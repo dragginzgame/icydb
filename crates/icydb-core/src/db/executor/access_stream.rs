@@ -4,11 +4,10 @@ use crate::{
             Context, IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
             OrderedKeyStreamBox, VecOrderedKeyStream,
         },
-        index::RawIndexKey,
+        index::{RawIndexKey, predicate::IndexPredicateExecution},
         query::{
             ReadConsistency,
             plan::{AccessPath, AccessPlan, Direction, IndexPrefixSpec, IndexRangeSpec},
-            predicate::IndexPredicateExecution,
         },
     },
     error::InternalError,

@@ -1,0 +1,224 @@
+use crate::{
+    db::{
+        Context,
+        executor::{
+            AccessStreamBindings, DistinctOrderedKeyStream, KeyOrderComparator,
+            OrderedKeyStreamBox,
+            aggregate::field::{
+                FieldSlot, extract_orderable_field_value, resolve_any_aggregate_target_slot,
+            },
+            fold::AggregateWindowState,
+            load::LoadExecutor,
+            load::execute::{ExecutionInputs, IndexPredicateCompileMode},
+            plan::{record_plan_metrics, record_rows_scanned},
+            route::ExecutionMode,
+        },
+        query::{
+            plan::{ExecutablePlan, LogicalPlan, validate::validate_executor_plan},
+            predicate::{PredicateFieldSlots, eval_with_slots},
+        },
+        response::Response,
+    },
+    error::InternalError,
+    traits::{EntityKind, EntityValue},
+    value::Value,
+};
+
+impl<E> LoadExecutor<E>
+where
+    E: EntityKind + EntityValue,
+{
+    pub(in crate::db) fn aggregate_count_distinct_by(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+    ) -> Result<u32, InternalError> {
+        let target_field = target_field.into();
+
+        self.execute_count_distinct_field_aggregate(plan, target_field.as_str())
+    }
+
+    // Execute one field-target distinct-count aggregate
+    // (`count_distinct(field)`) via canonical materialized fallback semantics.
+    fn execute_count_distinct_field_aggregate(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: &str,
+    ) -> Result<u32, InternalError> {
+        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
+            .map_err(Self::map_aggregate_field_value_error)?;
+        validate_executor_plan::<E>(plan.as_inner())?;
+        let direction = plan.direction();
+        let route_plan = Self::build_execution_route_plan_for_load(
+            plan.as_inner(),
+            None,
+            None,
+            None,
+            direction,
+        )?;
+        if matches!(route_plan.execution_mode, ExecutionMode::Materialized) {
+            let response = self.execute(plan)?;
+            return Self::aggregate_count_distinct_field_from_materialized(
+                response,
+                target_field,
+                field_slot,
+            );
+        }
+        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+        let index_range_specs = plan.index_range_specs()?.to_vec();
+        let (logical_plan, predicate_slots) = plan.into_parts();
+        validate_executor_plan::<E>(&logical_plan)?;
+        let ctx = self.db.recovered_context::<E>()?;
+        record_plan_metrics(&logical_plan.access);
+        let execution_inputs = ExecutionInputs {
+            ctx: &ctx,
+            plan: &logical_plan,
+            stream_bindings: AccessStreamBindings {
+                index_prefix_specs: index_prefix_specs.as_slice(),
+                index_range_specs: index_range_specs.as_slice(),
+                index_range_anchor: None,
+                direction,
+            },
+            predicate_slots: predicate_slots.as_ref(),
+        };
+        let mut resolved = Self::resolve_execution_key_stream(
+            &execution_inputs,
+            &route_plan,
+            IndexPredicateCompileMode::ConservativeSubset,
+        )?;
+        let (mut distinct_count, keys_scanned, post_access_rows) =
+            Self::fold_streaming_count_distinct_field(
+                &ctx,
+                &logical_plan,
+                predicate_slots.as_ref(),
+                resolved.key_stream.as_mut(),
+                target_field,
+                field_slot,
+            )?;
+        let mut rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
+        if Self::index_range_limited_residual_retry_required(
+            &logical_plan,
+            None,
+            &route_plan,
+            rows_scanned,
+            post_access_rows,
+        ) {
+            let mut fallback_route_plan = route_plan;
+            fallback_route_plan.index_range_limit_spec = None;
+            let mut fallback_resolved = Self::resolve_execution_key_stream(
+                &execution_inputs,
+                &fallback_route_plan,
+                IndexPredicateCompileMode::ConservativeSubset,
+            )?;
+            let (fallback_distinct_count, fallback_keys_scanned, _fallback_post_access_rows) =
+                Self::fold_streaming_count_distinct_field(
+                    &ctx,
+                    &logical_plan,
+                    predicate_slots.as_ref(),
+                    fallback_resolved.key_stream.as_mut(),
+                    target_field,
+                    field_slot,
+                )?;
+            let fallback_rows_scanned = fallback_resolved
+                .rows_scanned_override
+                .unwrap_or(fallback_keys_scanned);
+            rows_scanned = rows_scanned.saturating_add(fallback_rows_scanned);
+            distinct_count = fallback_distinct_count;
+        }
+        record_rows_scanned::<E>(rows_scanned);
+
+        Ok(distinct_count)
+    }
+
+    // Reduce one materialized response into `count_distinct(field)` by
+    // counting unique typed field values across the effective response window.
+    fn aggregate_count_distinct_field_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<u32, InternalError> {
+        let mut distinct_values: Vec<Value> = Vec::new();
+        let mut distinct_count = 0u32;
+        for (_, entity) in response {
+            let value = extract_orderable_field_value(&entity, target_field, field_slot)
+                .map_err(Self::map_aggregate_field_value_error)?;
+            if distinct_values.iter().any(|existing| existing == &value) {
+                continue;
+            }
+
+            distinct_values.push(value);
+            distinct_count = distinct_count.saturating_add(1);
+        }
+
+        Ok(distinct_count)
+    }
+
+    // Fold `count_distinct(field)` directly from the resolved key stream while
+    // preserving canonical filtering and effective-window semantics.
+    fn fold_streaming_count_distinct_field(
+        ctx: &Context<'_, E>,
+        plan: &LogicalPlan<E::Key>,
+        predicate_slots: Option<&PredicateFieldSlots>,
+        key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
+        target_field: &str,
+        field_slot: FieldSlot,
+    ) -> Result<(u32, usize, usize), InternalError> {
+        let mut window = AggregateWindowState::from_plan(plan);
+        let mut distinct_values: Vec<Value> = Vec::new();
+        let mut distinct_count = 0u32;
+        let mut keys_scanned = 0usize;
+        let mut post_access_rows = 0usize;
+
+        while !window.exhausted() {
+            let Some(key) = key_stream.next_key()? else {
+                break;
+            };
+            keys_scanned = keys_scanned.saturating_add(1);
+            let Some(entity) = Self::read_entity_for_field_extrema(ctx, plan.consistency, &key)?
+            else {
+                continue;
+            };
+            if plan.predicate.is_some() {
+                let Some(predicate_slots) = predicate_slots else {
+                    return Err(InternalError::query_executor_invariant(
+                        "post-access filtering requires precompiled predicate slots",
+                    ));
+                };
+                if !eval_with_slots(&entity, predicate_slots) {
+                    continue;
+                }
+            }
+            if !window.accept_existing_row() {
+                continue;
+            }
+            post_access_rows = post_access_rows.saturating_add(1);
+
+            let value = extract_orderable_field_value(&entity, target_field, field_slot)
+                .map_err(Self::map_aggregate_field_value_error)?;
+            if distinct_values.iter().any(|existing| existing == &value) {
+                continue;
+            }
+
+            distinct_values.push(value);
+            distinct_count = distinct_count.saturating_add(1);
+        }
+
+        Ok((distinct_count, keys_scanned, post_access_rows))
+    }
+
+    // Wrap fast-path streams with DISTINCT semantics only when requested.
+    pub(in crate::db::executor::load::aggregate) fn maybe_wrap_distinct_stream(
+        ordered_key_stream: OrderedKeyStreamBox,
+        distinct: bool,
+        key_comparator: KeyOrderComparator,
+    ) -> OrderedKeyStreamBox {
+        if distinct {
+            return Box::new(DistinctOrderedKeyStream::new(
+                ordered_key_stream,
+                key_comparator,
+            ));
+        }
+
+        ordered_key_stream
+    }
+}

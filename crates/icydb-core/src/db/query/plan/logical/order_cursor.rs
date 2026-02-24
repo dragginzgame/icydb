@@ -1,7 +1,12 @@
 use crate::{
-    db::query::{
-        plan::{CursorBoundary, CursorBoundarySlot, OrderDirection, OrderSpec, logical::PlanRow},
-        predicate::coercion::canonical_cmp,
+    db::{
+        index::continuation_advances_from_ordering,
+        query::{
+            plan::{
+                CursorBoundary, CursorBoundarySlot, OrderDirection, OrderSpec, logical::PlanRow,
+            },
+            predicate::coercion::canonical_cmp,
+        },
     },
     model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
@@ -139,7 +144,13 @@ pub(in crate::db::query::plan::logical) fn apply_cursor_boundary<E, R>(
     );
 
     // Strict continuation: keep only rows greater than the boundary under canonical order.
-    rows.retain(|row| compare_entity_with_boundary::<E>(row.entity(), &resolved, boundary).is_gt());
+    rows.retain(|row| {
+        continuation_advances_from_ordering(compare_entity_with_boundary::<E>(
+            row.entity(),
+            &resolved,
+            boundary,
+        ))
+    });
 }
 
 // Compare two entities according to the order spec, returning the first non-equal field ordering.

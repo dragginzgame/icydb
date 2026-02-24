@@ -3,11 +3,11 @@ use crate::{
         data::DataKey,
         index::{
             Direction, IndexKey, continuation_advanced, envelope_is_empty,
+            predicate::{IndexPredicateExecution, eval_index_execution_on_decoded_key},
             range::anchor_within_envelope,
             resume_bounds,
             store::{IndexStore, RawIndexKey},
         },
-        query::predicate::{IndexPredicateExecution, eval_index_execution_on_decoded_key},
     },
     error::InternalError,
     model::index::IndexModel,

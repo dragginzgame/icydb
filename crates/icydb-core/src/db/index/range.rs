@@ -1,8 +1,5 @@
 use crate::{
-    db::{
-        index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey},
-        query::plan::KeyEnvelope,
-    },
+    db::index::{EncodedValue, IndexId, IndexKey, IndexKeyKind, KeyEnvelope, RawIndexKey},
     model::index::IndexModel,
     traits::EntityKind,
 };

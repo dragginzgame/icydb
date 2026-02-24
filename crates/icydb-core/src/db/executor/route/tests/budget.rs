@@ -21,7 +21,7 @@ fn route_feature_budget_execution_mode_cases_stay_within_soft_delta() {
 
 #[test]
 fn route_feature_budget_no_eligibility_helpers_outside_route_module() {
-    let aggregate_source = include_str!("../../load/aggregate.rs");
+    let aggregate_source = include_str!("../../load/aggregate/mod.rs");
     let execute_source = include_str!("../../load/execute.rs");
     let index_range_limit_source = include_str!("../../load/index_range_limit.rs");
     let page_source = include_str!("../../load/page.rs");
@@ -29,7 +29,7 @@ fn route_feature_budget_no_eligibility_helpers_outside_route_module() {
     let secondary_index_source = include_str!("../../load/secondary_index.rs");
     let mod_source = include_str!("mod.rs");
 
-    assert_no_eligibility_helper_defs("aggregate.rs", aggregate_source);
+    assert_no_eligibility_helper_defs("aggregate/mod.rs", aggregate_source);
     assert_no_eligibility_helper_defs("execute.rs", execute_source);
     assert_no_eligibility_helper_defs("index_range_limit.rs", index_range_limit_source);
     assert_no_eligibility_helper_defs("page.rs", page_source);
@@ -41,7 +41,10 @@ fn route_feature_budget_no_eligibility_helpers_outside_route_module() {
 #[test]
 fn load_stream_construction_routes_through_route_facade() {
     let load_sources = [
-        ("load/aggregate.rs", include_str!("../../load/aggregate.rs")),
+        (
+            "load/aggregate/mod.rs",
+            include_str!("../../load/aggregate/mod.rs"),
+        ),
         ("load/execute.rs", include_str!("../../load/execute.rs")),
         (
             "load/fast_stream.rs",

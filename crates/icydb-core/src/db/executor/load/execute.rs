@@ -3,18 +3,18 @@ use crate::{
         Context,
         executor::load::{
             CursorPage, ExecutionOptimization, ExecutionTrace, FastPathKeyResult, LoadExecutor,
-            aggregate_guard::ensure_load_fast_path_spec_arity,
         },
         executor::plan::set_rows_from_len,
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
             OrderedKeyStreamBox,
-            route::{ExecutionRoutePlan, FastPathOrder, RoutedKeyStreamRequest},
+            route::{
+                ExecutionRoutePlan, FastPathOrder, RoutedKeyStreamRequest,
+                ensure_load_fast_path_spec_arity,
+            },
         },
-        query::{
-            plan::LogicalPlan,
-            predicate::{IndexPredicateExecution, IndexPredicateProgram, PredicateFieldSlots},
-        },
+        index::predicate::{IndexPredicateExecution, IndexPredicateProgram},
+        query::{plan::LogicalPlan, predicate::PredicateFieldSlots},
     },
     error::InternalError,
     obs::sink::Span,

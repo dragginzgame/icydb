@@ -220,7 +220,45 @@ Produce:
 
 ---
 
-# STEP 6 — Row ↔ Index Coupling
+# STEP 6 — Partial-Update Index Membership Transitions
+
+Verify partial-update membership transitions for indexed fields:
+
+* old indexed field value -> new indexed field value
+* old `null` -> new value
+* old value -> `null`
+* update removing membership from one index and adding membership to another
+* update with unchanged indexed field (must produce no index mutation)
+
+Invariant:
+
+* Prepared index ops remain minimal, correct, and symmetric.
+
+Produce:
+
+| Transition Case | Prepared Ops Minimal? | Symmetric? | Risk |
+
+---
+
+# STEP 7 — Mixed Unique + Reverse + Secondary Interaction
+
+Verify one update that simultaneously:
+
+* violates unique index
+* modifies reverse relation
+* modifies secondary index
+
+Required ordering invariant:
+
+* No side-effectful mutation or prepared index side effects before uniqueness verdict.
+
+Produce:
+
+| Scenario | Uniqueness Verdict Happens First? | Any Side Effects Before Verdict? | Risk |
+
+---
+
+# STEP 8 — Row ↔ Index Coupling
 
 Verify:
 
@@ -243,7 +281,7 @@ Produce:
 
 ---
 
-# STEP 7 — Recovery Replay Equivalence
+# STEP 9 — Recovery Replay Equivalence
 
 Compare:
 
@@ -265,7 +303,7 @@ Verify:
 
 ---
 
-# STEP 8 — Explicit Attack Scenarios
+# STEP 10 — Explicit Attack Scenarios
 
 Attempt to find:
 
@@ -285,7 +323,7 @@ For each:
 
 ---
 
-# STEP 9 — High Risk Mutation Paths
+# STEP 11 — High Risk Mutation Paths
 
 Identify:
 
@@ -300,7 +338,7 @@ Produce:
 
 ---
 
-# STEP 10 — Storage-Layer Assumptions
+# STEP 12 — Storage-Layer Assumptions
 
 Explicitly list assumptions such as:
 
@@ -316,6 +354,26 @@ Produce:
 
 ---
 
+# STEP 13 — Cross-Layer Continuation Stability (Executor + Index)
+
+This is not index-only. Run as a cross-layer check with cursor/ordering semantics.
+
+Scenario:
+
+* delete rows inside an active paginated index-range window
+
+Verify continuation anchor behavior does not:
+
+* resurrect deleted rows
+* skip next eligible row
+* duplicate rows across pages
+
+Produce:
+
+| Scenario | Resurrection? | Skip? | Duplicate? | Risk |
+
+---
+
 # Required Output Sections
 
 1. Index Invariant Registry
@@ -325,11 +383,14 @@ Produce:
 5. Entry Layout Analysis
 6. Reverse Relation Integrity
 7. Unique Enforcement Equivalence
-8. Row/Index Coupling Analysis
-9. Replay Equivalence Table
-10. High Risk Mutation Paths
-11. Storage-Layer Assumptions
-12. Overall Index Risk Index (1–10, lower is better)
+8. Partial-Update Membership Transitions
+9. Mixed Unique+Reverse+Secondary Ordering Check
+10. Row/Index Coupling Analysis
+11. Replay Equivalence Table
+12. Cross-Layer Continuation Stability
+13. High Risk Mutation Paths
+14. Storage-Layer Assumptions
+15. Overall Index Risk Index (1–10, lower is better)
 
 ---
 

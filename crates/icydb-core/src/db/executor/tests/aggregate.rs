@@ -3,7 +3,10 @@ use crate::{
     db::{
         data::DataKey,
         executor::fold::{AggregateKind, AggregateSpec},
-        query::plan::{ExecutablePlan, ExplainAccessPath},
+        query::plan::{
+            AccessPath, ExecutablePlan, ExplainAccessPath, LogicalPlan, OrderDirection, OrderSpec,
+            PageSpec,
+        },
         response::Response,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -11,6 +14,7 @@ use crate::{
     types::{Decimal, Id},
 };
 use std::cell::RefCell;
+use std::ops::Bound;
 
 ///
 /// AggregateCaptureSink
@@ -1411,6 +1415,215 @@ fn aggregate_field_target_count_distinct_list_order_semantics_are_stable() {
     assert_eq!(
         distinct_count, 3,
         "count_distinct_by(tags) should preserve list-order equality semantics"
+    );
+}
+
+#[test]
+fn aggregate_field_target_count_distinct_residual_retry_parity_and_scan_budget_match_execute() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+    let save = SaveExecutor::<IndexedMetricsEntity>::new(DB, false);
+    for (id, tag, label) in [
+        (8_3101u128, 10u32, "drop-t10"),
+        (8_3102, 11, "drop-t11"),
+        (8_3103, 12, "drop-t12"),
+        (8_3104, 13, "keep-t13"),
+        (8_3105, 14, "keep-t14"),
+        (8_3106, 15, "keep-t15"),
+    ] {
+        save.insert(IndexedMetricsEntity {
+            id: Ulid::from_u128(id),
+            tag,
+            label: label.to_string(),
+        })
+        .expect("indexed metrics seed row save should succeed");
+    }
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
+    let build_plan = || {
+        let mut logical = LogicalPlan::new(
+            AccessPath::IndexRange {
+                index: INDEXED_METRICS_INDEX_MODELS[0],
+                prefix: Vec::new(),
+                lower: Bound::Included(Value::Uint(10)),
+                upper: Bound::Excluded(Value::Uint(16)),
+            },
+            ReadConsistency::MissingOk,
+        );
+        logical.predicate = Some(Predicate::TextContainsCi {
+            field: "label".to_string(),
+            value: Value::Text("keep".to_string()),
+        });
+        logical.order = Some(OrderSpec {
+            fields: vec![
+                ("tag".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        logical.page = Some(PageSpec {
+            limit: Some(2),
+            offset: 0,
+        });
+
+        ExecutablePlan::<IndexedMetricsEntity>::new(logical)
+    };
+
+    let (distinct_count, scanned_count_distinct) =
+        capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
+            load.aggregate_count_distinct_by(build_plan(), "tag")
+                .expect("residual-retry count_distinct_by(tag) should succeed")
+        });
+    let (response, scanned_execute) =
+        capture_rows_scanned_for_entity(IndexedMetricsEntity::PATH, || {
+            load.execute(build_plan())
+                .expect("residual-retry execute baseline should succeed")
+        });
+    let expected_count = {
+        let mut seen_values: Vec<Value> = Vec::new();
+        let mut count = 0u32;
+        for (_, entity) in &response.0 {
+            let value = Value::Uint(u64::from(entity.tag));
+            if seen_values.iter().any(|existing| existing == &value) {
+                continue;
+            }
+            seen_values.push(value);
+            count = count.saturating_add(1);
+        }
+        count
+    };
+
+    assert_eq!(
+        distinct_count, expected_count,
+        "count_distinct_by(tag) should preserve canonical fallback parity for residual-retry index-range shapes"
+    );
+    assert_eq!(
+        scanned_count_distinct, scanned_execute,
+        "count_distinct_by(tag) should preserve scan-budget parity with execute() on residual-retry index-range shapes"
+    );
+}
+
+#[test]
+fn aggregate_field_target_count_distinct_is_direction_invariant() {
+    seed_pushdown_entities(&[
+        (8_3201, 7, 10),
+        (8_3202, 7, 20),
+        (8_3203, 7, 20),
+        (8_3204, 7, 30),
+        (8_3205, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let asc_count = load
+        .aggregate_count_distinct_by(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by("rank")
+                .plan()
+                .expect("direction-invariant ASC plan should build"),
+            "rank",
+        )
+        .expect("direction-invariant ASC count_distinct_by(rank) should succeed");
+    let desc_count = load
+        .aggregate_count_distinct_by(
+            Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+                .filter(u32_eq_predicate("group", 7))
+                .order_by_desc("rank")
+                .order_by_desc("id")
+                .plan()
+                .expect("direction-invariant DESC plan should build"),
+            "rank",
+        )
+        .expect("direction-invariant DESC count_distinct_by(rank) should succeed");
+
+    assert_eq!(
+        asc_count, desc_count,
+        "count_distinct_by(rank) should be invariant to traversal direction over the same effective window"
+    );
+}
+
+#[test]
+fn aggregate_field_target_count_distinct_optional_field_null_values_are_rejected_consistently() {
+    seed_phase_entities_custom(vec![
+        PhaseEntity {
+            id: Ulid::from_u128(8_3301),
+            opt_rank: None,
+            rank: 1,
+            tags: vec![1],
+            label: "phase-1".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3302),
+            opt_rank: Some(10),
+            rank: 2,
+            tags: vec![2],
+            label: "phase-2".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3303),
+            opt_rank: Some(10),
+            rank: 3,
+            tags: vec![3],
+            label: "phase-3".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3304),
+            opt_rank: None,
+            rank: 4,
+            tags: vec![4],
+            label: "phase-4".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3305),
+            opt_rank: Some(20),
+            rank: 5,
+            tags: vec![5],
+            label: "phase-5".to_string(),
+        },
+    ]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let build_plan_asc = || {
+        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            .order_by("rank")
+            .plan()
+            .expect("optional-field null-semantics ASC plan should build")
+    };
+    let build_plan_desc = || {
+        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            .order_by_desc("rank")
+            .order_by_desc("id")
+            .plan()
+            .expect("optional-field null-semantics DESC plan should build")
+    };
+    let asc_err = load
+        .aggregate_count_distinct_by(build_plan_asc(), "opt_rank")
+        .expect_err("count_distinct_by(opt_rank) ASC should reject null field values");
+    let desc_err = load
+        .aggregate_count_distinct_by(build_plan_desc(), "opt_rank")
+        .expect_err("count_distinct_by(opt_rank) DESC should reject null field values");
+
+    assert_eq!(
+        asc_err.class,
+        ErrorClass::InvariantViolation,
+        "count_distinct_by(opt_rank) should classify null-value mismatch as invariant violation"
+    );
+    assert_eq!(
+        desc_err.class,
+        ErrorClass::InvariantViolation,
+        "descending count_distinct_by(opt_rank) should classify null-value mismatch as invariant violation"
+    );
+    assert!(
+        asc_err
+            .message
+            .contains("aggregate target field value type mismatch"),
+        "count_distinct_by(opt_rank) should expose type-mismatch reason for null values"
+    );
+    assert!(
+        desc_err
+            .message
+            .contains("aggregate target field value type mismatch"),
+        "descending count_distinct_by(opt_rank) should expose type-mismatch reason for null values"
+    );
+    assert!(
+        asc_err.message.contains("value=Null") && desc_err.message.contains("value=Null"),
+        "count_distinct_by(opt_rank) should report null payload mismatch consistently across directions"
     );
 }
 

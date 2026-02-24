@@ -1,46 +1,45 @@
+mod distinct;
+mod helpers;
+mod numeric;
+mod projection;
+
 use crate::{
     db::{
         Context,
-        data::DataKey,
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, DistinctOrderedKeyStream,
-            IndexStreamConstraints, OrderedKeyStreamBox, StreamExecutionHints,
+            AccessPlanStreamRequest, AccessStreamBindings, IndexStreamConstraints,
+            StreamExecutionHints,
+            aggregate::field::{
+                FieldSlot, apply_aggregate_direction, compare_entities_by_orderable_field,
+                compare_entities_for_field_extrema, resolve_orderable_aggregate_target_slot,
+            },
             fold::{
                 AggregateFoldMode, AggregateKind, AggregateOutput, AggregateReducerState,
                 AggregateSpec, AggregateWindowState, FoldControl,
             },
             load::{
                 LoadExecutor,
-                aggregate_field::{
-                    AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
-                    compare_entities_by_orderable_field, compare_entities_for_field_extrema,
-                    compare_orderable_field_values, extract_numeric_field_decimal,
-                    extract_orderable_field_value, resolve_any_aggregate_target_slot,
-                    resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
-                },
-                aggregate_guard::{
-                    ensure_index_range_aggregate_fast_path_specs,
-                    ensure_secondary_aggregate_fast_path_arity,
-                },
                 execute::{ExecutionInputs, IndexPredicateCompileMode},
             },
             plan::{record_plan_metrics, record_rows_scanned},
-            route::{ExecutionMode, ExecutionRoutePlan, FastPathOrder, RoutedKeyStreamRequest},
+            route::{
+                ExecutionMode, ExecutionRoutePlan, FastPathOrder, RoutedKeyStreamRequest,
+                ensure_index_range_aggregate_fast_path_specs,
+                ensure_secondary_aggregate_fast_path_arity,
+            },
         },
+        index::predicate::{IndexPredicateExecution, IndexPredicateProgram},
         query::{
             ReadConsistency,
             plan::{
                 AccessPath, Direction, ExecutablePlan, IndexPrefixSpec, IndexRangeSpec,
                 LogicalPlan, validate::validate_executor_plan,
             },
-            predicate::{IndexPredicateExecution, IndexPredicateProgram},
         },
-        response::Response,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
-    types::{Decimal, Id},
-    value::Value,
+    types::Id,
 };
 use std::cmp::Ordering;
 
@@ -52,18 +51,6 @@ use std::cmp::Ordering;
 // 3) Fast-path dispatch via route-owned precedence.
 // 4) Fast-path implementations by access shape.
 // 5) Fallback + terminal utility helpers.
-
-///
-/// NumericFieldAggregateKind
-///
-/// Internal selector for field-target numeric aggregate terminals.
-///
-
-#[derive(Clone, Copy)]
-enum NumericFieldAggregateKind {
-    Sum,
-    Avg,
-}
 
 type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
 
@@ -188,30 +175,6 @@ where
         self.execute_nth_field_aggregate(plan, target_field.as_str(), nth)
     }
 
-    pub(in crate::db) fn aggregate_sum_by(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
-    ) -> Result<Option<Decimal>, InternalError> {
-        self.execute_numeric_field_aggregate(
-            plan,
-            target_field.into().as_str(),
-            NumericFieldAggregateKind::Sum,
-        )
-    }
-
-    pub(in crate::db) fn aggregate_avg_by(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
-    ) -> Result<Option<Decimal>, InternalError> {
-        self.execute_numeric_field_aggregate(
-            plan,
-            target_field.into().as_str(),
-            NumericFieldAggregateKind::Avg,
-        )
-    }
-
     pub(in crate::db) fn aggregate_median_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -222,16 +185,6 @@ where
         self.execute_median_field_aggregate(plan, target_field.as_str())
     }
 
-    pub(in crate::db) fn aggregate_count_distinct_by(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
-    ) -> Result<u32, InternalError> {
-        let target_field = target_field.into();
-
-        self.execute_count_distinct_field_aggregate(plan, target_field.as_str())
-    }
-
     pub(in crate::db) fn aggregate_min_max_by(
         &self,
         plan: ExecutablePlan<E>,
@@ -240,64 +193,6 @@ where
         let target_field = target_field.into();
 
         self.execute_min_max_field_aggregate(plan, target_field.as_str())
-    }
-
-    pub(in crate::db) fn values_by(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
-    ) -> Result<Vec<Value>, InternalError> {
-        let target_field = target_field.into();
-
-        self.execute_values_field_projection(plan, target_field.as_str())
-    }
-
-    pub(in crate::db) fn distinct_values_by(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
-    ) -> Result<Vec<Value>, InternalError> {
-        let target_field = target_field.into();
-
-        self.execute_distinct_values_field_projection(plan, target_field.as_str())
-    }
-
-    pub(in crate::db) fn values_by_with_ids(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
-    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let target_field = target_field.into();
-
-        self.execute_values_with_ids_field_projection(plan, target_field.as_str())
-    }
-
-    pub(in crate::db) fn first_value_by(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
-    ) -> Result<Option<Value>, InternalError> {
-        let target_field = target_field.into();
-
-        self.execute_terminal_value_field_projection(
-            plan,
-            target_field.as_str(),
-            AggregateKind::First,
-        )
-    }
-
-    pub(in crate::db) fn last_value_by(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: impl Into<String>,
-    ) -> Result<Option<Value>, InternalError> {
-        let target_field = target_field.into();
-
-        self.execute_terminal_value_field_projection(
-            plan,
-            target_field.as_str(),
-            AggregateKind::Last,
-        )
     }
 
     pub(in crate::db) fn aggregate_first(
@@ -607,162 +502,46 @@ where
         true
     }
 
-    // Execute one field-target numeric aggregate (`sum(field)` / `avg(field)`)
-    // via canonical materialized fallback semantics.
-    fn execute_numeric_field_aggregate(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-        kind: NumericFieldAggregateKind,
-    ) -> Result<Option<Decimal>, InternalError> {
-        let field_slot = resolve_numeric_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        let response = self.execute(plan)?;
-
-        Self::aggregate_numeric_field_from_materialized(response, target_field, field_slot, kind)
-    }
-
-    // Execute one field-target nth aggregate (`nth(field, n)`) via canonical
-    // materialized fallback semantics.
-    fn execute_nth_field_aggregate(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-        nth: usize,
-    ) -> Result<Option<Id<E>>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        let response = self.execute(plan)?;
-
-        Self::aggregate_nth_field_from_materialized(response, target_field, field_slot, nth)
-    }
-
-    // Execute one field-target median aggregate (`median(field)`) via
-    // canonical materialized fallback semantics.
-    fn execute_median_field_aggregate(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-    ) -> Result<Option<Id<E>>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        let response = self.execute(plan)?;
-
-        Self::aggregate_median_field_from_materialized(response, target_field, field_slot)
-    }
-
-    // Execute one field-target distinct-count aggregate
-    // (`count_distinct(field)`) via canonical materialized fallback semantics.
-    fn execute_count_distinct_field_aggregate(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-    ) -> Result<u32, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        let response = self.execute(plan)?;
-
-        Self::aggregate_count_distinct_field_from_materialized(response, target_field, field_slot)
-    }
-
-    // Execute one field-target paired extrema aggregate (`min_max(field)`)
-    // via canonical materialized fallback semantics.
-    fn execute_min_max_field_aggregate(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-    ) -> Result<MinMaxByIds<E>, InternalError> {
-        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        let response = self.execute(plan)?;
-
-        Self::aggregate_min_max_field_from_materialized(response, target_field, field_slot)
-    }
-
-    // Execute one field-target value projection (`values_by(field)`) via
-    // canonical materialized fallback semantics.
-    fn execute_values_field_projection(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-    ) -> Result<Vec<Value>, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        let response = self.execute(plan)?;
-
-        Self::project_field_values_from_materialized(response, target_field, field_slot)
-    }
-
-    // Execute one field-target distinct value projection
-    // (`distinct_values_by(field)`) via canonical materialized fallback semantics.
-    fn execute_distinct_values_field_projection(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-    ) -> Result<Vec<Value>, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        let response = self.execute(plan)?;
-
-        Self::project_distinct_field_values_from_materialized(response, target_field, field_slot)
-    }
-
-    // Execute one field-target id/value paired projection (`values_by_with_ids(field)`)
-    // via canonical materialized fallback semantics.
-    fn execute_values_with_ids_field_projection(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        let response = self.execute(plan)?;
-
-        Self::project_field_values_with_ids_from_materialized(response, target_field, field_slot)
-    }
-
-    // Execute one field-target scalar terminal projection (`first_value_by` /
-    // `last_value_by`) using route-owned first/last row selection semantics.
-    fn execute_terminal_value_field_projection(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-        terminal_kind: AggregateKind,
-    ) -> Result<Option<Value>, InternalError> {
-        if !matches!(terminal_kind, AggregateKind::First | AggregateKind::Last) {
-            return Err(InternalError::query_executor_invariant(
-                "terminal value projection requires FIRST/LAST aggregate kind",
-            ));
-        }
-
-        let field_slot = resolve_any_aggregate_target_slot::<E>(target_field)
-            .map_err(Self::map_aggregate_field_value_error)?;
-        let consistency = plan.as_inner().consistency;
-        let (AggregateOutput::First(selected_id) | AggregateOutput::Last(selected_id)) =
-            self.execute_aggregate(plan, terminal_kind)?
-        else {
-            return Err(InternalError::query_executor_invariant(
-                "terminal value projection result kind mismatch",
-            ));
-        };
-        let Some(selected_id) = selected_id else {
-            return Ok(None);
-        };
-
-        let ctx = self.db.recovered_context::<E>()?;
-        let key = DataKey::try_new::<E>(selected_id.key())?;
-        let Some(entity) = Self::read_entity_for_field_extrema(&ctx, consistency, &key)? else {
-            return Ok(None);
-        };
-        let value = extract_orderable_field_value(&entity, target_field, field_slot)
-            .map_err(Self::map_aggregate_field_value_error)?;
-
-        Ok(Some(value))
-    }
-
     // ------------------------------------------------------------------
     // Fast-path dispatch
     // ------------------------------------------------------------------
+
+    // Shared aggregate fast-path eligibility verifier.
+    //
+    // All aggregate fast-path dispatch must pass through this gate before
+    // invoking any `try_execute_*` branch so route eligibility checks, arity
+    // guards, and branch preconditions cannot drift across call sites.
+    fn verify_aggregate_fast_path_eligibility(
+        inputs: &AggregateFastPathInputs<'_, '_, E>,
+        route: FastPathOrder,
+    ) -> Result<bool, InternalError> {
+        match route {
+            // Primary-key point/batch aggregate fast path is branch-local and
+            // intentionally independent of route capability flags.
+            FastPathOrder::PrimaryKey => Ok(true),
+            FastPathOrder::SecondaryPrefix => {
+                ensure_secondary_aggregate_fast_path_arity(
+                    inputs.route_plan.secondary_fast_path_eligible(),
+                    inputs.index_prefix_specs.len(),
+                )?;
+                Ok(inputs.route_plan.secondary_fast_path_eligible())
+            }
+            // Primary-scan aggregate fast path is only attempted when route
+            // planning provided a bounded probe hint for this terminal.
+            FastPathOrder::PrimaryScan => Ok(inputs.physical_fetch_hint.is_some()),
+            FastPathOrder::IndexRange => {
+                ensure_index_range_aggregate_fast_path_specs(
+                    inputs.route_plan.index_range_limit_fast_path_enabled(),
+                    inputs.index_prefix_specs.len(),
+                    inputs.index_range_specs.len(),
+                )?;
+                Ok(inputs.route_plan.index_range_limit_fast_path_enabled())
+            }
+            FastPathOrder::Composite => {
+                Ok(inputs.route_plan.composite_aggregate_fast_path_eligible())
+            }
+        }
+    }
 
     // Attempt aggregate fast-path execution strictly through route-owned
     // fast-path order. Returns `Some` when one branch fully resolves the terminal.
@@ -770,6 +549,10 @@ where
         inputs: &AggregateFastPathInputs<'_, '_, E>,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
         for route in inputs.route_plan.fast_path_order().iter().copied() {
+            if !Self::verify_aggregate_fast_path_eligibility(inputs, route)? {
+                continue;
+            }
+
             match route {
                 FastPathOrder::PrimaryKey => {
                     // Aggregate-aware fast path for primary-key point/batch access shapes.
@@ -804,16 +587,15 @@ where
                 FastPathOrder::PrimaryScan => {
                     // Aggregate-aware fast path for primary-data range/full scans.
                     // This reuses canonical fold logic while skipping generic stream routing.
-                    if inputs.physical_fetch_hint.is_some()
-                        && let Some((aggregate_output, rows_scanned)) =
-                            Self::try_execute_primary_scan_aggregate(
-                                inputs.ctx,
-                                inputs.logical_plan,
-                                inputs.direction,
-                                inputs.physical_fetch_hint,
-                                inputs.kind,
-                                inputs.fold_mode,
-                            )?
+                    if let Some((aggregate_output, rows_scanned)) =
+                        Self::try_execute_primary_scan_aggregate(
+                            inputs.ctx,
+                            inputs.logical_plan,
+                            inputs.direction,
+                            inputs.physical_fetch_hint,
+                            inputs.kind,
+                            inputs.fold_mode,
+                        )?
                     {
                         return Ok(Some((aggregate_output, rows_scanned)));
                     }
@@ -851,338 +633,6 @@ where
     // ------------------------------------------------------------------
     // Fast-path implementations
     // ------------------------------------------------------------------
-
-    // Return the aggregate terminal value for an empty effective output window.
-    const fn aggregate_zero_window_result(kind: AggregateKind) -> AggregateOutput<E> {
-        match kind {
-            AggregateKind::Count => AggregateOutput::Count(0),
-            AggregateKind::Exists => AggregateOutput::Exists(false),
-            AggregateKind::Min => AggregateOutput::Min(None),
-            AggregateKind::Max => AggregateOutput::Max(None),
-            AggregateKind::First => AggregateOutput::First(None),
-            AggregateKind::Last => AggregateOutput::Last(None),
-        }
-    }
-
-    fn aggregate_from_materialized(
-        response: Response<E>,
-        kind: AggregateKind,
-    ) -> AggregateOutput<E> {
-        match kind {
-            AggregateKind::Count => AggregateOutput::Count(response.count()),
-            AggregateKind::Exists => AggregateOutput::Exists(!response.is_empty()),
-            AggregateKind::Min => {
-                AggregateOutput::Min(response.into_iter().map(|(id, _)| id).min())
-            }
-            AggregateKind::Max => {
-                AggregateOutput::Max(response.into_iter().map(|(id, _)| id).max())
-            }
-            AggregateKind::First => AggregateOutput::First(response.id()),
-            AggregateKind::Last => {
-                AggregateOutput::Last(response.into_iter().map(|(id, _)| id).last())
-            }
-        }
-    }
-
-    // Reduce one materialized response into a field-target extrema id with the
-    // deterministic tie-break contract `(field_value, primary_key_asc)`.
-    fn aggregate_field_extrema_from_materialized(
-        response: Response<E>,
-        kind: AggregateKind,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<AggregateOutput<E>, InternalError> {
-        if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
-            return Err(InternalError::query_executor_invariant(
-                "materialized field-extrema reduction requires MIN/MAX terminal",
-            ));
-        }
-        let compare_direction = match kind {
-            AggregateKind::Min => Direction::Asc,
-            AggregateKind::Max => Direction::Desc,
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => {
-                return Err(InternalError::query_executor_invariant(
-                    "materialized field-extrema reduction reached non-extrema terminal",
-                ));
-            }
-        };
-
-        let mut selected: Option<(Id<E>, E)> = None;
-        for (id, entity) in response {
-            let should_replace = match selected.as_ref() {
-                Some((_, current)) => {
-                    compare_entities_for_field_extrema(
-                        &entity,
-                        current,
-                        target_field,
-                        field_slot,
-                        compare_direction,
-                    )
-                    .map_err(Self::map_aggregate_field_value_error)?
-                        == Ordering::Less
-                }
-                None => true,
-            };
-            if should_replace {
-                selected = Some((id, entity));
-            }
-        }
-
-        let selected_id = selected.map(|(id, _)| id);
-
-        Ok(match kind {
-            AggregateKind::Min => AggregateOutput::Min(selected_id),
-            AggregateKind::Max => AggregateOutput::Max(selected_id),
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => {
-                return Err(InternalError::query_executor_invariant(
-                    "materialized field-extrema reduction reached non-extrema terminal",
-                ));
-            }
-        })
-    }
-
-    // Reduce one materialized response into `sum(field)` / `avg(field)` over
-    // numeric field values coerced to Decimal.
-    fn aggregate_numeric_field_from_materialized(
-        response: Response<E>,
-        target_field: &str,
-        field_slot: FieldSlot,
-        kind: NumericFieldAggregateKind,
-    ) -> Result<Option<Decimal>, InternalError> {
-        let mut sum = Decimal::ZERO;
-        let mut row_count = 0u64;
-        for (_, entity) in response {
-            let value = extract_numeric_field_decimal(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            sum += value;
-            row_count = row_count.saturating_add(1);
-        }
-        if row_count == 0 {
-            return Ok(None);
-        }
-
-        let output = match kind {
-            NumericFieldAggregateKind::Sum => sum,
-            NumericFieldAggregateKind::Avg => {
-                let Some(divisor) = Decimal::from_num(row_count) else {
-                    return Err(InternalError::query_executor_invariant(
-                        "numeric field AVG divisor conversion overflowed decimal bounds",
-                    ));
-                };
-
-                sum / divisor
-            }
-        };
-
-        Ok(Some(output))
-    }
-
-    // Reduce one materialized response into `nth(field, n)` using deterministic
-    // ordering `(field_value_asc, primary_key_asc)`.
-    fn aggregate_nth_field_from_materialized(
-        response: Response<E>,
-        target_field: &str,
-        field_slot: FieldSlot,
-        nth: usize,
-    ) -> Result<Option<Id<E>>, InternalError> {
-        let ordered_rows =
-            Self::ordered_field_projection_from_materialized(response, target_field, field_slot)?;
-
-        // Phase 2: project the requested ordinal position.
-        if nth >= ordered_rows.len() {
-            return Ok(None);
-        }
-
-        Ok(ordered_rows.into_iter().nth(nth).map(|(id, _)| id))
-    }
-
-    // Reduce one materialized response into `median(field)` using deterministic
-    // ordering `(field_value_asc, primary_key_asc)`.
-    // Even-length windows select the lower median for type-agnostic stability.
-    fn aggregate_median_field_from_materialized(
-        response: Response<E>,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<Option<Id<E>>, InternalError> {
-        let ordered_rows =
-            Self::ordered_field_projection_from_materialized(response, target_field, field_slot)?;
-        if ordered_rows.is_empty() {
-            return Ok(None);
-        }
-
-        let median_index = if ordered_rows.len() % 2 == 0 {
-            ordered_rows.len() / 2 - 1
-        } else {
-            ordered_rows.len() / 2
-        };
-
-        Ok(ordered_rows.into_iter().nth(median_index).map(|(id, _)| id))
-    }
-
-    // Reduce one materialized response into `count_distinct(field)` by
-    // counting unique typed field values across the effective response window.
-    fn aggregate_count_distinct_field_from_materialized(
-        response: Response<E>,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<u32, InternalError> {
-        let mut distinct_values: Vec<Value> = Vec::new();
-        let mut distinct_count = 0u32;
-        for (_, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            if distinct_values.iter().any(|existing| existing == &value) {
-                continue;
-            }
-
-            distinct_values.push(value);
-            distinct_count = distinct_count.saturating_add(1);
-        }
-
-        Ok(distinct_count)
-    }
-
-    // Reduce one materialized response into `(min_by(field), max_by(field))`
-    // using one pass over the response window.
-    fn aggregate_min_max_field_from_materialized(
-        response: Response<E>,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<MinMaxByIds<E>, InternalError> {
-        let mut min_candidate: Option<(Id<E>, Value)> = None;
-        let mut max_candidate: Option<(Id<E>, Value)> = None;
-        for (id, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            let replace_min = match min_candidate.as_ref() {
-                Some((current_id, current_value)) => {
-                    let ordering =
-                        compare_orderable_field_values(target_field, &value, current_value)
-                            .map_err(Self::map_aggregate_field_value_error)?;
-                    ordering == Ordering::Less
-                        || (ordering == Ordering::Equal && id.key() < current_id.key())
-                }
-                None => true,
-            };
-            if replace_min {
-                min_candidate = Some((id, value.clone()));
-            }
-
-            let replace_max = match max_candidate.as_ref() {
-                Some((current_id, current_value)) => {
-                    let ordering =
-                        compare_orderable_field_values(target_field, &value, current_value)
-                            .map_err(Self::map_aggregate_field_value_error)?;
-                    ordering == Ordering::Greater
-                        || (ordering == Ordering::Equal && id.key() < current_id.key())
-                }
-                None => true,
-            };
-            if replace_max {
-                max_candidate = Some((id, value));
-            }
-        }
-
-        let Some((min_id, _)) = min_candidate else {
-            return Ok(None);
-        };
-        let Some((max_id, _)) = max_candidate else {
-            return Err(InternalError::query_executor_invariant(
-                "min_max(field) reduction produced a min id without a max id",
-            ));
-        };
-
-        Ok(Some((min_id, max_id)))
-    }
-
-    // Project one materialized response into one field value vector while
-    // preserving the effective response row order.
-    fn project_field_values_from_materialized(
-        response: Response<E>,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<Vec<Value>, InternalError> {
-        let mut projected_values = Vec::new();
-        for (_, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            projected_values.push(value);
-        }
-
-        Ok(projected_values)
-    }
-
-    // Project one materialized response into distinct field values while
-    // preserving first-observed order within the effective response window.
-    fn project_distinct_field_values_from_materialized(
-        response: Response<E>,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<Vec<Value>, InternalError> {
-        let mut projected_values = Vec::new();
-        for (_, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            if projected_values.iter().any(|existing| existing == &value) {
-                continue;
-            }
-            projected_values.push(value);
-        }
-
-        Ok(projected_values)
-    }
-
-    // Project one materialized response into id/value pairs while preserving
-    // the effective response row order.
-    fn project_field_values_with_ids_from_materialized(
-        response: Response<E>,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let mut projected_values = Vec::new();
-        for (id, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            projected_values.push((id, value));
-        }
-
-        Ok(projected_values)
-    }
-
-    // Project one response window into deterministic field ordering
-    // `(field_value_asc, primary_key_asc)`.
-    fn ordered_field_projection_from_materialized(
-        response: Response<E>,
-        target_field: &str,
-        field_slot: FieldSlot,
-    ) -> Result<Vec<(Id<E>, Value)>, InternalError> {
-        let mut ordered_rows: Vec<(Id<E>, Value)> = Vec::new();
-        for (id, entity) in response {
-            let value = extract_orderable_field_value(&entity, target_field, field_slot)
-                .map_err(Self::map_aggregate_field_value_error)?;
-            let mut insert_index = ordered_rows.len();
-            for (index, (current_id, current_value)) in ordered_rows.iter().enumerate() {
-                let ordering = compare_orderable_field_values(target_field, &value, current_value)
-                    .map_err(Self::map_aggregate_field_value_error)?;
-                if ordering == Ordering::Less
-                    || (ordering == Ordering::Equal && id.key() < current_id.key())
-                {
-                    insert_index = index;
-                    break;
-                }
-            }
-
-            ordered_rows.insert(insert_index, (id, value));
-        }
-
-        Ok(ordered_rows)
-    }
 
     // Streaming reducer for index-leading field extrema. This keeps execution in
     // key-stream mode and stops once the first non-tie worse field value appears.
@@ -1268,66 +718,6 @@ where
         Ok((output, keys_scanned))
     }
 
-    // Load one entity for field-extrema stream folding while preserving read
-    // consistency classification behavior.
-    fn read_entity_for_field_extrema(
-        ctx: &Context<'_, E>,
-        consistency: ReadConsistency,
-        key: &crate::db::data::DataKey,
-    ) -> Result<Option<E>, InternalError> {
-        let decode_row = |row| {
-            let mut decoded = Context::<E>::deserialize_rows(vec![(key.clone(), row)])?;
-            let Some((_, entity)) = decoded.pop() else {
-                return Err(InternalError::query_executor_invariant(
-                    "field-extrema row decode expected one decoded entity",
-                ));
-            };
-
-            Ok(entity)
-        };
-        match consistency {
-            ReadConsistency::Strict => {
-                let row = ctx.read_strict(key)?;
-                Ok(Some(decode_row(row)?))
-            }
-            ReadConsistency::MissingOk => match ctx.read(key) {
-                Ok(row) => Ok(Some(decode_row(row)?)),
-                Err(err) if err.is_not_found() => Ok(None),
-                Err(err) => Err(err),
-            },
-        }
-    }
-
-    fn field_extrema_aggregate_direction(kind: AggregateKind) -> Result<Direction, InternalError> {
-        match kind {
-            AggregateKind::Min => Ok(Direction::Asc),
-            AggregateKind::Max => Ok(Direction::Desc),
-            AggregateKind::Count
-            | AggregateKind::Exists
-            | AggregateKind::First
-            | AggregateKind::Last => Err(InternalError::query_executor_invariant(
-                "field-target aggregate direction requires MIN/MAX terminal",
-            )),
-        }
-    }
-
-    // Map field-target aggregate extraction/comparison failures into taxonomy-correct
-    // execution errors.
-    fn map_aggregate_field_value_error(err: AggregateFieldValueError) -> InternalError {
-        let message = err.to_string();
-        match err {
-            AggregateFieldValueError::UnknownField { .. }
-            | AggregateFieldValueError::UnsupportedFieldKind { .. } => {
-                InternalError::executor_unsupported(message)
-            }
-            AggregateFieldValueError::MissingFieldValue { .. }
-            | AggregateFieldValueError::FieldValueTypeMismatch { .. }
-            | AggregateFieldValueError::IncomparableFieldValues { .. } => {
-                InternalError::query_executor_invariant(message)
-            }
-        }
-    }
-
     // Resolve aggregate terminals directly for primary-key point/batch plans.
     // This preserves consistency + window semantics without building streams.
     fn try_execute_primary_key_access_aggregate(
@@ -1405,13 +795,6 @@ where
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
-        ensure_secondary_aggregate_fast_path_arity(
-            inputs.route_plan.secondary_fast_path_eligible(),
-            inputs.index_prefix_specs.len(),
-        )?;
-        if !inputs.route_plan.secondary_fast_path_eligible() {
-            return Ok(None);
-        }
         // Probe hint selection is route-owned; executor only consumes it.
         let probe_fetch_hint = inputs.route_plan.secondary_extrema_probe_fetch_hint();
         let index_predicate_execution =
@@ -1546,11 +929,6 @@ where
     fn try_execute_index_range_aggregate(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
-        ensure_index_range_aggregate_fast_path_specs(
-            inputs.route_plan.index_range_limit_fast_path_enabled(),
-            inputs.index_prefix_specs.len(),
-            inputs.index_range_specs.len(),
-        )?;
         let Some(index_range_limit_spec) = inputs.route_plan.index_range_limit_spec.as_ref() else {
             return Ok(None);
         };
@@ -1594,10 +972,6 @@ where
     fn try_execute_composite_aggregate(
         inputs: &AggregateFastPathInputs<'_, '_, E>,
     ) -> Result<Option<(AggregateOutput<E>, usize)>, InternalError> {
-        if !inputs.route_plan.composite_aggregate_fast_path_eligible() {
-            return Ok(None);
-        }
-
         let stream_request = AccessPlanStreamRequest {
             access: &inputs.logical_plan.access,
             bindings: AccessStreamBindings {
@@ -1648,51 +1022,4 @@ where
     // ------------------------------------------------------------------
     // Fallback and terminal utilities
     // ------------------------------------------------------------------
-
-    // MissingOk can skip stale leading index entries. If a bounded Min/Max
-    // probe returns None exactly at the fetch boundary, the outcome is
-    // inconclusive and must retry unbounded.
-    const fn secondary_extrema_probe_requires_fallback(
-        consistency: ReadConsistency,
-        kind: AggregateKind,
-        probe_fetch_hint: Option<usize>,
-        probe_output: &AggregateOutput<E>,
-        probe_rows_scanned: usize,
-    ) -> bool {
-        if !matches!(consistency, ReadConsistency::MissingOk) {
-            return false;
-        }
-        if !matches!(kind, AggregateKind::Min | AggregateKind::Max) {
-            return false;
-        }
-
-        let Some(fetch) = probe_fetch_hint else {
-            return false;
-        };
-        if fetch == 0 || probe_rows_scanned < fetch {
-            return false;
-        }
-
-        matches!(
-            (kind, probe_output),
-            (AggregateKind::Min, AggregateOutput::Min(None))
-                | (AggregateKind::Max, AggregateOutput::Max(None))
-        )
-    }
-
-    // Wrap fast-path streams with DISTINCT semantics only when requested.
-    fn maybe_wrap_distinct_stream(
-        ordered_key_stream: OrderedKeyStreamBox,
-        distinct: bool,
-        key_comparator: super::KeyOrderComparator,
-    ) -> OrderedKeyStreamBox {
-        if distinct {
-            return Box::new(DistinctOrderedKeyStream::new(
-                ordered_key_stream,
-                key_comparator,
-            ));
-        }
-
-        ordered_key_stream
-    }
 }

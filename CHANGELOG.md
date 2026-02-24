@@ -5,6 +5,28 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.28.2] - 2026-02-24
+
+### 📝 Summary
+
+* Tightens DB layering boundaries and continuation-cursor invariants without changing query behavior.
+
+### 🔧 Changed
+
+* Split load aggregate internals into focused modules and moved aggregate field semantics under `executor/aggregate`.
+* Moved route fast-path guards into `executor/route/guard` so route invariants remain route-owned.
+* Removed index-to-query ownership leaks by moving `KeyEnvelope` and index predicate execution ownership to `db/index`.
+* Unified strict continuation advancement checks behind shared comparator helpers used by both raw-key and logical boundary paths.
+* Added canonical round-trip validation for index-range continuation anchors to fail closed on malformed token shape drift.
+* `count_distinct_by("field")` now uses a streaming fold on fast-path shapes, reducing memory use while preserving canonical filtering, effective-window, and retry semantics.
+
+### 🧪 Testing
+
+* Added parity coverage that `count_distinct_by` matches `execute()` for residual-retry index-range shapes and keeps scan-budget parity.
+* Added coverage that `count_distinct_by` is direction-invariant and preserves current null/type mismatch behavior across ASC and DESC traversal.
+
+---
+
 ## [0.28.1] - 2026-02-24 - Distinct Projection Follow-Up
 
 ### 📝 Summary

@@ -115,6 +115,10 @@ impl StoreRegistry {
     }
 
     /// Iterate registered stores.
+    ///
+    /// Iteration order is intentionally unspecified because the registry uses a
+    /// `HashMap`. Semantic result ordering must never depend on this iteration
+    /// order; callers that need deterministic ordering must sort by store path.
     pub fn iter(&self) -> impl Iterator<Item = (&'static str, StoreHandle)> {
         self.stores.iter().map(|(k, v)| (*k, *v))
     }

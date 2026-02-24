@@ -147,7 +147,13 @@ fn rebuild_secondary_indexes_from_rows(db: &Db<impl CanisterKind>) -> Result<(),
 
 fn sorted_store_handles(db: &Db<impl CanisterKind>) -> Vec<(&'static str, StoreHandle)> {
     let mut stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
+    // StoreRegistry iteration is HashMap-backed and intentionally unordered.
+    // Recovery semantics must remain deterministic, so sort explicitly by path.
     stores.sort_by(|(left, _), (right, _)| left.cmp(right));
+    debug_assert!(
+        stores.windows(2).all(|pair| pair[0].0 <= pair[1].0),
+        "store registry iteration order must not affect semantic rebuild ordering",
+    );
     stores
 }
 

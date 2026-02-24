@@ -11,10 +11,7 @@ pub use ast::{CompareOp, ComparePredicate, Predicate, UnsupportedQueryFeature};
 pub use coercion::CoercionId;
 #[cfg(test)]
 pub(crate) use coercion::CoercionSpec;
-pub(crate) use eval::{
-    IndexPredicateExecution, IndexPredicateProgram, PredicateFieldSlots,
-    eval_index_execution_on_decoded_key, eval_with_slots,
-};
+pub(crate) use eval::{PredicateFieldSlots, eval_with_slots};
 pub(crate) use normalize::{normalize, normalize_enum_literals};
 pub(crate) use validate::SchemaInfo;
 pub use validate::ValidateError;

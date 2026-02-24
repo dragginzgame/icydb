@@ -10,6 +10,7 @@ mod tests;
 mod types;
 pub(crate) mod validate;
 
+pub(in crate::db) use crate::db::index::KeyEnvelope;
 pub(in crate::db) use crate::db::{
     index::Direction,
     query::{
@@ -39,9 +40,7 @@ pub(crate) use explain::{
 pub(crate) use fingerprint::PlanFingerprint;
 pub(in crate::db) use index_bounds::raw_bounds_for_semantic_index_component_range;
 pub(crate) use logical::LogicalPlan;
-pub(in crate::db) use spine::{
-    KeyEnvelope, validate_planned_cursor, validate_planned_cursor_state,
-};
+pub(in crate::db) use spine::{validate_planned_cursor, validate_planned_cursor_state};
 pub use types::OrderDirection;
 pub(in crate::db) use types::derive_scan_direction;
 pub(crate) use types::{

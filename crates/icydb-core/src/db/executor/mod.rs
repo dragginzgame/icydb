@@ -1,14 +1,15 @@
 mod access_stream;
+pub(super) mod aggregate;
 mod context;
 mod delete;
 mod direction;
 mod fold;
-mod load;
+pub(super) mod load;
 mod mutation;
 mod ordered_key_stream;
 mod physical_path;
 mod plan;
-mod route;
+pub(super) mod route;
 #[cfg(test)]
 mod tests;
 

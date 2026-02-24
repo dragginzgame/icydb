@@ -1275,6 +1275,111 @@ fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown()
 }
 
 #[test]
+fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_fallback_matrix() {
+    setup_pagination_test();
+
+    let rows = [
+        (35_501, 10, "drop-t10"),
+        (35_502, 11, "drop-t11"),
+        (35_503, 12, "drop-t12"),
+        (35_504, 13, "keep-t13"),
+        (35_505, 14, "keep-t14"),
+        (35_506, 15, "keep-t15"),
+        (35_507, 16, "keep-t16"),
+        (35_508, 17, "drop-t17"),
+        (35_509, 18, "keep-t18"),
+        (35_510, 19, "keep-t19"),
+    ];
+    seed_indexed_metrics_rows(&rows);
+
+    let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
+    let cases = [
+        ("bounded-satisfied-without-retry", 13u64, 20u64, 2u32, 0u32),
+        ("bounded-underfill-retry-required", 10u64, 16u64, 2u32, 0u32),
+    ];
+
+    for (case_name, lower, upper, limit, offset) in cases {
+        let label_contains_keep = Predicate::TextContainsCi {
+            field: "label".to_string(),
+            value: Value::Text("keep".to_string()),
+        };
+        let mut fast_logical = LogicalPlan::new(
+            AccessPath::IndexRange {
+                index: INDEXED_METRICS_INDEX_MODELS[0],
+                prefix: Vec::new(),
+                lower: Bound::Included(Value::Uint(lower)),
+                upper: Bound::Excluded(Value::Uint(upper)),
+            },
+            ReadConsistency::MissingOk,
+        );
+        fast_logical.predicate = Some(label_contains_keep.clone());
+        fast_logical.order = Some(OrderSpec {
+            fields: vec![
+                ("tag".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        fast_logical.page = Some(PageSpec {
+            limit: Some(limit),
+            offset,
+        });
+        let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
+
+        let mut fallback_logical =
+            LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+        fallback_logical.predicate = Some(Predicate::And(vec![
+            strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(lower)),
+            strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(upper)),
+            label_contains_keep,
+        ]));
+        fallback_logical.order = Some(OrderSpec {
+            fields: vec![
+                ("tag".to_string(), OrderDirection::Asc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        });
+        fallback_logical.page = Some(PageSpec {
+            limit: Some(limit),
+            offset,
+        });
+        let fallback_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fallback_logical);
+
+        let (fast_page, _fast_trace) = load
+            .execute_paged_with_cursor_traced(fast_plan, None)
+            .expect("fast residual matrix execution should succeed");
+        let (fallback_page, _fallback_trace) = load
+            .execute_paged_with_cursor_traced(fallback_plan, None)
+            .expect("fallback residual matrix execution should succeed");
+
+        assert_eq!(
+            ids_from_items(&fast_page.items.0),
+            ids_from_items(&fallback_page.items.0),
+            "residual range matrix case should preserve fallback row parity: case={case_name}",
+        );
+        assert_eq!(
+            fast_page.next_cursor.is_some(),
+            fallback_page.next_cursor.is_some(),
+            "residual range matrix case should preserve continuation presence parity: case={case_name}",
+        );
+        if let (Some(fast_cursor), Some(fallback_cursor)) =
+            (&fast_page.next_cursor, &fallback_page.next_cursor)
+        {
+            assert_eq!(
+                decode_boundary(
+                    fast_cursor.as_slice(),
+                    "fast residual matrix cursor should decode"
+                ),
+                decode_boundary(
+                    fallback_cursor.as_slice(),
+                    "fallback residual matrix cursor should decode",
+                ),
+                "residual range matrix case should preserve continuation boundary parity: case={case_name}",
+            );
+        }
+    }
+}
+
+#[test]
 fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
     setup_pagination_test();
 

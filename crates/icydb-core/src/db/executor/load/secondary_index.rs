@@ -3,10 +3,10 @@ use crate::{
         Context,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator},
+        index::predicate::IndexPredicateExecution,
         query::plan::{
             Direction, IndexPrefixSpec, LogicalPlan, SlotSelectionPolicy, derive_scan_direction,
         },
-        query::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
