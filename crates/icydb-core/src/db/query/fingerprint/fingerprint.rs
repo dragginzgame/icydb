@@ -1,9 +1,11 @@
 //! Deterministic plan fingerprinting derived from the explain projection.
 #![allow(clippy::cast_possible_truncation)]
 
-use super::ExplainPlan;
 use crate::{
-    db::{codec::cursor::encode_cursor, query::plan::hash_parts},
+    db::{
+        codec::cursor::encode_cursor,
+        query::{explain::ExplainPlan, fingerprint::hash_parts, plan::LogicalPlan},
+    },
     traits::FieldValue,
 };
 use sha2::{Digest, Sha256};
@@ -30,7 +32,7 @@ impl std::fmt::Display for PlanFingerprint {
     }
 }
 
-impl<K> super::LogicalPlan<K>
+impl<K> LogicalPlan<K>
 where
     K: FieldValue,
 {

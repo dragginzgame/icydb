@@ -12,7 +12,10 @@ use crate::{
             },
             plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
         },
-        query::plan::{ExecutablePlan, validate::validate_executor_plan},
+        query::{
+            plan::{ExecutablePlan, validate::validate_executor_plan},
+            policy,
+        },
         response::Response,
     },
     error::InternalError,
@@ -63,6 +66,10 @@ where
                 "delete executor requires delete plans",
             ));
         }
+        debug_assert!(
+            policy::validate_plan_shape(plan.as_inner()).is_ok(),
+            "delete executor received a plan shape that bypassed planning validation",
+        );
         (|| {
             // Recovery is mandatory before mutations; read paths recover separately.
             ensure_recovered_for_write(&self.db)?;

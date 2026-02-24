@@ -28,7 +28,8 @@ thiserror = { workspace = true }
 ulid = { workspace = true }
 
 [dev-dependencies]
-bencher = { workspace = true }
+# Bench harness dependency is intentionally disabled until bench work resumes.
+# bencher = { workspace = true }
 icydb-derive = { workspace = true }
 icydb-schema-derive = { workspace = true }
 proptest = { workspace = true }
@@ -38,7 +39,8 @@ trybuild = { workspace = true }
 [lints]
 workspace = true
 
-[[bench]]
-name = "all"
-path = "benches/all.rs"
-harness = false
+# Bench target is intentionally disabled until bench work resumes.
+# [[bench]]
+# name = "all"
+# path = "benches/all.rs"
+# harness = false

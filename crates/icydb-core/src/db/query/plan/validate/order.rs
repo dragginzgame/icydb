@@ -8,6 +8,15 @@ use crate::{
     },
     model::entity::EntityModel,
 };
+use std::collections::BTreeSet;
+
+// ORDER validation ownership contract:
+// - This module owns ORDER semantic validation (field existence/orderability/tie-break).
+// - ORDER canonicalization (primary-key tie-break insertion) is performed at the
+//   intent boundary via `canonicalize_order_spec` before plan validation.
+// - Shape-policy checks (for example empty ORDER, pagination/order coupling) are owned by
+//   `db::query::policy`.
+// - Executor/runtime layers may defend execution preconditions only.
 
 /// Validate ORDER BY fields against the schema.
 pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
@@ -22,6 +31,28 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
         if !field_type.is_orderable() {
             // CONTRACT: ORDER BY rejects non-queryable or unordered fields.
             return Err(PlanError::from(OrderPlanError::UnorderableField {
+                field: field.clone(),
+            }));
+        }
+    }
+
+    Ok(())
+}
+
+/// Reject duplicate non-primary-key fields in ORDER BY.
+pub(crate) fn validate_no_duplicate_non_pk_order_fields(
+    model: &EntityModel,
+    order: &OrderSpec,
+) -> Result<(), PlanError> {
+    let mut seen = BTreeSet::new();
+    let pk_field = model.primary_key.name;
+
+    for (field, _) in &order.fields {
+        if field == pk_field {
+            continue;
+        }
+        if !seen.insert(field.as_str()) {
+            return Err(PlanError::from(OrderPlanError::DuplicateOrderField {
                 field: field.clone(),
             }));
         }

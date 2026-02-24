@@ -2,9 +2,10 @@ use crate::{
     db::{
         DbSession,
         query::{
+            explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
             intent::{Query, QueryError},
-            plan::{ExecutablePlan, ExplainPlan},
+            plan::ExecutablePlan,
             predicate::Predicate,
         },
         response::Response,

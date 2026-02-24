@@ -9,8 +9,11 @@ use super::{
 use crate::{
     db::query::{
         ReadConsistency,
-        intent::{LoadSpec, QueryMode},
-        plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec},
+        intent::{DeleteSpec, LoadSpec, QueryMode},
+        plan::{
+            AccessPath, AccessPlan, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
+            PageSpec,
+        },
         predicate::{SchemaInfo, ValidateError},
     },
     model::{
@@ -334,6 +337,35 @@ fn plan_rejects_unorderable_field() {
 }
 
 #[test]
+fn plan_rejects_duplicate_non_primary_order_field() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let plan: LogicalPlan<Value> = LogicalPlan {
+        mode: QueryMode::Load(LoadSpec::new()),
+        access: AccessPlan::path(AccessPath::FullScan),
+        predicate: None,
+        order: Some(OrderSpec {
+            fields: vec![
+                ("rank".to_string(), OrderDirection::Asc),
+                ("rank".to_string(), OrderDirection::Desc),
+                ("id".to_string(), OrderDirection::Asc),
+            ],
+        }),
+        distinct: false,
+        delete_limit: None,
+        page: None,
+        consistency: crate::db::query::ReadConsistency::MissingOk,
+    };
+
+    let err = validate_logical_plan_model(&schema, model, &plan)
+        .expect_err("duplicate non-primary order field must fail");
+    assert!(matches!(err, PlanError::Order(inner) if matches!(
+        inner.as_ref(),
+        OrderPlanError::DuplicateOrderField { field } if field == "rank"
+    )));
+}
+
+#[test]
 fn plan_rejects_index_prefix_too_long() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
@@ -400,6 +432,105 @@ fn plan_accepts_model_based_validation() {
     };
 
     validate_logical_plan_model(&schema, model, &plan).expect("valid plan");
+}
+
+#[test]
+fn plan_rejects_empty_order_spec() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let plan: LogicalPlan<Value> = LogicalPlan {
+        mode: QueryMode::Load(LoadSpec::new()),
+        access: AccessPlan::path(AccessPath::FullScan),
+        predicate: None,
+        order: Some(OrderSpec { fields: vec![] }),
+        distinct: false,
+        delete_limit: None,
+        page: None,
+        consistency: crate::db::query::ReadConsistency::MissingOk,
+    };
+
+    let err =
+        validate_logical_plan_model(&schema, model, &plan).expect_err("empty order must fail");
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+        inner.as_ref(),
+        PolicyPlanError::EmptyOrderSpec
+    )));
+}
+
+#[test]
+fn delete_limit_requires_order() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let plan: LogicalPlan<Value> = LogicalPlan {
+        mode: QueryMode::Delete(DeleteSpec::new()),
+        access: AccessPlan::path(AccessPath::FullScan),
+        predicate: None,
+        order: None,
+        distinct: false,
+        delete_limit: Some(DeleteLimitSpec { max_rows: 10 }),
+        page: None,
+        consistency: crate::db::query::ReadConsistency::MissingOk,
+    };
+
+    let err = validate_logical_plan_model(&schema, model, &plan)
+        .expect_err("delete limit without order must fail");
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+        inner.as_ref(),
+        PolicyPlanError::DeleteLimitRequiresOrder
+    )));
+}
+
+#[test]
+fn delete_plan_rejects_pagination() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let plan: LogicalPlan<Value> = LogicalPlan {
+        mode: QueryMode::Delete(DeleteSpec::new()),
+        access: AccessPlan::path(AccessPath::FullScan),
+        predicate: None,
+        order: Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        }),
+        distinct: false,
+        delete_limit: None,
+        page: Some(PageSpec {
+            limit: Some(1),
+            offset: 0,
+        }),
+        consistency: crate::db::query::ReadConsistency::MissingOk,
+    };
+
+    let err = validate_logical_plan_model(&schema, model, &plan)
+        .expect_err("delete plans must not carry pagination");
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+        inner.as_ref(),
+        PolicyPlanError::DeletePlanWithPagination
+    )));
+}
+
+#[test]
+fn load_plan_rejects_delete_limit() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::from_entity_model(model).expect("valid model");
+    let plan: LogicalPlan<Value> = LogicalPlan {
+        mode: QueryMode::Load(LoadSpec::new()),
+        access: AccessPlan::path(AccessPath::FullScan),
+        predicate: None,
+        order: Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        }),
+        distinct: false,
+        delete_limit: Some(DeleteLimitSpec { max_rows: 1 }),
+        page: None,
+        consistency: crate::db::query::ReadConsistency::MissingOk,
+    };
+
+    let err = validate_logical_plan_model(&schema, model, &plan)
+        .expect_err("load plans must not carry delete limits");
+    assert!(matches!(err, PlanError::Policy(inner) if matches!(
+        inner.as_ref(),
+        PolicyPlanError::LoadPlanWithDeleteLimit
+    )));
 }
 
 #[test]

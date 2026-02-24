@@ -8,9 +8,8 @@ use crate::{
         },
         index::RawIndexKey,
         query::{
-            plan::{
-                AccessPath, AccessPlan, CursorBoundary, Direction, LogicalPlan, compute_page_window,
-            },
+            contracts::cursor::CursorBoundary,
+            plan::{AccessPath, AccessPlan, Direction, LogicalPlan, compute_page_window},
             predicate::PredicateFieldSlots,
         },
     },

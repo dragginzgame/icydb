@@ -1,5 +1,8 @@
 use crate::{
-    db::query::plan::{CursorPlanError, PlanError},
+    db::query::{
+        plan::{CursorPlanError, PlanError},
+        policy::PlanPolicyError,
+    },
     patch::MergePatchError,
 };
 use std::fmt;
@@ -391,6 +394,22 @@ impl InternalError {
     pub(crate) fn from_executor_plan_error(err: PlanError) -> Self {
         Self::query_invariant(err.to_string())
     }
+
+    /// Map plan-shape policy variants into executor-boundary invariants without
+    /// string-based conversion paths.
+    pub(crate) fn plan_invariant_violation(err: PlanPolicyError) -> Self {
+        let reason = match err {
+            PlanPolicyError::EmptyOrderSpec => {
+                "order specification must include at least one field"
+            }
+            PlanPolicyError::DeletePlanWithPagination => "delete plans must not include pagination",
+            PlanPolicyError::LoadPlanWithDeleteLimit => "load plans must not carry delete limits",
+            PlanPolicyError::DeleteLimitRequiresOrder => "delete limit requires explicit ordering",
+            PlanPolicyError::UnorderedPagination => "pagination requires explicit ordering",
+        };
+
+        Self::query_executor_invariant(reason)
+    }
 }
 
 ///
@@ -563,5 +582,17 @@ mod tests {
         let err = InternalError::from_executor_plan_error(plan_err);
         assert_eq!(err.class, ErrorClass::InvariantViolation);
         assert_eq!(err.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn plan_policy_error_mapping_uses_executor_invariant_prefix() {
+        let err =
+            InternalError::plan_invariant_violation(PlanPolicyError::DeleteLimitRequiresOrder);
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Query);
+        assert_eq!(
+            err.message,
+            "executor invariant violated: delete limit requires explicit ordering",
+        );
     }
 }

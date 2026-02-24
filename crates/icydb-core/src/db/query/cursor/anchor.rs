@@ -1,13 +1,16 @@
 use crate::{
     db::{
-        data::StorageKey,
         index::{
             Direction, IndexId, IndexKey, IndexKeyKind, IndexRangeNotIndexableReasonScope,
-            map_index_range_not_indexable_reason,
+            PrimaryKeyEquivalenceError, map_index_range_not_indexable_reason,
+            primary_key_matches_value,
         },
-        query::plan::{
-            AccessPath, CursorPlanError, IndexRangeCursorAnchor, KeyEnvelope, PlanError,
-            raw_bounds_for_semantic_index_component_range,
+        query::{
+            contracts::cursor::IndexRangeCursorAnchor,
+            plan::{
+                AccessPath, CursorPlanError, KeyEnvelope, PlanError,
+                raw_bounds_for_semantic_index_component_range,
+            },
         },
     },
     traits::{EntityKind, FieldValue},
@@ -140,19 +143,21 @@ pub(in crate::db::query) fn validate_index_range_boundary_anchor_consistency<K: 
     }
 
     let anchor_key = decode_canonical_index_range_anchor_key(anchor)?;
-    let anchor_storage_key = anchor_key.primary_storage_key().map_err(|err| {
-        invalid_continuation_cursor_payload(format!(
-            "index-range continuation anchor primary key decode failed: {err}"
-        ))
-    })?;
-    let boundary_storage_key =
-        StorageKey::try_from_value(&boundary_pk_key.to_value()).map_err(|err| {
-            invalid_continuation_cursor_payload(format!(
-                "index-range continuation boundary primary key decode failed: {err}"
-            ))
+    let matches_boundary = primary_key_matches_value(&anchor_key, &boundary_pk_key.to_value())
+        .map_err(|err| match err {
+            PrimaryKeyEquivalenceError::AnchorDecode { source } => {
+                invalid_continuation_cursor_payload(format!(
+                    "index-range continuation anchor primary key decode failed: {source}"
+                ))
+            }
+            PrimaryKeyEquivalenceError::BoundaryEncode { source } => {
+                invalid_continuation_cursor_payload(format!(
+                    "index-range continuation boundary primary key decode failed: {source}"
+                ))
+            }
         })?;
 
-    if anchor_storage_key != boundary_storage_key {
+    if !matches_boundary {
         return Err(invalid_continuation_cursor_payload(
             "index-range continuation boundary/anchor mismatch",
         ));

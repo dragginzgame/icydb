@@ -34,7 +34,9 @@ use thiserror::Error as ThisError;
 
 // re-exports
 pub(crate) use access::{validate_access_plan, validate_access_plan_model};
-pub(crate) use order::{validate_order, validate_primary_key_tie_break};
+pub(crate) use order::{
+    validate_no_duplicate_non_pk_order_fields, validate_order, validate_primary_key_tie_break,
+};
 #[cfg(test)]
 pub(crate) use pushdown::assess_secondary_order_pushdown_if_applicable;
 pub(crate) use pushdown::{
@@ -84,6 +86,10 @@ pub enum OrderPlanError {
     /// ORDER BY references a field that cannot be ordered.
     #[error("order field '{field}' is not orderable")]
     UnorderableField { field: String },
+
+    /// ORDER BY references the same non-primary-key field multiple times.
+    #[error("order field '{field}' appears multiple times")]
+    DuplicateOrderField { field: String },
 
     /// Ordered plans must terminate with the primary-key tie-break.
     #[error("order specification must end with primary key '{field}' as deterministic tie-break")]
@@ -334,6 +340,7 @@ where
 
     if let Some(order) = &plan.order {
         validate_order_fn(schema, order)?;
+        validate_no_duplicate_non_pk_order_fields(model, order)?;
         validate_primary_key_tie_break(model, order)?;
     }
 

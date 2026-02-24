@@ -9,6 +9,7 @@ mod mutation;
 mod ordered_key_stream;
 mod physical_path;
 mod plan;
+mod query_bridge;
 pub(super) mod route;
 #[cfg(test)]
 mod tests;

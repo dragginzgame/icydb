@@ -10,10 +10,11 @@ use crate::{
     db::{
         query::{
             ReadConsistency,
+            explain::ExplainPlan,
             expr::{FilterExpr, SortExpr, SortLowerError},
             plan::{
-                DeleteLimitSpec, ExecutablePlan, ExplainPlan, LogicalPlan, OrderDirection,
-                OrderSpec, PageSpec, PlanError,
+                DeleteLimitSpec, ExecutablePlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+                PlanError,
                 planner::{PlannerError, plan_access},
                 validate::validate_logical_plan_model,
             },

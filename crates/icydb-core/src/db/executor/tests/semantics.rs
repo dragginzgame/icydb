@@ -1,6 +1,6 @@
 #![expect(clippy::similar_names)]
 use super::*;
-use crate::db::{data::DataKey, query::plan::ExplainAccessPath};
+use crate::db::{data::DataKey, query::explain::ExplainAccessPath};
 use std::collections::BTreeSet;
 
 fn id_in_predicate(ids: &[u128]) -> Predicate {
@@ -133,7 +133,7 @@ fn load_union_or_predicate_dedups_overlapping_pk_paths() {
     assert!(
         matches!(
             explain.access,
-            crate::db::query::plan::ExplainAccessPath::Union(_)
+            crate::db::query::explain::ExplainAccessPath::Union(_)
         ),
         "OR predicate over PK paths should plan as union access"
     );
@@ -549,7 +549,7 @@ fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
     assert!(
         matches!(
             explain.access,
-            crate::db::query::plan::ExplainAccessPath::Union(_)
+            crate::db::query::explain::ExplainAccessPath::Union(_)
         ),
         "overlapping OR predicate should plan as union access"
     );
@@ -667,7 +667,7 @@ fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omissio
     assert!(
         matches!(
             explain.access,
-            crate::db::query::plan::ExplainAccessPath::Union(_)
+            crate::db::query::explain::ExplainAccessPath::Union(_)
         ),
         "three-child overlapping OR predicate should plan as union access"
     );

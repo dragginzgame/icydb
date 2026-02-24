@@ -24,10 +24,15 @@ use crate::{
             plan::{record_plan_metrics, record_rows_scanned},
             route::ExecutionRoutePlan,
         },
-        query::plan::{
-            AccessPlan, CursorBoundary, Direction, ExecutablePlan, LogicalPlan, OrderDirection,
-            PlannedCursor, SlotSelectionPolicy, compute_page_window, decode_pk_cursor_boundary,
-            derive_scan_direction, validate::validate_executor_plan,
+        query::policy,
+        query::{
+            contracts::cursor::CursorBoundary,
+            cursor::continuation::decode_pk_cursor_boundary,
+            plan::{
+                AccessPlan, Direction, ExecutablePlan, LogicalPlan, OrderDirection, PlannedCursor,
+                SlotSelectionPolicy, compute_page_window, derive_scan_direction,
+                validate::validate_executor_plan,
+            },
         },
         response::Response,
     },
@@ -244,6 +249,10 @@ where
                 "load executor requires load plans",
             ));
         }
+        debug_assert!(
+            policy::validate_plan_shape(plan.as_inner()).is_ok(),
+            "load executor received a plan shape that bypassed planning validation",
+        );
 
         let direction = plan.direction();
         let continuation_signature = plan.continuation_signature();

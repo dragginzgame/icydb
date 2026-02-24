@@ -71,6 +71,7 @@ fn normalize_compare(
     };
 
     let value = normalize_compare_value_for_kind(&cmp.field, cmp.op, &cmp.value, field_kind)?;
+
     Ok(ComparePredicate {
         field: cmp.field.clone(),
         op: cmp.op,
@@ -118,7 +119,7 @@ fn normalize_value_for_kind(
     match expected_kind {
         FieldKind::Enum { path } => normalize_enum_value(field, value, path),
         FieldKind::Relation { key_kind, .. } => normalize_value_for_kind(field, value, key_kind),
-        FieldKind::List(inner) | FieldKind::Set(inner) => {
+        FieldKind::List(inner) => {
             let Value::List(values) = value else {
                 return Ok(value.clone());
             };
@@ -127,6 +128,23 @@ fn normalize_value_for_kind(
             for item in values {
                 normalized.push(normalize_value_for_kind(field, item, inner)?);
             }
+
+            Ok(Value::List(normalized))
+        }
+        FieldKind::Set(inner) => {
+            let Value::List(values) = value else {
+                return Ok(value.clone());
+            };
+
+            let mut normalized = Vec::with_capacity(values.len());
+            for item in values {
+                normalized.push(normalize_value_for_kind(field, item, inner)?);
+            }
+
+            // Canonicalize set literals to match persisted set encoding:
+            // deterministic order + deduplicated members.
+            normalized.sort_by(Value::canonical_cmp);
+            normalized.dedup_by(|left, right| Value::canonical_cmp(left, right).is_eq());
 
             Ok(Value::List(normalized))
         }
@@ -260,6 +278,28 @@ mod tests {
         &MULTI_ENUM_FIELDS,
         &MULTI_ENUM_INDEXES,
     );
+    static SET_FIELDS: [FieldModel; 3] = [
+        FieldModel {
+            name: "id",
+            kind: FieldKind::Ulid,
+        },
+        FieldModel {
+            name: "tags_set",
+            kind: FieldKind::Set(&FieldKind::Text),
+        },
+        FieldModel {
+            name: "tags_list",
+            kind: FieldKind::List(&FieldKind::Text),
+        },
+    ];
+    static SET_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+    static SET_MODEL: crate::model::entity::EntityModel = entity_model_from_static(
+        "tests::SetEntity",
+        "SetEntity",
+        &SET_FIELDS[0],
+        &SET_FIELDS,
+        &SET_INDEXES,
+    );
 
     fn schema() -> SchemaInfo {
         SchemaInfo::from_entity_model(&ENUM_MODEL).expect("enum test schema should be valid")
@@ -268,6 +308,10 @@ mod tests {
     fn multi_enum_schema() -> SchemaInfo {
         SchemaInfo::from_entity_model(&MULTI_ENUM_MODEL)
             .expect("multi-enum test schema should be valid")
+    }
+
+    fn set_schema() -> SchemaInfo {
+        SchemaInfo::from_entity_model(&SET_MODEL).expect("set test schema should be valid")
     }
 
     fn eq(value: Value) -> Predicate {
@@ -390,5 +434,49 @@ mod tests {
             panic!("expected second enum value");
         };
         assert_eq!(status.path.as_deref(), Some("tests::Status"));
+    }
+
+    #[test]
+    fn set_literals_are_sorted_and_deduplicated() {
+        let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+            "tags_set",
+            CompareOp::Eq,
+            Value::List(vec![
+                Value::Text("b".to_string()),
+                Value::Text("a".to_string()),
+                Value::Text("b".to_string()),
+            ]),
+            CoercionId::Strict,
+        ));
+
+        let normalized = normalize_enum_literals(&set_schema(), &predicate).expect("set normalize");
+        let expected = Predicate::Compare(ComparePredicate::with_coercion(
+            "tags_set",
+            CompareOp::Eq,
+            Value::List(vec![
+                Value::Text("a".to_string()),
+                Value::Text("b".to_string()),
+            ]),
+            CoercionId::Strict,
+        ));
+        assert_eq!(normalized, expected);
+    }
+
+    #[test]
+    fn list_literals_preserve_original_order_and_duplicates() {
+        let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+            "tags_list",
+            CompareOp::Eq,
+            Value::List(vec![
+                Value::Text("b".to_string()),
+                Value::Text("a".to_string()),
+                Value::Text("b".to_string()),
+            ]),
+            CoercionId::Strict,
+        ));
+
+        let normalized =
+            normalize_enum_literals(&set_schema(), &predicate).expect("list normalize");
+        assert_eq!(normalized, predicate);
     }
 }

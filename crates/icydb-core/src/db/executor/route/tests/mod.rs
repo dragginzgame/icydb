@@ -11,10 +11,10 @@ use crate::{
         },
         query::{
             ReadConsistency,
+            contracts::cursor::CursorBoundary,
             intent::{DeleteSpec, QueryMode},
             plan::{
-                AccessPath, AccessPlan, CursorBoundary, Direction, LogicalPlan, OrderDirection,
-                OrderSpec, PageSpec,
+                AccessPath, AccessPlan, Direction, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
             },
             predicate::{Predicate, PredicateFieldSlots},
         },

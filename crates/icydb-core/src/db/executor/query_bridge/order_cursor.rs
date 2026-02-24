@@ -1,10 +1,10 @@
 use crate::{
     db::{
+        executor::query_bridge::PlanRow,
         index::continuation_advances_from_ordering,
         query::{
-            plan::{
-                CursorBoundary, CursorBoundarySlot, OrderDirection, OrderSpec, logical::PlanRow,
-            },
+            contracts::cursor::{CursorBoundary, CursorBoundarySlot},
+            plan::{OrderDirection, OrderSpec},
             predicate::coercion::canonical_cmp,
         },
     },
@@ -64,9 +64,7 @@ fn field_slot_by_index<E: EntityValue>(
 }
 
 // Build continuation boundary slots from one entity using pre-resolved order slots.
-pub(in crate::db::query::plan::logical) fn boundary_slots_from_entity<
-    E: EntityKind + EntityValue,
->(
+pub(super) fn boundary_slots_from_entity<E: EntityKind + EntityValue>(
     entity: &E,
     order: &OrderSpec,
 ) -> Vec<CursorBoundarySlot> {
@@ -79,7 +77,7 @@ pub(in crate::db::query::plan::logical) fn boundary_slots_from_entity<
         .collect()
 }
 
-pub(in crate::db::query::plan::logical) fn apply_order_spec<E, R>(rows: &mut [R], order: &OrderSpec)
+pub(super) fn apply_order_spec<E, R>(rows: &mut [R], order: &OrderSpec)
 where
     E: EntityKind + EntityValue,
     R: PlanRow<E>,
@@ -95,7 +93,7 @@ where
 // Bounded ordering for first-page loads.
 // We select the smallest `keep_count` rows under canonical order and then sort
 // only that prefix. This preserves output and continuation behavior.
-pub(in crate::db::query::plan::logical) fn apply_order_spec_bounded<E, R>(
+pub(super) fn apply_order_spec_bounded<E, R>(
     rows: &mut Vec<R>,
     order: &OrderSpec,
     keep_count: usize,
@@ -127,7 +125,7 @@ pub(in crate::db::query::plan::logical) fn apply_order_spec_bounded<E, R>(
 }
 
 // Apply a strict continuation boundary using the canonical order comparator.
-pub(in crate::db::query::plan::logical) fn apply_cursor_boundary<E, R>(
+pub(super) fn apply_cursor_boundary<E, R>(
     rows: &mut Vec<R>,
     order: &OrderSpec,
     boundary: &CursorBoundary,

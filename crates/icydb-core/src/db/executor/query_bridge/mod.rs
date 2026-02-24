@@ -1,0 +1,612 @@
+//! Execution-phase bridge that applies runtime semantics to logical plans.
+
+mod order_cursor;
+mod window;
+
+use crate::{
+    db::{
+        index::IndexKey,
+        query::{
+            contracts::cursor::{
+                ContinuationSignature, ContinuationToken, CursorBoundary, IndexRangeCursorAnchor,
+            },
+            plan::{AccessPath, AccessPlan, Direction, LogicalPlan, compute_page_window},
+            policy,
+            predicate::{PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots},
+        },
+    },
+    error::InternalError,
+    traits::{EntityKind, EntitySchema, EntityValue},
+    types::Id,
+};
+
+///
+/// PlanRow
+/// Row abstraction for applying plan semantics to executor rows.
+///
+
+pub(crate) trait PlanRow<E: EntityKind> {
+    fn entity(&self) -> &E;
+}
+
+impl<E: EntityKind> PlanRow<E> for (Id<E>, E) {
+    fn entity(&self) -> &E {
+        &self.1
+    }
+}
+
+///
+/// PostAccessStats
+///
+/// Post-access execution statistics.
+///
+/// Runtime currently consumes only:
+/// - `rows_after_cursor` for continuation decisions
+/// - `delete_was_limited` for delete diagnostics
+///
+/// Additional phase-level fields are compiled in tests for structural assertions.
+///
+
+#[cfg_attr(test, expect(dead_code, clippy::struct_excessive_bools))]
+pub(crate) struct PostAccessStats {
+    pub(crate) delete_was_limited: bool,
+    pub(crate) rows_after_cursor: usize,
+    #[cfg(test)]
+    pub(crate) filtered: bool,
+    #[cfg(test)]
+    pub(crate) ordered: bool,
+    #[cfg(test)]
+    pub(crate) paged: bool,
+    #[cfg(test)]
+    pub(crate) rows_after_filter: usize,
+    #[cfg(test)]
+    pub(crate) rows_after_order: usize,
+    #[cfg(test)]
+    pub(crate) rows_after_page: usize,
+    #[cfg(test)]
+    pub(crate) rows_after_delete_limit: usize,
+}
+
+///
+/// BudgetSafetyMetadata
+///
+/// Executor-facing plan metadata for guarded scan-budget eligibility checks.
+/// This metadata keeps budget-safety predicates explicit at the plan boundary.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct BudgetSafetyMetadata {
+    pub(crate) has_residual_filter: bool,
+    pub(crate) access_order_satisfied_by_path: bool,
+    pub(crate) requires_post_access_sort: bool,
+}
+
+impl<K> LogicalPlan<K> {
+    /// Apply predicate, ordering, and pagination in plan order with one precompiled predicate.
+    pub(crate) fn apply_post_access_with_compiled_predicate<E, R>(
+        &self,
+        rows: &mut Vec<R>,
+        compiled_predicate: Option<&PredicateFieldSlots>,
+    ) -> Result<PostAccessStats, InternalError>
+    where
+        E: EntityKind + EntityValue,
+        R: PlanRow<E>,
+    {
+        self.apply_post_access_with_cursor_and_compiled_predicate::<E, R>(
+            rows,
+            None,
+            compiled_predicate,
+        )
+    }
+
+    /// Apply predicate, ordering, cursor boundary, and pagination with a precompiled predicate.
+    pub(crate) fn apply_post_access_with_cursor_and_compiled_predicate<E, R>(
+        &self,
+        rows: &mut Vec<R>,
+        cursor: Option<&CursorBoundary>,
+        compiled_predicate: Option<&PredicateFieldSlots>,
+    ) -> Result<PostAccessStats, InternalError>
+    where
+        E: EntityKind + EntityValue,
+        R: PlanRow<E>,
+    {
+        self.validate_post_access_invariants()?;
+        self.validate_cursor_mode(cursor)?;
+
+        // Phase 1: predicate filtering.
+        let (filtered, rows_after_filter) =
+            self.apply_filter_phase::<E, R>(rows, compiled_predicate)?;
+
+        // Phase 2: ordering.
+        let (ordered, rows_after_order) = self.apply_order_phase::<E, R>(rows, cursor, filtered)?;
+
+        // Phase 3: continuation boundary.
+        let (_cursor_skipped, rows_after_cursor) =
+            self.apply_cursor_phase::<E, R>(rows, cursor, ordered, rows_after_order)?;
+
+        // Phase 4: load pagination.
+        let (paged, rows_after_page) = self.apply_page_phase(rows, ordered, cursor)?;
+
+        // Phase 5: delete limiting.
+        let (delete_was_limited, rows_after_delete_limit) =
+            self.apply_delete_limit_phase(rows, ordered)?;
+
+        #[cfg(not(test))]
+        let _ = rows_after_filter;
+        #[cfg(not(test))]
+        let _ = paged;
+        #[cfg(not(test))]
+        let _ = rows_after_page;
+        #[cfg(not(test))]
+        let _ = rows_after_delete_limit;
+
+        Ok(PostAccessStats {
+            delete_was_limited,
+            rows_after_cursor,
+            #[cfg(test)]
+            filtered,
+            #[cfg(test)]
+            ordered,
+            #[cfg(test)]
+            paged,
+            #[cfg(test)]
+            rows_after_filter,
+            #[cfg(test)]
+            rows_after_order,
+            #[cfg(test)]
+            rows_after_page,
+            #[cfg(test)]
+            rows_after_delete_limit,
+        })
+    }
+
+    // Guard post-access execution with internal plan-shape invariants.
+    // Planner owns user-facing validation; this only catches internal misuse.
+    fn validate_post_access_invariants(&self) -> Result<(), InternalError> {
+        policy::validate_plan_shape(self).map_err(InternalError::plan_invariant_violation)
+    }
+
+    // Enforce load/delete cursor compatibility before execution phases.
+    fn validate_cursor_mode(&self, cursor: Option<&CursorBoundary>) -> Result<(), InternalError> {
+        if cursor.is_some() && !self.mode.is_load() {
+            return Err(InternalError::query_invalid_logical_plan(
+                "delete plans must not carry cursor boundaries",
+            ));
+        }
+
+        Ok(())
+    }
+
+    // Predicate phase (already normalized and validated during planning).
+    fn apply_filter_phase<E, R>(
+        &self,
+        rows: &mut Vec<R>,
+        compiled_predicate: Option<&PredicateFieldSlots>,
+    ) -> Result<(bool, usize), InternalError>
+    where
+        E: EntityKind + EntityValue,
+        R: PlanRow<E>,
+    {
+        let filtered = if self.predicate.is_some() {
+            let Some(compiled_predicate) = compiled_predicate else {
+                return Err(InternalError::query_executor_invariant(
+                    "post-access filtering requires precompiled predicate slots",
+                ));
+            };
+
+            rows.retain(|row| eval_predicate_with_slots(row.entity(), compiled_predicate));
+            true
+        } else {
+            false
+        };
+
+        Ok((filtered, rows.len()))
+    }
+
+    // Ordering phase with bounded-load optimization for first-page load paths.
+    fn apply_order_phase<E, R>(
+        &self,
+        rows: &mut Vec<R>,
+        cursor: Option<&CursorBoundary>,
+        filtered: bool,
+    ) -> Result<(bool, usize), InternalError>
+    where
+        E: EntityKind + EntityValue,
+        R: PlanRow<E>,
+    {
+        let bounded_order_keep = self.bounded_order_keep_count(cursor);
+        if let Some(order) = &self.order
+            && !order.fields.is_empty()
+        {
+            if self.predicate.is_some() && !filtered {
+                return Err(InternalError::query_executor_invariant(
+                    "ordering must run after filtering",
+                ));
+            }
+
+            let ordered_total = rows.len();
+            if rows.len() > 1 {
+                if let Some(keep_count) = bounded_order_keep {
+                    order_cursor::apply_order_spec_bounded::<E, R>(rows, order, keep_count);
+                } else {
+                    order_cursor::apply_order_spec::<E, R>(rows, order);
+                }
+            }
+
+            // Keep logical post-order cardinality even when bounded ordering
+            // trims the working set for load-page execution.
+            return Ok((true, ordered_total));
+        }
+
+        Ok((false, rows.len()))
+    }
+
+    // Continuation phase (strictly after ordering, before pagination).
+    fn apply_cursor_phase<E, R>(
+        &self,
+        rows: &mut Vec<R>,
+        cursor: Option<&CursorBoundary>,
+        ordered: bool,
+        rows_after_order: usize,
+    ) -> Result<(bool, usize), InternalError>
+    where
+        E: EntityKind + EntityValue,
+        R: PlanRow<E>,
+    {
+        if self.mode.is_load()
+            && let Some(boundary) = cursor
+        {
+            let Some(order) = self.order.as_ref() else {
+                return Err(InternalError::query_executor_invariant(
+                    "cursor boundary requires ordering",
+                ));
+            };
+
+            if !ordered {
+                return Err(InternalError::query_executor_invariant(
+                    "cursor boundary must run after ordering",
+                ));
+            }
+
+            order_cursor::apply_cursor_boundary::<E, R>(rows, order, boundary);
+            return Ok((true, rows.len()));
+        }
+
+        // No cursor boundary; preserve post-order cardinality for continuation
+        // decisions and diagnostics.
+        Ok((false, rows_after_order))
+    }
+
+    // Load pagination phase (offset/limit).
+    fn apply_page_phase<R>(
+        &self,
+        rows: &mut Vec<R>,
+        ordered: bool,
+        cursor: Option<&CursorBoundary>,
+    ) -> Result<(bool, usize), InternalError> {
+        let paged = if self.mode.is_load()
+            && let Some(page) = &self.page
+        {
+            if self.order.is_some() && !ordered {
+                return Err(InternalError::query_executor_invariant(
+                    "pagination must run after ordering",
+                ));
+            }
+            // Offset is applied only on the initial page. Continuation requests
+            // resume from the cursor boundary and must not re-apply offset.
+            window::apply_pagination(rows, self.effective_page_offset(cursor), page.limit);
+            true
+        } else {
+            false
+        };
+
+        Ok((paged, rows.len()))
+    }
+
+    // Delete-limit phase (after ordering).
+    fn apply_delete_limit_phase<R>(
+        &self,
+        rows: &mut Vec<R>,
+        ordered: bool,
+    ) -> Result<(bool, usize), InternalError> {
+        let delete_was_limited = if self.mode.is_delete()
+            && let Some(limit) = &self.delete_limit
+        {
+            if self.order.is_some() && !ordered {
+                return Err(InternalError::query_executor_invariant(
+                    "delete limit must run after ordering",
+                ));
+            }
+            window::apply_delete_limit(rows, limit.max_rows);
+            true
+        } else {
+            false
+        };
+
+        Ok((delete_was_limited, rows.len()))
+    }
+
+    // Return the bounded working-set size for ordered loads without a
+    // continuation boundary. This keeps canonical semantics while avoiding a
+    // full sort when only one page window (+1 to detect continuation) is
+    // needed.
+    fn bounded_order_keep_count(&self, cursor: Option<&CursorBoundary>) -> Option<usize> {
+        if !self.mode.is_load() || cursor.is_some() {
+            return None;
+        }
+
+        let page = self.page.as_ref()?;
+        let limit = page.limit?;
+        if limit == 0 {
+            return None;
+        }
+
+        Some(compute_page_window(page.offset, limit, true).fetch_count)
+    }
+
+    /// Return the effective page offset for this request.
+    ///
+    /// Offset is only consumed on the first page. Any continuation cursor means
+    /// the offset has already been applied and the next request uses offset `0`.
+    #[must_use]
+    pub(crate) fn effective_page_offset(&self, cursor: Option<&CursorBoundary>) -> u32 {
+        if cursor.is_some() {
+            return 0;
+        }
+
+        self.page.as_ref().map_or(0, |page| page.offset)
+    }
+
+    /// Build a cursor boundary from one materialized entity using this plan's canonical ordering.
+    pub(crate) fn cursor_boundary_from_entity<E>(
+        &self,
+        entity: &E,
+    ) -> Result<CursorBoundary, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        let Some(order) = self.order.as_ref() else {
+            return Err(InternalError::query_executor_invariant(
+                "cannot build cursor boundary without ordering",
+            ));
+        };
+
+        Ok(CursorBoundary {
+            slots: order_cursor::boundary_slots_from_entity(entity, order),
+        })
+    }
+
+    /// Build and encode the continuation token for one materialized entity.
+    pub(in crate::db) fn next_cursor_for_entity<E>(
+        &self,
+        entity: &E,
+        direction: Direction,
+        signature: ContinuationSignature,
+    ) -> Result<Vec<u8>, InternalError>
+    where
+        E: EntityKind + EntityValue,
+    {
+        let boundary = self.cursor_boundary_from_entity(entity)?;
+        let initial_offset = self.page.as_ref().map_or(0, |page| page.offset);
+        let token = if self.access.cursor_support().supports_index_range_anchor() {
+            let (index, _, _, _) = self.access.as_index_range_path().ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "index-range cursor support missing concrete index-range path",
+                )
+            })?;
+            let index_key = IndexKey::new(entity, index)?.ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "cursor row is not indexable for planned index-range access",
+                )
+            })?;
+
+            ContinuationToken::new_index_range_with_direction(
+                signature,
+                boundary,
+                IndexRangeCursorAnchor::new(index_key.to_raw()),
+                direction,
+                initial_offset,
+            )
+        } else {
+            ContinuationToken::new_with_direction(signature, boundary, direction, initial_offset)
+        };
+        token.encode().map_err(|err| {
+            InternalError::serialize_internal(format!(
+                "failed to encode continuation cursor: {err}"
+            ))
+        })
+    }
+
+    /// Build budget-safety metadata used by guarded execution scan budgeting.
+    #[must_use]
+    pub(crate) fn budget_safety_metadata<E>(&self) -> BudgetSafetyMetadata
+    where
+        E: EntitySchema<Key = K>,
+    {
+        let has_residual_filter = self.predicate.is_some();
+        let access_order_satisfied_by_path = self.is_access_order_satisfied_by_path::<E>();
+        let has_order = self
+            .order
+            .as_ref()
+            .is_some_and(|order| !order.fields.is_empty());
+        let requires_post_access_sort = has_order && !access_order_satisfied_by_path;
+
+        BudgetSafetyMetadata {
+            has_residual_filter,
+            access_order_satisfied_by_path,
+            requires_post_access_sort,
+        }
+    }
+
+    // Shared streaming eligibility gate for execution paths that consume
+    // the resolved ordered key stream directly without post-access filtering/sorting.
+    #[must_use]
+    pub(crate) fn is_streaming_access_shape_safe<E>(&self) -> bool
+    where
+        E: EntitySchema<Key = K>,
+    {
+        if !self.mode.is_load() {
+            return false;
+        }
+
+        let metadata = self.budget_safety_metadata::<E>();
+        if metadata.has_residual_filter {
+            return false;
+        }
+        if metadata.requires_post_access_sort {
+            return false;
+        }
+
+        true
+    }
+
+    // Return true when access-phase key ordering already matches canonical
+    // executor ordering for the current plan order spec.
+    fn is_access_order_satisfied_by_path<E>(&self) -> bool
+    where
+        E: EntitySchema<Key = K>,
+    {
+        let Some(order) = self.order.as_ref() else {
+            return false;
+        };
+        if order.fields.len() != 1 {
+            return false;
+        }
+        if order.fields[0].0 != E::MODEL.primary_key.name {
+            return false;
+        }
+
+        Self::access_stream_is_pk_ordered(&self.access)
+    }
+
+    // Composite access order is valid only when every child preserves canonical
+    // primary-key ordering.
+    fn access_stream_is_pk_ordered(access: &AccessPlan<K>) -> bool {
+        match access {
+            AccessPlan::Path(path) => Self::access_path_is_pk_ordered(path),
+            AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
+                children.iter().all(Self::access_stream_is_pk_ordered)
+            }
+        }
+    }
+
+    // Current access-path producers normalize emitted `DataKey` values into
+    // canonical order before stream composition.
+    const fn access_path_is_pk_ordered(path: &AccessPath<K>) -> bool {
+        match path {
+            AccessPath::ByKey(_)
+            | AccessPath::ByKeys(_)
+            | AccessPath::KeyRange { .. }
+            | AccessPath::IndexPrefix { .. }
+            | AccessPath::IndexRange { .. }
+            | AccessPath::FullScan => true,
+        }
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::db::query::{
+        contracts::cursor::CursorBoundary,
+        plan::{AccessPath, LogicalPlan, OrderSpec, PageSpec},
+        predicate::Predicate,
+    };
+    use crate::{
+        db::{ReadConsistency, query::plan::OrderDirection},
+        model::field::FieldKind,
+        types::Ulid,
+    };
+
+    crate::test_entity! {
+        ident = BudgetMetadataEntity,
+        id = Ulid,
+        entity_name = "BudgetMetadataEntity",
+        primary_key = "id",
+        pk_index = 0,
+        fields = [
+            ("id", FieldKind::Ulid),
+            ("rank", FieldKind::Uint),
+        ],
+        indexes = [],
+    }
+
+    #[test]
+    fn bounded_order_keep_count_includes_offset_for_non_cursor_page() {
+        let mut plan = LogicalPlan::new(AccessPath::<u64>::FullScan, ReadConsistency::MissingOk);
+        plan.page = Some(PageSpec {
+            limit: Some(5),
+            offset: 3,
+        });
+
+        assert_eq!(
+            plan.bounded_order_keep_count(None),
+            Some(9),
+            "bounded ordering should keep offset + limit + 1 rows"
+        );
+    }
+
+    #[test]
+    fn bounded_order_keep_count_disabled_when_cursor_present() {
+        let mut plan = LogicalPlan::new(AccessPath::<u64>::FullScan, ReadConsistency::MissingOk);
+        plan.page = Some(PageSpec {
+            limit: Some(5),
+            offset: 0,
+        });
+        let cursor = CursorBoundary { slots: Vec::new() };
+
+        assert_eq!(
+            plan.bounded_order_keep_count(Some(&cursor)),
+            None,
+            "bounded ordering should be disabled for continuation requests"
+        );
+    }
+
+    #[test]
+    fn budget_safety_metadata_marks_pk_order_plan_as_access_order_satisfied() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+
+        let metadata = plan.budget_safety_metadata::<BudgetMetadataEntity>();
+        assert!(
+            metadata.access_order_satisfied_by_path,
+            "single-field PK ordering should be marked access-order-satisfied"
+        );
+        assert!(
+            !metadata.has_residual_filter,
+            "plan without predicate should not report residual filtering"
+        );
+        assert!(
+            !metadata.requires_post_access_sort,
+            "access-order-satisfied plan should not require post-access sorting"
+        );
+    }
+
+    #[test]
+    fn budget_safety_metadata_marks_residual_filter_plan_as_unsafe() {
+        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        plan.order = Some(OrderSpec {
+            fields: vec![("id".to_string(), OrderDirection::Asc)],
+        });
+        plan.predicate = Some(Predicate::True);
+
+        let metadata = plan.budget_safety_metadata::<BudgetMetadataEntity>();
+        assert!(
+            metadata.has_residual_filter,
+            "predicate-bearing plan must report residual filtering"
+        );
+        assert!(
+            metadata.access_order_satisfied_by_path,
+            "residual filter should not hide access-order satisfaction result"
+        );
+        assert!(
+            !metadata.requires_post_access_sort,
+            "residual filtering alone should not imply post-access sorting"
+        );
+    }
+}

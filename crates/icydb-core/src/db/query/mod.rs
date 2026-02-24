@@ -18,6 +18,7 @@
 //! the canonical contract for evaluation, coercion, and normalization.
 
 pub(crate) mod builder;
+pub(crate) mod contracts;
 pub(crate) mod cursor;
 pub(crate) mod explain;
 pub(crate) mod expr;

@@ -11,19 +11,9 @@ mod types;
 pub(crate) mod validate;
 
 pub(in crate::db) use crate::db::index::KeyEnvelope;
-pub(in crate::db) use crate::db::{
-    index::Direction,
-    query::{
-        cursor::{anchor, continuation, spine},
-        explain,
-        fingerprint::{canonical, fingerprint, hash_parts},
-    },
-};
+pub(in crate::db) use crate::db::{index::Direction, query::fingerprint::canonical};
 pub(crate) use access_projection::{
     AccessPlanProjection, project_access_plan, project_explain_access_path,
-};
-pub(in crate::db) use continuation::{
-    ContinuationSignature, ContinuationToken, IndexRangeCursorAnchor, decode_pk_cursor_boundary,
 };
 ///
 /// Re-Exports
@@ -31,21 +21,13 @@ pub(in crate::db) use continuation::{
 pub(in crate::db) use executable::{
     ExecutablePlan, IndexPrefixSpec, IndexRangeSpec, PlannedCursor,
 };
-#[cfg(test)]
-pub(crate) use explain::ExplainOrderPushdown;
-pub(crate) use explain::{
-    ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination, ExplainPlan,
-    ExplainPredicate,
-};
-pub(crate) use fingerprint::PlanFingerprint;
 pub(in crate::db) use index_bounds::raw_bounds_for_semantic_index_component_range;
 pub(crate) use logical::LogicalPlan;
-pub(in crate::db) use spine::{validate_planned_cursor, validate_planned_cursor_state};
 pub use types::OrderDirection;
 pub(in crate::db) use types::derive_scan_direction;
 pub(crate) use types::{
-    AccessPath, AccessPlan, CursorBoundary, CursorBoundarySlot, DeleteLimitSpec, OrderSpec,
-    PageSpec, SlotSelectionPolicy, compute_page_window,
+    AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec, SlotSelectionPolicy,
+    compute_page_window,
 };
 pub use validate::PlanError;
 pub(crate) use validate::{AccessPlanError, CursorPlanError, OrderPlanError};

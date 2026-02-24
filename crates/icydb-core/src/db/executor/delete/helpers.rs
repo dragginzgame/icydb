@@ -1,7 +1,7 @@
 use crate::{
     db::{
         data::{DataKey, DataRow, RawRow, decode_and_validate_entity_key},
-        executor::ExecutorError,
+        executor::{ExecutorError, query_bridge::PlanRow},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -21,7 +21,7 @@ where
     pub(super) entity: E,
 }
 
-impl<E: EntityKind> crate::db::query::plan::logical::PlanRow<E> for DeleteRow<E> {
+impl<E: EntityKind> PlanRow<E> for DeleteRow<E> {
     fn entity(&self) -> &E {
         &self.entity
     }

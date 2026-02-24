@@ -6,12 +6,12 @@ use crate::{
         index::hash_value,
         query::{
             ReadConsistency,
-            intent::QueryMode,
-            plan::{
-                AccessPlanProjection, ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy,
-                ExplainPagination, ExplainPlan, ExplainPredicate, OrderDirection,
-                project_explain_access_path,
+            explain::{
+                ExplainAccessPath, ExplainDeleteLimit, ExplainOrderBy, ExplainPagination,
+                ExplainPlan, ExplainPredicate,
             },
+            intent::QueryMode,
+            plan::{AccessPlanProjection, OrderDirection, project_explain_access_path},
             predicate::coercion::CoercionId,
         },
     },

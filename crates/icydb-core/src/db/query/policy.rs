@@ -2,6 +2,11 @@
 //!
 //! This module centralizes semantic invariants so boundary layers can map one
 //! canonical rule set into their own error types.
+//!
+//! Ownership contract:
+//! - This module is the sole owner of query shape-policy rules.
+//! - ORDER semantic validation stays in `plan::validate::order`.
+//! - Executors may assert these rules defensively, but must not redefine them.
 
 use crate::db::query::{
     intent::{LoadSpec, QueryMode},
@@ -30,30 +35,6 @@ pub enum PlanPolicyError {
 
     #[error("unordered pagination is not allowed")]
     UnorderedPagination,
-}
-
-impl PlanPolicyError {
-    /// Canonical invariant message for executor-boundary plan-shape failures.
-    #[must_use]
-    pub const fn invariant_message(self) -> &'static str {
-        match self {
-            Self::EmptyOrderSpec => {
-                "invalid logical plan: order specification must include at least one field"
-            }
-            Self::DeletePlanWithPagination => {
-                "invalid logical plan: delete plans must not carry pagination"
-            }
-            Self::LoadPlanWithDeleteLimit => {
-                "invalid logical plan: load plans must not carry delete limits"
-            }
-            Self::DeleteLimitRequiresOrder => {
-                "invalid logical plan: delete limit requires an explicit ordering"
-            }
-            Self::UnorderedPagination => {
-                "invalid logical plan: unordered pagination is not allowed"
-            }
-        }
-    }
 }
 
 ///

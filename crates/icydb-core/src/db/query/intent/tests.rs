@@ -190,6 +190,30 @@ fn load_limit_without_order_rejects_unordered_pagination() {
 }
 
 #[test]
+fn load_rejects_duplicate_non_primary_order_field() {
+    let err = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
+        .order_by("name")
+        .order_by_desc("name")
+        .limit(1)
+        .plan()
+        .expect_err("duplicate non-primary order field must fail");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(ref plan_err)
+            if matches!(
+                **plan_err,
+                crate::db::query::plan::PlanError::Order(ref inner)
+                    if matches!(
+                        inner.as_ref(),
+                        crate::db::query::plan::validate::OrderPlanError::DuplicateOrderField { field }
+                            if field == "name"
+                    )
+            )
+    ));
+}
+
+#[test]
 fn load_offset_without_order_rejects_unordered_pagination() {
     let err = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
         .offset(1)

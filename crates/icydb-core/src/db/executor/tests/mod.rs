@@ -19,8 +19,8 @@ use crate::{
         index::IndexStore,
         query::{
             ReadConsistency,
+            contracts::cursor::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
             intent::{IntentError, Query, QueryError},
-            plan::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
             predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         },
         registry::StoreRegistry,

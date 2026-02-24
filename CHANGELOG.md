@@ -5,6 +5,29 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.29.1] - 2026-02-24 - Audit db/query I
+
+### 🔧 Changed
+
+- Centralized executor-facing plan-shape defensive checks on `policy::validate_plan_shape` so shape invariants now come from one canonical policy source.
+- Added debug-only executor boundary assertions (load, delete, aggregate) to catch internal paths that bypass planning validation during development.
+- Added explicit `PlanPolicyError` to `InternalError` mapping for executor invariant translation, removing string-based conversion at that boundary.
+- Split predicate evaluation internals into dedicated `resolve`, `runtime`, and `index_compile` modules so AST slot resolution, runtime filtering, and index pushdown compilation evolve independently.
+- Moved post-access runtime semantics (filter/order/cursor/pagination/delete-limit and budget-safety checks) out of `query::plan::logical` into `executor::query_bridge`, keeping `LogicalPlan` as a structural contract.
+
+### 🩹 Fixed
+
+- ORDER validation now rejects duplicate non-primary fields (for example repeated `created_at`) to keep canonical ordering semantics and comparator surfaces deterministic.
+- Canonicalized `Set` predicate literals during normalization by recursively normalizing members, sorting deterministically, and deduplicating duplicates; `List` literal behavior remains unchanged.
+
+### 🧹 Cleanup
+
+- Removed query cursor anchor dependency on storage-layer key types by introducing an index-layer primary-key equivalence contract, preserving cursor validation behavior while tightening layering.
+- Removed non-owning `query/contracts` facades for explain/fingerprint and switched call sites to import from real owner modules directly.
+- Moved shared cursor contract types (`CursorBoundary*`, continuation token/signature, index-range anchor) into `query/contracts/cursor`, and removed those type re-exports from `query::plan`.
+
+---
+
 ## [0.29.0] - 2026-02-24 - Pre-GROUP BY Hardening Kickoff
 
 ### 📝 Summary

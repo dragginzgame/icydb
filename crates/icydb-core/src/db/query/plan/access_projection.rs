@@ -1,5 +1,8 @@
 use crate::{
-    db::query::plan::{AccessPath, AccessPlan, ExplainAccessPath},
+    db::query::{
+        explain::ExplainAccessPath,
+        plan::{AccessPath, AccessPlan},
+    },
     value::Value,
 };
 use std::ops::Bound;

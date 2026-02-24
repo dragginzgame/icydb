@@ -2,14 +2,18 @@ use crate::{
     db::{
         index::Direction,
         query::{
-            plan::{
-                AccessPath, ContinuationSignature, ContinuationToken, CursorBoundary,
-                CursorBoundarySlot, CursorPlanError, IndexRangeCursorAnchor, OrderPlanError,
-                OrderSpec, PlanError, PlannedCursor,
+            contracts::cursor::{
+                ContinuationSignature, ContinuationToken, ContinuationTokenError, CursorBoundary,
+                CursorBoundarySlot, IndexRangeCursorAnchor,
+            },
+            cursor::{
                 anchor::{
                     validate_index_range_anchor, validate_index_range_boundary_anchor_consistency,
                 },
-                continuation::{ContinuationTokenError, decode_typed_primary_key_cursor_slot},
+                continuation::decode_typed_primary_key_cursor_slot,
+            },
+            plan::{
+                AccessPath, CursorPlanError, OrderPlanError, OrderSpec, PlanError, PlannedCursor,
             },
             predicate::{SchemaInfo, validate::literal_matches_type},
         },

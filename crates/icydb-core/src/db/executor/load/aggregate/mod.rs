@@ -35,6 +35,7 @@ use crate::{
                 AccessPath, Direction, ExecutablePlan, IndexPrefixSpec, IndexRangeSpec,
                 LogicalPlan, validate::validate_executor_plan,
             },
+            policy,
         },
     },
     error::InternalError,
@@ -263,6 +264,11 @@ where
         plan: &ExecutablePlan<E>,
         spec: AggregateSpec,
     ) -> Result<AggregateExecutionDescriptor, InternalError> {
+        debug_assert!(
+            policy::validate_plan_shape(plan.as_inner()).is_ok(),
+            "aggregate executor received a plan shape that bypassed planning validation",
+        );
+
         spec.ensure_supported_for_execution()
             .map_err(|err| InternalError::executor_unsupported(err.to_string()))?;
 

@@ -1,3 +1,4 @@
+mod contracts;
 mod entry;
 pub(in crate::db) mod envelope;
 mod fingerprint;
@@ -7,6 +8,7 @@ pub(in crate::db) mod predicate;
 mod range;
 mod store;
 
+pub(in crate::db) use contracts::{PrimaryKeyEquivalenceError, primary_key_matches_value};
 pub(in crate::db) use entry::{
     IndexEntry, IndexEntryCorruption, IndexEntryEncodeError, MAX_INDEX_ENTRY_BYTES, RawIndexEntry,
 };

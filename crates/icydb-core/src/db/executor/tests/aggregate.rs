@@ -3,9 +3,9 @@ use crate::{
     db::{
         data::DataKey,
         executor::fold::{AggregateKind, AggregateSpec},
-        query::plan::{
-            AccessPath, ExecutablePlan, ExplainAccessPath, LogicalPlan, OrderDirection, OrderSpec,
-            PageSpec,
+        query::{
+            explain::ExplainAccessPath,
+            plan::{AccessPath, ExecutablePlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec},
         },
         response::Response,
     },

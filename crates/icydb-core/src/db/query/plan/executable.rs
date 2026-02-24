@@ -5,13 +5,15 @@ use crate::{
             map_index_range_not_indexable_reason, raw_keys_for_encoded_prefix,
         },
         query::{
+            contracts::cursor::{ContinuationSignature, CursorBoundary},
+            cursor::spine::{validate_planned_cursor, validate_planned_cursor_state},
+            explain::ExplainPlan,
+            fingerprint::PlanFingerprint,
             intent::QueryMode,
             plan::{
-                AccessPath, AccessPlan, ContinuationSignature, CursorBoundary, CursorPlanError,
-                ExplainPlan, LogicalPlan, OrderSpec, PlanError, PlanFingerprint,
+                AccessPath, AccessPlan, CursorPlanError, LogicalPlan, OrderSpec, PlanError,
                 SlotSelectionPolicy, derive_scan_direction,
-                raw_bounds_for_semantic_index_component_range, validate_planned_cursor,
-                validate_planned_cursor_state,
+                raw_bounds_for_semantic_index_component_range,
             },
             predicate::PredicateFieldSlots,
         },
@@ -255,6 +257,14 @@ impl<E: EntityKind> ExecutablePlan<E> {
         derive_scan_direction(order, SlotSelectionPolicy::First)
     }
 
+    // Initial page offset used for continuation compatibility on first-page shape.
+    const fn initial_page_offset(plan: &LogicalPlan<E::Key>) -> u32 {
+        match plan.page {
+            Some(ref page) => page.offset,
+            None => 0,
+        }
+    }
+
     /// Explain this plan without executing it.
     #[must_use]
     pub fn explain(&self) -> ExplainPlan {
@@ -295,7 +305,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             order,
             self.continuation_signature(),
             self.direction,
-            self.plan.effective_page_offset(None),
+            Self::initial_page_offset(&self.plan),
         )
     }
 
@@ -372,7 +382,7 @@ impl<E: EntityKind> ExecutablePlan<E> {
             E::MODEL,
             order,
             self.direction,
-            self.plan.effective_page_offset(None),
+            Self::initial_page_offset(&self.plan),
         )
         .map_err(InternalError::from_cursor_plan_error)
     }
@@ -532,9 +542,13 @@ mod tests {
                 Direction, IndexId, IndexKeyKind, RawIndexKey, continuation_advanced,
                 encode_canonical_index_component,
             },
-            query::plan::{
-                AccessPath, ContinuationToken, CursorBoundary, CursorBoundarySlot, CursorPlanError,
-                IndexRangeCursorAnchor, LogicalPlan, OrderDirection, OrderSpec, PlanError,
+            query::{
+                contracts::cursor::{
+                    ContinuationToken, CursorBoundary, CursorBoundarySlot, IndexRangeCursorAnchor,
+                },
+                plan::{
+                    AccessPath, CursorPlanError, LogicalPlan, OrderDirection, OrderSpec, PlanError,
+                },
             },
         },
         model::{field::FieldKind, index::IndexModel},

@@ -5,11 +5,7 @@ use crate::db::query::plan::compute_page_window;
 /// - `offset` and `limit` are logical (u32) pagination parameters
 /// - Conversion to `usize` happens only at the indexing boundary
 #[expect(clippy::cast_possible_truncation)]
-pub(in crate::db::query::plan::logical) fn apply_pagination<T>(
-    rows: &mut Vec<T>,
-    offset: u32,
-    limit: Option<u32>,
-) {
+pub(super) fn apply_pagination<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
     let total: u32 = rows.len() as u32;
 
     // If offset is past the end, clear everything.
@@ -33,7 +29,7 @@ pub(in crate::db::query::plan::logical) fn apply_pagination<T>(
 }
 
 // Apply a delete limit to an in-memory vector, in-place.
-pub(in crate::db::query::plan::logical) fn apply_delete_limit<T>(rows: &mut Vec<T>, max_rows: u32) {
+pub(super) fn apply_delete_limit<T>(rows: &mut Vec<T>, max_rows: u32) {
     let limit = usize::min(rows.len(), max_rows as usize);
     rows.truncate(limit);
 }

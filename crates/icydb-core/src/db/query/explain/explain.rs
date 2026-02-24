@@ -1,16 +1,16 @@
 //! Deterministic, read-only explanation of logical plans; must not execute or validate.
 
-use super::{
-    AccessPlan, AccessPlanProjection, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
-    PageSpec, project_access_plan,
-};
 use crate::{
     db::query::{
         ReadConsistency,
         intent::QueryMode,
-        plan::validate::{
-            PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
-            SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
+        plan::{
+            AccessPlan, AccessPlanProjection, DeleteLimitSpec, LogicalPlan, OrderDirection,
+            OrderSpec, PageSpec, project_access_plan,
+            validate::{
+                PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
+                SecondaryOrderPushdownRejection, assess_secondary_order_pushdown,
+            },
         },
         predicate::{CompareOp, ComparePredicate, Predicate, coercion::CoercionSpec, normalize},
     },

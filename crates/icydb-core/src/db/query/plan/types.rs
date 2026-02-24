@@ -1,7 +1,6 @@
 //! Pure plan-layer data types; must not embed planning semantics or validation.
 
 use crate::{db::index::Direction, model::index::IndexModel, value::Value};
-use serde::{Deserialize, Serialize};
 use std::ops::Bound;
 
 pub(crate) type IndexRangePathRef<'a> = (
@@ -313,27 +312,6 @@ pub(crate) fn compute_page_window(offset: u32, limit: u32, needs_extra: bool) ->
         fetch_count,
         keep_count,
     }
-}
-
-///
-/// CursorBoundarySlot
-/// Slot value used for deterministic cursor boundaries.
-///
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub(crate) enum CursorBoundarySlot {
-    Missing,
-    Present(Value),
-}
-
-///
-/// CursorBoundary
-/// Ordered boundary tuple for continuation pagination.
-///
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub(crate) struct CursorBoundary {
-    pub(crate) slots: Vec<CursorBoundarySlot>,
 }
 
 ///
