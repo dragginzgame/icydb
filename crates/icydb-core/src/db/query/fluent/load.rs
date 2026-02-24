@@ -434,6 +434,48 @@ where
             .execute_load_query_bottom_k_by(self.query(), field.as_ref(), take_count)
     }
 
+    /// Execute and return projected values for the top `k` rows by `field`
+    /// under deterministic ordering `(field desc, primary_key asc)` over the
+    /// effective response window.
+    ///
+    /// Ranking is applied before projection and does not preserve query
+    /// `order_by(...)` row order in the returned values. For `k = 1`, this
+    /// matches `max_by(field)` projected to one value.
+    pub fn top_k_by_values(
+        &self,
+        field: impl AsRef<str>,
+        take_count: u32,
+    ) -> Result<Vec<Value>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_top_k_by_values(self.query(), field.as_ref(), take_count)
+    }
+
+    /// Execute and return projected values for the bottom `k` rows by `field`
+    /// under deterministic ordering `(field asc, primary_key asc)` over the
+    /// effective response window.
+    ///
+    /// Ranking is applied before projection and does not preserve query
+    /// `order_by(...)` row order in the returned values. For `k = 1`, this
+    /// matches `min_by(field)` projected to one value.
+    pub fn bottom_k_by_values(
+        &self,
+        field: impl AsRef<str>,
+        take_count: u32,
+    ) -> Result<Vec<Value>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_bottom_k_by_values(self.query(), field.as_ref(), take_count)
+    }
+
     /// Execute and return distinct projected field values for the effective
     /// result window, preserving first-observed value order.
     pub fn distinct_values_by(&self, field: impl AsRef<str>) -> Result<Vec<Value>, QueryError>

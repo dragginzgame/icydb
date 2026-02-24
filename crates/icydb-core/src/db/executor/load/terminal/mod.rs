@@ -51,6 +51,28 @@ where
         self.execute_bottom_k_field_terminal(plan, target_field.as_str(), take_count)
     }
 
+    pub(in crate::db) fn top_k_by_values(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+        take_count: u32,
+    ) -> Result<Vec<Value>, InternalError> {
+        let target_field = target_field.into();
+
+        self.execute_top_k_field_values_terminal(plan, target_field.as_str(), take_count)
+    }
+
+    pub(in crate::db) fn bottom_k_by_values(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: impl Into<String>,
+        take_count: u32,
+    ) -> Result<Vec<Value>, InternalError> {
+        let target_field = target_field.into();
+
+        self.execute_bottom_k_field_values_terminal(plan, target_field.as_str(), take_count)
+    }
+
     // Execute one row-terminal take (`take(k)`) via canonical materialized
     // response semantics.
     fn execute_take_terminal(
@@ -97,14 +119,49 @@ where
         Self::bottom_k_field_from_materialized(response, target_field, field_slot, take_count)
     }
 
-    // Reduce one materialized response into a deterministic top-k response
+    // Execute one value terminal (`top_k_by_values(field, k)`) over the
+    // effective materialized response window.
+    fn execute_top_k_field_values_terminal(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: &str,
+        take_count: u32,
+    ) -> Result<Vec<Value>, InternalError> {
+        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
+            .map_err(Self::map_terminal_field_value_error)?;
+        let response = self.execute(plan)?;
+
+        Self::top_k_field_values_from_materialized(response, target_field, field_slot, take_count)
+    }
+
+    // Execute one value terminal (`bottom_k_by_values(field, k)`) over the
+    // effective materialized response window.
+    fn execute_bottom_k_field_values_terminal(
+        &self,
+        plan: ExecutablePlan<E>,
+        target_field: &str,
+        take_count: u32,
+    ) -> Result<Vec<Value>, InternalError> {
+        let field_slot = resolve_orderable_aggregate_target_slot::<E>(target_field)
+            .map_err(Self::map_terminal_field_value_error)?;
+        let response = self.execute(plan)?;
+
+        Self::bottom_k_field_values_from_materialized(
+            response,
+            target_field,
+            field_slot,
+            take_count,
+        )
+    }
+
+    // Reduce one materialized response into deterministic top-k ranked rows
     // ordered by `(field_value_desc, primary_key_asc)`.
-    fn top_k_field_from_materialized(
+    fn top_k_ranked_rows_from_materialized(
         response: Response<E>,
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Response<E>, InternalError> {
+    ) -> Result<Vec<(Id<E>, E, Value)>, InternalError> {
         let mut ordered_rows: Vec<(Id<E>, E, Value)> = Vec::new();
         for (id, entity) in response {
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
@@ -126,22 +183,18 @@ where
         if ordered_rows.len() > take_len {
             ordered_rows.truncate(take_len);
         }
-        let output_rows = ordered_rows
-            .into_iter()
-            .map(|(id, entity, _)| (id, entity))
-            .collect();
 
-        Ok(Response(output_rows))
+        Ok(ordered_rows)
     }
 
-    // Reduce one materialized response into a deterministic bottom-k response
+    // Reduce one materialized response into deterministic bottom-k ranked rows
     // ordered by `(field_value_asc, primary_key_asc)`.
-    fn bottom_k_field_from_materialized(
+    fn bottom_k_ranked_rows_from_materialized(
         response: Response<E>,
         target_field: &str,
         field_slot: FieldSlot,
         take_count: u32,
-    ) -> Result<Response<E>, InternalError> {
+    ) -> Result<Vec<(Id<E>, E, Value)>, InternalError> {
         let mut ordered_rows: Vec<(Id<E>, E, Value)> = Vec::new();
         for (id, entity) in response {
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
@@ -163,12 +216,96 @@ where
         if ordered_rows.len() > take_len {
             ordered_rows.truncate(take_len);
         }
+
+        Ok(ordered_rows)
+    }
+
+    // Reduce one materialized response into a deterministic top-k response
+    // ordered by `(field_value_desc, primary_key_asc)`.
+    fn top_k_field_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        field_slot: FieldSlot,
+        take_count: u32,
+    ) -> Result<Response<E>, InternalError> {
+        let ordered_rows = Self::top_k_ranked_rows_from_materialized(
+            response,
+            target_field,
+            field_slot,
+            take_count,
+        )?;
         let output_rows = ordered_rows
             .into_iter()
             .map(|(id, entity, _)| (id, entity))
             .collect();
 
         Ok(Response(output_rows))
+    }
+
+    // Reduce one materialized response into top-k projected field values under
+    // deterministic `(field_value_desc, primary_key_asc)` ranking.
+    fn top_k_field_values_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        field_slot: FieldSlot,
+        take_count: u32,
+    ) -> Result<Vec<Value>, InternalError> {
+        let ordered_rows = Self::top_k_ranked_rows_from_materialized(
+            response,
+            target_field,
+            field_slot,
+            take_count,
+        )?;
+        let projected_values = ordered_rows
+            .into_iter()
+            .map(|(_, _, value)| value)
+            .collect();
+
+        Ok(projected_values)
+    }
+
+    // Reduce one materialized response into a deterministic bottom-k response
+    // ordered by `(field_value_asc, primary_key_asc)`.
+    fn bottom_k_field_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        field_slot: FieldSlot,
+        take_count: u32,
+    ) -> Result<Response<E>, InternalError> {
+        let ordered_rows = Self::bottom_k_ranked_rows_from_materialized(
+            response,
+            target_field,
+            field_slot,
+            take_count,
+        )?;
+        let output_rows = ordered_rows
+            .into_iter()
+            .map(|(id, entity, _)| (id, entity))
+            .collect();
+
+        Ok(Response(output_rows))
+    }
+
+    // Reduce one materialized response into bottom-k projected field values
+    // under deterministic `(field_value_asc, primary_key_asc)` ranking.
+    fn bottom_k_field_values_from_materialized(
+        response: Response<E>,
+        target_field: &str,
+        field_slot: FieldSlot,
+        take_count: u32,
+    ) -> Result<Vec<Value>, InternalError> {
+        let ordered_rows = Self::bottom_k_ranked_rows_from_materialized(
+            response,
+            target_field,
+            field_slot,
+            take_count,
+        )?;
+        let projected_values = ordered_rows
+            .into_iter()
+            .map(|(_, _, value)| value)
+            .collect();
+
+        Ok(projected_values)
     }
 
     // Map row-terminal field extraction/comparison failures into taxonomy-correct

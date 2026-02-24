@@ -1762,6 +1762,142 @@ fn aggregate_field_target_bottom_k_by_optional_field_null_values_match_projectio
 }
 
 #[test]
+fn aggregate_field_target_top_k_by_values_optional_field_null_values_match_projection_errors() {
+    seed_phase_entities_custom(vec![
+        PhaseEntity {
+            id: Ulid::from_u128(8_3301),
+            opt_rank: None,
+            rank: 1,
+            tags: vec![1],
+            label: "phase-1".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3302),
+            opt_rank: Some(10),
+            rank: 2,
+            tags: vec![2],
+            label: "phase-2".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3303),
+            opt_rank: Some(20),
+            rank: 3,
+            tags: vec![3],
+            label: "phase-3".to_string(),
+        },
+    ]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            .order_by("rank")
+            .plan()
+            .expect("optional-field projection/top-k-values null-semantics plan should build")
+    };
+    let values_err = load
+        .values_by(build_plan(), "opt_rank")
+        .expect_err("values_by(opt_rank) should reject null field values");
+    let top_k_values_err = load
+        .top_k_by_values(build_plan(), "opt_rank", 2)
+        .expect_err("top_k_by_values(opt_rank, 2) should reject null field values");
+
+    assert_eq!(
+        values_err.class,
+        ErrorClass::InvariantViolation,
+        "values_by(opt_rank) should classify null-value mismatch as invariant violation"
+    );
+    assert_eq!(
+        top_k_values_err.class,
+        ErrorClass::InvariantViolation,
+        "top_k_by_values(opt_rank, 2) should classify null-value mismatch as invariant violation"
+    );
+    assert!(
+        values_err
+            .message
+            .contains("aggregate target field value type mismatch"),
+        "values_by(opt_rank) should expose type-mismatch reason for null values"
+    );
+    assert!(
+        top_k_values_err
+            .message
+            .contains("aggregate target field value type mismatch"),
+        "top_k_by_values(opt_rank, 2) should expose type-mismatch reason for null values"
+    );
+    assert!(
+        values_err.message.contains("value=Null")
+            && top_k_values_err.message.contains("value=Null"),
+        "top_k_by_values(opt_rank, 2) should report null payload mismatch consistently with values_by(opt_rank)"
+    );
+}
+
+#[test]
+fn aggregate_field_target_bottom_k_by_values_optional_field_null_values_match_projection_errors() {
+    seed_phase_entities_custom(vec![
+        PhaseEntity {
+            id: Ulid::from_u128(8_3301),
+            opt_rank: None,
+            rank: 1,
+            tags: vec![1],
+            label: "phase-1".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3302),
+            opt_rank: Some(10),
+            rank: 2,
+            tags: vec![2],
+            label: "phase-2".to_string(),
+        },
+        PhaseEntity {
+            id: Ulid::from_u128(8_3303),
+            opt_rank: Some(20),
+            rank: 3,
+            tags: vec![3],
+            label: "phase-3".to_string(),
+        },
+    ]);
+    let load = LoadExecutor::<PhaseEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PhaseEntity>::new(ReadConsistency::MissingOk)
+            .order_by("rank")
+            .plan()
+            .expect("optional-field projection/bottom-k-values null-semantics plan should build")
+    };
+    let values_err = load
+        .values_by(build_plan(), "opt_rank")
+        .expect_err("values_by(opt_rank) should reject null field values");
+    let bottom_k_values_err = load
+        .bottom_k_by_values(build_plan(), "opt_rank", 2)
+        .expect_err("bottom_k_by_values(opt_rank, 2) should reject null field values");
+
+    assert_eq!(
+        values_err.class,
+        ErrorClass::InvariantViolation,
+        "values_by(opt_rank) should classify null-value mismatch as invariant violation"
+    );
+    assert_eq!(
+        bottom_k_values_err.class,
+        ErrorClass::InvariantViolation,
+        "bottom_k_by_values(opt_rank, 2) should classify null-value mismatch as invariant violation"
+    );
+    assert!(
+        values_err
+            .message
+            .contains("aggregate target field value type mismatch"),
+        "values_by(opt_rank) should expose type-mismatch reason for null values"
+    );
+    assert!(
+        bottom_k_values_err
+            .message
+            .contains("aggregate target field value type mismatch"),
+        "bottom_k_by_values(opt_rank, 2) should expose type-mismatch reason for null values"
+    );
+    assert!(
+        values_err.message.contains("value=Null")
+            && bottom_k_values_err.message.contains("value=Null"),
+        "bottom_k_by_values(opt_rank, 2) should report null payload mismatch consistently with values_by(opt_rank)"
+    );
+}
+
+#[test]
 fn aggregate_field_target_top_k_by_missing_field_parity_matches_values_by() {
     seed_pushdown_entities(&[(8_3381, 7, 10), (8_3382, 7, 20), (8_3383, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
@@ -1789,6 +1925,39 @@ fn aggregate_field_target_top_k_by_missing_field_parity_matches_values_by() {
     assert!(
         top_k_err.message.contains("unknown aggregate target field"),
         "top_k_by(missing_field, 2) should surface the same unknown-field reason"
+    );
+}
+
+#[test]
+fn aggregate_field_target_top_k_by_values_missing_field_parity_matches_values_by() {
+    seed_pushdown_entities(&[(8_3381, 7, 10), (8_3382, 7, 20), (8_3383, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .order_by("id")
+            .plan()
+            .expect("missing-field parity plan should build")
+    };
+    let values_err = load
+        .values_by(build_plan(), "missing_field")
+        .expect_err("values_by(missing_field) should be rejected");
+    let top_k_values_err = load
+        .top_k_by_values(build_plan(), "missing_field", 2)
+        .expect_err("top_k_by_values(missing_field, 2) should be rejected");
+
+    assert_eq!(
+        top_k_values_err.class, values_err.class,
+        "top_k_by_values(missing_field, 2) should classify unknown-field failures the same way as values_by(missing_field)"
+    );
+    assert_eq!(
+        top_k_values_err.origin, values_err.origin,
+        "top_k_by_values(missing_field, 2) should preserve unknown-field origin parity with values_by(missing_field)"
+    );
+    assert!(
+        top_k_values_err
+            .message
+            .contains("unknown aggregate target field"),
+        "top_k_by_values(missing_field, 2) should surface the same unknown-field reason"
     );
 }
 
@@ -1822,6 +1991,39 @@ fn aggregate_field_target_bottom_k_by_missing_field_parity_matches_values_by() {
             .message
             .contains("unknown aggregate target field"),
         "bottom_k_by(missing_field, 2) should surface the same unknown-field reason"
+    );
+}
+
+#[test]
+fn aggregate_field_target_bottom_k_by_values_missing_field_parity_matches_values_by() {
+    seed_pushdown_entities(&[(8_3381, 7, 10), (8_3382, 7, 20), (8_3383, 7, 30)]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .order_by("id")
+            .plan()
+            .expect("missing-field parity plan should build")
+    };
+    let values_err = load
+        .values_by(build_plan(), "missing_field")
+        .expect_err("values_by(missing_field) should be rejected");
+    let bottom_k_values_err = load
+        .bottom_k_by_values(build_plan(), "missing_field", 2)
+        .expect_err("bottom_k_by_values(missing_field, 2) should be rejected");
+
+    assert_eq!(
+        bottom_k_values_err.class, values_err.class,
+        "bottom_k_by_values(missing_field, 2) should classify unknown-field failures the same way as values_by(missing_field)"
+    );
+    assert_eq!(
+        bottom_k_values_err.origin, values_err.origin,
+        "bottom_k_by_values(missing_field, 2) should preserve unknown-field origin parity with values_by(missing_field)"
+    );
+    assert!(
+        bottom_k_values_err
+            .message
+            .contains("unknown aggregate target field"),
+        "bottom_k_by_values(missing_field, 2) should surface the same unknown-field reason"
     );
 }
 
@@ -2156,6 +2358,34 @@ fn aggregate_field_target_new_terminals_unknown_field_fail_without_scan() {
     assert_eq!(
         bottom_k_scanned, 0,
         "bottom_k_by unknown-field target should fail before scan-budget consumption"
+    );
+
+    let (top_k_values_result, top_k_values_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.top_k_by_values(build_plan(), "missing_field", 2)
+        });
+    let Err(top_k_values_err) = top_k_values_result else {
+        panic!("top_k_by_values(missing_field, k) should be rejected");
+    };
+    assert_eq!(top_k_values_err.class, ErrorClass::Unsupported);
+    assert_eq!(top_k_values_err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        top_k_values_scanned, 0,
+        "top_k_by_values unknown-field target should fail before scan-budget consumption"
+    );
+
+    let (bottom_k_values_result, bottom_k_values_scanned) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.bottom_k_by_values(build_plan(), "missing_field", 2)
+        });
+    let Err(bottom_k_values_err) = bottom_k_values_result else {
+        panic!("bottom_k_by_values(missing_field, k) should be rejected");
+    };
+    assert_eq!(bottom_k_values_err.class, ErrorClass::Unsupported);
+    assert_eq!(bottom_k_values_err.origin, ErrorOrigin::Executor);
+    assert_eq!(
+        bottom_k_values_scanned, 0,
+        "bottom_k_by_values unknown-field target should fail before scan-budget consumption"
     );
 }
 
@@ -4367,6 +4597,134 @@ fn session_load_bottom_k_by_is_direction_invariant_for_same_effective_window() {
 }
 
 #[test]
+fn session_load_top_k_by_values_matches_top_k_by_projection() {
+    seed_pushdown_entities(&[
+        (8_3771, 7, 20),
+        (8_3772, 7, 40),
+        (8_3773, 7, 40),
+        (8_3774, 7, 10),
+        (8_3775, 7, 30),
+        (8_3776, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(0)
+            .limit(5)
+    };
+
+    let ranked_rows = load_window()
+        .top_k_by("rank", 3)
+        .expect("session top_k_by(rank, 3) should succeed");
+    let ranked_values = load_window()
+        .top_k_by_values("rank", 3)
+        .expect("session top_k_by_values(rank, 3) should succeed");
+
+    assert_eq!(
+        ranked_values,
+        expected_values_by_rank(&ranked_rows),
+        "session top_k_by_values(rank, 3) should match top_k_by(rank, 3) projected values"
+    );
+}
+
+#[test]
+fn session_load_bottom_k_by_values_matches_bottom_k_by_projection() {
+    seed_pushdown_entities(&[
+        (8_3781, 7, 20),
+        (8_3782, 7, 40),
+        (8_3783, 7, 40),
+        (8_3784, 7, 10),
+        (8_3785, 7, 30),
+        (8_3786, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let load_window = || {
+        session
+            .load::<PushdownParityEntity>()
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .offset(0)
+            .limit(5)
+    };
+
+    let ranked_rows = load_window()
+        .bottom_k_by("rank", 3)
+        .expect("session bottom_k_by(rank, 3) should succeed");
+    let ranked_values = load_window()
+        .bottom_k_by_values("rank", 3)
+        .expect("session bottom_k_by_values(rank, 3) should succeed");
+
+    assert_eq!(
+        ranked_values,
+        expected_values_by_rank(&ranked_rows),
+        "session bottom_k_by_values(rank, 3) should match bottom_k_by(rank, 3) projected values"
+    );
+}
+
+#[test]
+fn session_load_top_k_by_values_is_direction_invariant_for_same_effective_window() {
+    seed_pushdown_entities(&[
+        (8_3791, 7, 10),
+        (8_3792, 7, 40),
+        (8_3793, 7, 20),
+        (8_3794, 7, 30),
+        (8_3795, 7, 40),
+        (8_3796, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let asc = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("id")
+        .top_k_by_values("rank", 3)
+        .expect("session top_k_by_values(rank, 3) ASC base order should succeed");
+    let desc = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by_desc("id")
+        .top_k_by_values("rank", 3)
+        .expect("session top_k_by_values(rank, 3) DESC base order should succeed");
+
+    assert_eq!(
+        asc, desc,
+        "top_k_by_values(rank, k) should be invariant to ASC/DESC base scan direction over the same effective row set"
+    );
+}
+
+#[test]
+fn session_load_bottom_k_by_values_is_direction_invariant_for_same_effective_window() {
+    seed_pushdown_entities(&[
+        (8_3801, 7, 10),
+        (8_3802, 7, 40),
+        (8_3803, 7, 20),
+        (8_3804, 7, 30),
+        (8_3805, 7, 40),
+        (8_3806, 8, 99),
+    ]);
+    let session = DbSession::new(DB);
+    let asc = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by("id")
+        .bottom_k_by_values("rank", 3)
+        .expect("session bottom_k_by_values(rank, 3) ASC base order should succeed");
+    let desc = session
+        .load::<PushdownParityEntity>()
+        .filter(u32_eq_predicate("group", 7))
+        .order_by_desc("id")
+        .bottom_k_by_values("rank", 3)
+        .expect("session bottom_k_by_values(rank, 3) DESC base order should succeed");
+
+    assert_eq!(
+        asc, desc,
+        "bottom_k_by_values(rank, k) should be invariant to ASC/DESC base scan direction over the same effective row set"
+    );
+}
+
+#[test]
 fn aggregate_field_target_top_k_by_k_one_matches_max_by_ids_with_ties() {
     seed_pushdown_entities(&[
         (8_3741, 7, 90),
@@ -4402,13 +4760,63 @@ fn aggregate_field_target_top_k_by_k_one_matches_max_by_ids_with_ties() {
         "top_k_by(rank, 1) should match max_by(rank) over the same effective response window"
     );
     assert_eq!(
-        top_one_ids.first().map(|id| id.key()),
+        top_one_ids.first().map(Id::key),
         Some(Ulid::from_u128(8_3741)),
         "top_k_by(rank, 1) should preserve deterministic pk-ascending tie-breaks"
     );
     assert!(
         scanned_top >= scanned_max,
         "top_k_by(rank, 1) may scan equal or more rows than max_by(rank), but must not scan fewer"
+    );
+}
+
+#[test]
+fn aggregate_field_target_top_k_by_values_k_one_matches_max_by_projection_with_ties() {
+    seed_pushdown_entities(&[
+        (8_3811, 7, 90),
+        (8_3812, 7, 40),
+        (8_3813, 7, 90),
+        (8_3814, 7, 20),
+        (8_3815, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .limit(4)
+            .plan()
+            .expect("top_k_by_values(rank, 1) equivalence plan should build")
+    };
+
+    let (top_one_values, scanned_top_values) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.top_k_by_values(build_plan(), "rank", 1)
+                .expect("top_k_by_values(rank, 1) should succeed")
+        });
+    let (max_id, scanned_max) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_max_by(build_plan(), "rank")
+            .expect("max_by(rank) should succeed")
+    });
+    let expected_top_values = max_id
+        .and_then(|target_id| {
+            load.execute(build_plan())
+                .expect("execute baseline for top_k_by_values(rank, 1) should succeed")
+                .0
+                .into_iter()
+                .find(|(id, _)| *id == target_id)
+                .map(|(_, entity)| Value::Uint(u64::from(entity.rank)))
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        top_one_values, expected_top_values,
+        "top_k_by_values(rank, 1) should match max_by(rank) projected value over the same effective response window"
+    );
+    assert!(
+        scanned_top_values >= scanned_max,
+        "top_k_by_values(rank, 1) may scan equal or more rows than max_by(rank), but must not scan fewer"
     );
 }
 
@@ -4448,13 +4856,63 @@ fn aggregate_field_target_bottom_k_by_k_one_matches_min_by_ids_with_ties() {
         "bottom_k_by(rank, 1) should match min_by(rank) over the same effective response window"
     );
     assert_eq!(
-        bottom_one_ids.first().map(|id| id.key()),
+        bottom_one_ids.first().map(Id::key),
         Some(Ulid::from_u128(8_3751)),
         "bottom_k_by(rank, 1) should preserve deterministic pk-ascending tie-breaks"
     );
     assert!(
         scanned_bottom >= scanned_min,
         "bottom_k_by(rank, 1) may scan equal or more rows than min_by(rank), but must not scan fewer"
+    );
+}
+
+#[test]
+fn aggregate_field_target_bottom_k_by_values_k_one_matches_min_by_projection_with_ties() {
+    seed_pushdown_entities(&[
+        (8_3821, 7, 10),
+        (8_3822, 7, 30),
+        (8_3823, 7, 10),
+        (8_3824, 7, 40),
+        (8_3825, 8, 99),
+    ]);
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
+    let build_plan = || {
+        Query::<PushdownParityEntity>::new(ReadConsistency::MissingOk)
+            .filter(u32_eq_predicate("group", 7))
+            .order_by_desc("id")
+            .limit(4)
+            .plan()
+            .expect("bottom_k_by_values(rank, 1) equivalence plan should build")
+    };
+
+    let (bottom_one_values, scanned_bottom_values) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.bottom_k_by_values(build_plan(), "rank", 1)
+                .expect("bottom_k_by_values(rank, 1) should succeed")
+        });
+    let (min_id, scanned_min) = capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+        load.aggregate_min_by(build_plan(), "rank")
+            .expect("min_by(rank) should succeed")
+    });
+    let expected_bottom_values = min_id
+        .and_then(|target_id| {
+            load.execute(build_plan())
+                .expect("execute baseline for bottom_k_by_values(rank, 1) should succeed")
+                .0
+                .into_iter()
+                .find(|(id, _)| *id == target_id)
+                .map(|(_, entity)| Value::Uint(u64::from(entity.rank)))
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        bottom_one_values, expected_bottom_values,
+        "bottom_k_by_values(rank, 1) should match min_by(rank) projected value over the same effective response window"
+    );
+    assert!(
+        scanned_bottom_values >= scanned_min,
+        "bottom_k_by_values(rank, 1) may scan equal or more rows than min_by(rank), but must not scan fewer"
     );
 }
 
@@ -4497,6 +4955,16 @@ fn aggregate_field_target_take_and_rank_terminals_k_zero_return_empty_with_execu
             load.bottom_k_by(build_plan(), "rank", 0)
                 .expect("bottom_k_by(rank, 0) should succeed and return an empty response")
         });
+    let (top_k_values_zero, scanned_top_k_values_zero) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.top_k_by_values(build_plan(), "rank", 0)
+                .expect("top_k_by_values(rank, 0) should succeed and return an empty response")
+        });
+    let (bottom_k_values_zero, scanned_bottom_k_values_zero) =
+        capture_rows_scanned_for_entity(PushdownParityEntity::PATH, || {
+            load.bottom_k_by_values(build_plan(), "rank", 0)
+                .expect("bottom_k_by_values(rank, 0) should succeed and return an empty response")
+        });
 
     assert!(
         take_zero.is_empty(),
@@ -4510,6 +4978,14 @@ fn aggregate_field_target_take_and_rank_terminals_k_zero_return_empty_with_execu
         bottom_k_zero.is_empty(),
         "bottom_k_by(rank, 0) should return an empty response"
     );
+    assert!(
+        top_k_values_zero.is_empty(),
+        "top_k_by_values(rank, 0) should return an empty response"
+    );
+    assert!(
+        bottom_k_values_zero.is_empty(),
+        "bottom_k_by_values(rank, 0) should return an empty response"
+    );
     assert_eq!(
         scanned_take_zero, scanned_execute,
         "take(0) should preserve execute() scan-budget consumption before truncation"
@@ -4521,6 +4997,14 @@ fn aggregate_field_target_take_and_rank_terminals_k_zero_return_empty_with_execu
     assert_eq!(
         scanned_bottom_k_zero, scanned_execute,
         "bottom_k_by(rank, 0) should preserve execute() scan-budget consumption before truncation"
+    );
+    assert_eq!(
+        scanned_top_k_values_zero, scanned_execute,
+        "top_k_by_values(rank, 0) should preserve execute() scan-budget consumption before truncation"
+    );
+    assert_eq!(
+        scanned_bottom_k_values_zero, scanned_execute,
+        "bottom_k_by_values(rank, 0) should preserve execute() scan-budget consumption before truncation"
     );
 }
 
@@ -4962,7 +5446,7 @@ fn aggregate_field_target_top_k_by_forced_full_scan_and_index_range_match_execut
         .top_k_by(build_full_scan_plan(), "id", 2)
         .expect("top_k_by(id, 2) should succeed for full-scan shape");
     let mut expected_full_scan_top_ids = full_scan_execute.ids();
-    expected_full_scan_top_ids.sort_unstable_by(|left, right| right.key().cmp(&left.key()));
+    expected_full_scan_top_ids.sort_unstable_by_key(|right| std::cmp::Reverse(right.key()));
     expected_full_scan_top_ids.truncate(2);
     assert_eq!(
         full_scan_top.ids(),
@@ -5054,7 +5538,7 @@ fn aggregate_field_target_bottom_k_by_forced_full_scan_and_index_range_match_exe
         .bottom_k_by(build_full_scan_plan(), "id", 2)
         .expect("bottom_k_by(id, 2) should succeed for full-scan shape");
     let mut expected_full_scan_bottom_ids = full_scan_execute.ids();
-    expected_full_scan_bottom_ids.sort_unstable_by(|left, right| left.key().cmp(&right.key()));
+    expected_full_scan_bottom_ids.sort_unstable_by_key(Id::key);
     expected_full_scan_bottom_ids.truncate(2);
     assert_eq!(
         full_scan_bottom.ids(),
