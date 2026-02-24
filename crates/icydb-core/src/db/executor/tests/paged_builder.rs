@@ -390,6 +390,48 @@ fn non_paged_bottom_k_by_values_terminal_rejects_cursor_token() {
 }
 
 #[test]
+fn non_paged_top_k_by_with_ids_terminal_rejects_cursor_token() {
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(1)
+        .cursor("00")
+        .top_k_by_with_ids("rank", 1)
+        .expect_err("non-paged top_k_by_with_ids terminal should reject cursor tokens");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+        ),
+        "non-paged top_k_by_with_ids terminal should reject cursor tokens as intent misuse"
+    );
+}
+
+#[test]
+fn non_paged_bottom_k_by_with_ids_terminal_rejects_cursor_token() {
+    let session = DbSession::new(DB);
+
+    let err = session
+        .load::<PhaseEntity>()
+        .order_by("rank")
+        .limit(1)
+        .cursor("00")
+        .bottom_k_by_with_ids("rank", 1)
+        .expect_err("non-paged bottom_k_by_with_ids terminal should reject cursor tokens");
+
+    assert!(
+        matches!(
+            err,
+            QueryError::Intent(IntentError::CursorRequiresPagedExecution)
+        ),
+        "non-paged bottom_k_by_with_ids terminal should reject cursor tokens as intent misuse"
+    );
+}
+
+#[test]
 fn invalid_order_field_remains_plan_error_not_execute_error() {
     let session = DbSession::new(DB);
 

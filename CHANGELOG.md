@@ -5,6 +5,25 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.28.6] - 2026-02-24 - TOP/BOTTOM K With Id Projection
+
+### 📝 Summary
+
+* Adds ranked id/value projection terminals so callers can fetch top/bottom `k` field values with row ids in one call.
+
+### ➕ Added
+
+* Added `top_k_by_with_ids("field", k)` with deterministic `(field desc, primary_key asc)` ranking over the effective execute window.
+* Added `bottom_k_by_with_ids("field", k)` with deterministic `(field asc, primary_key asc)` ranking over the effective execute window.
+* Kept execution semantics terminal-only: canonical execution first, ranking second, projection last, with no routing or cursor model changes.
+
+### 🧪 Testing
+
+* Added parity coverage vs `top_k_by`/`bottom_k_by` id/value projection, ASC/DESC direction invariance, null/missing-field error parity, `k = 1` extrema-projection equivalence, and `k = 0` empty-result contracts.
+* Added non-paged cursor-intent guard coverage for `top_k_by_with_ids` and `bottom_k_by_with_ids`.
+
+---
+
 ## [0.28.5] - 2026-02-24 - TOP/BOTTOM K Value Projection
 
 ### 📝 Summary
