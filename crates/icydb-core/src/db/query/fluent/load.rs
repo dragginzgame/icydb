@@ -381,6 +381,57 @@ where
             .execute_load_query_values_by(self.query(), field.as_ref())
     }
 
+    /// Execute and return distinct projected field values for the effective
+    /// result window, preserving first-observed value order.
+    pub fn distinct_values_by(&self, field: impl AsRef<str>) -> Result<Vec<Value>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_distinct_values_by(self.query(), field.as_ref())
+    }
+
+    /// Execute and return projected field values paired with row ids for the
+    /// effective result window.
+    pub fn values_by_with_ids(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_values_by_with_ids(self.query(), field.as_ref())
+    }
+
+    /// Execute and return the first projected field value in effective response
+    /// order, if any.
+    pub fn first_value_by(&self, field: impl AsRef<str>) -> Result<Option<Value>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_first_value_by(self.query(), field.as_ref())
+    }
+
+    /// Execute and return the last projected field value in effective response
+    /// order, if any.
+    pub fn last_value_by(&self, field: impl AsRef<str>) -> Result<Option<Value>, QueryError>
+    where
+        E: EntityValue,
+    {
+        self.ensure_non_paged_mode_ready()?;
+
+        self.session
+            .execute_load_query_last_value_by(self.query(), field.as_ref())
+    }
+
     /// Execute and return the first matching identifier in response order, if any.
     pub fn first(&self) -> Result<Option<Id<E>>, QueryError>
     where

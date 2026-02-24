@@ -389,6 +389,68 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::Execute)
     }
 
+    pub(crate) fn execute_load_query_distinct_values_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<Vec<Value>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .distinct_values_by(plan, target_field)
+        })
+        .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_values_by_with_ids<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| {
+            self.load_executor::<E>()
+                .values_by_with_ids(plan, target_field)
+        })
+        .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_first_value_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<Option<Value>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| self.load_executor::<E>().first_value_by(plan, target_field))
+            .map_err(QueryError::Execute)
+    }
+
+    pub(crate) fn execute_load_query_last_value_by<E>(
+        &self,
+        query: &Query<E>,
+        target_field: &str,
+    ) -> Result<Option<Value>, QueryError>
+    where
+        E: EntityKind<Canister = C> + EntityValue,
+    {
+        let plan = query.plan()?;
+
+        self.with_metrics(|| self.load_executor::<E>().last_value_by(plan, target_field))
+            .map_err(QueryError::Execute)
+    }
+
     pub(crate) fn execute_load_query_first<E>(
         &self,
         query: &Query<E>,

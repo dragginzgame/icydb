@@ -5,6 +5,31 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.28.1] - 2026-02-24 - Distinct Projection Follow-Up
+
+### 📝 Summary
+
+* Adds value-level distinct projection as a follow-up to `values_by`, while keeping load routing and execution semantics unchanged.
+
+### 🔧 Changed
+
+* Added `distinct_values_by("field")` on load queries, returning first-observed distinct values from the effective result window.
+* Added `values_by_with_ids("field")` so callers can get stable `(Id, Value)` projection pairs without manual re-zipping.
+* Added `first_value_by("field")` and `last_value_by("field")` terminal helpers for single-value projection in effective response order.
+* Kept query-level `DISTINCT` semantics row-level; `distinct_values_by` performs value-level deduplication as a terminal reduction step.
+* Locked ordering semantics for `distinct_values_by`: output preserves first-observed value order from the effective response window.
+* Reused the canonical load execution path and post-selection projection boundary (no new route branches, no projection pushdown changes).
+* Unknown projection fields fail with typed `Unsupported` errors before scan work begins.
+
+### 🧪 Testing
+
+* Added parity tests that `distinct_values_by("rank")` matches distinct projection derived from `execute()`.
+* Added parity tests for `values_by_with_ids`, `first_value_by`, and `last_value_by` against `execute()` projection baselines.
+* Extended unknown-field fail-before-scan coverage for `distinct_values_by`, `values_by_with_ids`, `first_value_by`, and `last_value_by`.
+* Added scan-budget parity coverage for `distinct_values_by` and `values_by_with_ids` versus `execute()`.
+
+---
+
 ## [0.28.0] - 2026-02-24 - Field Value Projection
 
 ### 📝 Summary

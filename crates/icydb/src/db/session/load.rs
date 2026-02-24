@@ -11,7 +11,6 @@ use crate::{
     value::Value,
 };
 use icydb_core as core;
-use std::{collections::HashMap, hash::Hash};
 
 ///
 /// FluentLoadQuery
@@ -113,17 +112,39 @@ impl<'a, E: EntityKind> FluentLoadQuery<'a, E> {
         Ok(self.inner.values_by(field)?)
     }
 
-    pub fn group_count_by<K>(self, key: impl Fn(&E) -> K) -> Result<HashMap<K, u32>, Error>
+    /// Return distinct projected field values for the effective result window.
+    ///
+    /// Value order preserves first observation in effective response order.
+    pub fn distinct_values_by(&self, field: impl AsRef<str>) -> Result<Vec<Value>, Error>
     where
         E: EntityValue,
-        K: Eq + Hash,
     {
-        let entities = self.inner.execute()?.entities();
-        let mut counts = HashMap::new();
-        for entity in entities {
-            *counts.entry(key(&entity)).or_insert(0) += 1;
-        }
-        Ok(counts)
+        Ok(self.inner.distinct_values_by(field)?)
+    }
+
+    /// Return projected field values paired with row ids for the effective
+    /// result window.
+    pub fn values_by_with_ids(&self, field: impl AsRef<str>) -> Result<Vec<(Id<E>, Value)>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.values_by_with_ids(field)?)
+    }
+
+    /// Return the first projected field value in effective response order.
+    pub fn first_value_by(&self, field: impl AsRef<str>) -> Result<Option<Value>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.first_value_by(field)?)
+    }
+
+    /// Return the last projected field value in effective response order.
+    pub fn last_value_by(&self, field: impl AsRef<str>) -> Result<Option<Value>, Error>
+    where
+        E: EntityValue,
+    {
+        Ok(self.inner.last_value_by(field)?)
     }
 
     // ------------------------------------------------------------------
