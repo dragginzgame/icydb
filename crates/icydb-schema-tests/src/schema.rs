@@ -7,7 +7,7 @@ pub mod test {
     /// TestCanister
     ///
 
-    #[canister(memory_min = 50, memory_max = 100)]
+    #[canister(memory_min = 50, memory_max = 100, commit_memory_id = 100)]
     pub struct TestCanister {}
 
     /// TestStore
@@ -28,7 +28,7 @@ pub mod relation {
     /// RelationCanister
     ///
 
-    #[canister(memory_min = 10, memory_max = 20)]
+    #[canister(memory_min = 10, memory_max = 20, commit_memory_id = 20)]
     pub struct RelationCanister {}
 
     /// RelationStore

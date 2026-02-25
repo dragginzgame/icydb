@@ -48,7 +48,10 @@ pub trait Kind: Path + 'static {}
 impl<T> Kind for T where T: Path + 'static {}
 
 /// Marker for canister namespaces.
-pub trait CanisterKind: Kind {}
+pub trait CanisterKind: Kind {
+    /// Stable memory slot used for commit marker storage.
+    const COMMIT_MEMORY_ID: u8;
+}
 
 /// Marker for data stores bound to a canister.
 pub trait StoreKind: Kind {

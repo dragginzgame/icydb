@@ -5,23 +5,28 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.29.4] - 2026-02-25 - db/executor : Lowering Boundary Hard Cut
+## [0.29.4] - 2026-02-25 - Audit III Follow-Through
 
 ### 📝 Summary
 
-* Moves semantic-to-byte index lowering out of executor runtime into a dedicated lowering boundary.
-* Keeps executor runtime byte-only so execution paths consume pre-lowered specs instead of encoding values.
+* Split planning/lowering work from executor runtime so executor now stays byte-only.
+* Switched commit marker memory from runtime auto-discovery to explicit canister configuration.
 
 ### 🔧 Changed
 
-* Added a new `db::lowering` module that owns semantic-to-encoded transformation and raw index-key bound construction.
-* Removed executor-owned index spec lowering and switched executor stream/runtime code to consume lowered contracts.
-* Routed index-range cursor envelope checks through lowering-owned bound materialization helpers.
+* Added `db::lowering` as the only place that turns semantic index specs into encoded key/bounds bytes.
+* Removed executor-owned encoding/lowering paths and made executor consume pre-lowered byte contracts.
+* Added explicit commit memory configuration via canister contract (`COMMIT_MEMORY_ID`) and derive attribute (`commit_memory_id`), and wired startup recovery to configure that ID before commit-store access.
+
+### ⚠️ Breaking
+
+* `#[canister(...)]` now requires `commit_memory_id = <u8>`.
+* `test_canister!(...)` now requires `commit_memory_id`.
+* Dynamic commit-memory range scanning/allocation was removed.
 
 ### 🧹 Cleanup
 
-* Deleted the legacy `executor/index_specs.rs` lowering surface.
-* Removed now-unused test-only encoder re-exports from index module wiring.
+* Deleted the legacy `executor/index_specs.rs` surface and old commit-memory anchor scanning path.
 
 ---
 

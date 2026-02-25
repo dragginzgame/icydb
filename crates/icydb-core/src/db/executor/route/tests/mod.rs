@@ -80,6 +80,7 @@ fn source_uses_direct_context_stream_construction(source: &str) -> bool {
 
 crate::test_canister! {
     ident = RouteMatrixCanister,
+    commit_memory_id = 254,
 }
 
 crate::test_store! {

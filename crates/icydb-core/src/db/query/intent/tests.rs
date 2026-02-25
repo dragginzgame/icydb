@@ -89,6 +89,7 @@ impl FieldProjection for PlanSingleton {
 
 crate::test_canister! {
     ident = PlanCanister,
+    commit_memory_id = 254,
 }
 
 crate::test_store! {

@@ -77,6 +77,7 @@ mod tests {
 
     crate::test_canister! {
         ident = TestCanister,
+        commit_memory_id = 254,
     }
 
     crate::test_store! {

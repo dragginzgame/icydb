@@ -2,106 +2,132 @@
 
 use crate::{db::commit::marker::COMMIT_LABEL, error::InternalError};
 use canic_memory::{
-    registry::{MemoryRange, MemoryRangeSnapshot, MemoryRegistry, MemoryRegistryEntry},
+    registry::{MemoryRangeEntry, MemoryRegistry},
     runtime::registry::MemoryRegistryRuntime,
 };
-use std::{collections::BTreeSet, sync::OnceLock};
+use std::sync::OnceLock;
 
 static COMMIT_STORE_ID: OnceLock<u8> = OnceLock::new();
-pub(in crate::db::commit) const REGISTRY_DATA_STORE_LABEL: &str = "::icydb::__macro::DataStore";
-pub(in crate::db::commit) const REGISTRY_INDEX_STORE_LABEL: &str = "::icydb::__macro::IndexStore";
 
-/// Resolve or allocate the memory id used for commit marker storage.
+/// Resolve the configured memory id used for commit marker storage.
 pub(super) fn commit_memory_id() -> Result<u8, InternalError> {
-    if let Some(id) = COMMIT_STORE_ID.get() {
-        return Ok(*id);
+    COMMIT_STORE_ID.get().copied().ok_or_else(|| {
+        InternalError::store_internal(
+            "commit memory id is not configured; initialize recovery before commit store access",
+        )
+    })
+}
+
+/// Configure and register the commit marker memory id.
+pub(in crate::db::commit) fn configure_commit_memory_id(
+    memory_id: u8,
+) -> Result<u8, InternalError> {
+    if let Some(cached_id) = COMMIT_STORE_ID.get() {
+        if *cached_id != memory_id {
+            return Err(InternalError::store_internal(format!(
+                "commit memory id mismatch: cached={cached_id}, configured={memory_id}"
+            )));
+        }
+
+        return Ok(*cached_id);
     }
 
     MemoryRegistryRuntime::init(None).map_err(|err| {
         InternalError::store_internal(format!("memory registry init failed: {err}"))
     })?;
 
-    // Reuse an existing commit-marker slot when present so the commit store
-    // location stays stable across process restarts and upgrades.
-    let snapshots = MemoryRegistryRuntime::snapshot_ids_by_range();
-    if let Some(id) = find_existing_commit_id(&snapshots)? {
-        let _ = COMMIT_STORE_ID.set(id);
-        return Ok(id);
-    }
+    validate_commit_slot_registration(memory_id)?;
 
-    let (owner, range, used_ids) = select_commit_range(&snapshots)?;
-    let id = allocate_commit_id(range, &used_ids)?;
-    MemoryRegistry::register(id, &owner, COMMIT_LABEL).map_err(|err| {
-        InternalError::store_internal(format!("commit memory id registration failed: {err}"))
-    })?;
-
-    let _ = COMMIT_STORE_ID.set(id);
-    Ok(id)
+    let _ = COMMIT_STORE_ID.set(memory_id);
+    Ok(memory_id)
 }
 
-// Resolve an already-registered commit-marker memory id.
-fn find_existing_commit_id(snapshots: &[MemoryRangeSnapshot]) -> Result<Option<u8>, InternalError> {
-    let mut commit_ids = snapshots
-        .iter()
-        .flat_map(|snapshot| snapshot.entries.iter())
-        .filter_map(|(id, entry)| (entry.label == COMMIT_LABEL).then_some(*id))
+fn validate_commit_slot_registration(memory_id: u8) -> Result<(), InternalError> {
+    let mut commit_ids = MemoryRegistryRuntime::snapshot_entries()
+        .into_iter()
+        .filter_map(|(id, entry)| (entry.label == COMMIT_LABEL).then_some(id))
         .collect::<Vec<_>>();
     commit_ids.sort_unstable();
     commit_ids.dedup();
 
     match commit_ids.as_slice() {
-        [] => Ok(None),
-        [id] => Ok(Some(*id)),
+        [] => register_commit_slot(memory_id),
+        [registered_id] if *registered_id == memory_id => Ok(()),
+        [registered_id] => Err(InternalError::store_unsupported(format!(
+            "configured commit memory id {memory_id} does not match existing commit marker id {registered_id}"
+        ))),
         _ => Err(InternalError::store_corruption(format!(
             "multiple commit marker memory ids registered: {commit_ids:?}"
         ))),
     }
 }
 
-// Locate the registry range reserved for data and index stores.
-fn select_commit_range(
-    snapshots: &[MemoryRangeSnapshot],
-) -> Result<(String, MemoryRange, BTreeSet<u8>), InternalError> {
-    for snapshot in snapshots {
-        if snapshot
-            .entries
-            .iter()
-            .any(|(_, entry)| is_db_store_entry(entry))
-        {
-            let used_ids = snapshot
-                .entries
-                .iter()
-                .map(|(id, _)| *id)
-                .collect::<BTreeSet<_>>();
-            return Ok((snapshot.owner.clone(), snapshot.range, used_ids));
-        }
+fn register_commit_slot(memory_id: u8) -> Result<(), InternalError> {
+    if let Some(entry) = MemoryRegistryRuntime::get(memory_id) {
+        return Err(InternalError::store_unsupported(format!(
+            "configured commit memory id {memory_id} is already registered as '{}'",
+            entry.label
+        )));
     }
 
-    Err(InternalError::store_internal(
-        "unable to locate reserved memory range for commit markers",
-    ))
+    let owner = owner_for_memory_id(memory_id, &MemoryRegistryRuntime::snapshot_range_entries())?;
+    MemoryRegistry::register(memory_id, &owner, COMMIT_LABEL).map_err(|err| {
+        InternalError::store_internal(format!("commit memory id registration failed: {err}"))
+    })?;
+
+    Ok(())
 }
 
-// Allocate a free memory id for the commit marker store.
-fn allocate_commit_id(range: MemoryRange, used: &BTreeSet<u8>) -> Result<u8, InternalError> {
-    for id in (range.start..=range.end).rev() {
-        if !used.contains(&id) {
-            return Ok(id);
+fn owner_for_memory_id(
+    memory_id: u8,
+    ranges: &[MemoryRangeEntry],
+) -> Result<String, InternalError> {
+    let mut owners = ranges
+        .iter()
+        .filter_map(|range_entry| {
+            range_entry
+                .range
+                .contains(memory_id)
+                .then_some(range_entry.owner.clone())
+        })
+        .collect::<Vec<_>>();
+    owners.sort_unstable();
+    owners.dedup();
+
+    match owners.as_slice() {
+        [owner] => Ok(owner.clone()),
+        [] => {
+            let range_string = format_ranges(ranges);
+            Err(InternalError::store_unsupported(format!(
+                "configured commit memory id {memory_id} is outside reserved ranges{range_string}"
+            )))
         }
+        _ => Err(InternalError::store_internal(format!(
+            "commit memory id {memory_id} resolves to multiple range owners: {owners:?}"
+        ))),
+    }
+}
+
+fn format_ranges(ranges: &[MemoryRangeEntry]) -> String {
+    if ranges.is_empty() {
+        return String::new();
     }
 
-    Err(InternalError::store_unsupported(format!(
-        "no free memory ids available for commit markers in range {}-{}",
-        range.start, range.end
-    )))
+    let rendered = ranges
+        .iter()
+        .map(|entry| format!("{}:{}-{}", entry.owner, entry.range.start, entry.range.end))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(" ({rendered})")
 }
 
-// Identify registry entries that anchor the DB store memory range.
-pub(in crate::db::commit) fn is_db_store_entry(entry: &MemoryRegistryEntry) -> bool {
-    matches!(
-        entry.label.as_str(),
-        REGISTRY_DATA_STORE_LABEL | REGISTRY_INDEX_STORE_LABEL
-    )
+#[cfg(test)]
+fn range_entry(owner: &str, start: u8, end: u8) -> MemoryRangeEntry {
+    MemoryRangeEntry {
+        owner: owner.to_string(),
+        range: canic_memory::registry::MemoryRange { start, end },
+    }
 }
 
 ///
@@ -111,77 +137,28 @@ pub(in crate::db::commit) fn is_db_store_entry(entry: &MemoryRegistryEntry) -> b
 #[cfg(test)]
 mod tests {
     use super::*;
-    use canic_memory::registry::MemoryRange;
+    use crate::error::{ErrorClass, ErrorOrigin};
 
-    fn range_snapshot(
-        owner: &str,
-        start: u8,
-        end: u8,
-        entries: &[(u8, &str)],
-    ) -> MemoryRangeSnapshot {
-        let entries = entries
-            .iter()
-            .map(|(id, label)| {
-                (
-                    *id,
-                    MemoryRegistryEntry {
-                        crate_name: owner.to_string(),
-                        label: (*label).to_string(),
-                    },
-                )
-            })
-            .collect::<Vec<_>>();
-
-        MemoryRangeSnapshot {
-            owner: owner.to_string(),
-            range: MemoryRange { start, end },
-            entries,
-        }
+    #[test]
+    fn owner_for_memory_id_returns_matching_owner() {
+        let ranges = vec![range_entry("a", 1, 10), range_entry("b", 11, 20)];
+        let owner = owner_for_memory_id(12, &ranges).expect("owner should resolve");
+        assert_eq!(owner, "b");
     }
 
     #[test]
-    fn find_existing_commit_id_returns_none_when_absent() {
-        let snapshots = vec![range_snapshot("icydb", 1, 10, &[(2, "UserDataStore")])];
-        let id = find_existing_commit_id(&snapshots).expect("scan should succeed");
-        assert_eq!(id, None);
+    fn owner_for_memory_id_rejects_out_of_range_id() {
+        let ranges = vec![range_entry("a", 1, 10), range_entry("b", 11, 20)];
+        let err = owner_for_memory_id(30, &ranges).expect_err("id outside ranges must fail");
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert_eq!(err.origin, ErrorOrigin::Store);
     }
 
     #[test]
-    fn find_existing_commit_id_returns_single_registered_id() {
-        let snapshots = vec![range_snapshot("icydb", 1, 10, &[(9, COMMIT_LABEL)])];
-        let id = find_existing_commit_id(&snapshots).expect("scan should succeed");
-        assert_eq!(id, Some(9));
-    }
-
-    #[test]
-    fn find_existing_commit_id_rejects_duplicate_commit_label_entries() {
-        let snapshots = vec![
-            range_snapshot("icydb", 1, 10, &[(8, COMMIT_LABEL)]),
-            range_snapshot("icydb", 11, 20, &[(19, COMMIT_LABEL)]),
-        ];
-        let err =
-            find_existing_commit_id(&snapshots).expect_err("duplicate commit labels must fail");
-        assert_eq!(err.class, crate::error::ErrorClass::Corruption);
-        assert_eq!(err.origin, crate::error::ErrorOrigin::Store);
-    }
-
-    #[test]
-    fn is_db_store_entry_requires_internal_anchor_labels() {
-        let data = MemoryRegistryEntry {
-            crate_name: "icydb_test".to_string(),
-            label: REGISTRY_DATA_STORE_LABEL.to_string(),
-        };
-        let index = MemoryRegistryEntry {
-            crate_name: "icydb_test".to_string(),
-            label: REGISTRY_INDEX_STORE_LABEL.to_string(),
-        };
-        let user_named = MemoryRegistryEntry {
-            crate_name: "icydb_test".to_string(),
-            label: "my_app::UserDataStore".to_string(),
-        };
-
-        assert!(is_db_store_entry(&data));
-        assert!(is_db_store_entry(&index));
-        assert!(!is_db_store_entry(&user_named));
+    fn owner_for_memory_id_rejects_ambiguous_owners() {
+        let ranges = vec![range_entry("a", 1, 10), range_entry("b", 10, 20)];
+        let err = owner_for_memory_id(10, &ranges).expect_err("ambiguous owner must fail");
+        assert_eq!(err.class, ErrorClass::Internal);
+        assert_eq!(err.origin, ErrorOrigin::Store);
     }
 }

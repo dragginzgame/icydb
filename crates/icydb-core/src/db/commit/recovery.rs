@@ -18,6 +18,7 @@ use crate::{
         Db,
         commit::{
             CommitRowOp, PreparedIndexMutation, PreparedRowCommitOp,
+            memory::configure_commit_memory_id,
             rollback_prepared_row_ops_reverse, snapshot_row_rollback,
             store::{commit_marker_present_fast, with_commit_store},
         },
@@ -46,7 +47,9 @@ static RECOVERED: OnceLock<()> = OnceLock::new();
 /// It may be invoked at operation boundaries (including read or mutation
 /// entrypoints), but must always complete **before** any operation-specific
 /// planning, validation, or apply phase begins.
-pub(crate) fn ensure_recovered(db: &Db<impl CanisterKind>) -> Result<(), InternalError> {
+pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
+    configure_commit_memory_id(C::COMMIT_MEMORY_ID)?;
+
     if RECOVERED.get().is_none() {
         return perform_recovery(db);
     }
@@ -66,11 +69,11 @@ pub(crate) fn ensure_recovered(db: &Db<impl CanisterKind>) -> Result<(), Interna
 ///
 /// Recovery must be idempotent and safe to run multiple times.
 /// All mutation entrypoints must call this before any commit boundary work.
-pub(crate) fn ensure_recovered_for_write(db: &Db<impl CanisterKind>) -> Result<(), InternalError> {
+pub(crate) fn ensure_recovered_for_write<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     ensure_recovered(db)
 }
 
-fn perform_recovery(db: &Db<impl CanisterKind>) -> Result<(), InternalError> {
+fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     let marker = with_commit_store(|store| store.load())?;
     if let Some(marker) = marker {
         replay_recovery_row_ops(db, &marker.row_ops)?;

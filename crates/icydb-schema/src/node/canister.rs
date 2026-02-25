@@ -10,6 +10,7 @@ pub struct Canister {
     pub def: Def,
     pub memory_min: u8,
     pub memory_max: u8,
+    pub commit_memory_id: u8,
 }
 
 impl MacroNode for Canister {
@@ -25,6 +26,24 @@ impl ValidateNode for Canister {
 
         let canister_path = self.def.path();
         let mut seen_ids = BTreeMap::<u8, String>::new();
+
+        if self.commit_memory_id < self.memory_min || self.commit_memory_id > self.memory_max {
+            err!(
+                errs,
+                "commit_memory_id {} outside of range {}-{}",
+                self.commit_memory_id,
+                self.memory_min,
+                self.memory_max
+            );
+        }
+
+        assert_unique_memory_id(
+            self.commit_memory_id,
+            format!("Canister `{}`.commit_memory_id", self.def.path()),
+            &canister_path,
+            &mut seen_ids,
+            &mut errs,
+        );
 
         // Check all Store nodes for this canister
         for (path, store) in schema.filter_nodes::<Store>(|node| node.canister == canister_path) {
@@ -95,6 +114,7 @@ mod tests {
             },
             memory_min: 0,
             memory_max: 255,
+            commit_memory_id: 254,
         };
         schema_write().insert_node(SchemaNode::Canister(canister.clone()));
 

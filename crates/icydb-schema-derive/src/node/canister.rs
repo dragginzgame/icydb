@@ -13,6 +13,7 @@ pub struct Canister {
     // inclusive range of ic memories
     pub memory_min: u8,
     pub memory_max: u8,
+    pub commit_memory_id: u8,
 }
 
 impl HasDef for Canister {
@@ -27,6 +28,14 @@ impl ValidateNode for Canister {
             return Err(DarlingError::custom(
                 "memory_min must be equal to or less than memory_max",
             )
+            .with_span(&self.def.ident()));
+        }
+
+        if self.commit_memory_id < self.memory_min || self.commit_memory_id > self.memory_max {
+            return Err(DarlingError::custom(format!(
+                "commit_memory_id {} outside of range {}-{}",
+                self.commit_memory_id, self.memory_min, self.memory_max
+            ))
             .with_span(&self.def.ident()));
         }
 
@@ -45,6 +54,7 @@ impl HasSchemaPart for Canister {
         let def = self.def.schema_part();
         let memory_min = self.memory_min;
         let memory_max = self.memory_max;
+        let commit_memory_id = self.commit_memory_id;
 
         // quote
         quote! {
@@ -52,6 +62,7 @@ impl HasSchemaPart for Canister {
                 def: #def,
                 memory_min: #memory_min,
                 memory_max: #memory_max,
+                commit_memory_id: #commit_memory_id,
             }
         }
     }
@@ -63,6 +74,22 @@ impl HasTraits for Canister {
         traits.add(TraitKind::CanisterKind);
 
         traits.into_vec()
+    }
+
+    fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
+        match t {
+            TraitKind::CanisterKind => {
+                let commit_memory_id = self.commit_memory_id;
+                let tokens = Implementor::new(self.def(), t)
+                    .set_tokens(quote! {
+                        const COMMIT_MEMORY_ID: u8 = #commit_memory_id;
+                    })
+                    .to_token_stream();
+
+                Some(TraitStrategy::from_impl(tokens))
+            }
+            _ => None,
+        }
     }
 }
 

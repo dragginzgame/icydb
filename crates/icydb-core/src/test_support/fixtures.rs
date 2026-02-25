@@ -124,13 +124,21 @@ macro_rules! test_canister {
     (
         ident = $canister:ident $(,)?
     ) => {
+        compile_error!("test_canister! requires `commit_memory_id = <u8>`");
+    };
+    (
+        ident = $canister:ident,
+        commit_memory_id = $commit_memory_id:expr $(,)?
+    ) => {
         struct $canister;
 
         impl $crate::traits::Path for $canister {
             const PATH: &'static str = concat!(module_path!(), "::", stringify!($canister));
         }
 
-        impl $crate::traits::CanisterKind for $canister {}
+        impl $crate::traits::CanisterKind for $canister {
+            const COMMIT_MEMORY_ID: u8 = $commit_memory_id;
+        }
     };
 }
 

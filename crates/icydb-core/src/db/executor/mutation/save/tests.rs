@@ -27,6 +27,7 @@ use std::cell::RefCell;
 
 crate::test_canister! {
     ident = TestCanister,
+    commit_memory_id = 254,
 }
 
 // SourceStore
