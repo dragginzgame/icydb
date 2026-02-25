@@ -5,6 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.29.8] - 2026-02-25 - Retry and DISTINCT Hardening
+
+* Unified index-range residual retry handling behind one shared load materialization boundary, so `execute(...)` and `count_distinct_by(...)` follow the same fallback path and scan-accounting rules.
+* Fixed DISTINCT stream invariants by enforcing comparator-driven monotonicity checks, and removed duplicate DISTINCT wrapping so load and aggregate callsites use one shared wrapper entrypoint.
+* Removed duplicate strict index-predicate compile branching by routing aggregate planning and load execution through one shared executor compile helper, and added strict-vs-subset compile parity tests to lock route/execute behavior.
+* Normalized commit-marker corruption classification to one explicit commit-domain constructor path for clearer and more consistent commit-boundary errors.
+* Replaced quadratic value dedupe behavior in `count_distinct_by(...)` with set-based canonical dedupe to reduce hot-path growth without changing semantics.
+* Added regression coverage for DISTINCT monotonicity violations across both `ASC` and `DESC` traversal directions.
+
+---
+
 ## [0.29.7] - 2026-02-25 - Optimise Key Stream
 
 * Reduced ordered-key stream clone churn by narrowing dedup and monotonicity witnesses to `(EntityName, StorageKey)` and updating them only at consume/discard points.

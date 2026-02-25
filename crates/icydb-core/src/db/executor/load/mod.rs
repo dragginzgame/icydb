@@ -8,8 +8,10 @@ mod secondary_index;
 mod terminal;
 mod trace;
 
+pub(in crate::db::executor) use self::execute::IndexPredicateCompileMode;
+
 use self::{
-    execute::{ExecutionInputs, IndexPredicateCompileMode},
+    execute::ExecutionInputs,
     trace::{access_path_variant, execution_order_direction},
 };
 use crate::{
@@ -38,9 +40,9 @@ use crate::{
     },
     error::InternalError,
     obs::sink::{ExecKind, Span},
-    traits::{EntityKind, EntityValue},
+    traits::{EntityKind, EntityValue, Storable},
 };
-use std::marker::PhantomData;
+use std::{borrow::Cow, marker::PhantomData};
 
 ///
 /// CursorPage
@@ -242,9 +244,11 @@ where
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         let cursor: PlannedCursor = plan.revalidate_planned_cursor(cursor.into())?;
         let cursor_boundary = cursor.boundary().cloned();
-        let index_range_anchor = cursor
-            .index_range_anchor()
-            .map(|anchor| anchor.last_raw_key().clone());
+        let index_range_anchor = cursor.index_range_anchor().map(|anchor| {
+            <crate::db::lowering::LoweredKey as Storable>::from_bytes(Cow::Borrowed(
+                anchor.last_raw_key(),
+            ))
+        });
 
         if !plan.mode().is_load() {
             return Err(InternalError::query_executor_invariant(
@@ -302,78 +306,20 @@ where
             record_plan_metrics(&plan.access);
             // Plan execution routing once, then execute in canonical order.
             // Resolve one canonical key stream, then run shared page materialization/finalization.
-            let mut resolved = Self::resolve_execution_key_stream(
+            let materialized = Self::materialize_with_optional_residual_retry(
                 &execution_inputs,
                 &route_plan,
+                cursor_boundary.as_ref(),
+                continuation_signature,
                 IndexPredicateCompileMode::ConservativeSubset,
             )?;
-            let (mut page, keys_scanned, mut post_access_rows) =
-                Self::materialize_key_stream_into_page(
-                    &ctx,
-                    &plan,
-                    predicate_slots.as_ref(),
-                    resolved.key_stream.as_mut(),
-                    route_plan.scan_hints.load_scan_budget_hint,
-                    route_plan.streaming_access_shape_safe(),
-                    cursor_boundary.as_ref(),
-                    direction,
-                    continuation_signature,
-                )?;
-            let mut rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
-            let mut optimization = resolved.optimization;
-            let mut index_predicate_applied = resolved.index_predicate_applied;
-            let mut index_predicate_keys_rejected = resolved.index_predicate_keys_rejected;
-            let mut distinct_keys_deduped = resolved
-                .distinct_keys_deduped_counter
-                .as_ref()
-                .map_or(0, |counter| counter.get());
-
-            if Self::index_range_limited_residual_retry_required(
-                &plan,
-                cursor_boundary.as_ref(),
-                &route_plan,
-                rows_scanned,
-                post_access_rows,
-            ) {
-                let mut fallback_route_plan = route_plan;
-                fallback_route_plan.index_range_limit_spec = None;
-                let mut fallback_resolved = Self::resolve_execution_key_stream(
-                    &execution_inputs,
-                    &fallback_route_plan,
-                    IndexPredicateCompileMode::ConservativeSubset,
-                )?;
-                let (fallback_page, fallback_keys_scanned, fallback_post_access_rows) =
-                    Self::materialize_key_stream_into_page(
-                        &ctx,
-                        &plan,
-                        predicate_slots.as_ref(),
-                        fallback_resolved.key_stream.as_mut(),
-                        fallback_route_plan.scan_hints.load_scan_budget_hint,
-                        fallback_route_plan.streaming_access_shape_safe(),
-                        cursor_boundary.as_ref(),
-                        direction,
-                        continuation_signature,
-                    )?;
-                let fallback_rows_scanned = fallback_resolved
-                    .rows_scanned_override
-                    .unwrap_or(fallback_keys_scanned);
-                let fallback_distinct_keys_deduped = fallback_resolved
-                    .distinct_keys_deduped_counter
-                    .as_ref()
-                    .map_or(0, |counter| counter.get());
-
-                // Retry accounting keeps observability faithful to actual work.
-                rows_scanned = rows_scanned.saturating_add(fallback_rows_scanned);
-                optimization = fallback_resolved.optimization;
-                index_predicate_applied =
-                    index_predicate_applied || fallback_resolved.index_predicate_applied;
-                index_predicate_keys_rejected = index_predicate_keys_rejected
-                    .saturating_add(fallback_resolved.index_predicate_keys_rejected);
-                distinct_keys_deduped =
-                    distinct_keys_deduped.saturating_add(fallback_distinct_keys_deduped);
-                page = fallback_page;
-                post_access_rows = fallback_post_access_rows;
-            }
+            let page = materialized.page;
+            let rows_scanned = materialized.rows_scanned;
+            let post_access_rows = materialized.post_access_rows;
+            let optimization = materialized.optimization;
+            let index_predicate_applied = materialized.index_predicate_applied;
+            let index_predicate_keys_rejected = materialized.index_predicate_keys_rejected;
+            let distinct_keys_deduped = materialized.distinct_keys_deduped;
 
             Ok(Self::finalize_execution(
                 page,

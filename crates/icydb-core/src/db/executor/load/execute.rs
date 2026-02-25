@@ -14,7 +14,11 @@ use crate::{
             },
         },
         index::predicate::{IndexPredicateExecution, IndexPredicateProgram},
-        query::{plan::AccessPlannedQuery, predicate::PredicateFieldSlots},
+        query::{
+            contracts::cursor::{ContinuationSignature, CursorBoundary},
+            plan::AccessPlannedQuery,
+            predicate::PredicateFieldSlots,
+        },
     },
     error::InternalError,
     obs::sink::Span,
@@ -53,6 +57,23 @@ pub(super) struct ResolvedExecutionKeyStream {
 }
 
 ///
+/// MaterializedExecutionAttempt
+///
+/// Canonical materialization attempt output for load execution.
+/// Preserves one shared boundary for retry accounting and page output.
+///
+
+pub(super) struct MaterializedExecutionAttempt<E: EntityKind> {
+    pub(super) page: CursorPage<E>,
+    pub(super) rows_scanned: usize,
+    pub(super) post_access_rows: usize,
+    pub(super) optimization: Option<ExecutionOptimization>,
+    pub(super) index_predicate_applied: bool,
+    pub(super) index_predicate_keys_rejected: u64,
+    pub(super) distinct_keys_deduped: u64,
+}
+
+///
 /// IndexPredicateCompileMode
 ///
 /// Predicate compile policy for index-only prefilter programs.
@@ -61,9 +82,38 @@ pub(super) struct ResolvedExecutionKeyStream {
 ///
 
 #[derive(Clone, Copy)]
-pub(in crate::db::executor::load) enum IndexPredicateCompileMode {
+pub(in crate::db::executor) enum IndexPredicateCompileMode {
     ConservativeSubset,
     StrictAllOrNone,
+}
+
+// Wrap one ordered key stream with DISTINCT semantics through one shared entrypoint.
+pub(in crate::db::executor::load) fn wrap_distinct_ordered_key_stream(
+    ordered_key_stream: OrderedKeyStreamBox,
+    distinct: bool,
+    key_comparator: super::KeyOrderComparator,
+    dedup_counter: Option<Rc<Cell<u64>>>,
+) -> (OrderedKeyStreamBox, Option<Rc<Cell<u64>>>) {
+    if !distinct {
+        return (ordered_key_stream, None);
+    }
+
+    if let Some(counter) = dedup_counter {
+        let wrapped = Box::new(DistinctOrderedKeyStream::new_with_dedup_counter(
+            ordered_key_stream,
+            key_comparator,
+            counter.clone(),
+        ));
+        return (wrapped, Some(counter));
+    }
+
+    (
+        Box::new(DistinctOrderedKeyStream::new(
+            ordered_key_stream,
+            key_comparator,
+        )),
+        None,
+    )
 }
 
 // Canonical fast-path routing decision for one execution attempt.
@@ -76,6 +126,96 @@ impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    // Run one canonical materialization attempt with optional residual retry.
+    // This centralizes index-range limited fallback behavior for all load paths.
+    pub(super) fn materialize_with_optional_residual_retry(
+        inputs: &ExecutionInputs<'_, E>,
+        route_plan: &ExecutionRoutePlan,
+        cursor_boundary: Option<&CursorBoundary>,
+        continuation_signature: ContinuationSignature,
+        predicate_compile_mode: IndexPredicateCompileMode,
+    ) -> Result<MaterializedExecutionAttempt<E>, InternalError> {
+        let mut resolved =
+            Self::resolve_execution_key_stream(inputs, route_plan, predicate_compile_mode)?;
+        let (mut page, keys_scanned, mut post_access_rows) =
+            Self::materialize_key_stream_into_page(
+                inputs.ctx,
+                inputs.plan,
+                inputs.predicate_slots,
+                resolved.key_stream.as_mut(),
+                route_plan.scan_hints.load_scan_budget_hint,
+                route_plan.streaming_access_shape_safe(),
+                cursor_boundary,
+                route_plan.direction(),
+                continuation_signature,
+            )?;
+        let mut rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
+        let mut optimization = resolved.optimization;
+        let mut index_predicate_applied = resolved.index_predicate_applied;
+        let mut index_predicate_keys_rejected = resolved.index_predicate_keys_rejected;
+        let mut distinct_keys_deduped = resolved
+            .distinct_keys_deduped_counter
+            .as_ref()
+            .map_or(0, |counter| counter.get());
+
+        if Self::index_range_limited_residual_retry_required(
+            inputs.plan,
+            cursor_boundary,
+            route_plan,
+            rows_scanned,
+            post_access_rows,
+        ) {
+            let mut fallback_route_plan = route_plan.clone();
+            fallback_route_plan.index_range_limit_spec = None;
+            let mut fallback_resolved = Self::resolve_execution_key_stream(
+                inputs,
+                &fallback_route_plan,
+                predicate_compile_mode,
+            )?;
+            let (fallback_page, fallback_keys_scanned, fallback_post_access_rows) =
+                Self::materialize_key_stream_into_page(
+                    inputs.ctx,
+                    inputs.plan,
+                    inputs.predicate_slots,
+                    fallback_resolved.key_stream.as_mut(),
+                    fallback_route_plan.scan_hints.load_scan_budget_hint,
+                    fallback_route_plan.streaming_access_shape_safe(),
+                    cursor_boundary,
+                    fallback_route_plan.direction(),
+                    continuation_signature,
+                )?;
+            let fallback_rows_scanned = fallback_resolved
+                .rows_scanned_override
+                .unwrap_or(fallback_keys_scanned);
+            let fallback_distinct_keys_deduped = fallback_resolved
+                .distinct_keys_deduped_counter
+                .as_ref()
+                .map_or(0, |counter| counter.get());
+
+            // Retry accounting keeps observability faithful to actual work.
+            rows_scanned = rows_scanned.saturating_add(fallback_rows_scanned);
+            optimization = fallback_resolved.optimization;
+            index_predicate_applied =
+                index_predicate_applied || fallback_resolved.index_predicate_applied;
+            index_predicate_keys_rejected = index_predicate_keys_rejected
+                .saturating_add(fallback_resolved.index_predicate_keys_rejected);
+            distinct_keys_deduped =
+                distinct_keys_deduped.saturating_add(fallback_distinct_keys_deduped);
+            page = fallback_page;
+            post_access_rows = fallback_post_access_rows;
+        }
+
+        Ok(MaterializedExecutionAttempt {
+            page,
+            rows_scanned,
+            post_access_rows,
+            optimization,
+            index_predicate_applied,
+            index_predicate_keys_rejected,
+            distinct_keys_deduped,
+        })
+    }
+
     // Resolve one canonical execution key stream in fast-path precedence order.
     // This is the single shared load key-stream resolver boundary.
     pub(super) fn resolve_execution_key_stream(
@@ -221,7 +361,7 @@ where
     // Compile one optional index-only predicate program for load execution when
     // the active access path is index-backed and at least one safe predicate
     // subset can run on index components alone.
-    pub(in crate::db::executor::load) fn compile_index_predicate_program(
+    pub(in crate::db::executor) fn compile_index_predicate_program(
         plan: &AccessPlannedQuery<E::Key>,
         predicate_slots: Option<&PredicateFieldSlots>,
         mode: IndexPredicateCompileMode,
@@ -229,12 +369,26 @@ where
         let predicate_slots = predicate_slots?;
         let index_slots = Self::resolved_index_slots_for_access_path(&plan.access)?;
 
+        Self::compile_index_predicate_program_from_slots(
+            predicate_slots,
+            index_slots.as_slice(),
+            mode,
+        )
+    }
+
+    // Compile one optional index-only predicate program from pre-resolved slots.
+    // This is the single compile-mode switch boundary for subset vs strict policy.
+    pub(in crate::db::executor) fn compile_index_predicate_program_from_slots(
+        predicate_slots: &PredicateFieldSlots,
+        index_slots: &[usize],
+        mode: IndexPredicateCompileMode,
+    ) -> Option<IndexPredicateProgram> {
         match mode {
             IndexPredicateCompileMode::ConservativeSubset => {
-                predicate_slots.compile_index_program(index_slots.as_slice())
+                predicate_slots.compile_index_program(index_slots)
             }
             IndexPredicateCompileMode::StrictAllOrNone => {
-                predicate_slots.compile_index_program_strict(index_slots.as_slice())
+                predicate_slots.compile_index_program_strict(index_slots)
             }
         }
     }
@@ -244,15 +398,15 @@ where
         plan: &AccessPlannedQuery<E::Key>,
         key_comparator: super::KeyOrderComparator,
     ) -> ResolvedExecutionKeyStream {
-        if plan.distinct {
-            let dedup_counter = Rc::new(Cell::new(0u64));
-            resolved.key_stream = Box::new(DistinctOrderedKeyStream::new_with_dedup_counter(
-                resolved.key_stream,
-                key_comparator,
-                dedup_counter.clone(),
-            ));
-            resolved.distinct_keys_deduped_counter = Some(dedup_counter);
-        }
+        let dedup_counter = plan.distinct.then(|| Rc::new(Cell::new(0u64)));
+        let (key_stream, dedup_counter) = wrap_distinct_ordered_key_stream(
+            resolved.key_stream,
+            plan.distinct,
+            key_comparator,
+            dedup_counter,
+        );
+        resolved.key_stream = key_stream;
+        resolved.distinct_keys_deduped_counter = dedup_counter;
 
         resolved
     }

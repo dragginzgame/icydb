@@ -5,7 +5,7 @@ use crate::{
             aggregate::capability::field_is_orderable,
             compile_predicate_slots,
             fold::{AggregateFoldMode, AggregateKind, AggregateSpec},
-            load::LoadExecutor,
+            load::{IndexPredicateCompileMode, LoadExecutor},
         },
         lowering::LoweredKey,
         query::{
@@ -639,6 +639,7 @@ where
     // Aggregate streaming on index-backed predicates requires strict index
     // predicate compilation. If strict compilation fails, route must force
     // materialized execution to avoid optimistic streaming assumptions.
+    // Strict compile policy must stay on the shared executor compile boundary.
     fn aggregate_force_materialized_due_to_predicate_uncertainty(
         plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
@@ -649,9 +650,12 @@ where
             return false;
         };
 
-        predicate_slots
-            .compile_index_program_strict(index_slots.as_slice())
-            .is_none()
+        Self::compile_index_predicate_program_from_slots(
+            &predicate_slots,
+            index_slots.as_slice(),
+            IndexPredicateCompileMode::StrictAllOrNone,
+        )
+        .is_none()
     }
 
     // Route-owned aggregate non-count streaming gate.

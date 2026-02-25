@@ -786,11 +786,13 @@ where
             return Ok(None);
         };
         let key_comparator = super::key_stream_comparator_from_plan(inputs.logical_plan, direction);
-        fast.ordered_key_stream = Self::maybe_wrap_distinct_stream(
+        fast.ordered_key_stream = super::execute::wrap_distinct_ordered_key_stream(
             fast.ordered_key_stream,
             inputs.logical_plan.distinct,
             key_comparator,
-        );
+            None,
+        )
+        .0;
 
         let probe_rows_scanned = fast.rows_scanned;
         if let Some(fetch) = probe_fetch_hint {
@@ -832,11 +834,13 @@ where
         else {
             return Ok(None);
         };
-        fallback.ordered_key_stream = Self::maybe_wrap_distinct_stream(
+        fallback.ordered_key_stream = super::execute::wrap_distinct_ordered_key_stream(
             fallback.ordered_key_stream,
             inputs.logical_plan.distinct,
             key_comparator,
-        );
+            None,
+        )
+        .0;
         let fallback_rows_scanned = fallback.rows_scanned;
         let (aggregate_output, _fallback_keys_scanned) = Self::fold_streaming_aggregate(
             ctx,
@@ -923,11 +927,13 @@ where
         };
         let key_comparator =
             super::key_stream_comparator_from_plan(inputs.logical_plan, inputs.direction);
-        fast.ordered_key_stream = Self::maybe_wrap_distinct_stream(
+        fast.ordered_key_stream = super::execute::wrap_distinct_ordered_key_stream(
             fast.ordered_key_stream,
             inputs.logical_plan.distinct,
             key_comparator,
-        );
+            None,
+        )
+        .0;
 
         let rows_scanned = fast.rows_scanned;
         let (aggregate_output, _keys_scanned) = Self::fold_streaming_aggregate(

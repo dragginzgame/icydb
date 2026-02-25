@@ -2,10 +2,9 @@ use crate::{
     db::{
         executor::PlannedCursor,
         executor::cursor_spine::{validate_planned_cursor, validate_planned_cursor_state},
-        index::Direction,
         query::{
             contracts::cursor::ContinuationSignature,
-            plan::{AccessPlannedQuery, CursorPlanError, OrderSpec, PlanError},
+            plan::{AccessPlannedQuery, CursorPlanError, Direction, OrderSpec, PlanError},
         },
     },
     error::InternalError,

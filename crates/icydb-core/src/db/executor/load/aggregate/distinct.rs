@@ -1,8 +1,7 @@
 use crate::{
     db::{
         executor::{
-            AccessStreamBindings, DistinctOrderedKeyStream, ExecutablePlan, KeyOrderComparator,
-            OrderedKeyStreamBox,
+            AccessStreamBindings, ExecutablePlan,
             aggregate::field::{FieldSlot, extract_orderable_field_value},
             compile_predicate_slots,
             load::LoadExecutor,
@@ -17,6 +16,35 @@ use crate::{
     traits::{EntityKind, EntityValue},
     value::Value,
 };
+use std::{cmp::Ordering, collections::BTreeSet};
+
+///
+/// CanonicalDistinctValue
+///
+/// Canonical set key wrapper for `count_distinct_by` value deduplication.
+/// Uses `Value::canonical_cmp` to provide a total ordering for `BTreeSet`.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CanonicalDistinctValue(Value);
+
+impl Ord for CanonicalDistinctValue {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let ordering = Value::canonical_cmp(&self.0, &other.0);
+        debug_assert!(
+            (ordering == Ordering::Equal) == (self.0 == other.0),
+            "canonical distinct ordering must preserve Value equality semantics",
+        );
+
+        ordering
+    }
+}
+
+impl PartialOrd for CanonicalDistinctValue {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 impl<E> LoadExecutor<E>
 where
@@ -75,57 +103,16 @@ where
             },
             predicate_slots: predicate_slots.as_ref(),
         };
-        let mut resolved = Self::resolve_execution_key_stream(
+        let materialized = Self::materialize_with_optional_residual_retry(
             &execution_inputs,
             &route_plan,
+            None,
+            continuation_signature,
             IndexPredicateCompileMode::ConservativeSubset,
         )?;
-        let (mut page, keys_scanned, mut post_access_rows) =
-            Self::materialize_key_stream_into_page(
-                &ctx,
-                &logical_plan,
-                predicate_slots.as_ref(),
-                resolved.key_stream.as_mut(),
-                route_plan.scan_hints.load_scan_budget_hint,
-                route_plan.streaming_access_shape_safe(),
-                None,
-                direction,
-                continuation_signature,
-            )?;
-        let mut rows_scanned = resolved.rows_scanned_override.unwrap_or(keys_scanned);
-        if Self::index_range_limited_residual_retry_required(
-            &logical_plan,
-            None,
-            &route_plan,
-            rows_scanned,
-            post_access_rows,
-        ) {
-            let mut fallback_route_plan = route_plan;
-            fallback_route_plan.index_range_limit_spec = None;
-            let mut fallback_resolved = Self::resolve_execution_key_stream(
-                &execution_inputs,
-                &fallback_route_plan,
-                IndexPredicateCompileMode::ConservativeSubset,
-            )?;
-            let (fallback_page, fallback_keys_scanned, fallback_post_access_rows) =
-                Self::materialize_key_stream_into_page(
-                    &ctx,
-                    &logical_plan,
-                    predicate_slots.as_ref(),
-                    fallback_resolved.key_stream.as_mut(),
-                    fallback_route_plan.scan_hints.load_scan_budget_hint,
-                    fallback_route_plan.streaming_access_shape_safe(),
-                    None,
-                    direction,
-                    continuation_signature,
-                )?;
-            let fallback_rows_scanned = fallback_resolved
-                .rows_scanned_override
-                .unwrap_or(fallback_keys_scanned);
-            rows_scanned = rows_scanned.saturating_add(fallback_rows_scanned);
-            page = fallback_page;
-            post_access_rows = fallback_post_access_rows;
-        }
+        let page = materialized.page;
+        let rows_scanned = materialized.rows_scanned;
+        let post_access_rows = materialized.post_access_rows;
 
         debug_assert!(
             post_access_rows >= page.items.0.len(),
@@ -143,35 +130,16 @@ where
         target_field: &str,
         field_slot: FieldSlot,
     ) -> Result<u32, InternalError> {
-        let mut distinct_values: Vec<Value> = Vec::new();
+        let mut distinct_values: BTreeSet<CanonicalDistinctValue> = BTreeSet::new();
         let mut distinct_count = 0u32;
         for (_, entity) in response {
             let value = extract_orderable_field_value(&entity, target_field, field_slot)
                 .map_err(Self::map_aggregate_field_value_error)?;
-            if distinct_values.iter().any(|existing| existing == &value) {
-                continue;
+            if distinct_values.insert(CanonicalDistinctValue(value)) {
+                distinct_count = distinct_count.saturating_add(1);
             }
-
-            distinct_values.push(value);
-            distinct_count = distinct_count.saturating_add(1);
         }
 
         Ok(distinct_count)
-    }
-
-    // Wrap fast-path streams with DISTINCT semantics only when requested.
-    pub(in crate::db::executor::load::aggregate) fn maybe_wrap_distinct_stream(
-        ordered_key_stream: OrderedKeyStreamBox,
-        distinct: bool,
-        key_comparator: KeyOrderComparator,
-    ) -> OrderedKeyStreamBox {
-        if distinct {
-            return Box::new(DistinctOrderedKeyStream::new(
-                ordered_key_stream,
-                key_comparator,
-            ));
-        }
-
-        ordered_key_stream
     }
 }

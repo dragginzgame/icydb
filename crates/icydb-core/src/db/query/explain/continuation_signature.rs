@@ -84,11 +84,9 @@ mod tests {
             },
             predicate::Predicate,
         },
-        traits::Storable,
         types::Ulid,
         value::Value,
     };
-    use std::borrow::Cow;
 
     #[test]
     fn signature_is_deterministic_for_equivalent_predicates() {
@@ -245,9 +243,7 @@ mod tests {
 
     #[test]
     fn continuation_token_round_trips_index_range_anchor() {
-        let raw_key = <crate::db::index::RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![
-            0xAA, 0xBB, 0xCC,
-        ]));
+        let raw_key = vec![0xAA, 0xBB, 0xCC];
         let boundary = CursorBoundary {
             slots: vec![CursorBoundarySlot::Present(Value::Uint(42))],
         };
@@ -273,7 +269,7 @@ mod tests {
         let decoded_anchor = decoded
             .index_range_anchor()
             .expect("decoded token should include index-range anchor");
-        assert_eq!(decoded_anchor.last_raw_key().as_bytes(), raw_key.as_bytes());
+        assert_eq!(decoded_anchor.last_raw_key(), raw_key.as_slice());
     }
 
     #[test]

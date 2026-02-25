@@ -25,7 +25,6 @@ mod store;
 mod tests;
 mod validate;
 
-#[cfg(test)]
 use crate::error::InternalError;
 #[cfg(test)]
 use canic_memory::{registry::MemoryRegistryError, runtime::registry::MemoryRegistryRuntime};
@@ -54,6 +53,19 @@ pub(in crate::db) fn commit_component_corruption_message(
     detail: impl Display,
 ) -> String {
     format!("commit marker {component} corrupted: {detail}")
+}
+
+/// Construct a store-corruption `InternalError` for commit-marker failures.
+pub(in crate::db) fn commit_corruption(detail: impl Display) -> InternalError {
+    InternalError::store_corruption(commit_corruption_message(detail))
+}
+
+/// Construct a store-corruption `InternalError` for commit-marker component failures.
+pub(in crate::db) fn commit_component_corruption(
+    component: &str,
+    detail: impl Display,
+) -> InternalError {
+    InternalError::store_corruption(commit_component_corruption_message(component, detail))
 }
 
 /// Return true if a commit marker is currently persisted.

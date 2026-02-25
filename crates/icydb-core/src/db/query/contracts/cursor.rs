@@ -1,13 +1,11 @@
 //! Cursor protocol contract types.
 
 use crate::{
-    db::{index::Direction, index::RawIndexKey},
+    db::query::plan::Direction,
     serialize::{deserialize_bounded, serialize},
-    traits::Storable,
     value::Value,
 };
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use thiserror::Error as ThisError;
 
 const MAX_CONTINUATION_TOKEN_BYTES: usize = 8 * 1024;
@@ -225,16 +223,16 @@ pub(crate) enum ContinuationTokenError {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IndexRangeCursorAnchor {
-    last_raw_key: RawIndexKey,
+    last_raw_key: Vec<u8>,
 }
 
 impl IndexRangeCursorAnchor {
-    pub(in crate::db) const fn new(last_raw_key: RawIndexKey) -> Self {
+    pub(in crate::db) fn new(last_raw_key: Vec<u8>) -> Self {
         Self { last_raw_key }
     }
 
-    pub(in crate::db) const fn last_raw_key(&self) -> &RawIndexKey {
-        &self.last_raw_key
+    pub(in crate::db) fn last_raw_key(&self) -> &[u8] {
+        self.last_raw_key.as_slice()
     }
 }
 
@@ -307,15 +305,13 @@ struct IndexRangeCursorAnchorWire {
 impl From<&IndexRangeCursorAnchor> for IndexRangeCursorAnchorWire {
     fn from(anchor: &IndexRangeCursorAnchor) -> Self {
         Self {
-            last_raw_key: anchor.last_raw_key().as_bytes().to_vec(),
+            last_raw_key: anchor.last_raw_key().to_vec(),
         }
     }
 }
 
 impl IndexRangeCursorAnchorWire {
     fn into_anchor(self) -> IndexRangeCursorAnchor {
-        IndexRangeCursorAnchor::new(<RawIndexKey as Storable>::from_bytes(Cow::Owned(
-            self.last_raw_key,
-        )))
+        IndexRangeCursorAnchor::new(self.last_raw_key)
     }
 }

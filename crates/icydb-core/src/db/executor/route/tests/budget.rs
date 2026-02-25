@@ -174,6 +174,29 @@ fn aggregate_execution_mode_selection_is_route_owned_and_explicit() {
 }
 
 #[test]
+fn strict_index_predicate_compile_policy_has_one_executor_source_of_truth() {
+    let planner_source = include_str!("../planner.rs");
+    let execute_source = include_str!("../../load/execute.rs");
+
+    assert!(
+        !planner_source.contains(".compile_index_program_strict("),
+        "route planner must not compile strict index predicates directly; use shared executor helper",
+    );
+    assert!(
+        planner_source.contains("compile_index_predicate_program_from_slots("),
+        "route planner strict predicate policy must call the shared executor compile helper",
+    );
+    assert!(
+        execute_source.contains("match mode"),
+        "shared executor helper must own the compile-mode switch boundary",
+    );
+    assert!(
+        execute_source.contains("IndexPredicateCompileMode::StrictAllOrNone"),
+        "shared executor helper must include strict all-or-none compilation policy",
+    );
+}
+
+#[test]
 fn cursor_spine_validates_signature_direction_and_window_shape() {
     let cursor_spine_source = include_str!("../../cursor_spine.rs");
 

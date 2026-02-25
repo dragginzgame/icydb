@@ -4,7 +4,6 @@ use crate::{
             PlannedCursor, plan_cursor as validate_cursor_plan,
             revalidate_planned_cursor as revalidate_cursor_plan,
         },
-        index::Direction,
         lowering::{
             LOWERED_INDEX_PREFIX_SPEC_INVALID, LOWERED_INDEX_RANGE_SPEC_INVALID,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, lower_index_prefix_specs,
@@ -15,7 +14,9 @@ use crate::{
             explain::ExplainPlan,
             fingerprint::PlanFingerprint,
             intent::QueryMode,
-            plan::{AccessPlan, AccessPlannedQuery, LogicalPlan, OrderDirection, PlanError},
+            plan::{
+                AccessPlan, AccessPlannedQuery, Direction, LogicalPlan, OrderDirection, PlanError,
+            },
         },
     },
     error::InternalError,

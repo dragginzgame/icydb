@@ -16,9 +16,10 @@ use crate::{
     },
     error::{ErrorClass, ErrorOrigin},
     serialize::serialize,
+    traits::Storable,
     types::Id,
 };
-use std::{collections::BTreeSet, ops::Bound};
+use std::{borrow::Cow, collections::BTreeSet, ops::Bound};
 
 macro_rules! assert_exhausted_continuation_page {
     ($page:expr, $empty_message:expr, $cursor_message:expr $(,)?) => {{
@@ -511,11 +512,12 @@ fn assert_anchor_monotonic(
     monotonic_message: &'static str,
 ) {
     let token = ContinuationToken::decode(next_cursor).expect(decode_message);
-    let anchor = token
-        .index_range_anchor()
-        .expect(missing_anchor_message)
-        .last_raw_key()
-        .clone();
+    let anchor = <RawIndexKey as Storable>::from_bytes(Cow::Borrowed(
+        token
+            .index_range_anchor()
+            .expect(missing_anchor_message)
+            .last_raw_key(),
+    ));
 
     if let Some(previous_anchor) = anchors.last() {
         assert!(previous_anchor < &anchor, "{monotonic_message}");

@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::executor::{compile_predicate_slots, load::IndexPredicateCompileMode};
 
 #[test]
 fn route_plan_aggregate_uses_route_owned_fast_path_order() {
@@ -440,4 +441,127 @@ fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
     );
     assert_eq!(min_desc.secondary_extrema_probe_fetch_hint(), None);
     assert_eq!(max_desc.secondary_extrema_probe_fetch_hint(), Some(3));
+}
+
+#[test]
+fn route_matrix_index_predicate_compile_mode_subset_vs_strict_boundary_is_explicit() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        ReadConsistency::MissingOk,
+    );
+    plan.predicate = Some(Predicate::And(vec![
+        Predicate::eq("rank".to_string(), Value::Uint(12)),
+        Predicate::TextContains {
+            field: "label".to_string(),
+            value: Value::Text("keep".to_string()),
+        },
+    ]));
+    plan.order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    plan.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+
+    let predicate_slots = compile_predicate_slots::<RouteMatrixEntity>(&plan)
+        .expect("predicate slots should compile for mixed strict/residual predicate");
+    let index_slots =
+        LoadExecutor::<RouteMatrixEntity>::resolved_index_slots_for_access_path(&plan.access)
+            .expect("index-range plan should expose one resolvable index slot");
+    let subset_program =
+        LoadExecutor::<RouteMatrixEntity>::compile_index_predicate_program_from_slots(
+            &predicate_slots,
+            index_slots.as_slice(),
+            IndexPredicateCompileMode::ConservativeSubset,
+        );
+    let strict_program =
+        LoadExecutor::<RouteMatrixEntity>::compile_index_predicate_program_from_slots(
+            &predicate_slots,
+            index_slots.as_slice(),
+            IndexPredicateCompileMode::StrictAllOrNone,
+        );
+
+    assert!(
+        subset_program.is_some(),
+        "subset compile mode should keep the strict index-covered rank clause as a safe AND subset",
+    );
+    assert!(
+        strict_program.is_none(),
+        "strict compile mode must fail closed when any predicate child is not index-only-safe",
+    );
+}
+
+#[test]
+fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_execution_mode() {
+    let mut strict_compatible = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        ReadConsistency::MissingOk,
+    );
+    strict_compatible.predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
+    strict_compatible.order = Some(OrderSpec {
+        fields: vec![
+            ("rank".to_string(), OrderDirection::Asc),
+            ("id".to_string(), OrderDirection::Asc),
+        ],
+    });
+    strict_compatible.page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let strict_compatible_route =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &strict_compatible,
+            AggregateKind::Exists,
+        );
+    assert_eq!(
+        strict_compatible_route.execution_mode,
+        ExecutionMode::Streaming,
+        "strict-compilable secondary predicate shapes should keep aggregate streaming eligibility",
+    );
+
+    let mut strict_uncertain = strict_compatible.clone();
+    strict_uncertain.predicate = Some(Predicate::And(vec![
+        Predicate::eq("rank".to_string(), Value::Uint(12)),
+        Predicate::TextContains {
+            field: "label".to_string(),
+            value: Value::Text("keep".to_string()),
+        },
+    ]));
+    let strict_uncertain_route =
+        LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
+            &strict_uncertain,
+            AggregateKind::Exists,
+        );
+    assert_eq!(
+        strict_uncertain_route.execution_mode,
+        ExecutionMode::Materialized,
+        "aggregate route planning must force materialized execution when strict index compile fails",
+    );
+
+    let load_route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
+        &strict_uncertain,
+        None,
+        None,
+        None,
+    )
+    .expect("load route plan should build for strict/subset parity boundary shape");
+    assert_eq!(
+        load_route.execution_mode,
+        ExecutionMode::Streaming,
+        "load routing should remain streaming for the same shape via conservative subset policy",
+    );
 }

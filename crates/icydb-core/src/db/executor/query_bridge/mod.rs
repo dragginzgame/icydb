@@ -399,7 +399,7 @@ impl<K> AccessPlannedQuery<K> {
             ContinuationToken::new_index_range_with_direction(
                 signature,
                 boundary,
-                IndexRangeCursorAnchor::new(index_key.to_raw()),
+                IndexRangeCursorAnchor::new(index_key.to_raw().as_bytes().to_vec()),
                 direction,
                 initial_offset,
             )

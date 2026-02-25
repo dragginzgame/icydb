@@ -4,7 +4,7 @@ use crate::{
     db::{
         codec::deserialize_persisted_payload,
         commit::{
-            CommitMarker, MAX_COMMIT_BYTES, commit_corruption_message, memory::commit_memory_id,
+            CommitMarker, MAX_COMMIT_BYTES, commit_corruption, memory::commit_memory_id,
             validate_commit_marker_shape,
         },
     },
@@ -54,7 +54,7 @@ impl RawCommitMarker {
             return Ok(None);
         }
         if self.0.len() > MAX_COMMIT_BYTES as usize {
-            return Err(InternalError::store_corruption(format!(
+            return Err(commit_corruption(format!(
                 "commit marker exceeds max size: {} bytes (limit {MAX_COMMIT_BYTES})",
                 self.0.len()
             )));
@@ -65,7 +65,7 @@ impl RawCommitMarker {
             MAX_COMMIT_BYTES as usize,
             "commit marker",
         )
-        .map_err(|err| InternalError::store_corruption(commit_corruption_message(err)))?;
+        .map_err(commit_corruption)?;
         validate_commit_marker_shape(&marker)?;
 
         Ok(Some(marker))

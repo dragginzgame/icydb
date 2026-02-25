@@ -14,6 +14,18 @@ const fn data_key_witness(key: &DataKey) -> DataKeyWitness {
     (*key.entity_name(), key.storage_key())
 }
 
+fn compare_key_witnesses(
+    comparator: KeyOrderComparator,
+    left: &DataKeyWitness,
+    right: &DataKeyWitness,
+) -> Option<Ordering> {
+    if left.0 != right.0 {
+        return None;
+    }
+
+    Some(comparator.compare_storage_keys(&left.1, &right.1))
+}
+
 fn witness_matches_key(witness: &DataKeyWitness, key: &DataKey) -> bool {
     witness.0 == *key.entity_name() && witness.1 == key.storage_key()
 }
@@ -163,7 +175,7 @@ where
 pub(crate) struct DistinctOrderedKeyStream<S> {
     inner: S,
     last_emitted: Option<DataKeyWitness>,
-    _comparator: KeyOrderComparator,
+    comparator: KeyOrderComparator,
     deduped_keys_counter: Option<Rc<Cell<u64>>>,
 }
 
@@ -173,7 +185,7 @@ impl<S> DistinctOrderedKeyStream<S> {
         Self {
             inner,
             last_emitted: None,
-            _comparator: comparator,
+            comparator,
             deduped_keys_counter: None,
         }
     }
@@ -187,7 +199,7 @@ impl<S> DistinctOrderedKeyStream<S> {
         Self {
             inner,
             last_emitted: None,
-            _comparator: comparator,
+            comparator,
             deduped_keys_counter: Some(deduped_keys_counter),
         }
     }
@@ -202,19 +214,25 @@ where
             let Some(next) = self.inner.next_key()? else {
                 return Ok(None);
             };
+            let next_witness = data_key_witness(&next);
 
-            if self
-                .last_emitted
-                .as_ref()
-                .is_some_and(|last| witness_matches_key(last, &next))
+            if let Some(last) = self.last_emitted.as_ref()
+                && let Some(ordering) = compare_key_witnesses(self.comparator, last, &next_witness)
             {
-                if let Some(counter) = self.deduped_keys_counter.as_ref() {
-                    counter.set(counter.get().saturating_add(1));
+                if ordering.is_gt() {
+                    return Err(InternalError::query_executor_invariant(
+                        "distinct ordered stream received non-monotonic key order",
+                    ));
                 }
-                continue;
+                if ordering.is_eq() {
+                    if let Some(counter) = self.deduped_keys_counter.as_ref() {
+                        counter.set(counter.get().saturating_add(1));
+                    }
+                    continue;
+                }
             }
 
-            self.last_emitted = Some(data_key_witness(&next));
+            self.last_emitted = Some(next_witness);
 
             return Ok(Some(next));
         }
@@ -892,6 +910,30 @@ mod tests {
         let err = collect_stream(&mut stream).expect_err("distinct stream should fail");
         assert_eq!(err.class, ErrorClass::Internal);
         assert_eq!(err.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn distinct_stream_rejects_non_monotonic_keys_for_both_directions() {
+        for (direction, values) in [
+            (Direction::Asc, vec![data_key(1), data_key(3), data_key(2)]),
+            (Direction::Desc, vec![data_key(3), data_key(1), data_key(2)]),
+        ] {
+            let inner = StaticOrderedKeyStream::new(values);
+            let mut stream =
+                DistinctOrderedKeyStream::new(inner, KeyOrderComparator::from_direction(direction));
+
+            let err = collect_stream(&mut stream)
+                .expect_err("non-monotonic distinct stream input should be rejected");
+            assert_eq!(
+                err.class,
+                ErrorClass::InvariantViolation,
+                "distinct monotonicity failures must classify as invariant violations"
+            );
+            assert!(
+                err.message.contains("non-monotonic key order"),
+                "distinct monotonicity failure should expose a clear invariant reason"
+            );
+        }
     }
 
     #[test]
