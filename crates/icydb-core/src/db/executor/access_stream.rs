@@ -1,10 +1,11 @@
 use crate::{
     db::{
         executor::{
-            Context, IndexPrefixSpec, IndexRangeSpec, IntersectOrderedKeyStream,
-            KeyOrderComparator, MergeOrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
+            Context, IntersectOrderedKeyStream, KeyOrderComparator, LoweredIndexPrefixSpec,
+            LoweredIndexRangeSpec, MergeOrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
         },
-        index::{RawIndexKey, predicate::IndexPredicateExecution},
+        index::predicate::IndexPredicateExecution,
+        lowering::LoweredKey,
         query::{
             ReadConsistency,
             plan::{AccessPath, AccessPlan, Direction},
@@ -31,9 +32,9 @@ use crate::{
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) struct AccessStreamInputs<'ctx, 'a, E: EntityKind + EntityValue> {
     pub(in crate::db::executor) ctx: &'a Context<'ctx, E>,
-    pub(in crate::db::executor) index_prefix_specs: &'a [IndexPrefixSpec],
-    pub(in crate::db::executor) index_range_specs: &'a [IndexRangeSpec],
-    pub(in crate::db::executor) index_range_anchor: Option<&'a RawIndexKey>,
+    pub(in crate::db::executor) index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+    pub(in crate::db::executor) index_range_specs: &'a [LoweredIndexRangeSpec],
+    pub(in crate::db::executor) index_range_anchor: Option<&'a LoweredKey>,
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) key_comparator: KeyOrderComparator,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
@@ -78,18 +79,20 @@ where
 ///
 
 pub(in crate::db::executor) struct AccessSpecCursor<'a> {
-    index_prefix_specs: std::slice::Iter<'a, IndexPrefixSpec>,
-    index_range_specs: std::slice::Iter<'a, IndexRangeSpec>,
+    index_prefix_specs: std::slice::Iter<'a, LoweredIndexPrefixSpec>,
+    index_range_specs: std::slice::Iter<'a, LoweredIndexRangeSpec>,
 }
 
 impl<'a> AccessSpecCursor<'a> {
     pub(in crate::db::executor) fn next_index_prefix_spec(
         &mut self,
-    ) -> Option<&'a IndexPrefixSpec> {
+    ) -> Option<&'a LoweredIndexPrefixSpec> {
         self.index_prefix_specs.next()
     }
 
-    pub(in crate::db::executor) fn next_index_range_spec(&mut self) -> Option<&'a IndexRangeSpec> {
+    pub(in crate::db::executor) fn next_index_range_spec(
+        &mut self,
+    ) -> Option<&'a LoweredIndexRangeSpec> {
         self.index_range_specs.next()
     }
 
@@ -118,9 +121,9 @@ impl<'a> AccessSpecCursor<'a> {
 
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) struct AccessStreamBindings<'a> {
-    pub(in crate::db::executor) index_prefix_specs: &'a [IndexPrefixSpec],
-    pub(in crate::db::executor) index_range_specs: &'a [IndexRangeSpec],
-    pub(in crate::db::executor) index_range_anchor: Option<&'a RawIndexKey>,
+    pub(in crate::db::executor) index_prefix_specs: &'a [LoweredIndexPrefixSpec],
+    pub(in crate::db::executor) index_range_specs: &'a [LoweredIndexRangeSpec],
+    pub(in crate::db::executor) index_range_anchor: Option<&'a LoweredKey>,
     pub(in crate::db::executor) direction: Direction,
 }
 
@@ -149,9 +152,9 @@ pub(in crate::db::executor) struct AccessPlanStreamRequest<'a, K> {
 ///
 
 pub(in crate::db) struct IndexStreamConstraints<'a> {
-    pub prefix: Option<&'a IndexPrefixSpec>,
-    pub range: Option<&'a IndexRangeSpec>,
-    pub anchor: Option<&'a RawIndexKey>,
+    pub prefix: Option<&'a LoweredIndexPrefixSpec>,
+    pub range: Option<&'a LoweredIndexRangeSpec>,
+    pub anchor: Option<&'a LoweredKey>,
 }
 
 ///
@@ -197,8 +200,8 @@ where
     pub(in crate::db) fn rows_from_access_plan(
         &self,
         access: &AccessPlan<E::Key>,
-        index_prefix_specs: &[IndexPrefixSpec],
-        index_range_specs: &[IndexRangeSpec],
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        index_range_specs: &[LoweredIndexRangeSpec],
         consistency: ReadConsistency,
     ) -> Result<Vec<crate::db::data::DataRow>, InternalError>
     where
@@ -248,10 +251,10 @@ where
     pub(in crate::db) fn rows_from_access_plan_with_index_range_anchor(
         &self,
         access: &AccessPlan<E::Key>,
-        index_prefix_specs: &[IndexPrefixSpec],
-        index_range_specs: &[IndexRangeSpec],
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        index_range_specs: &[LoweredIndexRangeSpec],
         consistency: ReadConsistency,
-        index_range_anchor: Option<&RawIndexKey>,
+        index_range_anchor: Option<&LoweredKey>,
         direction: Direction,
     ) -> Result<Vec<crate::db::data::DataRow>, InternalError>
     where
@@ -311,8 +314,8 @@ impl AccessPlanStreamResolver {
     fn lower_path_access<E, K>(
         path: &AccessPath<K>,
         inputs: &AccessStreamInputs<'_, '_, E>,
-        index_prefix_spec: Option<&IndexPrefixSpec>,
-        index_range_spec: Option<&IndexRangeSpec>,
+        index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
+        index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<OrderedKeyStreamBox, InternalError>
     where
         E: EntityKind<Key = K> + EntityValue,
@@ -378,7 +381,7 @@ impl AccessPlanStreamResolver {
     // Validate that a consumed prefix spec belongs to the same index path node.
     fn validate_index_prefix_spec_alignment<K>(
         path: &AccessPath<K>,
-        index_prefix_spec: Option<&IndexPrefixSpec>,
+        index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
     ) -> Result<(), InternalError> {
         if let (Some(spec), AccessPath::IndexPrefix { index, .. }) = (index_prefix_spec, path)
             && spec.index() != index
@@ -394,7 +397,7 @@ impl AccessPlanStreamResolver {
     // Validate that a consumed range spec belongs to the same index path node.
     fn validate_index_range_spec_alignment<K>(
         path: &AccessPath<K>,
-        index_range_spec: Option<&IndexRangeSpec>,
+        index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<(), InternalError> {
         if let (
             Some(spec),

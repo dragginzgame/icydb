@@ -11,6 +11,7 @@ pub(in crate::db) mod commit;
 pub(in crate::db) mod data;
 pub(in crate::db) mod executor;
 pub(in crate::db) mod index;
+pub(in crate::db) mod lowering;
 pub(in crate::db) mod relation;
 
 // 2️⃣ Public re-exports (Tier-2 API surface)

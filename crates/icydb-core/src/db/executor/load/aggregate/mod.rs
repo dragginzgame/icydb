@@ -7,8 +7,8 @@ use crate::{
     db::{
         Context,
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, ExecutablePlan, IndexPrefixSpec,
-            IndexRangeSpec, IndexStreamConstraints, StreamExecutionHints,
+            AccessPlanStreamRequest, AccessStreamBindings, ExecutablePlan, IndexStreamConstraints,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, StreamExecutionHints,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
                 compare_entities_by_orderable_field, compare_entities_for_field_extrema,
@@ -64,8 +64,8 @@ struct AggregateFastPathInputs<'exec, 'ctx, E: EntityKind + EntityValue> {
     ctx: &'exec Context<'ctx, E>,
     logical_plan: &'exec AccessPlannedQuery<E::Key>,
     route_plan: &'exec ExecutionRoutePlan,
-    index_prefix_specs: &'exec [IndexPrefixSpec],
-    index_range_specs: &'exec [IndexRangeSpec],
+    index_prefix_specs: &'exec [LoweredIndexPrefixSpec],
+    index_range_specs: &'exec [LoweredIndexRangeSpec],
     index_predicate_program: Option<&'exec IndexPredicateProgram>,
     direction: Direction,
     physical_fetch_hint: Option<usize>,

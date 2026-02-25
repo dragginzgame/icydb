@@ -2,10 +2,11 @@ use crate::{
     db::{
         data::DataKey,
         executor::{
-            Context, IndexPrefixSpec, IndexRangeSpec, OrderedKeyStreamBox, VecOrderedKeyStream,
-            normalize_ordered_keys,
+            Context, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, OrderedKeyStreamBox,
+            VecOrderedKeyStream, normalize_ordered_keys,
         },
-        index::{RawIndexKey, predicate::IndexPredicateExecution},
+        index::predicate::IndexPredicateExecution,
+        lowering::LoweredKey,
         query::plan::{AccessPath, Direction},
     },
     error::InternalError,
@@ -22,9 +23,9 @@ impl<K> AccessPath<K> {
     pub(super) fn resolve_physical_key_stream<E>(
         &self,
         ctx: &Context<'_, E>,
-        index_prefix_spec: Option<&IndexPrefixSpec>,
-        index_range_spec: Option<&IndexRangeSpec>,
-        index_range_anchor: Option<&RawIndexKey>,
+        index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
+        index_range_spec: Option<&LoweredIndexRangeSpec>,
+        index_range_anchor: Option<&LoweredKey>,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
@@ -231,7 +232,7 @@ impl<K> AccessPath<K> {
     fn resolve_index_prefix<E>(
         ctx: &Context<'_, E>,
         _index: &IndexModel,
-        index_prefix_spec: Option<&IndexPrefixSpec>,
+        index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
         direction: Direction,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
@@ -268,8 +269,8 @@ impl<K> AccessPath<K> {
     fn resolve_index_range<E>(
         ctx: &Context<'_, E>,
         _index: &IndexModel,
-        index_range_spec: Option<&IndexRangeSpec>,
-        index_range_anchor: Option<&RawIndexKey>,
+        index_range_spec: Option<&LoweredIndexRangeSpec>,
+        index_range_anchor: Option<&LoweredKey>,
         direction: Direction,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,

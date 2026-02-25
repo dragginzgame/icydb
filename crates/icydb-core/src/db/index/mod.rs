@@ -14,8 +14,6 @@ pub(in crate::db) use entry::{
 };
 pub(in crate::db) use envelope::{KeyEnvelope, continuation_advances_from_ordering};
 pub(crate) use fingerprint::hash_value;
-#[cfg(test)]
-pub(in crate::db) use key::encode_canonical_index_component;
 pub(in crate::db) use key::{EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexKey};
 pub(in crate::db) use plan::plan_index_mutation_for_entity;
 pub(in crate::db) use range::Direction;

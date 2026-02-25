@@ -6,7 +6,7 @@ use crate::{
             fold::{AggregateFoldMode, AggregateKind, AggregateSpec},
             load::LoadExecutor,
         },
-        index::RawIndexKey,
+        lowering::LoweredKey,
         query::{
             contracts::cursor::CursorBoundary,
             plan::{AccessPath, AccessPlan, AccessPlannedQuery, Direction},
@@ -95,7 +95,7 @@ where
     pub(in crate::db::executor) fn build_execution_route_plan_for_load(
         plan: &AccessPlannedQuery<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RawIndexKey>,
+        index_range_anchor: Option<&LoweredKey>,
         probe_fetch_hint: Option<usize>,
     ) -> Result<ExecutionRoutePlan, InternalError> {
         Self::validate_pk_fast_path_boundary_if_applicable(plan, cursor_boundary)?;
@@ -154,7 +154,7 @@ where
     fn build_execution_route_plan(
         plan: &AccessPlannedQuery<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RawIndexKey>,
+        index_range_anchor: Option<&LoweredKey>,
         probe_fetch_hint: Option<usize>,
         intent: RouteIntent,
     ) -> ExecutionRoutePlan {
@@ -370,7 +370,7 @@ where
 
     const fn derive_continuation_mode(
         cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RawIndexKey>,
+        index_range_anchor: Option<&LoweredKey>,
     ) -> ContinuationMode {
         match (cursor_boundary, index_range_anchor) {
             (_, Some(_)) => ContinuationMode::IndexRangeAnchor,
@@ -394,7 +394,7 @@ where
     fn assess_index_range_limit_pushdown(
         plan: &AccessPlannedQuery<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
-        index_range_anchor: Option<&RawIndexKey>,
+        index_range_anchor: Option<&LoweredKey>,
         route_window: RouteWindowPlan,
         probe_fetch_hint: Option<usize>,
         capabilities: RouteCapabilities,

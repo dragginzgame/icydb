@@ -9,7 +9,6 @@ mod delete;
 mod direction;
 mod executable_plan;
 mod fold;
-mod index_specs;
 pub(super) mod load;
 mod mutation;
 mod ordered_key_stream;
@@ -22,6 +21,7 @@ pub(super) mod route;
 mod tests;
 mod window;
 
+pub(in crate::db) use crate::db::lowering::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec};
 pub(super) use access_stream::*;
 pub(super) use context::*;
 pub(in crate::db) use cursor_anchor::{
@@ -34,7 +34,6 @@ pub(in crate::db) use cursor_validation::{plan_cursor, revalidate_planned_cursor
 pub(super) use delete::DeleteExecutor;
 pub(crate) use direction::normalize_ordered_keys;
 pub(in crate::db) use executable_plan::ExecutablePlan;
-pub(in crate::db) use index_specs::{IndexPrefixSpec, IndexRangeSpec};
 pub(super) use load::LoadExecutor;
 pub use load::{ExecutionAccessPathVariant, ExecutionOptimization, ExecutionTrace};
 pub(super) use mutation::save::SaveExecutor;

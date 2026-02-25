@@ -5,6 +5,26 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.29.4] - 2026-02-25 - db/executor : Lowering Boundary Hard Cut
+
+### 📝 Summary
+
+* Moves semantic-to-byte index lowering out of executor runtime into a dedicated lowering boundary.
+* Keeps executor runtime byte-only so execution paths consume pre-lowered specs instead of encoding values.
+
+### 🔧 Changed
+
+* Added a new `db::lowering` module that owns semantic-to-encoded transformation and raw index-key bound construction.
+* Removed executor-owned index spec lowering and switched executor stream/runtime code to consume lowered contracts.
+* Routed index-range cursor envelope checks through lowering-owned bound materialization helpers.
+
+### 🧹 Cleanup
+
+* Deleted the legacy `executor/index_specs.rs` lowering surface.
+* Removed now-unused test-only encoder re-exports from index module wiring.
+
+---
+
 ## [0.29.3] - 2026-02-25 - db/query : Audit III
 
 ### 📝 Summary

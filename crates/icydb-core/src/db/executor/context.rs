@@ -191,7 +191,7 @@ mod tests {
         db::{
             Db,
             executor::{
-                Context, IndexPrefixSpec, IndexRangeSpec, IndexStreamConstraints,
+                Context, IndexStreamConstraints, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
                 StreamExecutionHints,
             },
             query::{
@@ -262,20 +262,20 @@ mod tests {
 
     static INVARIANT_DB: Db<ContextInvariantCanister> = Db::new(&INVARIANT_STORE_REGISTRY);
 
-    fn raw_index_key(byte: u8) -> crate::db::index::RawIndexKey {
-        <crate::db::index::RawIndexKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
+    fn raw_index_key(byte: u8) -> crate::db::lowering::LoweredKey {
+        <crate::db::lowering::LoweredKey as Storable>::from_bytes(Cow::Owned(vec![byte]))
     }
 
-    fn dummy_index_range_spec() -> IndexRangeSpec {
-        IndexRangeSpec::new(
+    fn dummy_index_range_spec() -> LoweredIndexRangeSpec {
+        LoweredIndexRangeSpec::new(
             INDEX_MODEL,
             Bound::Included(raw_index_key(0x01)),
             Bound::Included(raw_index_key(0x02)),
         )
     }
 
-    fn dummy_index_prefix_spec() -> IndexPrefixSpec {
-        IndexPrefixSpec::new(
+    fn dummy_index_prefix_spec() -> LoweredIndexPrefixSpec {
+        LoweredIndexPrefixSpec::new(
             INDEX_MODEL,
             Bound::Included(raw_index_key(0x01)),
             Bound::Included(raw_index_key(0x02)),

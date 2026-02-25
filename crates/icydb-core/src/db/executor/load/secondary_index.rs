@@ -3,7 +3,8 @@ use crate::{
         Context,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
         executor::{
-            AccessPlanStreamRequest, AccessStreamBindings, IndexPrefixSpec, KeyOrderComparator,
+            AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator,
+            LoweredIndexPrefixSpec,
             route::{RouteOrderSlotPolicy, derive_scan_direction},
         },
         index::predicate::IndexPredicateExecution,
@@ -22,7 +23,7 @@ where
     pub(super) fn try_execute_secondary_index_order_stream(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
-        index_prefix_spec: Option<&IndexPrefixSpec>,
+        index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
         probe_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {

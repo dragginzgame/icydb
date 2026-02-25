@@ -1,10 +1,10 @@
 use crate::{
     db::{
         index::{
-            Direction, IndexId, IndexKey, IndexKeyKind, IndexRangeNotIndexableReasonScope,
-            PrimaryKeyEquivalenceError, map_index_range_not_indexable_reason,
-            primary_key_matches_value, raw_bounds_for_semantic_index_component_range,
+            Direction, IndexId, IndexKey, IndexKeyKind, PrimaryKeyEquivalenceError,
+            primary_key_matches_value,
         },
+        lowering::lower_cursor_anchor_index_range_bounds,
         query::{
             contracts::cursor::IndexRangeCursorAnchor,
             plan::{AccessPath, CursorPlanError, KeyEnvelope, PlanError},
@@ -101,13 +101,8 @@ pub(in crate::db) fn validate_index_range_anchor<E: EntityKind>(
 
         // Phase 2: validate envelope membership against planned range bounds.
         let (range_start, range_end) =
-            raw_bounds_for_semantic_index_component_range::<E>(index, prefix, lower, upper)
-                .map_err(|err| {
-                    invalid_continuation_cursor_payload(map_index_range_not_indexable_reason(
-                        IndexRangeNotIndexableReasonScope::CursorContinuationAnchor,
-                        err,
-                    ))
-                })?;
+            lower_cursor_anchor_index_range_bounds::<E>(index, prefix, lower, upper)
+                .map_err(invalid_continuation_cursor_payload)?;
 
         if !KeyEnvelope::new(direction, range_start, range_end).contains(anchor.last_raw_key()) {
             return Err(invalid_continuation_cursor_payload(
