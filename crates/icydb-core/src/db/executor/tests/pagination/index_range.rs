@@ -1562,6 +1562,10 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
         !fallback_trace1.index_predicate_applied,
         "fallback distinct page1 must not report index-only activation"
     );
+    assert_eq!(
+        fallback_trace1.optimization, None,
+        "fallback distinct page1 should remain non-optimized",
+    );
     assert!(
         fast_trace1.index_predicate_keys_rejected > 0,
         "index-only distinct page1 should report rejected index keys",
@@ -1611,6 +1615,10 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
     assert!(
         !fallback_trace2.index_predicate_applied,
         "fallback distinct page2 must not report index-only activation"
+    );
+    assert_eq!(
+        fallback_trace2.optimization, None,
+        "fallback distinct page2 should remain non-optimized",
     );
     assert_eq!(
         fallback_trace2.index_predicate_keys_rejected, 0,
@@ -1708,6 +1716,10 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
         !fallback_trace1.index_predicate_applied,
         "fallback descending distinct page1 must not report index-only activation"
     );
+    assert_eq!(
+        fallback_trace1.optimization, None,
+        "fallback descending distinct page1 should remain non-optimized",
+    );
 
     let fast_cursor = fast_page1
         .next_cursor
@@ -1745,6 +1757,10 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
     assert!(
         !fallback_trace2.index_predicate_applied,
         "fallback descending distinct page2 must not report index-only activation"
+    );
+    assert_eq!(
+        fallback_trace2.optimization, None,
+        "fallback descending distinct page2 should remain non-optimized",
     );
     assert_eq!(
         fast_page2.next_cursor.is_some(),
@@ -1977,6 +1993,10 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
             !fallback_trace1.index_predicate_applied,
             "fallback bounded-range page1 must not report index-only activation for descending={descending}",
         );
+        assert_eq!(
+            fallback_trace1.optimization, None,
+            "fallback bounded-range page1 should remain non-optimized for descending={descending}",
+        );
         assert!(
             fast_trace1.index_predicate_keys_rejected > 0,
             "fast bounded-range page1 should reject non-matching index keys for descending={descending}",
@@ -2023,6 +2043,10 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
         assert!(
             !fallback_trace2.index_predicate_applied,
             "fallback bounded-range page2 must not report index-only activation for descending={descending}",
+        );
+        assert_eq!(
+            fallback_trace2.optimization, None,
+            "fallback bounded-range page2 should remain non-optimized for descending={descending}",
         );
         assert_eq!(
             fallback_trace2.index_predicate_keys_rejected, 0,

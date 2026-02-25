@@ -5,14 +5,30 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.29.8] - 2026-02-25 - Retry and DISTINCT Hardening
+## [0.30.0] - 2026-02-25 - Execution Kernel Consolidation (Phase 1)
 
-* Unified index-range residual retry handling behind one shared load materialization boundary, so `execute(...)` and `count_distinct_by(...)` follow the same fallback path and scan-accounting rules.
-* Fixed DISTINCT stream invariants by enforcing comparator-driven monotonicity checks, and removed duplicate DISTINCT wrapping so load and aggregate callsites use one shared wrapper entrypoint.
-* Removed duplicate strict index-predicate compile branching by routing aggregate planning and load execution through one shared executor compile helper, and added strict-vs-subset compile parity tests to lock route/execute behavior.
-* Normalized commit-marker corruption classification to one explicit commit-domain constructor path for clearer and more consistent commit-boundary errors.
-* Replaced quadratic value dedupe behavior in `count_distinct_by(...)` with set-based canonical dedupe to reduce hot-path growth without changing semantics.
-* Added regression coverage for DISTINCT monotonicity violations across both `ASC` and `DESC` traversal directions.
+### 📝 Summary
+
+* Starts `0.30` execution-kernel consolidation by moving shared read behavior into one place while keeping query behavior stable.
+
+### 🔧 Changed
+
+* Retry for underfilled index-range pages now uses one shared path, so `execute(...)` and `count_distinct_by(...)` stay aligned on fallback behavior and scan counts.
+* `DISTINCT` de-duplication and monotonicity validation were consolidated, keeping ascending and descending scans consistent.
+* Index-predicate strict-vs-subset branching now goes through one shared helper to reduce routing drift.
+* `count_distinct_by(...)` now runs through canonical `execute(...)` orchestration and uses set-based dedupe, improving efficiency without changing results.
+* Aggregate streaming setup and fast-path folding now share common preparation helpers, reducing branch-specific setup differences.
+* Materialized and routed aggregate branches now use shared resolve-and-fold helpers, removing duplicated orchestration logic.
+* Secondary-index aggregate probe and fallback now share one fold helper, keeping retry behavior consistent.
+* Aggregate execution now delegates through one `execute_aggregate_spec(...)` boundary with kernel-owned reducer selection.
+* Aggregate internals were split into clearer modules (terminals, contracts, orchestration, fast path) to improve maintainability.
+* Commit-marker corruption classification and `DISTINCT` comparator setup were simplified for more consistent behavior.
+
+### 🧪 Testing
+
+* Expanded parity coverage for `DISTINCT` continuation behavior across ascending/descending index-range and fallback shapes.
+* Added regression coverage for `DISTINCT` monotonicity checks in both `ASC` and `DESC`.
+* Added structural guard coverage for shared aggregate streaming setup and fast-path folding boundaries.
 
 ---
 

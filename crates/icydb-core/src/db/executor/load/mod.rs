@@ -8,25 +8,26 @@ mod secondary_index;
 mod terminal;
 mod trace;
 
-pub(in crate::db::executor) use self::execute::IndexPredicateCompileMode;
-
-use self::{
-    execute::ExecutionInputs,
-    trace::{access_path_variant, execution_order_direction},
+pub(in crate::db::executor) use self::aggregate::{
+    AggregateExecutionDescriptor, AggregateFastPathInputs,
 };
+pub(in crate::db::executor) use self::execute::{
+    ExecutionInputs, MaterializedExecutionAttempt, ResolvedExecutionKeyStream,
+};
+
+use self::trace::{access_path_variant, execution_order_direction};
 use crate::{
     db::{
         Db,
         executor::{
-            AccessStreamBindings, ExecutablePlan, KeyOrderComparator, OrderedKeyStreamBox,
-            PlannedCursor,
+            AccessStreamBindings, ExecutablePlan, ExecutionKernel, IndexPredicateCompileMode,
+            KeyOrderComparator, OrderedKeyStreamBox, PlannedCursor,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
             },
-            compile_predicate_slots, compute_page_window, decode_pk_cursor_boundary,
+            compile_predicate_slots, decode_pk_cursor_boundary,
             plan::{record_plan_metrics, record_rows_scanned},
-            route::{ExecutionRoutePlan, RouteOrderSlotPolicy, derive_scan_direction},
         },
         query::policy,
         query::{
@@ -142,23 +143,10 @@ impl ExecutionTrace {
     }
 }
 
-fn key_stream_comparator_from_plan<K>(
-    plan: &AccessPlannedQuery<K>,
-    fallback_direction: Direction,
+pub(in crate::db::executor) const fn key_stream_comparator_from_direction(
+    direction: Direction,
 ) -> KeyOrderComparator {
-    let derived_direction = plan.order.as_ref().map_or(fallback_direction, |order| {
-        derive_scan_direction(order, RouteOrderSlotPolicy::Last)
-    });
-
-    // Comparator and child-stream monotonicity must stay aligned until access-path
-    // stream production can emit keys under an order-spec-derived comparator.
-    let comparator_direction = if derived_direction == fallback_direction {
-        derived_direction
-    } else {
-        fallback_direction
-    };
-
-    KeyOrderComparator::from_direction(comparator_direction)
+    KeyOrderComparator::from_direction(direction)
 }
 
 ///
@@ -168,7 +156,7 @@ fn key_stream_comparator_from_plan<K>(
 /// Carries ordered keys plus observability metadata for shared execution phases.
 ///
 
-struct FastPathKeyResult {
+pub(in crate::db::executor) struct FastPathKeyResult {
     ordered_key_stream: OrderedKeyStreamBox,
     rows_scanned: usize,
     optimization: ExecutionOptimization,
@@ -305,7 +293,7 @@ where
             record_plan_metrics(&plan.access);
             // Plan execution routing once, then execute in canonical order.
             // Resolve one canonical key stream, then run shared page materialization/finalization.
-            let materialized = Self::materialize_with_optional_residual_retry(
+            let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
                 &execution_inputs,
                 &route_plan,
                 cursor_boundary.as_ref(),
@@ -334,40 +322,6 @@ where
         })();
 
         result.map(|page| (page, execution_trace))
-    }
-
-    // Retry index-range limit pushdown when a bounded residual-filter pass may
-    // have under-filled the requested page window.
-    fn index_range_limited_residual_retry_required(
-        plan: &AccessPlannedQuery<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
-        route_plan: &ExecutionRoutePlan,
-        rows_scanned: usize,
-        post_access_rows: usize,
-    ) -> bool {
-        let Some(limit_spec) = route_plan.index_range_limit_spec else {
-            return false;
-        };
-        if plan.predicate.is_none() {
-            return false;
-        }
-        if limit_spec.fetch == 0 {
-            return false;
-        }
-        let Some(limit) = plan.page.as_ref().and_then(|page| page.limit) else {
-            return false;
-        };
-        let keep_count =
-            compute_page_window(plan.effective_page_offset(cursor_boundary), limit, false)
-                .keep_count;
-        if keep_count == 0 {
-            return false;
-        }
-        if rows_scanned < limit_spec.fetch {
-            return false;
-        }
-
-        post_access_rows < keep_count
     }
 
     // Record shared observability outcome for any execution path.

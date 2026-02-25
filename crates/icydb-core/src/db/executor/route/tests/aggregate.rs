@@ -1,5 +1,5 @@
 use super::*;
-use crate::db::executor::{compile_predicate_slots, load::IndexPredicateCompileMode};
+use crate::db::executor::{ExecutionKernel, IndexPredicateCompileMode, compile_predicate_slots};
 
 #[test]
 fn route_plan_aggregate_uses_route_owned_fast_path_order() {
@@ -477,18 +477,16 @@ fn route_matrix_index_predicate_compile_mode_subset_vs_strict_boundary_is_explic
     let index_slots =
         LoadExecutor::<RouteMatrixEntity>::resolved_index_slots_for_access_path(&plan.access)
             .expect("index-range plan should expose one resolvable index slot");
-    let subset_program =
-        LoadExecutor::<RouteMatrixEntity>::compile_index_predicate_program_from_slots(
-            &predicate_slots,
-            index_slots.as_slice(),
-            IndexPredicateCompileMode::ConservativeSubset,
-        );
-    let strict_program =
-        LoadExecutor::<RouteMatrixEntity>::compile_index_predicate_program_from_slots(
-            &predicate_slots,
-            index_slots.as_slice(),
-            IndexPredicateCompileMode::StrictAllOrNone,
-        );
+    let subset_program = ExecutionKernel::compile_index_predicate_program_from_slots(
+        &predicate_slots,
+        index_slots.as_slice(),
+        IndexPredicateCompileMode::ConservativeSubset,
+    );
+    let strict_program = ExecutionKernel::compile_index_predicate_program_from_slots(
+        &predicate_slots,
+        index_slots.as_slice(),
+        IndexPredicateCompileMode::StrictAllOrNone,
+    );
 
     assert!(
         subset_program.is_some(),

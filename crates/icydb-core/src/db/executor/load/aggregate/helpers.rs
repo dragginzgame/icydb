@@ -313,7 +313,7 @@ where
 
     // Load one entity for field-extrema stream folding while preserving read
     // consistency classification behavior.
-    pub(in crate::db::executor::load::aggregate) fn read_entity_for_field_extrema(
+    pub(in crate::db::executor) fn read_entity_for_field_extrema(
         ctx: &Context<'_, E>,
         consistency: ReadConsistency,
         key: &crate::db::data::DataKey,
@@ -341,7 +341,7 @@ where
         }
     }
 
-    pub(in crate::db::executor::load::aggregate) fn field_extrema_aggregate_direction(
+    pub(in crate::db::executor) fn field_extrema_aggregate_direction(
         kind: AggregateKind,
     ) -> Result<Direction, InternalError> {
         match kind {

@@ -1,11 +1,12 @@
 use crate::{
     db::{
         executor::{
-            Context, OrderedKeyStreamBox,
+            Context, ExecutionKernel, ExecutionPlan, IndexPredicateCompileMode,
+            OrderedKeyStreamBox,
             aggregate::capability::field_is_orderable,
             compile_predicate_slots,
             fold::{AggregateFoldMode, AggregateKind, AggregateSpec},
-            load::{IndexPredicateCompileMode, LoadExecutor},
+            load::LoadExecutor,
         },
         lowering::LoweredKey,
         query::{
@@ -98,7 +99,7 @@ where
         cursor_boundary: Option<&CursorBoundary>,
         index_range_anchor: Option<&LoweredKey>,
         probe_fetch_hint: Option<usize>,
-    ) -> Result<ExecutionRoutePlan, InternalError> {
+    ) -> Result<ExecutionPlan, InternalError> {
         Self::validate_pk_fast_path_boundary_if_applicable(plan, cursor_boundary)?;
 
         Ok(Self::build_execution_route_plan(
@@ -113,7 +114,7 @@ where
     // Build canonical execution routing for mutation execution.
     pub(in crate::db::executor) fn build_execution_route_plan_for_mutation(
         plan: &AccessPlannedQuery<E::Key>,
-    ) -> Result<ExecutionRoutePlan, InternalError> {
+    ) -> Result<ExecutionPlan, InternalError> {
         if !plan.mode.is_delete() {
             return Err(InternalError::query_executor_invariant(
                 "mutation route planning requires delete plans",
@@ -138,7 +139,7 @@ where
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate(
         plan: &AccessPlannedQuery<E::Key>,
         kind: AggregateKind,
-    ) -> ExecutionRoutePlan {
+    ) -> ExecutionPlan {
         Self::build_execution_route_plan_for_aggregate_spec(plan, AggregateSpec::for_terminal(kind))
     }
 
@@ -146,7 +147,7 @@ where
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec(
         plan: &AccessPlannedQuery<E::Key>,
         spec: AggregateSpec,
-    ) -> ExecutionRoutePlan {
+    ) -> ExecutionPlan {
         Self::build_execution_route_plan(plan, None, None, None, RouteIntent::Aggregate { spec })
     }
 
@@ -650,7 +651,7 @@ where
             return false;
         };
 
-        Self::compile_index_predicate_program_from_slots(
+        ExecutionKernel::compile_index_predicate_program_from_slots(
             &predicate_slots,
             index_slots.as_slice(),
             IndexPredicateCompileMode::StrictAllOrNone,

@@ -6,24 +6,12 @@ use crate::{
     },
     error::InternalError,
 };
-use std::{cell::Cell, cmp::Ordering, rc::Rc};
+use std::cmp::Ordering;
 
 type DataKeyWitness = (EntityName, StorageKey);
 
 const fn data_key_witness(key: &DataKey) -> DataKeyWitness {
     (*key.entity_name(), key.storage_key())
-}
-
-fn compare_key_witnesses(
-    comparator: KeyOrderComparator,
-    left: &DataKeyWitness,
-    right: &DataKeyWitness,
-) -> Option<Ordering> {
-    if left.0 != right.0 {
-        return None;
-    }
-
-    Some(comparator.compare_storage_keys(&left.1, &right.1))
 }
 
 fn witness_matches_key(witness: &DataKeyWitness, key: &DataKey) -> bool {
@@ -165,81 +153,6 @@ where
 }
 
 ///
-/// DistinctOrderedKeyStream
-///
-/// Wrapper that suppresses adjacent duplicate keys from an ordered stream.
-/// Correct DISTINCT requires identical keys to be contiguous in the underlying order.
-/// This keeps DISTINCT semantics streaming and O(1) memory.
-///
-
-pub(crate) struct DistinctOrderedKeyStream<S> {
-    inner: S,
-    last_emitted: Option<DataKeyWitness>,
-    comparator: KeyOrderComparator,
-    deduped_keys_counter: Option<Rc<Cell<u64>>>,
-}
-
-impl<S> DistinctOrderedKeyStream<S> {
-    #[must_use]
-    pub(crate) const fn new(inner: S, comparator: KeyOrderComparator) -> Self {
-        Self {
-            inner,
-            last_emitted: None,
-            comparator,
-            deduped_keys_counter: None,
-        }
-    }
-
-    #[must_use]
-    pub(crate) const fn new_with_dedup_counter(
-        inner: S,
-        comparator: KeyOrderComparator,
-        deduped_keys_counter: Rc<Cell<u64>>,
-    ) -> Self {
-        Self {
-            inner,
-            last_emitted: None,
-            comparator,
-            deduped_keys_counter: Some(deduped_keys_counter),
-        }
-    }
-}
-
-impl<S> OrderedKeyStream for DistinctOrderedKeyStream<S>
-where
-    S: OrderedKeyStream,
-{
-    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
-        loop {
-            let Some(next) = self.inner.next_key()? else {
-                return Ok(None);
-            };
-            let next_witness = data_key_witness(&next);
-
-            if let Some(last) = self.last_emitted.as_ref()
-                && let Some(ordering) = compare_key_witnesses(self.comparator, last, &next_witness)
-            {
-                if ordering.is_gt() {
-                    return Err(InternalError::query_executor_invariant(
-                        "distinct ordered stream received non-monotonic key order",
-                    ));
-                }
-                if ordering.is_eq() {
-                    if let Some(counter) = self.deduped_keys_counter.as_ref() {
-                        counter.set(counter.get().saturating_add(1));
-                    }
-                    continue;
-                }
-            }
-
-            self.last_emitted = Some(next_witness);
-
-            return Ok(Some(next));
-        }
-    }
-}
-
-///
 /// KeyOrderComparator
 ///
 /// Comparator wrapper for ordered key stream monotonicity and merge decisions.
@@ -265,7 +178,11 @@ impl KeyOrderComparator {
         }
     }
 
-    fn compare_storage_keys(self, left: &StorageKey, right: &StorageKey) -> Ordering {
+    pub(in crate::db::executor) fn compare_storage_keys(
+        self,
+        left: &StorageKey,
+        right: &StorageKey,
+    ) -> Ordering {
         match self.direction {
             Direction::Asc => left.cmp(right),
             Direction::Desc => right.cmp(left),
@@ -646,15 +563,14 @@ mod tests {
         db::{
             data::{DataKey, StorageKey},
             executor::ordered_key_stream::{
-                BudgetedOrderedKeyStream, DistinctOrderedKeyStream, IntersectOrderedKeyStream,
-                KeyOrderComparator, MergeOrderedKeyStream, OrderedKeyStream, VecOrderedKeyStream,
+                BudgetedOrderedKeyStream, IntersectOrderedKeyStream, MergeOrderedKeyStream,
+                OrderedKeyStream, VecOrderedKeyStream,
             },
             identity::EntityName,
             query::plan::Direction,
         },
         error::{ErrorClass, ErrorOrigin, InternalError},
     };
-    use std::{cell::Cell, rc::Rc};
 
     fn data_key(value: u64) -> DataKey {
         let raw = DataKey::raw_from_parts(
@@ -852,88 +768,6 @@ mod tests {
                 .expect("zero-budget stream should stay exhausted"),
             None
         );
-    }
-
-    #[test]
-    fn distinct_stream_suppresses_consecutive_duplicates() {
-        let inner = StaticOrderedKeyStream::new(vec![
-            data_key(1),
-            data_key(1),
-            data_key(2),
-            data_key(2),
-            data_key(2),
-            data_key(3),
-        ]);
-        let mut stream = DistinctOrderedKeyStream::new(
-            inner,
-            KeyOrderComparator::from_direction(Direction::Asc),
-        );
-
-        let out = collect_stream(&mut stream).expect("distinct stream should succeed");
-        assert_eq!(out, vec![data_key(1), data_key(2), data_key(3)]);
-    }
-
-    #[test]
-    fn distinct_stream_records_deduped_key_count() {
-        let inner = StaticOrderedKeyStream::new(vec![
-            data_key(1),
-            data_key(1),
-            data_key(2),
-            data_key(2),
-            data_key(2),
-            data_key(3),
-        ]);
-        let dedup_counter = Rc::new(Cell::new(0u64));
-        let mut stream = DistinctOrderedKeyStream::new_with_dedup_counter(
-            inner,
-            KeyOrderComparator::from_direction(Direction::Asc),
-            dedup_counter.clone(),
-        );
-
-        let out = collect_stream(&mut stream).expect("distinct stream should succeed");
-        assert_eq!(out, vec![data_key(1), data_key(2), data_key(3)]);
-        assert_eq!(
-            dedup_counter.get(),
-            3,
-            "dedup counter should include every suppressed adjacent duplicate key"
-        );
-    }
-
-    #[test]
-    fn distinct_stream_propagates_underlying_errors() {
-        let inner = StaticOrderedKeyStream::with_fail_at(vec![data_key(1), data_key(1)], 1);
-        let mut stream = DistinctOrderedKeyStream::new(
-            inner,
-            KeyOrderComparator::from_direction(Direction::Asc),
-        );
-
-        let err = collect_stream(&mut stream).expect_err("distinct stream should fail");
-        assert_eq!(err.class, ErrorClass::Internal);
-        assert_eq!(err.origin, ErrorOrigin::Query);
-    }
-
-    #[test]
-    fn distinct_stream_rejects_non_monotonic_keys_for_both_directions() {
-        for (direction, values) in [
-            (Direction::Asc, vec![data_key(1), data_key(3), data_key(2)]),
-            (Direction::Desc, vec![data_key(3), data_key(1), data_key(2)]),
-        ] {
-            let inner = StaticOrderedKeyStream::new(values);
-            let mut stream =
-                DistinctOrderedKeyStream::new(inner, KeyOrderComparator::from_direction(direction));
-
-            let err = collect_stream(&mut stream)
-                .expect_err("non-monotonic distinct stream input should be rejected");
-            assert_eq!(
-                err.class,
-                ErrorClass::InvariantViolation,
-                "distinct monotonicity failures must classify as invariant violations"
-            );
-            assert!(
-                err.message.contains("non-monotonic key order"),
-                "distinct monotonicity failure should expose a clear invariant reason"
-            );
-        }
     }
 
     #[test]

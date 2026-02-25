@@ -1,7 +1,6 @@
 use crate::{
     db::{
-        executor::PlannedCursor,
-        executor::cursor_spine::{validate_planned_cursor, validate_planned_cursor_state},
+        executor::{PlannedCursor, cursor::spine},
         query::{
             contracts::cursor::ContinuationSignature,
             plan::{AccessPlannedQuery, CursorPlanError, Direction, OrderSpec, PlanError},
@@ -24,7 +23,7 @@ where
 {
     let order = validated_cursor_order_plan(plan).map_err(PlanError::from)?;
 
-    validate_planned_cursor::<E>(
+    spine::validate_planned_cursor::<E>(
         cursor,
         plan.access.as_path(),
         E::PATH,
@@ -52,7 +51,7 @@ where
 
     let order = validated_cursor_order_internal(plan)?;
 
-    validate_planned_cursor_state::<E>(
+    spine::validate_planned_cursor_state::<E>(
         cursor,
         plan.access.as_path(),
         E::MODEL,

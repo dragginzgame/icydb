@@ -24,7 +24,7 @@ where
 {
     // Run the shared load phases for an already-produced ordered key stream.
     #[expect(clippy::too_many_arguments)]
-    pub(super) fn materialize_key_stream_into_page(
+    pub(in crate::db::executor) fn materialize_key_stream_into_page(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
         predicate_slots: Option<&PredicateFieldSlots>,

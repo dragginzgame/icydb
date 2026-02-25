@@ -1,15 +1,10 @@
 use crate::{
     db::{
         executor::{
-            AccessStreamBindings, ExecutablePlan,
+            ExecutablePlan,
             aggregate::field::{FieldSlot, extract_orderable_field_value},
-            compile_predicate_slots,
             load::LoadExecutor,
-            load::execute::{ExecutionInputs, IndexPredicateCompileMode},
-            plan::{record_plan_metrics, record_rows_scanned},
-            route::ExecutionMode,
         },
-        query::plan::validate::validate_executor_plan,
         response::Response,
     },
     error::InternalError,
@@ -56,71 +51,14 @@ where
         target_field: impl Into<String>,
     ) -> Result<u32, InternalError> {
         let target_field = target_field.into();
+        let field_slot = Self::resolve_any_field_slot(target_field.as_str())?;
+        let response = self.execute(plan)?;
 
-        self.execute_count_distinct_field_aggregate(plan, target_field.as_str())
-    }
-
-    // Execute one field-target distinct-count aggregate
-    // (`count_distinct(field)`) via canonical materialized fallback semantics.
-    fn execute_count_distinct_field_aggregate(
-        &self,
-        plan: ExecutablePlan<E>,
-        target_field: &str,
-    ) -> Result<u32, InternalError> {
-        let field_slot = Self::resolve_any_field_slot(target_field)?;
-        validate_executor_plan::<E>(plan.as_inner())?;
-        let route_plan =
-            Self::build_execution_route_plan_for_load(plan.as_inner(), None, None, None)?;
-        let direction = route_plan.direction();
-        // Snapshot route-owned execution mode at the orchestration boundary.
-        // This remains immutable for the full terminal execution lifecycle.
-        let execution_mode = route_plan.execution_mode;
-        if matches!(execution_mode, ExecutionMode::Materialized) {
-            let response = self.execute(plan)?;
-            return Self::aggregate_count_distinct_field_from_materialized(
-                response,
-                target_field,
-                field_slot,
-            );
-        }
-
-        let continuation_signature = plan.continuation_signature();
-        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-        let index_range_specs = plan.index_range_specs()?.to_vec();
-        let logical_plan = plan.into_inner();
-        let predicate_slots = compile_predicate_slots::<E>(&logical_plan);
-        validate_executor_plan::<E>(&logical_plan)?;
-        let ctx = self.db.recovered_context::<E>()?;
-        record_plan_metrics(&logical_plan.access);
-        let execution_inputs = ExecutionInputs {
-            ctx: &ctx,
-            plan: &logical_plan,
-            stream_bindings: AccessStreamBindings {
-                index_prefix_specs: index_prefix_specs.as_slice(),
-                index_range_specs: index_range_specs.as_slice(),
-                index_range_anchor: None,
-                direction,
-            },
-            predicate_slots: predicate_slots.as_ref(),
-        };
-        let materialized = Self::materialize_with_optional_residual_retry(
-            &execution_inputs,
-            &route_plan,
-            None,
-            continuation_signature,
-            IndexPredicateCompileMode::ConservativeSubset,
-        )?;
-        let page = materialized.page;
-        let rows_scanned = materialized.rows_scanned;
-        let post_access_rows = materialized.post_access_rows;
-
-        debug_assert!(
-            post_access_rows >= page.items.0.len(),
-            "count_distinct materialization must not exceed post-access row cardinality",
-        );
-        record_rows_scanned::<E>(rows_scanned);
-
-        Self::aggregate_count_distinct_field_from_materialized(page.items, target_field, field_slot)
+        Self::aggregate_count_distinct_field_from_materialized(
+            response,
+            target_field.as_str(),
+            field_slot,
+        )
     }
 
     // Reduce one materialized response into `count_distinct(field)` by

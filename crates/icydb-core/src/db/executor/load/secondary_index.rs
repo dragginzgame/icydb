@@ -20,7 +20,7 @@ where
 {
     // Fast path for secondary-index traversal when planner pushdown eligibility
     // proves canonical ORDER BY parity with raw index-key order.
-    pub(super) fn try_execute_secondary_index_order_stream(
+    pub(in crate::db::executor) fn try_execute_secondary_index_order_stream(
         ctx: &Context<'_, E>,
         plan: &AccessPlannedQuery<E::Key>,
         index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
