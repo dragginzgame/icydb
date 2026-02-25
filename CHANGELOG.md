@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.29.7] - 2026-02-25 - Optimise Key Stream
+
+* Reduced ordered-key stream clone churn by narrowing dedup and monotonicity witnesses to `(EntityName, StorageKey)` and updating them only at consume/discard points.
+* Preserved stream correctness contracts by enforcing per-side entity stability during monotonicity checks while keeping ordered merge/intersect behavior unchanged.
+* Added regression coverage for discard-path monotonicity and equal-key merge discard behavior, and kept budgeted exact-count hint behavior pinned to `min(inner_total, budget)`.
+
+---
+
 ## [0.29.6] - 2026-02-25 - Optimise Fast Path
 
 * Removed the fast-path `materialize -> Vec -> restream` path so fast-path execution now uses the routed stream directly, reducing allocation churn without changing results.

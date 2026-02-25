@@ -1,8 +1,22 @@
 use crate::{
-    db::{data::DataKey, query::plan::Direction},
+    db::{
+        data::{DataKey, StorageKey},
+        identity::EntityName,
+        query::plan::Direction,
+    },
     error::InternalError,
 };
 use std::{cell::Cell, cmp::Ordering, rc::Rc};
+
+type DataKeyWitness = (EntityName, StorageKey);
+
+const fn data_key_witness(key: &DataKey) -> DataKeyWitness {
+    (*key.entity_name(), key.storage_key())
+}
+
+fn witness_matches_key(witness: &DataKeyWitness, key: &DataKey) -> bool {
+    witness.0 == *key.entity_name() && witness.1 == key.storage_key()
+}
 
 ///
 /// OrderedKeyStream
@@ -148,8 +162,8 @@ where
 
 pub(crate) struct DistinctOrderedKeyStream<S> {
     inner: S,
-    last_emitted: Option<DataKey>,
-    comparator: KeyOrderComparator,
+    last_emitted: Option<DataKeyWitness>,
+    _comparator: KeyOrderComparator,
     deduped_keys_counter: Option<Rc<Cell<u64>>>,
 }
 
@@ -159,7 +173,7 @@ impl<S> DistinctOrderedKeyStream<S> {
         Self {
             inner,
             last_emitted: None,
-            comparator,
+            _comparator: comparator,
             deduped_keys_counter: None,
         }
     }
@@ -173,7 +187,7 @@ impl<S> DistinctOrderedKeyStream<S> {
         Self {
             inner,
             last_emitted: None,
-            comparator,
+            _comparator: comparator,
             deduped_keys_counter: Some(deduped_keys_counter),
         }
     }
@@ -192,7 +206,7 @@ where
             if self
                 .last_emitted
                 .as_ref()
-                .is_some_and(|last| self.comparator.compare(last, &next).is_eq())
+                .is_some_and(|last| witness_matches_key(last, &next))
             {
                 if let Some(counter) = self.deduped_keys_counter.as_ref() {
                     counter.set(counter.get().saturating_add(1));
@@ -200,7 +214,7 @@ where
                 continue;
             }
 
-            self.last_emitted = Some(next.clone());
+            self.last_emitted = Some(data_key_witness(&next));
 
             return Ok(Some(next));
         }
@@ -233,8 +247,15 @@ impl KeyOrderComparator {
         }
     }
 
-    fn violates_monotonicity(self, previous: &DataKey, current: &DataKey) -> bool {
-        self.compare(previous, current).is_gt()
+    fn compare_storage_keys(self, left: &StorageKey, right: &StorageKey) -> Ordering {
+        match self.direction {
+            Direction::Asc => left.cmp(right),
+            Direction::Desc => right.cmp(left),
+        }
+    }
+
+    fn violates_monotonicity(self, previous: &StorageKey, current: &StorageKey) -> bool {
+        self.compare_storage_keys(previous, current).is_gt()
     }
 
     const fn order_label(self) -> &'static str {
@@ -257,7 +278,7 @@ impl KeyOrderComparator {
 struct StreamSideState {
     item: Option<DataKey>,
     done: bool,
-    last_key: Option<DataKey>,
+    last_key: Option<DataKeyWitness>,
     comparator: KeyOrderComparator,
     strict_monotonicity: bool,
     name: &'static str,
@@ -305,7 +326,6 @@ impl StreamSideState {
         direction_context: &'static str,
     ) -> Result<(), InternalError> {
         self.validate_monotonicity(&key, stream_kind, direction_context)?;
-        self.last_key = Some(key.clone());
         self.item = Some(key);
 
         Ok(())
@@ -321,23 +341,49 @@ impl StreamSideState {
         if !self.strict_monotonicity {
             return Ok(());
         }
-        let Some(previous) = self.last_key.as_ref() else {
+        let Some((previous_entity, previous_key)) = self.last_key.as_ref() else {
             return Ok(());
         };
+        let (current_entity, current_key) = data_key_witness(current);
 
-        if !self.comparator.violates_monotonicity(previous, current) {
+        if *previous_entity != current_entity {
+            return Err(InternalError::query_invariant(format!(
+                "executor invariant violated: {stream_kind} stream {} changed entity while enforcing {} {direction_context} monotonicity (previous entity: {:?}, current entity: {:?})",
+                self.name,
+                self.comparator.order_label(),
+                previous_entity,
+                current_entity,
+            )));
+        }
+
+        if !self
+            .comparator
+            .violates_monotonicity(previous_key, &current_key)
+        {
             return Ok(());
         }
 
         Err(InternalError::query_invariant(format!(
-            "executor invariant violated: {stream_kind} stream {} emitted out-of-order key for {} {direction_context} (previous: {previous}, current: {current})",
+            "executor invariant violated: {stream_kind} stream {} emitted out-of-order key for {} {direction_context} (entity: {:?}, previous key: {:?}, current key: {:?})",
             self.name,
             self.comparator.order_label(),
+            current_entity,
+            previous_key,
+            current_key,
         )))
     }
 
-    const fn take_item(&mut self) -> Option<DataKey> {
-        self.item.take()
+    fn take_item(&mut self) -> Option<DataKey> {
+        let key = self.item.take()?;
+        self.last_key = Some(data_key_witness(&key));
+
+        Some(key)
+    }
+
+    const fn clear_item(&mut self) {
+        if let Some(key) = self.item.take() {
+            self.last_key = Some(data_key_witness(&key));
+        }
     }
 }
 
@@ -374,7 +420,7 @@ pub(crate) struct MergeOrderedKeyStream<A, B> {
     right: B,
     pair: OrderedPairState,
     comparator: KeyOrderComparator,
-    last_emitted: Option<DataKey>,
+    last_emitted: Option<DataKeyWitness>,
 }
 
 impl<A, B> MergeOrderedKeyStream<A, B>
@@ -432,7 +478,7 @@ where
             let next = match (self.pair.left.item.as_ref(), self.pair.right.item.as_ref()) {
                 (Some(left_key), Some(right_key)) => {
                     if left_key == right_key {
-                        self.pair.right.item = None;
+                        self.pair.right.clear_item();
                         self.pair.left.take_item()
                     } else {
                         let choose_left = self.comparator.compare(left_key, right_key).is_lt();
@@ -453,11 +499,15 @@ where
             };
 
             // Suppress duplicate output keys from overlapping streams.
-            if self.last_emitted.as_ref().is_some_and(|last| *last == next) {
+            if self
+                .last_emitted
+                .as_ref()
+                .is_some_and(|last| witness_matches_key(last, &next))
+            {
                 continue;
             }
 
-            self.last_emitted = Some(next.clone());
+            self.last_emitted = Some(data_key_witness(&next));
             return Ok(Some(next));
         }
     }
@@ -475,7 +525,7 @@ pub(crate) struct IntersectOrderedKeyStream<A, B> {
     right: B,
     pair: OrderedPairState,
     comparator: KeyOrderComparator,
-    last_emitted: Option<DataKey>,
+    last_emitted: Option<DataKeyWitness>,
 }
 
 impl<A, B> IntersectOrderedKeyStream<A, B>
@@ -540,24 +590,29 @@ where
             };
 
             if left_key == right_key {
-                let next = left_key.clone();
-                self.pair.left.item = None;
-                self.pair.right.item = None;
+                let Some(next) = self.pair.left.take_item() else {
+                    return Ok(None);
+                };
+                self.pair.right.clear_item();
 
                 // Defensively suppress duplicate outputs.
-                if self.last_emitted.as_ref().is_some_and(|last| *last == next) {
+                if self
+                    .last_emitted
+                    .as_ref()
+                    .is_some_and(|last| witness_matches_key(last, &next))
+                {
                     continue;
                 }
 
-                self.last_emitted = Some(next.clone());
+                self.last_emitted = Some(data_key_witness(&next));
                 return Ok(Some(next));
             }
 
             let advance_left = self.comparator.compare(left_key, right_key).is_lt();
             if advance_left {
-                self.pair.left.item = None;
+                self.pair.left.clear_item();
             } else {
-                self.pair.right.item = None;
+                self.pair.right.clear_item();
             }
         }
     }
@@ -873,6 +928,38 @@ mod tests {
     }
 
     #[test]
+    fn merge_stream_equal_key_discard_path_remains_stable() {
+        let left = StaticOrderedKeyStream::new(vec![
+            data_key(1),
+            data_key(2),
+            data_key(3),
+            data_key(4),
+            data_key(5),
+        ]);
+        let right = StaticOrderedKeyStream::new(vec![
+            data_key(1),
+            data_key(2),
+            data_key(3),
+            data_key(4),
+            data_key(5),
+        ]);
+        let mut merged = MergeOrderedKeyStream::new(left, right, Direction::Asc);
+
+        let out = collect_stream(&mut merged).expect("merge should succeed");
+        assert_eq!(
+            out,
+            vec![
+                data_key(1),
+                data_key(2),
+                data_key(3),
+                data_key(4),
+                data_key(5)
+            ],
+            "merge output should remain stable when repeatedly discarding equal right-side lookahead"
+        );
+    }
+
+    #[test]
     fn merge_stream_desc_interleaves_two_descending_streams() {
         let left = StaticOrderedKeyStream::new(vec![data_key(6), data_key(4), data_key(2)]);
         let right = StaticOrderedKeyStream::new(vec![data_key(5), data_key(3), data_key(1)]);
@@ -1003,6 +1090,19 @@ mod tests {
 
         let err = collect_stream(&mut intersected)
             .expect_err("intersection should fail when child emits non-monotonic keys");
+        assert_eq!(err.class, ErrorClass::InvariantViolation);
+        assert_eq!(err.origin, ErrorOrigin::Query);
+    }
+
+    #[test]
+    fn intersect_stream_rejects_non_monotonic_child_sequence_when_discard_updates_witness() {
+        let left = StaticOrderedKeyStream::new(vec![data_key(1), data_key(3), data_key(2)]);
+        let right = StaticOrderedKeyStream::new(vec![data_key(10), data_key(10), data_key(10)]);
+        let mut intersected = IntersectOrderedKeyStream::new(left, right, Direction::Asc);
+
+        let err = collect_stream(&mut intersected).expect_err(
+            "intersection should fail when repeated discard advances are followed by non-monotonic keys",
+        );
         assert_eq!(err.class, ErrorClass::InvariantViolation);
         assert_eq!(err.origin, ErrorOrigin::Query);
     }
