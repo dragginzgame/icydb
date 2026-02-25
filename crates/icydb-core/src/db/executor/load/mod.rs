@@ -236,7 +236,6 @@ where
             .map(|(page, _)| page)
     }
 
-    #[expect(clippy::too_many_lines)]
     pub(in crate::db) fn execute_paged_with_cursor_traced(
         &self,
         plan: ExecutablePlan<E>,

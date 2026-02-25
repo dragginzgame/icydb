@@ -227,11 +227,11 @@ pub(in crate::db) struct IndexRangeCursorAnchor {
 }
 
 impl IndexRangeCursorAnchor {
-    pub(in crate::db) fn new(last_raw_key: Vec<u8>) -> Self {
+    pub(in crate::db) const fn new(last_raw_key: Vec<u8>) -> Self {
         Self { last_raw_key }
     }
 
-    pub(in crate::db) fn last_raw_key(&self) -> &[u8] {
+    pub(in crate::db) const fn last_raw_key(&self) -> &[u8] {
         self.last_raw_key.as_slice()
     }
 }
