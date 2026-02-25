@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.29.6] - 2026-02-25 - Optimise Fast Path
+
+* Removed the fast-path `materialize -> Vec -> restream` path so fast-path execution now uses the routed stream directly, reducing allocation churn without changing results.
+* Tightened key-stream scan accounting contracts: fast paths require exact total key-count hints, and `BudgetedOrderedKeyStream` now reports `min(inner_total, budget)` as a stable total hint.
+* Added invariant tests for fast-path exact-count enforcement and key-stream hint contracts to prevent future regressions.
+
+---
+
 ## [0.29.5] - 2026-02-25 - Routing Consistency Cleanup
 
 ### 📝 Summary

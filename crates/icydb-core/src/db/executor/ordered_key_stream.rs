@@ -13,6 +13,12 @@ use std::{cell::Cell, cmp::Ordering, rc::Rc};
 
 pub(crate) trait OrderedKeyStream {
     fn next_key(&mut self) -> Result<Option<DataKey>, InternalError>;
+
+    // Return the exact total number of keys this stream can emit.
+    // Implementations should keep this stable across stream consumption.
+    fn exact_key_count_hint(&self) -> Option<usize> {
+        None
+    }
 }
 
 pub(crate) type OrderedKeyStreamBox = Box<dyn OrderedKeyStream>;
@@ -24,6 +30,10 @@ where
     fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
         self.as_mut().next_key()
     }
+
+    fn exact_key_count_hint(&self) -> Option<usize> {
+        self.as_ref().exact_key_count_hint()
+    }
 }
 
 impl<T> OrderedKeyStream for &mut T
@@ -32,6 +42,10 @@ where
 {
     fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
         (**self).next_key()
+    }
+
+    fn exact_key_count_hint(&self) -> Option<usize> {
+        (**self).exact_key_count_hint()
     }
 }
 
@@ -45,13 +59,17 @@ where
 #[derive(Debug)]
 pub(crate) struct VecOrderedKeyStream {
     keys: std::vec::IntoIter<DataKey>,
+    total_len: usize,
 }
 
 impl VecOrderedKeyStream {
     #[must_use]
     pub(crate) fn new(keys: Vec<DataKey>) -> Self {
+        let total_len = keys.len();
+
         Self {
             keys: keys.into_iter(),
+            total_len,
         }
     }
 }
@@ -59,6 +77,10 @@ impl VecOrderedKeyStream {
 impl OrderedKeyStream for VecOrderedKeyStream {
     fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
         Ok(self.keys.next())
+    }
+
+    fn exact_key_count_hint(&self) -> Option<usize> {
+        Some(self.total_len)
     }
 }
 
@@ -72,12 +94,24 @@ impl OrderedKeyStream for VecOrderedKeyStream {
 pub(crate) struct BudgetedOrderedKeyStream<S> {
     inner: S,
     remaining: usize,
+    total_count_hint: Option<usize>,
 }
 
-impl<S> BudgetedOrderedKeyStream<S> {
+impl<S> BudgetedOrderedKeyStream<S>
+where
+    S: OrderedKeyStream,
+{
     #[must_use]
-    pub(crate) const fn new(inner: S, remaining: usize) -> Self {
-        Self { inner, remaining }
+    pub(crate) fn new(inner: S, remaining: usize) -> Self {
+        let total_count_hint = inner
+            .exact_key_count_hint()
+            .map(|count| count.min(remaining));
+
+        Self {
+            inner,
+            remaining,
+            total_count_hint,
+        }
     }
 }
 
@@ -97,6 +131,10 @@ where
             }
             None => Ok(None),
         }
+    }
+
+    fn exact_key_count_hint(&self) -> Option<usize> {
+        self.total_count_hint
     }
 }
 
@@ -631,6 +669,73 @@ mod tests {
         assert_eq!(first, Some(data_key(9)));
         assert_eq!(second, None);
         assert_eq!(third, None);
+    }
+
+    #[test]
+    fn vec_stream_reports_exact_key_count_hint() {
+        let mut stream = VecOrderedKeyStream::new(vec![data_key(1), data_key(2)]);
+        assert_eq!(
+            stream.exact_key_count_hint(),
+            Some(2),
+            "vec stream must report exact total key count before consumption"
+        );
+
+        let _ = stream.next_key().expect("first next must succeed");
+        assert_eq!(
+            stream.exact_key_count_hint(),
+            Some(2),
+            "vec stream exact key-count hint must remain stable after consumption"
+        );
+    }
+
+    #[test]
+    fn budgeted_stream_does_not_claim_exact_key_count_hint() {
+        let inner = StaticOrderedKeyStream::new(vec![data_key(1), data_key(2)]);
+        let stream = BudgetedOrderedKeyStream::new(inner, 1);
+
+        assert_eq!(
+            stream.exact_key_count_hint(),
+            None,
+            "budgeted stream must not claim exact counts when inner stream does not provide them"
+        );
+    }
+
+    #[test]
+    fn budgeted_stream_reports_stable_total_hint_when_inner_is_exact() {
+        let inner = VecOrderedKeyStream::new(vec![data_key(1), data_key(2), data_key(3)]);
+        let mut stream = BudgetedOrderedKeyStream::new(inner, 2);
+
+        assert_eq!(
+            stream.exact_key_count_hint(),
+            Some(2),
+            "budgeted stream must report min(inner_total, budget) as exact total output"
+        );
+
+        let _ = stream.next_key().expect("first key should be available");
+        assert_eq!(
+            stream.exact_key_count_hint(),
+            Some(2),
+            "budgeted stream exact key-count hint must remain stable after consumption"
+        );
+    }
+
+    #[test]
+    fn budgeted_stream_total_hint_is_min_of_inner_total_and_budget() {
+        let inner = VecOrderedKeyStream::new(vec![data_key(1), data_key(2), data_key(3)]);
+        let budget_limited = BudgetedOrderedKeyStream::new(inner, 2);
+        assert_eq!(
+            budget_limited.exact_key_count_hint(),
+            Some(2),
+            "budget-limited stream must report budget when budget is smaller than inner total"
+        );
+
+        let inner = VecOrderedKeyStream::new(vec![data_key(1), data_key(2), data_key(3)]);
+        let inner_limited = BudgetedOrderedKeyStream::new(inner, 10);
+        assert_eq!(
+            inner_limited.exact_key_count_hint(),
+            Some(3),
+            "budget-limited stream must report inner total when budget exceeds inner total"
+        );
     }
 
     #[test]
