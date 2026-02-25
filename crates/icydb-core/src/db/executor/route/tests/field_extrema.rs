@@ -2,11 +2,13 @@ use super::*;
 
 #[test]
 fn route_matrix_field_extrema_capability_flags_enable_for_eligible_shapes() {
-    let mut min_plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut min_plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     min_plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
-    let mut max_plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut max_plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     max_plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -15,13 +17,11 @@ fn route_matrix_field_extrema_capability_flags_enable_for_eligible_shapes() {
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &min_plan,
             AggregateSpec::for_target_field(AggregateKind::Min, "id"),
-            Direction::Asc,
         );
     let max_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &max_plan,
             AggregateSpec::for_target_field(AggregateKind::Max, "id"),
-            Direction::Desc,
         );
 
     assert!(min_route.field_min_fast_path_eligible());
@@ -39,7 +39,6 @@ fn route_matrix_field_extrema_capability_rejects_unknown_target_field() {
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
         AggregateSpec::for_target_field(AggregateKind::Min, "missing_field"),
-        Direction::Asc,
     );
 
     assert!(!route.field_min_fast_path_eligible());
@@ -57,7 +56,6 @@ fn route_matrix_field_extrema_reason_rejects_unsupported_field_type() {
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
         AggregateSpec::for_target_field(AggregateKind::Min, "scores"),
-        Direction::Asc,
     );
 
     assert_eq!(
@@ -73,7 +71,6 @@ fn route_matrix_field_extrema_reason_rejects_distinct_shape() {
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
         AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
-        Direction::Asc,
     );
 
     assert_eq!(
@@ -84,13 +81,13 @@ fn route_matrix_field_extrema_reason_rejects_distinct_shape() {
 
 #[test]
 fn route_matrix_field_extrema_capability_allows_index_predicate_covered_shape() {
-    let mut plan = LogicalPlan::new(
-        AccessPath::<Ulid>::IndexRange {
-            index: ROUTE_MATRIX_INDEX_MODELS[0],
-            prefix: vec![],
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(30)),
-        },
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
         ReadConsistency::MissingOk,
     );
     plan.predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
@@ -108,7 +105,6 @@ fn route_matrix_field_extrema_capability_allows_index_predicate_covered_shape() 
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
         AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
-        Direction::Asc,
     );
 
     assert!(
@@ -125,7 +121,6 @@ fn route_matrix_field_extrema_reason_rejects_offset_shape() {
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
         AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
-        Direction::Asc,
     );
 
     assert_eq!(
@@ -136,13 +131,14 @@ fn route_matrix_field_extrema_reason_rejects_offset_shape() {
 
 #[test]
 fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
-    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
-    let child_path = AccessPath::<Ulid>::IndexRange {
-        index: ROUTE_MATRIX_INDEX_MODELS[0],
-        prefix: vec![],
-        lower: Bound::Included(Value::Uint(10)),
-        upper: Bound::Excluded(Value::Uint(30)),
-    };
+    let mut plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let child_path = AccessPath::<Ulid>::index_range(
+        ROUTE_MATRIX_INDEX_MODELS[0],
+        vec![],
+        Bound::Included(Value::Uint(10)),
+        Bound::Excluded(Value::Uint(30)),
+    );
     plan.access = AccessPlan::Union(vec![
         AccessPlan::path(child_path.clone()),
         AccessPlan::path(child_path),
@@ -161,7 +157,6 @@ fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
         AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
-        Direction::Asc,
     );
 
     assert_eq!(
@@ -172,7 +167,8 @@ fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
 
 #[test]
 fn route_matrix_field_extrema_reason_rejects_no_matching_index() {
-    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -184,7 +180,6 @@ fn route_matrix_field_extrema_reason_rejects_no_matching_index() {
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
         AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
-        Direction::Asc,
     );
 
     assert_eq!(
@@ -195,7 +190,8 @@ fn route_matrix_field_extrema_reason_rejects_no_matching_index() {
 
 #[test]
 fn route_matrix_field_extrema_reason_rejects_page_limit_shape() {
-    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -207,7 +203,6 @@ fn route_matrix_field_extrema_reason_rejects_page_limit_shape() {
     let route = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
         &plan,
         AggregateSpec::for_target_field(AggregateKind::Min, "id"),
-        Direction::Asc,
     );
 
     assert_eq!(
@@ -218,7 +213,8 @@ fn route_matrix_field_extrema_reason_rejects_page_limit_shape() {
 
 #[test]
 fn route_matrix_field_target_min_fallback_route_matches_terminal_min() {
-    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -231,13 +227,11 @@ fn route_matrix_field_target_min_fallback_route_matches_terminal_min() {
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
             &plan,
             AggregateKind::Min,
-            Direction::Asc,
         );
     let field_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &plan,
             AggregateSpec::for_target_field(AggregateKind::Min, "rank"),
-            Direction::Asc,
         );
 
     assert_eq!(field_route.execution_mode, terminal_route.execution_mode);
@@ -260,7 +254,8 @@ fn route_matrix_field_target_min_fallback_route_matches_terminal_min() {
 
 #[test]
 fn route_matrix_field_target_unknown_field_fallback_route_matches_terminal_min() {
-    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -273,13 +268,11 @@ fn route_matrix_field_target_unknown_field_fallback_route_matches_terminal_min()
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
             &plan,
             AggregateKind::Min,
-            Direction::Asc,
         );
     let unknown_field_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &plan,
             AggregateSpec::for_target_field(AggregateKind::Min, "missing_field"),
-            Direction::Asc,
         );
 
     assert_eq!(
@@ -305,7 +298,8 @@ fn route_matrix_field_target_unknown_field_fallback_route_matches_terminal_min()
 
 #[test]
 fn route_matrix_field_target_max_fallback_route_matches_terminal_max_desc() {
-    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -318,13 +312,11 @@ fn route_matrix_field_target_max_fallback_route_matches_terminal_max_desc() {
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
             &plan,
             AggregateKind::Max,
-            Direction::Desc,
         );
     let field_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &plan,
             AggregateSpec::for_target_field(AggregateKind::Max, "rank"),
-            Direction::Desc,
         );
 
     assert_eq!(field_route.execution_mode, terminal_route.execution_mode);
@@ -347,7 +339,8 @@ fn route_matrix_field_target_max_fallback_route_matches_terminal_max_desc() {
 
 #[test]
 fn route_matrix_field_target_non_extrema_fallback_route_matches_terminal_count() {
-    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
@@ -360,13 +353,11 @@ fn route_matrix_field_target_non_extrema_fallback_route_matches_terminal_count()
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate(
             &plan,
             AggregateKind::Count,
-            Direction::Asc,
         );
     let field_route =
         LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_aggregate_spec(
             &plan,
             AggregateSpec::for_target_field(AggregateKind::Count, "rank"),
-            Direction::Asc,
         );
 
     assert_eq!(field_route.execution_mode, terminal_route.execution_mode);

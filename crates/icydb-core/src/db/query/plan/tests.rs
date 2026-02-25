@@ -91,12 +91,12 @@ type IndexRangeView<'a> = (
 fn find_index_range(plan: &'_ AccessPlan<Value>) -> Option<IndexRangeView<'_>> {
     match plan {
         AccessPlan::Path(path) => match path.as_ref() {
-            AccessPath::IndexRange {
-                index,
-                prefix,
-                lower,
-                upper,
-            } => Some((index, prefix, lower, upper)),
+            AccessPath::IndexRange { spec } => Some((
+                spec.index(),
+                spec.prefix_values(),
+                spec.lower(),
+                spec.upper(),
+            )),
             _ => None,
         },
         AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
@@ -251,15 +251,13 @@ fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
     let AccessPlan::Path(path) = &plan else {
         panic!("composite eq+range predicate should emit a single access path");
     };
-    let AccessPath::IndexRange {
-        index,
-        prefix,
-        lower,
-        upper,
-    } = path.as_ref()
-    else {
+    let AccessPath::IndexRange { spec } = path.as_ref() else {
         panic!("composite eq+range predicate should emit IndexRange");
     };
+    let index = spec.index();
+    let prefix = spec.prefix_values();
+    let lower = spec.lower();
+    let upper = spec.upper();
 
     assert_eq!(index.name, RANGE_INDEX_MODEL.name);
     assert_eq!(prefix, [Value::Uint(1)].as_slice());
@@ -270,9 +268,9 @@ fn plan_access_emits_only_one_composite_index_range_for_and_eq_plus_gt() {
     let mut index_prefix_count = 0usize;
     let mut single_field_index_range_count = 0usize;
     visit_access_paths(&plan, &mut |access| match access {
-        AccessPath::IndexRange { prefix, .. } => {
+        AccessPath::IndexRange { spec } => {
             index_range_count = index_range_count.saturating_add(1);
-            if prefix.is_empty() {
+            if spec.prefix_values().is_empty() {
                 single_field_index_range_count = single_field_index_range_count.saturating_add(1);
             }
         }

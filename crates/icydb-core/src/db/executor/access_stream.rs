@@ -7,7 +7,10 @@ use crate::{
         index::{RawIndexKey, predicate::IndexPredicateExecution},
         query::{
             ReadConsistency,
-            plan::{AccessPath, AccessPlan, Direction, IndexPrefixSpec, IndexRangeSpec},
+            plan::{
+                AccessPath, AccessPlan, Direction,
+                lowering::{IndexPrefixSpec, IndexRangeSpec},
+            },
         },
     },
     error::InternalError,
@@ -396,8 +399,13 @@ impl AccessPlanStreamResolver {
         path: &AccessPath<K>,
         index_range_spec: Option<&IndexRangeSpec>,
     ) -> Result<(), InternalError> {
-        if let (Some(spec), AccessPath::IndexRange { index, .. }) = (index_range_spec, path)
-            && spec.index() != index
+        if let (
+            Some(spec),
+            AccessPath::IndexRange {
+                spec: semantic_spec,
+            },
+        ) = (index_range_spec, path)
+            && spec.index() != semantic_spec.index()
         {
             return Err(InternalError::query_executor_invariant(
                 "index-range spec does not match access path index",

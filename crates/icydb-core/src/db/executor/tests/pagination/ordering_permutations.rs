@@ -307,45 +307,49 @@ fn load_union_child_order_permutation_preserves_rows_and_continuation_boundaries
     let id8 = Ulid::from_u128(37_908);
 
     let build_union_abc = || {
-        ExecutablePlan::<SimpleEntity>::new(LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![("id".to_string(), OrderDirection::Desc)],
+                }),
+                distinct: false,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(2),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            },
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id6, id7, id8])),
             ]),
-            predicate: None,
-            order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Desc)],
-            }),
-            distinct: false,
-            delete_limit: None,
-            page: Some(PageSpec {
-                limit: Some(2),
-                offset: 0,
-            }),
-            consistency: ReadConsistency::MissingOk,
         })
     };
     let build_union_cab = || {
-        ExecutablePlan::<SimpleEntity>::new(LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![("id".to_string(), OrderDirection::Desc)],
+                }),
+                distinct: false,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(2),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            },
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id6, id7, id8])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
             ]),
-            predicate: None,
-            order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Desc)],
-            }),
-            distinct: false,
-            delete_limit: None,
-            page: Some(PageSpec {
-                limit: Some(2),
-                offset: 0,
-            }),
-            consistency: ReadConsistency::MissingOk,
         })
     };
 
@@ -396,45 +400,49 @@ fn load_intersection_child_order_permutation_preserves_rows_and_continuation_bou
     let id8 = Ulid::from_u128(38_008);
 
     let build_intersection_abc = || {
-        ExecutablePlan::<SimpleEntity>::new(LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![("id".to_string(), OrderDirection::Desc)],
+                }),
+                distinct: false,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(1),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            },
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id4, id5, id6, id8])),
             ]),
-            predicate: None,
-            order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Desc)],
-            }),
-            distinct: false,
-            delete_limit: None,
-            page: Some(PageSpec {
-                limit: Some(1),
-                offset: 0,
-            }),
-            consistency: ReadConsistency::MissingOk,
         })
     };
     let build_intersection_bca = || {
-        ExecutablePlan::<SimpleEntity>::new(LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![("id".to_string(), OrderDirection::Desc)],
+                }),
+                distinct: false,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(1),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            },
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id4, id5, id6, id8])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
             ]),
-            predicate: None,
-            order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Desc)],
-            }),
-            distinct: false,
-            delete_limit: None,
-            page: Some(PageSpec {
-                limit: Some(1),
-                offset: 0,
-            }),
-            consistency: ReadConsistency::MissingOk,
         })
     };
 
@@ -480,51 +488,55 @@ fn load_union_child_order_permutation_preserves_rows_and_boundaries_under_mixed_
     let id8 = Ulid::from_u128(40_008);
 
     let build_union_abc = || {
-        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("rank".to_string(), OrderDirection::Desc),
+                        ("id".to_string(), OrderDirection::Asc),
+                    ],
+                }),
+                distinct: false,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(2),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            },
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id7, id8])),
             ]),
-            predicate: None,
-            order: Some(OrderSpec {
-                fields: vec![
-                    ("rank".to_string(), OrderDirection::Desc),
-                    ("id".to_string(), OrderDirection::Asc),
-                ],
-            }),
-            distinct: false,
-            delete_limit: None,
-            page: Some(PageSpec {
-                limit: Some(2),
-                offset: 0,
-            }),
-            consistency: ReadConsistency::MissingOk,
         })
     };
     let build_union_cab = || {
-        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("rank".to_string(), OrderDirection::Desc),
+                        ("id".to_string(), OrderDirection::Asc),
+                    ],
+                }),
+                distinct: false,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(2),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            },
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id7, id8])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6])),
             ]),
-            predicate: None,
-            order: Some(OrderSpec {
-                fields: vec![
-                    ("rank".to_string(), OrderDirection::Desc),
-                    ("id".to_string(), OrderDirection::Asc),
-                ],
-            }),
-            distinct: false,
-            delete_limit: None,
-            page: Some(PageSpec {
-                limit: Some(2),
-                offset: 0,
-            }),
-            consistency: ReadConsistency::MissingOk,
         })
     };
 
@@ -570,51 +582,55 @@ fn load_intersection_child_order_permutation_preserves_rows_and_boundaries_under
     let id8 = Ulid::from_u128(40_108);
 
     let build_intersection_abc = || {
-        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("rank".to_string(), OrderDirection::Asc),
+                        ("id".to_string(), OrderDirection::Desc),
+                    ],
+                }),
+                distinct: false,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(1),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            },
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id8])),
             ]),
-            predicate: None,
-            order: Some(OrderSpec {
-                fields: vec![
-                    ("rank".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Desc),
-                ],
-            }),
-            distinct: false,
-            delete_limit: None,
-            page: Some(PageSpec {
-                limit: Some(1),
-                offset: 0,
-            }),
-            consistency: ReadConsistency::MissingOk,
         })
     };
     let build_intersection_bca = || {
-        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("rank".to_string(), OrderDirection::Asc),
+                        ("id".to_string(), OrderDirection::Desc),
+                    ],
+                }),
+                distinct: false,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(1),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            },
             access: AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id8])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5, id6])),
             ]),
-            predicate: None,
-            order: Some(OrderSpec {
-                fields: vec![
-                    ("rank".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Desc),
-                ],
-            }),
-            distinct: false,
-            delete_limit: None,
-            page: Some(PageSpec {
-                limit: Some(1),
-                offset: 0,
-            }),
-            consistency: ReadConsistency::MissingOk,
         })
     };
 
@@ -680,51 +696,55 @@ fn load_union_child_order_permutation_matrix_preserves_rows_and_boundaries_under
         ),
     ] {
         let build_union_abc = || {
-            ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
-                mode: QueryMode::Load(LoadSpec::new()),
+            ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
+                logical: LogicalPlan {
+                    mode: QueryMode::Load(LoadSpec::new()),
+                    predicate: None,
+                    order: Some(OrderSpec {
+                        fields: vec![
+                            ("rank".to_string(), rank_direction),
+                            ("id".to_string(), id_direction),
+                        ],
+                    }),
+                    distinct: false,
+                    delete_limit: None,
+                    page: Some(PageSpec {
+                        limit: Some(limit),
+                        offset: 0,
+                    }),
+                    consistency: ReadConsistency::MissingOk,
+                },
                 access: AccessPlan::Union(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4, id6])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6, id7])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id8])),
                 ]),
-                predicate: None,
-                order: Some(OrderSpec {
-                    fields: vec![
-                        ("rank".to_string(), rank_direction),
-                        ("id".to_string(), id_direction),
-                    ],
-                }),
-                distinct: false,
-                delete_limit: None,
-                page: Some(PageSpec {
-                    limit: Some(limit),
-                    offset: 0,
-                }),
-                consistency: ReadConsistency::MissingOk,
             })
         };
         let build_union_cab = || {
-            ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
-                mode: QueryMode::Load(LoadSpec::new()),
+            ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
+                logical: LogicalPlan {
+                    mode: QueryMode::Load(LoadSpec::new()),
+                    predicate: None,
+                    order: Some(OrderSpec {
+                        fields: vec![
+                            ("rank".to_string(), rank_direction),
+                            ("id".to_string(), id_direction),
+                        ],
+                    }),
+                    distinct: false,
+                    delete_limit: None,
+                    page: Some(PageSpec {
+                        limit: Some(limit),
+                        offset: 0,
+                    }),
+                    consistency: ReadConsistency::MissingOk,
+                },
                 access: AccessPlan::Union(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id8])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4, id6])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id3, id5, id6, id7])),
                 ]),
-                predicate: None,
-                order: Some(OrderSpec {
-                    fields: vec![
-                        ("rank".to_string(), rank_direction),
-                        ("id".to_string(), id_direction),
-                    ],
-                }),
-                distinct: false,
-                delete_limit: None,
-                page: Some(PageSpec {
-                    limit: Some(limit),
-                    offset: 0,
-                }),
-                consistency: ReadConsistency::MissingOk,
             })
         };
 
@@ -796,8 +816,24 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
         ),
     ] {
         let build_intersection_abc = || {
-            ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
-                mode: QueryMode::Load(LoadSpec::new()),
+            ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
+                logical: LogicalPlan {
+                    mode: QueryMode::Load(LoadSpec::new()),
+                    predicate: None,
+                    order: Some(OrderSpec {
+                        fields: vec![
+                            ("rank".to_string(), rank_direction),
+                            ("id".to_string(), id_direction),
+                        ],
+                    }),
+                    distinct: false,
+                    delete_limit: None,
+                    page: Some(PageSpec {
+                        limit: Some(limit),
+                        offset: 0,
+                    }),
+                    consistency: ReadConsistency::MissingOk,
+                },
                 access: AccessPlan::Intersection(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![
                         id1, id2, id3, id4, id5, id6, id7, id8,
@@ -805,25 +841,27 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
                     AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7, id9])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id7, id10])),
                 ]),
-                predicate: None,
-                order: Some(OrderSpec {
-                    fields: vec![
-                        ("rank".to_string(), rank_direction),
-                        ("id".to_string(), id_direction),
-                    ],
-                }),
-                distinct: false,
-                delete_limit: None,
-                page: Some(PageSpec {
-                    limit: Some(limit),
-                    offset: 0,
-                }),
-                consistency: ReadConsistency::MissingOk,
             })
         };
         let build_intersection_bca = || {
-            ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
-                mode: QueryMode::Load(LoadSpec::new()),
+            ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
+                logical: LogicalPlan {
+                    mode: QueryMode::Load(LoadSpec::new()),
+                    predicate: None,
+                    order: Some(OrderSpec {
+                        fields: vec![
+                            ("rank".to_string(), rank_direction),
+                            ("id".to_string(), id_direction),
+                        ],
+                    }),
+                    distinct: false,
+                    delete_limit: None,
+                    page: Some(PageSpec {
+                        limit: Some(limit),
+                        offset: 0,
+                    }),
+                    consistency: ReadConsistency::MissingOk,
+                },
                 access: AccessPlan::Intersection(vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7, id9])),
                     AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id4, id5, id6, id7, id10])),
@@ -831,20 +869,6 @@ fn load_intersection_child_order_permutation_matrix_preserves_rows_and_boundarie
                         id1, id2, id3, id4, id5, id6, id7, id8,
                     ])),
                 ]),
-                predicate: None,
-                order: Some(OrderSpec {
-                    fields: vec![
-                        ("rank".to_string(), rank_direction),
-                        ("id".to_string(), id_direction),
-                    ],
-                }),
-                distinct: false,
-                delete_limit: None,
-                page: Some(PageSpec {
-                    limit: Some(limit),
-                    offset: 0,
-                }),
-                consistency: ReadConsistency::MissingOk,
             })
         };
 

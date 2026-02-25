@@ -193,7 +193,10 @@ mod tests {
             executor::{Context, IndexStreamConstraints, StreamExecutionHints},
             query::{
                 ReadConsistency,
-                plan::{AccessPath, AccessPlan, Direction, IndexPrefixSpec, IndexRangeSpec},
+                plan::{
+                    AccessPath, AccessPlan, Direction,
+                    lowering::{IndexPrefixSpec, IndexRangeSpec},
+                },
             },
             registry::StoreRegistry,
         },
@@ -282,12 +285,12 @@ mod tests {
     #[test]
     fn index_range_path_requires_pre_lowered_spec() {
         let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
-        let access = AccessPath::IndexRange {
-            index: INDEX_MODEL,
-            prefix: vec![Value::Uint(7)],
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(20)),
-        };
+        let access = AccessPath::index_range(
+            INDEX_MODEL,
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(20)),
+        );
 
         let Err(err) = ctx.ordered_key_stream_from_access(
             &access,
@@ -347,12 +350,12 @@ mod tests {
     #[test]
     fn index_range_path_direct_resolution_skips_alignment_invariant_check() {
         let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
-        let access = AccessPath::IndexRange {
-            index: INDEX_MODEL_ALT,
-            prefix: vec![Value::Uint(7)],
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(20)),
-        };
+        let access = AccessPath::index_range(
+            INDEX_MODEL_ALT,
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(20)),
+        );
         let spec = dummy_index_range_spec();
 
         let result = ctx.ordered_key_stream_from_access(
@@ -424,12 +427,12 @@ mod tests {
     #[test]
     fn access_plan_rejects_misaligned_index_range_spec() {
         let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
-        let access = AccessPlan::path(AccessPath::IndexRange {
-            index: INDEX_MODEL_ALT,
-            prefix: vec![Value::Uint(7)],
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(20)),
-        });
+        let access = AccessPlan::path(AccessPath::index_range(
+            INDEX_MODEL_ALT,
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(20)),
+        ));
         let range_spec = dummy_index_range_spec();
 
         let err = ctx
@@ -466,12 +469,12 @@ mod tests {
     #[test]
     fn composite_intersection_rejects_misaligned_index_range_spec() {
         let ctx = Context::<ContextInvariantEntity>::new(&INVARIANT_DB);
-        let access = AccessPlan::Intersection(vec![AccessPlan::path(AccessPath::IndexRange {
-            index: INDEX_MODEL_ALT,
-            prefix: vec![Value::Uint(7)],
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(20)),
-        })]);
+        let access = AccessPlan::Intersection(vec![AccessPlan::path(AccessPath::index_range(
+            INDEX_MODEL_ALT,
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(20)),
+        ))]);
         let range_spec = dummy_index_range_spec();
 
         let err = ctx

@@ -10,7 +10,9 @@ use crate::{
             contracts::cursor::{
                 ContinuationSignature, ContinuationToken, CursorBoundary, IndexRangeCursorAnchor,
             },
-            plan::{AccessPath, AccessPlan, Direction, LogicalPlan, compute_page_window},
+            plan::{
+                AccessPath, AccessPlan, AccessPlannedQuery, Direction, cursor::compute_page_window,
+            },
             policy,
             predicate::{PredicateFieldSlots, eval_with_slots as eval_predicate_with_slots},
         },
@@ -81,7 +83,7 @@ pub(crate) struct BudgetSafetyMetadata {
     pub(crate) requires_post_access_sort: bool,
 }
 
-impl<K> LogicalPlan<K> {
+impl<K> AccessPlannedQuery<K> {
     /// Apply predicate, ordering, and pagination in plan order with one precompiled predicate.
     pub(crate) fn apply_post_access_with_compiled_predicate<E, R>(
         &self,
@@ -509,7 +511,7 @@ impl<K> LogicalPlan<K> {
 mod tests {
     use crate::db::query::{
         contracts::cursor::CursorBoundary,
-        plan::{AccessPath, LogicalPlan, OrderSpec, PageSpec},
+        plan::{AccessPath, AccessPlannedQuery, OrderSpec, PageSpec},
         predicate::Predicate,
     };
     use crate::{
@@ -533,7 +535,8 @@ mod tests {
 
     #[test]
     fn bounded_order_keep_count_includes_offset_for_non_cursor_page() {
-        let mut plan = LogicalPlan::new(AccessPath::<u64>::FullScan, ReadConsistency::MissingOk);
+        let mut plan =
+            AccessPlannedQuery::new(AccessPath::<u64>::FullScan, ReadConsistency::MissingOk);
         plan.page = Some(PageSpec {
             limit: Some(5),
             offset: 3,
@@ -548,7 +551,8 @@ mod tests {
 
     #[test]
     fn bounded_order_keep_count_disabled_when_cursor_present() {
-        let mut plan = LogicalPlan::new(AccessPath::<u64>::FullScan, ReadConsistency::MissingOk);
+        let mut plan =
+            AccessPlannedQuery::new(AccessPath::<u64>::FullScan, ReadConsistency::MissingOk);
         plan.page = Some(PageSpec {
             limit: Some(5),
             offset: 0,
@@ -564,7 +568,8 @@ mod tests {
 
     #[test]
     fn budget_safety_metadata_marks_pk_order_plan_as_access_order_satisfied() {
-        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        let mut plan =
+            AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
         plan.order = Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         });
@@ -586,7 +591,8 @@ mod tests {
 
     #[test]
     fn budget_safety_metadata_marks_residual_filter_plan_as_unsafe() {
-        let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        let mut plan =
+            AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
         plan.order = Some(OrderSpec {
             fields: vec![("id".to_string(), OrderDirection::Asc)],
         });

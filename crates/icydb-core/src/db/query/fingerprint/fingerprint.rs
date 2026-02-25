@@ -4,7 +4,7 @@
 use crate::{
     db::{
         codec::cursor::encode_cursor,
-        query::{explain::ExplainPlan, fingerprint::hash_parts, plan::LogicalPlan},
+        query::{explain::ExplainPlan, fingerprint::hash_parts, plan::AccessPlannedQuery},
     },
     traits::FieldValue,
 };
@@ -32,7 +32,7 @@ impl std::fmt::Display for PlanFingerprint {
     }
 }
 
-impl<K> LogicalPlan<K>
+impl<K> AccessPlannedQuery<K>
 where
     K: FieldValue,
 {
@@ -70,7 +70,9 @@ mod tests {
     use std::ops::Bound;
 
     use crate::db::query::intent::{DeleteSpec, KeyAccess, LoadSpec, access_plan_from_keys_value};
-    use crate::db::query::plan::{AccessPath, DeleteLimitSpec, LogicalPlan, PageSpec};
+    use crate::db::query::plan::{
+        AccessPath, AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, PageSpec,
+    };
     use crate::db::query::predicate::Predicate;
     use crate::db::query::{ReadConsistency, builder::field::FieldRef, intent::QueryMode};
     use crate::model::index::IndexModel;
@@ -90,12 +92,12 @@ mod tests {
             FieldRef::new("id").eq(id),
         ]);
 
-        let mut plan_a: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_a.predicate = Some(predicate_a);
 
-        let mut plan_b: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_b.predicate = Some(predicate_b);
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -109,25 +111,29 @@ mod tests {
         let access_a = access_plan_from_keys_value(&KeyAccess::Many(vec![a, b, a]));
         let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
 
-        let plan_a: LogicalPlan<Value> = LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: None,
+                distinct: false,
+                delete_limit: None,
+                page: None,
+                consistency: ReadConsistency::MissingOk,
+            },
             access: access_a,
-            predicate: None,
-            order: None,
-            distinct: false,
-            delete_limit: None,
-            page: None,
-            consistency: ReadConsistency::MissingOk,
         };
-        let plan_b: LogicalPlan<Value> = LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: None,
+                distinct: false,
+                delete_limit: None,
+                page: None,
+                consistency: ReadConsistency::MissingOk,
+            },
             access: access_b,
-            predicate: None,
-            order: None,
-            distinct: false,
-            delete_limit: None,
-            page: None,
-            consistency: ReadConsistency::MissingOk,
         };
 
         assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -149,14 +155,14 @@ mod tests {
             false,
         );
 
-        let plan_a: LogicalPlan<Value> = LogicalPlan::new(
+        let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: INDEX_A,
                 values: vec![Value::Text("alpha".to_string())],
             },
             ReadConsistency::MissingOk,
         );
-        let plan_b: LogicalPlan<Value> = LogicalPlan::new(
+        let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: INDEX_B,
                 values: vec![Value::Text("alpha".to_string())],
@@ -169,10 +175,10 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_pagination() {
-        let mut plan_a: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
-        let mut plan_b: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_a.page = Some(PageSpec {
             limit: Some(10),
             offset: 0,
@@ -187,10 +193,10 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_delete_limit() {
-        let mut plan_a: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
-        let mut plan_b: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_a.mode = QueryMode::Delete(DeleteSpec::new());
         plan_b.mode = QueryMode::Delete(DeleteSpec::new());
         plan_a.delete_limit = Some(DeleteLimitSpec { max_rows: 2 });
@@ -201,10 +207,10 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_distinct_flag() {
-        let plan_a: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
-        let mut plan_b: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let plan_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_b.distinct = true;
 
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
@@ -212,8 +218,8 @@ mod tests {
 
     #[test]
     fn fingerprint_is_stable_for_full_scan() {
-        let plan: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let plan: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         let fingerprint_a = plan.fingerprint();
         let fingerprint_b = plan.fingerprint();
         assert_eq!(fingerprint_a, fingerprint_b);
@@ -229,22 +235,22 @@ mod tests {
             false,
         );
 
-        let plan_a: LogicalPlan<Value> = LogicalPlan::new(
-            AccessPath::IndexRange {
-                index: INDEX,
-                prefix: vec![Value::Uint(7)],
-                lower: Bound::Included(Value::Uint(100)),
-                upper: Bound::Excluded(Value::Uint(200)),
-            },
+        let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+            AccessPath::index_range(
+                INDEX,
+                vec![Value::Uint(7)],
+                Bound::Included(Value::Uint(100)),
+                Bound::Excluded(Value::Uint(200)),
+            ),
             ReadConsistency::MissingOk,
         );
-        let plan_b: LogicalPlan<Value> = LogicalPlan::new(
-            AccessPath::IndexRange {
-                index: INDEX,
-                prefix: vec![Value::Uint(7)],
-                lower: Bound::Included(Value::Uint(100)),
-                upper: Bound::Excluded(Value::Uint(200)),
-            },
+        let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+            AccessPath::index_range(
+                INDEX,
+                vec![Value::Uint(7)],
+                Bound::Included(Value::Uint(100)),
+                Bound::Excluded(Value::Uint(200)),
+            ),
             ReadConsistency::MissingOk,
         );
 
@@ -261,22 +267,22 @@ mod tests {
             false,
         );
 
-        let plan_included: LogicalPlan<Value> = LogicalPlan::new(
-            AccessPath::IndexRange {
-                index: INDEX,
-                prefix: vec![Value::Uint(7)],
-                lower: Bound::Included(Value::Uint(100)),
-                upper: Bound::Excluded(Value::Uint(200)),
-            },
+        let plan_included: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+            AccessPath::index_range(
+                INDEX,
+                vec![Value::Uint(7)],
+                Bound::Included(Value::Uint(100)),
+                Bound::Excluded(Value::Uint(200)),
+            ),
             ReadConsistency::MissingOk,
         );
-        let plan_excluded: LogicalPlan<Value> = LogicalPlan::new(
-            AccessPath::IndexRange {
-                index: INDEX,
-                prefix: vec![Value::Uint(7)],
-                lower: Bound::Excluded(Value::Uint(100)),
-                upper: Bound::Excluded(Value::Uint(200)),
-            },
+        let plan_excluded: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+            AccessPath::index_range(
+                INDEX,
+                vec![Value::Uint(7)],
+                Bound::Excluded(Value::Uint(100)),
+                Bound::Excluded(Value::Uint(200)),
+            ),
             ReadConsistency::MissingOk,
         );
 
@@ -293,22 +299,22 @@ mod tests {
             false,
         );
 
-        let plan_low_100: LogicalPlan<Value> = LogicalPlan::new(
-            AccessPath::IndexRange {
-                index: INDEX,
-                prefix: vec![Value::Uint(7)],
-                lower: Bound::Included(Value::Uint(100)),
-                upper: Bound::Excluded(Value::Uint(200)),
-            },
+        let plan_low_100: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+            AccessPath::index_range(
+                INDEX,
+                vec![Value::Uint(7)],
+                Bound::Included(Value::Uint(100)),
+                Bound::Excluded(Value::Uint(200)),
+            ),
             ReadConsistency::MissingOk,
         );
-        let plan_low_101: LogicalPlan<Value> = LogicalPlan::new(
-            AccessPath::IndexRange {
-                index: INDEX,
-                prefix: vec![Value::Uint(7)],
-                lower: Bound::Included(Value::Uint(101)),
-                upper: Bound::Excluded(Value::Uint(200)),
-            },
+        let plan_low_101: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
+            AccessPath::index_range(
+                INDEX,
+                vec![Value::Uint(7)],
+                Bound::Included(Value::Uint(101)),
+                Bound::Excluded(Value::Uint(200)),
+            ),
             ReadConsistency::MissingOk,
         );
 

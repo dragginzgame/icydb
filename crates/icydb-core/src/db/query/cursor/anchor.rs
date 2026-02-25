@@ -9,7 +9,7 @@ use crate::{
             contracts::cursor::IndexRangeCursorAnchor,
             plan::{
                 AccessPath, CursorPlanError, KeyEnvelope, PlanError,
-                raw_bounds_for_semantic_index_component_range,
+                lowering::raw_bounds_for_semantic_index_component_range,
             },
         },
     },

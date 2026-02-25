@@ -4,6 +4,6 @@ use crate::db::query::{
 };
 
 /// Validate plan-level invariants not covered by schema checks.
-pub(super) fn validate_plan_semantics<K>(plan: &LogicalPlan<K>) -> Result<(), PlanError> {
+pub(super) fn validate_plan_semantics(plan: &LogicalPlan) -> Result<(), PlanError> {
     policy::validate_plan_shape(plan).map_err(PlanError::from)
 }

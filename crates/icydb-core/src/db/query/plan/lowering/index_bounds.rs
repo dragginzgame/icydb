@@ -3,6 +3,7 @@ use crate::{
         EncodedValue, IndexRangeBoundEncodeError, RawIndexKey,
         raw_bounds_for_encoded_index_component_range,
     },
+    db::query::plan::SemanticIndexRangeSpec,
     model::index::IndexModel,
     traits::EntityKind,
     value::Value,
@@ -33,6 +34,23 @@ pub(in crate::db) fn raw_bounds_for_semantic_index_component_range<E: EntityKind
         &encoded_lower,
         &encoded_upper,
     ))
+}
+
+///
+/// raw_bounds_for_semantic_index_range_spec
+///
+/// Lower one semantic index-range spec into canonical raw-key bounds.
+/// This is the semantic-to-physical lowering boundary for index-range access.
+///
+pub(in crate::db) fn raw_bounds_for_semantic_index_range_spec<E: EntityKind>(
+    spec: &SemanticIndexRangeSpec,
+) -> Result<(Bound<RawIndexKey>, Bound<RawIndexKey>), IndexRangeBoundEncodeError> {
+    raw_bounds_for_semantic_index_component_range::<E>(
+        spec.index(),
+        spec.prefix_values(),
+        spec.lower(),
+        spec.upper(),
+    )
 }
 
 // Convert one semantic bound into its canonical encoded representation.

@@ -9,7 +9,10 @@ use crate::db::{
         AccessPlanStreamRequest, IndexStreamConstraints, StreamExecutionHints,
         fold::{AggregateFoldMode, AggregateSpec},
     },
-    query::plan::{AccessPath, Direction, validate::PushdownApplicability},
+    query::plan::{
+        AccessPath, Direction, OrderDirection, OrderSpec, cursor::compute_page_window,
+        validate::PushdownApplicability,
+    },
 };
 
 // -----------------------------------------------------------------------------
@@ -40,6 +43,35 @@ pub(super) enum ExecutionMode {
 }
 
 ///
+/// RouteOrderSlotPolicy
+///
+/// Slot-selection policy for deriving route-owned scan direction from canonical
+/// order definitions.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RouteOrderSlotPolicy {
+    First,
+    Last,
+}
+
+/// Derive route-owned scan direction from one canonical order spec.
+#[must_use]
+pub(super) fn derive_scan_direction(
+    order: &OrderSpec,
+    slot_policy: RouteOrderSlotPolicy,
+) -> Direction {
+    let selected = match slot_policy {
+        RouteOrderSlotPolicy::First => order.fields.first(),
+        RouteOrderSlotPolicy::Last => order.fields.last(),
+    };
+
+    match selected.map(|(_, direction)| direction) {
+        Some(OrderDirection::Desc) => Direction::Desc,
+        _ => Direction::Asc,
+    }
+}
+
+///
 /// ScanHintPlan
 ///
 /// Canonical scan-hint payload produced by route planning.
@@ -65,15 +97,74 @@ pub(super) struct IndexRangeLimitSpec {
 }
 
 ///
+/// ContinuationMode
+///
+/// Route-owned continuation classification used to keep resume-policy decisions
+/// explicit and isolated from access-shape modeling.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ContinuationMode {
+    Initial,
+    CursorBoundary,
+    IndexRangeAnchor,
+}
+
+///
+/// RouteWindowPlan
+///
+/// Route-owned pagination window contract derived from logical page settings and
+/// continuation context.
+///
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct RouteWindowPlan {
+    pub(super) effective_offset: u32,
+    keep_count: Option<usize>,
+    fetch_count: Option<usize>,
+}
+
+impl RouteWindowPlan {
+    #[must_use]
+    pub(super) fn new(effective_offset: u32, limit: Option<u32>) -> Self {
+        let (keep_count, fetch_count) = match limit {
+            Some(limit) => {
+                let keep = compute_page_window(effective_offset, limit, false).keep_count;
+                let fetch = compute_page_window(effective_offset, limit, true).fetch_count;
+                (Some(keep), Some(fetch))
+            }
+            None => (None, None),
+        };
+
+        Self {
+            effective_offset,
+            keep_count,
+            fetch_count,
+        }
+    }
+
+    #[must_use]
+    pub(super) const fn fetch_count_for(&self, needs_extra: bool) -> Option<usize> {
+        if needs_extra {
+            self.fetch_count
+        } else {
+            self.keep_count
+        }
+    }
+}
+
+///
 /// ExecutionRoutePlan
 ///
 /// Canonical route decision payload for load/aggregate execution.
-/// This is the single boundary that owns execution mode, pushdown eligibility,
+/// This is the single boundary that owns route-derived direction, pagination
+/// window semantics, continuation mode, execution mode, pushdown eligibility,
 /// DESC physical reverse-traversal capability, and scan-hint decisions.
 ///
 
 #[derive(Clone)]
 pub(super) struct ExecutionRoutePlan {
+    direction: Direction,
+    continuation_mode: ContinuationMode,
+    window: RouteWindowPlan,
     pub(super) execution_mode: ExecutionMode,
     secondary_pushdown_applicability: PushdownApplicability,
     pub(super) index_range_limit_spec: Option<IndexRangeLimitSpec>,
@@ -85,6 +176,21 @@ pub(super) struct ExecutionRoutePlan {
 }
 
 impl ExecutionRoutePlan {
+    #[must_use]
+    pub(super) const fn direction(&self) -> Direction {
+        self.direction
+    }
+
+    #[must_use]
+    pub(super) const fn continuation_mode(&self) -> ContinuationMode {
+        self.continuation_mode
+    }
+
+    #[must_use]
+    pub(super) const fn window(&self) -> RouteWindowPlan {
+        self.window
+    }
+
     // Return the effective physical fetch hint for fallback stream resolution.
     // DESC fallback must disable bounded hints when reverse traversal is unavailable.
     pub(super) const fn fallback_physical_fetch_hint(&self, direction: Direction) -> Option<usize> {
@@ -167,6 +273,13 @@ impl ExecutionRoutePlan {
 
     const fn for_mutation(capabilities: RouteCapabilities) -> Self {
         Self {
+            direction: Direction::Asc,
+            continuation_mode: ContinuationMode::Initial,
+            window: RouteWindowPlan {
+                effective_offset: 0,
+                keep_count: None,
+                fetch_count: None,
+            },
             execution_mode: ExecutionMode::Materialized,
             secondary_pushdown_applicability: PushdownApplicability::NotApplicable,
             index_range_limit_spec: None,
@@ -242,13 +355,8 @@ pub(in crate::db::executor) enum RoutedKeyStreamRequest<'a, K> {
 ///
 
 enum RouteIntent {
-    Load {
-        direction: Direction,
-    },
-    Aggregate {
-        direction: Direction,
-        spec: AggregateSpec,
-    },
+    Load,
+    Aggregate { spec: AggregateSpec },
 }
 
 ///

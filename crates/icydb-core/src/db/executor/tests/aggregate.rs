@@ -5,7 +5,10 @@ use crate::{
         executor::fold::{AggregateKind, AggregateSpec},
         query::{
             explain::ExplainAccessPath,
-            plan::{AccessPath, ExecutablePlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec},
+            plan::{
+                AccessPath, AccessPlannedQuery, OrderDirection, OrderSpec, PageSpec,
+                lowering::ExecutablePlan,
+            },
         },
         response::Response,
     },
@@ -752,7 +755,9 @@ fn explain_access_supports_count_pushdown(access: &ExplainAccessPath) -> bool {
     }
 }
 
-fn count_pushdown_contract_eligible<E>(plan: &crate::db::query::plan::ExecutablePlan<E>) -> bool
+fn count_pushdown_contract_eligible<E>(
+    plan: &crate::db::query::plan::lowering::ExecutablePlan<E>,
+) -> bool
 where
     E: EntityKind<Canister = TestCanister> + EntityValue,
 {
@@ -822,8 +827,8 @@ fn secondary_group_rank_order_plan(
     consistency: ReadConsistency,
     direction: crate::db::query::plan::OrderDirection,
     offset: u32,
-) -> crate::db::query::plan::ExecutablePlan<PushdownParityEntity> {
-    let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
+) -> crate::db::query::plan::lowering::ExecutablePlan<PushdownParityEntity> {
+    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
         crate::db::query::plan::AccessPath::IndexPrefix {
             index: PUSHDOWN_PARITY_INDEX_MODELS[0],
             values: vec![Value::Uint(7)],
@@ -841,7 +846,7 @@ fn secondary_group_rank_order_plan(
         offset,
     });
 
-    crate::db::query::plan::ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
+    crate::db::query::plan::lowering::ExecutablePlan::<PushdownParityEntity>::new(logical_plan)
 }
 
 #[test]
@@ -1440,13 +1445,13 @@ fn aggregate_field_target_count_distinct_residual_retry_parity_and_scan_budget_m
     }
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
     let build_plan = || {
-        let mut logical = LogicalPlan::new(
-            AccessPath::IndexRange {
-                index: INDEXED_METRICS_INDEX_MODELS[0],
-                prefix: Vec::new(),
-                lower: Bound::Included(Value::Uint(10)),
-                upper: Bound::Excluded(Value::Uint(16)),
-            },
+        let mut logical = AccessPlannedQuery::new(
+            AccessPath::index_range(
+                INDEXED_METRICS_INDEX_MODELS[0],
+                Vec::new(),
+                Bound::Included(Value::Uint(10)),
+                Bound::Excluded(Value::Uint(16)),
+            ),
             ReadConsistency::MissingOk,
         );
         logical.predicate = Some(Predicate::TextContainsCi {
@@ -3169,7 +3174,7 @@ fn aggregate_count_key_range_window_scans_offset_plus_limit() {
     seed_simple_entities(&[8681, 8682, 8683, 8684, 8685, 8686, 8687]);
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
 
-    let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
+    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
         crate::db::query::plan::AccessPath::KeyRange {
             start: Ulid::from_u128(8682),
             end: Ulid::from_u128(8686),
@@ -3186,7 +3191,8 @@ fn aggregate_count_key_range_window_scans_offset_plus_limit() {
         limit: Some(2),
         offset: 1,
     });
-    let key_range_plan = crate::db::query::plan::ExecutablePlan::<SimpleEntity>::new(logical_plan);
+    let key_range_plan =
+        crate::db::query::plan::lowering::ExecutablePlan::<SimpleEntity>::new(logical_plan);
 
     let (count, scanned) = capture_rows_scanned_for_entity(SimpleEntity::PATH, || {
         load.aggregate_count(key_range_plan)
@@ -3212,13 +3218,13 @@ fn aggregate_exists_index_range_window_scans_offset_plus_one() {
     ]);
     let load = LoadExecutor::<UniqueIndexRangeEntity>::new(DB, false);
 
-    let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
-        crate::db::query::plan::AccessPath::IndexRange {
-            index: UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
-            prefix: vec![],
-            lower: std::ops::Bound::Included(Value::Uint(101)),
-            upper: std::ops::Bound::Excluded(Value::Uint(106)),
-        },
+    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
+        crate::db::query::plan::AccessPath::index_range(
+            UNIQUE_INDEX_RANGE_INDEX_MODELS[0],
+            vec![],
+            std::ops::Bound::Included(Value::Uint(101)),
+            std::ops::Bound::Excluded(Value::Uint(106)),
+        ),
         ReadConsistency::MissingOk,
     );
     logical_plan.order = Some(crate::db::query::plan::OrderSpec {
@@ -3238,7 +3244,9 @@ fn aggregate_exists_index_range_window_scans_offset_plus_one() {
         offset: 2,
     });
     let index_range_plan =
-        crate::db::query::plan::ExecutablePlan::<UniqueIndexRangeEntity>::new(logical_plan);
+        crate::db::query::plan::lowering::ExecutablePlan::<UniqueIndexRangeEntity>::new(
+            logical_plan,
+        );
 
     let (exists, scanned) = capture_rows_scanned_for_entity(UniqueIndexRangeEntity::PATH, || {
         load.aggregate_exists(index_range_plan)
@@ -3453,7 +3461,7 @@ fn aggregate_composite_count_direct_path_scan_does_not_exceed_fallback() {
                 second,
             )),
         ]);
-        let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
+        let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
             crate::db::query::plan::AccessPath::FullScan,
             ReadConsistency::MissingOk,
         );
@@ -3465,7 +3473,7 @@ fn aggregate_composite_count_direct_path_scan_does_not_exceed_fallback() {
             )],
         });
 
-        crate::db::query::plan::ExecutablePlan::<PhaseEntity>::new(logical_plan)
+        crate::db::query::plan::lowering::ExecutablePlan::<PhaseEntity>::new(logical_plan)
     };
 
     let direct_plan = build_composite_count_plan("id");
@@ -3551,7 +3559,7 @@ fn aggregate_composite_exists_direct_path_scan_does_not_exceed_fallback() {
                 second,
             )),
         ]);
-        let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
+        let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
             crate::db::query::plan::AccessPath::FullScan,
             ReadConsistency::MissingOk,
         );
@@ -3563,7 +3571,7 @@ fn aggregate_composite_exists_direct_path_scan_does_not_exceed_fallback() {
             )],
         });
 
-        crate::db::query::plan::ExecutablePlan::<PhaseEntity>::new(logical_plan)
+        crate::db::query::plan::lowering::ExecutablePlan::<PhaseEntity>::new(logical_plan)
     };
 
     let direct_plan = build_composite_exists_plan("id");
@@ -3708,7 +3716,7 @@ fn aggregate_exists_secondary_index_strict_missing_surfaces_corruption_error() {
     remove_pushdown_row_data(8821);
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
-    let mut logical_plan = crate::db::query::plan::LogicalPlan::new(
+    let mut logical_plan = crate::db::query::plan::AccessPlannedQuery::new(
         crate::db::query::plan::AccessPath::IndexPrefix {
             index: PUSHDOWN_PARITY_INDEX_MODELS[0],
             values: vec![Value::Uint(7)],
@@ -3728,7 +3736,7 @@ fn aggregate_exists_secondary_index_strict_missing_surfaces_corruption_error() {
         ],
     });
     let strict_plan =
-        crate::db::query::plan::ExecutablePlan::<PushdownParityEntity>::new(logical_plan);
+        crate::db::query::plan::lowering::ExecutablePlan::<PushdownParityEntity>::new(logical_plan);
 
     let err = load
         .aggregate_exists(strict_plan)

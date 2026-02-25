@@ -4,7 +4,7 @@ use crate::{
             aggregate::field::{FieldSlot, extract_numeric_field_decimal},
             load::LoadExecutor,
         },
-        query::plan::ExecutablePlan,
+        query::plan::lowering::ExecutablePlan,
         response::Response,
     },
     error::InternalError,

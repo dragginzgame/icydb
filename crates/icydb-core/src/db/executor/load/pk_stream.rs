@@ -4,10 +4,9 @@ use crate::{
         executor::{
             AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator,
             load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
+            route::{RouteOrderSlotPolicy, derive_scan_direction},
         },
-        query::plan::{
-            AccessPath, Direction, LogicalPlan, SlotSelectionPolicy, derive_scan_direction,
-        },
+        query::plan::{AccessPath, AccessPlannedQuery, Direction},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -21,7 +20,7 @@ where
     // Produces ordered keys only; shared row materialization happens in load/mod.rs.
     pub(super) fn try_execute_pk_order_stream(
         ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         probe_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         // Phase 1: validate that the routed access shape is PK-stream compatible.
@@ -50,7 +49,7 @@ where
 
     // Validate routed access-path shape for PK stream fast-path execution.
     fn pk_fast_path_access(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
     ) -> Result<&AccessPath<E::Key>, InternalError> {
         let access = plan.access.as_path().ok_or_else(|| {
             InternalError::query_executor_invariant(
@@ -66,9 +65,9 @@ where
         Ok(access)
     }
 
-    fn pk_stream_direction(plan: &LogicalPlan<E::Key>) -> Direction {
+    fn pk_stream_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
         plan.order.as_ref().map_or(Direction::Asc, |order| {
-            derive_scan_direction(order, SlotSelectionPolicy::First)
+            derive_scan_direction(order, RouteOrderSlotPolicy::First)
         })
     }
 }

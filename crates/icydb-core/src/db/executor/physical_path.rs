@@ -3,7 +3,10 @@ use crate::{
         data::DataKey,
         executor::{Context, OrderedKeyStreamBox, VecOrderedKeyStream, normalize_ordered_keys},
         index::{RawIndexKey, predicate::IndexPredicateExecution},
-        query::plan::{AccessPath, Direction, IndexPrefixSpec, IndexRangeSpec},
+        query::plan::{
+            AccessPath, Direction,
+            lowering::{IndexPrefixSpec, IndexRangeSpec},
+        },
     },
     error::InternalError,
     model::index::IndexModel,
@@ -53,9 +56,9 @@ impl<K> AccessPath<K> {
                 physical_fetch_hint,
                 index_predicate_execution,
             )?,
-            Self::IndexRange { index, .. } => Self::resolve_index_range::<E>(
+            Self::IndexRange { spec } => Self::resolve_index_range::<E>(
                 ctx,
-                index,
+                spec.index(),
                 index_range_spec,
                 index_range_anchor,
                 direction,

@@ -103,7 +103,7 @@ pub(crate) fn validate_intent_plan_shape(
 }
 
 /// Validate mode/order/pagination invariants for a logical plan.
-pub(crate) fn validate_plan_shape<K>(plan: &LogicalPlan<K>) -> Result<(), PlanPolicyError> {
+pub(crate) fn validate_plan_shape(plan: &LogicalPlan) -> Result<(), PlanPolicyError> {
     validate_order_shape(plan.order.as_ref())?;
 
     let has_order = has_explicit_order(plan.order.as_ref());

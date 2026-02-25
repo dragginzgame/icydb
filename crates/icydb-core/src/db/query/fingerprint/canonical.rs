@@ -168,19 +168,8 @@ impl AccessPath<Value> {
 
                 canonical_cmp_value_list(left_values, right_values)
             }
-            Self::IndexRange {
-                index: left_index,
-                prefix: left_prefix,
-                lower: left_lower,
-                upper: left_upper,
-            } => {
-                let Self::IndexRange {
-                    index: right_index,
-                    prefix: right_prefix,
-                    lower: right_lower,
-                    upper: right_upper,
-                } = right
-                else {
+            Self::IndexRange { spec: left_spec } => {
+                let Self::IndexRange { spec: right_spec } = right else {
                     debug_assert_eq!(
                         self.canonical_rank(),
                         right.canonical_rank(),
@@ -189,32 +178,36 @@ impl AccessPath<Value> {
                     return Ordering::Equal;
                 };
 
-                let cmp = left_index.name.cmp(right_index.name);
+                let cmp = left_spec.index().name.cmp(right_spec.index().name);
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
 
-                let cmp = left_index.fields.cmp(right_index.fields);
+                let cmp = left_spec.index().fields.cmp(right_spec.index().fields);
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
 
-                let cmp = left_prefix.len().cmp(&right_prefix.len());
+                let cmp = left_spec
+                    .prefix_values()
+                    .len()
+                    .cmp(&right_spec.prefix_values().len());
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
 
-                let cmp = canonical_cmp_value_list(left_prefix, right_prefix);
+                let cmp =
+                    canonical_cmp_value_list(left_spec.prefix_values(), right_spec.prefix_values());
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
 
-                let cmp = canonical_cmp_value_bound(left_lower, right_lower);
+                let cmp = canonical_cmp_value_bound(left_spec.lower(), right_spec.lower());
                 if cmp != Ordering::Equal {
                     return cmp;
                 }
 
-                canonical_cmp_value_bound(left_upper, right_upper)
+                canonical_cmp_value_bound(left_spec.upper(), right_spec.upper())
             }
             Self::FullScan => {
                 let Self::FullScan = right else {
@@ -302,7 +295,7 @@ fn canonical_cmp_value_bound(left: &Bound<Value>, right: &Bound<Value>) -> Order
 mod tests {
     use super::*;
     use crate::{
-        db::query::{ReadConsistency, plan::LogicalPlan},
+        db::query::{ReadConsistency, plan::AccessPlannedQuery},
         model::index::IndexModel,
     };
 
@@ -322,12 +315,7 @@ mod tests {
     );
 
     fn index_range_path(lower: Bound<Value>, upper: Bound<Value>) -> AccessPath<Value> {
-        AccessPath::IndexRange {
-            index: TEST_INDEX,
-            prefix: vec![Value::Uint(7)],
-            lower,
-            upper,
-        }
+        AccessPath::index_range(TEST_INDEX, vec![Value::Uint(7)], lower, upper)
     }
 
     #[test]
@@ -392,35 +380,37 @@ mod tests {
             Ordering::Equal
         );
 
-        let included_plan: LogicalPlan<Value> =
-            LogicalPlan::new(included, ReadConsistency::MissingOk);
-        let excluded_plan: LogicalPlan<Value> =
-            LogicalPlan::new(excluded, ReadConsistency::MissingOk);
+        let included_plan: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(included, ReadConsistency::MissingOk);
+        let excluded_plan: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(excluded, ReadConsistency::MissingOk);
         assert_ne!(included_plan.fingerprint(), excluded_plan.fingerprint());
     }
 
     #[test]
     fn canonical_and_fingerprint_align_for_index_field_identity() {
-        let path_a = AccessPath::IndexRange {
-            index: TEST_INDEX,
-            prefix: vec![Value::Uint(7)],
-            lower: Bound::Included(Value::Uint(100)),
-            upper: Bound::Excluded(Value::Uint(200)),
-        };
-        let path_b = AccessPath::IndexRange {
-            index: TEST_INDEX_SAME_NAME_ALT_FIELDS,
-            prefix: vec![Value::Uint(7)],
-            lower: Bound::Included(Value::Uint(100)),
-            upper: Bound::Excluded(Value::Uint(200)),
-        };
+        let path_a = AccessPath::index_range(
+            TEST_INDEX,
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
+        );
+        let path_b = AccessPath::index_range(
+            TEST_INDEX_SAME_NAME_ALT_FIELDS,
+            vec![Value::Uint(7)],
+            Bound::Included(Value::Uint(100)),
+            Bound::Excluded(Value::Uint(200)),
+        );
 
         assert_ne!(
             canonical_cmp_access_path_value(&path_a, &path_b),
             Ordering::Equal
         );
 
-        let plan_a: LogicalPlan<Value> = LogicalPlan::new(path_a, ReadConsistency::MissingOk);
-        let plan_b: LogicalPlan<Value> = LogicalPlan::new(path_b, ReadConsistency::MissingOk);
+        let plan_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(path_a, ReadConsistency::MissingOk);
+        let plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(path_b, ReadConsistency::MissingOk);
         assert_ne!(plan_a.fingerprint(), plan_b.fingerprint());
     }
 }

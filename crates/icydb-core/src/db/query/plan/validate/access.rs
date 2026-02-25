@@ -1,6 +1,6 @@
 use crate::{
     db::query::{
-        plan::{AccessPath, AccessPlan},
+        plan::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
         predicate::{self, SchemaInfo, coercion::canonical_cmp},
     },
     model::{entity::EntityModel, index::IndexModel},
@@ -236,11 +236,13 @@ fn validate_index_prefix(
 fn validate_index_range(
     schema: &SchemaInfo,
     model: &EntityModel,
-    index: &IndexModel,
-    prefix: &[Value],
-    lower: &Bound<Value>,
-    upper: &Bound<Value>,
+    spec: &SemanticIndexRangeSpec,
 ) -> Result<(), PlanError> {
+    let index = spec.index();
+    let prefix = spec.prefix_values();
+    let lower = spec.lower();
+    let upper = spec.upper();
+
     if !model.indexes.contains(&index) {
         return Err(PlanError::from(AccessPlanError::IndexNotFound {
             index: *index,
@@ -252,6 +254,16 @@ fn validate_index_range(
             prefix_len: prefix.len(),
             field_len: index.fields.len().saturating_sub(1),
         }));
+    }
+
+    let range_slot = prefix.len();
+    if spec.field_slots().len() != prefix.len().saturating_add(1) {
+        return Err(PlanError::from(AccessPlanError::InvalidKeyRange));
+    }
+    for (expected_slot, actual_slot) in (0..=range_slot).zip(spec.field_slots().iter().copied()) {
+        if actual_slot != expected_slot {
+            return Err(PlanError::from(AccessPlanError::InvalidKeyRange));
+        }
     }
 
     for (field, value) in index.fields.iter().zip(prefix.iter()) {
@@ -269,7 +281,7 @@ fn validate_index_range(
         }
     }
 
-    let range_field = index.fields[prefix.len()];
+    let range_field = index.fields[range_slot];
     validate_index_range_bound_value(schema, range_field, lower)?;
     validate_index_range_bound_value(schema, range_field, upper)?;
 
@@ -360,12 +372,7 @@ impl<K> AccessPath<K> {
             Self::IndexPrefix { index, values } => {
                 validate_index_prefix(schema, model, index, values)
             }
-            Self::IndexRange {
-                index,
-                prefix,
-                lower,
-                upper,
-            } => validate_index_range(schema, model, index, prefix, lower, upper),
+            Self::IndexRange { spec } => validate_index_range(schema, model, spec),
             Self::FullScan => Ok(()),
         }
     }

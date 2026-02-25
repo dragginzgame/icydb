@@ -360,8 +360,8 @@ pub(in crate::db::executor) struct AggregateWindowState {
 }
 
 impl AggregateWindowState {
-    pub(in crate::db::executor) fn from_plan(
-        plan: &crate::db::query::plan::LogicalPlan<impl Copy>,
+    pub(in crate::db::executor) fn from_plan<K>(
+        plan: &crate::db::query::plan::AccessPlannedQuery<K>,
     ) -> Self {
         let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
         let limit = plan
@@ -408,7 +408,7 @@ where
     // Key-only COUNT pushdown and row-aware terminals share this engine.
     pub(in crate::db::executor) fn fold_streaming_aggregate(
         ctx: &Context<'_, E>,
-        plan: &crate::db::query::plan::LogicalPlan<E::Key>,
+        plan: &crate::db::query::plan::AccessPlannedQuery<E::Key>,
         consistency: ReadConsistency,
         direction: Direction,
         key_stream: &mut dyn OrderedKeyStream,

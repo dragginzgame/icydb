@@ -11,8 +11,8 @@ use crate::{
         ReadConsistency,
         intent::{DeleteSpec, LoadSpec, QueryMode},
         plan::{
-            AccessPath, AccessPlan, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
-            PageSpec,
+            AccessPath, AccessPlan, AccessPlannedQuery, DeleteLimitSpec, LogicalPlan,
+            OrderDirection, OrderSpec, PageSpec,
         },
         predicate::{SchemaInfo, ValidateError},
     },
@@ -68,30 +68,32 @@ fn model_with_index() -> &'static EntityModel {
     <PlanValidateIndexedEntity as EntitySchema>::MODEL
 }
 
-fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> LogicalPlan<Value> {
-    LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlannedQuery<Value> {
+    AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order,
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: ReadConsistency::MissingOk,
+        },
         access,
-        predicate: None,
-        order,
-        distinct: false,
-        delete_limit: None,
-        page: None,
-        consistency: ReadConsistency::MissingOk,
     }
 }
 
 fn load_union_plan(
     children: Vec<AccessPlan<Value>>,
     order: Option<OrderSpec>,
-) -> LogicalPlan<Value> {
+) -> AccessPlannedQuery<Value> {
     load_plan(AccessPlan::Union(children), order)
 }
 
 fn load_intersection_plan(
     children: Vec<AccessPlan<Value>>,
     order: Option<OrderSpec>,
-) -> LogicalPlan<Value> {
+) -> AccessPlannedQuery<Value> {
     load_plan(AccessPlan::Intersection(children), order)
 }
 
@@ -104,7 +106,10 @@ fn order_spec(fields: &[(&str, OrderDirection)]) -> OrderSpec {
     }
 }
 
-fn load_index_prefix_plan(values: Vec<Value>, order: Option<OrderSpec>) -> LogicalPlan<Value> {
+fn load_index_prefix_plan(
+    values: Vec<Value>,
+    order: Option<OrderSpec>,
+) -> AccessPlannedQuery<Value> {
     load_plan(
         AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
@@ -119,14 +124,9 @@ fn load_index_range_plan(
     lower: Bound<Value>,
     upper: Bound<Value>,
     order: Option<OrderSpec>,
-) -> LogicalPlan<Value> {
+) -> AccessPlannedQuery<Value> {
     load_plan(
-        AccessPlan::path(AccessPath::IndexRange {
-            index: INDEX_MODEL,
-            prefix,
-            lower,
-            upper,
-        }),
+        AccessPlan::path(AccessPath::index_range(INDEX_MODEL, prefix, lower, upper)),
         order,
     )
 }
@@ -316,17 +316,19 @@ fn plan_rejects_unorderable_field() {
     let model = <PlanValidateListEntity as EntitySchema>::MODEL;
 
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("tags".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::FullScan),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("tags".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     let err = validate_logical_plan_model(&schema, model, &plan).expect_err("unorderable field");
@@ -340,21 +342,23 @@ fn plan_rejects_unorderable_field() {
 fn plan_rejects_duplicate_non_primary_order_field() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![
+                    ("rank".to_string(), OrderDirection::Asc),
+                    ("rank".to_string(), OrderDirection::Desc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::FullScan),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![
-                ("rank".to_string(), OrderDirection::Asc),
-                ("rank".to_string(), OrderDirection::Desc),
-                ("id".to_string(), OrderDirection::Asc),
-            ],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     let err = validate_logical_plan_model(&schema, model, &plan)
@@ -369,18 +373,20 @@ fn plan_rejects_duplicate_non_primary_order_field() {
 fn plan_rejects_index_prefix_too_long() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
             values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
         }),
-        predicate: None,
-        order: None,
-        distinct: false,
-        delete_limit: None,
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     let err =
@@ -395,18 +401,20 @@ fn plan_rejects_index_prefix_too_long() {
 fn plan_rejects_empty_index_prefix() {
     let model = model_with_index();
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::IndexPrefix {
             index: INDEX_MODEL,
             values: vec![],
         }),
-        predicate: None,
-        order: None,
-        distinct: false,
-        delete_limit: None,
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     let err = validate_logical_plan_model(&schema, model, &plan).expect_err("index prefix empty");
@@ -420,15 +428,17 @@ fn plan_rejects_empty_index_prefix() {
 fn plan_accepts_model_based_validation() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::nil()))),
-        predicate: None,
-        order: None,
-        distinct: false,
-        delete_limit: None,
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     validate_logical_plan_model(&schema, model, &plan).expect("valid plan");
@@ -438,15 +448,17 @@ fn plan_accepts_model_based_validation() {
 fn plan_rejects_empty_order_spec() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec { fields: vec![] }),
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::FullScan),
-        predicate: None,
-        order: Some(OrderSpec { fields: vec![] }),
-        distinct: false,
-        delete_limit: None,
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     let err =
@@ -461,15 +473,17 @@ fn plan_rejects_empty_order_spec() {
 fn delete_limit_requires_order() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Delete(DeleteSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Delete(DeleteSpec::new()),
+            predicate: None,
+            order: None,
+            distinct: false,
+            delete_limit: Some(DeleteLimitSpec { max_rows: 10 }),
+            page: None,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::FullScan),
-        predicate: None,
-        order: None,
-        distinct: false,
-        delete_limit: Some(DeleteLimitSpec { max_rows: 10 }),
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     let err = validate_logical_plan_model(&schema, model, &plan)
@@ -484,20 +498,22 @@ fn delete_limit_requires_order() {
 fn delete_plan_rejects_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Delete(DeleteSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Delete(DeleteSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(1),
+                offset: 0,
+            }),
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::FullScan),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(1),
-            offset: 0,
-        }),
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     let err = validate_logical_plan_model(&schema, model, &plan)
@@ -512,17 +528,19 @@ fn delete_plan_rejects_pagination() {
 fn load_plan_rejects_delete_limit() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: Some(DeleteLimitSpec { max_rows: 1 }),
+            page: None,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::FullScan),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: Some(DeleteLimitSpec { max_rows: 1 }),
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     let err = validate_logical_plan_model(&schema, model, &plan)
@@ -537,18 +555,20 @@ fn load_plan_rejects_delete_limit() {
 fn plan_rejects_unordered_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(10),
+                offset: 2,
+            }),
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::FullScan),
-        predicate: None,
-        order: None,
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(10),
-            offset: 2,
-        }),
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     let err = validate_logical_plan_model(&schema, model, &plan)
@@ -563,20 +583,22 @@ fn plan_rejects_unordered_pagination() {
 fn plan_accepts_ordered_pagination() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(10),
+                offset: 2,
+            }),
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::FullScan),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(10),
-            offset: 2,
-        }),
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     validate_logical_plan_model(&schema, model, &plan).expect("ordered pagination is valid");
@@ -586,17 +608,19 @@ fn plan_accepts_ordered_pagination() {
 fn plan_rejects_order_without_terminal_primary_key_tie_break() {
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::from_entity_model(model).expect("valid model");
-    let plan: LogicalPlan<Value> = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("tag".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: crate::db::query::ReadConsistency::MissingOk,
+        },
         access: AccessPlan::path(AccessPath::FullScan),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("tag".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: None,
-        consistency: crate::db::query::ReadConsistency::MissingOk,
     };
 
     let err = validate_logical_plan_model(&schema, model, &plan).expect_err("missing PK tie-break");
@@ -610,7 +634,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
 fn secondary_order_pushdown_core_cases() {
     struct Case {
         name: &'static str,
-        plan: LogicalPlan<Value>,
+        plan: AccessPlannedQuery<Value>,
         expected: SecondaryOrderPushdownEligibility,
     }
 
@@ -674,12 +698,12 @@ fn secondary_order_pushdown_core_cases() {
             name: "reject_composite_access_when_child_is_index_range",
             plan: load_union_plan(
                 vec![
-                    AccessPlan::path(AccessPath::IndexRange {
-                        index: INDEX_MODEL,
-                        prefix: vec![],
-                        lower: Bound::Included(Value::Text("a".to_string())),
-                        upper: Bound::Excluded(Value::Text("z".to_string())),
-                    }),
+                    AccessPlan::path(AccessPath::index_range(
+                        INDEX_MODEL,
+                        vec![],
+                        Bound::Included(Value::Text("a".to_string())),
+                        Bound::Excluded(Value::Text("z".to_string())),
+                    )),
                     AccessPlan::path(AccessPath::FullScan),
                 ],
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
@@ -720,7 +744,7 @@ fn secondary_order_pushdown_core_cases() {
 fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
     struct RejectionCase {
         name: &'static str,
-        plan: LogicalPlan<Value>,
+        plan: AccessPlannedQuery<Value>,
         expected: SecondaryOrderPushdownRejection,
     }
 
@@ -777,12 +801,12 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
             plan: load_intersection_plan(
                 vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![Value::Ulid(Ulid::from_u128(1))])),
-                    AccessPlan::path(AccessPath::IndexRange {
-                        index: INDEX_MODEL,
-                        prefix: vec![],
-                        lower: Bound::Included(Value::Text("a".to_string())),
-                        upper: Bound::Excluded(Value::Text("z".to_string())),
-                    }),
+                    AccessPlan::path(AccessPath::index_range(
+                        INDEX_MODEL,
+                        vec![],
+                        Bound::Included(Value::Text("a".to_string())),
+                        Bound::Excluded(Value::Text("z".to_string())),
+                    )),
                 ],
                 Some(OrderSpec {
                     fields: vec![("id".to_string(), OrderDirection::Asc)],
@@ -882,7 +906,7 @@ fn secondary_order_pushdown_rejection_matrix_is_exhaustive() {
 fn secondary_order_pushdown_if_applicable_cases() {
     struct Case {
         name: &'static str,
-        plan: LogicalPlan<Value>,
+        plan: AccessPlannedQuery<Value>,
         expected: PushdownApplicability,
     }
 
@@ -935,12 +959,12 @@ fn secondary_order_pushdown_if_applicable_cases() {
             plan: load_union_plan(
                 vec![
                     AccessPlan::path(AccessPath::ByKeys(vec![Value::Ulid(Ulid::from_u128(2))])),
-                    AccessPlan::path(AccessPath::IndexRange {
-                        index: INDEX_MODEL,
-                        prefix: vec![],
-                        lower: Bound::Included(Value::Text("a".to_string())),
-                        upper: Bound::Excluded(Value::Text("z".to_string())),
-                    }),
+                    AccessPlan::path(AccessPath::index_range(
+                        INDEX_MODEL,
+                        vec![],
+                        Bound::Included(Value::Text("a".to_string())),
+                        Bound::Excluded(Value::Text("z".to_string())),
+                    )),
                 ],
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
@@ -1005,12 +1029,12 @@ fn secondary_order_pushdown_if_applicable_validated_matches_defensive_assessor()
     let composite_index_range_plan = load_union_plan(
         vec![
             AccessPlan::path(AccessPath::ByKeys(vec![Value::Ulid(Ulid::from_u128(3))])),
-            AccessPlan::path(AccessPath::IndexRange {
-                index: INDEX_MODEL,
-                prefix: vec![],
-                lower: Bound::Included(Value::Text("a".to_string())),
-                upper: Bound::Excluded(Value::Text("z".to_string())),
-            }),
+            AccessPlan::path(AccessPath::index_range(
+                INDEX_MODEL,
+                vec![],
+                Bound::Included(Value::Text("a".to_string())),
+                Bound::Excluded(Value::Text("z".to_string())),
+            )),
         ],
         Some(order_spec(&[("id", OrderDirection::Asc)])),
     );

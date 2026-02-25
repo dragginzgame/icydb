@@ -1,6 +1,6 @@
 use super::{
-    AGGREGATE_FAST_PATH_ORDER, ExecutionMode, ExecutionModeRouteCase, FastPathOrder,
-    FieldExtremaIneligibilityReason, LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER,
+    AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, ExecutionModeRouteCase,
+    FastPathOrder, FieldExtremaIneligibilityReason, LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER,
     RouteCapabilities,
 };
 use crate::{
@@ -14,7 +14,8 @@ use crate::{
             contracts::cursor::CursorBoundary,
             intent::{DeleteSpec, QueryMode},
             plan::{
-                AccessPath, AccessPlan, Direction, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+                AccessPath, AccessPlan, AccessPlannedQuery, Direction, OrderDirection, OrderSpec,
+                PageSpec,
             },
             predicate::{Predicate, PredicateFieldSlots},
         },
@@ -125,14 +126,14 @@ fn field_extrema_index_range_plan(
     direction: OrderDirection,
     offset: u32,
     distinct: bool,
-) -> LogicalPlan<Ulid> {
-    let mut plan = LogicalPlan::new(
-        AccessPath::<Ulid>::IndexRange {
-            index: ROUTE_MATRIX_INDEX_MODELS[0],
-            prefix: vec![],
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(30)),
-        },
+) -> AccessPlannedQuery<Ulid> {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
         ReadConsistency::MissingOk,
     );
     plan.order = Some(OrderSpec {

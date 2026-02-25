@@ -5,7 +5,24 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.29.1] - 2026-02-24 - Audit db/query I
+## [0.29.2] - 2026-02-25 - db/query : Audit II
+
+### 🔧 Changed
+
+- Split query planning internals into clearer boundaries with dedicated `plan/lowering` and `plan/cursor` modules.
+- Kept planner output semantic-only for index ranges, and moved encoded/index-key lowering details to the lowering stage.
+- Separated intent from access choice: `LogicalPlan` now carries logical query shape, while `AccessPlannedQuery` binds logical intent to one `AccessPlan`.
+- Added an explicit route contract (`ExecutionRoutePlan`) for runtime routing decisions (direction, window shape, continuation mode, and scan hints).
+- Moved direction derivation out of access planning and into route planning so routing policy is isolated from access modeling.
+
+### 🧹 Cleanup
+
+- Removed the old top-level `plan/executable.rs` and `plan/index_bounds.rs` files after the split.
+- Removed transitional internal wiring tied to pre-split plan shapes and updated call sites to the new planning boundaries.
+
+---
+
+## [0.29.1] - 2026-02-24 - db/query : Audit I
 
 ### 🔧 Changed
 

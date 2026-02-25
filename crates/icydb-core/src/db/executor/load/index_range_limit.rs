@@ -5,7 +5,7 @@ use crate::{
         executor::{AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator},
         index::RawIndexKey,
         index::predicate::IndexPredicateExecution,
-        query::plan::{Direction, IndexRangeSpec, LogicalPlan},
+        query::plan::{AccessPlannedQuery, Direction, lowering::IndexRangeSpec},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -18,7 +18,7 @@ where
     // Limited IndexRange pushdown for semantically safe plan shapes.
     pub(super) fn try_execute_index_range_limit_pushdown_stream(
         ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         index_range_spec: Option<&IndexRangeSpec>,
         index_range_anchor: Option<&RawIndexKey>,
         direction: Direction,

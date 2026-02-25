@@ -11,7 +11,7 @@ use crate::{
         },
         query::{
             ReadConsistency,
-            plan::{Direction, ExecutablePlan},
+            plan::{Direction, lowering::ExecutablePlan},
         },
         response::Response,
     },

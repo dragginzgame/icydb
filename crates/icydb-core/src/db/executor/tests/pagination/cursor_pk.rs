@@ -223,28 +223,30 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
     for (case_name, direction) in [("asc", OrderDirection::Asc), ("desc", OrderDirection::Desc)] {
         let build_plan = || {
-            ExecutablePlan::<IndexedMetricsEntity>::new(LogicalPlan {
-                mode: QueryMode::Load(LoadSpec::new()),
-                access: AccessPlan::path(AccessPath::IndexRange {
-                    index: INDEXED_METRICS_INDEX_MODELS[0],
-                    prefix: Vec::new(),
-                    lower: Bound::Included(Value::Uint(10)),
-                    upper: Bound::Excluded(Value::Uint(30)),
-                }),
-                predicate: None,
-                order: Some(OrderSpec {
-                    fields: vec![
-                        ("tag".to_string(), direction),
-                        ("id".to_string(), direction),
-                    ],
-                }),
-                distinct: false,
-                delete_limit: None,
-                page: Some(PageSpec {
-                    limit: Some(2),
-                    offset: 1,
-                }),
-                consistency: ReadConsistency::MissingOk,
+            ExecutablePlan::<IndexedMetricsEntity>::new(AccessPlannedQuery {
+                logical: LogicalPlan {
+                    mode: QueryMode::Load(LoadSpec::new()),
+                    predicate: None,
+                    order: Some(OrderSpec {
+                        fields: vec![
+                            ("tag".to_string(), direction),
+                            ("id".to_string(), direction),
+                        ],
+                    }),
+                    distinct: false,
+                    delete_limit: None,
+                    page: Some(PageSpec {
+                        limit: Some(2),
+                        offset: 1,
+                    }),
+                    consistency: ReadConsistency::MissingOk,
+                },
+                access: AccessPlan::path(AccessPath::index_range(
+                    INDEXED_METRICS_INDEX_MODELS[0],
+                    Vec::new(),
+                    Bound::Included(Value::Uint(10)),
+                    Bound::Excluded(Value::Uint(30)),
+                )),
             })
         };
 
@@ -756,7 +758,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
         .expect("save should succeed");
     }
 
-    let mut page1_logical = LogicalPlan::<Ulid>::new(
+    let mut page1_logical = AccessPlannedQuery::<Ulid>::new(
         AccessPath::KeyRange {
             start: Ulid::from_u128(2),
             end: Ulid::from_u128(4),
@@ -786,7 +788,7 @@ fn load_cursor_pagination_pk_order_key_range_respects_bounds() {
         .next_cursor
         .as_ref()
         .expect("pk-range page1 should emit continuation cursor");
-    let mut page2_logical = LogicalPlan::<Ulid>::new(
+    let mut page2_logical = AccessPlannedQuery::<Ulid>::new(
         AccessPath::KeyRange {
             start: Ulid::from_u128(2),
             end: Ulid::from_u128(4),
@@ -832,7 +834,7 @@ fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page(
         .expect("save should succeed");
     }
 
-    let mut logical = LogicalPlan::<Ulid>::new(
+    let mut logical = AccessPlannedQuery::<Ulid>::new(
         AccessPath::KeyRange {
             start: Ulid::from_u128(1),
             end: Ulid::from_u128(2),
@@ -879,7 +881,7 @@ fn load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, true);
     for (case_name, direction) in [("asc", OrderDirection::Asc), ("desc", OrderDirection::Desc)] {
-        let mut logical = LogicalPlan::<Ulid>::new(
+        let mut logical = AccessPlannedQuery::<Ulid>::new(
             AccessPath::KeyRange {
                 start: Ulid::from_u128(4),
                 end: Ulid::from_u128(2),

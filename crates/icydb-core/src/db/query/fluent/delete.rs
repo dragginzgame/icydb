@@ -5,7 +5,7 @@ use crate::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr},
             intent::{Query, QueryError},
-            plan::ExecutablePlan,
+            plan::lowering::ExecutablePlan,
             predicate::Predicate,
         },
         response::Response,

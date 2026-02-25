@@ -20,7 +20,7 @@ use crate::{
     db::{
         codec::cursor::CursorDecodeError,
         query::{
-            plan::LogicalPlan,
+            plan::AccessPlannedQuery,
             policy::PlanPolicyError,
             predicate::{self, SchemaInfo},
         },
@@ -288,7 +288,7 @@ impl From<PlanPolicyError> for PlanError {
 pub(crate) fn validate_logical_plan_model(
     schema: &SchemaInfo,
     model: &EntityModel,
-    plan: &LogicalPlan<Value>,
+    plan: &AccessPlannedQuery<Value>,
 ) -> Result<(), PlanError> {
     validate_plan_core(
         schema,
@@ -310,7 +310,7 @@ pub(crate) fn validate_logical_plan_model(
 /// Any disagreement with logical validation indicates an internal bug and is not
 /// a recoverable user-input condition.
 pub(crate) fn validate_executor_plan<E: EntityKind>(
-    plan: &LogicalPlan<E::Key>,
+    plan: &AccessPlannedQuery<E::Key>,
 ) -> Result<(), InternalError> {
     let schema = SchemaInfo::from_entity_model(E::MODEL).map_err(|err| {
         InternalError::query_invariant(format!("entity schema invalid for {}: {err}", E::PATH))
@@ -326,13 +326,13 @@ pub(crate) fn validate_executor_plan<E: EntityKind>(
 fn validate_plan_core<K, FOrder, FAccess>(
     schema: &SchemaInfo,
     model: &EntityModel,
-    plan: &LogicalPlan<K>,
+    plan: &AccessPlannedQuery<K>,
     validate_order_fn: FOrder,
     validate_access_fn: FAccess,
 ) -> Result<(), PlanError>
 where
     FOrder: Fn(&SchemaInfo, &crate::db::query::plan::OrderSpec) -> Result<(), PlanError>,
-    FAccess: Fn(&SchemaInfo, &EntityModel, &LogicalPlan<K>) -> Result<(), PlanError>,
+    FAccess: Fn(&SchemaInfo, &EntityModel, &AccessPlannedQuery<K>) -> Result<(), PlanError>,
 {
     if let Some(predicate) = &plan.predicate {
         predicate::validate(schema, predicate)?;

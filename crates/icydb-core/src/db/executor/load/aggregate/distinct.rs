@@ -5,6 +5,7 @@ use crate::{
             AccessStreamBindings, DistinctOrderedKeyStream, KeyOrderComparator,
             OrderedKeyStreamBox,
             aggregate::field::{FieldSlot, extract_orderable_field_value},
+            compile_predicate_slots,
             fold::AggregateWindowState,
             load::LoadExecutor,
             load::execute::{ExecutionInputs, IndexPredicateCompileMode},
@@ -12,7 +13,9 @@ use crate::{
             route::ExecutionMode,
         },
         query::{
-            plan::{ExecutablePlan, LogicalPlan, validate::validate_executor_plan},
+            plan::{
+                AccessPlannedQuery, lowering::ExecutablePlan, validate::validate_executor_plan,
+            },
             predicate::{PredicateFieldSlots, eval_with_slots},
         },
         response::Response,
@@ -45,14 +48,9 @@ where
     ) -> Result<u32, InternalError> {
         let field_slot = Self::resolve_any_field_slot(target_field)?;
         validate_executor_plan::<E>(plan.as_inner())?;
-        let direction = plan.direction();
-        let route_plan = Self::build_execution_route_plan_for_load(
-            plan.as_inner(),
-            None,
-            None,
-            None,
-            direction,
-        )?;
+        let route_plan =
+            Self::build_execution_route_plan_for_load(plan.as_inner(), None, None, None)?;
+        let direction = route_plan.direction();
         // Snapshot route-owned execution mode at the orchestration boundary.
         // This remains immutable for the full terminal execution lifecycle.
         let execution_mode = route_plan.execution_mode;
@@ -66,7 +64,8 @@ where
         }
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let (logical_plan, predicate_slots) = plan.into_parts();
+        let logical_plan = plan.into_inner();
+        let predicate_slots = compile_predicate_slots::<E>(&logical_plan);
         validate_executor_plan::<E>(&logical_plan)?;
         let ctx = self.db.recovered_context::<E>()?;
         record_plan_metrics(&logical_plan.access);
@@ -157,7 +156,7 @@ where
     // preserving canonical filtering and effective-window semantics.
     fn fold_streaming_count_distinct_field(
         ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         predicate_slots: Option<&PredicateFieldSlots>,
         key_stream: &mut dyn crate::db::executor::OrderedKeyStream,
         target_field: &str,

@@ -5,7 +5,7 @@ use crate::{
         contracts::cursor::{ContinuationSignature, CursorBoundary, CursorBoundarySlot},
         explain::ExplainPlan,
         fingerprint::hash_parts,
-        plan::{CursorPlanError, LogicalPlan, OrderPlanError, OrderSpec, PlanError},
+        plan::{AccessPlannedQuery, CursorPlanError, OrderPlanError, OrderSpec, PlanError},
         predicate::SchemaInfo,
     },
     error::InternalError,
@@ -114,10 +114,10 @@ where
 }
 
 ///
-/// LogicalPlan
+/// AccessPlannedQuery
 ///
 
-impl<K> LogicalPlan<K>
+impl<K> AccessPlannedQuery<K>
 where
     K: FieldValue,
 {
@@ -182,7 +182,10 @@ mod tests {
                 CursorBoundarySlot, IndexRangeCursorAnchor,
             },
             intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value},
-            plan::{AccessPath, Direction, LogicalPlan, OrderDirection, OrderSpec, PageSpec},
+            plan::{
+                AccessPath, AccessPlannedQuery, Direction, LogicalPlan, OrderDirection, OrderSpec,
+                PageSpec,
+            },
             predicate::Predicate,
         },
         traits::Storable,
@@ -204,12 +207,12 @@ mod tests {
             FieldRef::new("id").eq(id),
         ]);
 
-        let mut plan_a: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_a.predicate = Some(predicate_a);
 
-        let mut plan_b: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_b.predicate = Some(predicate_b);
 
         assert_eq!(
@@ -226,25 +229,29 @@ mod tests {
         let access_a = access_plan_from_keys_value(&KeyAccess::Many(vec![a, b, a]));
         let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
 
-        let plan_a: LogicalPlan<Value> = LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: None,
+                distinct: false,
+                delete_limit: None,
+                page: None,
+                consistency: ReadConsistency::MissingOk,
+            },
             access: access_a,
-            predicate: None,
-            order: None,
-            distinct: false,
-            delete_limit: None,
-            page: None,
-            consistency: ReadConsistency::MissingOk,
         };
-        let plan_b: LogicalPlan<Value> = LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: None,
+                distinct: false,
+                delete_limit: None,
+                page: None,
+                consistency: ReadConsistency::MissingOk,
+            },
             access: access_b,
-            predicate: None,
-            order: None,
-            distinct: false,
-            delete_limit: None,
-            page: None,
-            consistency: ReadConsistency::MissingOk,
         };
 
         assert_eq!(
@@ -255,10 +262,10 @@ mod tests {
 
     #[test]
     fn signature_excludes_pagination_window_state() {
-        let mut plan_a: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
-        let mut plan_b: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
 
         plan_a.page = Some(PageSpec {
             limit: Some(10),
@@ -277,10 +284,10 @@ mod tests {
 
     #[test]
     fn signature_changes_when_order_changes() {
-        let mut plan_a: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
-        let mut plan_b: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
 
         plan_a.order = Some(OrderSpec {
             fields: vec![("name".to_string(), OrderDirection::Asc)],
@@ -297,10 +304,10 @@ mod tests {
 
     #[test]
     fn signature_changes_when_order_field_set_changes() {
-        let mut plan_a: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
-        let mut plan_b: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
 
         plan_a.order = Some(OrderSpec {
             fields: vec![("name".to_string(), OrderDirection::Asc)],
@@ -317,10 +324,10 @@ mod tests {
 
     #[test]
     fn signature_changes_when_distinct_flag_changes() {
-        let plan_a: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
-        let mut plan_b: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let plan_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_b.distinct = true;
 
         assert_ne!(
@@ -331,8 +338,8 @@ mod tests {
 
     #[test]
     fn signature_changes_with_entity_path() {
-        let plan: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let plan: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
 
         assert_ne!(
             plan.continuation_signature("tests::EntityA"),

@@ -915,13 +915,13 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligibl
     ];
     seed_indexed_metrics_rows(&rows);
 
-    let mut logical = LogicalPlan::new(
-        AccessPath::IndexRange {
-            index: INDEXED_METRICS_INDEX_MODELS[0],
-            prefix: Vec::new(),
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(30)),
-        },
+    let mut logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
         ReadConsistency::MissingOk,
     );
     logical.order = Some(OrderSpec {
@@ -964,13 +964,13 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_el
     ];
     seed_indexed_metrics_rows(&rows);
 
-    let mut logical = LogicalPlan::new(
-        AccessPath::IndexRange {
-            index: INDEXED_METRICS_INDEX_MODELS[0],
-            prefix: Vec::new(),
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(30)),
-        },
+    let mut logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
         ReadConsistency::MissingOk,
     );
     logical.order = Some(OrderSpec {
@@ -1010,13 +1010,13 @@ fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
     ];
     seed_indexed_metrics_rows(&rows);
 
-    let mut logical = LogicalPlan::new(
-        AccessPath::IndexRange {
-            index: INDEXED_METRICS_INDEX_MODELS[0],
-            prefix: Vec::new(),
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(30)),
-        },
+    let mut logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
         ReadConsistency::MissingOk,
     );
     logical.order = Some(OrderSpec {
@@ -1062,13 +1062,13 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
     ];
     seed_indexed_metrics_rows(&rows);
 
-    let mut logical = LogicalPlan::new(
-        AccessPath::IndexRange {
-            index: INDEXED_METRICS_INDEX_MODELS[0],
-            prefix: Vec::new(),
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(30)),
-        },
+    let mut logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
         ReadConsistency::MissingOk,
     );
     logical.order = Some(OrderSpec {
@@ -1120,13 +1120,13 @@ fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows()
         field: "label".to_string(),
         value: Value::Text("keep".to_string()),
     };
-    let mut fast_logical = LogicalPlan::new(
-        AccessPath::IndexRange {
-            index: INDEXED_METRICS_INDEX_MODELS[0],
-            prefix: Vec::new(),
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(21)),
-        },
+    let mut fast_logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(21)),
+        ),
         ReadConsistency::MissingOk,
     );
     fast_logical.predicate = Some(label_contains_keep.clone());
@@ -1142,7 +1142,8 @@ fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows()
     });
     let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
 
-    let mut fallback_logical = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+    let mut fallback_logical =
+        AccessPlannedQuery::new(AccessPath::FullScan, ReadConsistency::MissingOk);
     fallback_logical.predicate = Some(Predicate::And(vec![
         strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
         strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(21)),
@@ -1210,13 +1211,13 @@ fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown()
         field: "label".to_string(),
         value: Value::Text("keep".to_string()),
     };
-    let mut fast_logical = LogicalPlan::new(
-        AccessPath::IndexRange {
-            index: INDEXED_METRICS_INDEX_MODELS[0],
-            prefix: Vec::new(),
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(16)),
-        },
+    let mut fast_logical = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            INDEXED_METRICS_INDEX_MODELS[0],
+            Vec::new(),
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(16)),
+        ),
         ReadConsistency::MissingOk,
     );
     fast_logical.predicate = Some(label_contains_keep.clone());
@@ -1232,7 +1233,8 @@ fn load_index_range_limit_pushdown_residual_underfill_retries_without_pushdown()
     });
     let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
 
-    let mut fallback_logical = LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+    let mut fallback_logical =
+        AccessPlannedQuery::new(AccessPath::FullScan, ReadConsistency::MissingOk);
     fallback_logical.predicate = Some(Predicate::And(vec![
         strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(10)),
         strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(16)),
@@ -1310,13 +1312,13 @@ fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_f
             field: "label".to_string(),
             value: Value::Text("keep".to_string()),
         };
-        let mut fast_logical = LogicalPlan::new(
-            AccessPath::IndexRange {
-                index: INDEXED_METRICS_INDEX_MODELS[0],
-                prefix: Vec::new(),
-                lower: Bound::Included(Value::Uint(lower)),
-                upper: Bound::Excluded(Value::Uint(upper)),
-            },
+        let mut fast_logical = AccessPlannedQuery::new(
+            AccessPath::index_range(
+                INDEXED_METRICS_INDEX_MODELS[0],
+                Vec::new(),
+                Bound::Included(Value::Uint(lower)),
+                Bound::Excluded(Value::Uint(upper)),
+            ),
             ReadConsistency::MissingOk,
         );
         fast_logical.predicate = Some(label_contains_keep.clone());
@@ -1333,7 +1335,7 @@ fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_f
         let fast_plan = ExecutablePlan::<IndexedMetricsEntity>::new(fast_logical);
 
         let mut fallback_logical =
-            LogicalPlan::new(AccessPath::FullScan, ReadConsistency::MissingOk);
+            AccessPlannedQuery::new(AccessPath::FullScan, ReadConsistency::MissingOk);
         fallback_logical.predicate = Some(Predicate::And(vec![
             strict_compare_predicate("tag", CompareOp::Gte, Value::Uint(lower)),
             strict_compare_predicate("tag", CompareOp::Lt, Value::Uint(upper)),

@@ -13,7 +13,8 @@ use crate::{
                 continuation::decode_typed_primary_key_cursor_slot,
             },
             plan::{
-                AccessPath, CursorPlanError, OrderPlanError, OrderSpec, PlanError, PlannedCursor,
+                AccessPath, CursorPlanError, OrderPlanError, OrderSpec, PlanError,
+                cursor::PlannedCursor,
             },
             predicate::{SchemaInfo, validate::literal_matches_type},
         },

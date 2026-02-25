@@ -1,6 +1,6 @@
 //! Pure plan-layer data types; must not embed planning semantics or validation.
 
-use crate::{db::index::Direction, model::index::IndexModel, value::Value};
+use crate::{model::index::IndexModel, value::Value};
 use std::ops::Bound;
 
 pub(crate) type IndexRangePathRef<'a> = (
@@ -9,6 +9,93 @@ pub(crate) type IndexRangePathRef<'a> = (
     &'a Bound<Value>,
     &'a Bound<Value>,
 );
+
+///
+/// SemanticIndexRangeSpec
+///
+/// Planner-owned semantic index-range request for one secondary index path.
+/// Stores field-slot shape plus semantic bounds only; no encoded/raw key material.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SemanticIndexRangeSpec {
+    index: IndexModel,
+    field_slots: Vec<usize>,
+    prefix_values: Vec<Value>,
+    lower: Bound<Value>,
+    upper: Bound<Value>,
+}
+
+impl SemanticIndexRangeSpec {
+    #[must_use]
+    pub(crate) fn new(
+        index: IndexModel,
+        field_slots: Vec<usize>,
+        prefix_values: Vec<Value>,
+        lower: Bound<Value>,
+        upper: Bound<Value>,
+    ) -> Self {
+        debug_assert!(
+            !field_slots.is_empty(),
+            "semantic index-range field slots must include the range slot",
+        );
+        debug_assert_eq!(
+            field_slots.len(),
+            prefix_values.len().saturating_add(1),
+            "semantic index-range slots must include one slot per prefix field plus range slot",
+        );
+        debug_assert!(
+            prefix_values.len() < index.fields.len(),
+            "semantic index-range prefix must be shorter than index arity",
+        );
+
+        Self {
+            index,
+            field_slots,
+            prefix_values,
+            lower,
+            upper,
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn from_prefix_and_bounds(
+        index: IndexModel,
+        prefix_values: Vec<Value>,
+        lower: Bound<Value>,
+        upper: Bound<Value>,
+    ) -> Self {
+        let slot_count = prefix_values.len().saturating_add(1);
+        let field_slots = (0..slot_count).collect();
+
+        Self::new(index, field_slots, prefix_values, lower, upper)
+    }
+
+    #[must_use]
+    pub(crate) const fn index(&self) -> &IndexModel {
+        &self.index
+    }
+
+    #[must_use]
+    pub(crate) const fn field_slots(&self) -> &[usize] {
+        self.field_slots.as_slice()
+    }
+
+    #[must_use]
+    pub(crate) const fn prefix_values(&self) -> &[Value] {
+        self.prefix_values.as_slice()
+    }
+
+    #[must_use]
+    pub(crate) const fn lower(&self) -> &Bound<Value> {
+        &self.lower
+    }
+
+    #[must_use]
+    pub(crate) const fn upper(&self) -> &Bound<Value> {
+        &self.upper
+    }
+}
 
 ///
 /// AccessPlan
@@ -120,19 +207,9 @@ pub(crate) enum AccessPath<K> {
 
     /// Index scan using an equality prefix plus one bounded range component.
     ///
-    /// This variant is dedicated to secondary range traversal and must not be
-    /// conflated with primary-key `KeyRange`.
-    ///
-    /// The planner guarantees:
-    /// - `prefix.len() < index.fields.len()`
-    /// - Prefix values correspond to the first `prefix.len()` index fields
-    /// - `lower` and `upper` bound the next index component
-    IndexRange {
-        index: IndexModel,
-        prefix: Vec<Value>,
-        lower: Bound<Value>,
-        upper: Bound<Value>,
-    },
+    /// This variant is dedicated to secondary range traversal and wraps
+    /// planner-owned semantic range metadata.
+    IndexRange { spec: SemanticIndexRangeSpec },
 
     /// Full entity scan with no index assistance.
     FullScan,
@@ -158,6 +235,25 @@ impl CursorSupport {
 }
 
 impl<K> AccessPath<K> {
+    /// Construct one semantic index-range path from semantic bounds.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn index_range(
+        index: IndexModel,
+        prefix_values: Vec<Value>,
+        lower: Bound<Value>,
+        upper: Bound<Value>,
+    ) -> Self {
+        Self::IndexRange {
+            spec: SemanticIndexRangeSpec::from_prefix_and_bounds(
+                index,
+                prefix_values,
+                lower,
+                upper,
+            ),
+        }
+    }
+
     /// Return true when this path is a full scan.
     #[must_use]
     pub(crate) const fn is_full_scan(&self) -> bool {
@@ -196,14 +292,14 @@ impl<K> AccessPath<K> {
 
     /// Borrow index-range details when this path is `IndexRange`.
     #[must_use]
-    pub(crate) fn as_index_range(&self) -> Option<IndexRangePathRef<'_>> {
+    pub(crate) const fn as_index_range(&self) -> Option<IndexRangePathRef<'_>> {
         match self {
-            Self::IndexRange {
-                index,
-                prefix,
-                lower,
-                upper,
-            } => Some((index, prefix, lower, upper)),
+            Self::IndexRange { spec } => Some((
+                spec.index(),
+                spec.prefix_values(),
+                spec.lower(),
+                spec.upper(),
+            )),
             _ => None,
         }
     }
@@ -212,7 +308,7 @@ impl<K> AccessPath<K> {
     #[must_use]
     pub(crate) const fn index_range_details(&self) -> Option<(&'static str, usize)> {
         match self {
-            Self::IndexRange { index, prefix, .. } => Some((index.name, prefix.len())),
+            Self::IndexRange { spec } => Some((spec.index().name, spec.prefix_values().len())),
             _ => None,
         }
     }
@@ -240,33 +336,6 @@ pub(crate) struct OrderSpec {
 }
 
 ///
-/// SlotSelectionPolicy
-/// Selection policy for deriving scan direction from canonical order fields.
-///
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SlotSelectionPolicy {
-    First,
-    Last,
-}
-
-/// Derive a scan direction from an order spec using a selected order-field slot.
-#[must_use]
-pub(in crate::db) fn derive_scan_direction(
-    order: &OrderSpec,
-    slot_policy: SlotSelectionPolicy,
-) -> Direction {
-    let selected = match slot_policy {
-        SlotSelectionPolicy::First => order.fields.first(),
-        SlotSelectionPolicy::Last => order.fields.last(),
-    };
-
-    match selected.map(|(_, direction)| direction) {
-        Some(OrderDirection::Desc) => Direction::Desc,
-        _ => Direction::Asc,
-    }
-}
-
-///
 /// DeleteLimitSpec
 /// Executor-facing delete bound with no offsets.
 ///
@@ -285,118 +354,4 @@ pub(crate) struct DeleteLimitSpec {
 pub(crate) struct PageSpec {
     pub limit: Option<u32>,
     pub offset: u32,
-}
-
-///
-/// PageWindow
-///
-/// Canonical pagination window sizing in usize-domain.
-/// `keep_count` is `offset + limit`, and `fetch_count` adds one extra row when requested.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct PageWindow {
-    pub(crate) fetch_count: usize,
-    pub(crate) keep_count: usize,
-}
-
-/// Compute canonical page window counts from logical pagination inputs.
-#[must_use]
-pub(crate) fn compute_page_window(offset: u32, limit: u32, needs_extra: bool) -> PageWindow {
-    let offset = usize::try_from(offset).unwrap_or(usize::MAX);
-    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    let keep_count = offset.saturating_add(limit);
-    let fetch_count = keep_count.saturating_add(usize::from(needs_extra));
-
-    PageWindow {
-        fetch_count,
-        keep_count,
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use super::{PageWindow, compute_page_window};
-
-    #[test]
-    fn compute_page_window_zero_offset_zero_limit_without_extra() {
-        let window = compute_page_window(0, 0, false);
-        assert_eq!(
-            window,
-            PageWindow {
-                fetch_count: 0,
-                keep_count: 0,
-            }
-        );
-    }
-
-    #[test]
-    fn compute_page_window_zero_offset_zero_limit_with_extra() {
-        let window = compute_page_window(0, 0, true);
-        assert_eq!(
-            window,
-            PageWindow {
-                fetch_count: 1,
-                keep_count: 0,
-            }
-        );
-    }
-
-    #[test]
-    fn compute_page_window_zero_offset_limit_one() {
-        let without_extra = compute_page_window(0, 1, false);
-        let with_extra = compute_page_window(0, 1, true);
-
-        assert_eq!(
-            without_extra,
-            PageWindow {
-                fetch_count: 1,
-                keep_count: 1,
-            }
-        );
-        assert_eq!(
-            with_extra,
-            PageWindow {
-                fetch_count: 2,
-                keep_count: 1,
-            }
-        );
-    }
-
-    #[test]
-    fn compute_page_window_offset_n_limit_one() {
-        let window = compute_page_window(37, 1, true);
-        assert_eq!(
-            window,
-            PageWindow {
-                fetch_count: 39,
-                keep_count: 38,
-            }
-        );
-    }
-
-    #[test]
-    fn compute_page_window_high_bounds_and_needs_extra_toggle() {
-        let base = usize::try_from(u32::MAX).unwrap_or(usize::MAX);
-        let expected_keep = base.saturating_add(base);
-        let without_extra = compute_page_window(u32::MAX, u32::MAX, false);
-        let with_extra = compute_page_window(u32::MAX, u32::MAX, true);
-
-        assert_eq!(
-            without_extra,
-            PageWindow {
-                fetch_count: expected_keep,
-                keep_count: expected_keep,
-            }
-        );
-        assert_eq!(with_extra.keep_count, without_extra.keep_count);
-        assert_eq!(
-            with_extra.fetch_count,
-            without_extra.fetch_count.saturating_add(1)
-        );
-    }
 }

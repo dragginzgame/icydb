@@ -1,5 +1,5 @@
 use crate::{
-    db::query::plan::{LogicalPlan, OrderDirection},
+    db::query::plan::{AccessPlannedQuery, OrderDirection},
     model::entity::EntityModel,
 };
 
@@ -113,7 +113,7 @@ pub enum SecondaryOrderPushdownRejection {
 /// Evaluate the secondary-index ORDER BY pushdown matrix for one plan.
 pub(crate) fn assess_secondary_order_pushdown<K>(
     model: &EntityModel,
-    plan: &LogicalPlan<K>,
+    plan: &AccessPlannedQuery<K>,
 ) -> SecondaryOrderPushdownEligibility {
     let Some(order) = plan.order.as_ref() else {
         return SecondaryOrderPushdownEligibility::Rejected(
@@ -311,7 +311,7 @@ fn applicability_from_eligibility(
 /// - access path is not a secondary index path
 pub(crate) fn assess_secondary_order_pushdown_if_applicable<K>(
     model: &EntityModel,
-    plan: &LogicalPlan<K>,
+    plan: &AccessPlannedQuery<K>,
 ) -> PushdownApplicability {
     applicability_from_eligibility(assess_secondary_order_pushdown(model, plan))
 }
@@ -323,7 +323,7 @@ pub(crate) fn assess_secondary_order_pushdown_if_applicable<K>(
 /// with debug assertions, while preserving safe fallbacks in release builds.
 pub(crate) fn assess_secondary_order_pushdown_if_applicable_validated<K>(
     model: &EntityModel,
-    plan: &LogicalPlan<K>,
+    plan: &AccessPlannedQuery<K>,
 ) -> PushdownApplicability {
     let Some(order) = plan.order.as_ref() else {
         return PushdownApplicability::NotApplicable;

@@ -37,10 +37,22 @@ pub(super) use ordered_key_stream::{
 //   indicate executor/planner contract breaches.
 
 use crate::{
-    db::data::DataKey,
+    db::{
+        data::DataKey,
+        query::{plan::AccessPlannedQuery, predicate::PredicateFieldSlots},
+    },
     error::{ErrorClass, ErrorOrigin, InternalError},
+    traits::EntityKind,
 };
 use thiserror::Error as ThisError;
+
+pub(super) fn compile_predicate_slots<E: EntityKind>(
+    plan: &AccessPlannedQuery<E::Key>,
+) -> Option<PredicateFieldSlots> {
+    plan.predicate
+        .as_ref()
+        .map(PredicateFieldSlots::resolve::<E>)
+}
 
 ///
 /// ExecutorError

@@ -9,7 +9,7 @@ use crate::{
         index::RawIndexKey,
         query::{
             contracts::cursor::CursorBoundary,
-            plan::{AccessPath, AccessPlan, Direction, LogicalPlan, compute_page_window},
+            plan::{AccessPath, AccessPlan, AccessPlannedQuery, Direction},
             predicate::PredicateFieldSlots,
         },
     },
@@ -19,10 +19,11 @@ use crate::{
 };
 
 use crate::db::executor::route::{
-    AGGREGATE_FAST_PATH_ORDER, ExecutionMode, ExecutionModeRouteCase, ExecutionRoutePlan,
-    FieldExtremaEligibility, FieldExtremaIneligibilityReason, IndexRangeLimitSpec,
-    LOAD_FAST_PATH_ORDER, RouteCapabilities, RouteIntent, RoutedKeyStreamRequest, ScanHintPlan,
-    direction_allows_physical_fetch_hint,
+    AGGREGATE_FAST_PATH_ORDER, ContinuationMode, ExecutionMode, ExecutionModeRouteCase,
+    ExecutionRoutePlan, FieldExtremaEligibility, FieldExtremaIneligibilityReason,
+    IndexRangeLimitSpec, LOAD_FAST_PATH_ORDER, RouteCapabilities, RouteIntent,
+    RouteOrderSlotPolicy, RouteWindowPlan, RoutedKeyStreamRequest, ScanHintPlan,
+    derive_scan_direction, direction_allows_physical_fetch_hint,
 };
 
 impl<E> LoadExecutor<E>
@@ -54,7 +55,7 @@ where
 
     // Derive a canonical route capability snapshot for one plan + direction.
     pub(in crate::db::executor::route) fn derive_route_capabilities(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
         aggregate_spec: Option<&AggregateSpec>,
     ) -> RouteCapabilities {
@@ -92,11 +93,10 @@ where
 
     // Build canonical execution routing for load execution.
     pub(in crate::db::executor) fn build_execution_route_plan_for_load(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
         index_range_anchor: Option<&RawIndexKey>,
         probe_fetch_hint: Option<usize>,
-        direction: Direction,
     ) -> Result<ExecutionRoutePlan, InternalError> {
         Self::validate_pk_fast_path_boundary_if_applicable(plan, cursor_boundary)?;
 
@@ -105,13 +105,13 @@ where
             cursor_boundary,
             index_range_anchor,
             probe_fetch_hint,
-            RouteIntent::Load { direction },
+            RouteIntent::Load,
         ))
     }
 
     // Build canonical execution routing for mutation execution.
     pub(in crate::db::executor) fn build_execution_route_plan_for_mutation(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
     ) -> Result<ExecutionRoutePlan, InternalError> {
         if !plan.mode.is_delete() {
             return Err(InternalError::query_executor_invariant(
@@ -125,7 +125,7 @@ where
     }
 
     pub(in crate::db::executor) fn validate_mutation_route_stage(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
     ) -> Result<(), InternalError> {
         let _mutation_route_plan = Self::build_execution_route_plan_for_mutation(plan)?;
 
@@ -135,49 +135,45 @@ where
     // Build canonical execution routing for aggregate execution.
     #[cfg(test)]
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         kind: AggregateKind,
-        direction: Direction,
     ) -> ExecutionRoutePlan {
-        Self::build_execution_route_plan_for_aggregate_spec(
-            plan,
-            AggregateSpec::for_terminal(kind),
-            direction,
-        )
+        Self::build_execution_route_plan_for_aggregate_spec(plan, AggregateSpec::for_terminal(kind))
     }
 
     // Build canonical execution routing for aggregate execution via spec.
     pub(in crate::db::executor) fn build_execution_route_plan_for_aggregate_spec(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         spec: AggregateSpec,
-        direction: Direction,
     ) -> ExecutionRoutePlan {
-        Self::build_execution_route_plan(
-            plan,
-            None,
-            None,
-            None,
-            RouteIntent::Aggregate { direction, spec },
-        )
+        Self::build_execution_route_plan(plan, None, None, None, RouteIntent::Aggregate { spec })
     }
 
     // Shared route gate for load + aggregate execution.
     #[expect(clippy::too_many_lines)]
     fn build_execution_route_plan(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
         index_range_anchor: Option<&RawIndexKey>,
         probe_fetch_hint: Option<usize>,
         intent: RouteIntent,
     ) -> ExecutionRoutePlan {
+        let continuation_mode = Self::derive_continuation_mode(cursor_boundary, index_range_anchor);
+        let route_window = Self::derive_route_window(plan, cursor_boundary);
         let secondary_pushdown_applicability =
             crate::db::query::plan::validate::assess_secondary_order_pushdown_if_applicable_validated(
                 E::MODEL,
                 plan,
             );
         let (direction, aggregate_spec, fast_path_order, is_load_intent) = match intent {
-            RouteIntent::Load { direction } => (direction, None, &LOAD_FAST_PATH_ORDER[..], true),
-            RouteIntent::Aggregate { direction, spec } => {
+            RouteIntent::Load => (
+                Self::derive_load_route_direction(plan),
+                None,
+                &LOAD_FAST_PATH_ORDER[..],
+                true,
+            ),
+            RouteIntent::Aggregate { spec } => {
+                let direction = Self::derive_aggregate_route_direction(plan, &spec);
                 (direction, Some(spec), &AGGREGATE_FAST_PATH_ORDER[..], false)
             }
         };
@@ -221,7 +217,7 @@ where
             None => probe_fetch_hint,
         };
         let load_scan_budget_hint = if is_load_intent {
-            Self::load_scan_budget_hint(plan, cursor_boundary, capabilities)
+            Self::load_scan_budget_hint(continuation_mode, route_window, capabilities)
         } else {
             None
         };
@@ -235,6 +231,7 @@ where
                 plan,
                 cursor_boundary,
                 index_range_anchor,
+                route_window,
                 physical_fetch_hint,
                 capabilities,
             )
@@ -326,6 +323,9 @@ where
         );
 
         ExecutionRoutePlan {
+            direction,
+            continuation_mode,
+            window: route_window,
             execution_mode,
             secondary_pushdown_applicability,
             index_range_limit_spec,
@@ -344,12 +344,58 @@ where
     // Hint and pushdown gates
     // ------------------------------------------------------------------
 
+    fn derive_load_route_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
+        plan.order.as_ref().map_or(Direction::Asc, |order| {
+            derive_scan_direction(order, RouteOrderSlotPolicy::First)
+        })
+    }
+
+    fn derive_aggregate_route_direction(
+        plan: &AccessPlannedQuery<E::Key>,
+        spec: &AggregateSpec,
+    ) -> Direction {
+        if spec.target_field().is_some() {
+            return match spec.kind() {
+                AggregateKind::Min => Direction::Asc,
+                AggregateKind::Max => Direction::Desc,
+                AggregateKind::Count
+                | AggregateKind::Exists
+                | AggregateKind::First
+                | AggregateKind::Last => Self::derive_load_route_direction(plan),
+            };
+        }
+
+        Self::derive_load_route_direction(plan)
+    }
+
+    const fn derive_continuation_mode(
+        cursor_boundary: Option<&CursorBoundary>,
+        index_range_anchor: Option<&RawIndexKey>,
+    ) -> ContinuationMode {
+        match (cursor_boundary, index_range_anchor) {
+            (_, Some(_)) => ContinuationMode::IndexRangeAnchor,
+            (Some(_), None) => ContinuationMode::CursorBoundary,
+            (None, None) => ContinuationMode::Initial,
+        }
+    }
+
+    fn derive_route_window(
+        plan: &AccessPlannedQuery<E::Key>,
+        cursor_boundary: Option<&CursorBoundary>,
+    ) -> RouteWindowPlan {
+        let effective_offset = plan.effective_page_offset(cursor_boundary);
+        let limit = plan.page.as_ref().and_then(|page| page.limit);
+
+        RouteWindowPlan::new(effective_offset, limit)
+    }
+
     // Assess index-range limit pushdown once for this execution and produce
     // the bounded fetch spec when all eligibility gates pass.
     fn assess_index_range_limit_pushdown(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
         index_range_anchor: Option<&RawIndexKey>,
+        route_window: RouteWindowPlan,
         probe_fetch_hint: Option<usize>,
         capabilities: RouteCapabilities,
     ) -> Option<IndexRangeLimitSpec> {
@@ -373,7 +419,7 @@ where
             return Some(IndexRangeLimitSpec { fetch: 0 });
         }
 
-        let fetch = Self::page_window_fetch_count(plan, cursor_boundary, true)?;
+        let fetch = Self::page_window_fetch_count(route_window, true)?;
         if plan.predicate.is_some() && !Self::residual_predicate_pushdown_fetch_is_safe(fetch) {
             return None;
         }
@@ -382,19 +428,19 @@ where
     }
 
     // Shared load-page scan-budget hint gate.
-    fn load_scan_budget_hint(
-        plan: &LogicalPlan<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
+    const fn load_scan_budget_hint(
+        continuation_mode: ContinuationMode,
+        route_window: RouteWindowPlan,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
-        if cursor_boundary.is_some() {
+        if !matches!(continuation_mode, ContinuationMode::Initial) {
             return None;
         }
         if !capabilities.streaming_access_shape_safe {
             return None;
         }
 
-        Self::page_window_fetch_count(plan, cursor_boundary, true)
+        Self::page_window_fetch_count(route_window, true)
     }
 
     // Shared bounded-probe safety gate for aggregate key-stream hints.
@@ -403,7 +449,7 @@ where
     //   before offset consumption without risking under-fetch.
     // - If dedup/projection/composite semantics evolve, this gate is the first
     //   place to re-evaluate bounded-probe correctness.
-    fn bounded_probe_hint_is_safe(plan: &LogicalPlan<E::Key>) -> bool {
+    fn bounded_probe_hint_is_safe(plan: &AccessPlannedQuery<E::Key>) -> bool {
         let offset = usize::try_from(plan.effective_page_offset(None)).unwrap_or(usize::MAX);
         !(plan.distinct && offset > 0)
     }
@@ -450,7 +496,9 @@ where
     ) -> Option<Vec<usize>> {
         let path = access.as_path()?;
         let index_fields = match path {
-            AccessPath::IndexPrefix { index, .. } | AccessPath::IndexRange { index, .. } => {
+            AccessPath::IndexPrefix { index, .. } => index.fields,
+            AccessPath::IndexRange { spec } => {
+                let index = spec.index();
                 index.fields
             }
             AccessPath::ByKey(_)
@@ -485,7 +533,7 @@ where
 
     // Route-owned gate for PK full-scan/key-range ordered fast-path eligibility.
     pub(in crate::db::executor) fn pk_order_stream_fast_path_shape_supported(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
     ) -> bool {
         if !plan.mode.is_load() {
             return false;
@@ -516,18 +564,19 @@ where
     }
 
     fn count_pushdown_fetch_hint(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         capabilities: RouteCapabilities,
     ) -> Option<usize> {
         if !capabilities.bounded_probe_hint_safe {
             return None;
         }
 
-        Self::page_window_fetch_count(plan, None, false)
+        let route_window = Self::derive_route_window(plan, None);
+        Self::page_window_fetch_count(route_window, false)
     }
 
     fn aggregate_probe_fetch_hint(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         spec: &AggregateSpec,
         direction: Direction,
         capabilities: RouteCapabilities,
@@ -578,7 +627,7 @@ where
     // Placeholder assessment for future `min(field)` fast paths.
     // Intentionally ineligible in 0.24.x while field-extrema semantics are finalized.
     fn assess_field_min_fast_path_eligibility(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
         aggregate_spec: Option<&AggregateSpec>,
     ) -> FieldExtremaEligibility {
@@ -593,7 +642,7 @@ where
     // Placeholder assessment for future `max(field)` fast paths.
     // Intentionally ineligible in 0.24.x while field-extrema semantics are finalized.
     fn assess_field_max_fast_path_eligibility(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
         aggregate_spec: Option<&AggregateSpec>,
     ) -> FieldExtremaEligibility {
@@ -611,7 +660,7 @@ where
     //   access shapes with full-window semantics.
     // - unsupported shapes return explicit route-owned reasons.
     fn assess_field_extrema_fast_path_eligibility(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
         aggregate_spec: Option<&AggregateSpec>,
         extrema_kind: AggregateKind,
@@ -698,7 +747,7 @@ where
     }
 
     fn field_extrema_target_has_matching_index(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         target_field: &str,
     ) -> bool {
         let Some(path) = plan.access.as_path() else {
@@ -709,7 +758,12 @@ where
         }
 
         match path {
-            AccessPath::IndexPrefix { index, .. } | AccessPath::IndexRange { index, .. } => index
+            AccessPath::IndexPrefix { index, .. } => index
+                .fields
+                .first()
+                .is_some_and(|field| *field == target_field),
+            AccessPath::IndexRange { spec } => spec
+                .index()
                 .fields
                 .first()
                 .is_some_and(|field| *field == target_field),
@@ -744,7 +798,7 @@ where
     // - composite access shape only (`Union` / `Intersection`)
     // - no residual predicate filtering
     // - no post-access reordering
-    fn is_composite_aggregate_fast_path_eligible(plan: &LogicalPlan<E::Key>) -> bool {
+    fn is_composite_aggregate_fast_path_eligible(plan: &AccessPlannedQuery<E::Key>) -> bool {
         if !Self::is_composite_access_shape(&plan.access) {
             return false;
         }
@@ -761,22 +815,11 @@ where
     }
 
     // Shared page-window fetch computation for bounded routing hints.
-    fn page_window_fetch_count(
-        plan: &LogicalPlan<E::Key>,
-        cursor_boundary: Option<&CursorBoundary>,
+    const fn page_window_fetch_count(
+        route_window: RouteWindowPlan,
         needs_extra: bool,
     ) -> Option<usize> {
-        let page = plan.page.as_ref()?;
-        let limit = page.limit?;
-
-        Some(
-            compute_page_window(
-                plan.effective_page_offset(cursor_boundary),
-                limit,
-                needs_extra,
-            )
-            .fetch_count,
-        )
+        route_window.fetch_count_for(needs_extra)
     }
 
     const fn path_supports_reverse_traversal(path: &AccessPath<E::Key>) -> bool {
@@ -795,7 +838,7 @@ where
     }
 
     // Route-owned shape gate for index-range limited pushdown eligibility.
-    fn is_index_range_limit_pushdown_shape_eligible(plan: &LogicalPlan<E::Key>) -> bool {
+    fn is_index_range_limit_pushdown_shape_eligible(plan: &AccessPlannedQuery<E::Key>) -> bool {
         let Some((index, prefix, _, _)) = plan.access.as_index_range_path() else {
             return false;
         };

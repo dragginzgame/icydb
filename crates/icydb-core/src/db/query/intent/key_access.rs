@@ -130,17 +130,7 @@ impl AccessPath<Value> {
                 end: coerce_entity_key::<E>(model, &end)?,
             }),
             Self::IndexPrefix { index, values } => Ok(AccessPath::IndexPrefix { index, values }),
-            Self::IndexRange {
-                index,
-                prefix,
-                lower,
-                upper,
-            } => Ok(AccessPath::IndexRange {
-                index,
-                prefix,
-                lower,
-                upper,
-            }),
+            Self::IndexRange { spec } => Ok(AccessPath::IndexRange { spec }),
             Self::FullScan => Ok(AccessPath::FullScan),
         }
     }

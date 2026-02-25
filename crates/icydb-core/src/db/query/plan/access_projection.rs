@@ -87,14 +87,14 @@ impl<K> AccessPath<K> {
             Self::IndexPrefix { index, values } => {
                 projection.index_prefix(index.name, index.fields, values.len(), values)
             }
-            Self::IndexRange {
-                index,
-                prefix,
-                lower,
-                upper,
-            } => {
-                projection.index_range(index.name, index.fields, prefix.len(), prefix, lower, upper)
-            }
+            Self::IndexRange { spec } => projection.index_range(
+                spec.index().name,
+                spec.index().fields,
+                spec.prefix_values().len(),
+                spec.prefix_values(),
+                spec.lower(),
+                spec.upper(),
+            ),
             Self::FullScan => projection.full_scan(),
         }
     }
@@ -236,12 +236,12 @@ mod tests {
                 index: TEST_INDEX,
                 values: vec![Value::Uint(7)],
             }),
-            AccessPlan::path(AccessPath::IndexRange {
-                index: TEST_INDEX,
-                prefix: vec![Value::Uint(7)],
-                lower: Bound::Included(Value::Uint(8)),
-                upper: Bound::Excluded(Value::Uint(12)),
-            }),
+            AccessPlan::path(AccessPath::index_range(
+                TEST_INDEX,
+                vec![Value::Uint(7)],
+                Bound::Included(Value::Uint(8)),
+                Bound::Excluded(Value::Uint(12)),
+            )),
             AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::FullScan),
                 AccessPlan::path(AccessPath::ByKey(11)),

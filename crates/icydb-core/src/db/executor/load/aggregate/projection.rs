@@ -6,7 +6,7 @@ use crate::{
             fold::{AggregateKind, AggregateOutput, AggregateSpec},
             load::LoadExecutor,
         },
-        query::plan::ExecutablePlan,
+        query::plan::lowering::ExecutablePlan,
         response::Response,
     },
     error::InternalError,

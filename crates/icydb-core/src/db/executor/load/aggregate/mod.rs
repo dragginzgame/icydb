@@ -13,6 +13,7 @@ use crate::{
                 AggregateFieldValueError, FieldSlot, apply_aggregate_direction,
                 compare_entities_by_orderable_field, compare_entities_for_field_extrema,
             },
+            compile_predicate_slots,
             fold::{
                 AggregateFoldMode, AggregateKind, AggregateOutput, AggregateReducerState,
                 AggregateSpec, AggregateWindowState, FoldControl,
@@ -32,8 +33,9 @@ use crate::{
         query::{
             ReadConsistency,
             plan::{
-                AccessPath, Direction, ExecutablePlan, IndexPrefixSpec, IndexRangeSpec,
-                LogicalPlan, validate::validate_executor_plan,
+                AccessPath, AccessPlannedQuery, Direction,
+                lowering::{ExecutablePlan, IndexPrefixSpec, IndexRangeSpec},
+                validate::validate_executor_plan,
             },
             policy,
         },
@@ -64,7 +66,7 @@ type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
 
 struct AggregateFastPathInputs<'exec, 'ctx, E: EntityKind + EntityValue> {
     ctx: &'exec Context<'ctx, E>,
-    logical_plan: &'exec LogicalPlan<E::Key>,
+    logical_plan: &'exec AccessPlannedQuery<E::Key>,
     route_plan: &'exec ExecutionRoutePlan,
     index_prefix_specs: &'exec [IndexPrefixSpec],
     index_range_specs: &'exec [IndexRangeSpec],
@@ -276,16 +278,12 @@ where
         // capability snapshots are always built from a validated logical plan.
         validate_executor_plan::<E>(plan.as_inner())?;
 
-        // Route planning owns aggregate streaming/materialized decisions and
-        // bounded probe-hint derivation.
-        let direction = if spec.target_field().is_some() {
-            Self::field_extrema_aggregate_direction(spec.kind())?
-        } else {
-            plan.direction()
-        };
+        // Route planning owns aggregate streaming/materialized decisions,
+        // direction derivation, and bounded probe-hint derivation.
+        let predicate_slots = compile_predicate_slots::<E>(plan.as_inner());
         let strict_index_predicate_program = Self::compile_index_predicate_program(
             plan.as_inner(),
-            plan.predicate_slots(),
+            predicate_slots.as_ref(),
             IndexPredicateCompileMode::StrictAllOrNone,
         );
         let force_materialized_due_to_predicate_uncertainty = plan.as_inner().predicate.is_some()
@@ -297,11 +295,9 @@ where
             strict_index_predicate_program.as_ref(),
             force_materialized_due_to_predicate_uncertainty,
         );
-        let route_plan = Self::build_execution_route_plan_for_aggregate_spec(
-            plan.as_inner(),
-            spec.clone(),
-            direction,
-        );
+        let route_plan =
+            Self::build_execution_route_plan_for_aggregate_spec(plan.as_inner(), spec.clone());
+        let direction = route_plan.direction();
 
         Ok(AggregateExecutionDescriptor {
             spec,
@@ -351,13 +347,14 @@ where
         let physical_fetch_hint = descriptor.route_plan.scan_hints.physical_fetch_hint;
 
         // Direction must be captured before consuming the ExecutablePlan.
-        // After `into_parts()`, execution uses only logical + compiled predicate state.
+        // After `into_inner()`, execution uses logical plan + executor-prepared predicate slots.
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
 
         // Move into logical + compiled predicate state.
         // After this point, `plan` is consumed.
-        let (logical_plan, predicate_slots) = plan.into_parts();
+        let logical_plan = plan.into_inner();
+        let predicate_slots = compile_predicate_slots::<E>(&logical_plan);
 
         // Re-validate executor invariants at the logical boundary.
         validate_executor_plan::<E>(&logical_plan)?;
@@ -479,7 +476,8 @@ where
         // Route-planned streaming path for index-leading field extrema.
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let (logical_plan, predicate_slots) = plan.into_parts();
+        let logical_plan = plan.into_inner();
+        let predicate_slots = compile_predicate_slots::<E>(&logical_plan);
         validate_executor_plan::<E>(&logical_plan)?;
         let ctx = self.db.recovered_context::<E>()?;
         record_plan_metrics(&logical_plan.access);
@@ -519,7 +517,7 @@ where
     // preserving fallback-first behavior for DISTINCT, post-sort, and residual
     // predicate uncertainty.
     fn extrema_streaming_attempt_eligible(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         spec: &AggregateSpec,
         strict_index_predicate_program: Option<&IndexPredicateProgram>,
         force_materialized_due_to_predicate_uncertainty: bool,
@@ -773,7 +771,7 @@ where
     // This preserves consistency + window semantics without building streams.
     fn try_execute_primary_key_access_aggregate(
         ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
         kind: AggregateKind,
         fold_mode: AggregateFoldMode,
@@ -933,7 +931,7 @@ where
     // This keeps canonical stream semantics while avoiding generic route assembly.
     fn try_execute_primary_scan_aggregate(
         ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
         kind: AggregateKind,

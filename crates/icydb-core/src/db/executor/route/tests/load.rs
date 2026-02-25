@@ -2,25 +2,25 @@ use super::*;
 
 #[test]
 fn route_plan_load_uses_route_owned_fast_path_order() {
-    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Asc)],
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
-        &plan,
-        None,
-        None,
-        None,
-        Direction::Asc,
+        &plan, None, None, None,
     )
     .expect("load route plan should build");
 
     assert_eq!(route_plan.fast_path_order(), &LOAD_FAST_PATH_ORDER);
+    assert_eq!(route_plan.direction(), Direction::Asc);
+    assert_eq!(route_plan.continuation_mode(), ContinuationMode::Initial);
 }
 
 #[test]
 fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
-    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -29,15 +29,14 @@ fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
         offset: 2,
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
-        &plan,
-        None,
-        None,
-        None,
-        Direction::Desc,
+        &plan, None, None, None,
     )
     .expect("load route plan should build");
 
     assert_eq!(route_plan.execution_mode, ExecutionMode::Streaming);
+    assert_eq!(route_plan.direction(), Direction::Desc);
+    assert_eq!(route_plan.continuation_mode(), ContinuationMode::Initial);
+    assert_eq!(route_plan.window().effective_offset, 2);
     assert!(route_plan.desc_physical_reverse_supported());
     assert_eq!(route_plan.scan_hints.physical_fetch_hint, None);
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, Some(6));
@@ -46,13 +45,13 @@ fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
 
 #[test]
 fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
-    let mut plan = LogicalPlan::new(
-        AccessPath::<Ulid>::IndexRange {
-            index: ROUTE_MATRIX_INDEX_MODELS[0],
-            prefix: vec![],
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(20)),
-        },
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(20)),
+        ),
         ReadConsistency::MissingOk,
     );
     plan.order = Some(OrderSpec {
@@ -71,11 +70,15 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
         Some(&cursor),
         None,
         None,
-        Direction::Desc,
     )
     .expect("load route plan should build");
 
     assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
+    assert_eq!(
+        route_plan.continuation_mode(),
+        ContinuationMode::CursorBoundary
+    );
+    assert_eq!(route_plan.window().effective_offset, 0);
     assert!(route_plan.desc_physical_reverse_supported());
     assert!(route_plan.index_range_limit_spec.is_none());
     assert_eq!(route_plan.scan_hints.load_scan_budget_hint, None);
@@ -83,13 +86,13 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
 
 #[test]
 fn route_matrix_load_index_range_residual_predicate_allows_small_window_pushdown() {
-    let mut plan = LogicalPlan::new(
-        AccessPath::<Ulid>::IndexRange {
-            index: ROUTE_MATRIX_INDEX_MODELS[0],
-            prefix: vec![],
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(20)),
-        },
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(20)),
+        ),
         ReadConsistency::MissingOk,
     );
     plan.predicate = Some(Predicate::eq(
@@ -108,11 +111,7 @@ fn route_matrix_load_index_range_residual_predicate_allows_small_window_pushdown
     });
 
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
-        &plan,
-        None,
-        None,
-        None,
-        Direction::Asc,
+        &plan, None, None, None,
     )
     .expect("load route plan should build");
 
@@ -129,13 +128,13 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
     let limit =
         u32::try_from(fetch_cap).expect("residual pushdown fetch cap should fit within u32");
 
-    let mut plan = LogicalPlan::new(
-        AccessPath::<Ulid>::IndexRange {
-            index: ROUTE_MATRIX_INDEX_MODELS[0],
-            prefix: vec![],
-            lower: Bound::Included(Value::Uint(10)),
-            upper: Bound::Excluded(Value::Uint(20)),
-        },
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::<Ulid>::index_range(
+            ROUTE_MATRIX_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(20)),
+        ),
         ReadConsistency::MissingOk,
     );
     plan.predicate = Some(Predicate::eq(
@@ -154,11 +153,7 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
     });
 
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
-        &plan,
-        None,
-        None,
-        None,
-        Direction::Asc,
+        &plan, None, None, None,
     )
     .expect("load route plan should build");
 
@@ -170,7 +165,8 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
 
 #[test]
 fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
-    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     plan.order = Some(OrderSpec {
         fields: vec![("rank".to_string(), OrderDirection::Desc)],
     });
@@ -179,11 +175,7 @@ fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
         offset: 2,
     });
     let route_plan = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_load(
-        &plan,
-        None,
-        None,
-        None,
-        Direction::Desc,
+        &plan, None, None, None,
     )
     .expect("load route plan should build");
 
@@ -193,7 +185,7 @@ fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
 
 #[test]
 fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_support() {
-    let mut plan = LogicalPlan::new(
+    let mut plan = AccessPlannedQuery::new(
         AccessPath::<Ulid>::ByKeys(vec![
             Ulid::from_u128(7203),
             Ulid::from_u128(7201),
@@ -209,7 +201,6 @@ fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_s
         None,
         None,
         Some(4),
-        Direction::Desc,
     )
     .expect("load route plan should build");
 
@@ -227,7 +218,7 @@ fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_s
 #[test]
 fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
     let mut reverse_capable =
-        LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     reverse_capable.order = Some(OrderSpec {
         fields: vec![("id".to_string(), OrderDirection::Desc)],
     });
@@ -237,7 +228,6 @@ fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
             None,
             None,
             Some(5),
-            Direction::Desc,
         )
         .expect("reverse-capable load route should build");
     assert!(reverse_capable_route.desc_physical_reverse_supported());
@@ -250,7 +240,7 @@ fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
         Some(5)
     );
 
-    let mut reverse_blocked = LogicalPlan::new(
+    let mut reverse_blocked = AccessPlannedQuery::new(
         AccessPath::<Ulid>::ByKeys(vec![
             Ulid::from_u128(7_203),
             Ulid::from_u128(7_201),
@@ -267,7 +257,6 @@ fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
             None,
             None,
             Some(5),
-            Direction::Desc,
         )
         .expect("reverse-blocked load route should build");
     assert!(!reverse_blocked_route.desc_physical_reverse_supported());

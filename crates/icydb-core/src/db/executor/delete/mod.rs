@@ -5,6 +5,7 @@ use crate::{
         Db,
         commit::{CommitRowOp, ensure_recovered_for_write},
         executor::{
+            compile_predicate_slots,
             load::LoadExecutor,
             mutation::{
                 OpenCommitWindow, apply_prepared_row_ops, emit_index_delta_metrics,
@@ -13,7 +14,7 @@ use crate::{
             plan::{record_plan_metrics, record_rows_scanned, set_rows_from_len},
         },
         query::{
-            plan::{ExecutablePlan, validate::validate_executor_plan},
+            plan::{lowering::ExecutablePlan, validate::validate_executor_plan},
             policy,
         },
         response::Response,
@@ -75,7 +76,8 @@ where
             ensure_recovered_for_write(&self.db)?;
             let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
             let index_range_specs = plan.index_range_specs()?.to_vec();
-            let (plan, predicate_slots) = plan.into_parts();
+            let plan = plan.into_inner();
+            let predicate_slots = compile_predicate_slots::<E>(&plan);
             validate_executor_plan::<E>(&plan)?;
             LoadExecutor::<E>::validate_mutation_route_stage(&plan)?;
             let ctx = self.db.recovered_context::<E>()?;

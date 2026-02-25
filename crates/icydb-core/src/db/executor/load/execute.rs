@@ -14,7 +14,7 @@ use crate::{
             },
         },
         index::predicate::{IndexPredicateExecution, IndexPredicateProgram},
-        query::{plan::LogicalPlan, predicate::PredicateFieldSlots},
+        query::{plan::AccessPlannedQuery, predicate::PredicateFieldSlots},
     },
     error::InternalError,
     obs::sink::Span,
@@ -31,7 +31,7 @@ use std::{cell::Cell, rc::Rc};
 
 pub(super) struct ExecutionInputs<'a, E: EntityKind + EntityValue> {
     pub(super) ctx: &'a Context<'a, E>,
-    pub(super) plan: &'a LogicalPlan<E::Key>,
+    pub(super) plan: &'a AccessPlannedQuery<E::Key>,
     pub(super) stream_bindings: AccessStreamBindings<'a>,
     pub(super) predicate_slots: Option<&'a PredicateFieldSlots>,
 }
@@ -217,7 +217,7 @@ where
     // the active access path is index-backed and at least one safe predicate
     // subset can run on index components alone.
     pub(in crate::db::executor::load) fn compile_index_predicate_program(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         predicate_slots: Option<&PredicateFieldSlots>,
         mode: IndexPredicateCompileMode,
     ) -> Option<IndexPredicateProgram> {
@@ -236,7 +236,7 @@ where
     // Apply DISTINCT before post-access phases so pagination sees unique keys.
     fn apply_distinct_if_requested(
         mut resolved: ResolvedExecutionKeyStream,
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         key_comparator: super::KeyOrderComparator,
     ) -> ResolvedExecutionKeyStream {
         if plan.distinct {

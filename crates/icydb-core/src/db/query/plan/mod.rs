@@ -1,9 +1,9 @@
 //! Plan module wiring; must not implement planning or validation logic.
 
 mod access_projection;
-pub(crate) mod executable;
-mod index_bounds;
+pub(crate) mod cursor;
 pub(crate) mod logical;
+pub(crate) mod lowering;
 pub(crate) mod planner;
 #[cfg(test)]
 mod tests;
@@ -18,16 +18,10 @@ pub(crate) use access_projection::{
 ///
 /// Re-Exports
 ///
-pub(in crate::db) use executable::{
-    ExecutablePlan, IndexPrefixSpec, IndexRangeSpec, PlannedCursor,
-};
-pub(in crate::db) use index_bounds::raw_bounds_for_semantic_index_component_range;
-pub(crate) use logical::LogicalPlan;
+pub(crate) use logical::{AccessPlannedQuery, LogicalPlan};
 pub use types::OrderDirection;
-pub(in crate::db) use types::derive_scan_direction;
 pub(crate) use types::{
-    AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec, SlotSelectionPolicy,
-    compute_page_window,
+    AccessPath, AccessPlan, DeleteLimitSpec, OrderSpec, PageSpec, SemanticIndexRangeSpec,
 };
 pub use validate::PlanError;
 pub(crate) use validate::{AccessPlanError, CursorPlanError, OrderPlanError};

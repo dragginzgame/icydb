@@ -5,7 +5,7 @@ use crate::{
         ReadConsistency,
         intent::QueryMode,
         plan::{
-            AccessPlan, AccessPlanProjection, DeleteLimitSpec, LogicalPlan, OrderDirection,
+            AccessPlan, AccessPlanProjection, AccessPlannedQuery, DeleteLimitSpec, OrderDirection,
             OrderSpec, PageSpec, project_access_plan,
             validate::{
                 PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
@@ -23,7 +23,7 @@ use std::ops::Bound;
 ///
 /// ExplainPlan
 ///
-/// Stable, deterministic representation of a `LogicalPlan` for observability.
+/// Stable, deterministic representation of a planned query for observability.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -170,7 +170,7 @@ pub enum ExplainDeleteLimit {
     Limit { max_rows: u32 },
 }
 
-impl<K> LogicalPlan<K>
+impl<K> AccessPlannedQuery<K>
 where
     K: FieldValue,
 {
@@ -214,7 +214,7 @@ where
 
 fn explain_order_pushdown<K>(
     model: Option<&EntityModel>,
-    plan: &LogicalPlan<K>,
+    plan: &AccessPlannedQuery<K>,
 ) -> ExplainOrderPushdown {
     let Some(model) = model else {
         return ExplainOrderPushdown::MissingModelContext;
@@ -418,7 +418,9 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
 mod tests {
     use super::*;
     use crate::db::query::intent::{KeyAccess, LoadSpec, QueryMode, access_plan_from_keys_value};
-    use crate::db::query::plan::{AccessPath, AccessPlan, LogicalPlan, OrderDirection, OrderSpec};
+    use crate::db::query::plan::{
+        AccessPath, AccessPlan, AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec,
+    };
     use crate::db::query::predicate::Predicate;
     use crate::db::query::{ReadConsistency, builder::field::FieldRef};
     use crate::model::{field::FieldKind, index::IndexModel};
@@ -451,8 +453,8 @@ mod tests {
     #[test]
     fn explain_is_deterministic_for_same_query() {
         let predicate = FieldRef::new("id").eq(Ulid::default());
-        let mut plan: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan.predicate = Some(predicate);
 
         assert_eq!(plan.explain(), plan.explain());
@@ -471,12 +473,12 @@ mod tests {
             FieldRef::new("id").eq(id),
         ]);
 
-        let mut plan_a: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_a: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_a.predicate = Some(predicate_a);
 
-        let mut plan_b: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let mut plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
         plan_b.predicate = Some(predicate_b);
 
         assert_eq!(plan_a.explain(), plan_b.explain());
@@ -490,25 +492,29 @@ mod tests {
         let access_a = access_plan_from_keys_value(&KeyAccess::Many(vec![a, b, a]));
         let access_b = access_plan_from_keys_value(&KeyAccess::Many(vec![b, a]));
 
-        let plan_a: LogicalPlan<Value> = LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: None,
+                distinct: false,
+                delete_limit: None,
+                page: None,
+                consistency: ReadConsistency::MissingOk,
+            },
             access: access_a,
-            predicate: None,
-            order: None,
-            distinct: false,
-            delete_limit: None,
-            page: None,
-            consistency: ReadConsistency::MissingOk,
         };
-        let plan_b: LogicalPlan<Value> = LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        let plan_b: AccessPlannedQuery<Value> = AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: None,
+                distinct: false,
+                delete_limit: None,
+                page: None,
+                consistency: ReadConsistency::MissingOk,
+            },
             access: access_b,
-            predicate: None,
-            order: None,
-            distinct: false,
-            delete_limit: None,
-            page: None,
-            consistency: ReadConsistency::MissingOk,
         };
 
         assert_eq!(plan_a.explain(), plan_b.explain());
@@ -526,7 +532,7 @@ mod tests {
         indexes.sort_by(|left, right| left.name.cmp(right.name));
         let chosen = indexes[0];
 
-        let plan: LogicalPlan<Value> = LogicalPlan::new(
+        let plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: chosen,
                 values: vec![Value::Text("alpha".to_string())],
@@ -552,12 +558,12 @@ mod tests {
 
     #[test]
     fn explain_differs_for_semantic_changes() {
-        let plan_a: LogicalPlan<Value> = LogicalPlan::new(
+        let plan_a: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
             AccessPath::ByKey(Value::Ulid(Ulid::from_u128(1))),
             ReadConsistency::MissingOk,
         );
-        let plan_b: LogicalPlan<Value> =
-            LogicalPlan::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
+        let plan_b: AccessPlannedQuery<Value> =
+            AccessPlannedQuery::new(AccessPath::<Value>::FullScan, ReadConsistency::MissingOk);
 
         assert_ne!(plan_a.explain(), plan_b.explain());
     }
@@ -565,7 +571,7 @@ mod tests {
     #[test]
     fn explain_with_model_reports_eligible_order_pushdown() {
         let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
-        let mut plan: LogicalPlan<Value> = LogicalPlan::new(
+        let mut plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: PUSHDOWN_INDEX,
                 values: vec![Value::Text("alpha".to_string())],
@@ -588,7 +594,7 @@ mod tests {
     #[test]
     fn explain_with_model_reports_descending_pushdown_eligibility() {
         let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
-        let mut plan: LogicalPlan<Value> = LogicalPlan::new(
+        let mut plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: PUSHDOWN_INDEX,
                 values: vec![Value::Text("alpha".to_string())],
@@ -611,25 +617,27 @@ mod tests {
     #[test]
     fn explain_with_model_reports_composite_index_range_pushdown_rejection_reason() {
         let model = <ExplainPushdownEntity as EntitySchema>::MODEL;
-        let plan: LogicalPlan<Value> = LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
-            access: AccessPlan::Union(vec![
-                AccessPlan::path(AccessPath::IndexRange {
-                    index: PUSHDOWN_INDEX,
-                    prefix: vec![],
-                    lower: Bound::Included(Value::Text("alpha".to_string())),
-                    upper: Bound::Excluded(Value::Text("omega".to_string())),
+        let plan: AccessPlannedQuery<Value> = AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![("id".to_string(), OrderDirection::Asc)],
                 }),
+                distinct: false,
+                delete_limit: None,
+                page: None,
+                consistency: ReadConsistency::MissingOk,
+            },
+            access: AccessPlan::Union(vec![
+                AccessPlan::path(AccessPath::index_range(
+                    PUSHDOWN_INDEX,
+                    vec![],
+                    Bound::Included(Value::Text("alpha".to_string())),
+                    Bound::Excluded(Value::Text("omega".to_string())),
+                )),
                 AccessPlan::path(AccessPath::FullScan),
             ]),
-            predicate: None,
-            order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Asc)],
-            }),
-            distinct: false,
-            delete_limit: None,
-            page: None,
-            consistency: ReadConsistency::MissingOk,
         };
 
         assert_eq!(
@@ -645,7 +653,7 @@ mod tests {
 
     #[test]
     fn explain_without_model_reports_missing_model_context() {
-        let mut plan: LogicalPlan<Value> = LogicalPlan::new(
+        let mut plan: AccessPlannedQuery<Value> = AccessPlannedQuery::new(
             AccessPath::IndexPrefix {
                 index: PUSHDOWN_INDEX,
                 values: vec![Value::Text("alpha".to_string())],

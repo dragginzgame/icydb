@@ -6,7 +6,7 @@ use crate::{
         query::predicate::PredicateFieldSlots,
         query::{
             contracts::cursor::{ContinuationSignature, ContinuationToken, CursorBoundary},
-            plan::{Direction, LogicalPlan, compute_page_window},
+            plan::{AccessPlannedQuery, Direction, cursor::compute_page_window},
         },
         response::Response,
     },
@@ -23,7 +23,7 @@ where
     #[expect(clippy::too_many_arguments)]
     pub(super) fn materialize_key_stream_into_page(
         ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         predicate_slots: Option<&PredicateFieldSlots>,
         key_stream: &mut dyn OrderedKeyStream,
         scan_budget_hint: Option<usize>,
@@ -72,7 +72,7 @@ where
 
     // Apply canonical post-access phases to scanned rows and assemble the cursor page.
     fn finalize_rows_into_page(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         predicate_slots: Option<&PredicateFieldSlots>,
         rows: &mut Vec<(Id<E>, E)>,
         cursor_boundary: Option<&CursorBoundary>,
@@ -98,7 +98,7 @@ where
     }
 
     fn build_next_cursor(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         rows: &[(Id<E>, E)],
         stats: &PostAccessStats,
         cursor_boundary: Option<&CursorBoundary>,

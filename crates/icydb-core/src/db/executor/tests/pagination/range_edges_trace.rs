@@ -1328,28 +1328,30 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
     setup_pagination_test();
     seed_pushdown_rows(&pushdown_rows_trace(22_000));
 
-    let logical = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
-        access: AccessPlan::Union(vec![
-            AccessPlan::path(AccessPath::IndexRange {
-                index: PUSHDOWN_PARITY_INDEX_MODELS[0],
-                prefix: vec![Value::Uint(7)],
-                lower: std::ops::Bound::Included(Value::Uint(10)),
-                upper: std::ops::Bound::Excluded(Value::Uint(20)),
+    let logical = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
             }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(1),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        },
+        access: AccessPlan::Union(vec![
+            AccessPlan::path(AccessPath::index_range(
+                PUSHDOWN_PARITY_INDEX_MODELS[0],
+                vec![Value::Uint(7)],
+                std::ops::Bound::Included(Value::Uint(10)),
+                std::ops::Bound::Excluded(Value::Uint(20)),
+            )),
             AccessPlan::path(AccessPath::FullScan),
         ]),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(1),
-            offset: 0,
-        }),
-        consistency: ReadConsistency::MissingOk,
     };
     let plan = ExecutablePlan::<PushdownParityEntity>::new(logical);
 

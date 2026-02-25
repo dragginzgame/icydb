@@ -6,14 +6,11 @@
 mod normalize;
 mod range;
 
-use super::{AccessPath, AccessPlan, PlanError};
+use super::{AccessPath, AccessPlan, PlanError, SemanticIndexRangeSpec};
 use crate::{
-    db::{
-        index::EncodedValue,
-        query::predicate::{
-            CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo,
-            normalize as normalize_predicate, validate::literal_matches_type,
-        },
+    db::query::predicate::{
+        CoercionId, CompareOp, ComparePredicate, Predicate, SchemaInfo,
+        normalize as normalize_predicate, validate::literal_matches_type,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -91,8 +88,10 @@ fn plan_predicate(
         | Predicate::TextContains { .. }
         | Predicate::TextContainsCi { .. } => AccessPlan::full_scan(),
         Predicate::And(children) => {
-            if let Some(range) = range::index_range_from_and(model, schema, children) {
-                return Ok(AccessPlan::path(range));
+            if let Some(range_spec) = range::index_range_from_and(model, schema, children) {
+                return Ok(AccessPlan::path(AccessPath::IndexRange {
+                    spec: range_spec,
+                }));
             }
 
             let mut plans = children
@@ -168,12 +167,20 @@ fn plan_compare(
                 };
 
                 for index in sorted_indexes(model) {
-                    if index.fields.len() == 1 && index.fields[0] == cmp.field.as_str() {
-                        return AccessPlan::path(AccessPath::IndexRange {
-                            index: *index,
-                            prefix: Vec::new(),
+                    if index.fields.len() == 1
+                        && index.fields[0] == cmp.field.as_str()
+                        && index.is_field_indexable(&cmp.field, cmp.op)
+                    {
+                        let semantic_range = SemanticIndexRangeSpec::new(
+                            *index,
+                            vec![0usize],
+                            Vec::new(),
                             lower,
                             upper,
+                        );
+
+                        return AccessPlan::path(AccessPath::IndexRange {
+                            spec: semantic_range,
                         });
                     }
                 }
@@ -241,7 +248,7 @@ fn index_prefix_for_eq(
 
     let mut out = Vec::new();
     for index in sorted_indexes(model) {
-        if index.fields.first() != Some(&field) {
+        if index.fields.first() != Some(&field) || !index.is_field_indexable(field, CompareOp::Eq) {
             continue;
         }
         out.push(AccessPlan::path(AccessPath::IndexPrefix {
@@ -258,8 +265,8 @@ fn index_prefix_from_and(
     schema: &SchemaInfo,
     children: &[Predicate],
 ) -> Option<AccessPath<Value>> {
-    // Cache compatibility/encoded bytes once per equality literal so index
-    // candidate selection does not re-encode on every index iteration.
+    // Cache literal/schema compatibility once per equality literal so index
+    // candidate selection does not repeat schema checks on every index iteration.
     let mut field_values = Vec::new();
 
     for child in children {
@@ -275,7 +282,7 @@ fn index_prefix_from_and(
         field_values.push(CachedEqLiteral {
             field: cmp.field.as_str(),
             value: &cmp.value,
-            encoded: encoded_index_literal_if_compatible(schema, &cmp.field, &cmp.value),
+            compatible: index_prefix_literal_is_compatible(schema, &cmp.field, &cmp.value),
         });
     }
 
@@ -288,7 +295,7 @@ fn index_prefix_from_and(
             let Some(cached) = field_values.iter().find(|cached| cached.field == *field) else {
                 break;
             };
-            if cached.encoded.is_none() {
+            if !index.is_field_indexable(field, CompareOp::Eq) || !cached.compatible {
                 prefix.clear();
                 break;
             }
@@ -322,13 +329,13 @@ fn index_prefix_from_and(
 ///
 /// CachedEqLiteral
 ///
-/// Equality literal plus its precomputed index-encoding compatibility.
+/// Equality literal plus its precomputed planner-side schema compatibility.
 ///
 
 struct CachedEqLiteral<'a> {
     field: &'a str,
     value: &'a Value,
-    encoded: Option<EncodedValue>,
+    compatible: bool,
 }
 
 fn better_index(
@@ -362,26 +369,52 @@ fn value_matches_pk_model(schema: &SchemaInfo, model: &EntityModel, value: &Valu
 }
 
 // Validate one equality literal for index-prefix planning. The value must match
-// the schema field type and be canonically index-encodable.
+// the schema field type.
 pub(in crate::db::query::plan::planner) fn index_prefix_literal_is_compatible(
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
 ) -> bool {
-    encoded_index_literal_if_compatible(schema, field, value).is_some()
+    index_literal_matches_schema(schema, field, value)
 }
 
-pub(in crate::db::query::plan::planner) fn encoded_index_literal_if_compatible(
+pub(in crate::db::query::plan::planner) fn index_literal_matches_schema(
     schema: &SchemaInfo,
     field: &str,
     value: &Value,
-) -> Option<EncodedValue> {
-    let field_type = schema.field(field)?;
+) -> bool {
+    let Some(field_type) = schema.field(field) else {
+        return false;
+    };
     if !literal_matches_type(value, field_type) {
-        return None;
+        return false;
     }
 
-    EncodedValue::try_from_ref(value).ok()
+    true
+}
+
+impl IndexModel {
+    /// Return true when this index can structurally support the field/operator pair.
+    #[must_use]
+    pub(in crate::db::query::plan::planner) fn is_field_indexable(
+        &self,
+        field: &str,
+        op: CompareOp,
+    ) -> bool {
+        if !self.fields.contains(&field) {
+            return false;
+        }
+
+        matches!(
+            op,
+            CompareOp::Eq
+                | CompareOp::In
+                | CompareOp::Gt
+                | CompareOp::Gte
+                | CompareOp::Lt
+                | CompareOp::Lte
+        )
+    }
 }
 
 ///

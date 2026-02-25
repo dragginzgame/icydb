@@ -2,11 +2,12 @@ use crate::{
     db::{
         Context,
         executor::load::{ExecutionOptimization, FastPathKeyResult, LoadExecutor},
-        executor::{AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator},
-        index::predicate::IndexPredicateExecution,
-        query::plan::{
-            Direction, IndexPrefixSpec, LogicalPlan, SlotSelectionPolicy, derive_scan_direction,
+        executor::{
+            AccessPlanStreamRequest, AccessStreamBindings, KeyOrderComparator,
+            route::{RouteOrderSlotPolicy, derive_scan_direction},
         },
+        index::predicate::IndexPredicateExecution,
+        query::plan::{AccessPlannedQuery, Direction, lowering::IndexPrefixSpec},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -20,7 +21,7 @@ where
     // proves canonical ORDER BY parity with raw index-key order.
     pub(super) fn try_execute_secondary_index_order_stream(
         ctx: &Context<'_, E>,
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         index_prefix_spec: Option<&IndexPrefixSpec>,
         probe_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
@@ -69,9 +70,9 @@ where
         Ok(Some(fast))
     }
 
-    fn secondary_index_stream_direction(plan: &LogicalPlan<E::Key>) -> Direction {
+    fn secondary_index_stream_direction(plan: &AccessPlannedQuery<E::Key>) -> Direction {
         plan.order.as_ref().map_or(Direction::Asc, |order| {
-            derive_scan_direction(order, SlotSelectionPolicy::Last)
+            derive_scan_direction(order, RouteOrderSlotPolicy::Last)
         })
     }
 }

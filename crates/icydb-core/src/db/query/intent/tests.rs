@@ -3,7 +3,7 @@ use crate::{
     db::query::{
         builder::field::FieldRef,
         expr::FilterExpr,
-        plan::{AccessPath, AccessPlan, LogicalPlan},
+        plan::{AccessPath, AccessPlan, AccessPlannedQuery, LogicalPlan},
         predicate::{CompareOp, ComparePredicate},
     },
     model::{
@@ -273,7 +273,10 @@ fn ordered_plan_appends_primary_key_tie_break() {
         .plan()
         .expect("ordered plan should build")
         .into_inner();
-    let order = plan.order.expect("ordered query should carry order spec");
+    let order = plan
+        .order
+        .as_ref()
+        .expect("ordered query should carry order spec");
 
     assert_eq!(
         order.fields,
@@ -293,7 +296,10 @@ fn ordered_plan_moves_primary_key_to_terminal_position() {
         .plan()
         .expect("ordered plan should build")
         .into_inner();
-    let order = plan.order.expect("ordered query should carry order spec");
+    let order = plan
+        .order
+        .as_ref()
+        .expect("ordered query should carry order spec");
 
     assert_eq!(
         order.fields,
@@ -387,29 +393,31 @@ fn typed_plan_matches_model_plan_for_same_intent() {
         .offset(2);
 
     let model_plan = model_intent.build_plan_model().expect("model plan");
+    let (model_logical, model_access) = model_plan.into_parts();
     let LogicalPlan {
         mode,
-        access,
         predicate: plan_predicate,
         order,
         distinct,
         delete_limit,
         page,
         consistency,
-    } = model_plan;
+    } = model_logical;
 
-    let access = access_plan_to_entity_keys::<PlanEntity>(PlanEntity::MODEL, access)
+    let access = access_plan_to_entity_keys::<PlanEntity>(PlanEntity::MODEL, model_access)
         .expect("convert access plan");
-    let model_as_typed = LogicalPlan {
-        mode,
+    let model_as_typed = AccessPlannedQuery::from_parts(
+        LogicalPlan {
+            mode,
+            predicate: plan_predicate,
+            order,
+            distinct,
+            delete_limit,
+            page,
+            consistency,
+        },
         access,
-        predicate: plan_predicate,
-        order,
-        distinct,
-        delete_limit,
-        page,
-        consistency,
-    };
+    );
 
     let typed_plan = Query::<PlanEntity>::new(ReadConsistency::MissingOk)
         .filter(predicate)
@@ -496,10 +504,10 @@ fn filter_expr_resolves_loose_enum_stage_filters() {
         .expect("filter expr should lower");
     let plan = intent.build_plan_model().expect("plan should build");
 
-    let Some(Predicate::Compare(cmp)) = plan.predicate else {
+    let Some(Predicate::Compare(cmp)) = plan.predicate.as_ref() else {
         panic!("expected compare predicate");
     };
-    let Value::Enum(stage) = cmp.value else {
+    let Value::Enum(stage) = &cmp.value else {
         panic!("expected enum literal");
     };
     assert_eq!(stage.path.as_deref(), Some("intent_tests::Stage"));
@@ -539,10 +547,10 @@ fn direct_stage_filter_resolves_loose_enum_path() {
         .filter(predicate)
         .build_plan_model()
         .expect("direct filter should build");
-    let Some(Predicate::Compare(cmp)) = plan.predicate else {
+    let Some(Predicate::Compare(cmp)) = plan.predicate.as_ref() else {
         panic!("expected compare predicate");
     };
-    let Value::Enum(stage) = cmp.value else {
+    let Value::Enum(stage) = &cmp.value else {
         panic!("expected enum literal");
     };
     assert_eq!(stage.path.as_deref(), Some("intent_tests::Stage"));

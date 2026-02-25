@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
-    let mut plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let mut plan =
+        AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     plan.mode = QueryMode::Delete(DeleteSpec::new());
 
     let route_plan =
@@ -11,6 +12,9 @@ fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
 
     assert_eq!(route_plan.execution_mode, ExecutionMode::Materialized);
     assert_eq!(route_plan.fast_path_order(), &MUTATION_FAST_PATH_ORDER);
+    assert_eq!(route_plan.direction(), Direction::Asc);
+    assert_eq!(route_plan.continuation_mode(), ContinuationMode::Initial);
+    assert_eq!(route_plan.window().effective_offset, 0);
     assert!(
         route_plan.scan_hints.physical_fetch_hint.is_none(),
         "mutation route should not emit physical fetch hints"
@@ -23,7 +27,7 @@ fn route_plan_mutation_is_materialized_with_no_fast_paths_or_hints() {
 
 #[test]
 fn route_plan_mutation_rejects_non_delete_mode() {
-    let plan = LogicalPlan::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
+    let plan = AccessPlannedQuery::new(AccessPath::<Ulid>::FullScan, ReadConsistency::MissingOk);
     let result = LoadExecutor::<RouteMatrixEntity>::build_execution_route_plan_for_mutation(&plan);
     let Err(err) = result else {
         panic!("mutation route must reject non-delete plans")

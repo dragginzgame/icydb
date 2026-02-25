@@ -20,26 +20,28 @@ fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
     let id5 = Ulid::from_u128(39_205);
 
     let build_plan = |distinct: bool, limit: u32| {
-        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("rank".to_string(), OrderDirection::Desc),
+                        ("id".to_string(), OrderDirection::Asc),
+                    ],
+                }),
+                distinct,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(limit),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            },
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id5])),
             ]),
-            predicate: None,
-            order: Some(OrderSpec {
-                fields: vec![
-                    ("rank".to_string(), OrderDirection::Desc),
-                    ("id".to_string(), OrderDirection::Asc),
-                ],
-            }),
-            distinct,
-            delete_limit: None,
-            page: Some(PageSpec {
-                limit: Some(limit),
-                offset: 0,
-            }),
-            consistency: ReadConsistency::MissingOk,
         })
     };
 
@@ -100,24 +102,26 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
 
         for limit in [1_u32, 2, 3] {
             let build_plan = || {
-                ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
-                    mode: QueryMode::Load(LoadSpec::new()),
+                ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
+                    logical: LogicalPlan {
+                        mode: QueryMode::Load(LoadSpec::new()),
+                        predicate: None,
+                        order: Some(OrderSpec {
+                            fields: vec![("id".to_string(), order_direction)],
+                        }),
+                        distinct: true,
+                        delete_limit: None,
+                        page: Some(PageSpec {
+                            limit: Some(limit),
+                            offset: 0,
+                        }),
+                        consistency: ReadConsistency::MissingOk,
+                    },
                     access: AccessPlan::Union(vec![
                         AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5])),
                         AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6, id7])),
                         AccessPlan::path(AccessPath::ByKeys(vec![id5, id6, id7, id8, id9])),
                     ]),
-                    predicate: None,
-                    order: Some(OrderSpec {
-                        fields: vec![("id".to_string(), order_direction)],
-                    }),
-                    distinct: true,
-                    delete_limit: None,
-                    page: Some(PageSpec {
-                        limit: Some(limit),
-                        offset: 0,
-                    }),
-                    consistency: ReadConsistency::MissingOk,
                 })
             };
 
@@ -343,14 +347,46 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
         // Phase 2: verify this DISTINCT DESC shape stays on index-range limit pushdown.
         let (_seed_page, seed_trace) = load
             .execute_paged_with_cursor_traced(
-                ExecutablePlan::<IndexedMetricsEntity>::new(LogicalPlan {
+                ExecutablePlan::<IndexedMetricsEntity>::new(AccessPlannedQuery {
+                    logical: LogicalPlan {
+                        mode: QueryMode::Load(LoadSpec::new()),
+                        predicate: None,
+                        order: Some(OrderSpec {
+                            fields: vec![
+                                ("tag".to_string(), OrderDirection::Desc),
+                                ("id".to_string(), OrderDirection::Desc),
+                            ],
+                        }),
+                        distinct: true,
+                        delete_limit: None,
+                        page: Some(PageSpec {
+                            limit: Some(limit),
+                            offset: 0,
+                        }),
+                        consistency: ReadConsistency::MissingOk,
+                    },
+                    access: AccessPlan::path(AccessPath::index_range(
+                        INDEXED_METRICS_INDEX_MODELS[0],
+                        Vec::new(),
+                        Bound::Included(Value::Uint(10)),
+                        Bound::Excluded(Value::Uint(30)),
+                    )),
+                }),
+                None,
+            )
+            .expect("distinct DESC index-range seed page should execute");
+        let seed_trace = seed_trace.expect("debug trace should be present");
+        assert_eq!(
+            seed_trace.optimization,
+            Some(ExecutionOptimization::IndexRangeLimitPushdown),
+            "distinct DESC index-range seed execution should use limit pushdown for limit={limit}",
+        );
+
+        // Phase 3: verify paged traversal and boundary-complete resume suffixes.
+        let build_fast_plan = || {
+            ExecutablePlan::<IndexedMetricsEntity>::new(AccessPlannedQuery {
+                logical: LogicalPlan {
                     mode: QueryMode::Load(LoadSpec::new()),
-                    access: AccessPlan::path(AccessPath::IndexRange {
-                        index: INDEXED_METRICS_INDEX_MODELS[0],
-                        prefix: Vec::new(),
-                        lower: Bound::Included(Value::Uint(10)),
-                        upper: Bound::Excluded(Value::Uint(30)),
-                    }),
                     predicate: None,
                     order: Some(OrderSpec {
                         fields: vec![
@@ -365,41 +401,13 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
                         offset: 0,
                     }),
                     consistency: ReadConsistency::MissingOk,
-                }),
-                None,
-            )
-            .expect("distinct DESC index-range seed page should execute");
-        let seed_trace = seed_trace.expect("debug trace should be present");
-        assert_eq!(
-            seed_trace.optimization,
-            Some(ExecutionOptimization::IndexRangeLimitPushdown),
-            "distinct DESC index-range seed execution should use limit pushdown for limit={limit}",
-        );
-
-        // Phase 3: verify paged traversal and boundary-complete resume suffixes.
-        let build_fast_plan = || {
-            ExecutablePlan::<IndexedMetricsEntity>::new(LogicalPlan {
-                mode: QueryMode::Load(LoadSpec::new()),
-                access: AccessPlan::path(AccessPath::IndexRange {
-                    index: INDEXED_METRICS_INDEX_MODELS[0],
-                    prefix: Vec::new(),
-                    lower: Bound::Included(Value::Uint(10)),
-                    upper: Bound::Excluded(Value::Uint(30)),
-                }),
-                predicate: None,
-                order: Some(OrderSpec {
-                    fields: vec![
-                        ("tag".to_string(), OrderDirection::Desc),
-                        ("id".to_string(), OrderDirection::Desc),
-                    ],
-                }),
-                distinct: true,
-                delete_limit: None,
-                page: Some(PageSpec {
-                    limit: Some(limit),
-                    offset: 0,
-                }),
-                consistency: ReadConsistency::MissingOk,
+                },
+                access: AccessPlan::path(AccessPath::index_range(
+                    INDEXED_METRICS_INDEX_MODELS[0],
+                    Vec::new(),
+                    Bound::Included(Value::Uint(10)),
+                    Bound::Excluded(Value::Uint(30)),
+                )),
             })
         };
         let (fast_ids, fast_boundaries) =
@@ -656,28 +664,30 @@ fn load_distinct_offset_fast_path_and_fallback_match_ids_and_boundaries() {
         // ------------------------------------------------------------------
 
         let build_index_range_fast = || {
-            ExecutablePlan::<IndexedMetricsEntity>::new(LogicalPlan {
-                mode: QueryMode::Load(LoadSpec::new()),
-                access: AccessPlan::path(AccessPath::IndexRange {
-                    index: INDEXED_METRICS_INDEX_MODELS[0],
-                    prefix: Vec::new(),
-                    lower: Bound::Included(Value::Uint(10)),
-                    upper: Bound::Excluded(Value::Uint(30)),
-                }),
-                predicate: None,
-                order: Some(OrderSpec {
-                    fields: vec![
-                        ("tag".to_string(), direction),
-                        ("id".to_string(), direction),
-                    ],
-                }),
-                distinct: true,
-                delete_limit: None,
-                page: Some(PageSpec {
-                    limit: Some(2),
-                    offset: 1,
-                }),
-                consistency: ReadConsistency::MissingOk,
+            ExecutablePlan::<IndexedMetricsEntity>::new(AccessPlannedQuery {
+                logical: LogicalPlan {
+                    mode: QueryMode::Load(LoadSpec::new()),
+                    predicate: None,
+                    order: Some(OrderSpec {
+                        fields: vec![
+                            ("tag".to_string(), direction),
+                            ("id".to_string(), direction),
+                        ],
+                    }),
+                    distinct: true,
+                    delete_limit: None,
+                    page: Some(PageSpec {
+                        limit: Some(2),
+                        offset: 1,
+                    }),
+                    consistency: ReadConsistency::MissingOk,
+                },
+                access: AccessPlan::path(AccessPath::index_range(
+                    INDEXED_METRICS_INDEX_MODELS[0],
+                    Vec::new(),
+                    Bound::Included(Value::Uint(10)),
+                    Bound::Excluded(Value::Uint(30)),
+                )),
             })
         };
 

@@ -19,23 +19,25 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
     let id5 = Ulid::from_u128(37_205);
     let id6 = Ulid::from_u128(37_206);
 
-    let logical = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let logical = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 1,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        },
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(2),
-            offset: 1,
-        }),
-        consistency: ReadConsistency::MissingOk,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
 
@@ -75,23 +77,25 @@ fn load_composite_pk_budget_disabled_when_cursor_boundary_present() {
     let id5 = Ulid::from_u128(37_305);
     let id6 = Ulid::from_u128(37_306);
 
-    let logical = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let logical = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 0,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        },
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(2),
-            offset: 0,
-        }),
-        consistency: ReadConsistency::MissingOk,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
     let cursor = CursorBoundary {
@@ -131,26 +135,28 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
     let id5 = Ulid::from_u128(37_405);
     let id6 = Ulid::from_u128(37_406);
 
-    let logical = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let logical = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![
+                    ("rank".to_string(), OrderDirection::Asc),
+                    ("id".to_string(), OrderDirection::Asc),
+                ],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 1,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        },
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![
-                ("rank".to_string(), OrderDirection::Asc),
-                ("id".to_string(), OrderDirection::Asc),
-            ],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(2),
-            offset: 1,
-        }),
-        consistency: ReadConsistency::MissingOk,
     };
     let plan = ExecutablePlan::<PushdownParityEntity>::new(logical);
 
@@ -185,27 +191,29 @@ fn load_composite_budget_disabled_for_offset_with_residual_filter() {
     let id5 = Ulid::from_u128(37_505);
     let id6 = Ulid::from_u128(37_506);
 
-    let logical = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let logical = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: Some(strict_compare_predicate(
+                "id",
+                CompareOp::Gte,
+                Value::Ulid(id2),
+            )),
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 1,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        },
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
-        predicate: Some(strict_compare_predicate(
-            "id",
-            CompareOp::Gte,
-            Value::Ulid(id2),
-        )),
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(2),
-            offset: 1,
-        }),
-        consistency: ReadConsistency::MissingOk,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
 
@@ -249,23 +257,25 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_desc_shape() {
     let id5 = Ulid::from_u128(37_605);
     let id6 = Ulid::from_u128(37_606);
 
-    let logical = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let logical = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Desc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 1,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        },
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Desc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(2),
-            offset: 1,
-        }),
-        consistency: ReadConsistency::MissingOk,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
 
@@ -316,8 +326,21 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
     let id7 = Ulid::from_u128(37_707);
     let id8 = Ulid::from_u128(37_708);
 
-    let logical = LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let logical = AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 1,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        },
         access: AccessPlan::Union(vec![
             AccessPlan::Intersection(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4, id5])),
@@ -328,17 +351,6 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
                 AccessPlan::path(AccessPath::ByKeys(vec![id7, id8])),
             ]),
         ]),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(2),
-            offset: 1,
-        }),
-        consistency: ReadConsistency::MissingOk,
     };
     let plan = ExecutablePlan::<SimpleEntity>::new(logical);
 
@@ -378,44 +390,48 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
     let id5 = Ulid::from_u128(37_805);
     let id6 = Ulid::from_u128(37_806);
 
-    let budgeted_plan = ExecutablePlan::<SimpleEntity>::new(LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let budgeted_plan = ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 1,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        },
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
-        predicate: None,
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(2),
-            offset: 1,
-        }),
-        consistency: ReadConsistency::MissingOk,
     });
-    let fallback_plan = ExecutablePlan::<SimpleEntity>::new(LogicalPlan {
-        mode: QueryMode::Load(LoadSpec::new()),
+    let fallback_plan = ExecutablePlan::<SimpleEntity>::new(AccessPlannedQuery {
+        logical: LogicalPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            predicate: Some(Predicate::And(vec![
+                strict_compare_predicate("id", CompareOp::Gte, Value::Ulid(id1)),
+                strict_compare_predicate("id", CompareOp::Lte, Value::Ulid(id6)),
+            ])),
+            order: Some(OrderSpec {
+                fields: vec![("id".to_string(), OrderDirection::Asc)],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: Some(PageSpec {
+                limit: Some(2),
+                offset: 1,
+            }),
+            consistency: ReadConsistency::MissingOk,
+        },
         access: AccessPlan::Union(vec![
             AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id3, id4])),
             AccessPlan::path(AccessPath::ByKeys(vec![id3, id4, id5, id6])),
         ]),
-        predicate: Some(Predicate::And(vec![
-            strict_compare_predicate("id", CompareOp::Gte, Value::Ulid(id1)),
-            strict_compare_predicate("id", CompareOp::Lte, Value::Ulid(id6)),
-        ])),
-        order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
-        }),
-        distinct: false,
-        delete_limit: None,
-        page: Some(PageSpec {
-            limit: Some(2),
-            offset: 1,
-        }),
-        consistency: ReadConsistency::MissingOk,
     });
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, true);
@@ -477,26 +493,28 @@ fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination(
     let id5 = Ulid::from_u128(39_005);
 
     let build_plan = || {
-        ExecutablePlan::<PushdownParityEntity>::new(LogicalPlan {
-            mode: QueryMode::Load(LoadSpec::new()),
+        ExecutablePlan::<PushdownParityEntity>::new(AccessPlannedQuery {
+            logical: LogicalPlan {
+                mode: QueryMode::Load(LoadSpec::new()),
+                predicate: None,
+                order: Some(OrderSpec {
+                    fields: vec![
+                        ("rank".to_string(), OrderDirection::Desc),
+                        ("id".to_string(), OrderDirection::Asc),
+                    ],
+                }),
+                distinct: false,
+                delete_limit: None,
+                page: Some(PageSpec {
+                    limit: Some(2),
+                    offset: 0,
+                }),
+                consistency: ReadConsistency::MissingOk,
+            },
             access: AccessPlan::Union(vec![
                 AccessPlan::path(AccessPath::ByKeys(vec![id1, id2, id4])),
                 AccessPlan::path(AccessPath::ByKeys(vec![id2, id3, id5])),
             ]),
-            predicate: None,
-            order: Some(OrderSpec {
-                fields: vec![
-                    ("rank".to_string(), OrderDirection::Desc),
-                    ("id".to_string(), OrderDirection::Asc),
-                ],
-            }),
-            distinct: false,
-            delete_limit: None,
-            page: Some(PageSpec {
-                limit: Some(2),
-                offset: 0,
-            }),
-            consistency: ReadConsistency::MissingOk,
         })
     };
 

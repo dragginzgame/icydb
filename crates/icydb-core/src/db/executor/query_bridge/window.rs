@@ -1,4 +1,4 @@
-use crate::db::query::plan::compute_page_window;
+use crate::db::query::plan::cursor::compute_page_window;
 
 /// Apply offset/limit pagination to an in-memory vector, in-place.
 ///

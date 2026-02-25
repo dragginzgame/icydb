@@ -13,15 +13,16 @@ use crate::{
             explain::ExplainPlan,
             expr::{FilterExpr, SortExpr, SortLowerError},
             plan::{
-                DeleteLimitSpec, ExecutablePlan, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
-                PlanError,
+                AccessPlannedQuery, DeleteLimitSpec, LogicalPlan, OrderDirection, OrderSpec,
+                PageSpec, PlanError,
+                lowering::ExecutablePlan,
                 planner::{PlannerError, plan_access},
                 validate::validate_logical_plan_model,
             },
             policy,
             predicate::{
-                Predicate, PredicateFieldSlots, SchemaInfo, ValidateError, normalize,
-                normalize_enum_literals, validate::reject_unsupported_query_features,
+                Predicate, SchemaInfo, ValidateError, normalize, normalize_enum_literals,
+                validate::reject_unsupported_query_features,
             },
         },
         response::ResponseError,
@@ -295,7 +296,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     }
 
     /// Build a model-level logical plan using Value-based access keys.
-    fn build_plan_model(&self) -> Result<LogicalPlan<Value>, QueryError> {
+    fn build_plan_model(&self) -> Result<AccessPlannedQuery<Value>, QueryError> {
         // Phase 1: schema surface and intent validation.
         let schema_info = SchemaInfo::from_entity_model(self.model)?;
         self.validate_intent()?;
@@ -316,9 +317,8 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         };
 
         // Phase 3: assemble the executor-ready plan.
-        let plan = LogicalPlan {
+        let logical = LogicalPlan {
             mode: self.mode,
-            access: access_plan_value,
             predicate: normalized_predicate,
             // Canonicalize ORDER BY to include an explicit primary-key tie-break.
             // This ensures explain/fingerprint/execution share one deterministic order shape.
@@ -343,6 +343,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             },
             consistency: self.consistency,
         };
+        let plan = AccessPlannedQuery::from_parts(logical, access_plan_value);
 
         validate_logical_plan_model(&schema_info, self.model, &plan)?;
 
@@ -523,42 +524,16 @@ impl<E: EntityKind> Query<E> {
     /// Plan this intent into an executor-ready plan.
     pub fn plan(&self) -> Result<ExecutablePlan<E>, QueryError> {
         let plan = self.build_plan()?;
-        let predicate_slots = plan
-            .predicate
-            .as_ref()
-            .map(PredicateFieldSlots::resolve::<E>);
 
-        Ok(ExecutablePlan::new_with_compiled_predicate_slots(
-            plan,
-            predicate_slots,
-        ))
+        Ok(ExecutablePlan::new(plan))
     }
 
     // Build a logical plan for the current intent.
-    fn build_plan(&self) -> Result<LogicalPlan<E::Key>, QueryError> {
+    fn build_plan(&self) -> Result<AccessPlannedQuery<E::Key>, QueryError> {
         let plan_value = self.intent.build_plan_model()?;
-        let LogicalPlan {
-            mode,
-            access,
-            predicate,
-            order,
-            distinct,
-            delete_limit,
-            page,
-            consistency,
-        } = plan_value;
-
+        let (logical, access) = plan_value.into_parts();
         let access = access_plan_to_entity_keys::<E>(E::MODEL, access)?;
-        let plan = LogicalPlan {
-            mode,
-            access,
-            predicate,
-            order,
-            distinct,
-            delete_limit,
-            page,
-            consistency,
-        };
+        let plan = AccessPlannedQuery::from_parts(logical, access);
 
         Ok(plan)
     }

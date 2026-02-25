@@ -21,16 +21,18 @@ use crate::{
                 AggregateFieldValueError, FieldSlot, resolve_any_aggregate_target_slot,
                 resolve_numeric_aggregate_target_slot, resolve_orderable_aggregate_target_slot,
             },
+            compile_predicate_slots,
             plan::{record_plan_metrics, record_rows_scanned},
-            route::ExecutionRoutePlan,
+            route::{ExecutionRoutePlan, RouteOrderSlotPolicy, derive_scan_direction},
         },
         query::policy,
         query::{
             contracts::cursor::{ContinuationToken, CursorBoundary},
             cursor::continuation::decode_pk_cursor_boundary,
             plan::{
-                AccessPlan, Direction, ExecutablePlan, LogicalPlan, OrderDirection, PlannedCursor,
-                SlotSelectionPolicy, compute_page_window, derive_scan_direction,
+                AccessPlan, AccessPlannedQuery, Direction, OrderDirection,
+                cursor::{PlannedCursor, compute_page_window},
+                lowering::ExecutablePlan,
                 validate::validate_executor_plan,
             },
         },
@@ -141,11 +143,11 @@ impl ExecutionTrace {
 }
 
 fn key_stream_comparator_from_plan<K>(
-    plan: &LogicalPlan<K>,
+    plan: &AccessPlannedQuery<K>,
     fallback_direction: Direction,
 ) -> KeyOrderComparator {
     let derived_direction = plan.order.as_ref().map_or(fallback_direction, |order| {
-        derive_scan_direction(order, SlotSelectionPolicy::Last)
+        derive_scan_direction(order, RouteOrderSlotPolicy::Last)
     });
 
     // Comparator and child-stream monotonicity must stay aligned until access-path
@@ -254,15 +256,31 @@ where
             "load executor received a plan shape that bypassed planning validation",
         );
 
-        let direction = plan.direction();
         let continuation_signature = plan.continuation_signature();
         let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
         let index_range_specs = plan.index_range_specs()?.to_vec();
-        let continuation_applied = cursor_boundary.is_some() || index_range_anchor.is_some();
+        let route_plan = Self::build_execution_route_plan_for_load(
+            plan.as_inner(),
+            cursor_boundary.as_ref(),
+            index_range_anchor.as_ref(),
+            None,
+        )?;
+        let continuation_applied = !matches!(
+            route_plan.continuation_mode(),
+            crate::db::executor::route::ContinuationMode::Initial
+        );
+        let direction = route_plan.direction();
+        debug_assert_eq!(
+            route_plan.window().effective_offset,
+            plan.as_inner()
+                .effective_page_offset(cursor_boundary.as_ref()),
+            "route window effective offset must match logical plan offset semantics",
+        );
         let mut execution_trace = self
             .debug
             .then(|| ExecutionTrace::new(plan.access(), direction, continuation_applied));
-        let (plan, predicate_slots) = plan.into_parts();
+        let plan = plan.into_inner();
+        let predicate_slots = compile_predicate_slots::<E>(&plan);
 
         let result = (|| {
             let mut span = Span::<E>::new(ExecKind::Load);
@@ -283,14 +301,6 @@ where
 
             record_plan_metrics(&plan.access);
             // Plan execution routing once, then execute in canonical order.
-            let route_plan = Self::build_execution_route_plan_for_load(
-                &plan,
-                cursor_boundary.as_ref(),
-                index_range_anchor.as_ref(),
-                None,
-                direction,
-            )?;
-
             // Resolve one canonical key stream, then run shared page materialization/finalization.
             let mut resolved = Self::resolve_execution_key_stream(
                 &execution_inputs,
@@ -384,7 +394,7 @@ where
     // Retry index-range limit pushdown when a bounded residual-filter pass may
     // have under-filled the requested page window.
     fn index_range_limited_residual_retry_required(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
         route_plan: &ExecutionRoutePlan,
         rows_scanned: usize,
@@ -445,7 +455,7 @@ where
 
     // Preserve PK fast-path cursor-boundary error classification at the executor boundary.
     pub(in crate::db::executor) fn validate_pk_fast_path_boundary_if_applicable(
-        plan: &LogicalPlan<E::Key>,
+        plan: &AccessPlannedQuery<E::Key>,
         cursor_boundary: Option<&CursorBoundary>,
     ) -> Result<(), InternalError> {
         if !Self::pk_order_stream_fast_path_shape_supported(plan) {

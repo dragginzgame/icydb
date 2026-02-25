@@ -8,8 +8,9 @@ use crate::{
             explain::{ExplainAccessPath, ExplainOrderPushdown},
             intent::{LoadSpec, QueryMode},
             plan::{
-                AccessPath, AccessPlan, ExecutablePlan, LogicalPlan, OrderDirection, OrderSpec,
-                PageSpec, PlanError, validate::SecondaryOrderPushdownRejection,
+                AccessPath, AccessPlan, AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec,
+                PageSpec, PlanError, lowering::ExecutablePlan,
+                validate::SecondaryOrderPushdownRejection,
             },
         },
     },
